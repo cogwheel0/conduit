@@ -13,6 +13,7 @@ import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/file_info.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
@@ -40,6 +41,7 @@ import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
+import '../services/file_attachment_service.dart';
 import '../services/reviewer_mode_service.dart';
 
 part 'chat_capability_providers.dart';
@@ -4207,6 +4209,7 @@ Future<void> durableSend(
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];
   final toolIdList = toolIds ?? const <String>[];
+  final durableFiles = await _resolveDurableFilesFor(ref, attachmentList);
 
   final completion = RequestCompletionPayload(
     assistantMessageId: assistantMessageId,
@@ -4232,7 +4235,7 @@ Future<void> durableSend(
       asstId: assistantMessageId,
       parentId: parentId,
       text: message,
-      attachments: attachmentList,
+      files: durableFiles,
       modelId: selectedModel.id,
       now: now,
     );
@@ -4286,7 +4289,7 @@ Future<void> durableSend(
         'childrenIds': <String>[assistantMessageId],
         'role': 'user',
         'content': message,
-        'files': _durableFilesFor(attachmentList),
+        'files': durableFiles,
         'models': <String>[selectedModel.id],
         'timestamp': now,
       },
@@ -4332,7 +4335,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required String asstId,
   required String? parentId,
   required String text,
-  required List<String> attachments,
+  required List<Map<String, dynamic>> files,
   required String modelId,
   required int now,
 }) {
@@ -4348,7 +4351,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           'childrenIds': <String>[asstId],
           'role': 'user',
           'content': text,
-          'files': _durableFilesFor(attachments),
+          'files': files,
           'models': <String>[modelId],
           'timestamp': now,
         },
@@ -4366,19 +4369,123 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   };
 }
 
-List<Map<String, dynamic>> _durableFilesFor(List<String> attachments) {
+typedef _AttachmentTypeMap = Map<String, String>;
+
+Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
+  dynamic ref,
+  List<String> attachments,
+) async {
+  if (attachments.isEmpty) return const [];
+
+  final contentTypes = _durableAttachmentContentTypesFromState(
+    ref,
+    attachments,
+  );
+  final missingIds = attachments
+      .where((id) => !id.startsWith('data:image/'))
+      .where((id) => (contentTypes[id] ?? '').isEmpty)
+      .toSet();
+
+  final api = ref.read(apiServiceProvider);
+  if (api != null && missingIds.isNotEmpty) {
+    final fetchedTypes = await Future.wait(
+      missingIds.map((id) async {
+        try {
+          final raw = await api.getFileInfo(id);
+          if (raw is! Map) return null;
+          final contentType = _contentTypeFromFileInfo(raw);
+          if (contentType.isEmpty) return null;
+          return MapEntry(id, contentType);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    for (final entry in fetchedTypes) {
+      if (entry != null) contentTypes[entry.key] = entry.value;
+    }
+  }
+
+  return _durableFilesFor(attachments, contentTypes: contentTypes);
+}
+
+_AttachmentTypeMap _durableAttachmentContentTypesFromState(
+  dynamic ref,
+  List<String> attachments,
+) {
+  final ids = attachments.where((id) => !id.startsWith('data:image/')).toSet();
+  if (ids.isEmpty) return <String, String>{};
+
+  final contentTypes = <String, String>{};
+
+  try {
+    for (final file in ref.read(attachedFilesProvider)) {
+      final fileId = file.fileId;
+      if (fileId == null || !ids.contains(fileId) || file.isImage != true) {
+        continue;
+      }
+      contentTypes[fileId] = _getMimeTypeFromFileName(file.fileName);
+    }
+  } catch (_) {}
+
+  try {
+    final cachedFiles = ref.read(userFilesProvider).asData?.value;
+    if (cachedFiles != null) {
+      for (final FileInfo file in cachedFiles) {
+        final contentType = file.mimeType.trim();
+        if (ids.contains(file.id) && contentType.isNotEmpty) {
+          contentTypes[file.id] = contentType;
+        }
+      }
+    }
+  } catch (_) {}
+
+  return contentTypes;
+}
+
+String _contentTypeFromFileInfo(Map<dynamic, dynamic> fileInfo) {
+  final meta = fileInfo['meta'] ?? fileInfo['metadata'];
+  Object? contentType;
+  if (meta is Map) {
+    contentType = meta['content_type'] ?? meta['mimeType'] ?? meta['mime_type'];
+  }
+  contentType ??=
+      fileInfo['content_type'] ?? fileInfo['mimeType'] ?? fileInfo['mime_type'];
+  return contentType?.toString().trim() ?? '';
+}
+
+List<Map<String, dynamic>> _durableFilesFor(
+  List<String> attachments, {
+  _AttachmentTypeMap contentTypes = const {},
+}) {
   return [
     for (final id in attachments)
       if (id.startsWith('data:image/'))
         <String, dynamic>{'type': 'image', 'url': id}
       else
-        <String, dynamic>{'type': 'file', 'id': id, 'url': id},
+        _durableFileFor(id, contentType: contentTypes[id]),
   ];
 }
 
+Map<String, dynamic> _durableFileFor(String id, {String? contentType}) {
+  final normalizedContentType = contentType?.trim() ?? '';
+  final file = <String, dynamic>{
+    'type': normalizedContentType.startsWith('image/') ? 'image' : 'file',
+    'id': id,
+    'url': id,
+  };
+  if (normalizedContentType.isNotEmpty) {
+    file['content_type'] = normalizedContentType;
+  }
+  return file;
+}
+
 @visibleForTesting
-List<Map<String, dynamic>> buildDurableFilesForTest(List<String> attachments) {
-  return _durableFilesFor(attachments);
+List<Map<String, dynamic>> buildDurableFilesForTest(
+  List<String> attachments, {
+  Map<String, String> contentTypes = const {},
+}) {
+  return _durableFilesFor(attachments, contentTypes: contentTypes);
 }
 
 String _titleFromText(String text) {

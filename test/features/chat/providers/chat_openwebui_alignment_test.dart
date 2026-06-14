@@ -90,6 +90,31 @@ void main() {
       ]);
     });
 
+    test('durable attachments classify uploaded image ids by content type', () {
+      final files = buildDurableFilesForTest(
+        const ['image-file', 'document-file'],
+        contentTypes: const {
+          'image-file': 'image/png',
+          'document-file': 'application/pdf',
+        },
+      );
+
+      check(files).deepEquals(const [
+        {
+          'type': 'image',
+          'id': 'image-file',
+          'url': 'image-file',
+          'content_type': 'image/png',
+        },
+        {
+          'type': 'file',
+          'id': 'document-file',
+          'url': 'document-file',
+          'content_type': 'application/pdf',
+        },
+      ]);
+    });
+
     test('headless landing detects structured non-text assistant output', () {
       final now = DateTime.utc(2026, 1, 1);
 
