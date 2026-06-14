@@ -45,9 +45,9 @@ class _AllMalformedFirstPageNoteClient extends FakeSyncApiClient {
 
   @override
   Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
-    noteListRequests++;
-    noteListPages.add(page);
     if (page == 1) {
+      noteListRequests++;
+      noteListPages.add(page);
       return (
         [
           for (var i = 0; i < FakeOpenWebUiServer.notePageSize; i++)
@@ -190,16 +190,30 @@ void main() {
     },
   );
 
-  test('all-skip full note list page stops pagination', () async {
+  test('all-skip full note list page does not stop pagination', () async {
     client = _AllMalformedFirstPageNoteClient(server);
+    for (var i = 0; i < FakeOpenWebUiServer.notePageSize + 1; i++) {
+      server.seedNote(
+        id: 'n-${i.toString().padLeft(2, '0')}',
+        title: 'Note $i',
+        data: {
+          'content': {'md': 'body $i'},
+        },
+        createdAt: kT1 + i,
+        updatedAt: kT1 + i,
+      );
+    }
 
     final result = await pull();
 
     check(result.success).isTrue();
-    check(result.changed).equals(0);
-    check(client.noteListPages).deepEquals([1]);
-    check(client.noteFetchStarts).isEmpty();
-    check(await allNotes()).isEmpty();
+    check(result.changed).equals(1);
+    check(client.noteListPages).deepEquals([1, 2]);
+    check(client.noteFetchStarts).deepEquals(['n-00']);
+    final notes = await allNotes();
+    check(notes).length.equals(1);
+    check(notes.single.id).equals('n-00');
+    check(await db.syncMetaDao.getNotesPullWatermark()).equals(kT1);
   });
 
   test(
