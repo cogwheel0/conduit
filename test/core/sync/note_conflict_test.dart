@@ -13,14 +13,15 @@ NoteMergeLocal local({
   bool dirtyTitle = false,
   bool dirtyData = false,
   bool dirtyPinned = false,
-}) =>
-    NoteMergeLocal(
-      serverUpdatedAt: base,
-      deleted: deleted,
-      dirtyTitle: dirtyTitle,
-      dirtyData: dirtyData,
-      dirtyPinned: dirtyPinned,
-    );
+  bool isConflictCopy = false,
+}) => NoteMergeLocal(
+  serverUpdatedAt: base,
+  deleted: deleted,
+  dirtyTitle: dirtyTitle,
+  dirtyData: dirtyData,
+  dirtyPinned: dirtyPinned,
+  isConflictCopy: isConflictCopy,
+);
 
 void main() {
   group('resolveNoteMerge (D-11 field-LWW + conflict copy)', () {
@@ -35,16 +36,18 @@ void main() {
       }
     });
 
-    test('dirty tombstone is skipped (pending delete wins, never resurrects)',
-        () {
-      final d = resolveNoteMerge(
-        serverUpdatedAt: 999,
-        local: local(deleted: true, dirtyData: true),
-      );
-      check(d.kind).equals(NoteMergeKind.skipDirtyTombstone);
-      check(d.spawnConflictCopy).isFalse();
-      check(d.takeServerData).isFalse();
-    });
+    test(
+      'dirty tombstone is skipped (pending delete wins, never resurrects)',
+      () {
+        final d = resolveNoteMerge(
+          serverUpdatedAt: 999,
+          local: local(deleted: true, dirtyData: true),
+        );
+        check(d.kind).equals(NoteMergeKind.skipDirtyTombstone);
+        check(d.spawnConflictCopy).isFalse();
+        check(d.takeServerData).isFalse();
+      },
+    );
 
     test('overlap window (server.updatedAt <= base) is a no-op', () {
       final d = resolveNoteMerge(
@@ -72,10 +75,7 @@ void main() {
     });
 
     test('field-LWW: data clean → take server data with no copy', () {
-      final d = resolveNoteMerge(
-        serverUpdatedAt: 200,
-        local: local(base: 100),
-      );
+      final d = resolveNoteMerge(serverUpdatedAt: 200, local: local(base: 100));
       check(d.takeServerData).isTrue();
       check(d.spawnConflictCopy).isFalse();
       check(d.canonicalDirtyData).isFalse();
@@ -94,30 +94,47 @@ void main() {
       check(d.advanceServerUpdatedAt).isTrue();
     });
 
-    test('NO INFINITE COPY CHAIN: after a conflict copy the canonical is clean '
-        'and base advanced, so the next identical pull makes no further copy',
-        () {
-      const serverTs = 200;
-      // Round 1: concurrent data edit → one copy.
-      final first = resolveNoteMerge(
-        serverUpdatedAt: serverTs,
-        local: local(base: 100, dirtyData: true),
-      );
-      check(first.spawnConflictCopy).isTrue();
+    test(
+      'NO INFINITE COPY CHAIN: after a conflict copy the canonical is clean '
+      'and base advanced, so the next identical pull makes no further copy',
+      () {
+        const serverTs = 200;
+        // Round 1: concurrent data edit → one copy.
+        final first = resolveNoteMerge(
+          serverUpdatedAt: serverTs,
+          local: local(base: 100, dirtyData: true),
+        );
+        check(first.spawnConflictCopy).isTrue();
 
-      // The canonical row now reflects first's outcome: data clean, base
-      // advanced to the server timestamp.
-      final canonicalAfter = local(
-        base: first.advanceServerUpdatedAt ? serverTs : 100,
-        dirtyData: first.canonicalDirtyData,
-        dirtyTitle: first.canonicalDirtyTitle,
-      );
+        // The canonical row now reflects first's outcome: data clean, base
+        // advanced to the server timestamp.
+        final canonicalAfter = local(
+          base: first.advanceServerUpdatedAt ? serverTs : 100,
+          dirtyData: first.canonicalDirtyData,
+          dirtyTitle: first.canonicalDirtyTitle,
+        );
 
-      // Round 2: the SAME server note pulled again — no new copy.
-      final second =
-          resolveNoteMerge(serverUpdatedAt: serverTs, local: canonicalAfter);
-      check(second.kind).equals(NoteMergeKind.noRemoteChange);
-      check(second.spawnConflictCopy).isFalse();
+        // Round 2: the SAME server note pulled again — no new copy.
+        final second = resolveNoteMerge(
+          serverUpdatedAt: serverTs,
+          local: canonicalAfter,
+        );
+        check(second.kind).equals(NoteMergeKind.noRemoteChange);
+        check(second.spawnConflictCopy).isFalse();
+      },
+    );
+
+    test('conflict-copy dirty data wins locally instead of forking again', () {
+      final d = resolveNoteMerge(
+        serverUpdatedAt: 200,
+        local: local(base: 100, dirtyData: true, isConflictCopy: true),
+      );
+      check(d.kind).equals(NoteMergeKind.fieldLww);
+      check(d.spawnConflictCopy).isFalse();
+      check(d.takeServerData).isFalse();
+      check(d.canonicalDirtyData).isTrue();
+      check(d.advanceServerUpdatedAt).isFalse();
+      check(d.mustPush).isTrue();
     });
 
     test('field-LWW independence: title-dirty and data-dirty resolve on their '

@@ -123,6 +123,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
                 dirtyTitle: existing.dirtyTitle,
                 dirtyData: existing.dirtyData,
                 dirtyPinned: existing.dirtyPinned,
+                isConflictCopy: existing.isConflictCopy,
               ),
       );
 
@@ -211,7 +212,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
         title: decision.takeServerTitle
             ? serverRow.title
             : Value(existing.title),
-        data: serverRow.data,
+        data: decision.takeServerData ? serverRow.data : Value(existing.data),
         meta: serverRow.meta,
         // Pin mirror is never touched by the title/data merge (WARNING A).
         updatedAt: Value(serverUpdatedAt),
@@ -316,10 +317,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   Future<void> tombstoneWithOutbox(String id) {
     return transaction(() async {
       await (update(notes)..where((t) => t.id.equals(id))).write(
-        const NotesCompanion(
-          deleted: Value(true),
-          dirtyData: Value(true),
-        ),
+        const NotesCompanion(deleted: Value(true), dirtyData: Value(true)),
       );
       await _outboxDao.enqueue(kind: OutboxKind.noteDelete, chatId: id);
     });
@@ -330,9 +328,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// Caller holds the note lock.
   Future<void> dropLocalNote(String localId) {
     return transaction(() async {
-      await (delete(_outboxDao.outboxOps)
-            ..where((t) => t.chatId.equals(localId)))
-          .go();
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(localId))).go();
       await (delete(notes)..where((t) => t.id.equals(localId))).go();
     });
   }
@@ -341,8 +339,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// row + drop every pending outbox op for it. Caller holds the note lock.
   Future<void> purgeReconciledNote(String id) {
     return transaction(() async {
-      await (delete(_outboxDao.outboxOps)..where((t) => t.chatId.equals(id)))
-          .go();
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(id))).go();
       await (delete(notes)..where((t) => t.id.equals(id))).go();
     });
   }
@@ -355,15 +354,14 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   // ---- helpers ----
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {
-    return selectOnly(notes)
-      ..addColumns([
-        notes.id,
-        notes.title,
-        notes.createdAt,
-        notes.updatedAt,
-        notes.isPinned,
-        notes.isConflictCopy,
-      ]);
+    return selectOnly(notes)..addColumns([
+      notes.id,
+      notes.title,
+      notes.createdAt,
+      notes.updatedAt,
+      notes.isPinned,
+      notes.isConflictCopy,
+    ]);
   }
 
   NoteListEntry _entryFromProjection(TypedResult row) {

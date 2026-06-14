@@ -148,12 +148,7 @@ void main() {
 
     test('tombstoned chats never surface', () async {
       await _insertChat(db, id: 'c1', title: 'visible widget');
-      await _insertChat(
-        db,
-        id: 'c2',
-        title: 'hidden widget',
-        deleted: true,
-      );
+      await _insertChat(db, id: 'c2', title: 'hidden widget', deleted: true);
       await _insertMessage(db, id: 'm2', chatId: 'c2', content: 'widget talk');
       final hits = await db.searchDao.search('widget');
       check(hits.map((h) => h.chatId).toList()).deepEquals(['c1']);
@@ -208,9 +203,9 @@ void main() {
       );
       check(await db.searchDao.search('ephemeral')).isNotEmpty();
 
-      await (db.delete(db.messages)
-            ..where((t) => t.chatId.equals('c1') & t.id.equals('m1')))
-          .go();
+      await (db.delete(
+        db.messages,
+      )..where((t) => t.chatId.equals('c1') & t.id.equals('m1'))).go();
       check(await db.searchDao.search('ephemeral')).isEmpty();
     });
 
@@ -236,8 +231,9 @@ void main() {
       await _insertChat(db, id: 'c1', title: 'firstname');
       check(await db.searchDao.search('firstname')).isNotEmpty();
 
-      await (db.update(db.chats)..where((t) => t.id.equals('c1')))
-          .write(const ChatsCompanion(title: Value('secondname')));
+      await (db.update(db.chats)..where((t) => t.id.equals('c1'))).write(
+        const ChatsCompanion(title: Value('secondname')),
+      );
 
       check(await db.searchDao.search('firstname')).isEmpty();
       check(await db.searchDao.search('secondname')).isNotEmpty();
@@ -293,6 +289,31 @@ void main() {
       check(await db.searchDao.search('chat')).isNotEmpty();
       check(await db.searchDao.searchNotes('note')).isEmpty();
     });
+
+    test('chat delete preserves note FTS rows for a colliding id', () async {
+      const id = 'same-uuid';
+      await _insertChat(db, id: id, title: 'collision chat title');
+      await _insertMessage(
+        db,
+        id: 'm1',
+        chatId: id,
+        content: 'collision chat body',
+      );
+      await _insertNote(
+        db,
+        id: id,
+        title: 'collision note title',
+        body: 'collision note body',
+      );
+
+      check(await db.searchDao.search('chat')).isNotEmpty();
+      check(await db.searchDao.searchNotes('note')).isNotEmpty();
+
+      await db.chatsDao.hardDelete(id);
+
+      check(await db.searchDao.search('chat')).isEmpty();
+      check(await db.searchDao.searchNotes('note')).isNotEmpty();
+    });
   });
 
   group('population gate (§E)', () {
@@ -342,7 +363,9 @@ void main() {
     test('backfill excludes deleted chats but indexes their nothing', () async {
       final fresh = AppDatabase(NativeDatabase.memory());
       addTearDown(fresh.close);
-      await fresh.into(fresh.chats).insert(
+      await fresh
+          .into(fresh.chats)
+          .insert(
             ChatsCompanion.insert(
               id: 'c1',
               title: 'gone chat',
@@ -359,7 +382,8 @@ void main() {
 }
 
 Future<int> _ftsRowCount(AppDatabase db) async {
-  final row =
-      await db.customSelect('SELECT count(*) AS n FROM chat_fts').getSingle();
+  final row = await db
+      .customSelect('SELECT count(*) AS n FROM chat_fts')
+      .getSingle();
   return row.read<int>('n');
 }

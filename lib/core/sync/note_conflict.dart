@@ -10,10 +10,10 @@
 /// title" from "server edited data". The conservative rule:
 ///   * TITLE is a last-writer scalar — a locally-dirty title WINS (it will be
 ///     pushed; the server title is discarded), no conflict copy ever for title.
-///   * DATA: a remote bump (`server.updatedAt > base`) with a locally-dirty
-///     data axis is treated as a CONCURRENT DATA EDIT → conflict copy (keep
-///     both: server data on the canonical id, local data on a new `local:` note
-///     flagged `isConflictCopy`). NEVER silently drop the local data.
+///   * DATA: a remote bump (`server.updatedAt > base`) with locally-dirty data
+///     on a canonical note is treated as a CONCURRENT DATA EDIT → conflict copy
+///     (keep both). A conflict-copy note does not fork again; its local data
+///     remains dirty and wins on the next push.
 library;
 
 /// What [resolveNoteMerge] decided for the canonical row + whether a conflict
@@ -42,6 +42,7 @@ class NoteMergeLocal {
     required this.dirtyTitle,
     required this.dirtyData,
     required this.dirtyPinned,
+    this.isConflictCopy = false,
   });
 
   /// Merge base (nanoseconds); null = never synced.
@@ -50,6 +51,7 @@ class NoteMergeLocal {
   final bool dirtyTitle;
   final bool dirtyData;
   final bool dirtyPinned;
+  final bool isConflictCopy;
 }
 
 /// The resolved write plan for the CANONICAL row, plus the conflict-copy flag.
@@ -70,9 +72,9 @@ class NoteMergeDecision {
   /// Canonical row should adopt the server title (else keep local title).
   final bool takeServerTitle;
 
-  /// Canonical row should adopt the server data (else keep local data).
-  /// On a conflict copy this is TRUE: the server data lands on the canonical
-  /// id and the LOCAL data is preserved on the spawned copy.
+  /// Canonical row should adopt the server data (else keep local data). False
+  /// only when an existing conflict-copy note has dirty local data and should
+  /// not spawn another copy.
   final bool takeServerData;
 
   /// A new `local:` conflict-copy note carrying the LOCAL data must be inserted
@@ -83,9 +85,8 @@ class NoteMergeDecision {
   final bool canonicalDirtyTitle;
   final bool canonicalDirtyData;
 
-  /// Set the canonical row's `serverUpdatedAt = server.updatedAt`. False only
-  /// for the title-only-dirty branch, which KEEPS base unchanged (the push
-  /// advances it, mirroring the chat three-way base rule, chat_merger.dart:50).
+  /// Set the canonical row's `serverUpdatedAt = server.updatedAt`. False when
+  /// no server data was adopted; the next push advances the base.
   final bool advanceServerUpdatedAt;
 
   /// Any dirty axis remains set on the canonical row → an updateChat-equivalent
@@ -161,15 +162,17 @@ NoteMergeDecision resolveNoteMerge({
   // server.updatedAt > base: FIELD-LWW resolved INDEPENDENTLY.
   // TITLE: dirty-local wins (scalar replace, no conflict copy); else server.
   final takeServerTitle = !local.dirtyTitle;
-  // DATA: clean-local → take server. dirty-local + remote bump → CONFLICT COPY
-  // (server data on the canonical row; local data preserved on the copy).
-  final spawnConflictCopy = local.dirtyData;
-  final takeServerData = true; // canonical always adopts server data here.
+  // DATA: clean-local -> take server. dirty-local + remote bump normally
+  // spawns a conflict copy. A conflict copy is already the preserved fork, so
+  // do not fork again; keep its local data dirty and let push win.
+  final spawnConflictCopy = local.dirtyData && !local.isConflictCopy;
+  final takeServerData = !local.dirtyData || !local.isConflictCopy;
 
   // Canonical dirty after merge: data is now clean (server adopted or copied
-  // out). Title stays dirty iff the local title won (it still owes a push).
+  // out) except for conflict copies, where local data stays dirty and no second
+  // copy is spawned. Title stays dirty iff the local title won.
   final canonicalDirtyTitle = local.dirtyTitle;
-  const canonicalDirtyData = false;
+  final canonicalDirtyData = local.dirtyData && local.isConflictCopy;
 
   return NoteMergeDecision(
     kind: NoteMergeKind.fieldLww,
@@ -178,7 +181,7 @@ NoteMergeDecision resolveNoteMerge({
     spawnConflictCopy: spawnConflictCopy,
     canonicalDirtyTitle: canonicalDirtyTitle,
     canonicalDirtyData: canonicalDirtyData,
-    advanceServerUpdatedAt: true,
+    advanceServerUpdatedAt: takeServerData,
     mustPush: canonicalDirtyTitle || canonicalDirtyData || local.dirtyPinned,
   );
 }

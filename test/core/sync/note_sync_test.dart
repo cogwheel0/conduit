@@ -180,11 +180,17 @@ void main() {
   );
 
   test('field-LWW merge clears an abnormal clean tombstone', () async {
-    await db.into(db.notes).insert(
+    await db
+        .into(db.notes)
+        .insert(
           NotesCompanion.insert(
             id: 'n1',
             title: 'Hidden local',
-            data: Value(jsonEncode({'content': {'md': 'old'}})),
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'old'},
+              }),
+            ),
             createdAt: kT1,
             updatedAt: kT1,
             serverUpdatedAt: const Value(kT1),
@@ -196,7 +202,9 @@ void main() {
       serverRaw: <String, dynamic>{
         'id': 'n1',
         'title': 'Visible server',
-        'data': {'content': {'md': 'new'}},
+        'data': {
+          'content': {'md': 'new'},
+        },
         'meta': <String, dynamic>{},
         'is_pinned': false,
         'created_at': kT1,
@@ -209,6 +217,52 @@ void main() {
     check(row!.deleted).isFalse();
     check(row.title).equals('Visible server');
     check(row.data).contains('new');
+  });
+
+  test('field-LWW does not spawn another copy from a conflict copy', () async {
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: 'copy-1',
+            title: 'Copy',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'local copy edit'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+            serverUpdatedAt: const Value(kT1),
+            dirtyData: const Value(true),
+            isConflictCopy: const Value(true),
+            conflictOf: const Value('n1'),
+          ),
+        );
+
+    final result = await db.notesDao.mergeServerNote(
+      serverRaw: <String, dynamic>{
+        'id': 'copy-1',
+        'title': 'Copy server',
+        'data': {
+          'content': {'md': 'remote copy edit'},
+        },
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT2,
+      },
+    );
+
+    check(result.mustPush).isTrue();
+    final notes = await allNotes();
+    check(notes).length.equals(1);
+    final row = notes.single;
+    check(row.id).equals('copy-1');
+    check(row.isConflictCopy).isTrue();
+    check(row.dirtyData).isTrue();
+    check(row.serverUpdatedAt).equals(kT1);
+    check(row.data).contains('local copy edit');
   });
 
   test('pushNotePin PROBES live state and toggles only on a real delta '
@@ -265,11 +319,17 @@ void main() {
       remapper: remapper,
     );
     const localId = 'local:n-create';
-    await db.into(db.notes).insert(
+    await db
+        .into(db.notes)
+        .insert(
           NotesCompanion.insert(
             id: localId,
             title: 'Draft',
-            data: Value(jsonEncode({'content': {'md': 'body'}})),
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'body'},
+              }),
+            ),
             createdAt: kT1,
             updatedAt: kT1,
             dirtyTitle: const Value(true),

@@ -91,7 +91,8 @@ END;
   //    This is the complete purge that covers FK-cascaded message deletes.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_chat_ad AFTER DELETE ON chats BEGIN
-  DELETE FROM chat_fts WHERE chat_id = old.id;
+  DELETE FROM chat_fts
+  WHERE chat_id = old.id AND kind IN ('title', 'msg');
 END;
 ''',
 ];
