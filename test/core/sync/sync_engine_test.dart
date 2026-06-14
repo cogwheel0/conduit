@@ -287,6 +287,31 @@ void main() {
       check(await db.searchDao.search('hello')).isNotEmpty();
     });
 
+    test('FTS build retries after a post-full-pull failure', () async {
+      await db.close();
+      final failableDb = _FailableFtsDatabase(NativeDatabase.memory());
+      db = failableDb;
+
+      seedChat('chat-1', 100);
+      final container = makeContainer();
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final first = await engine.requestPull(reason: 'fts-build-fails');
+      check(first!.success).isTrue();
+      await failableDb.firstFailureObserved.future;
+      await Future<void>.delayed(Duration.zero);
+      check(failableDb.buildAttempts).equals(1);
+      check(await db.syncMetaDao.getValue(kFtsBuiltKey)).isNull();
+
+      seedChat('chat-2', 200);
+      final second = await engine.requestPull(reason: 'fts-build-retries');
+      check(second!.success).isTrue();
+      await failableDb.retrySucceeded.future;
+
+      check(failableDb.buildAttempts).equals(2);
+      check(await db.syncMetaDao.getValue(kFtsBuiltKey)).equals('1');
+    });
+
     test('task queue migration failure retries on the next cycle', () async {
       seedChat('chat-1', 100);
       var migrationBuildAttempts = 0;
