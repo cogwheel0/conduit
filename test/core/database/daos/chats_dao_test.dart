@@ -424,6 +424,7 @@ void main() {
       await db.chatsDao.updateEnvelopeWithOutbox(
         'dirty-title',
         title: const Value('Local rename'),
+        updatedAt: const Value(10),
         enqueue: true,
       );
 
@@ -438,7 +439,7 @@ void main() {
       final row = await db.chatsDao.getChat('dirty-title');
       check(row!.title).equals('Local rename');
       check(row.dirty).isTrue();
-      check(row.updatedAt).equals(2);
+      check(row.updatedAt).equals(10);
       check(row.archived).isFalse();
     });
 

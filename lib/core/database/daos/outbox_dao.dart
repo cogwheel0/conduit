@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../utils/debug_logger.dart';
+import '../../sync/id_remapper.dart' show createChatContentHash;
 import '../app_database.dart';
+import '../mappers/conversation_assembler.dart';
 import '../mappers/note_mapper.dart';
 import '../tables/outbox.dart';
 
@@ -527,11 +529,17 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       case OutboxKind.updateChat:
         // §7.2: createChat+updateChat collapse into the create; consecutive
         // updateChat collapse to newest. Both survivors reconstruct live rows
-        // at push time, so the newest committed state is pushed regardless —
-        // inserting nothing IS "collapse to newest" (A3).
+        // at push time, so the newest committed state is pushed regardless.
+        // Refresh the surviving create's contentHash too; crash-heal matches
+        // the server-created chat against the CURRENT rows pushCreateChat will
+        // POST.
         final create = newestOfKind(OutboxKind.createChat);
         if (create != null) {
-          return _CoalesceDecision(insert: false, survivorSeq: create.seq);
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: create.seq,
+            mergedContentHash: await _currentCreateChatContentHash(chatId),
+          );
         }
         final update = newestOfKind(OutboxKind.updateChat);
         if (update != null) {
@@ -696,6 +704,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     final folderId = payload['folderId'];
     final isLocal = folderId is String && folderId.startsWith('local:');
     return createIfAbsent && isLocal;
+  }
+
+  Future<String?> _currentCreateChatContentHash(String chatId) async {
+    final chat = await attachedDatabase.chatsDao.getChat(chatId);
+    if (chat == null) return null;
+    final messages = await attachedDatabase.messagesDao.getForChat(chatId);
+    return createChatContentHash(chatRowsFromDb(chat, messages));
   }
 
   static Map<String, dynamic> _decodePayload(String raw) {

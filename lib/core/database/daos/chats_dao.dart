@@ -448,7 +448,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         ChatsCompanion(
           title: existing.dirty ? const Value.absent() : Value(title),
           createdAt: Value(createdAt),
-          updatedAt: Value(updatedAt),
+          updatedAt: existing.dirty ? const Value.absent() : Value(updatedAt),
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
           folderId: folderId,

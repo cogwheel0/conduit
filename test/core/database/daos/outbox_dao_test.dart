@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
+import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,6 +36,40 @@ void main() {
         payload: payload,
         contentHash: contentHash,
       ),
+    );
+  }
+
+  ChatRows chatRows(String id, String content) {
+    return ChatBlobMapper.blobToRows(
+      chatId: id,
+      title: content,
+      createdAt: 1,
+      updatedAt: 1,
+      blob: <String, dynamic>{
+        'id': '',
+        'title': content,
+        'history': <String, dynamic>{
+          'currentId': 'a1',
+          'messages': <String, dynamic>{
+            'u1': <String, dynamic>{
+              'id': 'u1',
+              'parentId': null,
+              'childrenIds': <String>['a1'],
+              'role': 'user',
+              'content': content,
+              'timestamp': 1,
+            },
+            'a1': <String, dynamic>{
+              'id': 'a1',
+              'parentId': 'u1',
+              'childrenIds': <String>[],
+              'role': 'assistant',
+              'content': 'answer $content',
+              'timestamp': 2,
+            },
+          },
+        },
+      },
     );
   }
 
@@ -174,6 +210,36 @@ void main() {
       check(pending).length.equals(1);
       check(pending.single.kind).equals('createChat');
     });
+
+    test(
+      'createChat + updateChat refreshes the create crash-heal hash',
+      () async {
+        const localId = 'local:hash-refresh';
+        final initialRows = chatRows(localId, 'before edit');
+        await db.chatsDao.insertLocalChatWithCreateOp(
+          chat: initialRows.chat,
+          messages: initialRows.messages,
+          blobRows: initialRows,
+          contentHash: createChatContentHash(initialRows),
+        );
+
+        final editedRows = chatRows(localId, 'after edit');
+        await db.chatsDao.upsertServerChat(rows: editedRows);
+
+        final surviving = await enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: localId,
+        );
+
+        final pending = await dao.pendingForChat(localId);
+        check(pending).length.equals(1);
+        check(pending.single.seq).equals(surviving);
+        check(pending.single.kind).equals('createChat');
+        check(
+          pending.single.contentHash,
+        ).equals(createChatContentHash(editedRows));
+      },
+    );
 
     test(
       'consecutive updateChat collapse to the single pending update',
