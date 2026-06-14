@@ -610,12 +610,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         final create = newestOfKind(OutboxKind.noteCreate);
         if (create != null) {
           final note = await attachedDatabase.notesDao.getNote(chatId);
+          if (note == null) {
+            throw StateError('pending noteCreate without note row: $chatId');
+          }
           return _CoalesceDecision(
             insert: false,
             survivorSeq: create.seq,
-            mergedContentHash: note == null
-                ? null
-                : noteCreateContentHashFromRow(note),
+            mergedContentHash: noteCreateContentHashFromRow(note),
           );
         }
         // Consecutive noteUpdate collapse to the newest, MERGING patch maps so
