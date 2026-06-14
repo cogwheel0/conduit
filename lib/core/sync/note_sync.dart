@@ -160,8 +160,7 @@ class NotePushSync {
       return localId;
     }
 
-    final _NoteCreatePush? pushed =
-        await _noteLocks.runExclusive(localId, () async {
+    return _noteLocks.runExclusive(localId, () async {
       final note = await _db.notesDao.getNote(localId);
       if (note == null) return null; // Annihilated or already remapped.
       final data = decodeNoteData(note.data);
@@ -175,27 +174,25 @@ class NotePushSync {
       if (serverId is! String || serverId.isEmpty) {
         throw StateError('createNote response without a string id');
       }
-      return _NoteCreatePush(
-        serverId: serverId,
-        serverCreatedAt: _asNs(resp['created_at']) ?? note.createdAt,
-        serverUpdatedAt: _asNs(resp['updated_at']) ?? note.updatedAt,
+
+      final serverCreatedAt = _asNs(resp['created_at']) ?? note.createdAt;
+      final serverUpdatedAt = _asNs(resp['updated_at']) ?? note.updatedAt;
+
+      // Keep the local-id lock while acquiring the server-id lock for remap.
+      // Unlike chat create, note pull never holds serverId while trying to take
+      // localId for crash-heal, so this closes the post-POST edit window
+      // without introducing an opposite-order deadlock.
+      await _noteLocks.runExclusive(
+        serverId,
+        () => _remapper.remapNote(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: serverCreatedAt,
+          serverUpdatedAt: serverUpdatedAt,
+        ),
       );
+      return serverId;
     });
-
-    if (pushed == null) return null;
-
-    // Remap under the SERVER id lock: the §7.3 single transaction commits here,
-    // BEFORE the drainer marks the noteCreate op done.
-    await _noteLocks.runExclusive(
-      pushed.serverId,
-      () => _remapper.remapNote(
-        localId: localId,
-        serverId: pushed.serverId,
-        serverCreatedAt: pushed.serverCreatedAt,
-        serverUpdatedAt: pushed.serverUpdatedAt,
-      ),
-    );
-    return pushed.serverId;
   }
 
   // ---- noteUpdate (patch map) ----
@@ -305,19 +302,4 @@ class NotePushSync {
     return (_db.update(_db.notes)..where((t) => t.id.equals(noteId)))
         .write(const NotesCompanion(dirtyPinned: Value(false)));
   }
-}
-
-/// Result of the createNote POST carried out of the local-id lock span.
-class _NoteCreatePush {
-  const _NoteCreatePush({
-    required this.serverId,
-    required this.serverCreatedAt,
-    required this.serverUpdatedAt,
-  });
-
-  final String serverId;
-
-  /// NANOSECONDS.
-  final int serverCreatedAt;
-  final int serverUpdatedAt;
 }

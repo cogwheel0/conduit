@@ -125,7 +125,7 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       // would have to strip; escaped to keep the source ASCII + bidi-safe.
       "         snippet(chat_fts, 0, '\u2068', '\u2069', '…', 12) AS snip, "
       '         bm25(chat_fts, ?) AS score '
-      '  FROM chat_fts WHERE chat_fts MATCH ?'
+      "  FROM chat_fts WHERE chat_fts MATCH ? AND kind IN ('msg', 'title')"
       '), '
       'ranked AS ('
       '  SELECT chat_id, message_id, snip, score, '

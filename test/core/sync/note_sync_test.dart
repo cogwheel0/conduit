@@ -254,6 +254,41 @@ void main() {
     check(client.togglePinNoteCalls).equals(1);
   });
 
+  test('pushNoteCreate remaps while the local-id lock is still held', () async {
+    final recordingLocks = _RecordingChatLocks();
+    final remapper = IdRemapper(db);
+    addTearDown(remapper.dispose);
+    final push = NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: recordingLocks,
+      remapper: remapper,
+    );
+    const localId = 'local:n-create';
+    await db.into(db.notes).insert(
+          NotesCompanion.insert(
+            id: localId,
+            title: 'Draft',
+            data: Value(jsonEncode({'content': {'md': 'body'}})),
+            createdAt: kT1,
+            updatedAt: kT1,
+            dirtyTitle: const Value(true),
+            dirtyData: const Value(true),
+          ),
+        );
+
+    final serverId = await push.pushNoteCreate(localId);
+
+    check(serverId).isNotNull();
+    check(await db.notesDao.getNote(localId)).isNull();
+    check(await db.notesDao.getNote(serverId!)).isNotNull();
+    check(
+      recordingLocks.activeSnapshots.any(
+        (keys) => keys.contains(localId) && keys.contains(serverId),
+      ),
+    ).isTrue();
+  });
+
   test('pull does not enqueue noteUpdate for pin-only dirty notes', () async {
     server.seedNote(
       id: 'p1',
@@ -332,4 +367,22 @@ void main() {
       check(payload['title']).equals('Renamed');
     },
   );
+}
+
+class _RecordingChatLocks extends ChatLocks {
+  final List<Set<String>> activeSnapshots = <Set<String>>[];
+  final Set<String> _active = <String>{};
+
+  @override
+  Future<T> runExclusive<T>(String chatId, Future<T> Function() action) {
+    return super.runExclusive(chatId, () async {
+      _active.add(chatId);
+      activeSnapshots.add(Set<String>.of(_active));
+      try {
+        return await action();
+      } finally {
+        _active.remove(chatId);
+      }
+    });
+  }
 }
