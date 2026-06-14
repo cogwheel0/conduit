@@ -112,11 +112,11 @@ class NoteDeletionReconcile {
       );
     }
 
-    // 4. Probe + purge under each note's lock. getNoteRaw returns null when the
-    //    note is gone (404 / vendored not-ours). Because that null is ambiguous
-    //    with an expired token, verify the session is still alive before every
-    //    purge candidate; a dead session aborts the run with no further purges
-    //    and no throttle advance.
+    // 4. Probe + purge under each note's lock. getNoteRaw returns null only
+    //    when the note is gone (404); auth/permission failures throw and are
+    //    skipped. Still verify the session is alive before every purge
+    //    candidate so a mid-run auth loss aborts with no further purges and no
+    //    throttle advance.
     var purged = 0;
     var skipped = 0;
     var sessionDead = false;
@@ -144,11 +144,10 @@ class NoteDeletionReconcile {
           skipped++;
           return;
         }
-        // getNoteRaw's null is ambiguous with an expired token, so confirm the
-        // session is still alive before trusting this purge. getNoteListRaw
-        // SWALLOWS 401/403 and signals it via featureEnabled=false (it never
-        // throws on auth failure), so a thrown error OR a (_, false) result both
-        // mean the session is dead.
+        // Confirm the session is still alive before trusting this purge.
+        // getNoteListRaw SWALLOWS 401/403 and signals it via
+        // featureEnabled=false (it never throws on auth failure), so a thrown
+        // error OR a (_, false) result both mean the session is dead.
         //
         // KNOWN TRADE-OFF: featureEnabled=false ALSO fires if the Notes feature
         // is toggled off mid-reconcile. Treating that as "session dead" is

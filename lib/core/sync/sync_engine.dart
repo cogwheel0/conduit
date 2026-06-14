@@ -721,7 +721,16 @@ class SyncEngine extends _$SyncEngine {
 
   Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db, int cycleEpoch) async {
     if (_ftsBuildInFlight) return;
-    final built = await db.syncMetaDao.getValue(kFtsBuiltKey);
+    String? built;
+    try {
+      built = await db.syncMetaDao.getValue(kFtsBuiltKey);
+    } catch (error) {
+      if (_isExpectedClosedDbError(error)) {
+        DebugLogger.log('fts-build-skipped-db-closed', scope: 'sync/fts');
+        return;
+      }
+      rethrow;
+    }
     if (!_cycleStillBound(cycleEpoch, 'after-fts-flag-read')) return;
     if (built == '1') return;
 
@@ -738,10 +747,7 @@ class SyncEngine extends _$SyncEngine {
           // harmless (the flag stays unset -> the next active db rebuilds);
           // log it at debug, not error, so it isn't mistaken for a real
           // FTS failure.
-          final msg = error.toString();
-          if (msg.contains('closed') ||
-              msg.contains('closing') ||
-              msg.contains('re-open')) {
+          if (_isExpectedClosedDbError(error)) {
             DebugLogger.log('fts-build-skipped-db-closed', scope: 'sync/fts');
           } else {
             DebugLogger.error(
@@ -758,6 +764,13 @@ class SyncEngine extends _$SyncEngine {
         }
       }),
     );
+  }
+
+  bool _isExpectedClosedDbError(Object error) {
+    final msg = error.toString();
+    return msg.contains('closed') ||
+        msg.contains('closing') ||
+        msg.contains('re-open');
   }
 
   Future<int?> _readWatermark(int cycleEpoch) async {

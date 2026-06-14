@@ -98,6 +98,29 @@ void main() {
       ).throws<DioException>();
     });
 
+    test('getNoteRaw maps 404 to null', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(statusCode: 404, body: {'detail': 'not found'}),
+      );
+
+      check(await api.getNoteRaw('missing-note')).isNull();
+    });
+
+    for (final statusCode in [401, 403]) {
+      test('getNoteRaw maps $statusCode to SyncTerminalException', () async {
+        final api = _buildApiService(
+          _StatusJsonAdapter(
+            statusCode: statusCode,
+            body: {'detail': 'forbidden'},
+          ),
+        );
+
+        await check(
+          api.getNoteRaw('forbidden-note'),
+        ).throws<SyncTerminalException>();
+      });
+    }
+
     for (final entry in <String, Future<void> Function(ApiService)>{
       'createChatRaw': (api) async {
         await api.createChatRaw(const {'history': <String, dynamic>{}});

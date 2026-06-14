@@ -6029,8 +6029,8 @@ class ApiService {
   // contract (401/403 -> SyncTerminalException, 404 -> null/false). All note
   // timestamps in/out are server NANOSECONDS — copied verbatim (R-09).
 
-  /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on
-  /// 404/401/403 (gone / not ours, treated as absent for the own-notes pull).
+  /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on 404;
+  /// 401/403 -> [SyncTerminalException].
   Future<Map<String, dynamic>?> getNoteRaw(String id) async {
     try {
       final response = await _dio.get('/api/v1/notes/$id');
@@ -6040,7 +6040,13 @@ class ApiService {
       return null;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code == 404 || code == 401 || code == 403) return null;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'getNote $id forbidden',
+        );
+      }
       rethrow;
     }
   }

@@ -154,8 +154,9 @@ abstract interface class SyncApiClient {
   Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw();
 
   /// GET `/api/v1/notes/{id}` — the FULL (untruncated) `NoteResponse` map;
-  /// null on 404. 401/403 (not owner / no read) surfaces as null too (treated
-  /// as gone for the own-notes pull, matching the chat probe contract).
+  /// null on 404. 401/403 (not owner / no read) throws
+  /// [SyncTerminalException], so callers do not collapse auth/permission
+  /// failures into permanent absence.
   Future<Map<String, dynamic>?> getNoteRaw(String id);
 
   /// POST `/api/v1/notes/create` body `{title, data, meta?}`. The server mints
