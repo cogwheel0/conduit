@@ -505,7 +505,8 @@ class OutboxTaskQueueMigrator {
 
   List<Map<String, dynamic>> _filesFor(List<String> attachments) {
     return [
-      for (final id in attachments) <String, dynamic>{'type': 'file', 'id': id},
+      for (final id in attachments)
+        <String, dynamic>{'type': 'file', 'id': id, 'url': id},
     ];
   }
 

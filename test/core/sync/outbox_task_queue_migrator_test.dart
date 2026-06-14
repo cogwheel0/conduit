@@ -145,6 +145,23 @@ void main() {
       check((await db.select(db.chats).get()).length).equals(1);
     });
 
+    test('migrated file attachments preserve id as url', () async {
+      await caches.put('outbound_task_queue_v1', [
+        sendTextTask(id: 't1', attachments: ['file-1']),
+      ]);
+
+      await migrator().migrateIfNeeded();
+
+      final chat = (await db.select(db.chats).get()).single;
+      final user = (await db.messagesDao.getForChat(
+        chat.id,
+      )).where((m) => m.role == 'user').single;
+      final payload = _decode(user.payload);
+      final files = payload['files'] as List;
+      final file = Map<String, dynamic>.from(files.single as Map);
+      check(file).deepEquals({'type': 'file', 'id': 'file-1', 'url': 'file-1'});
+    });
+
     test('non-queued/running tasks are skipped', () async {
       await caches.put('outbound_task_queue_v1', [
         sendTextTask(id: 't1', status: 'succeeded'),
