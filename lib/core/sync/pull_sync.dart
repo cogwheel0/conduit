@@ -493,8 +493,9 @@ class PullSync {
     );
     // We already hold the SERVER id lock (this merge runs under it). remapChat
     // also touches the local row, so acquire the LOCAL lock too. No deadlock:
-    // pushCreateChat releases the local lock BEFORE taking the server lock, so
-    // the two never hold both simultaneously in opposite order.
+    // pushCreateChat holds localId THEN acquires serverId, but
+    // pendingCreateForHash only matches status='pending' ops; the push side
+    // never holds the localId lock while we run here, so no cycle is possible.
     await _locks.runExclusive(localId, () async {
       await remapper.remapChat(
         localId: localId,
