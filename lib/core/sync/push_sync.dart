@@ -54,10 +54,10 @@ class PushSync {
   /// Pushes the new local chat [localId], remaps it to the server id, and
   /// clears dirty for the reconstructed snapshot. Returns the server id.
   ///
-  /// The reconstruct+POST run under the [localId] lock (single span — no
-  /// mid-flight write window for create), then the remap runs under the
-  /// SERVER id lock so the §7.3 transaction commits before the drainer marks
-  /// the op done.
+  /// The reconstruct+POST run under the [localId] lock, and the SERVER id lock
+  /// is acquired before releasing it so a pull cannot fast-forward the server
+  /// row between POST and remap. The §7.3 transaction commits before the
+  /// drainer marks the op done.
   Future<String?> pushCreateChat(String localId) async {
     // Re-run idempotency (§7.3): the remap repoints this op's chat_id from
     // local:<uuid> to the server id INSIDE the §7.3 transaction, which commits
@@ -74,56 +74,49 @@ class PushSync {
       return localId;
     }
 
-    final _CreatePush? pushed = await _chatLocks.runExclusive(
-      localId,
-      () async {
-        final chat = await _db.chatsDao.getChat(localId);
-        if (chat == null) {
-          // Annihilated by a delete before we ran, or already remapped.
-          return null;
-        }
-        final messages = await _db.messagesDao.getForChat(localId);
-        final rows = chatRowsFromDb(chat, messages);
-        final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
-        final resp = await _client.createChat(blob, folderId: chat.folderId);
-        final serverId = resp['id'];
-        if (serverId is! String || serverId.isEmpty) {
-          throw StateError('createChat response without a string id');
-        }
-        return _CreatePush(
-          serverId: serverId,
-          serverCreatedAt: _epoch(resp['created_at']) ?? chat.createdAt,
-          serverUpdatedAt: _epoch(resp['updated_at']) ?? chat.updatedAt,
-          capturedMessageIds: [for (final m in messages) m.id],
+    return _chatLocks.runExclusive(localId, () async {
+      final chat = await _db.chatsDao.getChat(localId);
+      if (chat == null) {
+        // Annihilated by a delete before we ran, or already remapped.
+        return null;
+      }
+      final messages = await _db.messagesDao.getForChat(localId);
+      final rows = chatRowsFromDb(chat, messages);
+      final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
+      final resp = await _client.createChat(blob, folderId: chat.folderId);
+      final serverId = resp['id'];
+      if (serverId is! String || serverId.isEmpty) {
+        throw StateError('createChat response without a string id');
+      }
+      final pushed = _CreatePush(
+        serverId: serverId,
+        serverCreatedAt: _epoch(resp['created_at']) ?? chat.createdAt,
+        serverUpdatedAt: _epoch(resp['updated_at']) ?? chat.updatedAt,
+        capturedMessageIds: [for (final m in messages) m.id],
+      );
+
+      // Keep the local-id lock while acquiring the server-id lock for remap,
+      // matching note create and closing the post-POST pull window.
+      await _chatLocks.runExclusive(pushed.serverId, () async {
+        await _remapper.remapChat(
+          localId: localId,
+          serverId: pushed.serverId,
+          serverCreatedAt: pushed.serverCreatedAt,
+          serverUpdatedAt: pushed.serverUpdatedAt,
         );
-      },
-    );
+        // Dirty-clear (§7.2): the whole reconstruct+POST happened under one
+        // local-id lock span, and remap+clear share this server-id lock span.
+        // Clear only the captured message snapshot (now living under serverId)
+        // and the chat row.
+        await _clearDirty(
+          chatId: pushed.serverId,
+          messageIds: pushed.capturedMessageIds,
+          serverUpdatedAt: pushed.serverUpdatedAt,
+        );
+      });
 
-    if (pushed == null) return null;
-
-    // Remap and dirty-clear under one SERVER id lock: the §7.3 transaction
-    // (rewrite chats.id + messages.chatId + pending outbox.chatId) and the
-    // captured-snapshot dirty clear commit before any pull merge for serverId
-    // can interleave.
-    await _chatLocks.runExclusive(pushed.serverId, () async {
-      await _remapper.remapChat(
-        localId: localId,
-        serverId: pushed.serverId,
-        serverCreatedAt: pushed.serverCreatedAt,
-        serverUpdatedAt: pushed.serverUpdatedAt,
-      );
-      // Dirty-clear (§7.2): the whole reconstruct+POST happened under one
-      // local-id lock span, and remap+clear share this server-id lock span.
-      // Clear only the captured message snapshot (now living under serverId)
-      // and the chat row.
-      await _clearDirty(
-        chatId: pushed.serverId,
-        messageIds: pushed.capturedMessageIds,
-        serverUpdatedAt: pushed.serverUpdatedAt,
-      );
+      return pushed.serverId;
     });
-
-    return pushed.serverId;
   }
 
   // ---- updateChat (§3.iii + §7.2) ----
@@ -321,6 +314,7 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId},
           );
+          await _db.foldersDao.hardDelete(folderId);
           return;
         }
       }
@@ -335,6 +329,7 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId},
           );
+          await _db.foldersDao.hardDelete(folderId);
           return;
         }
       }

@@ -203,6 +203,11 @@ void main() {
 
       check(serverId).isNotNull();
       check(recordingLocks.keys).deepEquals([localId, serverId!]);
+      check(
+        recordingLocks.activeSnapshots.any(
+          (keys) => keys.contains(localId) && keys.contains(serverId),
+        ),
+      ).isTrue();
     });
   });
 
@@ -570,7 +575,7 @@ void main() {
       check((await db.select(db.folders).get()).single.dirty).isFalse();
     });
 
-    test('existing folder update 404 returns without clearing dirty', () async {
+    test('existing folder update 404 purges the local row', () async {
       await db
           .into(db.folders)
           .insert(
@@ -590,8 +595,30 @@ void main() {
       });
 
       final row = await db.foldersDao.getFolder('missing-folder');
-      check(row).isNotNull();
-      check(row!.dirty).isTrue();
+      check(row).isNull();
+    });
+
+    test('existing folder parent update 404 purges the local row', () async {
+      await db
+          .into(db.folders)
+          .insert(
+            FoldersCompanion.insert(
+              id: 'missing-parent-folder',
+              name: 'Ghost',
+              createdAt: 1,
+              updatedAt: 2,
+              dirty: const Value(true),
+            ),
+          );
+
+      await push.pushFolderUpsert(<String, dynamic>{
+        'folderId': 'missing-parent-folder',
+        'parentId': 'parent-x',
+        'createIfAbsent': false,
+      });
+
+      final row = await db.foldersDao.getFolder('missing-parent-folder');
+      check(row).isNull();
     });
 
     test(
@@ -659,11 +686,21 @@ void main() {
 
 class _RecordingChatLocks extends ChatLocks {
   final List<String> keys = <String>[];
+  final List<Set<String>> activeSnapshots = <Set<String>>[];
+  final Set<String> _active = <String>{};
 
   @override
   Future<T> runExclusive<T>(String chatId, Future<T> Function() action) {
     keys.add(chatId);
-    return super.runExclusive(chatId, action);
+    return super.runExclusive(chatId, () async {
+      _active.add(chatId);
+      activeSnapshots.add(Set<String>.of(_active));
+      try {
+        return await action();
+      } finally {
+        _active.remove(chatId);
+      }
+    });
   }
 }
 
