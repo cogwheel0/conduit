@@ -311,6 +311,23 @@ void main() {
       check(purgeCalls).equals(1);
     });
 
+    test(
+      'first chat pull does not advance note reconcile gate when notes fail',
+      () async {
+        seedChat('chat-1', 100);
+        client.failNoteList = true;
+        final container = makeContainer();
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final result = await engine.requestPull(reason: 'note-pull-fails');
+
+        check(result).isNotNull();
+        check(result!.success).isTrue();
+        check(await db.syncMetaDao.getLastFullReconcileAt()).isGreaterThan(0);
+        check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+      },
+    );
+
     test('FTS build retries when the watermark already advanced', () async {
       await db.syncMetaDao.setPullWatermark(50);
       seedChat('chat-1', 100);

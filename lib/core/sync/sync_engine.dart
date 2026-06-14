@@ -635,9 +635,12 @@ class SyncEngine extends _$SyncEngine {
     // pull failure must NOT freeze the chat watermark or abort the cycle; it is
     // logged and the idempotent field-LWW merge self-heals next cycle.
     final noteAdapter = _buildNoteAdapterForPull();
+    AdapterPullResult? noteResult;
+    int? previousNotesWatermark;
     if (noteAdapter != null) {
       try {
-        final noteResult = await runPullFor(noteAdapter, db: db);
+        previousNotesWatermark = await db.syncMetaDao.getNotesPullWatermark();
+        noteResult = await runPullFor(noteAdapter, db: db);
         DebugLogger.log(
           'note-cycle-done',
           scope: 'sync/notes',
@@ -665,14 +668,21 @@ class SyncEngine extends _$SyncEngine {
     // purge right after it. Record it as the last full reconcile so the
     // background reconcile waits a full interval instead of redundantly
     // re-enumerating every page on the very first cycle (§7.5).
-    if (result.success && previousWatermark == 0) {
+    final shouldAdvanceChatReconcile = result.success && previousWatermark == 0;
+    final shouldAdvanceNoteReconcile =
+        noteResult?.success == true && previousNotesWatermark == 0;
+    if (shouldAdvanceChatReconcile || shouldAdvanceNoteReconcile) {
       final nowSeconds = clock.nowEpochSeconds();
-      await db.syncMetaDao.setLastFullReconcileAt(nowSeconds);
+      if (shouldAdvanceChatReconcile) {
+        await db.syncMetaDao.setLastFullReconcileAt(nowSeconds);
+      }
       // Same for the NOTE reconcile gate: the first cycle's note pull already
       // enumerated every note, so pre-advance its gate too (it otherwise reads
       // 0 and runs a redundant getNoteListRaw + full-ID diff right after the
       // first full pull).
-      await db.syncMetaDao.setNotesLastFullReconcileAt(nowSeconds);
+      if (shouldAdvanceNoteReconcile) {
+        await db.syncMetaDao.setNotesLastFullReconcileAt(nowSeconds);
+      }
       if (!_cycleStillBound(cycleEpoch, 'after-first-pull-gates')) {
         return null;
       }

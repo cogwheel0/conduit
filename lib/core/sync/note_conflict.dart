@@ -102,12 +102,9 @@ NoteMergeDecision resolveNoteMerge({
   required int serverUpdatedAt,
   required NoteMergeLocal? local,
 }) {
-  // Dirty tombstone: the pending noteDelete wins; never resurrect. Hoisted
-  // ahead of the null-base branch — it fires for any dirty local tombstone,
-  // whether or not a merge base exists.
-  if (local != null &&
-      local.deleted &&
-      (local.dirtyTitle || local.dirtyData || local.dirtyPinned)) {
+  // Tombstone: a pushed or pending noteDelete wins until deletion reconcile
+  // purges the row. Never resurrect it from a stale or racing pull page.
+  if (local != null && local.deleted) {
     return const NoteMergeDecision(
       kind: NoteMergeKind.skipDirtyTombstone,
       takeServerTitle: false,
@@ -156,6 +153,20 @@ NoteMergeDecision resolveNoteMerge({
       // No server state taken; keep base unchanged (push advances it).
       advanceServerUpdatedAt: false,
       mustPush: anyDirty,
+    );
+  }
+
+  // Clean local row + newer server row: accept the server state wholesale.
+  if (!anyDirty) {
+    return const NoteMergeDecision(
+      kind: NoteMergeKind.fastForward,
+      takeServerTitle: true,
+      takeServerData: true,
+      spawnConflictCopy: false,
+      canonicalDirtyTitle: false,
+      canonicalDirtyData: false,
+      advanceServerUpdatedAt: true,
+      mustPush: false,
     );
   }
 

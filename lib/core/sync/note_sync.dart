@@ -304,10 +304,11 @@ class NotePushSync {
             scope: 'sync/notes',
             data: {'noteId': noteId},
           );
-          throw SyncTerminalException(
-            statusCode: 404,
-            message: 'note pin confirmation missing ($noteId)',
-          );
+          // The toggle request already completed. If the follow-up read races
+          // a delete or transient 404, do not park a now-stale pin op forever;
+          // reconcile will purge a genuinely missing note.
+          await _clearNotePinDirty(noteId);
+          return;
         }
         livePinned = confirmedRaw['is_pinned'] == true;
       }

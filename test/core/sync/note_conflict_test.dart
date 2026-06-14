@@ -36,18 +36,17 @@ void main() {
       }
     });
 
-    test(
-      'dirty tombstone is skipped (pending delete wins, never resurrects)',
-      () {
+    test('tombstone is skipped (delete wins, never resurrects)', () {
+      for (final dirty in [false, true]) {
         final d = resolveNoteMerge(
           serverUpdatedAt: 999,
-          local: local(deleted: true, dirtyData: true),
+          local: local(deleted: true, dirtyData: dirty),
         );
         check(d.kind).equals(NoteMergeKind.skipDirtyTombstone);
         check(d.spawnConflictCopy).isFalse();
         check(d.takeServerData).isFalse();
-      },
-    );
+      }
+    });
 
     test('overlap window (server.updatedAt <= base) is a no-op', () {
       final d = resolveNoteMerge(
@@ -74,8 +73,9 @@ void main() {
       check(d.mustPush).isTrue();
     });
 
-    test('field-LWW: data clean → take server data with no copy', () {
+    test('clean existing row fast-forwards to the server state', () {
       final d = resolveNoteMerge(serverUpdatedAt: 200, local: local(base: 100));
+      check(d.kind).equals(NoteMergeKind.fastForward);
       check(d.takeServerData).isTrue();
       check(d.spawnConflictCopy).isFalse();
       check(d.canonicalDirtyData).isFalse();

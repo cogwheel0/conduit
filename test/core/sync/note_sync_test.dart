@@ -302,7 +302,7 @@ void main() {
     },
   );
 
-  test('field-LWW merge clears an abnormal clean tombstone', () async {
+  test('field-LWW merge does not resurrect a clean tombstone', () async {
     await db
         .into(db.notes)
         .insert(
@@ -337,9 +337,9 @@ void main() {
 
     final row = await db.notesDao.getNote('n1');
     check(row).isNotNull();
-    check(row!.deleted).isFalse();
-    check(row.title).equals('Visible server');
-    check(row.data).contains('new');
+    check(row!.deleted).isTrue();
+    check(row.title).equals('Hidden local');
+    check(row.data).contains('old');
   });
 
   test('field-LWW does not spawn another copy from a conflict copy', () async {
@@ -702,6 +702,54 @@ void main() {
     },
   );
 
+  test(
+    'pushNotePin clears dirtyPinned when post-toggle confirmation 404s',
+    () async {
+      server.seedNote(
+        id: 'p-confirm-404',
+        title: 'P',
+        data: {
+          'content': {'md': 'x'},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
+        pinned: false,
+      );
+      await db.notesDao.upsertServerNote(<String, dynamic>{
+        'id': 'p-confirm-404',
+        'title': 'P',
+        'data': {
+          'content': {'md': 'x'},
+        },
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT1,
+      });
+      await locks.runExclusive('p-confirm-404', () {
+        return db.notesDao.pinNoteWithOutbox(
+          'p-confirm-404',
+          desiredPinned: true,
+        );
+      });
+
+      client = _PinConfirmation404Client(server);
+      final push = NotePushSync(
+        client: client,
+        db: db,
+        noteLocks: locks,
+        remapper: syncRemapper,
+      );
+
+      await push.pushNotePin('p-confirm-404', desired: true);
+
+      check(client.togglePinNoteCalls).equals(1);
+      final row = await db.notesDao.getNote('p-confirm-404');
+      check(row!.dirtyPinned).isFalse();
+      check(server.getNoteById('p-confirm-404')!['is_pinned']).equals(true);
+    },
+  );
+
   test('pin coalescing keeps the newest desired payload', () async {
     server.seedNote(
       id: 'p3',
@@ -925,5 +973,18 @@ class _ConcurrentPinFlipClient extends FakeSyncApiClient {
       server.togglePinNote(id);
     }
     return response;
+  }
+}
+
+class _PinConfirmation404Client extends FakeSyncApiClient {
+  _PinConfirmation404Client(super.server);
+
+  int getNoteCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    getNoteCalls++;
+    if (getNoteCalls > 1) return null;
+    return super.getNoteRaw(id);
   }
 }

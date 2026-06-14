@@ -253,10 +253,6 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
             : const Value.absent(),
         dirtyTitle: Value(decision.canonicalDirtyTitle),
         dirtyData: Value(decision.canonicalDirtyData),
-        // Defensive: skipDirtyTombstone catches normal pending deletes before
-        // this branch, but an abnormal clean tombstone should not stay hidden
-        // after adopting a newer server note.
-        deleted: const Value(false),
         // rawExtra refreshes from the server (access_grants etc. round-trip).
         rawExtra: serverRow.rawExtra,
       ),
