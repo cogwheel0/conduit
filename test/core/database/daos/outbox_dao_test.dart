@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
@@ -50,7 +52,11 @@ void main() {
   group('enqueue payload validation (A1)', () {
     test('createChat requires empty payload + contentHash', () async {
       await check(
-        enqueue(kind: OutboxKind.createChat, chatId: 'local:a', contentHash: 'h'),
+        enqueue(
+          kind: OutboxKind.createChat,
+          chatId: 'local:a',
+          contentHash: 'h',
+        ),
       ).completes();
 
       await check(
@@ -146,17 +152,19 @@ void main() {
       check(pending.single.kind).equals('createChat');
     });
 
-    test('consecutive updateChat collapse to the single pending update',
-        () async {
-      final first = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      final second = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      final third = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      check(second).equals(first);
-      check(third).equals(first);
-      final pending = await dao.pendingForChat('c1');
-      check(pending).length.equals(1);
-      check(pending.single.seq).equals(first);
-    });
+    test(
+      'consecutive updateChat collapse to the single pending update',
+      () async {
+        final first = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final second = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final third = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        check(second).equals(first);
+        check(third).equals(first);
+        final pending = await dao.pendingForChat('c1');
+        check(pending).length.equals(1);
+        check(pending.single.seq).equals(first);
+      },
+    );
 
     test('deleteChat over a pending create is a pure local drop', () async {
       await enqueue(
@@ -221,10 +229,10 @@ void main() {
 
     test('requestCompletion is never coalesced', () async {
       Map<String, dynamic> rc(String id) => {
-            'assistantMessageId': id,
-            'model': 'm',
-            'toolIds': <String>[],
-          };
+        'assistantMessageId': id,
+        'model': 'm',
+        'toolIds': <String>[],
+      };
       final a = await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'c1',
@@ -239,39 +247,82 @@ void main() {
       check(await dao.pendingForChat('c1')).length.equals(2);
     });
 
-    test('folderUpsert collapses to newest; folderDelete drops a local create',
-        () async {
-      Map<String, dynamic> up(String id, {bool create = true}) => {
-            'folderId': id,
-            'name': 'n',
+    test(
+      'folderUpsert collapses to newest; folderDelete drops a local create',
+      () async {
+        Map<String, dynamic> up(String id, {bool create = true}) => {
+          'folderId': id,
+          'name': 'n',
+          'parentId': null,
+          'data': null,
+          'meta': null,
+          'createIfAbsent': create,
+        };
+
+        final first = await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: 'local:f',
+          payload: up('local:f'),
+        );
+        final second = await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: 'local:f',
+          payload: {
+            ...up('local:f', create: false),
+            'name': 'n2',
+            'meta': {'color': 'red'},
+          },
+        );
+        check(second).equals(first);
+        final pendingUpserts = await dao.pendingForChat('local:f');
+        check(pendingUpserts).length.equals(1);
+        final mergedPayload =
+            jsonDecode(pendingUpserts.single.payload) as Map<String, dynamic>;
+        check(mergedPayload['name']).equals('n2');
+        check(
+          mergedPayload['meta'],
+        ).isA<Map<String, dynamic>>().deepEquals({'color': 'red'});
+        check(mergedPayload['createIfAbsent']).equals(true);
+
+        // folderDelete over a brand-new local folder create drops both.
+        final del = await enqueue(
+          kind: OutboxKind.folderDelete,
+          chatId: 'local:f',
+          payload: {'folderId': 'local:f'},
+        );
+        check(del).equals(-1);
+        check(await dao.pendingForChat('local:f')).isEmpty();
+      },
+    );
+
+    test(
+      'folderUpsert coalescing preserves explicit parent root moves',
+      () async {
+        final first = await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: 'srvf',
+          payload: {'folderId': 'srvf', 'name': 'Old', 'createIfAbsent': false},
+        );
+        final second = await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: 'srvf',
+          payload: {
+            'folderId': 'srvf',
             'parentId': null,
-            'data': null,
-            'meta': null,
-            'createIfAbsent': create,
-          };
+            'createIfAbsent': false,
+          },
+        );
 
-      final first = await enqueue(
-        kind: OutboxKind.folderUpsert,
-        chatId: 'local:f',
-        payload: up('local:f'),
-      );
-      final second = await enqueue(
-        kind: OutboxKind.folderUpsert,
-        chatId: 'local:f',
-        payload: up('local:f'),
-      );
-      check(second).equals(first);
-      check(await dao.pendingForChat('local:f')).length.equals(1);
-
-      // folderDelete over a brand-new local folder create drops both.
-      final del = await enqueue(
-        kind: OutboxKind.folderDelete,
-        chatId: 'local:f',
-        payload: {'folderId': 'local:f'},
-      );
-      check(del).equals(-1);
-      check(await dao.pendingForChat('local:f')).isEmpty();
-    });
+        check(second).equals(first);
+        final pending = await dao.pendingForChat('srvf');
+        check(pending).length.equals(1);
+        final payload =
+            jsonDecode(pending.single.payload) as Map<String, dynamic>;
+        check(payload['name']).equals('Old');
+        check(payload.containsKey('parentId')).isTrue();
+        check(payload['parentId']).isNull();
+      },
+    );
 
     test('folderDelete over a server folder keeps the delete and drops '
         'pending upserts', () async {
@@ -298,37 +349,39 @@ void main() {
       check(pending.single.kind).equals('folderDelete');
     });
 
-    test('folderDelete collapses into an existing pending folderDelete',
-        () async {
-      final firstDelete = await enqueue(
-        kind: OutboxKind.folderDelete,
-        chatId: 'srvf',
-        payload: {'folderId': 'srvf'},
-      );
-      await enqueue(
-        kind: OutboxKind.folderUpsert,
-        chatId: 'srvf',
-        payload: {
-          'folderId': 'srvf',
-          'name': 'n',
-          'parentId': null,
-          'data': null,
-          'meta': null,
-          'createIfAbsent': false,
-        },
-      );
-      final secondDelete = await enqueue(
-        kind: OutboxKind.folderDelete,
-        chatId: 'srvf',
-        payload: {'folderId': 'srvf'},
-      );
+    test(
+      'folderDelete collapses into an existing pending folderDelete',
+      () async {
+        final firstDelete = await enqueue(
+          kind: OutboxKind.folderDelete,
+          chatId: 'srvf',
+          payload: {'folderId': 'srvf'},
+        );
+        await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: 'srvf',
+          payload: {
+            'folderId': 'srvf',
+            'name': 'n',
+            'parentId': null,
+            'data': null,
+            'meta': null,
+            'createIfAbsent': false,
+          },
+        );
+        final secondDelete = await enqueue(
+          kind: OutboxKind.folderDelete,
+          chatId: 'srvf',
+          payload: {'folderId': 'srvf'},
+        );
 
-      check(secondDelete).equals(firstDelete);
-      final pending = await dao.pendingForChat('srvf');
-      check(pending).length.equals(1);
-      check(pending.single.seq).equals(firstDelete);
-      check(pending.single.kind).equals('folderDelete');
-    });
+        check(secondDelete).equals(firstDelete);
+        final pending = await dao.pendingForChat('srvf');
+        check(pending).length.equals(1);
+        check(pending.single.seq).equals(firstDelete);
+        check(pending.single.kind).equals('folderDelete');
+      },
+    );
 
     test('noteDelete collapses into an existing pending noteDelete', () async {
       await enqueue(
@@ -336,9 +389,14 @@ void main() {
         chatId: 'n1',
         payload: {'title': 'draft'},
       );
-      final firstDelete = await enqueue(kind: OutboxKind.noteDelete, chatId: 'n1');
-      final secondDelete =
-          await enqueue(kind: OutboxKind.noteDelete, chatId: 'n1');
+      final firstDelete = await enqueue(
+        kind: OutboxKind.noteDelete,
+        chatId: 'n1',
+      );
+      final secondDelete = await enqueue(
+        kind: OutboxKind.noteDelete,
+        chatId: 'n1',
+      );
 
       check(secondDelete).equals(firstDelete);
       final pending = await dao.pendingForChat('n1');
@@ -355,7 +413,11 @@ void main() {
       await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'c1',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
       );
 
       final first = await dao.claimNextRunnable(
@@ -381,19 +443,21 @@ void main() {
       check(second!.kind).equals('requestCompletion');
     });
 
-    test('busyChatIds excludes a chat already held by another worker',
-        () async {
-      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      final s2 = await enqueue(kind: OutboxKind.updateChat, chatId: 'c2');
+    test(
+      'busyChatIds excludes a chat already held by another worker',
+      () async {
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final s2 = await enqueue(kind: OutboxKind.updateChat, chatId: 'c2');
 
-      // c1 is busy ⇒ claim must skip to c2's head.
-      final claimed = await dao.claimNextRunnable(
-        nowEpochSeconds: 100,
-        busyChatIds: {'c1'},
-      );
-      check(claimed!.seq).equals(s2);
-      check(claimed.chatId).equals('c2');
-    });
+        // c1 is busy ⇒ claim must skip to c2's head.
+        final claimed = await dao.claimNextRunnable(
+          nowEpochSeconds: 100,
+          busyChatIds: {'c1'},
+        );
+        check(claimed!.seq).equals(s2);
+        check(claimed.chatId).equals('c2');
+      },
+    );
 
     test('nextAttemptAt in the future is not runnable until due', () async {
       final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
@@ -444,7 +508,11 @@ void main() {
       final seq = await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'c1',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
       );
       await dao.markParked(seq, error: 'parked');
       check(await dao.pendingForChat('c1')).isEmpty();
@@ -458,7 +526,11 @@ void main() {
       final seq = await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'c1',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
       );
       await dao.markParked(seq, error: 'p');
       await dao.markParked(seq, error: 'p2'); // attempts now 2
@@ -493,7 +565,11 @@ void main() {
       await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'local:x',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
       );
       await dao.rewriteChatId(fromChatId: 'local:x', toChatId: 'srv-1');
       check(await dao.pendingForChat('local:x')).isEmpty();
@@ -502,52 +578,66 @@ void main() {
   });
 
   group('resetInFlightToPending (crash recovery §7.2/§11)', () {
-    test('reclaims a stranded inFlight op back to pending, attempts intact',
-        () async {
-      final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      await dao.markFailedRetryable(seq, error: 'e', nextAttemptAt: 7);
-      // Simulate a kill mid-push: the op was flipped to inFlight by a claim.
-      final claimed =
-          await dao.claimNextRunnable(nowEpochSeconds: 99, busyChatIds: {});
-      check(claimed!.status).equals('inFlight');
+    test(
+      'reclaims a stranded inFlight op back to pending, attempts intact',
+      () async {
+        final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        await dao.markFailedRetryable(seq, error: 'e', nextAttemptAt: 7);
+        // Simulate a kill mid-push: the op was flipped to inFlight by a claim.
+        final claimed = await dao.claimNextRunnable(
+          nowEpochSeconds: 99,
+          busyChatIds: {},
+        );
+        check(claimed!.status).equals('inFlight');
 
-      final reclaimed = await dao.resetInFlightToPending();
-      check(reclaimed).equals(1);
-      final pending = await dao.pendingForChat('c1');
-      check(pending.single.status).equals('pending');
-      // attempts/nextAttemptAt preserved so backoff/N=5 survive process death.
-      check(pending.single.attempts).equals(1);
-      check(pending.single.nextAttemptAt).equals(7);
-    });
+        final reclaimed = await dao.resetInFlightToPending();
+        check(reclaimed).equals(1);
+        final pending = await dao.pendingForChat('c1');
+        check(pending.single.status).equals('pending');
+        // attempts/nextAttemptAt preserved so backoff/N=5 survive process death.
+        check(pending.single.attempts).equals(1);
+        check(pending.single.nextAttemptAt).equals(7);
+      },
+    );
 
-    test('a stranded inFlight op no longer blocks its chat head after reset',
-        () async {
-      // createChat (will be stranded inFlight) then a dependent completion.
-      await enqueue(
-        kind: OutboxKind.createChat,
-        chatId: 'local:c',
-        contentHash: 'h',
-      );
-      await enqueue(
-        kind: OutboxKind.requestCompletion,
-        chatId: 'local:c',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
-      );
-      // Claim the create -> inFlight. The completion is now blocked behind it.
-      final create =
-          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
-      check(OutboxKind.fromName(create!.kind)).equals(OutboxKind.createChat);
-      // Without reset, the inFlight create blocks the completion forever.
-      check(
-        await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
-      ).isNull();
+    test(
+      'a stranded inFlight op no longer blocks its chat head after reset',
+      () async {
+        // createChat (will be stranded inFlight) then a dependent completion.
+        await enqueue(
+          kind: OutboxKind.createChat,
+          chatId: 'local:c',
+          contentHash: 'h',
+        );
+        await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'local:c',
+          payload: {
+            'assistantMessageId': 'a',
+            'model': 'm',
+            'toolIds': <String>[],
+          },
+        );
+        // Claim the create -> inFlight. The completion is now blocked behind it.
+        final create = await dao.claimNextRunnable(
+          nowEpochSeconds: 1,
+          busyChatIds: {},
+        );
+        check(OutboxKind.fromName(create!.kind)).equals(OutboxKind.createChat);
+        // Without reset, the inFlight create blocks the completion forever.
+        check(
+          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
+        ).isNull();
 
-      await dao.resetInFlightToPending();
-      // Now the create is the claimable head again (not the completion).
-      final head =
-          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
-      check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
-    });
+        await dao.resetInFlightToPending();
+        // Now the create is the claimable head again (not the completion).
+        final head = await dao.claimNextRunnable(
+          nowEpochSeconds: 1,
+          busyChatIds: {},
+        );
+        check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
+      },
+    );
   });
 
   group('pendingCreateForHash (§7.3 crash heal)', () {
@@ -562,15 +652,18 @@ void main() {
       check(await dao.pendingCreateForHash('hash-B')).isNull();
     });
 
-    test('does NOT match an inFlight create (owned by a live worker)', () async {
-      await enqueue(
-        kind: OutboxKind.createChat,
-        chatId: 'local:c',
-        contentHash: 'hash-A',
-      );
-      await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
-      check(await dao.pendingCreateForHash('hash-A')).isNull();
-    });
+    test(
+      'does NOT match an inFlight create (owned by a live worker)',
+      () async {
+        await enqueue(
+          kind: OutboxKind.createChat,
+          chatId: 'local:c',
+          contentHash: 'hash-A',
+        );
+        await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
+        check(await dao.pendingCreateForHash('hash-A')).isNull();
+      },
+    );
 
     test('hasPendingCreateContentHashes is a cheap preflight', () async {
       check(await dao.hasPendingCreateContentHashes()).isFalse();
@@ -599,32 +692,40 @@ void main() {
   });
 
   group('parked predecessor blocks dependents (§7.2, Finding 8)', () {
-    test('a failed (parked) create blocks its trailing requestCompletion',
-        () async {
-      final createSeq = await enqueue(
-        kind: OutboxKind.createChat,
-        chatId: 'local:c',
-        contentHash: 'h',
-      );
-      await enqueue(
-        kind: OutboxKind.requestCompletion,
-        chatId: 'local:c',
-        payload: {'assistantMessageId': 'a', 'model': 'm', 'toolIds': <String>[]},
-      );
-      // Park the create (terminal 401/403 in the real drainer).
-      await dao.markParked(createSeq, error: '403');
-      // The completion must NOT become claimable while its predecessor is parked.
-      check(
-        await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
-      ).isNull();
+    test(
+      'a failed (parked) create blocks its trailing requestCompletion',
+      () async {
+        final createSeq = await enqueue(
+          kind: OutboxKind.createChat,
+          chatId: 'local:c',
+          contentHash: 'h',
+        );
+        await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'local:c',
+          payload: {
+            'assistantMessageId': 'a',
+            'model': 'm',
+            'toolIds': <String>[],
+          },
+        );
+        // Park the create (terminal 401/403 in the real drainer).
+        await dao.markParked(createSeq, error: '403');
+        // The completion must NOT become claimable while its predecessor is parked.
+        check(
+          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {}),
+        ).isNull();
 
-      // Manual retry re-arms the create as the head; it (not the completion)
-      // is claimed next.
-      await dao.requeueParked(createSeq, nowEpochSeconds: 1);
-      final head =
-          await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
-      check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
-    });
+        // Manual retry re-arms the create as the head; it (not the completion)
+        // is claimed next.
+        await dao.requeueParked(createSeq, nowEpochSeconds: 1);
+        final head = await dao.claimNextRunnable(
+          nowEpochSeconds: 1,
+          busyChatIds: {},
+        );
+        check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
+      },
+    );
   });
 
   group('watchPendingCount', () {

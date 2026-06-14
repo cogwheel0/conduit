@@ -95,7 +95,10 @@ class RequestCompletionPayload {
 
   static List<String> _stringList(Object? value) {
     if (value is List) {
-      return [for (final e in value) if (e is String) e];
+      return [
+        for (final e in value)
+          if (e is String) e,
+      ];
     }
     return const <String>[];
   }
@@ -139,28 +142,32 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   }) async {
     _validatePayload(kind, payload, contentHash);
 
-    final decision = await _coalesce(kind: kind, chatId: chatId, payload: payload);
+    final decision = await _coalesce(
+      kind: kind,
+      chatId: chatId,
+      payload: payload,
+    );
 
     if (decision.deletions.isNotEmpty) {
-      await (delete(outboxOps)
-            ..where(
-              (t) =>
-                  t.seq.isIn(decision.deletions) &
-                  t.status.equals(OutboxStatus.pending),
-            ))
+      await (delete(outboxOps)..where(
+            (t) =>
+                t.seq.isIn(decision.deletions) &
+                t.status.equals(OutboxStatus.pending),
+          ))
           .go();
     }
 
-    // Patch-map merge into a surviving noteUpdate (D-11): when consecutive
-    // noteUpdate ops collapse, the survivor's payload is the UNION of the
-    // earlier patch and the new one (new keys win) so a data edit followed by a
-    // title-only edit never drops the data axis. Done before the early return so
-    // a collapse still persists the merged map.
+    // Payload merge into a surviving op: when consecutive patch-like ops
+    // collapse, the survivor's payload is the UNION of the earlier patch and the
+    // new one (new keys win, with per-kind exceptions such as local folder
+    // create). Done before the early return so a collapse still persists the
+    // merged map.
     if (decision.mergedPayload != null && decision.survivorSeq != null) {
-      await (update(outboxOps)..where((t) => t.seq.equals(decision.survivorSeq!)))
-          .write(
-            OutboxOpsCompanion(payload: Value(jsonEncode(decision.mergedPayload))),
-          );
+      await (update(
+        outboxOps,
+      )..where((t) => t.seq.equals(decision.survivorSeq!))).write(
+        OutboxOpsCompanion(payload: Value(jsonEncode(decision.mergedPayload))),
+      );
     }
 
     if (!decision.insert) {
@@ -197,15 +204,18 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     required Set<String> busyChatIds,
   }) {
     return transaction(() async {
-      final candidates = await (select(outboxOps)
-            ..where(
-              (t) =>
-                  t.status.equals(OutboxStatus.pending) &
-                  (t.nextAttemptAt.isNull() |
-                      t.nextAttemptAt.isSmallerOrEqualValue(nowEpochSeconds)),
-            )
-            ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
-          .get();
+      final candidates =
+          await (select(outboxOps)
+                ..where(
+                  (t) =>
+                      t.status.equals(OutboxStatus.pending) &
+                      (t.nextAttemptAt.isNull() |
+                          t.nextAttemptAt.isSmallerOrEqualValue(
+                            nowEpochSeconds,
+                          )),
+                )
+                ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+              .get();
 
       for (final op in candidates) {
         final busyKey = op.chatId ?? _nullChatKey;
@@ -238,13 +248,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
                         ? t.chatId.isNull()
                         : t.chatId.equals(op.chatId!)) &
                     t.seq.isSmallerThanValue(op.seq) &
-                    t.status.isIn(
-                      const [
-                        OutboxStatus.pending,
-                        OutboxStatus.inFlight,
-                        OutboxStatus.failed,
-                      ],
-                    ),
+                    t.status.isIn(const [
+                      OutboxStatus.pending,
+                      OutboxStatus.inFlight,
+                      OutboxStatus.failed,
+                    ]),
               )
               ..limit(1))
             .getSingleOrNull();
@@ -284,10 +292,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// send attempt, so it must not consume the requestCompletion N=5 budget
   /// (otherwise a long offline stretch parks a perfectly good completion the
   /// instant connectivity returns). `lastError` is recorded for diagnostics.
-  Future<void> markOfflineDeferred(
-    int seq, {
-    required int nextAttemptAt,
-  }) {
+  Future<void> markOfflineDeferred(int seq, {required int nextAttemptAt}) {
     return customUpdate(
       'UPDATE outbox_ops SET status = ?, last_error = ?, '
       'next_attempt_at = ? WHERE seq = ?',
@@ -358,15 +363,16 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// Cheap preflight for the §7.3 crash-heal path. Lets pull skip the expensive
   /// createChatContentHash(rows) computation when no pending create could match.
   Future<bool> hasPendingCreateContentHashes() async {
-    final row = await (select(outboxOps)
-          ..where(
-            (t) =>
-                t.kind.equals(OutboxKind.createChat.name) &
-                t.contentHash.isNotNull() &
-                t.status.equals(OutboxStatus.pending),
-          )
-          ..limit(1))
-        .getSingleOrNull();
+    final row =
+        await (select(outboxOps)
+              ..where(
+                (t) =>
+                    t.kind.equals(OutboxKind.createChat.name) &
+                    t.contentHash.isNotNull() &
+                    t.status.equals(OutboxStatus.pending),
+              )
+              ..limit(1))
+            .getSingleOrNull();
     return row != null;
   }
 
@@ -398,14 +404,14 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     required String fromChatId,
     required String toChatId,
   }) {
-    return (update(outboxOps)
-          ..where(
-            (t) =>
-                t.chatId.equals(fromChatId) &
-                t.status.isIn(
-                  const [OutboxStatus.pending, OutboxStatus.inFlight],
-                ),
-          ))
+    return (update(outboxOps)..where(
+          (t) =>
+              t.chatId.equals(fromChatId) &
+              t.status.isIn(const [
+                OutboxStatus.pending,
+                OutboxStatus.inFlight,
+              ]),
+        ))
         .write(OutboxOpsCompanion(chatId: Value(toChatId)));
   }
 
@@ -416,9 +422,10 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     final query = selectOnly(outboxOps)
       ..addColumns([countExpr])
       ..where(
-        outboxOps.status.isIn(
-          const [OutboxStatus.pending, OutboxStatus.inFlight],
-        ),
+        outboxOps.status.isIn(const [
+          OutboxStatus.pending,
+          OutboxStatus.inFlight,
+        ]),
       );
     return query.watchSingle().map((row) => row.read(countExpr) ?? 0);
   }
@@ -429,8 +436,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     return (select(outboxOps)
           ..where(
             (t) =>
-                t.chatId.equals(chatId) &
-                t.status.equals(OutboxStatus.failed),
+                t.chatId.equals(chatId) & t.status.equals(OutboxStatus.failed),
           )
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .watch();
@@ -441,8 +447,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     return (select(outboxOps)
           ..where(
             (t) =>
-                t.chatId.equals(chatId) &
-                t.status.equals(OutboxStatus.pending),
+                t.chatId.equals(chatId) & t.status.equals(OutboxStatus.pending),
           )
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .get();
@@ -531,7 +536,16 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // delete preserves order).
         final upsert = newestOfKind(OutboxKind.folderUpsert);
         if (upsert != null) {
-          return _CoalesceDecision(insert: false, survivorSeq: upsert.seq);
+          final priorPayload = _decodePayload(upsert.payload);
+          final merged = <String, dynamic>{...priorPayload, ...payload};
+          if (priorPayload['createIfAbsent'] == true) {
+            merged['createIfAbsent'] = true;
+          }
+          return _CoalesceDecision(
+            insert: false,
+            survivorSeq: upsert.seq,
+            mergedPayload: merged,
+          );
         }
         return const _CoalesceDecision(insert: true);
 
@@ -694,10 +708,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           'noteUpdate.title must be a String',
         );
       case OutboxKind.notePin:
-        _require(
-          payload['desired'] is bool,
-          'notePin.desired must be a bool',
-        );
+        _require(payload['desired'] is bool, 'notePin.desired must be a bool');
     }
   }
 
@@ -723,7 +734,6 @@ class _CoalesceDecision {
   final List<int> deletions;
   final int? survivorSeq;
 
-  /// When non-null, the surviving op's payload is rewritten to this merged
-  /// patch map (D-11 noteUpdate patch-map coalescing).
+  /// When non-null, the surviving op's payload is rewritten to this merged map.
   final Map<String, dynamic>? mergedPayload;
 }
