@@ -968,6 +968,32 @@ void main() {
         check(OutboxKind.fromName(head!.kind)).equals(OutboxKind.createChat);
       },
     );
+
+    test('deleteChat can overtake a parked requestCompletion', () async {
+      final completionSeq = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c-delete',
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
+      );
+      await dao.markParked(completionSeq, error: 'terminal');
+      final deleteSeq = await enqueue(
+        kind: OutboxKind.deleteChat,
+        chatId: 'c-delete',
+      );
+
+      final claimed = await dao.claimNextRunnable(
+        nowEpochSeconds: 1,
+        busyChatIds: {},
+      );
+
+      check(claimed).isNotNull();
+      check(claimed!.seq).equals(deleteSeq);
+      check(claimed.kind).equals(OutboxKind.deleteChat.name);
+    });
   });
 
   group('watchPendingCount', () {

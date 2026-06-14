@@ -190,7 +190,7 @@ void main() {
     },
   );
 
-  test('all-skip full note list page does not stop pagination', () async {
+  test('all-skip full note list page stops without pagination loop', () async {
     client = _AllMalformedFirstPageNoteClient(server);
     for (var i = 0; i < FakeOpenWebUiServer.notePageSize + 1; i++) {
       server.seedNote(
@@ -207,13 +207,12 @@ void main() {
     final result = await pull();
 
     check(result.success).isTrue();
-    check(result.changed).equals(1);
-    check(client.noteListPages).deepEquals([1, 2]);
-    check(client.noteFetchStarts).deepEquals(['n-00']);
+    check(result.changed).equals(0);
+    check(client.noteListPages).deepEquals([1]);
+    check(client.noteFetchStarts).isEmpty();
     final notes = await allNotes();
-    check(notes).length.equals(1);
-    check(notes.single.id).equals('n-00');
-    check(await db.syncMetaDao.getNotesPullWatermark()).equals(kT1);
+    check(notes).isEmpty();
+    check(await db.syncMetaDao.getNotesPullWatermark()).equals(0);
   });
 
   test(

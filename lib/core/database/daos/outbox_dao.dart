@@ -279,6 +279,13 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// ([requeueParked]) re-arms the parked head, which then unblocks its
   /// dependents on the next claim.
   Future<bool> _isChatHead(OutboxOp op) async {
+    final blockingStatuses = _failedPredecessorsBlock(op)
+        ? const [
+            OutboxStatus.pending,
+            OutboxStatus.inFlight,
+            OutboxStatus.failed,
+          ]
+        : const [OutboxStatus.pending, OutboxStatus.inFlight];
     final predecessor =
         await (select(outboxOps)
               ..where(
@@ -288,15 +295,20 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
                         ? t.chatId.isNull()
                         : t.chatId.equals(op.chatId!)) &
                     t.seq.isSmallerThanValue(op.seq) &
-                    t.status.isIn(const [
-                      OutboxStatus.pending,
-                      OutboxStatus.inFlight,
-                      OutboxStatus.failed,
-                    ]),
+                    t.status.isIn(blockingStatuses),
               )
               ..limit(1))
             .getSingleOrNull();
     return predecessor == null;
+  }
+
+  bool _failedPredecessorsBlock(OutboxOp op) {
+    return switch (OutboxKind.fromName(op.kind)) {
+      OutboxKind.deleteChat ||
+      OutboxKind.folderDelete ||
+      OutboxKind.noteDelete => false,
+      _ => true,
+    };
   }
 
   /// Removes a completed op (A2 — no terminal history, mirrors the lean
