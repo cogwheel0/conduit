@@ -176,8 +176,11 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     if (row == null) return;
     if (!row.dirtyTitle && !row.dirtyData) return;
 
-    final pending = await _outboxDao.pendingForChat(noteId);
-    final hasUpdateOrCreate = pending.any((op) {
+    final active = await _outboxDao.activeForChat(
+      noteId,
+      domainKind: OutboxKind.noteUpdate,
+    );
+    final hasUpdateOrCreate = active.any((op) {
       final kind = OutboxKind.fromName(op.kind);
       return kind == OutboxKind.noteUpdate || kind == OutboxKind.noteCreate;
     });

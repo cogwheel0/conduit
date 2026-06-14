@@ -300,6 +300,27 @@ void main() {
       },
     );
 
+    test('clears dirty messages in batches for very large chats', () async {
+      server.seedChat(
+        id: 'srv-many',
+        blob: {
+          'title': 'Title srv-many',
+          'history': {'messages': <String, dynamic>{}, 'currentId': null},
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      await seedLocalChat(db, id: 'srv-many', messageCount: 1200, dirty: true);
+
+      await push.pushUpdateChat('srv-many');
+
+      final chat = await db.chatsDao.getChat('srv-many');
+      check(chat!.dirty).isFalse();
+      final msgs = await db.messagesDao.getForChat('srv-many');
+      check(msgs).length.equals(1200);
+      check(msgs.every((m) => !m.dirty)).isTrue();
+    });
+
     test('defers update when the chat body is only an envelope stub', () async {
       server.seedChat(
         id: 'stub',
@@ -448,6 +469,34 @@ void main() {
       final stored = server.getChatById('srv-pin')!;
       check(stored['pinned']).equals(true);
       check(stored['archived']).equals(true);
+    });
+
+    test('pin-only toggle skips redundant chat body fetch', () async {
+      server.seedChat(
+        id: 'srv-pin-only',
+        blob: {
+          'title': 'p',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        pinned: false,
+        archived: false,
+      );
+      await seedLocalChat(
+        db,
+        id: 'srv-pin-only',
+        messageCount: 0,
+        pinned: true,
+        archived: false,
+      );
+
+      await push.pushUpdateChat('srv-pin-only');
+
+      final stored = server.getChatById('srv-pin-only')!;
+      check(stored['pinned']).equals(true);
+      check(stored['archived']).equals(false);
+      check(client.chatFetchStarts).isEmpty();
     });
 
     test(

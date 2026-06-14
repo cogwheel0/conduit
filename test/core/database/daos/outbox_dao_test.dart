@@ -589,15 +589,15 @@ void main() {
     });
 
     test(
-      'busyChatIds excludes a chat already held by another worker',
+      'busy domain keys exclude an op already held by another worker',
       () async {
         await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
         final s2 = await enqueue(kind: OutboxKind.updateChat, chatId: 'c2');
 
-        // c1 is busy ⇒ claim must skip to c2's head.
+        // c1's chat-domain key is busy, so claim must skip to c2's head.
         final claimed = await dao.claimNextRunnable(
           nowEpochSeconds: 100,
-          busyChatIds: {'c1'},
+          busyChatIds: {OutboxDao.busyKeyForKind(OutboxKind.updateChat, 'c1')},
         );
         check(claimed!.seq).equals(s2);
         check(claimed.chatId).equals('c2');
@@ -667,7 +667,9 @@ void main() {
         for (var i = 0; i < 130; i++) {
           final chatId = 'c$i';
           await enqueue(kind: OutboxKind.updateChat, chatId: chatId);
-          if (i < 128) busy.add(chatId);
+          if (i < 128) {
+            busy.add(OutboxDao.busyKeyForKind(OutboxKind.updateChat, chatId));
+          }
         }
 
         final claimed = await dao.claimNextRunnable(

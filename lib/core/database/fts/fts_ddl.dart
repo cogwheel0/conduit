@@ -127,7 +127,7 @@ END;
 /// extracting the markdown body in-trigger is safe. `coalesce(..., '')` guards a
 /// missing/NULL path so the FTS row is never NULL (which FTS5 would reject).
 const List<String> kNoteFtsTriggers = <String>[
-  // 7. notes AFTER INSERT → title row + extracted-body text row.
+  // 8. notes AFTER INSERT → title row + extracted-body text row.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_ai AFTER INSERT ON notes BEGIN
   INSERT INTO chat_fts(text, chat_id, message_id, kind)
@@ -137,7 +137,7 @@ CREATE TRIGGER IF NOT EXISTS chat_fts_note_ai AFTER INSERT ON notes BEGIN
           new.id, '', 'note_text');
 END;
 ''',
-  // 8. notes AFTER UPDATE OF title (guarded so unrelated column writes skip).
+  // 9. notes AFTER UPDATE OF title (guarded so unrelated column writes skip).
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_title_au AFTER UPDATE OF title ON notes
 WHEN new.title <> old.title BEGIN
@@ -146,7 +146,7 @@ WHEN new.title <> old.title BEGIN
   VALUES (new.title, new.id, '', 'note_title');
 END;
 ''',
-  // 9. notes AFTER UPDATE OF data — re-extract the body (guarded on raw data).
+  // 10. notes AFTER UPDATE OF data — re-extract the body (guarded on raw data).
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_data_au AFTER UPDATE OF data ON notes
 WHEN new.data <> old.data BEGIN
@@ -156,7 +156,7 @@ WHEN new.data <> old.data BEGIN
           new.id, '', 'note_text');
 END;
 ''',
-  // 10. notes AFTER UPDATE OF deleted — soft-delete purges both note kinds.
+  // 11. notes AFTER UPDATE OF deleted — soft-delete purges both note kinds.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_deleted_au
 AFTER UPDATE OF deleted ON notes
@@ -165,7 +165,7 @@ WHEN new.deleted = 1 BEGIN
   WHERE chat_id = old.id AND kind IN ('note_title', 'note_text');
 END;
 ''',
-  // 11. notes AFTER DELETE — purges BOTH note kinds for the note id.
+  // 12. notes AFTER DELETE — purges BOTH note kinds for the note id.
   '''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_ad AFTER DELETE ON notes BEGIN
   DELETE FROM chat_fts

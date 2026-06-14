@@ -395,6 +395,66 @@ void main() {
   });
 
   test(
+    'field-LWW does not enqueue duplicate update behind in-flight update',
+    () async {
+      const noteId = 'copy-inflight';
+      await db
+          .into(db.notes)
+          .insert(
+            NotesCompanion.insert(
+              id: noteId,
+              title: 'Copy',
+              data: Value(
+                jsonEncode({
+                  'content': {'md': 'local copy edit'},
+                }),
+              ),
+              createdAt: kT1,
+              updatedAt: kT1,
+              serverUpdatedAt: const Value(kT1),
+              dirtyData: const Value(true),
+              isConflictCopy: const Value(true),
+              conflictOf: const Value('n1'),
+            ),
+          );
+      await db.transaction(() {
+        return db.outboxDao.enqueue(
+          kind: OutboxKind.noteUpdate,
+          chatId: noteId,
+          payload: const {'title': 'Copy'},
+        );
+      });
+      final claimed = await db.outboxDao.claimNextRunnable(
+        nowEpochSeconds: 100,
+        busyChatIds: const {},
+      );
+      check(claimed).isNotNull();
+      check(claimed!.kind).equals(OutboxKind.noteUpdate.name);
+      check(claimed.status).equals(OutboxStatus.inFlight);
+
+      final result = await db.notesDao.mergeServerNote(
+        serverRaw: <String, dynamic>{
+          'id': noteId,
+          'title': 'Copy server',
+          'data': {
+            'content': {'md': 'remote copy edit'},
+          },
+          'meta': <String, dynamic>{},
+          'is_pinned': false,
+          'created_at': kT1,
+          'updated_at': kT2,
+        },
+      );
+
+      check(result.mustPush).isTrue();
+      check(await db.outboxDao.pendingForChat(noteId)).isEmpty();
+      final active = await db.outboxDao.activeForChat(noteId);
+      check(active).length.equals(1);
+      check(active.single.status).equals(OutboxStatus.inFlight);
+    },
+  );
+
+  test(
     'tombstoneWithOutbox drops a local note when create/delete annihilate',
     () async {
       const localId = 'local:drop-note';

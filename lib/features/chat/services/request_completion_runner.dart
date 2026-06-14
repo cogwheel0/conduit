@@ -27,6 +27,16 @@ class CompletionBusyException implements OutboxDeferralException {
   String toString() => 'CompletionBusyException(chat: $chatId)';
 }
 
+/// Transient session-switch race: the selected server/database is briefly
+/// absent, so the outbox op should retry without burning parking budget.
+class CompletionDatabaseUnavailableException
+    implements OutboxDeferralException {
+  const CompletionDatabaseUnavailableException();
+
+  @override
+  String toString() => 'CompletionDatabaseUnavailableException()';
+}
+
 /// Concrete [RequestCompletionRunner] (Wiring D). Re-enters the EXISTING
 /// streaming pipeline ([runQueuedCompletion]) for a drained `requestCompletion`
 /// op — it never forks a second streaming implementation, and it is no-op-safe
@@ -52,9 +62,12 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
 
     final db = _ref.read(appDatabaseProvider);
     if (db == null) {
-      // No active db: cannot drive. Throw so the op stays pending and retries
-      // once a db is attached.
-      throw StateError('requestCompletion: no active database');
+      DebugLogger.log(
+        'completion-deferred-no-db',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
+      );
+      throw const CompletionDatabaseUnavailableException();
     }
 
     // 1. Streaming-conflict guard (R5): if a LIVE interactive stream owns this

@@ -10,6 +10,8 @@ import 'id_remapper.dart';
 import 'outbox_drainer.dart';
 import 'sync_api_client.dart';
 
+const int _sqliteVariableBatchSize = 900;
+
 /// Per-kind outbox push handlers (CDT-RFC-001 §7.2/§7.3/§7.4).
 ///
 /// Every handler acquires the chat (or folder) lock internally so push
@@ -206,13 +208,10 @@ class PushSync {
       final serverArchived = resp['archived'] == true;
       final needsPinCheck = chat.pinned != serverPinned;
       final needsArchiveCheck = chat.archived != serverArchived;
-      if (needsPinCheck || needsArchiveCheck) {
-        // ONE liveness fetch guards BOTH toggles: the ChatResponse pin/archive
-        // can be stale relative to a concurrent toggle by another client, so we
-        // re-read before flipping. A 404 here means the chat was deleted in the
-        // window after updateChat succeeded — skip both toggles (reconcile
-        // purges the local row); toggling a gone chat would throw a terminal
-        // error and park an op whose updateChat already succeeded.
+      if (needsArchiveCheck) {
+        // A liveness fetch is needed only for archive reconciliation: the
+        // archive flag rides the ChatResponse, while pin has a dedicated
+        // authoritative endpoint below.
         final liveRaw = await _client.getChatRaw(chatId);
         if (liveRaw != null) {
           if (needsPinCheck) {
@@ -229,6 +228,13 @@ class PushSync {
               await _client.toggleArchive(chatId);
             }
           }
+        }
+      } else if (needsPinCheck) {
+        // Pin lives in a join table; confirm against /pinned (authoritative)
+        // rather than the ChatResponse copy, then flip on a real delta.
+        final livePinned = await _client.getChatPinned(chatId);
+        if (livePinned != chat.pinned) {
+          await _client.togglePin(chatId);
         }
       }
 
@@ -406,9 +412,20 @@ class PushSync {
         updateKind: UpdateKind.update,
       );
       if (messageIds.isEmpty) return;
-      await (_db.update(_db.messages)
-            ..where((t) => t.chatId.equals(chatId) & t.id.isIn(messageIds)))
-          .write(const MessagesCompanion(dirty: Value(false)));
+      for (
+        var start = 0;
+        start < messageIds.length;
+        start += _sqliteVariableBatchSize
+      ) {
+        final end = start + _sqliteVariableBatchSize;
+        final batch = messageIds.sublist(
+          start,
+          end > messageIds.length ? messageIds.length : end,
+        );
+        await (_db.update(_db.messages)
+              ..where((t) => t.chatId.equals(chatId) & t.id.isIn(batch)))
+            .write(const MessagesCompanion(dirty: Value(false)));
+      }
     });
   }
 

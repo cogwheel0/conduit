@@ -37,13 +37,14 @@ void main() {
   ({ProviderContainer container, RequestCompletionRunner runner}) makeRunner({
     required bool isStreaming,
     Conversation? active,
+    bool attachDatabase = true,
   }) {
     final runnerProvider = Provider<RequestCompletionRunner>(
       ChatRequestCompletionRunner.new,
     );
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        appDatabaseProvider.overrideWith((ref) => attachDatabase ? db : null),
         isChatStreamingProvider.overrideWithValue(isStreaming),
         activeConversationProvider.overrideWith(() => _SeededActive(active)),
         // No api/socket stack here: the headless/live drive both short-circuit
@@ -120,6 +121,19 @@ void main() {
     await check(
       runner.run(chatId: chatId, payload: payload('asst-1')),
     ).throws<CompletionBusyException>();
+  });
+
+  test('defers when no active database is attached', () async {
+    final (:container, :runner) = makeRunner(
+      isStreaming: false,
+      active: null,
+      attachDatabase: false,
+    );
+    container;
+
+    await check(
+      runner.run(chatId: 'chat-no-db', payload: payload('asst-no-db')),
+    ).throws<CompletionDatabaseUnavailableException>();
   });
 
   test('returns early (idempotent) when the turn already completed', () async {

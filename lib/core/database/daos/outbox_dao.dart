@@ -253,8 +253,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
         for (final op in candidates) {
           final busyKey = busyKeyFor(op);
-          if (busyChatIds.contains(busyKey) ||
-              busyChatIds.contains(op.chatId ?? _nullChatKey)) {
+          if (busyChatIds.contains(busyKey)) {
             continue;
           }
 
@@ -508,6 +507,25 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     final query = select(outboxOps)
       ..where(
         (t) => t.chatId.equals(chatId) & t.status.equals(OutboxStatus.pending),
+      );
+    if (domainKind != null) {
+      query.where((t) => t.kind.isIn(_domainKindNamesForName(domainKind.name)));
+    }
+    return (query..orderBy([(t) => OrderingTerm.asc(t.seq)])).get();
+  }
+
+  /// All still-owned ops for [chatId] (pending|inFlight, seq ASC).
+  /// Used by merge paths that must not enqueue a duplicate while a drain
+  /// worker already owns the covering op.
+  Future<List<OutboxOp>> activeForChat(
+    String chatId, {
+    OutboxKind? domainKind,
+  }) {
+    final query = select(outboxOps)
+      ..where(
+        (t) =>
+            t.chatId.equals(chatId) &
+            t.status.isIn(const [OutboxStatus.pending, OutboxStatus.inFlight]),
       );
     if (domainKind != null) {
       query.where((t) => t.kind.isIn(_domainKindNamesForName(domainKind.name)));
