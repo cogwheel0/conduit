@@ -158,6 +158,21 @@ void main() {
     check(rows).isEmpty();
   });
 
+  test('returns early when the assistant placeholder row vanished', () async {
+    const chatId = 'chat-missing-placeholder';
+    await seedChat(chatId);
+    final (:container, :runner) = makeRunner(
+      isStreaming: false,
+      active: conv('a-different-chat'),
+    );
+    container;
+
+    await runner.run(chatId: chatId, payload: payload('missing-asst'));
+
+    final rows = await db.messagesDao.getForChat(chatId);
+    check(rows).isEmpty();
+  });
+
   test('Option B: runs HEADLESS (never switches the active chat) when a '
       'DIFFERENT chat is foregrounded', () async {
     const chatId = 'chat-bg';

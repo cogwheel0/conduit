@@ -178,20 +178,47 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       final existing = await getChat(serverChat.id);
 
       // First sync for this id, OR a never-synced envelope stub
-      // (serverUpdatedAt == null): plain server write == fast-forward. A stub
-      // has no merge base and no dirty body to protect, so the full server blob
-      // overwrites it wholesale — entering the three-way path would coerce the
-      // null base to S.updatedAt and resolve to noRemoteChange, silently
-      // dropping the server body and leaving the row bodySynced=false with zero
-      // message rows. (The dirty-tombstone skip below still wins first; a stub
-      // is never dirty so this ordering is safe either way.)
+      // (serverUpdatedAt == null). Clean stubs can fast-forward to the full
+      // server body. Dirty stubs cannot: migration can append local messages to
+      // an envelope stub before the first body pull, and _writeChatRows replaces
+      // all messages.
       if (existing == null || existing.serverUpdatedAt == null) {
-        // A dirty tombstone with a null serverUpdatedAt should still be
-        // protected (never resurrect a locally-deleted chat).
-        if (existing != null && existing.deleted && existing.dirty) {
-          return const ChatMergeWriteResult(
-            outcome: MergeOutcome.noRemoteChange,
-            mustPush: false,
+        if (existing != null && existing.dirty) {
+          if (existing.deleted) {
+            return const ChatMergeWriteResult(
+              outcome: MergeOutcome.noRemoteChange,
+              mustPush: false,
+            );
+          }
+
+          final localMessages = await (select(messages)
+                ..where((t) => t.chatId.equals(serverChat.id)))
+              .get();
+          final local = chatRowsFromDb(existing, localMessages);
+          final dirtyMessageIds = <String>{
+            for (final m in localMessages)
+              if (m.dirty) m.id,
+          };
+          final result = mergeChat(
+            server: server,
+            local: local,
+            base: serverChat.updatedAt - 1,
+            chatEnvelopeDirty: true,
+            dirtyMessageIds: dirtyMessageIds,
+          );
+          await _writeChatRows(
+            rows: result.merged,
+            shareId: shareId,
+            meta: meta,
+            listLastReadAt: listLastReadAt,
+            existingLastReadAt: existing.lastReadAt,
+            serverUpdatedAt: result.newServerUpdatedAt,
+            chatDirty: true,
+            dirtyMessageIds: result.dirtyMessageIds,
+          );
+          return ChatMergeWriteResult(
+            outcome: result.outcome,
+            mustPush: result.mustPush,
           );
         }
         await _writeChatRows(

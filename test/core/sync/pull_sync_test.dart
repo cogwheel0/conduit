@@ -622,6 +622,74 @@ void main() {
       check(pending.single.kind).equals('deleteChat');
     });
 
+    test('a dirty never-synced stub keeps migrated messages on first body pull',
+        () async {
+      const chatId = 'chat-1';
+      await db.chatsDao.upsertEnvelopeStub(
+        id: chatId,
+        title: 'Migrated stub',
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: chatId,
+        messages: [
+          MessageRowData(
+            id: 'migrated-user',
+            chatId: chatId,
+            parentId: null,
+            role: 'user',
+            content: 'queued user text',
+            createdAt: 101,
+            orderIndex: 0,
+            payload: const {
+              'id': 'migrated-user',
+              'role': 'user',
+              'content': 'queued user text',
+            },
+          ),
+          MessageRowData(
+            id: 'migrated-assistant',
+            chatId: chatId,
+            parentId: 'migrated-user',
+            role: 'assistant',
+            content: '',
+            createdAt: 102,
+            orderIndex: 1,
+            payload: const {
+              'id': 'migrated-assistant',
+              'parentId': 'migrated-user',
+              'role': 'assistant',
+              'content': '',
+            },
+          ),
+        ],
+        currentMessageId: 'migrated-assistant',
+        updatedAt: 102,
+        enqueueCompletion: false,
+      );
+
+      server.seedChat(
+        id: chatId,
+        blob: blobFor(chatId, messageCount: 1),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+
+      final result = await pull.run();
+      check(result.success).isTrue();
+
+      final chat = (await db.chatsDao.getChat(chatId))!;
+      check(chat.dirty).isTrue();
+      check(chat.bodySynced).isTrue();
+      final ids = (await db.messagesDao.getForChat(chatId))
+          .map((m) => m.id)
+          .toSet();
+      check(ids).contains('migrated-user');
+      check(ids).contains('migrated-assistant');
+      check(ids).contains('$chatId-m1');
+    });
+
     test('5s-overlap re-merge of a dirty chat is a no-op (idempotent)',
         () async {
       await seedAndPull('chat-1');

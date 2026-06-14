@@ -81,7 +81,15 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         break;
       }
     }
-    if (placeholder != null && placeholder.content.trim().isNotEmpty) {
+    if (placeholder == null) {
+      DebugLogger.log(
+        'completion-placeholder-absent',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
+      );
+      return;
+    }
+    if (placeholder.content.trim().isNotEmpty) {
       DebugLogger.log(
         'completion-already-done',
         scope: 'chat/completion',
