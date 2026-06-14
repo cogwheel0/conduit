@@ -139,7 +139,7 @@ void main() {
   });
 
   test(
-    'malformed note list items fail the page instead of shortening it',
+    'malformed note list items are skipped without shortening the page',
     () async {
       client = _MalformedFirstPageNoteClient(server);
       for (var i = 0; i < FakeOpenWebUiServer.notePageSize + 1; i++) {
@@ -156,11 +156,16 @@ void main() {
 
       final result = await pull();
 
-      check(result.success).isFalse();
-      check(client.noteListPages).deepEquals([1]);
-      check(client.noteFetchStarts).isEmpty();
-      check(await allNotes()).isEmpty();
-      check(await db.syncMetaDao.getNotesPullWatermark()).equals(0);
+      check(result.success).isTrue();
+      check(result.changed).equals(FakeOpenWebUiServer.notePageSize);
+      check(client.noteListPages).deepEquals([1, 2]);
+      check(
+        client.noteFetchStarts,
+      ).length.equals(FakeOpenWebUiServer.notePageSize);
+      final notes = await allNotes();
+      check(notes).length.equals(FakeOpenWebUiServer.notePageSize);
+      check(notes.map((note) => note.id)).not((ids) => ids.contains('n-60'));
+      check(await db.syncMetaDao.getNotesPullWatermark()).equals(kT1 + 59);
     },
   );
 
@@ -336,6 +341,10 @@ void main() {
     check(row.updatedAt).equals(kT1);
     check(row.serverUpdatedAt).equals(kT1);
     check(row.data).contains('local copy edit');
+    final pending = await db.outboxDao.pendingForChat('copy-1');
+    check(
+      pending.map((op) => op.kind),
+    ).deepEquals([OutboxKind.noteUpdate.name]);
   });
 
   test(

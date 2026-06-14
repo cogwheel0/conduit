@@ -25,11 +25,14 @@ Map<String, dynamic> decodeOutboxPayload(String raw) {
 /// fields without those leaking into the interface (anti-over-abstraction: no
 /// requestCompletion, no archived/folders branches here).
 class SyncListItem {
-  const SyncListItem({
-    required this.id,
-    required this.updatedAt,
-    this.envelope,
-  });
+  const SyncListItem({required this.id, required this.updatedAt, this.envelope})
+    : skip = false;
+
+  const SyncListItem.skip()
+    : id = '',
+      updatedAt = 0,
+      envelope = null,
+      skip = true;
 
   final String id;
 
@@ -41,6 +44,11 @@ class SyncListItem {
   /// driver only passes it through to [mergeServer] when the adapter explicitly
   /// declares [SyncEntityAdapter.listEnvelopeIsFullRaw].
   final Map<String, dynamic>? envelope;
+
+  /// A malformed server row that still occupies one page slot. The pull driver
+  /// ignores it for fetch/watermark decisions while preserving page length, so
+  /// one bad item cannot shorten pagination or freeze the entire pull.
+  final bool skip;
 }
 
 /// The honest shared surface of the two real sync entities — chats and notes
@@ -152,6 +160,7 @@ Future<AdapterPullResult> runPullFor(
     while (!stop) {
       final items = await adapter.getListPage(page);
       for (final item in items) {
+        if (item.skip) continue;
         if (item.updatedAt > threshold) {
           changed.putIfAbsent(item.id, () => item);
           maxSeen = math.max(maxSeen, item.updatedAt);

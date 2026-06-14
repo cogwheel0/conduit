@@ -77,35 +77,8 @@ class NotePullSync {
       if (healed) return false;
 
       final write = await _db.notesDao.mergeServerNote(serverRaw: resp);
-      if (write.mustPush) {
-        await _enqueueUpdateIfMissing(id);
-      }
       return write.mustPush;
     });
-  }
-
-  /// Enqueues a `noteUpdate` for [noteId] when title/data still need pushing,
-  /// unless a noteUpdate/noteCreate is already pending (the patch is rebuilt from
-  /// the row). Runs under the note lock the caller holds.
-  Future<void> _enqueueUpdateIfMissing(String noteId) async {
-    final row = await _db.notesDao.getNote(noteId);
-    if (row == null) return;
-    if (!row.dirtyTitle && !row.dirtyData) return;
-
-    final pending = await _db.outboxDao.pendingForChat(noteId);
-    final hasUpdateOrCreate = pending.any((op) {
-      final kind = OutboxKind.fromName(op.kind);
-      return kind == OutboxKind.noteUpdate || kind == OutboxKind.noteCreate;
-    });
-    if (hasUpdateOrCreate) return;
-    // Include data only when the data axis is still dirty (title is always
-    // sent — WARNING B).
-    final patch = noteRowToPatch(row, includeData: row.dirtyData);
-    await _db.outboxDao.enqueue(
-      kind: OutboxKind.noteUpdate,
-      chatId: noteId,
-      payload: patch,
-    );
   }
 
   /// Attempts the note-create content-hash crash-heal. Returns true when the

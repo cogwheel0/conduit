@@ -3,6 +3,7 @@ import '../database/daos/notes_dao.dart' show decodeNotePatch;
 import '../database/daos/outbox_dao.dart';
 import '../database/mappers/note_mapper.dart' show asNs;
 import '../database/daos/sync_meta_dao.dart';
+import '../utils/debug_logger.dart';
 import 'note_sync.dart';
 import 'sync_api_client.dart';
 import 'sync_entity_adapter.dart';
@@ -50,13 +51,23 @@ class NoteAdapter implements SyncEntityAdapter {
   SyncListItem _listItem(Map<String, dynamic> item) {
     final id = item['id'];
     if (id is! String || id.isEmpty) {
-      throw const FormatException('Note list item without a string id');
+      _logMalformedListItem(reason: 'missing-id');
+      return const SyncListItem.skip();
     }
     final ns = asNs(item['updated_at']);
     if (ns == null) {
-      throw FormatException('Note list item without updated_at: $id');
+      _logMalformedListItem(reason: 'missing-updated-at', id: id);
+      return const SyncListItem.skip();
     }
     return SyncListItem(id: id, updatedAt: ns, envelope: item);
+  }
+
+  void _logMalformedListItem({required String reason, String? id}) {
+    DebugLogger.warning(
+      'skip-malformed-note-list-item',
+      scope: 'sync/notes',
+      data: {'reason': reason, 'noteId': id},
+    );
   }
 
   @override

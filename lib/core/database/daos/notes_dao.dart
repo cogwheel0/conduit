@@ -130,11 +130,8 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
       switch (decision.kind) {
         case NoteMergeKind.skipDirtyTombstone:
         case NoteMergeKind.noRemoteChange:
-          // Rows untouched; only re-assert push.
-          return NoteMergeWriteResult(
-            kind: decision.kind,
-            mustPush: decision.mustPush,
-          );
+          // Rows untouched; only re-assert push below when needed.
+          break;
 
         case NoteMergeKind.fastForward:
           // Plain server write; preserve the local pin mirror if present (pin
@@ -149,10 +146,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
                   : Value(existing.dirtyPinned),
             ),
           );
-          return NoteMergeWriteResult(
-            kind: decision.kind,
-            mustPush: decision.mustPush,
-          );
+          break;
 
         case NoteMergeKind.fieldLww:
           await _writeFieldLww(
@@ -161,12 +155,39 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
             serverUpdatedAt: serverUpdatedAt,
             decision: decision,
           );
-          return NoteMergeWriteResult(
-            kind: decision.kind,
-            mustPush: decision.mustPush,
-          );
+          break;
       }
+
+      if (decision.mustPush) {
+        await _enqueueUpdateIfMissing(serverId);
+      }
+      return NoteMergeWriteResult(
+        kind: decision.kind,
+        mustPush: decision.mustPush,
+      );
     });
+  }
+
+  /// Caller is inside [mergeServerNote]'s transaction. Reasserts a pending
+  /// noteUpdate atomically with dirty-flag writes when title/data still owe a
+  /// push, unless a noteUpdate/noteCreate already covers this note.
+  Future<void> _enqueueUpdateIfMissing(String noteId) async {
+    final row = await getNote(noteId);
+    if (row == null) return;
+    if (!row.dirtyTitle && !row.dirtyData) return;
+
+    final pending = await _outboxDao.pendingForChat(noteId);
+    final hasUpdateOrCreate = pending.any((op) {
+      final kind = OutboxKind.fromName(op.kind);
+      return kind == OutboxKind.noteUpdate || kind == OutboxKind.noteCreate;
+    });
+    if (hasUpdateOrCreate) return;
+
+    await _outboxDao.enqueue(
+      kind: OutboxKind.noteUpdate,
+      chatId: noteId,
+      payload: noteRowToPatch(row, includeData: row.dirtyData),
+    );
   }
 
   /// Writes the canonical row per [decision] and (when concurrent data edit)
