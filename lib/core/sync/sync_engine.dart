@@ -529,9 +529,20 @@ class SyncEngine extends _$SyncEngine {
       _running = false;
       if (ref.mounted) {
         final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
-        final watermark = (result?.success ?? false)
-            ? (await _readWatermark(cycleEpoch)) ?? previousStateWatermark
-            : previousStateWatermark;
+        var watermark = previousStateWatermark;
+        if (result?.success ?? false) {
+          try {
+            watermark =
+                (await _readWatermark(cycleEpoch)) ?? previousStateWatermark;
+          } catch (error, stackTrace) {
+            DebugLogger.error(
+              'watermark-state-read-failed',
+              scope: 'sync/engine',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
+        }
         state = SyncStatus(
           phase: SyncPhase.idle,
           lastSuccessUpdatedAtWatermark: watermark,

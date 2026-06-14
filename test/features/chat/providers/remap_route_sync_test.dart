@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
@@ -71,13 +73,18 @@ void main() {
     container.read(activeConversationProvider.notifier).set(conv(localId));
 
     await _seedBareLocalChat(db, localId);
-    await remapperOf(container).remapChat(
-      localId: localId,
-      serverId: 'server-1',
-      serverCreatedAt: 1,
-      serverUpdatedAt: 1,
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapChat(
+        localId: localId,
+        serverId: 'server-1',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
     );
-    await Future<void>.delayed(Duration.zero);
+    await _waitUntil(
+      () => container.read(activeConversationProvider)?.id == 'server-1',
+    );
 
     check(container.read(activeConversationProvider)?.id).equals('server-1');
   });
@@ -89,13 +96,15 @@ void main() {
     container.read(activeConversationProvider.notifier).set(conv('other'));
 
     await _seedBareLocalChat(db, 'local:swap2');
-    await remapperOf(container).remapChat(
-      localId: 'local:swap2',
-      serverId: 'server-2',
-      serverCreatedAt: 1,
-      serverUpdatedAt: 1,
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapChat(
+        localId: 'local:swap2',
+        serverId: 'server-2',
+        serverCreatedAt: 1,
+        serverUpdatedAt: 1,
+      ),
     );
-    await Future<void>.delayed(Duration.zero);
 
     check(container.read(activeConversationProvider)?.id).equals('other');
   });
@@ -108,15 +117,52 @@ void main() {
     container.read(pendingFolderIdProvider.notifier).set(localFolder);
 
     await _seedBareLocalFolder(db, localFolder);
-    await remapperOf(container).remapFolder(
-      localId: localFolder,
-      serverId: 'srv-folder',
-      serverUpdatedAt: 1,
+    await _runRemapAndWait(
+      remapperOf(container),
+      (remapper) => remapper.remapFolder(
+        localId: localFolder,
+        serverId: 'srv-folder',
+        serverUpdatedAt: 1,
+      ),
     );
-    await Future<void>.delayed(Duration.zero);
+    await _waitUntil(
+      () => container.read(pendingFolderIdProvider) == 'srv-folder',
+    );
 
     check(container.read(pendingFolderIdProvider)).equals('srv-folder');
   });
+}
+
+Future<void> _runRemapAndWait(
+  IdRemapper remapper,
+  Future<void> Function(IdRemapper remapper) run,
+) async {
+  final delivered = Completer<void>();
+  late final StreamSubscription<RemapEvent> sub;
+  sub = remapper.remapEvents.listen((_) {
+    if (!delivered.isCompleted) {
+      delivered.complete();
+    }
+  });
+  try {
+    await run(remapper);
+    await delivered.future.timeout(const Duration(seconds: 2));
+  } finally {
+    await sub.cancel();
+  }
+}
+
+Future<void> _waitUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('condition not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }
 
 Future<void> _seedBareLocalChat(AppDatabase db, String id) async {

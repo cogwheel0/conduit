@@ -11,6 +11,7 @@ import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +49,25 @@ class _MutableValue<T> extends Notifier<T> {
   T build() => initial;
 
   void set(T value) => state = value;
+}
+
+class _FailFinalPullWatermarkRead extends QueryInterceptor {
+  int pullWatermarkReads = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (args.contains('pull_watermark')) {
+      pullWatermarkReads++;
+      if (pullWatermarkReads == 3) {
+        throw StateError('injected pull watermark read failure');
+      }
+    }
+    return executor.runSelect(statement, args);
+  }
 }
 
 void main() {
@@ -329,6 +349,29 @@ void main() {
 
       check(failableDb.buildAttempts).equals(2);
       check(await db.syncMetaDao.getValue(kFtsBuiltKey)).equals('1');
+    });
+
+    test('watermark state read failure still completes pull joiners', () async {
+      await db.close();
+      final interceptor = _FailFinalPullWatermarkRead();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(interceptor));
+
+      seedChat('chat-1', 100);
+      final container = makeContainer();
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final result = await engine
+          .requestPull(reason: 'watermark-finalize-failure')
+          .timeout(const Duration(seconds: 2));
+
+      check(result).isNotNull();
+      check(result!.success).isTrue();
+      check(interceptor.pullWatermarkReads).equals(3);
+      check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
+      check(
+        container.read(syncEngineProvider).lastSuccessUpdatedAtWatermark,
+      ).isNull();
+      check(await db.syncMetaDao.getPullWatermark()).equals(100);
     });
 
     test('task queue migration failure retries on the next cycle', () async {

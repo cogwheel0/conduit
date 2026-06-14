@@ -1932,7 +1932,8 @@ Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
 // Server-side search provider for chats, with an offline FTS5 fallback.
 @riverpod
 Future<List<Conversation>> serverSearch(Ref ref, String query) async {
-  if (query.trim().isEmpty) {
+  final trimmedQuery = query.trim();
+  if (trimmedQuery.isEmpty) {
     // Return empty list for empty query instead of all conversations
     return [];
   }
@@ -1942,11 +1943,10 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
     // Offline / reviewer mode: serve ranked results straight from the local
     // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
     DebugLogger.log('offline-search', scope: 'search');
-    return _offlineSearch(ref, query);
+    return _offlineSearch(ref, trimmedQuery);
   }
 
   try {
-    final trimmedQuery = query.trim();
     DebugLogger.log(
       'server-search',
       scope: 'search',
@@ -2036,7 +2036,7 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
     // ranked search across ALL synced history (not just the in-memory page),
     // matching the offline path (CDT-RFC-001 Phase 4).
     DebugLogger.log('fallback-offline', scope: 'search');
-    return _offlineSearch(ref, query);
+    return _offlineSearch(ref, trimmedQuery);
   }
 }
 

@@ -1543,9 +1543,17 @@ class ApiService {
   }
 
   static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
-    if (data is! List) return const [];
+    Object? normalized = data;
+    if (normalized is String && normalized.isNotEmpty) {
+      try {
+        normalized = jsonDecode(normalized);
+      } catch (_) {
+        return const [];
+      }
+    }
+    if (normalized is! List) return const [];
     return [
-      for (final item in data)
+      for (final item in normalized)
         if (item is Map<String, dynamic>)
           item
         else if (item is Map)

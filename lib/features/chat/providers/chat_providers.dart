@@ -207,6 +207,8 @@ String? _connectedSocketSessionId(SocketService? socketService) {
   return sessionId;
 }
 
+const Duration _headlessStreamDrainTimeout = Duration(minutes: 5);
+
 Future<String?> _ensureConnectedSocketSessionId(
   SocketService? socketService, {
   Duration timeout = const Duration(milliseconds: 1200),
@@ -2799,8 +2801,8 @@ Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
       conversationMessages.add({
         'role': msg.role,
         'content': cleaned,
-        'files': ?msg.files,
-        'output': ?msg.output,
+        if (msg.files != null) 'files': msg.files,
+        if (msg.output != null) 'output': msg.output,
       });
     }
   }
@@ -3194,14 +3196,17 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
         }
       } else {
         // Non-image files go to files array for RAG/server-side processing
-        allFiles.add({
+        final filePayload = <String, dynamic>{
           'type': 'file',
           'id': attachmentId,
           // OpenWebUI now stores just the file ID, not the full URL path
           'url': attachmentId,
           'name': fileName,
-          'size': ?fileSize,
-        });
+        };
+        if (fileSize != null) {
+          filePayload['size'] = fileSize;
+        }
+        allFiles.add(filePayload);
       }
     } catch (_) {
       // Swallow and continue to keep regeneration robust
@@ -3411,8 +3416,8 @@ Future<void> regenerateMessage(
           conversationMessages.add({
             'role': msg.role,
             'content': cleaned,
-            'files': ?msg.files,
-            'output': ?msg.output,
+            if (msg.files != null) 'files': msg.files,
+            if (msg.output != null) 'output': msg.output,
           });
         }
       }
@@ -3923,7 +3928,14 @@ Future<void> runHeadlessCompletion(
   final byteStream = session.byteStream;
   if (byteStream != null) {
     try {
-      await byteStream.drain<void>();
+      await byteStream.drain<void>().timeout(_headlessStreamDrainTimeout);
+    } on TimeoutException catch (error) {
+      DebugLogger.error(
+        'headless-stream-drain-timeout',
+        scope: 'chat/completion',
+        error: error,
+        data: {'chatId': chatId},
+      );
     } catch (error) {
       DebugLogger.error(
         'headless-stream-drain-failed',
@@ -4383,17 +4395,24 @@ Future<void> _sendMessageInternal(
         // Determine type: 'image' for image content types, 'file' for others
         // .toString() for safety against malformed API responses returning non-String
         final isImage = contentType.toString().startsWith('image/');
-        return <String, dynamic>{
+        final filePayload = <String, dynamic>{
           'type': isImage ? 'image' : 'file',
           'id': fileId,
           'name': fileName,
           // OpenWebUI now stores just the file ID, not the full URL path
           // The frontend resolves it when displaying
           'url': fileId,
-          'size': ?fileSize,
-          'collection_name': ?collectionName,
-          if (contentType.isNotEmpty) 'content_type': contentType,
         };
+        if (fileSize != null) {
+          filePayload['size'] = fileSize;
+        }
+        if (collectionName != null) {
+          filePayload['collection_name'] = collectionName;
+        }
+        if (contentType.isNotEmpty) {
+          filePayload['content_type'] = contentType;
+        }
+        return filePayload;
       } catch (_) {
         return <String, dynamic>{
           'type': 'file',
@@ -4612,7 +4631,7 @@ Future<void> _sendMessageInternal(
         final Map<String, dynamic> messageMap = {
           'role': msg.role,
           'content': cleaned,
-          'output': ?msg.output,
+          if (msg.output != null) 'output': msg.output,
         };
         if (msg.files != null && msg.files!.isNotEmpty) {
           messageMap['files'] = msg.files;

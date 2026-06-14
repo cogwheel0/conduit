@@ -326,9 +326,27 @@ class NotePushSync {
         await _clearNotePinDirty(noteId);
         return;
       }
-      final livePinned = raw['is_pinned'] == true;
+      var livePinned = raw['is_pinned'] == true;
       if (livePinned != desired) {
         await _client.togglePinNote(noteId);
+        final confirmedRaw = await _client.getNoteRaw(noteId);
+        if (confirmedRaw == null) {
+          DebugLogger.warning(
+            'pin-confirm-404',
+            scope: 'sync/notes',
+            data: {'noteId': noteId},
+          );
+          throw StateError('note pin confirmation missing ($noteId)');
+        }
+        livePinned = confirmedRaw['is_pinned'] == true;
+      }
+      if (livePinned != desired) {
+        DebugLogger.warning(
+          'pin-confirm-mismatch',
+          scope: 'sync/notes',
+          data: {'noteId': noteId, 'desired': desired, 'actual': livePinned},
+        );
+        throw StateError('note pin confirmation mismatch ($noteId)');
       }
       await _clearNotePinDirty(noteId);
     });

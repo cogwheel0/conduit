@@ -146,6 +146,22 @@ void main() {
     check(idsOf(results)).deepEquals(['chat-titled']);
   });
 
+  test('offline search trims whitespace before querying FTS', () async {
+    await seedChat(
+      'chat-trimmed',
+      updatedAt: 2500,
+      content: 'trimmed sentinel',
+    );
+    await db.buildFtsIfNeeded();
+
+    final container = makeContainer();
+    final results = await container.read(
+      serverSearchProvider('  trimmed  ').future,
+    );
+
+    check(idsOf(results)).deepEquals(['chat-trimmed']);
+  });
+
   test('adversarial FTS operator input never throws, returns []', () async {
     await seedChat('chat-x', updatedAt: 3000, content: 'safe content');
     await db.buildFtsIfNeeded();

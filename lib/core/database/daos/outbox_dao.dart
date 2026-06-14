@@ -609,9 +609,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         // the CURRENT row content that pushNoteCreate will POST.
         final create = newestOfKind(OutboxKind.noteCreate);
         if (create != null) {
-          final note = chatId == null
-              ? null
-              : await attachedDatabase.notesDao.getNote(chatId);
+          final note = await attachedDatabase.notesDao.getNote(chatId);
           return _CoalesceDecision(
             insert: false,
             survivorSeq: create.seq,

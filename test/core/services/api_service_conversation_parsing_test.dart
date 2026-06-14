@@ -51,6 +51,21 @@ void main() {
       check(conversations.first.messages).isEmpty();
     });
 
+    test('getChatListPageRaw parses JSON-string list payloads', () async {
+      final adapter = _RouteJsonAdapter({
+        '/api/v1/chats/': jsonEncode([
+          {'id': 'chat-1', 'title': 'Encoded'},
+        ]),
+      });
+      final api = _buildApiService(adapter);
+
+      final rows = await api.getChatListPageRaw(page: 1);
+
+      check(rows).has((it) => it.length, 'length').equals(1);
+      check(rows.single['id']).equals('chat-1');
+      check(rows.single['title']).equals('Encoded');
+    });
+
     test('searchChats parses wrapped byte summary payloads', () async {
       final adapter = _RouteJsonAdapter({
         '/api/v1/chats/search': {

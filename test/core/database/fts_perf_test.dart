@@ -204,8 +204,10 @@ void main() {
       // trigger writes raise no extra notification on chats/messages.
       await _reupsert(db, 'chat-0000');
 
-      // Let the coalesced notification land.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _waitUntil(
+        () => emissions.isNotEmpty,
+        timeout: const Duration(seconds: 2),
+      );
       await sub.cancel();
 
       DebugLogger.log(
@@ -240,7 +242,7 @@ void main() {
         await _reupsert(db, 'chat-${i.toString().padLeft(4, '0')}');
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await _waitUntil(() => count >= 10, timeout: const Duration(seconds: 2));
       await sub.cancel();
 
       DebugLogger.log(
@@ -372,4 +374,17 @@ Future<void> _reupsert(AppDatabase db, String chatId) async {
   // real delete+reinsert of every message (and the chat_fts trigger) in one
   // transaction — the production sync-merge shape.
   await db.chatsDao.upsertServerChat(rows: chatRowsFromDb(chat, messages));
+}
+
+Future<void> _waitUntil(
+  bool Function() condition, {
+  required Duration timeout,
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('condition not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }

@@ -298,15 +298,14 @@ class PushSync {
         final serverUpdatedAt = _epoch(resp['updated_at']) ?? 0;
         // Remap under the SERVER folder lock (we already hold the local one),
         // committing the §7.3 transaction before the op is marked done.
-        await _folderLocks.runExclusive(
-          serverId,
-          () => _remapper.remapFolder(
+        await _folderLocks.runExclusive(serverId, () async {
+          await _remapper.remapFolder(
             localId: folderId,
             serverId: serverId,
             serverUpdatedAt: serverUpdatedAt,
-          ),
-        );
-        await _clearFolderDirty(serverId);
+          );
+          await _clearFolderDirty(serverId);
+        });
         return;
       }
 

@@ -450,6 +450,50 @@ void main() {
     check(client.togglePinNoteCalls).equals(1);
   });
 
+  test(
+    'pushNotePin keeps dirtyPinned when post-toggle confirmation mismatches',
+    () async {
+      server.seedNote(
+        id: 'p2',
+        title: 'P',
+        data: {
+          'content': {'md': 'x'},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
+        pinned: false,
+      );
+      await db.notesDao.upsertServerNote(<String, dynamic>{
+        'id': 'p2',
+        'title': 'P',
+        'data': {
+          'content': {'md': 'x'},
+        },
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT1,
+      });
+      await locks.runExclusive('p2', () {
+        return db.notesDao.pinNoteWithOutbox('p2', desiredPinned: true);
+      });
+      client = _ConcurrentPinFlipClient(server);
+      final push = NotePushSync(
+        client: client,
+        db: db,
+        noteLocks: locks,
+        remapper: syncRemapper,
+      );
+
+      await check(push.pushNotePin('p2', desired: true)).throws<StateError>();
+
+      check(client.togglePinNoteCalls).equals(1);
+      check(server.getNoteById('p2')!['is_pinned']).equals(false);
+      final row = await db.notesDao.getNote('p2');
+      check(row!.dirtyPinned).isTrue();
+    },
+  );
+
   test('pushNoteCreate remaps while the local-id lock is still held', () async {
     final recordingLocks = _RecordingChatLocks();
     final remapper = IdRemapper(db);
@@ -622,5 +666,18 @@ class _RecordingChatLocks extends ChatLocks {
         _active.remove(chatId);
       }
     });
+  }
+}
+
+class _ConcurrentPinFlipClient extends FakeSyncApiClient {
+  _ConcurrentPinFlipClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> togglePinNote(String id) async {
+    final response = await super.togglePinNote(id);
+    if (response != null) {
+      server.togglePinNote(id);
+    }
+    return response;
   }
 }
