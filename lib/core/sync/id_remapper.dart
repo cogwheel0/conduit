@@ -30,8 +30,7 @@ class RemapEvent {
   final String entityKind;
 
   @override
-  String toString() =>
-      'RemapEvent($entityKind: $fromId -> $toId)';
+  String toString() => 'RemapEvent($entityKind: $fromId -> $toId)';
 }
 
 /// Stable createChat fingerprint for the §7.3 crash-heal path.
@@ -95,7 +94,7 @@ void _writeCanonical(Object? value, StringBuffer out) {
 /// `createChat`/`createFolder` outbox op is marked done:
 ///   * the chat (or folder) row's primary key,
 ///   * every child `messages.chatId` (chats) / `chats.folderId` (folders),
-///   * every pending|inFlight outbox op's `chat_id` column (which holds the
+///   * every pending|inFlight|failed outbox op's `chat_id` column (which holds the
 ///     folder id for folder ops),
 ///   * (Phase 4 seam) FTS rows `local:<uuid>` -> serverId.
 ///
@@ -193,7 +192,7 @@ class IdRemapper {
       // purges only the local title FTS row (msg rows now key serverId; the
       // serverId title row was already created by trigger #4 in step (a)).
       await _deleteChatRow(localId);
-      // (e) Repoint pending|inFlight outbox ops (the running createChat op is
+      // (e) Repoint live and parked outbox ops (the running createChat op is
       // inFlight; after remap the drainer markDone()s it — harmless).
       await _rewriteOutboxChatId(localId, serverId);
     });
@@ -328,8 +327,9 @@ class IdRemapper {
   // ---- note helpers ----
 
   Future<NoteRow?> _getNote(String id) {
-    return (_db.select(_db.notes)..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    return (_db.select(
+      _db.notes,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
   Future<void> _insertNoteCopy({
@@ -338,7 +338,9 @@ class IdRemapper {
     required int serverCreatedAt,
     required int serverUpdatedAt,
   }) async {
-    await _db.into(_db.notes).insert(
+    await _db
+        .into(_db.notes)
+        .insert(
           NotesCompanion.insert(
             id: newId,
             title: from.title,
@@ -416,8 +418,9 @@ class IdRemapper {
   //      OutboxDao + avoids PK-update FK trouble) ----
 
   Future<ChatRow?> _getChat(String id) {
-    return (_db.select(_db.chats)..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    return (_db.select(
+      _db.chats,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
   Future<int> _messageCount(String chatId) async {
@@ -435,7 +438,9 @@ class IdRemapper {
     required int serverCreatedAt,
     required int serverUpdatedAt,
   }) async {
-    await _db.into(_db.chats).insert(
+    await _db
+        .into(_db.chats)
+        .insert(
           ChatsCompanion.insert(
             id: newId,
             title: from.title,
@@ -470,8 +475,9 @@ class IdRemapper {
   }
 
   Future<void> _deleteMessagesForChat(String chatId) {
-    return (_db.delete(_db.messages)..where((t) => t.chatId.equals(chatId)))
-        .go();
+    return (_db.delete(
+      _db.messages,
+    )..where((t) => t.chatId.equals(chatId))).go();
   }
 
   Future<void> _deleteChatRow(String id) {
@@ -481,8 +487,9 @@ class IdRemapper {
   // ---- folder helpers ----
 
   Future<FolderRow?> _getFolder(String id) {
-    return (_db.select(_db.folders)..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    return (_db.select(
+      _db.folders,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
   Future<void> _insertFolderCopy({
@@ -490,7 +497,9 @@ class IdRemapper {
     required String newId,
     required int serverUpdatedAt,
   }) async {
-    await _db.into(_db.folders).insert(
+    await _db
+        .into(_db.folders)
+        .insert(
           FoldersCompanion.insert(
             id: newId,
             name: from.name,
@@ -520,15 +529,14 @@ class IdRemapper {
 
   // ---- outbox + FTS ----
 
-  /// Repoints pending|inFlight outbox ops from [fromId] to [toId]. Mirrors the
+  /// Repoints live and parked outbox ops from [fromId] to [toId]. Mirrors the
   /// concurrent `OutboxDao.rewriteChatId` contract but is expressed as raw SQL
   /// so the remapper does not depend on that DAO existing. The `chat_id`
   /// column holds the folder id for folder ops, so this serves both kinds.
-  /// Done ('failed' rows are terminal/parked and never repointed).
   Future<void> _rewriteOutboxChatId(String fromId, String toId) {
     return _db.customUpdate(
       "UPDATE outbox_ops SET chat_id = ? "
-      "WHERE chat_id = ? AND status IN ('pending', 'inFlight')",
+      "WHERE chat_id = ? AND status IN ('pending', 'inFlight', 'failed')",
       variables: [Variable.withString(toId), Variable.withString(fromId)],
       updates: {_db.outboxOps},
       updateKind: UpdateKind.update,

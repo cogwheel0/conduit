@@ -53,8 +53,10 @@ class NoteDeletionReconcile {
 
     // 1. Enumerate the COMPLETE server note id set. The note list endpoint is
     //    a single unpaginated call returning (items, featureEnabled). A list
-    //    failure / feature-disabled aborts WITHOUT advancing the throttle so a
-    //    transient error or a momentarily-off feature can never false-delete.
+    //    failure aborts WITHOUT advancing the throttle so a transient error can
+    //    never false-delete; feature-disabled is a completed no-op and advances
+    //    the gate so background cycles do not keep probing servers with notes
+    //    disabled.
     final Set<String> serverIds;
     final bool featureEnabled;
     try {
@@ -76,7 +78,8 @@ class NoteDeletionReconcile {
     }
     if (!featureEnabled) {
       // Notes feature off (401/403): not a deletion of everything. Skip.
-      return const ReconcileResult(ran: false);
+      await _db.syncMetaDao.setNotesLastFullReconcileAt(now);
+      return const ReconcileResult(ran: true);
     }
 
     // 2. Diff against local server-keyed, non-tombstoned notes.

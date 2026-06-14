@@ -17,7 +17,9 @@ Future<void> seedLocalChat(
   String? folderId,
   bool dirty = true,
 }) async {
-  await db.into(db.chats).insert(
+  await db
+      .into(db.chats)
+      .insert(
         ChatsCompanion.insert(
           id: id,
           title: 'Title $id',
@@ -42,7 +44,9 @@ Future<void> seedLocalChat(
         ),
       );
   for (var i = 1; i <= messageCount; i++) {
-    await db.into(db.messages).insert(
+    await db
+        .into(db.messages)
+        .insert(
           MessagesCompanion.insert(
             id: '$id-m$i',
             chatId: id,
@@ -72,7 +76,9 @@ Future<int> seedOutbox(
   String status = 'pending',
   String? contentHash,
 }) async {
-  return db.into(db.outboxOps).insert(
+  return db
+      .into(db.outboxOps)
+      .insert(
         OutboxOpsCompanion.insert(
           kind: kind,
           chatId: Value(chatId),
@@ -117,8 +123,11 @@ void main() {
         status: 'inFlight',
         contentHash: 'hash-1',
       );
-      final updateSeq =
-          await seedOutbox(db, kind: 'updateChat', chatId: localId);
+      final updateSeq = await seedOutbox(
+        db,
+        kind: 'updateChat',
+        chatId: localId,
+      );
 
       await remapper.remapChat(
         localId: localId,
@@ -169,29 +178,33 @@ void main() {
       await sub.cancel();
     });
 
-    test('does not emit a duplicate event when the local chat is already gone',
-        () async {
-      final events = <RemapEvent>[];
-      final sub = remapper.remapEvents.listen(events.add);
+    test(
+      'does not emit a duplicate event when the local chat is already gone',
+      () async {
+        final events = <RemapEvent>[];
+        final sub = remapper.remapEvents.listen(events.add);
 
-      await remapper.remapChat(
-        localId: 'local:already-gone',
-        serverId: 'srv-already-gone',
-        serverCreatedAt: 1,
-        serverUpdatedAt: 2,
-      );
-      await Future<void>.delayed(Duration.zero);
+        await remapper.remapChat(
+          localId: 'local:already-gone',
+          serverId: 'srv-already-gone',
+          serverCreatedAt: 1,
+          serverUpdatedAt: 2,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      check(events).isEmpty();
-      await sub.cancel();
-    });
+        check(events).isEmpty();
+        await sub.cancel();
+      },
+    );
 
     test('crash-heal: server stub already present (0 messages) -> local rows '
         'win, no duplicate', () async {
       const localId = 'local:heal';
       const serverId = 'srv-heal';
       // A prior pull inserted a bodiless stub at serverId.
-      await db.into(db.chats).insert(
+      await db
+          .into(db.chats)
+          .insert(
             ChatsCompanion.insert(
               id: serverId,
               title: 'stub',
@@ -221,7 +234,9 @@ void main() {
       const localId = 'local:dup';
       const serverId = 'srv-dup';
       // Server row already merged with messages (the authoritative copy).
-      await db.into(db.chats).insert(
+      await db
+          .into(db.chats)
+          .insert(
             ChatsCompanion.insert(
               id: serverId,
               title: 'server',
@@ -230,7 +245,9 @@ void main() {
               bodySynced: const Value(true),
             ),
           );
-      await db.into(db.messages).insert(
+      await db
+          .into(db.messages)
+          .insert(
             MessagesCompanion.insert(
               id: 'srv-m1',
               chatId: serverId,
@@ -255,12 +272,14 @@ void main() {
       final allChats = await db.select(db.chats).get();
       check(allChats.map((c) => c.id)).deepEquals([serverId]);
       check(allChats.single.bodySynced).isTrue();
-      check((await messagesFor(db, serverId)).map((m) => m.id))
-          .deepEquals(['srv-m1']);
+      check(
+        (await messagesFor(db, serverId)).map((m) => m.id),
+      ).deepEquals(['srv-m1']);
       check(await messagesFor(db, localId)).isEmpty();
       // Ops still repointed to serverId.
-      check((await allOutbox(db)).map((o) => o.chatId).toSet())
-          .deepEquals({serverId});
+      check(
+        (await allOutbox(db)).map((o) => o.chatId).toSet(),
+      ).deepEquals({serverId});
     });
 
     test('createChatContentHash heals: server blob hashes to the pending '
@@ -272,7 +291,12 @@ void main() {
         'models': ['llama3'],
         'history': {
           'messages': {
-            'm1': {'id': 'm1', 'parentId': null, 'role': 'user', 'content': 'hi'},
+            'm1': {
+              'id': 'm1',
+              'parentId': null,
+              'role': 'user',
+              'content': 'hi',
+            },
           },
           'currentId': 'm1',
         },
@@ -295,8 +319,9 @@ void main() {
         updatedAt: 60,
       );
 
-      check(createChatContentHash(localRows))
-          .equals(createChatContentHash(serverRows));
+      check(
+        createChatContentHash(localRows),
+      ).equals(createChatContentHash(serverRows));
     });
 
     test('localId == serverId is an idempotent no-op', () async {
@@ -358,42 +383,48 @@ void main() {
             "WHERE chat_id = 'srv-fts' GROUP BY kind ORDER BY kind",
           )
           .get();
-      check(srvRows.map((r) => '${r.read<String>('kind')}:${r.read<int>('c')}')
-              .toList())
-          .deepEquals(['msg:2', 'title:1']);
+      check(
+        srvRows
+            .map((r) => '${r.read<String>('kind')}:${r.read<int>('c')}')
+            .toList(),
+      ).deepEquals(['msg:2', 'title:1']);
     });
 
-    test('crash-heal stub branch repoints message FTS rows to serverId',
-        () async {
-      const localId = 'local:fts-stub';
-      const serverId = 'srv-fts-stub';
-      await db.buildFtsIfNeeded();
-      // A prior pull inserted a bodiless stub at serverId (trigger #4 indexed
-      // its title). The local chat carries the message body.
-      await db.into(db.chats).insert(
-            ChatsCompanion.insert(
-              id: serverId,
-              title: 'stub',
-              createdAt: 10,
-              updatedAt: 20,
-              bodySynced: const Value(false),
-            ),
-          );
-      await seedLocalChat(db, id: localId, messageCount: 1);
+    test(
+      'crash-heal stub branch repoints message FTS rows to serverId',
+      () async {
+        const localId = 'local:fts-stub';
+        const serverId = 'srv-fts-stub';
+        await db.buildFtsIfNeeded();
+        // A prior pull inserted a bodiless stub at serverId (trigger #4 indexed
+        // its title). The local chat carries the message body.
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: serverId,
+                title: 'stub',
+                createdAt: 10,
+                updatedAt: 20,
+                bodySynced: const Value(false),
+              ),
+            );
+        await seedLocalChat(db, id: localId, messageCount: 1);
 
-      await remapper.remapChat(
-        localId: localId,
-        serverId: serverId,
-        serverCreatedAt: 500,
-        serverUpdatedAt: 600,
-      );
+        await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 500,
+          serverUpdatedAt: 600,
+        );
 
-      final after = await db.searchDao.search('message');
-      check(after.map((h) => h.chatId).toSet()).deepEquals({serverId});
-      check(after.single.messageId).isNotNull();
-    });
+        final after = await db.searchDao.search('message');
+        check(after.map((h) => h.chatId).toSet()).deepEquals({serverId});
+        check(after.single.messageId).isNotNull();
+      },
+    );
 
-    test('does not repoint terminal (failed) outbox ops', () async {
+    test('repoints terminal (failed) outbox ops for parked UI retry', () async {
       const localId = 'local:term';
       const serverId = 'srv-term';
       await seedLocalChat(db, id: localId);
@@ -411,58 +442,70 @@ void main() {
         serverUpdatedAt: 2,
       );
 
-      final parked =
-          (await allOutbox(db)).firstWhere((o) => o.seq == parkedSeq);
-      // Parked ops keep their (now stale) local chatId — drainer ignores them
-      // until manual retry.
-      check(parked.chatId).equals(localId);
+      final parked = (await allOutbox(
+        db,
+      )).firstWhere((o) => o.seq == parkedSeq);
+      // Parked ops remain terminal, but the UI watches by the surviving server
+      // id after remap.
+      check(parked.status).equals('failed');
+      check(parked.chatId).equals(serverId);
     });
   });
 
   group('IdRemapper.remapFolder', () {
-    test('rewrites folders.id, chats.folderId, and pending outbox.chatId',
-        () async {
-      const localId = 'local:fold';
-      const serverId = 'srv-fold';
-      await db.into(db.folders).insert(
-            FoldersCompanion.insert(
-              id: localId,
-              name: 'Work',
-              createdAt: 100,
-              updatedAt: 200,
-              dirty: const Value(true),
-            ),
-          );
-      // A chat lives in the local folder.
-      await seedLocalChat(db, id: 'local:c1', folderId: localId);
-      final upsertSeq =
-          await seedOutbox(db, kind: 'folderUpsert', chatId: localId);
+    test(
+      'rewrites folders.id, chats.folderId, and pending outbox.chatId',
+      () async {
+        const localId = 'local:fold';
+        const serverId = 'srv-fold';
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: localId,
+                name: 'Work',
+                createdAt: 100,
+                updatedAt: 200,
+                dirty: const Value(true),
+              ),
+            );
+        // A chat lives in the local folder.
+        await seedLocalChat(db, id: 'local:c1', folderId: localId);
+        final upsertSeq = await seedOutbox(
+          db,
+          kind: 'folderUpsert',
+          chatId: localId,
+        );
 
-      await remapper.remapFolder(
-        localId: localId,
-        serverId: serverId,
-        serverUpdatedAt: 600,
-      );
+        await remapper.remapFolder(
+          localId: localId,
+          serverId: serverId,
+          serverUpdatedAt: 600,
+        );
 
-      check(await db.foldersDao.watchFolders().first)
-          .which((it) => it.length.equals(1));
-      final folders = await db.select(db.folders).get();
-      check(folders.map((f) => f.id)).deepEquals([serverId]);
-      check(folders.single.updatedAt).equals(600);
+        check(
+          await db.foldersDao.watchFolders().first,
+        ).which((it) => it.length.equals(1));
+        final folders = await db.select(db.folders).get();
+        check(folders.map((f) => f.id)).deepEquals([serverId]);
+        check(folders.single.updatedAt).equals(600);
 
-      // The chat's folderId repointed.
-      final chat = await db.chatsDao.getChat('local:c1');
-      check(chat!.folderId).equals(serverId);
+        // The chat's folderId repointed.
+        final chat = await db.chatsDao.getChat('local:c1');
+        check(chat!.folderId).equals(serverId);
 
-      // Folder op repointed (chatId column holds folderId).
-      final op = (await allOutbox(db)).firstWhere((o) => o.seq == upsertSeq);
-      check(op.chatId).equals(serverId);
-    });
+        // Folder op repointed (chatId column holds folderId).
+        final op = (await allOutbox(db)).firstWhere((o) => o.seq == upsertSeq);
+        check(op.chatId).equals(serverId);
+      },
+    );
 
     test('emits a folder RemapEvent', () async {
       const localId = 'local:fe';
       const serverId = 'srv-fe';
-      await db.into(db.folders).insert(
+      await db
+          .into(db.folders)
+          .insert(
             FoldersCompanion.insert(
               id: localId,
               name: 'F',
@@ -485,20 +528,22 @@ void main() {
       await sub.cancel();
     });
 
-    test('does not emit a duplicate event when the local folder is already gone',
-        () async {
-      final events = <RemapEvent>[];
-      final sub = remapper.remapEvents.listen(events.add);
+    test(
+      'does not emit a duplicate event when the local folder is already gone',
+      () async {
+        final events = <RemapEvent>[];
+        final sub = remapper.remapEvents.listen(events.add);
 
-      await remapper.remapFolder(
-        localId: 'local:folder-gone',
-        serverId: 'srv-folder-gone',
-        serverUpdatedAt: 3,
-      );
-      await Future<void>.delayed(Duration.zero);
+        await remapper.remapFolder(
+          localId: 'local:folder-gone',
+          serverId: 'srv-folder-gone',
+          serverUpdatedAt: 3,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      check(events).isEmpty();
-      await sub.cancel();
-    });
+        check(events).isEmpty();
+        await sub.cancel();
+      },
+    );
   });
 }

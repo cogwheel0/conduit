@@ -665,13 +665,13 @@ void main() {
   });
 
   group('rewriteChatId (§7.3)', () {
-    test('rewrites pending ops from local to server id', () async {
+    test('rewrites live and parked ops from local to server id', () async {
       await enqueue(
         kind: OutboxKind.createChat,
         chatId: 'local:x',
         contentHash: 'h',
       );
-      await enqueue(
+      final parkedSeq = await enqueue(
         kind: OutboxKind.requestCompletion,
         chatId: 'local:x',
         payload: {
@@ -680,9 +680,15 @@ void main() {
           'toolIds': <String>[],
         },
       );
+      await dao.markParked(parkedSeq, error: 'terminal');
+
       await dao.rewriteChatId(fromChatId: 'local:x', toChatId: 'srv-1');
       check(await dao.pendingForChat('local:x')).isEmpty();
-      check(await dao.pendingForChat('srv-1')).length.equals(2);
+      check(await dao.pendingForChat('srv-1')).length.equals(1);
+      check(await dao.watchParkedForChat('local:x').first).isEmpty();
+      final parked = await dao.watchParkedForChat('srv-1').first;
+      check(parked).length.equals(1);
+      check(parked.single.seq).equals(parkedSeq);
     });
   });
 

@@ -441,8 +441,8 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .write(OutboxOpsCompanion(nextAttemptAt: Value(nowEpochSeconds)));
   }
 
-  /// Rewrites the chat id on still-live ops during ID remap (§7.3, §B). Called
-  /// ONLY inside the IdRemapper transaction; never standalone.
+  /// Rewrites the chat id on live and parked ops during ID remap (§7.3, §B).
+  /// Called ONLY inside the IdRemapper transaction; never standalone.
   Future<void> rewriteChatId({
     required String fromChatId,
     required String toChatId,
@@ -453,6 +453,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
               t.status.isIn(const [
                 OutboxStatus.pending,
                 OutboxStatus.inFlight,
+                OutboxStatus.failed,
               ]),
         ))
         .write(OutboxOpsCompanion(chatId: Value(toChatId)));
@@ -677,7 +678,8 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         final priorDelete = newestOfKind(OutboxKind.noteDelete);
         if (pendingKinds.contains(OutboxKind.noteCreate)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
-          // emit no noteDelete op (the row drop is the caller's dropLocalNote).
+          // emit no noteDelete op. The caller removes the local note row after
+          // this returns -1.
           return _CoalesceDecision(
             insert: false,
             deletions: [for (final op in pending) op.seq],

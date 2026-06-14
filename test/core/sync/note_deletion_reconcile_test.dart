@@ -271,15 +271,21 @@ void main() {
     check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
   });
 
-  test('notes feature disabled is not a mass-delete signal', () async {
-    final client = FakeSyncApiClient(server)..notesFeatureEnabled = false;
-    await seedLocalOnly('ghost');
-    final result = await reconcileWith(
-      client,
-    ).run(ReconcileReason.manualRefresh);
-    check(result.ran).isFalse();
-    check(await db.notesDao.getNote('ghost')).isNotNull();
-  });
+  test(
+    'notes feature disabled is a throttled no-op, not a mass-delete signal',
+    () async {
+      final client = FakeSyncApiClient(server)..notesFeatureEnabled = false;
+      await seedLocalOnly('ghost');
+      final result = await reconcileWith(
+        client,
+      ).run(ReconcileReason.manualRefresh);
+      check(result.ran).isTrue();
+      check(await db.notesDao.getNote('ghost')).isNotNull();
+      check(
+        await db.syncMetaDao.getNotesLastFullReconcileAt(),
+      ).equals(clock.now);
+    },
+  );
 
   test('background reason honors the 24h throttle', () async {
     final client = FakeSyncApiClient(server);
