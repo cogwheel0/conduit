@@ -8,6 +8,29 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+/// A schemaVersion-1 database from the Phase 0 build: only sync_meta exists.
+class _V1Database extends GeneratedDatabase {
+  _V1Database(super.e);
+
+  late final $SyncMetaTable syncMeta = $SyncMetaTable(this);
+
+  @override
+  Iterable<TableInfo<Table, dynamic>> get allTables => [syncMeta];
+
+  @override
+  int get schemaVersion => 1;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+    },
+    beforeOpen: (_) async {
+      await customStatement('PRAGMA foreign_keys = ON');
+    },
+  );
+}
+
 /// A schemaVersion-3 database that owns ONLY the tables the Phase 4 backfill
 /// reads from (chats, messages, sync_meta). It reuses the real generated table
 /// classes from AppDatabase so the column names/types match exactly, and it
@@ -149,6 +172,39 @@ void main() {
           ),
         );
     check(await db.searchDao.search('mitochondria')).isNotEmpty();
+  });
+
+  test('onUpgrade 1->5 creates current tables and indexes once', () async {
+    final v1 = _V1Database(NativeDatabase(dbFile));
+    await v1.customSelect('SELECT 1').get();
+    await v1.close();
+
+    final db = AppDatabase(NativeDatabase(dbFile));
+    addTearDown(db.close);
+    await db.customSelect('SELECT 1').get();
+
+    final outboxColumns = await db
+        .customSelect('PRAGMA table_info(outbox_ops)')
+        .get();
+    check(
+      outboxColumns.map((row) => row.read<String>('name')).toList(),
+    ).contains('content_hash');
+
+    final noteTable = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='notes'",
+        )
+        .get();
+    check(noteTable).isNotEmpty();
+
+    final noteIndex = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='index' "
+          "AND name='idx_notes_updated_at'",
+        )
+        .get();
+    check(noteIndex).isNotEmpty();
   });
 
   test('fresh v4 install (onCreate) has no FTS until built', () async {

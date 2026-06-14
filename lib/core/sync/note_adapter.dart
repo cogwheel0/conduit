@@ -73,13 +73,17 @@ class NoteAdapter implements SyncEntityAdapter {
     switch (kind) {
       case OutboxKind.noteCreate:
         await _push.pushNoteCreate(noteId);
+        break;
       case OutboxKind.noteUpdate:
         await _push.pushNoteUpdate(noteId, decodeNotePatch(op.payload));
+        break;
       case OutboxKind.noteDelete:
         await _push.pushNoteDelete(noteId);
+        break;
       case OutboxKind.notePin:
         final payload = decodeNotePatch(op.payload);
         await _push.pushNotePin(noteId, desired: payload['desired'] == true);
+        break;
       // Not owned (drainer never routes these here).
       case OutboxKind.createChat:
       case OutboxKind.updateChat:

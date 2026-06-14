@@ -90,6 +90,16 @@ class SyncEngine extends _$SyncEngine {
   /// `_draining` mutex and runs recovery exactly once.
   OutboxDrainer? _drainer;
 
+  AppDatabase? _boundDb;
+  SyncApiClient? _boundClient;
+  ChatLocks? _boundChatLocks;
+  ChatLocks? _boundFolderLocks;
+  ChatLocks? _boundNoteLocks;
+  SyncClock? _boundClock;
+  Backoff? _boundBackoff;
+  RequestCompletionRunner? _boundCompletionRunner;
+  bool? _boundAuthenticated;
+
   /// The migrator runs at most once per process (it is also internally
   /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
   bool _migrated = false;
@@ -104,24 +114,71 @@ class SyncEngine extends _$SyncEngine {
 
   @override
   SyncStatus build() {
-    // Engine identity follows these dependencies; any change recreates the
-    // notifier (pending waiters are released with null).
-    ref.watch(appDatabaseProvider);
-    ref.watch(syncApiClientProvider);
-    ref.watch(isAuthenticatedProvider2);
-    ref.watch(chatLocksProvider);
-    ref.onDispose(() {
-      _debounce?.cancel();
-      unawaited(_remapper?.dispose());
-      _remapper = null;
-      _drainer = null;
-      final joinable = _joinable;
-      _joinable = null;
-      if (joinable != null && !joinable.isCompleted) {
-        joinable.complete(null);
-      }
-    });
+    final db = ref.watch(appDatabaseProvider);
+    final client = ref.watch(syncApiClientProvider);
+    final authenticated = ref.watch(isAuthenticatedProvider2);
+    final chatLocks = ref.watch(chatLocksProvider);
+    final folderLocks = ref.watch(folderLocksProvider);
+    final noteLocks = ref.watch(noteLocksProvider);
+    final clock = ref.watch(syncClockProvider);
+    final backoff = ref.watch(backoffProvider);
+    final completionRunner = ref.watch(requestCompletionRunnerProvider);
+
+    final dependenciesChanged =
+        !identical(_boundDb, db) ||
+        !identical(_boundClient, client) ||
+        !identical(_boundChatLocks, chatLocks) ||
+        !identical(_boundFolderLocks, folderLocks) ||
+        !identical(_boundNoteLocks, noteLocks) ||
+        !identical(_boundClock, clock) ||
+        !identical(_boundBackoff, backoff) ||
+        !identical(_boundCompletionRunner, completionRunner) ||
+        _boundAuthenticated != authenticated;
+    if (dependenciesChanged) {
+      _resetSessionBoundState();
+      _boundDb = db;
+      _boundClient = client;
+      _boundChatLocks = chatLocks;
+      _boundFolderLocks = folderLocks;
+      _boundNoteLocks = noteLocks;
+      _boundClock = clock;
+      _boundBackoff = backoff;
+      _boundCompletionRunner = completionRunner;
+      _boundAuthenticated = authenticated;
+    }
+    ref.onDispose(_disposeSessionBoundState);
     return const SyncStatus();
+  }
+
+  void _resetSessionBoundState() {
+    _debounce?.cancel();
+    _debounce = null;
+    unawaited(_remapper?.dispose());
+    _remapper = null;
+    _drainer = null;
+    _migrated = false;
+    _ftsBuildInFlight = false;
+    final joinable = _joinable;
+    _joinable = null;
+    if (joinable != null && !joinable.isCompleted) {
+      joinable.complete(null);
+    }
+    if (!_running) {
+      _rerunRequested = false;
+    }
+  }
+
+  void _disposeSessionBoundState() {
+    _resetSessionBoundState();
+    _boundDb = null;
+    _boundClient = null;
+    _boundChatLocks = null;
+    _boundFolderLocks = null;
+    _boundNoteLocks = null;
+    _boundClock = null;
+    _boundBackoff = null;
+    _boundCompletionRunner = null;
+    _boundAuthenticated = null;
   }
 
   bool get _inert =>
@@ -276,10 +333,7 @@ class SyncEngine extends _$SyncEngine {
     final notePull = _buildNotePullSync();
     final notePush = _buildNotePushSync();
     if (notePull == null || notePush == null) return null;
-    return NoteAdapter(
-      pull: notePull,
-      push: notePush,
-    );
+    return NoteAdapter(pull: notePull, push: notePush);
   }
 
   /// Engine-internal: the entity adapters that partition the outbox kinds
@@ -291,21 +345,12 @@ class SyncEngine extends _$SyncEngine {
     final push = _buildPushSync();
     final notePull = _buildNotePullSync();
     final notePush = _buildNotePushSync();
-    if (pull == null ||
-        push == null ||
-        notePull == null ||
-        notePush == null) {
+    if (pull == null || push == null || notePull == null || notePush == null) {
       return null;
     }
     return [
-      ChatAdapter(
-        pull: pull,
-        push: push,
-      ),
-      NoteAdapter(
-        pull: notePull,
-        push: notePush,
-      ),
+      ChatAdapter(pull: pull, push: push),
+      NoteAdapter(pull: notePull, push: notePush),
     ];
   }
 
@@ -593,7 +638,6 @@ class SyncEngine extends _$SyncEngine {
           );
         }
       }
-
     }
     // Phase 4 FTS5 population (CDT-RFC-001 §10/§E): build the search index
     // after a successful sync has written chat/message rows. The first attempt
@@ -628,10 +672,7 @@ class SyncEngine extends _$SyncEngine {
           if (msg.contains('closed') ||
               msg.contains('closing') ||
               msg.contains('re-open')) {
-            DebugLogger.log(
-              'fts-build-skipped-db-closed',
-              scope: 'sync/fts',
-            );
+            DebugLogger.log('fts-build-skipped-db-closed', scope: 'sync/fts');
           } else {
             DebugLogger.error(
               'fts-build-failed',

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
@@ -43,9 +45,7 @@ void main() {
       overrides: [
         appDatabaseProvider.overrideWith((ref) => db),
         isChatStreamingProvider.overrideWithValue(isStreaming),
-        activeConversationProvider.overrideWith(
-          () => _SeededActive(active),
-        ),
+        activeConversationProvider.overrideWith(() => _SeededActive(active)),
         // No api/socket stack here: the headless/live drive both short-circuit
         // on the null-api guard, letting these tests assert the PATH choice
         // (headless vs live vs defer) without a real transport.
@@ -58,33 +58,38 @@ void main() {
   }
 
   Future<void> seedChat(String chatId) async {
-    await db.into(db.chats).insert(
-      ChatsCompanion.insert(
-        id: chatId,
-        title: 'T',
-        createdAt: 1,
-        updatedAt: 1,
-        bodySynced: const Value(true),
-      ),
-    );
+    await db
+        .into(db.chats)
+        .insert(
+          ChatsCompanion.insert(
+            id: chatId,
+            title: 'T',
+            createdAt: 1,
+            updatedAt: 1,
+            bodySynced: const Value(true),
+          ),
+        );
   }
 
   Future<void> seedMessage(
     String chatId,
     String id,
-    String content,
-  ) async {
-    await db.into(db.messages).insert(
-      MessagesCompanion.insert(
-        id: id,
-        chatId: chatId,
-        role: 'assistant',
-        content: content,
-        createdAt: 1,
-        orderIndex: 0,
-        payload: '{}',
-      ),
-    );
+    String content, {
+    Map<String, dynamic>? payload,
+  }) async {
+    await db
+        .into(db.messages)
+        .insert(
+          MessagesCompanion.insert(
+            id: id,
+            chatId: chatId,
+            role: 'assistant',
+            content: content,
+            createdAt: 1,
+            orderIndex: 0,
+            payload: jsonEncode(payload ?? const <String, dynamic>{}),
+          ),
+        );
   }
 
   Conversation conv(String id) => Conversation(
@@ -95,11 +100,10 @@ void main() {
     messages: const [],
   );
 
-  Map<String, dynamic> payload(String assistantId) =>
-      RequestCompletionPayload(
-        assistantMessageId: assistantId,
-        model: 'model-1',
-      ).toJson();
+  Map<String, dynamic> payload(String assistantId) => RequestCompletionPayload(
+    assistantMessageId: assistantId,
+    model: 'model-1',
+  ).toJson();
 
   test('defers (throws CompletionBusyException) when a live stream owns the '
       'chat', () async {
@@ -121,8 +125,18 @@ void main() {
   test('returns early (idempotent) when the turn already completed', () async {
     const chatId = 'chat-done';
     await seedChat(chatId);
-    // Non-empty content => the turn already completed; runner is a no-op.
-    await seedMessage(chatId, 'asst-2', 'already answered');
+    await seedMessage(
+      chatId,
+      'asst-2',
+      'already answered',
+      payload: const <String, dynamic>{
+        'id': 'asst-2',
+        'role': 'assistant',
+        'content': 'already answered',
+        'timestamp': 1,
+        'isStreaming': false,
+      },
+    );
 
     final (:container, :runner) = makeRunner(
       isStreaming: false,
@@ -139,16 +153,39 @@ void main() {
     check(rows.single.content).equals('already answered');
   });
 
-  test('returns early when the chat row vanished (delete won the race)',
-      () async {
+  test('does not treat pause-checkpoint content as completed', () async {
+    const chatId = 'chat-partial';
+    await seedChat(chatId);
+    await seedMessage(
+      chatId,
+      'asst-partial',
+      'partial answer',
+      payload: const <String, dynamic>{
+        'id': 'asst-partial',
+        'role': 'assistant',
+        'content': 'partial answer',
+        'timestamp': 1,
+        'isStreaming': true,
+      },
+    );
+
+    final (:container, :runner) = makeRunner(
+      isStreaming: false,
+      active: conv(chatId),
+    );
+    container;
+
+    await check(
+      runner.run(chatId: chatId, payload: payload('asst-partial')),
+    ).throws<StateError>();
+  });
+
+  test('returns early when the chat row vanished (delete won the race)', () async {
     const chatId = 'chat-absent';
     // No active conversation, so the runner takes the activate branch, finds no
     // row, and returns. (A DIFFERENT active chat would now defer first — see the
     // Option B test below.)
-    final (:container, :runner) = makeRunner(
-      isStreaming: false,
-      active: null,
-    );
+    final (:container, :runner) = makeRunner(isStreaming: false, active: null);
     container;
 
     // No chat seeded: must return without throwing.
@@ -193,22 +230,29 @@ void main() {
     ).throws<StateError>(); // "runHeadlessCompletion requires an API service"
 
     // The user's active conversation is untouched (Option B: no yank).
-    check(container.read(activeConversationProvider)?.id)
-        .equals('a-different-chat');
+    check(
+      container.read(activeConversationProvider)?.id,
+    ).equals('a-different-chat');
   });
 
-  test('runs HEADLESS (does not activate) when no chat is being viewed',
-      () async {
-    const chatId = 'chat-idle';
-    await seedChat(chatId);
-    await seedMessage(chatId, 'asst-5', '');
-    final (:container, :runner) = makeRunner(isStreaming: false, active: null);
+  test(
+    'runs HEADLESS (does not activate) when no chat is being viewed',
+    () async {
+      const chatId = 'chat-idle';
+      await seedChat(chatId);
+      await seedMessage(chatId, 'asst-5', '');
+      final (:container, :runner) = makeRunner(
+        isStreaming: false,
+        active: null,
+      );
 
-    await check(runner.run(chatId: chatId, payload: payload('asst-5')))
-        .throws<StateError>();
-    // Headless never sets an active conversation.
-    check(container.read(activeConversationProvider)).isNull();
-  });
+      await check(
+        runner.run(chatId: chatId, payload: payload('asst-5')),
+      ).throws<StateError>();
+      // Headless never sets an active conversation.
+      check(container.read(activeConversationProvider)).isNull();
+    },
+  );
 }
 
 class _SeededActive extends ActiveConversationNotifier {

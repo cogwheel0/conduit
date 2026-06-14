@@ -39,6 +39,17 @@ class _FailableFtsDatabase extends AppDatabase {
   }
 }
 
+class _MutableValue<T> extends Notifier<T> {
+  _MutableValue(this.initial);
+
+  final T initial;
+
+  @override
+  T build() => initial;
+
+  void set(T value) => state = value;
+}
+
 void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
@@ -86,7 +97,12 @@ void main() {
   /// Inserts a `local:` chat row + its createChat outbox op in one tx, exactly
   /// as the production durable-send path does, so the drainer reconstructs the
   /// blob from rows and POSTs it via [PushSync.pushCreateChat].
-  Future<void> seedLocalCreate(String localId, {required String contentHash}) {
+  Future<void> seedLocalCreate(
+    String localId, {
+    required String contentHash,
+    AppDatabase? targetDb,
+  }) {
+    final target = targetDb ?? db;
     final rows = ChatBlobMapper.blobToRows(
       chatId: localId,
       title: 'Draft $localId',
@@ -109,7 +125,7 @@ void main() {
         },
       },
     );
-    return db.chatsDao.insertLocalChatWithCreateOp(
+    return target.chatsDao.insertLocalChatWithCreateOp(
       chat: rows.chat,
       messages: rows.messages,
       blobRows: rows,
@@ -192,51 +208,55 @@ void main() {
       check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
     });
 
-    test('requests during a running cycle coalesce into one queued rerun',
-        () async {
-      seedChat('chat-1', 100);
-      final container = makeContainer();
-      final engine = container.read(syncEngineProvider.notifier);
+    test(
+      'requests during a running cycle coalesce into one queued rerun',
+      () async {
+        seedChat('chat-1', 100);
+        final container = makeContainer();
+        final engine = container.read(syncEngineProvider.notifier);
 
-      final gate = Completer<void>();
-      client.chatFetchGate = gate.future;
+        final gate = Completer<void>();
+        client.chatFetchGate = gate.future;
 
-      final first = engine.requestPull(reason: 'initial');
-      // Wait until the first cycle is provably mid-flight (blocked on the
-      // gate inside its chat fetch).
-      await waitFor(() => client.chatFetchStarts.isNotEmpty);
+        final first = engine.requestPull(reason: 'initial');
+        // Wait until the first cycle is provably mid-flight (blocked on the
+        // gate inside its chat fetch).
+        await waitFor(() => client.chatFetchStarts.isNotEmpty);
 
-      final queued = [
-        for (var i = 0; i < 3; i++) engine.requestPull(reason: 'during-$i'),
-      ];
-      gate.complete();
+        final queued = [
+          for (var i = 0; i < 3; i++) engine.requestPull(reason: 'during-$i'),
+        ];
+        gate.complete();
 
-      final firstResult = await first;
-      final queuedResults = await Future.wait(queued);
+        final firstResult = await first;
+        final queuedResults = await Future.wait(queued);
 
-      check(firstResult).isNotNull();
-      check(firstResult!.success).isTrue();
-      for (final result in queuedResults) {
-        check(result).isNotNull();
-        // All three joined the SAME queued cycle.
-        check(identical(result, queuedResults.first)).isTrue();
-      }
-      // The storm produced exactly two cycles in total.
-      check(client.chatListPageRequests).equals(2);
-    });
+        check(firstResult).isNotNull();
+        check(firstResult!.success).isTrue();
+        for (final result in queuedResults) {
+          check(result).isNotNull();
+          // All three joined the SAME queued cycle.
+          check(identical(result, queuedResults.first)).isTrue();
+        }
+        // The storm produced exactly two cycles in total.
+        check(client.chatListPageRequests).equals(2);
+      },
+    );
 
-    test('inert when unauthenticated: returns null without touching the API',
-        () async {
-      seedChat('chat-1', 100);
-      final container = makeContainer(authenticated: false);
-      final engine = container.read(syncEngineProvider.notifier);
+    test(
+      'inert when unauthenticated: returns null without touching the API',
+      () async {
+        seedChat('chat-1', 100);
+        final container = makeContainer(authenticated: false);
+        final engine = container.read(syncEngineProvider.notifier);
 
-      final result = await engine.requestPull(reason: 'inert-check');
+        final result = await engine.requestPull(reason: 'inert-check');
 
-      check(result).isNull();
-      check(client.chatListPageRequests).equals(0);
-      check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
-    });
+        check(result).isNull();
+        check(client.chatListPageRequests).equals(0);
+        check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
+      },
+    );
 
     test('section 9.3 legacy-cache purge fires exactly once', () async {
       seedChat('chat-1', 100);
@@ -254,8 +274,7 @@ void main() {
       check(purgeCalls).equals(1);
     });
 
-    test('purge is withheld while the first full pull keeps failing',
-        () async {
+    test('purge is withheld while the first full pull keeps failing', () async {
       seedChat('chat-1', 100);
       client.failChatIds.add('chat-1');
       final container = makeContainer();
@@ -343,6 +362,56 @@ void main() {
       check(result!.foldersFeatureEnabled).equals(false);
       check(container.read(foldersFeatureEnabledProvider)).isFalse();
     });
+
+    test(
+      'cached remapper and drainer rebind when the active database changes',
+      () async {
+        final firstDb = db;
+        final secondDb = AppDatabase(NativeDatabase.memory());
+        final activeDbProvider =
+            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+              () => _MutableValue<AppDatabase?>(firstDb),
+            );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith(
+              (ref) => ref.watch(activeDbProvider),
+            ),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await secondDb.close();
+        });
+
+        final engine = container.read(syncEngineProvider.notifier);
+        final firstRemapper = engine.remapperForTesting;
+        check(firstRemapper).isNotNull();
+        await engine.drainNow(); // caches a drainer against firstDb.
+
+        await seedLocalCreate(
+          'local:after-switch',
+          contentHash: 'h-after-switch',
+          targetDb: secondDb,
+        );
+        container.read(activeDbProvider.notifier).set(secondDb);
+        container.read(syncEngineProvider);
+
+        final secondRemapper = engine.remapperForTesting;
+        check(secondRemapper).isNotNull();
+        check(identical(firstRemapper, secondRemapper)).isFalse();
+
+        await engine.drainNow();
+
+        check(client.createChatCalls).equals(1);
+        check(
+          await secondDb.outboxDao.pendingForChat('local:after-switch'),
+        ).isEmpty();
+      },
+    );
   });
 
   group('SyncEngine.pullChatNow', () {
@@ -373,47 +442,44 @@ void main() {
   });
 
   group('outbox drain serialization (one shared drainer)', () {
-    test(
-      'a pull-cycle drain and a concurrent drainNow() execute a createChat '
-      'exactly once (no resetInFlightToPending double-send)',
-      () async {
-        // A local createChat op is enqueued, exactly as a durable send would.
-        await seedLocalCreate('local:c1', contentHash: 'h1');
-        final container = makeContainer();
-        final engine = container.read(syncEngineProvider.notifier);
+    test('a pull-cycle drain and a concurrent drainNow() execute a createChat '
+        'exactly once (no resetInFlightToPending double-send)', () async {
+      // A local createChat op is enqueued, exactly as a durable send would.
+      await seedLocalCreate('local:c1', contentHash: 'h1');
+      final container = makeContainer();
+      final engine = container.read(syncEngineProvider.notifier);
 
-        // Hold the FIRST createChat POST open so the op is genuinely `inFlight`
-        // (claimed + mid-push) when the second drain trigger fires. If two
-        // OutboxDrainer instances existed, the second's resetInFlightToPending
-        // would re-arm this op and re-POST it.
-        final gate = Completer<void>();
-        client.createChatGate = gate.future;
+      // Hold the FIRST createChat POST open so the op is genuinely `inFlight`
+      // (claimed + mid-push) when the second drain trigger fires. If two
+      // OutboxDrainer instances existed, the second's resetInFlightToPending
+      // would re-arm this op and re-POST it.
+      final gate = Completer<void>();
+      client.createChatGate = gate.future;
 
-        // Entry point (1): the pull cycle's post-pull drain.
-        final pullDrain = engine.requestPull(reason: 'pull-cycle');
-        // Wait until the createChat POST is provably in flight.
-        await waitFor(() => client.createChatStarts.isNotEmpty);
-        check(client.createChatCalls).equals(1);
+      // Entry point (1): the pull cycle's post-pull drain.
+      final pullDrain = engine.requestPull(reason: 'pull-cycle');
+      // Wait until the createChat POST is provably in flight.
+      await waitFor(() => client.createChatStarts.isNotEmpty);
+      check(client.createChatCalls).equals(1);
 
-        // Entry point (2): a live send's immediate drain (durableSend ->
-        // drainNow -> onConnectivityRegained -> resetInFlightToPending +
-        // drain). With one shared drainer this collapses into the in-flight
-        // drain instead of resetting the in-flight op.
-        final connectivityDrain = engine.drainNow();
+      // Entry point (2): a live send's immediate drain (durableSend ->
+      // drainNow -> onConnectivityRegained -> resetInFlightToPending +
+      // drain). With one shared drainer this collapses into the in-flight
+      // drain instead of resetting the in-flight op.
+      final connectivityDrain = engine.drainNow();
 
-        // Release the held POST; let everything settle.
-        gate.complete();
-        await pullDrain;
-        await connectivityDrain;
-        // Drain again to flush any queued rerun the shared single-flight
-        // scheduled, proving it does NOT re-POST.
-        await engine.drainNow();
+      // Release the held POST; let everything settle.
+      gate.complete();
+      await pullDrain;
+      await connectivityDrain;
+      // Drain again to flush any queued rerun the shared single-flight
+      // scheduled, proving it does NOT re-POST.
+      await engine.drainNow();
 
-        // The createChat reached the server exactly once.
-        check(client.createChatCalls).equals(1);
-        // The op was consumed (remapped + marked done), nothing left pending.
-        check(await db.outboxDao.pendingForChat('local:c1')).isEmpty();
-      },
-    );
+      // The createChat reached the server exactly once.
+      check(client.createChatCalls).equals(1);
+      // The op was consumed (remapped + marked done), nothing left pending.
+      check(await db.outboxDao.pendingForChat('local:c1')).isEmpty();
+    });
   });
 }

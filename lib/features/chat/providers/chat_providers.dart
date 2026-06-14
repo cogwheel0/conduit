@@ -922,8 +922,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation == null ||
-        activeConversation.id != conversationId) {
+    if (activeConversation == null || activeConversation.id != conversationId) {
       return;
     }
 
@@ -2235,7 +2234,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         'role': message.role,
         'content': message.content,
         'timestamp': timestamp,
+        'isStreaming': message.isStreaming,
         if (message.model != null) 'model': message.model,
+        if (message.metadata != null && message.metadata!.isNotEmpty)
+          'metadata': message.metadata,
       },
     );
   }
@@ -3656,9 +3658,7 @@ Future<void> runQueuedCompletion(
   final selectedModel = ref.read(selectedModelProvider);
   // Empty model => fall back to the selected default model (mirrors the
   // migrator's empty-model contract). A still-empty model is a hard error.
-  final effectiveModelId = model.isNotEmpty
-      ? model
-      : (selectedModel?.id ?? '');
+  final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
   if (effectiveModelId.isEmpty) {
     throw StateError('runQueuedCompletion has no model to send');
   }
@@ -3714,8 +3714,7 @@ Future<void> runQueuedCompletion(
 
   final socketService = ref.read(socketServiceProvider);
   final socketSessionId =
-      sessionIdOverride ??
-      await _ensureConnectedSocketSessionId(socketService);
+      sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
 
   List<Map<String, dynamic>>? toolServers;
   try {
@@ -3884,7 +3883,8 @@ Future<void> runHeadlessCompletion(
     isTemporary: false,
   );
 
-  final modelItem = (selectedModel != null && selectedModel.id == effectiveModelId)
+  final modelItem =
+      (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
       : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
 
@@ -4206,8 +4206,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
 
 List<Map<String, dynamic>> _durableFilesFor(List<String> attachments) {
   return [
-    for (final id in attachments)
-      <String, dynamic>{'type': 'file', 'id': id},
+    for (final id in attachments) <String, dynamic>{'type': 'file', 'id': id},
   ];
 }
 

@@ -106,10 +106,7 @@ class SyncTriggers extends _$SyncTriggers {
     _periodic?.cancel();
     _periodic = Timer.periodic(kPeriodicPullInterval, (_) {
       if (!ref.read(isOnlineProvider)) {
-        DebugLogger.log(
-          'periodic-skipped-offline',
-          scope: 'sync/triggers',
-        );
+        DebugLogger.log('periodic-skipped-offline', scope: 'sync/triggers');
         return;
       }
       _request('periodic');
@@ -122,9 +119,11 @@ class SyncTriggers extends _$SyncTriggers {
   }
 
   void _request(String reason) {
-    DebugLogger.log('trigger', scope: 'sync/triggers', data: {
-      'reason': reason,
-    });
+    DebugLogger.log(
+      'trigger',
+      scope: 'sync/triggers',
+      data: {'reason': reason},
+    );
     unawaited(
       ref.read(syncEngineProvider.notifier).requestPull(reason: reason),
     );
@@ -142,8 +141,10 @@ class _SyncLifecycleObserver with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         onResumed();
+        break;
       case AppLifecycleState.paused:
         onPaused();
+        break;
       case AppLifecycleState.detached:
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:

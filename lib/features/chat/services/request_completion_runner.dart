@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/database/app_database.dart';
@@ -69,10 +71,10 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       throw CompletionBusyException(chatId);
     }
 
-    // 2. Idempotency / already-completed guard (R3): a completed turn leaves the
-    //    placeholder row present with non-empty content. The common path is
-    //    "row present, empty content" (the drainer enqueues ONE requestCompletion
-    //    per turn and markDone deletes it).
+    // 2. Idempotency / already-completed guard (R3): a completed turn leaves a
+    //    durable marker on the placeholder row. Non-empty content alone is not
+    //    enough: pause checkpoints also persist partial assistant text while
+    //    the requestCompletion op is still pending/inFlight.
     final rows = await db.messagesDao.getForChat(chatId);
     MessageRow? placeholder;
     for (final row in rows) {
@@ -89,7 +91,8 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       );
       return;
     }
-    if (placeholder.content.trim().isNotEmpty) {
+    if (placeholder.content.trim().isNotEmpty &&
+        _placeholderMarkedComplete(placeholder)) {
       DebugLogger.log(
         'completion-already-done',
         scope: 'chat/completion',
@@ -146,6 +149,36 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       sessionIdOverride: decoded.sessionIdOverride,
     );
   }
+}
+
+bool _placeholderMarkedComplete(MessageRow placeholder) {
+  final payload = _decodeMessagePayload(placeholder.payload);
+  final metadata = _asJsonMap(payload['metadata']);
+  return metadata['responseDone'] == true ||
+      payload['done'] == true ||
+      payload['isStreaming'] == false;
+}
+
+Map<String, dynamic> _decodeMessagePayload(String raw) {
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    }
+  } catch (_) {
+    // Malformed legacy rows are treated as not-complete so the op re-runs
+    // rather than being marked done against an ambiguous partial reply.
+  }
+  return const <String, dynamic>{};
+}
+
+Map<String, dynamic> _asJsonMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return const <String, dynamic>{};
 }
 
 /// Concrete runner provider; overrides the core/sync seam at startup.

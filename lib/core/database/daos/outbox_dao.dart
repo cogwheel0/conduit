@@ -664,9 +664,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           contentHash != null,
           'createChat requires a contentHash fingerprint',
         );
+        break;
       case OutboxKind.updateChat:
       case OutboxKind.deleteChat:
         _require(payload.isEmpty, '${kind.name} payload must be empty');
+        break;
       case OutboxKind.requestCompletion:
         _require(
           payload['assistantMessageId'] is String,
@@ -680,6 +682,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           payload['toolIds'] is List,
           'requestCompletion.toolIds must be a List',
         );
+        break;
       case OutboxKind.folderUpsert:
         _require(
           payload['folderId'] is String,
@@ -689,17 +692,20 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           payload['createIfAbsent'] is bool,
           'folderUpsert.createIfAbsent must be a bool',
         );
+        break;
       case OutboxKind.folderDelete:
         _require(
           payload['folderId'] is String,
           'folderDelete.folderId must be a String',
         );
+        break;
       // ---- Phase 5 notes (CDT-RFC-001 D-11) ----
       case OutboxKind.noteCreate:
       case OutboxKind.noteDelete:
         // Empty payload: title/data reconstructed from the row at push
         // (note_mapper), mirroring createChat/deleteChat (§3.iii).
         _require(payload.isEmpty, '${kind.name} payload must be empty');
+        break;
       case OutboxKind.noteUpdate:
         // Carries the patch map; `title` is ALWAYS present (WARNING B: the
         // router's NoteForm requires it, and the merge union must never lose it).
@@ -707,8 +713,10 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           payload['title'] is String,
           'noteUpdate.title must be a String',
         );
+        break;
       case OutboxKind.notePin:
         _require(payload['desired'] is bool, 'notePin.desired must be a bool');
+        break;
     }
   }
 

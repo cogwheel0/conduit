@@ -73,13 +73,12 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(messages);
         await m.createTable(folders);
         await m.createTable(outboxOps);
-        await _createIndexes();
+        await _createCoreIndexes();
       }
-      if (from < 3) {
+      if (from >= 2 && from < 3) {
         // Phase 2 write path: the §7.3 crash-heal fingerprint column and the
-        // per-chat FIFO claim-scan index. Both idempotent (the v1->v2 heal
-        // above already runs _createIndexes, which now also creates the
-        // chat_seq index).
+        // per-chat FIFO claim-scan index. The v1->v2 heal creates the current
+        // outbox table shape, so only true v2 installs need the column add.
         await m.addColumn(outboxOps, outboxOps.contentHash);
         await customStatement(
           'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
@@ -116,6 +115,11 @@ class AppDatabase extends _$AppDatabase {
   /// Drift's `@TableIndex` cannot express DESC/partial indexes; create them
   /// by hand (CDT-RFC-001 §10).
   Future<void> _createIndexes() async {
+    await _createCoreIndexes();
+    await _createNoteIndexes();
+  }
+
+  Future<void> _createCoreIndexes() async {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_messages_chat_created '
       'ON messages (chat_id, created_at);',
@@ -137,7 +141,6 @@ class AppDatabase extends _$AppDatabase {
       'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
       'ON outbox_ops (chat_id, seq);',
     );
-    await _createNoteIndexes();
   }
 
   /// Phase 5 NOTES indexes (CDT-RFC-001 Phase 5). DESC list ordering + a

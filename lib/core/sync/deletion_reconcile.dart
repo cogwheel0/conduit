@@ -80,10 +80,10 @@ class DeletionReconcile {
     required AppDatabase db,
     required ChatLocks locks,
     required SyncClock clock,
-  })  : _client = client,
-        _db = db,
-        _locks = locks,
-        _clock = clock;
+  }) : _client = client,
+       _db = db,
+       _locks = locks,
+       _clock = clock;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -152,10 +152,7 @@ class DeletionReconcile {
       DebugLogger.warning(
         'reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',
-        data: {
-          'candidates': candidates.length,
-          'local': localServerIds.length,
-        },
+        data: {'candidates': candidates.length, 'local': localServerIds.length},
       );
       // Do NOT advance the throttle: this is an abnormal condition that should
       // be retried, not suppressed for 24h.
@@ -172,13 +169,9 @@ class DeletionReconcile {
     // The vendored GET /chats/{id} returns 401 (not 404) for a genuinely
     // missing/not-owned chat (routers/chats.py:957), so probeChatExists must
     // treat 401 as gone — but a 401 is ALSO what an expired token yields. To
-    // keep a mid-run token expiry from purging live chats, verify the session
-    // is still alive (a cheap authed list fetch) ONCE before trusting any
-    // purge; if it's dead, abort the run without purging or advancing the
-    // throttle. Enumeration already proved the token was valid moments ago, so
-    // one re-check closes the enumerate→probe window; the 50% safety valve is
-    // the backstop for an expiry deeper in the loop.
-    var sessionVerified = false;
+    // keep a token expiry from purging live chats, verify the session is still
+    // alive (a cheap authed list fetch) before EACH purge. If it is dead, abort
+    // the run without purging further or advancing the throttle.
     var sessionDead = false;
     for (final id in candidates) {
       if (sessionDead) {
@@ -206,23 +199,20 @@ class DeletionReconcile {
           skipped++;
           return;
         }
-        if (!sessionVerified) {
-          try {
-            await _client.getChatListPage(1);
-            sessionVerified = true;
-          } catch (_) {
-            // Session is dead — every probe 401 this run is ambiguous. Purge
-            // nothing further; leave the throttle un-advanced so the next
-            // authenticated trigger retries.
-            DebugLogger.warning(
-              'reconcile-aborted-session-dead',
-              scope: 'sync/reconcile',
-              data: {'chatId': id},
-            );
-            sessionDead = true;
-            skipped++;
-            return;
-          }
+        try {
+          await _client.getChatListPage(1);
+        } catch (_) {
+          // Session is dead — every probe 401 this run is ambiguous. Purge
+          // nothing further; leave the throttle un-advanced so the next
+          // authenticated trigger retries.
+          DebugLogger.warning(
+            'reconcile-aborted-session-dead',
+            scope: 'sync/reconcile',
+            data: {'chatId': id},
+          );
+          sessionDead = true;
+          skipped++;
+          return;
         }
         // Confirmed gone with a verified-live session: purge rows + drop ops.
         await _db.chatsDao.purgeReconciledChat(id);

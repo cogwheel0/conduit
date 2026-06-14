@@ -6,6 +6,8 @@
 /// real completion — including the temporary-chat and absent-row no-ops.
 library;
 
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
@@ -115,6 +117,9 @@ void main() {
         check(user.parentId).isNull();
         check(assistant.parentId).equals('u-1');
         check(assistant.content).equals('Streamed answer');
+        final assistantPayload =
+            jsonDecode(assistant.payload) as Map<String, dynamic>;
+        check(assistantPayload['isStreaming']).equals(false);
         // The in-state assistant is no longer streaming.
         check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
       },
