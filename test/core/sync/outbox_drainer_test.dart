@@ -149,20 +149,47 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
-  }) async => throw UnimplementedError();
+  }) async {
+    calls.add('createFolder');
+    events.add('createFolder:$name');
+    await Future<void>.delayed(Duration.zero);
+    return server.createFolder(name: name, parentId: parentId);
+  }
+
   @override
   Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
-  }) async => throw UnimplementedError();
+  }) async {
+    calls.add('updateFolder:$id');
+    events.add('updateFolder:$id');
+    await Future<void>.delayed(Duration.zero);
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return null;
+    server.updateFolder(id, name: name, data: data, meta: meta);
+    return server.getFolders().firstWhere((folder) => folder['id'] == id);
+  }
+
   @override
-  Future<bool> updateFolderParent(String id, String? parentId) async =>
-      throw UnimplementedError();
+  Future<bool> updateFolderParent(String id, String? parentId) async {
+    calls.add('updateFolderParent:$id');
+    events.add('updateFolderParent:$id');
+    await Future<void>.delayed(Duration.zero);
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return false;
+    server.updateFolderParent(id, parentId);
+    return true;
+  }
+
   @override
-  Future<bool> deleteFolder(String id, {bool deleteContents = false}) async =>
-      throw UnimplementedError();
+  Future<bool> deleteFolder(String id, {bool deleteContents = false}) async {
+    calls.add('deleteFolder:$id');
+    events.add('deleteFolder:$id');
+    await Future<void>.delayed(Duration.zero);
+    return server.deleteFolder(id, deleteContents: deleteContents);
+  }
 }
 
 /// Programmable completion seam: counts runs per chat and can fail a fixed
@@ -304,6 +331,95 @@ void main() {
       check(server.getChatById('c1')).isNull();
       check(await dao.pendingForChat('c1')).isEmpty();
     });
+
+    test(
+      'folderUpsert uses remapped op chatId over stale payload folderId',
+      () async {
+        const localId = 'local:folder';
+        const serverId = 'server-folder';
+        server.seedFolderRaw({
+          'id': serverId,
+          'name': 'Old',
+          'parent_id': null,
+          'created_at': 1,
+          'updated_at': 1,
+        });
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: serverId,
+                name: 'Renamed',
+                createdAt: 1,
+                updatedAt: 2,
+                serverUpdatedAt: const Value(1),
+                dirty: const Value(true),
+              ),
+            );
+        await enqueue(
+          kind: OutboxKind.folderUpsert,
+          chatId: serverId,
+          payload: {
+            'folderId': localId,
+            'createIfAbsent': false,
+            'name': 'Renamed',
+          },
+        );
+
+        await buildDrainer().drain();
+
+        check(client.calls).contains('updateFolder:$serverId');
+        check(
+          client.calls,
+        ).not((calls) => calls.contains('updateFolder:$localId'));
+        check(server.getFolders().single['name']).equals('Renamed');
+        check((await db.foldersDao.getFolder(serverId))!.dirty).isFalse();
+        check(await dao.pendingForChat(serverId)).isEmpty();
+      },
+    );
+
+    test(
+      'folderDelete uses remapped op chatId over stale payload folderId',
+      () async {
+        const localId = 'local:folder';
+        const serverId = 'server-folder';
+        server.seedFolderRaw({
+          'id': serverId,
+          'name': 'Delete Me',
+          'parent_id': null,
+          'created_at': 1,
+          'updated_at': 1,
+        });
+        await db
+            .into(db.folders)
+            .insert(
+              FoldersCompanion.insert(
+                id: serverId,
+                name: 'Delete Me',
+                createdAt: 1,
+                updatedAt: 2,
+                serverUpdatedAt: const Value(1),
+                dirty: const Value(true),
+                deleted: const Value(true),
+              ),
+            );
+        await enqueue(
+          kind: OutboxKind.folderDelete,
+          chatId: serverId,
+          payload: {'folderId': localId},
+        );
+
+        await buildDrainer().drain();
+
+        check(client.calls).contains('deleteFolder:$serverId');
+        check(
+          client.calls,
+        ).not((calls) => calls.contains('deleteFolder:$localId'));
+        check(server.getFolders()).isEmpty();
+        check(await db.foldersDao.getFolder(serverId)).isNull();
+        check(await dao.pendingForChat(serverId)).isEmpty();
+      },
+    );
   });
 
   group('per-chat FIFO + pool of 2', () {
@@ -575,7 +691,6 @@ void main() {
           .insert(
             OutboxOpsCompanion.insert(
               kind: OutboxKind.folderDelete.name,
-              chatId: const Value('folder-bad'),
               payload: const Value('{}'),
             ),
           );
@@ -583,13 +698,11 @@ void main() {
 
       await drainer.drain();
 
-      check(await dao.pendingForChat('folder-bad')).isEmpty();
-      final parked = await dao.watchParkedForChat('folder-bad').first;
-      check(parked).length.equals(1);
-      check(parked.single.seq).equals(seq);
-      check(
-        parked.single.lastError!,
-      ).contains('malformed folderDelete payload');
+      final row = await (db.select(
+        db.outboxOps,
+      )..where((t) => t.seq.equals(seq))).getSingle();
+      check(row.status).equals(OutboxStatus.failed);
+      check(row.lastError!).contains('malformed folderDelete payload');
     });
   });
 

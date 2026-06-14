@@ -26,11 +26,9 @@ const String kChatPullWatermarkKey = 'pull_watermark';
 /// [pushOp]; the engine drives chat PULL through [PullSync.run] (not the
 /// generic `runPullFor`) so the archived/folders coupling is preserved.
 class ChatAdapter implements SyncEntityAdapter {
-  ChatAdapter({
-    required PullSync pull,
-    required PushSync push,
-  })  : _pull = pull,
-        _push = push;
+  ChatAdapter({required PullSync pull, required PushSync push})
+    : _pull = pull,
+      _push = push;
 
   final PullSync _pull;
   final PushSync _push;
@@ -77,9 +75,17 @@ class ChatAdapter implements SyncEntityAdapter {
       case OutboxKind.deleteChat:
         await _push.pushDeleteChat(op.chatId!);
       case OutboxKind.folderUpsert:
-        await _push.pushFolderUpsert(decodeOutboxPayload(op.payload));
+        final payload = decodeOutboxPayload(op.payload);
+        final folderId = op.chatId;
+        if (folderId != null && folderId.isNotEmpty) {
+          payload['folderId'] = folderId;
+        }
+        await _push.pushFolderUpsert(payload);
       case OutboxKind.folderDelete:
-        final folderId = decodeOutboxPayload(op.payload)['folderId'];
+        final payloadFolderId = decodeOutboxPayload(op.payload)['folderId'];
+        final folderId = op.chatId != null && op.chatId!.isNotEmpty
+            ? op.chatId
+            : payloadFolderId;
         if (folderId is! String || folderId.isEmpty) {
           throw const SyncTerminalException(
             statusCode: 400,
