@@ -186,6 +186,21 @@ void main() {
       check(client.createChatCalls).equals(1);
     });
 
+    test('defers create while the target folder is still local', () async {
+      const localId = 'local:foldered-chat';
+      const folderId = 'local:folder';
+      await seedLocalChat(db, id: localId, folderId: folderId, messageCount: 1);
+
+      await check(push.pushCreateChat(localId)).throws<StateError>();
+
+      check(client.createChatCalls).equals(0);
+      final chat = await db.chatsDao.getChat(localId);
+      check(chat).isNotNull();
+      check(chat!.folderId).equals(folderId);
+      check(chat.dirty).isTrue();
+      check(await db.messagesDao.getForChat(localId)).length.equals(1);
+    });
+
     test('remap and dirty clear share one server-id lock span', () async {
       final recordingLocks = _RecordingChatLocks();
       final recordingPush = PushSync(

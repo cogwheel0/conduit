@@ -83,6 +83,16 @@ class PushSync {
       final messages = await _db.messagesDao.getForChat(localId);
       final rows = chatRowsFromDb(chat, messages);
       final blob = ChatBlobMapper.rowsToBlob(rows)..['id'] = '';
+      if (chat.folderId != null && chat.folderId!.startsWith('local:')) {
+        DebugLogger.log(
+          'create-defer-local-folder',
+          scope: 'sync/push',
+          data: {'chatId': localId, 'folderId': chat.folderId},
+        );
+        throw StateError(
+          'createChat deferred until folder remap completes: $localId',
+        );
+      }
       final resp = await _client.createChat(blob, folderId: chat.folderId);
       final serverId = resp['id'];
       if (serverId is! String || serverId.isEmpty) {
