@@ -911,6 +911,59 @@ void main() {
       },
     );
 
+    test('claimPendingCreateForHash marks the create inFlight', () async {
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'hash-A',
+      );
+
+      final claimed = await dao.claimPendingCreateForHash('hash-A');
+      check(claimed!.chatId).equals('local:c');
+      check(claimed.status).equals('inFlight');
+      check(await dao.pendingCreateForHash('hash-A')).isNull();
+      check(await dao.hasPendingCreateContentHashes()).isFalse();
+
+      final live = await (db.select(
+        db.outboxOps,
+      )..where((t) => t.seq.equals(claimed.seq))).getSingle();
+      check(live.status).equals('inFlight');
+    });
+
+    test('claimPendingCreateForHash can target noteCreate', () async {
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'same-hash',
+      );
+      await enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: 'local:n',
+        contentHash: 'same-hash',
+      );
+
+      final claimed = await dao.claimPendingCreateForHash(
+        'same-hash',
+        kind: OutboxKind.noteCreate,
+      );
+      check(claimed!.chatId).equals('local:n');
+      check(claimed.kind).equals('noteCreate');
+
+      final chatHit = await dao.pendingCreateForHash('same-hash');
+      check(chatHit!.chatId).equals('local:c');
+    });
+
+    test('claimPendingCreateForHash ignores worker-owned creates', () async {
+      await enqueue(
+        kind: OutboxKind.createChat,
+        chatId: 'local:c',
+        contentHash: 'hash-A',
+      );
+      await dao.claimNextRunnable(nowEpochSeconds: 1, busyChatIds: {});
+
+      check(await dao.claimPendingCreateForHash('hash-A')).isNull();
+    });
+
     test('hasPendingCreateContentHashes is a cheap preflight', () async {
       check(await dao.hasPendingCreateContentHashes()).isFalse();
       await enqueue(

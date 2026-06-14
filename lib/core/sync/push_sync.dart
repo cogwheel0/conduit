@@ -123,8 +123,10 @@ class PushSync {
         capturedMessageIds: [for (final m in messages) m.id],
       );
 
-      // Keep the local-id lock while acquiring the server-id lock for remap,
-      // matching note create and closing the post-POST pull window.
+      // Keep the local-id lock while acquiring the server-id lock for remap.
+      // Pull-side crash-heal claims a pending createChat before trying localId;
+      // once this push worker owns the op as inFlight, crash-heal exits before
+      // taking localId and cannot form an opposite-order cycle.
       await _chatLocks.runExclusive(pushed.serverId, () async {
         await _remapper.remapChat(
           localId: localId,

@@ -470,12 +470,22 @@ class PullSync {
     // the local op (the server preserves the client's history/message ids on
     // create — only the top-level chat id is reminted).
     final hash = createChatContentHash(rows);
-    final op = await _db.outboxDao.pendingCreateForHash(hash);
+    final op = await _db.outboxDao.claimPendingCreateForHash(hash);
     if (op == null) return false;
     final localId = op.chatId;
-    if (localId == null || localId == serverId) {
-      // No id to remap, or the op was already repointed to this server id by a
-      // prior heal/remap — let the normal upsert refresh the row.
+    if (localId == null) {
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: 'malformed create crash-heal op',
+        nextAttemptAt: 0,
+      );
+      return false;
+    }
+    if (localId == serverId) {
+      // The op was already repointed to this server id by a prior heal/remap.
+      // The server chat exists, so satisfy the create and let the normal upsert
+      // refresh the row.
+      await _db.outboxDao.markDone(op.seq);
       return false;
     }
 
@@ -484,23 +494,38 @@ class PullSync {
       scope: 'sync/pull',
       data: {'from': localId, 'to': serverId, 'seq': op.seq},
     );
-    // We already hold the SERVER id lock (this merge runs under it). remapChat
-    // also touches the local row, so acquire the LOCAL lock too. No deadlock:
-    // pushCreateChat holds localId THEN acquires serverId, but
-    // pendingCreateForHash only matches status='pending' ops; the push side
-    // never holds the localId lock while we run here, so no cycle is possible.
-    await _locks.runExclusive(localId, () async {
-      await remapper.remapChat(
-        localId: localId,
-        serverId: serverId,
-        serverCreatedAt: serverCreatedAt,
-        serverUpdatedAt: serverUpdatedAt,
+    try {
+      // We already hold the SERVER id lock (this merge runs under it). The
+      // create op was claimed before this LOCAL lock, so a drain worker cannot
+      // concurrently claim it and enter pushCreateChat with the opposite lock
+      // order.
+      await _locks.runExclusive(localId, () async {
+        await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: serverCreatedAt,
+          serverUpdatedAt: serverUpdatedAt,
+        );
+        // The remap repointed the claimed createChat op's chat_id to the server
+        // id (§7.3). The chat now exists server-side, so the create is
+        // satisfied: drop the op so the drainer never re-POSTs it.
+        await _db.outboxDao.markDone(op.seq);
+      });
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'create-crash-heal-failed',
+        scope: 'sync/pull',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'from': localId, 'to': serverId, 'seq': op.seq},
       );
-      // The remap repointed the still-pending createChat op's chat_id to the
-      // server id (§7.3). The chat now exists server-side, so the create is
-      // satisfied: drop the op so the drainer never re-POSTs it.
-      await _db.outboxDao.markDone(op.seq);
-    });
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: 'create crash-heal failed: $error',
+        nextAttemptAt: 0,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     return true;
   }
 

@@ -426,6 +426,42 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .getSingleOrNull();
   }
 
+  /// Atomically reserves the pending create op carrying [contentHash] for
+  /// crash-heal. The row is flipped to `inFlight` before pull-side remap takes
+  /// any local-id lock, so a drain worker cannot claim the same create and form
+  /// an opposite-order lock cycle.
+  Future<OutboxOp?> claimPendingCreateForHash(
+    String contentHash, {
+    OutboxKind kind = OutboxKind.createChat,
+  }) {
+    return transaction(() async {
+      final op =
+          await (select(outboxOps)
+                ..where(
+                  (t) =>
+                      t.kind.equals(kind.name) &
+                      t.contentHash.equals(contentHash) &
+                      t.status.equals(OutboxStatus.pending),
+                )
+                ..orderBy([(t) => OrderingTerm.asc(t.seq)])
+                ..limit(1))
+              .getSingleOrNull();
+      if (op == null) return null;
+
+      final updated =
+          await (update(outboxOps)..where(
+                (t) =>
+                    t.seq.equals(op.seq) &
+                    t.status.equals(OutboxStatus.pending),
+              ))
+              .write(
+                const OutboxOpsCompanion(status: Value(OutboxStatus.inFlight)),
+              );
+      if (updated == 0) return null;
+      return op.copyWith(status: OutboxStatus.inFlight);
+    });
+  }
+
   /// Cheap preflight for the §7.3 crash-heal path. Lets pull skip expensive
   /// content-hash computation when no pending create of [kind] could match.
   Future<bool> hasPendingCreateContentHashes({

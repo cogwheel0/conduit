@@ -99,14 +99,25 @@ class NotePullSync {
     if (!hasPendingCreate) return false;
 
     final hash = noteCreateContentHashFromServer(serverRaw);
-    final op = await _db.outboxDao.pendingCreateForHash(
+    final op = await _db.outboxDao.claimPendingCreateForHash(
       hash,
       kind: OutboxKind.noteCreate,
     );
     if (op == null) return false;
 
     final localId = op.chatId;
-    if (localId == null || localId == serverId) return false;
+    if (localId == null) {
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: 'malformed note create crash-heal op',
+        nextAttemptAt: 0,
+      );
+      return false;
+    }
+    if (localId == serverId) {
+      await _db.outboxDao.markDone(op.seq);
+      return false;
+    }
 
     DebugLogger.log(
       'note-create-crash-heal',
@@ -114,17 +125,33 @@ class NotePullSync {
       data: {'from': localId, 'to': serverId, 'seq': op.seq},
     );
 
-    await _locks.runExclusive(localId, () async {
-      await remapper.remapNote(
-        localId: localId,
-        serverId: serverId,
-        serverCreatedAt: serverCreatedAt,
-        serverUpdatedAt: serverUpdatedAt,
+    try {
+      await _locks.runExclusive(localId, () async {
+        await remapper.remapNote(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: serverCreatedAt,
+          serverUpdatedAt: serverUpdatedAt,
+        );
+        // The server note exists, so the claimed create is satisfied. Drop it
+        // after remap so the drainer cannot POST a duplicate.
+        await _db.outboxDao.markDone(op.seq);
+      });
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-create-crash-heal-failed',
+        scope: 'sync/notes',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'from': localId, 'to': serverId, 'seq': op.seq},
       );
-      // The server note exists, so the still-pending create is satisfied. Drop
-      // it after remap so the drainer cannot POST a duplicate.
-      await _db.outboxDao.markDone(op.seq);
-    });
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: 'note create crash-heal failed: $error',
+        nextAttemptAt: 0,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     return true;
   }
 
@@ -204,10 +231,9 @@ class NotePushSync {
       final serverUpdatedAt = _asNs(resp['updated_at']) ?? note.updatedAt;
 
       // Keep the local-id lock while acquiring the server-id lock for remap.
-      // Pull-side crash-heal can hold serverId then try localId, but it only
-      // matches pending noteCreate ops. This push worker has already claimed the
-      // op as inFlight, so crash-heal exits before taking localId and cannot
-      // form an opposite-order cycle.
+      // Pull-side crash-heal claims a pending noteCreate before trying localId;
+      // once this push worker owns the op as inFlight, crash-heal exits before
+      // taking localId and cannot form an opposite-order cycle.
       await _noteLocks.runExclusive(
         serverId,
         () => _remapper.remapNote(
