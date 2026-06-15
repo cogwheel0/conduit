@@ -104,6 +104,22 @@ void main() {
       check(out['created_at']).equals(ns);
     });
 
+    test('null server data and meta normalize to empty maps', () async {
+      final server = <String, dynamic>{
+        'id': 'note-null-json',
+        'title': 'T',
+        'data': null,
+        'meta': null,
+        'is_pinned': false,
+        'created_at': 1,
+        'updated_at': 2,
+      };
+
+      final out = await roundTrip(server);
+      check(const DeepCollectionEquality().equals(out['data'], {})).isTrue();
+      check(const DeepCollectionEquality().equals(out['meta'], {})).isTrue();
+    });
+
     test('missing server id throws a descriptive argument error', () {
       final server = <String, dynamic>{
         'title': 'Missing id',

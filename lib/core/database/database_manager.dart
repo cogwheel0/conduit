@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -52,11 +53,7 @@ class DatabaseManager {
         );
       });
     }
-    DebugLogger.log(
-      'open',
-      scope: 'db/manager',
-      data: {'serverId': server.id},
-    );
+    DebugLogger.log('open', scope: 'db/manager', data: {'serverId': server.id});
     final db = _openDatabase(fileNameFor(server.id));
     _active = db;
     _activeServerId = server.id;
@@ -99,8 +96,9 @@ class DatabaseManager {
     );
   }
 
-  /// [serverId] with every char outside `[A-Za-z0-9._-]` replaced by `_`.
+  /// Filesystem-safe, collision-free encoding of [serverId].
   static String fileNameFor(String serverId) {
-    return serverId.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final encoded = base64Url.encode(utf8.encode(serverId)).replaceAll('=', '');
+    return 'server_$encoded';
   }
 }

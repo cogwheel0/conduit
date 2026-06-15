@@ -182,7 +182,7 @@ void main() {
     );
 
     test(
-      'pause checkpoint stores assistant as non-streaming snapshot',
+      'pause checkpoint preserves in-flight assistant streaming state',
       () async {
         await seedChatRow('d07-pause');
         final container = buildContainer();
@@ -202,7 +202,8 @@ void main() {
         final assistant = rows.firstWhere((r) => r.id == 'a-pause');
         final assistantPayload =
             jsonDecode(assistant.payload) as Map<String, dynamic>;
-        check(assistantPayload['isStreaming']).equals(false);
+        check(assistantPayload['isStreaming']).equals(true);
+        check(assistantPayload.containsKey('done')).isFalse();
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
         notifier.setMessages([
           _user('u-pause', 'Question'),

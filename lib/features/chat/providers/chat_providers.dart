@@ -2256,7 +2256,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         'role': message.role,
         'content': message.content,
         'timestamp': timestamp,
-        'isStreaming': false,
+        'isStreaming': message.isStreaming,
+        if (message.role == 'assistant' && !message.isStreaming) 'done': true,
         if (message.model != null) 'model': message.model,
         if (message.metadata != null && message.metadata!.isNotEmpty)
           'metadata': message.metadata,
@@ -3988,12 +3989,6 @@ Future<void> runHeadlessCompletion(
     files: _extractTopLevelRequestFiles(parentMsgMap),
   );
 
-  await _markHeadlessCompletionSubmitted(
-    ref,
-    chatId: chatId,
-    assistantMessageId: assistantMessageId,
-  );
-
   // Drain the HTTP byte stream to EOF (discarding chunks) so the server runs to
   // completion + persists. The socket/task flow has no byteStream — the server
   // generates it as a background task; the subsequent pull(s) collect it.
@@ -4008,6 +4003,9 @@ Future<void> runHeadlessCompletion(
         error: error,
         data: {'chatId': chatId},
       );
+      throw _QueuedCompletionDeferred(
+        'headless stream drain timed out for chat $chatId',
+      );
     } catch (error) {
       DebugLogger.error(
         'headless-stream-drain-failed',
@@ -4015,8 +4013,17 @@ Future<void> runHeadlessCompletion(
         error: error,
         data: {'chatId': chatId},
       );
+      throw _QueuedCompletionDeferred(
+        'headless stream drain failed for chat $chatId: $error',
+      );
     }
   }
+
+  await _markHeadlessCompletionSubmitted(
+    ref,
+    chatId: chatId,
+    assistantMessageId: assistantMessageId,
+  );
 
   // Pull the chat (bounded) until the server-persisted assistant reply lands
   // locally. The Phase 3 merge applies it under the chat lock. Both transport
@@ -4059,9 +4066,7 @@ bool _headlessAssistantLanded(ChatMessage message) {
   if (message.followUps.isNotEmpty) return true;
   if (message.error != null) return true;
 
-  final metadata = message.metadata;
-  if (metadata == null || metadata.isEmpty) return false;
-  return metadata.keys.any((key) => key != 'responseDone');
+  return false;
 }
 
 @visibleForTesting
@@ -4185,6 +4190,8 @@ Future<void> durableSend(
   final assistantMessageId = const Uuid().v4();
 
   // ---- optimistic UI (instant; NON-NEGOTIABLE 4) ----
+  final contextAttachments = ref.read(contextAttachmentsProvider);
+  final contextFiles = _contextAttachmentsToFiles(contextAttachments);
   final attachmentIds = attachments;
   final userMessage = ChatMessage(
     id: userMessageId,
@@ -4193,6 +4200,7 @@ Future<void> durableSend(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     attachmentIds: attachmentIds,
+    files: contextFiles.isEmpty ? null : contextFiles,
     metadata: {
       'parentId': parentId,
       'childrenIds': <String>[assistantMessageId],
@@ -4214,7 +4222,14 @@ Future<void> durableSend(
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];
   final toolIdList = toolIds ?? const <String>[];
-  final durableFiles = await _resolveDurableFilesFor(ref, attachmentList);
+  final durableAttachmentFiles = await _resolveDurableFilesFor(
+    ref,
+    attachmentList,
+  );
+  final durableFiles = <Map<String, dynamic>>[
+    ...durableAttachmentFiles,
+    ...contextFiles,
+  ];
 
   final completion = RequestCompletionPayload(
     assistantMessageId: assistantMessageId,

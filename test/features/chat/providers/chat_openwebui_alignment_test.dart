@@ -152,6 +152,17 @@ void main() {
           ),
         ),
       ).isFalse();
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a3',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            metadata: const {'parentId': 'u1', 'childrenIds': <String>[]},
+          ),
+        ),
+      ).isFalse();
     });
 
     test('temporary chats keep full outbound history', () {

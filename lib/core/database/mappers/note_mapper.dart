@@ -59,11 +59,13 @@ NotesCompanion serverToNoteRow(
     for (final entry in server.entries)
       if (!_typedNoteKeys.contains(entry.key)) entry.key: entry.value,
   };
+  final data = _serverJsonObjectOrEmpty(server['data']);
+  final meta = _serverJsonObjectOrEmpty(server['meta']);
   return NotesCompanion.insert(
     id: id,
     title: server['title'] is String ? server['title'] as String : '',
-    data: Value(jsonEncode(_asMap(server['data']))),
-    meta: Value(jsonEncode(_asMap(server['meta']))),
+    data: Value(jsonEncode(data)),
+    meta: Value(jsonEncode(meta)),
     isPinned: Value(server['is_pinned'] == true),
     createdAt: _asNs(server['created_at']) ?? 0,
     updatedAt: _asNs(server['updated_at']) ?? 0,
@@ -116,7 +118,7 @@ String noteCreateContentHashFromRow(NoteRow row) {
 String noteCreateContentHashFromServer(Map<String, dynamic> server) {
   return noteCreateContentHash(
     title: server['title'] is String ? server['title'] as String : '',
-    data: _asMap(server['data']),
+    data: _serverJsonObjectOrEmpty(server['data']),
   );
 }
 
@@ -137,6 +139,11 @@ Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   return <String, dynamic>{};
+}
+
+Map<String, dynamic> _serverJsonObjectOrEmpty(Object? value) {
+  if (value == null) return <String, dynamic>{};
+  return _asMap(value);
 }
 
 Map<String, dynamic> _decodeMap(String raw) => decodeJsonMap(raw);

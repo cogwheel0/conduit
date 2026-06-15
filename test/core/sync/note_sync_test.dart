@@ -237,7 +237,7 @@ void main() {
   test(
     'pull full-fetches note bodies instead of trusting truncated list data',
     () async {
-      final longBody = 'x' * 1200;
+      final longBody = List.filled(1200, 'x').join();
       server.seedNote(
         id: 'long-note',
         title: 'Long',

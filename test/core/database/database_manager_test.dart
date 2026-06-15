@@ -72,10 +72,10 @@ void main() {
       await second.customSelect('SELECT 1').get();
 
       check(openedFileNames.toSet().length).equals(2);
-      check(fileFor(DatabaseManager.fileNameFor('alpha')).existsSync())
-          .isTrue();
-      check(fileFor(DatabaseManager.fileNameFor('beta')).existsSync())
-          .isTrue();
+      check(
+        fileFor(DatabaseManager.fileNameFor('alpha')).existsSync(),
+      ).isTrue();
+      check(fileFor(DatabaseManager.fileNameFor('beta')).existsSync()).isTrue();
     });
   });
 
@@ -98,41 +98,45 @@ void main() {
   });
 
   group('deleteFor', () {
-    test('closes the active database and deletes db + wal + shm files',
-        () async {
-      final db = manager.openFor(_server('alpha'));
-      await db.customSelect('SELECT 1').get();
+    test(
+      'closes the active database and deletes db + wal + shm files',
+      () async {
+        final db = manager.openFor(_server('alpha'));
+        await db.customSelect('SELECT 1').get();
 
-      final base = fileFor(DatabaseManager.fileNameFor('alpha'));
-      check(base.existsSync()).isTrue();
-      // Simulate leftover WAL artifacts (present while a database is in WAL
-      // mode, and after unclean shutdowns).
-      File('${base.path}-wal').writeAsStringSync('wal');
-      File('${base.path}-shm').writeAsStringSync('shm');
+        final base = fileFor(DatabaseManager.fileNameFor('alpha'));
+        check(base.existsSync()).isTrue();
+        // Simulate leftover WAL artifacts (present while a database is in WAL
+        // mode, and after unclean shutdowns).
+        File('${base.path}-wal').writeAsStringSync('wal');
+        File('${base.path}-shm').writeAsStringSync('shm');
 
-      await manager.deleteFor('alpha');
+        await manager.deleteFor('alpha');
 
-      check(base.existsSync()).isFalse();
-      check(File('${base.path}-wal').existsSync()).isFalse();
-      check(File('${base.path}-shm').existsSync()).isFalse();
-      await _waitForClosed(db);
-    });
+        check(base.existsSync()).isFalse();
+        check(File('${base.path}-wal').existsSync()).isFalse();
+        check(File('${base.path}-shm').existsSync()).isFalse();
+        await _waitForClosed(db);
+      },
+    );
 
-    test('deletes a non-active server\'s files without touching the active db',
-        () async {
-      final active = manager.openFor(_server('beta'));
-      await active.customSelect('SELECT 1').get();
+    test(
+      'deletes a non-active server\'s files without touching the active db',
+      () async {
+        final active = manager.openFor(_server('beta'));
+        await active.customSelect('SELECT 1').get();
 
-      final stale = fileFor(DatabaseManager.fileNameFor('alpha'));
-      stale.writeAsStringSync('old db');
-      File('${stale.path}-wal').writeAsStringSync('wal');
+        final stale = fileFor(DatabaseManager.fileNameFor('alpha'));
+        stale.writeAsStringSync('old db');
+        File('${stale.path}-wal').writeAsStringSync('wal');
 
-      await manager.deleteFor('alpha');
+        await manager.deleteFor('alpha');
 
-      check(stale.existsSync()).isFalse();
-      check(File('${stale.path}-wal').existsSync()).isFalse();
-      check((await active.customSelect('SELECT 1').get())).isNotEmpty();
-    });
+        check(stale.existsSync()).isFalse();
+        check(File('${stale.path}-wal').existsSync()).isFalse();
+        check((await active.customSelect('SELECT 1').get())).isNotEmpty();
+      },
+    );
 
     test('is a no-op when no files exist', () async {
       await manager.deleteFor('never-opened');
@@ -140,12 +144,13 @@ void main() {
   });
 
   group('fileNameFor', () {
-    test('replaces every char outside [A-Za-z0-9._-] with underscore', () {
-      check(DatabaseManager.fileNameFor('https://my server:8080/path'))
-          .equals('https___my_server_8080_path');
-      check(DatabaseManager.fileNameFor('simple-id_1.2')).equals(
-        'simple-id_1.2',
-      );
+    test('encodes server ids without filename collisions', () {
+      final slash = DatabaseManager.fileNameFor('server/a');
+      final question = DatabaseManager.fileNameFor('server?a');
+
+      check(slash == question).isFalse();
+      check(slash.startsWith('server_')).isTrue();
+      check(RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(slash)).isTrue();
     });
   });
 }
