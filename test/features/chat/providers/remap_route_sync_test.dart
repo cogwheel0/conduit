@@ -52,7 +52,8 @@ void main() {
   }
 
   IdRemapper remapperOf(ProviderContainer container) {
-    final remapper = container.read(syncEngineProvider.notifier)
+    final remapper = container
+        .read(syncEngineProvider.notifier)
         .remapperForTesting;
     return remapper!;
   }
@@ -131,6 +132,24 @@ void main() {
 
     check(container.read(pendingFolderIdProvider)).equals('srv-folder');
   });
+
+  test('note route remap preserves query params', () {
+    check(
+      remappedNoteRouteForTesting(
+        '/notes/local%3An1?mode=edit',
+        fromId: 'local:n1',
+        toId: 'server-note-1',
+      ),
+    ).equals('/notes/server-note-1?mode=edit');
+
+    check(
+      remappedNoteRouteForTesting(
+        '/notes/other?mode=edit',
+        fromId: 'local:n1',
+        toId: 'server-note-1',
+      ),
+    ).isNull();
+  });
 }
 
 Future<void> _runRemapAndWait(
@@ -166,26 +185,30 @@ Future<void> _waitUntil(
 }
 
 Future<void> _seedBareLocalChat(AppDatabase db, String id) async {
-  await db.into(db.chats).insert(
-    ChatsCompanion.insert(
-      id: id,
-      title: 'T',
-      createdAt: 1,
-      updatedAt: 1,
-      dirty: const Value(true),
-      bodySynced: const Value(true),
-    ),
-  );
+  await db
+      .into(db.chats)
+      .insert(
+        ChatsCompanion.insert(
+          id: id,
+          title: 'T',
+          createdAt: 1,
+          updatedAt: 1,
+          dirty: const Value(true),
+          bodySynced: const Value(true),
+        ),
+      );
 }
 
 Future<void> _seedBareLocalFolder(AppDatabase db, String id) async {
-  await db.into(db.folders).insert(
-    FoldersCompanion.insert(
-      id: id,
-      name: 'F',
-      createdAt: 1,
-      updatedAt: 1,
-      dirty: const Value(true),
-    ),
-  );
+  await db
+      .into(db.folders)
+      .insert(
+        FoldersCompanion.insert(
+          id: id,
+          name: 'F',
+          createdAt: 1,
+          updatedAt: 1,
+          dirty: const Value(true),
+        ),
+      );
 }

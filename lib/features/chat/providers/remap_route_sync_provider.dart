@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/navigation_service.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/utils/debug_logger.dart';
 
@@ -43,7 +44,40 @@ void remapRouteSync(Ref ref) {
         );
         ref.read(pendingFolderIdProvider.notifier).set(event.toId);
       }
+    } else if (event.entityKind == 'note') {
+      final nextRoute = remappedNoteRouteForTesting(
+        NavigationService.currentRoute,
+        fromId: event.fromId,
+        toId: event.toId,
+      );
+      if (nextRoute == null) return;
+      DebugLogger.log(
+        'remap-open-note-route',
+        scope: 'notes/remap',
+        data: {'from': event.fromId, 'to': event.toId},
+      );
+      NavigationService.router.go(nextRoute);
     }
   });
   ref.onDispose(sub.cancel);
+}
+
+String? remappedNoteRouteForTesting(
+  String? currentRoute, {
+  required String fromId,
+  required String toId,
+}) {
+  if (currentRoute == null) return null;
+  final currentUri = Uri.tryParse(currentRoute);
+  final segments = currentUri?.pathSegments;
+  if (currentUri == null ||
+      segments == null ||
+      segments.length != 2 ||
+      segments.first != 'notes' ||
+      segments[1] != fromId) {
+    return null;
+  }
+  return currentUri
+      .replace(path: '/notes/${Uri.encodeComponent(toId)}')
+      .toString();
 }

@@ -156,9 +156,11 @@ NoteMergeDecision resolveNoteMerge({
     );
   }
 
-  // Clean local row + newer server row: accept the server state wholesale.
-  if (!anyDirty) {
-    return const NoteMergeDecision(
+  // Title/data-clean rows can accept server content wholesale. A dirty pin is
+  // orthogonal and remains owed through notePin, so keep mustPush true only for
+  // that axis instead of taking the heavier field-LWW path.
+  if (!local.dirtyTitle && !local.dirtyData) {
+    return NoteMergeDecision(
       kind: NoteMergeKind.fastForward,
       takeServerTitle: true,
       takeServerData: true,
@@ -166,7 +168,7 @@ NoteMergeDecision resolveNoteMerge({
       canonicalDirtyTitle: false,
       canonicalDirtyData: false,
       advanceServerUpdatedAt: true,
-      mustPush: false,
+      mustPush: local.dirtyPinned,
     );
   }
 

@@ -156,6 +156,7 @@ void main() {
         serverUpdatedAt: 200,
         local: local(base: 100, dirtyPinned: true),
       );
+      check(d.kind).equals(NoteMergeKind.fastForward);
       check(d.mustPush).isTrue();
       check(d.spawnConflictCopy).isFalse();
     });

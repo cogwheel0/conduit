@@ -411,11 +411,6 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     });
   }
 
-  /// Hard delete (used on delete-confirm by `pushNoteDelete`).
-  Future<void> hardDelete(String id) {
-    return (delete(notes)..where((t) => t.id.equals(id))).go();
-  }
-
   // ---- helpers ----
 
   Future<String> _resolveLocalRemapTarget(String id) async {
