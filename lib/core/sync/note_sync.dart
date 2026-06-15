@@ -344,10 +344,8 @@ class NotePushSync {
           scope: 'sync/notes',
           data: {'noteId': noteId, 'desired': desired, 'actual': livePinned},
         );
-        throw SyncTerminalException(
-          statusCode: 0,
-          message: 'note pin confirmation mismatch ($noteId)',
-        );
+        await _storeNotePinMirror(noteId, livePinned);
+        return;
       }
       await _clearNotePinDirty(noteId);
     });
@@ -378,6 +376,15 @@ class NotePushSync {
   Future<void> _clearNotePinDirty(String noteId) {
     return (_db.update(_db.notes)..where((t) => t.id.equals(noteId))).write(
       const NotesCompanion(dirtyPinned: Value(false)),
+    );
+  }
+
+  Future<void> _storeNotePinMirror(String noteId, bool isPinned) {
+    return (_db.update(_db.notes)..where((t) => t.id.equals(noteId))).write(
+      NotesCompanion(
+        isPinned: Value(isPinned),
+        dirtyPinned: const Value(false),
+      ),
     );
   }
 }

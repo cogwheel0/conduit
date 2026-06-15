@@ -90,15 +90,6 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     return rows.map((row) => row.read(notes.id)!).toList(growable: false);
   }
 
-  // ---- server-origin (NO outbox) ----
-
-  /// Plain server upsert (fast-forward), all dirty flags false. One tx.
-  Future<void> upsertServerNote(Map<String, dynamic> serverRaw) {
-    return transaction(() async {
-      await into(notes).insertOnConflictUpdate(serverToNoteRow(serverRaw));
-    });
-  }
-
   /// Field-LWW pull merge (D-11, non-neg 4) in ONE transaction. Caller holds
   /// the NOTE lock for `serverRaw['id']`.
   ///
@@ -144,6 +135,12 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
               dirtyPinned: existing == null
                   ? const Value.absent()
                   : Value(existing.dirtyPinned),
+              isConflictCopy: existing == null
+                  ? const Value.absent()
+                  : Value(existing.isConflictCopy),
+              conflictOf: existing == null
+                  ? const Value.absent()
+                  : Value(existing.conflictOf),
             ),
           );
           break;

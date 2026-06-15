@@ -88,7 +88,7 @@ void main() {
   // Seeds a note both locally (server-keyed, clean) and on the fake server.
   Future<void> seedSyncedNote(String id) async {
     const ns = 1718000000000000000;
-    await db.notesDao.upsertServerNote(serverNote(id, ns));
+    await db.notesDao.mergeServerNote(serverRaw: serverNote(id, ns));
     server.seedNote(
       id: id,
       title: 'Note $id',
@@ -103,7 +103,7 @@ void main() {
   // Seeds a note locally only (absent from the server → a reconcile candidate).
   Future<void> seedLocalOnly(String id) async {
     const ns = 1718000000000000000;
-    await db.notesDao.upsertServerNote(serverNote(id, ns));
+    await db.notesDao.mergeServerNote(serverRaw: serverNote(id, ns));
   }
 
   NoteDeletionReconcile reconcileWith(FakeSyncApiClient client) =>

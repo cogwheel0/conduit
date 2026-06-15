@@ -13,8 +13,8 @@ import 'package:conduit/core/database/mappers/note_mapper.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/note_adapter.dart';
+import 'package:conduit/core/sync/note_conflict.dart';
 import 'package:conduit/core/sync/note_sync.dart';
-import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -412,6 +412,49 @@ void main() {
     ).deepEquals([OutboxKind.noteUpdate.name]);
   });
 
+  test('fast-forward preserves conflict-copy metadata', () async {
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: 'copy-clean',
+            title: 'Copy',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'clean copy'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+            serverUpdatedAt: const Value(kT1),
+            isConflictCopy: const Value(true),
+            conflictOf: const Value('n1'),
+          ),
+        );
+
+    final result = await db.notesDao.mergeServerNote(
+      serverRaw: <String, dynamic>{
+        'id': 'copy-clean',
+        'title': 'Copy echoed',
+        'data': {
+          'content': {'md': 'server echo'},
+        },
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT2,
+      },
+    );
+
+    check(result.kind).equals(NoteMergeKind.fastForward);
+    final row = await db.notesDao.getNote('copy-clean');
+    check(row).isNotNull();
+    check(row!.isConflictCopy).isTrue();
+    check(row.conflictOf).equals('n1');
+    check(row.title).equals('Copy echoed');
+    check(row.data).contains('server echo');
+  });
+
   test(
     'field-LWW does not enqueue duplicate update behind in-flight update',
     () async {
@@ -687,17 +730,19 @@ void main() {
       updatedAt: kT1,
       pinned: false,
     );
-    await db.notesDao.upsertServerNote(<String, dynamic>{
-      'id': 'p1',
-      'title': 'P',
-      'data': {
-        'content': {'md': 'x'},
+    await db.notesDao.mergeServerNote(
+      serverRaw: <String, dynamic>{
+        'id': 'p1',
+        'title': 'P',
+        'data': {
+          'content': {'md': 'x'},
+        },
+        'meta': <String, dynamic>{},
+        'is_pinned': false,
+        'created_at': kT1,
+        'updated_at': kT1,
       },
-      'meta': <String, dynamic>{},
-      'is_pinned': false,
-      'created_at': kT1,
-      'updated_at': kT1,
-    });
+    );
     final remapper = IdRemapper(db);
     addTearDown(remapper.dispose);
     final push = NotePushSync(
@@ -718,7 +763,7 @@ void main() {
   });
 
   test(
-    'pushNotePin keeps dirtyPinned when post-toggle confirmation mismatches',
+    'pushNotePin stores live state when post-toggle confirmation mismatches',
     () async {
       server.seedNote(
         id: 'p2',
@@ -730,17 +775,19 @@ void main() {
         updatedAt: kT1,
         pinned: false,
       );
-      await db.notesDao.upsertServerNote(<String, dynamic>{
-        'id': 'p2',
-        'title': 'P',
-        'data': {
-          'content': {'md': 'x'},
+      await db.notesDao.mergeServerNote(
+        serverRaw: <String, dynamic>{
+          'id': 'p2',
+          'title': 'P',
+          'data': {
+            'content': {'md': 'x'},
+          },
+          'meta': <String, dynamic>{},
+          'is_pinned': false,
+          'created_at': kT1,
+          'updated_at': kT1,
         },
-        'meta': <String, dynamic>{},
-        'is_pinned': false,
-        'created_at': kT1,
-        'updated_at': kT1,
-      });
+      );
       await locks.runExclusive('p2', () {
         return db.notesDao.pinNoteWithOutbox('p2', desiredPinned: true);
       });
@@ -752,14 +799,13 @@ void main() {
         remapper: syncRemapper,
       );
 
-      await check(
-        push.pushNotePin('p2', desired: true),
-      ).throws<SyncTerminalException>();
+      await push.pushNotePin('p2', desired: true);
 
       check(client.togglePinNoteCalls).equals(1);
       check(server.getNoteById('p2')!['is_pinned']).equals(false);
       final row = await db.notesDao.getNote('p2');
-      check(row!.dirtyPinned).isTrue();
+      check(row!.isPinned).isFalse();
+      check(row.dirtyPinned).isFalse();
     },
   );
 
@@ -776,17 +822,19 @@ void main() {
         updatedAt: kT1,
         pinned: false,
       );
-      await db.notesDao.upsertServerNote(<String, dynamic>{
-        'id': 'p-confirm-404',
-        'title': 'P',
-        'data': {
-          'content': {'md': 'x'},
+      await db.notesDao.mergeServerNote(
+        serverRaw: <String, dynamic>{
+          'id': 'p-confirm-404',
+          'title': 'P',
+          'data': {
+            'content': {'md': 'x'},
+          },
+          'meta': <String, dynamic>{},
+          'is_pinned': false,
+          'created_at': kT1,
+          'updated_at': kT1,
         },
-        'meta': <String, dynamic>{},
-        'is_pinned': false,
-        'created_at': kT1,
-        'updated_at': kT1,
-      });
+      );
       await locks.runExclusive('p-confirm-404', () {
         return db.notesDao.pinNoteWithOutbox(
           'p-confirm-404',
