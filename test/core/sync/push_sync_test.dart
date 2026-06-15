@@ -21,6 +21,17 @@ class FakeSyncClock implements SyncClock {
   int nowEpochSeconds() => now;
 }
 
+class _DeleteAfterArchiveToggleClient extends FakeSyncApiClient {
+  _DeleteAfterArchiveToggleClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> toggleArchive(String id) async {
+    final response = await super.toggleArchive(id);
+    server.deleteChat(id);
+    return response;
+  }
+}
+
 /// Seeds a local (`local:`) chat + messages directly, dirty by default.
 Future<void> seedLocalChat(
   AppDatabase db, {
@@ -498,6 +509,41 @@ void main() {
       check(stored['pinned']).equals(true);
       check(stored['archived']).equals(false);
       check(client.chatFetchStarts).isEmpty();
+    });
+
+    test('post-toggle archive 404 does not park updateChat', () async {
+      final racingClient = _DeleteAfterArchiveToggleClient(server);
+      push = PushSync(
+        client: racingClient,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      server.seedChat(
+        id: 'srv-archive-race',
+        blob: {
+          'title': 'archive',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        archived: false,
+      );
+      await seedLocalChat(
+        db,
+        id: 'srv-archive-race',
+        messageCount: 0,
+        archived: true,
+      );
+
+      await push.pushUpdateChat('srv-archive-race');
+
+      final chat = await db.chatsDao.getChat('srv-archive-race');
+      check(chat).isNotNull();
+      check(chat!.dirty).isFalse();
+      check(server.getChatById('srv-archive-race')).isNull();
     });
 
     test(

@@ -179,7 +179,7 @@ NoteMergeDecision resolveNoteMerge({
   // spawns a conflict copy. A conflict copy is already the preserved fork, so
   // do not fork again; keep its local data dirty and let push win.
   final spawnConflictCopy = local.dirtyData && !local.isConflictCopy;
-  final takeServerData = !local.dirtyData || !local.isConflictCopy;
+  final takeServerData = !(local.dirtyData && local.isConflictCopy);
 
   // Canonical dirty after merge: data is now clean (server adopted or copied
   // out) except for conflict copies, where local data stays dirty and no second

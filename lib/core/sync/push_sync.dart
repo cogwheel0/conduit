@@ -307,10 +307,7 @@ class PushSync {
           scope: 'sync/push',
           data: {'chatId': chatId},
         );
-        throw SyncTerminalException(
-          statusCode: 404,
-          message: 'chat archive confirmation missing ($chatId)',
-        );
+        return;
       }
       liveArchived = liveRaw['archived'] == true;
     }

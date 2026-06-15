@@ -386,7 +386,7 @@ class IdRemapper {
   /// Repoints the note FTS rows (`kind IN ('note_title','note_text')`) from
   /// [localId] to [serverId] on the standalone `chat_fts` vtable. Used on the
   /// merge-collision branches where the local row is dropped without trigger
-  /// #7 re-indexing under the server id. Tolerant of a not-yet-built index.
+  /// #8 re-indexing under the server id. Tolerant of a not-yet-built index.
   Future<void> _remapNoteFtsRows(String localId, String serverId) {
     return _remapFtsRowsWhere(
       localId,
