@@ -338,7 +338,7 @@ class PushSync {
       // 404 -> false (already gone) -> still proceed to purge. 401/403 throws
       // and aborts the purge.
       await _client.deleteChat(chatId);
-      await _db.chatsDao.hardDelete(chatId);
+      await _db.chatsDao.purgeReconciledChat(chatId);
     });
   }
 

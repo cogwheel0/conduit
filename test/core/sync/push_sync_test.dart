@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
@@ -574,6 +575,38 @@ void main() {
       check(server.getChatById('srv-del')).isNull();
       check(await db.chatsDao.getChat('srv-del')).isNull();
       check(await db.messagesDao.getForChat('srv-del')).isEmpty();
+    });
+
+    test('purges parked outbox ops for the deleted chat', () async {
+      server.seedChat(
+        id: 'srv-del-parked',
+        blob: {
+          'title': 'd',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+      );
+      await seedLocalChat(db, id: 'srv-del-parked', messageCount: 1);
+      await db
+          .into(db.outboxOps)
+          .insert(
+            OutboxOpsCompanion.insert(
+              kind: OutboxKind.updateChat.name,
+              chatId: const Value('srv-del-parked'),
+              status: const Value(OutboxStatus.failed),
+              attempts: const Value(5),
+              lastError: const Value('parked update'),
+            ),
+          );
+
+      await push.pushDeleteChat('srv-del-parked');
+
+      check(await db.chatsDao.getChat('srv-del-parked')).isNull();
+      final remaining = await (db.select(
+        db.outboxOps,
+      )..where((t) => t.chatId.equals('srv-del-parked'))).get();
+      check(remaining).isEmpty();
     });
 
     test(

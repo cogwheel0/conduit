@@ -361,11 +361,11 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     });
   }
 
-  /// Local delete: tombstones the note (`deleted=true` + a dirty flag) and
-  /// enqueues a `noteDelete` op. Rows are normally NOT hard-deleted here
-  /// (tombstone discipline); the drainer purges on confirm. The exception is a
-  /// pure-local create/delete pair that coalesces to no outbox survivor. Caller
-  /// holds the note lock.
+  /// Local delete: tombstones the note (`deleted=true`) and enqueues a
+  /// `noteDelete` op. Rows are normally NOT hard-deleted here (tombstone
+  /// discipline); the drainer purges on confirm. The exception is a pure-local
+  /// create/delete pair that coalesces to no outbox survivor. Caller holds the
+  /// note lock.
   Future<void> tombstoneWithOutbox(String id) {
     return transaction(() async {
       final noteId = await _resolveLocalRemapTarget(id);
@@ -373,8 +373,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
           .write(
             const NotesCompanion(
               deleted: Value(true),
-              dirtyTitle: Value(true),
-              dirtyData: Value(true),
+              dirtyTitle: Value(false),
+              dirtyData: Value(false),
+              dirtyPinned: Value(false),
             ),
           );
       if (changed == 0) return;

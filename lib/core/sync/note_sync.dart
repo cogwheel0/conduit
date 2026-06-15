@@ -293,7 +293,7 @@ class NotePushSync {
   Future<void> pushNoteDelete(String noteId) async {
     await _noteLocks.runExclusive(noteId, () async {
       await _client.deleteNote(noteId);
-      await _db.notesDao.hardDelete(noteId);
+      await _db.notesDao.purgeReconciledNote(noteId);
     });
   }
 

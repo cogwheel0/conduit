@@ -503,7 +503,7 @@ void main() {
     },
   );
 
-  test('tombstoneWithOutbox dirties title and data tombstone axes', () async {
+  test('tombstoneWithOutbox clears dirty axes on tombstoned rows', () async {
     server.seedNote(
       id: 'n-delete',
       title: 'Server note',
@@ -522,14 +522,56 @@ void main() {
     final row = await db.notesDao.getNote('n-delete');
     check(row).isNotNull();
     check(row!.deleted).isTrue();
-    check(row.dirtyTitle).isTrue();
-    check(row.dirtyData).isTrue();
+    check(row.dirtyTitle).isFalse();
+    check(row.dirtyData).isFalse();
+    check(row.dirtyPinned).isFalse();
 
     final pending = await db.outboxDao.pendingForChat('n-delete');
     check(
       pending.map((op) => op.kind),
     ).deepEquals([OutboxKind.noteDelete.name]);
   });
+
+  test(
+    'pushNoteDelete purges parked outbox ops for the deleted note',
+    () async {
+      server.seedNote(
+        id: 'n-delete-parked',
+        title: 'Server note',
+        data: {
+          'content': {'md': 'body'},
+        },
+        createdAt: kT1,
+        updatedAt: kT1,
+      );
+      await pull();
+      await db
+          .into(db.outboxOps)
+          .insert(
+            OutboxOpsCompanion.insert(
+              kind: OutboxKind.noteUpdate.name,
+              chatId: const Value('n-delete-parked'),
+              status: const Value(OutboxStatus.failed),
+              attempts: const Value(5),
+              lastError: const Value('parked update'),
+            ),
+          );
+      final push = NotePushSync(
+        client: client,
+        db: db,
+        noteLocks: locks,
+        remapper: syncRemapper,
+      );
+
+      await push.pushNoteDelete('n-delete-parked');
+
+      check(await db.notesDao.getNote('n-delete-parked')).isNull();
+      final remaining = await (db.select(
+        db.outboxOps,
+      )..where((t) => t.chatId.equals('n-delete-parked'))).get();
+      check(remaining).isEmpty();
+    },
+  );
 
   test(
     'pull crash-heals a pending noteCreate with a matching server note',
