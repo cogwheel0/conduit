@@ -10,9 +10,9 @@ import '../utils/debug_logger.dart';
 
 /// A completed local->server id rewrite (CDT-RFC-001 §7.3).
 ///
-/// Emitted on [IdRemapper.remapEvents] AFTER the rewrite transaction commits,
-/// so a route/active-chat consumer can swap `local:<uuid>` for [toId] without
-/// a visible rebuild (Wiring C).
+/// Emitted synchronously on [IdRemapper.remapEvents] AFTER the rewrite
+/// transaction commits, so a route/active-chat consumer can swap `local:<uuid>`
+/// for [toId] before post-commit DB-watch emissions surface the old id.
 class RemapEvent {
   const RemapEvent({
     required this.fromId,
@@ -107,8 +107,10 @@ class IdRemapper {
   IdRemapper(this._db);
 
   final AppDatabase _db;
+  // Synchronous delivery lets route consumers swap a remapped open note/chat
+  // before post-commit Drift watch emissions for the old local id are handled.
   final StreamController<RemapEvent> _events =
-      StreamController<RemapEvent>.broadcast();
+      StreamController<RemapEvent>.broadcast(sync: true);
 
   /// Fires once per committed remap (Wiring C consumer).
   Stream<RemapEvent> get remapEvents => _events.stream;

@@ -318,10 +318,8 @@ class PushSync {
         scope: 'sync/push',
         data: {'chatId': chatId, 'desired': desired, 'actual': liveArchived},
       );
-      throw SyncTerminalException(
-        statusCode: 0,
-        message: 'chat archive confirmation mismatch ($chatId)',
-      );
+      await _storeChatArchiveMirror(chatId, liveArchived);
+      return;
     }
   }
 
@@ -492,6 +490,12 @@ class PushSync {
   Future<void> _clearFolderDirty(String folderId) {
     return (_db.update(_db.folders)..where((t) => t.id.equals(folderId))).write(
       const FoldersCompanion(dirty: Value(false)),
+    );
+  }
+
+  Future<void> _storeChatArchiveMirror(String chatId, bool archived) {
+    return (_db.update(_db.chats)..where((t) => t.id.equals(chatId))).write(
+      ChatsCompanion(archived: Value(archived)),
     );
   }
 

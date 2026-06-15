@@ -2256,7 +2256,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         'role': message.role,
         'content': message.content,
         'timestamp': timestamp,
-        'isStreaming': message.isStreaming,
+        'isStreaming': false,
         if (message.model != null) 'model': message.model,
         if (message.metadata != null && message.metadata!.isNotEmpty)
           'metadata': message.metadata,

@@ -32,6 +32,17 @@ class _DeleteAfterArchiveToggleClient extends FakeSyncApiClient {
   }
 }
 
+class _RevertArchiveToggleClient extends FakeSyncApiClient {
+  _RevertArchiveToggleClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> toggleArchive(String id) async {
+    final response = await super.toggleArchive(id);
+    await super.toggleArchive(id);
+    return response;
+  }
+}
+
 /// Seeds a local (`local:`) chat + messages directly, dirty by default.
 Future<void> seedLocalChat(
   AppDatabase db, {
@@ -567,6 +578,46 @@ void main() {
       check(chat!.dirty).isFalse();
       check(server.getChatById('srv-archive-race')).isNull();
     });
+
+    test(
+      'archive mismatch adopts server state without parking updateChat',
+      () async {
+        final racingClient = _RevertArchiveToggleClient(server);
+        push = PushSync(
+          client: racingClient,
+          db: db,
+          chatLocks: chatLocks,
+          folderLocks: folderLocks,
+          clock: clock,
+          remapper: remapper,
+        );
+        server.seedChat(
+          id: 'srv-archive-mismatch',
+          blob: {
+            'title': 'archive',
+            'history': {'messages': {}, 'currentId': null},
+          },
+          createdAt: 1,
+          updatedAt: 2,
+          archived: false,
+        );
+        await seedLocalChat(
+          db,
+          id: 'srv-archive-mismatch',
+          messageCount: 0,
+          archived: true,
+        );
+
+        await push.pushUpdateChat('srv-archive-mismatch');
+
+        final chat = await db.chatsDao.getChat('srv-archive-mismatch');
+        check(chat).isNotNull();
+        check(chat!.archived).isFalse();
+        check(chat.dirty).isFalse();
+        final stored = server.getChatById('srv-archive-mismatch')!;
+        check(stored['archived']).equals(false);
+      },
+    );
 
     test(
       'folder-move delta routes through the dedicated /folder endpoint',

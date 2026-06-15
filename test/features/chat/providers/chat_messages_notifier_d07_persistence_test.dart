@@ -181,6 +181,39 @@ void main() {
       },
     );
 
+    test(
+      'pause checkpoint stores assistant as non-streaming snapshot',
+      () async {
+        await seedChatRow('d07-pause');
+        final container = buildContainer();
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('d07-pause'));
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _user('u-pause', 'Question'),
+          _streamingAssistant('a-pause', 'Partial answer'),
+        ]);
+
+        await notifier.persistPauseCheckpoint();
+
+        final rows = await db.messagesDao.getForChat('d07-pause');
+        final assistant = rows.firstWhere((r) => r.id == 'a-pause');
+        final assistantPayload =
+            jsonDecode(assistant.payload) as Map<String, dynamic>;
+        check(assistantPayload['isStreaming']).equals(false);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+        notifier.setMessages([
+          _user('u-pause', 'Question'),
+          _streamingAssistant(
+            'a-pause',
+            'Partial answer',
+          ).copyWith(isStreaming: false),
+        ]);
+      },
+    );
+
     test('temporary (local:) chats persist nothing', () async {
       await seedChatRow('local:draft');
       final container = buildContainer();
