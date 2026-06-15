@@ -11,7 +11,8 @@ part 'sync_meta_dao.g.dart';
 /// `schema_fixture_hash`, and Phase 1 adds `hive_cache_purged` ('1' once the
 /// §9.3 cleanup ran).
 @DriftAccessor(tables: [SyncMeta])
-class SyncMetaDao extends DatabaseAccessor<AppDatabase> with _$SyncMetaDaoMixin {
+class SyncMetaDao extends DatabaseAccessor<AppDatabase>
+    with _$SyncMetaDaoMixin {
   SyncMetaDao(super.db);
 
   Future<String?> getValue(String key) async {
@@ -25,6 +26,16 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase> with _$SyncMetaDaoMixin 
     return into(
       syncMeta,
     ).insertOnConflictUpdate(SyncMetaCompanion.insert(key: key, value: value));
+  }
+
+  static String noteRemapKey(String localId) => 'note_remap:$localId';
+
+  Future<String?> getNoteRemapTarget(String localId) {
+    return getValue(noteRemapKey(localId));
+  }
+
+  Future<void> setNoteRemapTarget(String localId, String serverId) {
+    return setValue(noteRemapKey(localId), serverId);
   }
 
   /// `int.tryParse(sync_meta['pull_watermark']) ?? 0` — epoch seconds,

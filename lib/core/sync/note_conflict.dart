@@ -192,7 +192,10 @@ NoteMergeDecision resolveNoteMerge({
     spawnConflictCopy: spawnConflictCopy,
     canonicalDirtyTitle: canonicalDirtyTitle,
     canonicalDirtyData: canonicalDirtyData,
-    advanceServerUpdatedAt: takeServerData,
+    // Conflict copies with dirty data keep their local body, but the remote
+    // bump has still been observed. Advance the base so repeated overlap pulls
+    // do not rewrite the same dirty conflict copy until its push resolves.
+    advanceServerUpdatedAt: takeServerData || local.isConflictCopy,
     mustPush: canonicalDirtyTitle || canonicalDirtyData || local.dirtyPinned,
   );
 }

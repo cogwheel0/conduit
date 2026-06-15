@@ -133,7 +133,9 @@ void main() {
       check(d.spawnConflictCopy).isFalse();
       check(d.takeServerData).isFalse();
       check(d.canonicalDirtyData).isTrue();
-      check(d.advanceServerUpdatedAt).isFalse();
+      // The dirty conflict-copy data still wins locally, but the remote bump is
+      // acknowledged so future overlap pulls do not repeat the same write.
+      check(d.advanceServerUpdatedAt).isTrue();
       check(d.mustPush).isTrue();
     });
 

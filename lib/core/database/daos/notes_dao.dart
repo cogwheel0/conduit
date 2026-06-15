@@ -307,25 +307,32 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     required bool enqueue,
   }) {
     return transaction(() async {
-      await (update(notes)..where((t) => t.id.equals(id))).write(
-        NotesCompanion(
-          title: title,
-          data: data,
-          meta: meta,
-          updatedAt: Value(localUpdatedAtNs),
-          dirtyTitle: title.present ? const Value(true) : const Value.absent(),
-          dirtyData: data.present ? const Value(true) : const Value.absent(),
-        ),
-      );
+      final noteId = await _resolveLocalRemapTarget(id);
+      final changed = await (update(notes)..where((t) => t.id.equals(noteId)))
+          .write(
+            NotesCompanion(
+              title: title,
+              data: data,
+              meta: meta,
+              updatedAt: Value(localUpdatedAtNs),
+              dirtyTitle: title.present
+                  ? const Value(true)
+                  : const Value.absent(),
+              dirtyData: data.present
+                  ? const Value(true)
+                  : const Value.absent(),
+            ),
+          );
+      if (changed == 0) return;
       if (enqueue) {
         // Reconstruct the patch from the just-written row so coalescing sees
         // the latest committed state.
-        final row = await getNote(id);
+        final row = await getNote(noteId);
         if (row == null) return;
         final patch = noteRowToPatch(row, includeData: data.present);
         await _outboxDao.enqueue(
           kind: OutboxKind.noteUpdate,
-          chatId: id,
+          chatId: noteId,
           payload: patch,
         );
       }
@@ -337,15 +344,18 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// does not bump it, WARNING A). Caller holds the note lock.
   Future<void> pinNoteWithOutbox(String id, {required bool desiredPinned}) {
     return transaction(() async {
-      await (update(notes)..where((t) => t.id.equals(id))).write(
-        NotesCompanion(
-          isPinned: Value(desiredPinned),
-          dirtyPinned: const Value(true),
-        ),
-      );
+      final noteId = await _resolveLocalRemapTarget(id);
+      final changed = await (update(notes)..where((t) => t.id.equals(noteId)))
+          .write(
+            NotesCompanion(
+              isPinned: Value(desiredPinned),
+              dirtyPinned: const Value(true),
+            ),
+          );
+      if (changed == 0) return;
       await _outboxDao.enqueue(
         kind: OutboxKind.notePin,
-        chatId: id,
+        chatId: noteId,
         payload: <String, dynamic>{'desired': desiredPinned},
       );
     });
@@ -358,21 +368,24 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// holds the note lock.
   Future<void> tombstoneWithOutbox(String id) {
     return transaction(() async {
-      await (update(notes)..where((t) => t.id.equals(id))).write(
-        const NotesCompanion(
-          deleted: Value(true),
-          dirtyTitle: Value(true),
-          dirtyData: Value(true),
-        ),
-      );
+      final noteId = await _resolveLocalRemapTarget(id);
+      final changed = await (update(notes)..where((t) => t.id.equals(noteId)))
+          .write(
+            const NotesCompanion(
+              deleted: Value(true),
+              dirtyTitle: Value(true),
+              dirtyData: Value(true),
+            ),
+          );
+      if (changed == 0) return;
       final deleteSeq = await _outboxDao.enqueue(
         kind: OutboxKind.noteDelete,
-        chatId: id,
+        chatId: noteId,
       );
       if (deleteSeq == -1) {
         // noteCreate + noteDelete coalesced away: the note never reached the
         // server, so no tombstone should remain for reconcile/drain to find.
-        await (delete(notes)..where((t) => t.id.equals(id))).go();
+        await (delete(notes)..where((t) => t.id.equals(noteId))).go();
       }
     });
   }
@@ -406,6 +419,14 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   }
 
   // ---- helpers ----
+
+  Future<String> _resolveLocalRemapTarget(String id) async {
+    if (!id.startsWith('local:')) return id;
+    final target = await attachedDatabase.syncMetaDao.getNoteRemapTarget(id);
+    if (target == null || target.isEmpty) return id;
+    final row = await getNote(target);
+    return row == null ? id : target;
+  }
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {
     return selectOnly(notes)..addColumns([

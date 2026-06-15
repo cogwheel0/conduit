@@ -812,10 +812,13 @@ class SyncEngine extends _$SyncEngine {
   }
 
   bool _isExpectedClosedDbError(Object error) {
-    final msg = error.toString();
-    return msg.contains('closed') ||
-        msg.contains('closing') ||
-        msg.contains('re-open');
+    if (error is! StateError) return false;
+    final message = error.message;
+    return message.startsWith(
+          'This database or transaction runner has already been closed',
+        ) ||
+        message == 'This database has already been closed' ||
+        message.startsWith("Can't re-open a database after closing it.");
   }
 
   Future<int?> _readWatermark(int cycleEpoch) async {

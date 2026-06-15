@@ -282,6 +282,7 @@ class IdRemapper {
         await _remapNoteFtsRows(localId, serverId);
         await _rewriteNoteConflictOf(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
+        await _db.syncMetaDao.setNoteRemapTarget(localId, serverId);
         return;
       }
       didRewriteLocal = true;
@@ -292,6 +293,7 @@ class IdRemapper {
         await _rewriteNoteConflictOf(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
         await _deleteNoteRow(localId); // trigger #12 purges local FTS rows.
+        await _db.syncMetaDao.setNoteRemapTarget(localId, serverId);
         return;
       }
       // (a) INSERT a row at serverId copying every column, stamping the server
@@ -311,6 +313,7 @@ class IdRemapper {
       // (c) Repoint pending|inFlight outbox ops (the running noteCreate op is
       // inFlight; after remap the drainer markDone()s it).
       await _rewriteOutboxChatId(localId, serverId);
+      await _db.syncMetaDao.setNoteRemapTarget(localId, serverId);
     });
 
     if (!didRewriteLocal) return;

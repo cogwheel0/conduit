@@ -3,6 +3,7 @@
 /// data edit yields TWO surviving notes), and transactional *WithOutbox writes.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -57,6 +58,24 @@ class _AllMalformedFirstPageNoteClient extends FakeSyncApiClient {
       );
     }
     return super.getNoteListRaw(page: page);
+  }
+}
+
+class _BlockingCreateNoteClient extends FakeSyncApiClient {
+  _BlockingCreateNoteClient(super.server);
+
+  final createStarted = Completer<void>();
+  final releaseCreate = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>> createNote({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) async {
+    createStarted.complete();
+    await releaseCreate.future;
+    return super.createNote(title: title, data: data, meta: meta);
   }
 }
 
@@ -384,8 +403,8 @@ void main() {
     check(row.id).equals('copy-1');
     check(row.isConflictCopy).isTrue();
     check(row.dirtyData).isTrue();
-    check(row.updatedAt).equals(kT1);
-    check(row.serverUpdatedAt).equals(kT1);
+    check(row.updatedAt).equals(kT2);
+    check(row.serverUpdatedAt).equals(kT2);
     check(row.data).contains('local copy edit');
     final pending = await db.outboxDao.pendingForChat('copy-1');
     check(
@@ -828,6 +847,67 @@ void main() {
       ),
     ).isTrue();
   });
+
+  test(
+    'pushNoteCreate preserves edits queued behind the local remap',
+    () async {
+      final blockingClient = _BlockingCreateNoteClient(server);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final push = NotePushSync(
+        client: blockingClient,
+        db: db,
+        noteLocks: locks,
+        remapper: remapper,
+      );
+      const localId = 'local:n-create-edit-race';
+      await db.notesDao.insertLocalNoteWithCreateOp(
+        note: NotesCompanion.insert(
+          id: localId,
+          title: 'Draft',
+          data: Value(
+            jsonEncode({
+              'content': {'md': 'body'},
+            }),
+          ),
+          createdAt: kT1,
+          updatedAt: kT1,
+        ),
+      );
+      final claimed = await db.outboxDao.claimNextRunnable(
+        nowEpochSeconds: 1,
+        busyChatIds: <String>{},
+      );
+      check(claimed!.kind).equals(OutboxKind.noteCreate.name);
+
+      final pushFuture = push.pushNoteCreate(localId);
+      await blockingClient.createStarted.future;
+      final editFuture = locks.runExclusive(localId, () {
+        return db.notesDao.updateNoteWithOutbox(
+          localId,
+          title: const Value('Edited while create was in flight'),
+          localUpdatedAtNs: kT2,
+          enqueue: true,
+        );
+      });
+
+      blockingClient.releaseCreate.complete();
+      final serverId = await pushFuture;
+      await editFuture;
+
+      check(serverId).isNotNull();
+      check(await db.syncMetaDao.getNoteRemapTarget(localId)).equals(serverId);
+      check(await db.notesDao.getNote(localId)).isNull();
+      final row = await db.notesDao.getNote(serverId!);
+      check(row!.title).equals('Edited while create was in flight');
+      check(row.dirtyTitle).isTrue();
+
+      final pending = await db.outboxDao.pendingForChat(serverId);
+      check(
+        pending.map((op) => op.kind).toList(),
+      ).deepEquals([OutboxKind.noteUpdate.name]);
+    },
+  );
 
   test('pushNoteCreate skips a tombstoned local note', () async {
     final remapper = IdRemapper(db);
