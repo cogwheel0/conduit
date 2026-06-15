@@ -8,6 +8,12 @@ import '../database/app_database.dart';
 import '../database/mappers/chat_blob_mapper.dart';
 import '../utils/debug_logger.dart';
 
+const _outboxStatusesRewrittenOnChatRemap = <String>[
+  'pending',
+  'inFlight',
+  'failed',
+];
+
 /// A completed local->server id rewrite (CDT-RFC-001 §7.3).
 ///
 /// Emitted synchronously on [IdRemapper.remapEvents] AFTER the rewrite
@@ -541,8 +547,14 @@ class IdRemapper {
   Future<void> _rewriteOutboxChatId(String fromId, String toId) {
     return _db.customUpdate(
       "UPDATE outbox_ops SET chat_id = ? "
-      "WHERE chat_id = ? AND status IN ('pending', 'inFlight', 'failed')",
-      variables: [Variable.withString(toId), Variable.withString(fromId)],
+      'WHERE chat_id = ? '
+      "AND status IN (${_outboxStatusesRewrittenOnChatRemap.map((_) => '?').join(', ')})",
+      variables: [
+        Variable.withString(toId),
+        Variable.withString(fromId),
+        for (final status in _outboxStatusesRewrittenOnChatRemap)
+          Variable.withString(status),
+      ],
       updates: {_db.outboxOps},
       updateKind: UpdateKind.update,
     );

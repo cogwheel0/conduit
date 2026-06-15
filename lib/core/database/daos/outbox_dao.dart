@@ -794,8 +794,8 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         final priorDelete = newestOfKind(OutboxKind.noteDelete);
         if (pendingKinds.contains(OutboxKind.noteCreate)) {
           // Never reached the server ⇒ pure local drop: delete all pending,
-          // emit no noteDelete op. The caller removes the local note row after
-          // this returns -1.
+          // emit no noteDelete op. NotesDao.tombstoneWithOutbox removes the
+          // local note row inline after this returns -1.
           return _CoalesceDecision(
             insert: false,
             deletions: [for (final op in pending) op.seq],
