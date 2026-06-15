@@ -77,7 +77,19 @@ class NoteDeletionReconcile {
       return const ReconcileResult(ran: false);
     }
     if (!featureEnabled) {
-      // Notes feature off (401/403): not a deletion of everything. Skip.
+      // Notes feature off is not a deletion of everything. Verify the broader
+      // session is alive before advancing the throttle because the notes list
+      // endpoint also reports auth loss as featureEnabled=false.
+      try {
+        await _client.getChatListPage(1);
+      } catch (error, stackTrace) {
+        DebugLogger.warning(
+          'note-reconcile-feature-disabled-session-dead',
+          scope: 'sync/reconcile',
+          data: {'error': error.toString(), 'stack': stackTrace.toString()},
+        );
+        return const ReconcileResult(ran: false);
+      }
       await _db.syncMetaDao.setNotesLastFullReconcileAt(now);
       return const ReconcileResult(ran: true);
     }

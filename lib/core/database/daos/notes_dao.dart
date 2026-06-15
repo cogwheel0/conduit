@@ -393,6 +393,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// Caller holds the note lock.
   Future<void> dropLocalNote(String localId) {
     return transaction(() async {
+      await attachedDatabase.syncMetaDao.deleteNoteRemapTarget(localId);
       await (delete(
         _outboxDao.outboxOps,
       )..where((t) => t.chatId.equals(localId))).go();
@@ -404,6 +405,8 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// row + drop every pending outbox op for it. Caller holds the note lock.
   Future<void> purgeReconciledNote(String id) {
     return transaction(() async {
+      await attachedDatabase.syncMetaDao.deleteNoteRemapTarget(id);
+      await attachedDatabase.syncMetaDao.deleteNoteRemapTargetsForServer(id);
       await (delete(
         _outboxDao.outboxOps,
       )..where((t) => t.chatId.equals(id))).go();

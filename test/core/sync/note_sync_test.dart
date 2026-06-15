@@ -546,6 +546,30 @@ void main() {
     },
   );
 
+  test('dropLocalNote removes local note remap metadata', () async {
+    const localId = 'local:drop-remap';
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: localId,
+            title: 'Draft',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'draft'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+    await db.syncMetaDao.setNoteRemapTarget(localId, 'server-drop-remap');
+
+    await db.notesDao.dropLocalNote(localId);
+
+    check(await db.syncMetaDao.getNoteRemapTarget(localId)).isNull();
+  });
+
   test('tombstoneWithOutbox clears dirty axes on tombstoned rows', () async {
     server.seedNote(
       id: 'n-delete',
@@ -615,6 +639,31 @@ void main() {
       check(remaining).isEmpty();
     },
   );
+
+  test('purgeReconciledNote removes server note remap metadata', () async {
+    const localId = 'local:purge-remap';
+    const serverId = 'server-purge-remap';
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: serverId,
+            title: 'Server note',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'body'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+    await db.syncMetaDao.setNoteRemapTarget(localId, serverId);
+
+    await db.notesDao.purgeReconciledNote(serverId);
+
+    check(await db.syncMetaDao.getNoteRemapTarget(localId)).isNull();
+  });
 
   test(
     'pull crash-heals a pending noteCreate with a matching server note',

@@ -38,6 +38,18 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase>
     return setValue(noteRemapKey(localId), serverId);
   }
 
+  Future<void> deleteNoteRemapTarget(String localId) {
+    return (delete(
+      syncMeta,
+    )..where((t) => t.key.equals(noteRemapKey(localId)))).go();
+  }
+
+  Future<void> deleteNoteRemapTargetsForServer(String serverId) {
+    return (delete(syncMeta)
+          ..where((t) => t.key.like('note_remap:%') & t.value.equals(serverId)))
+        .go();
+  }
+
   /// `int.tryParse(sync_meta['pull_watermark']) ?? 0` — epoch seconds,
   /// server clock.
   Future<int> getPullWatermark() async {

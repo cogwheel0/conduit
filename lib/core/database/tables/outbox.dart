@@ -8,7 +8,7 @@ import 'package:drift/drift.dart';
 class OutboxOps extends Table {
   IntColumn get seq => integer().autoIncrement()();
 
-  /// createChat|updateChat|deleteChat|requestCompletion|folderUpsert|folderDelete
+  /// createChat|updateChat|deleteChat|requestCompletion|folderUpsert|folderDelete|noteCreate|noteUpdate|noteDelete|notePin
   TextColumn get kind => text()();
   TextColumn get chatId => text().nullable()();
   TextColumn get payload => text().withDefault(const Constant('{}'))();

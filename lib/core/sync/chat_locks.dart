@@ -24,38 +24,77 @@ part 'chat_locks.g.dart';
 /// (the internal tail always completes successfully).
 class ChatLocks {
   final Map<String, Future<void>> _tails = <String, Future<void>>{};
+  final Map<String, String> _aliases = <String, String>{};
+
+  /// Redirects future waiters for [fromId] to [toId]. If a waiter was already
+  /// queued behind [fromId], it re-checks the alias after reaching the head of
+  /// that queue and reroutes before running [action].
+  void remapKeyInPlace({required String fromId, required String toId}) {
+    if (fromId == toId) return;
+    _aliases[fromId] = _canonicalKey(toId);
+  }
 
   /// Runs [action] while holding the exclusive lock for [chatId].
   Future<T> runExclusive<T>(String chatId, Future<T> Function() action) {
-    final previous = _tails[chatId];
+    return _runExclusive(chatId, _canonicalKey(chatId), action);
+  }
+
+  Future<T> _runExclusive<T>(
+    String requestedId,
+    String lockId,
+    Future<T> Function() action,
+  ) {
+    final previous = _tails[lockId];
     if (previous != null) {
       DebugLogger.log(
         'contended',
         scope: 'sync/locks',
-        data: {'chatId': chatId},
+        data: {'chatId': lockId},
       );
     }
     final release = Completer<void>();
     final tail = release.future;
-    _tails[chatId] = tail;
+    _tails[lockId] = tail;
+
+    void finish() {
+      if (!release.isCompleted) {
+        release.complete();
+      }
+      if (identical(_tails[lockId], tail)) {
+        _tails.remove(lockId);
+      }
+    }
 
     Future<T> run() async {
       if (previous != null) {
         await previous;
+      }
+      final latestLockId = _canonicalKey(requestedId);
+      if (latestLockId != lockId) {
+        finish();
+        return _runExclusive(requestedId, latestLockId, action);
       }
       try {
         return await action();
       } finally {
         // Errors propagate through the returned future only; the tail
         // completes normally so queued waiters never see them.
-        release.complete();
-        if (identical(_tails[chatId], tail)) {
-          _tails.remove(chatId);
-        }
+        finish();
       }
     }
 
     return run();
+  }
+
+  String _canonicalKey(String id) {
+    var current = id;
+    final seen = <String>{};
+    while (seen.add(current)) {
+      final next = _aliases[current];
+      if (next == null || next == current) return current;
+      current = next;
+    }
+    return current;
   }
 
   /// Whether no lock is currently held or queued (for tests).

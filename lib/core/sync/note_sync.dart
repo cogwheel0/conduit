@@ -234,15 +234,15 @@ class NotePushSync {
       // Pull-side crash-heal claims a pending noteCreate before trying localId;
       // once this push worker owns the op as inFlight, crash-heal exits before
       // taking localId and cannot form an opposite-order cycle.
-      await _noteLocks.runExclusive(
-        serverId,
-        () => _remapper.remapNote(
+      await _noteLocks.runExclusive(serverId, () async {
+        await _remapper.remapNote(
           localId: localId,
           serverId: serverId,
           serverCreatedAt: serverCreatedAt,
           serverUpdatedAt: serverUpdatedAt,
-        ),
-      );
+        );
+        _noteLocks.remapKeyInPlace(fromId: localId, toId: serverId);
+      });
       return serverId;
     });
   }

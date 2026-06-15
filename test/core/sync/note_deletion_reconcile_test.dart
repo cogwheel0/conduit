@@ -59,6 +59,20 @@ class _TerminalNoteProbeClient extends FakeSyncApiClient {
   }
 }
 
+class _FeatureDisabledExpiredSessionClient extends FakeSyncApiClient {
+  _FeatureDisabledExpiredSessionClient(super.server);
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
+    return (const <Map<String, dynamic>>[], false);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) {
+    throw const SyncTerminalException(statusCode: 401, message: 'expired');
+  }
+}
+
 Map<String, dynamic> serverNote(String id, int ns) => <String, dynamic>{
   'id': id,
   'title': 'Note $id',
@@ -284,6 +298,22 @@ void main() {
       check(
         await db.syncMetaDao.getNotesLastFullReconcileAt(),
       ).equals(clock.now);
+    },
+  );
+
+  test(
+    'feature-disabled note list does not throttle when session is dead',
+    () async {
+      final client = _FeatureDisabledExpiredSessionClient(server);
+      await seedLocalOnly('ghost');
+
+      final result = await reconcileWith(
+        client,
+      ).run(ReconcileReason.manualRefresh);
+
+      check(result.ran).isFalse();
+      check(await db.notesDao.getNote('ghost')).isNotNull();
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
     },
   );
 

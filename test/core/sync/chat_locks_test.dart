@@ -39,56 +39,52 @@ void main() {
       release.complete();
       check(await first).equals(1);
       check(await second).equals(2);
-      check(events).deepEquals([
-        'first-start',
-        'first-end',
-        'second-start',
-        'second-end',
+      check(
+        events,
+      ).deepEquals(['first-start', 'first-end', 'second-start', 'second-end']);
+    });
+
+    test('concurrent pull-merge and manual write on one chat id cannot '
+        'interleave', () async {
+      // Simulates REQ 3: a pull merge (multi-step, with internal awaits)
+      // racing a manual write on the same chat. Steps from the two writers
+      // must never alternate.
+      final steps = <String>[];
+
+      Future<void> writer(String name) {
+        return locks.runExclusive('chat-1', () async {
+          for (var i = 0; i < 3; i++) {
+            steps.add('$name-$i');
+            await Future<void>.delayed(Duration.zero);
+          }
+        });
+      }
+
+      await Future.wait([writer('pull'), writer('manual')]);
+
+      check(steps).deepEquals([
+        'pull-0',
+        'pull-1',
+        'pull-2',
+        'manual-0',
+        'manual-1',
+        'manual-2',
       ]);
     });
 
     test(
-      'concurrent pull-merge and manual write on one chat id cannot '
-      'interleave',
+      'errors propagate to the caller without poisoning the chain',
       () async {
-        // Simulates REQ 3: a pull merge (multi-step, with internal awaits)
-        // racing a manual write on the same chat. Steps from the two writers
-        // must never alternate.
-        final steps = <String>[];
+        final failing = locks.runExclusive<void>('chat-a', () async {
+          throw StateError('boom');
+        });
+        final after = locks.runExclusive('chat-a', () async => 'ran');
 
-        Future<void> writer(String name) {
-          return locks.runExclusive('chat-1', () async {
-            for (var i = 0; i < 3; i++) {
-              steps.add('$name-$i');
-              await Future<void>.delayed(Duration.zero);
-            }
-          });
-        }
-
-        await Future.wait([writer('pull'), writer('manual')]);
-
-        check(steps).deepEquals([
-          'pull-0',
-          'pull-1',
-          'pull-2',
-          'manual-0',
-          'manual-1',
-          'manual-2',
-        ]);
+        await check(failing).throws<StateError>();
+        check(await after).equals('ran');
+        check(locks.isIdle).isTrue();
       },
     );
-
-    test('errors propagate to the caller without poisoning the chain',
-        () async {
-      final failing = locks.runExclusive<void>('chat-a', () async {
-        throw StateError('boom');
-      });
-      final after = locks.runExclusive('chat-a', () async => 'ran');
-
-      await check(failing).throws<StateError>();
-      check(await after).equals('ran');
-      check(locks.isIdle).isTrue();
-    });
 
     test('map entries are released once a key goes idle (no leak)', () async {
       check(locks.isIdle).isTrue();
@@ -108,6 +104,51 @@ void main() {
           }),
       ]);
       check(locks.isIdle).isTrue();
+    });
+
+    test('queued waiter reroutes after key remap before running', () async {
+      final events = <String>[];
+      final localStarted = Completer<void>();
+      final releaseLocal = Completer<void>();
+      final serverStarted = Completer<void>();
+      final releaseServer = Completer<void>();
+
+      final local = locks.runExclusive('local:note', () async {
+        events.add('local-start');
+        localStarted.complete();
+        await releaseLocal.future;
+        events.add('local-end');
+      });
+      final queuedLocal = locks.runExclusive('local:note', () async {
+        events.add('queued-local-start');
+      });
+
+      await localStarted.future;
+      locks.remapKeyInPlace(fromId: 'local:note', toId: 'server-note');
+
+      final server = locks.runExclusive('server-note', () async {
+        events.add('server-start');
+        serverStarted.complete();
+        await releaseServer.future;
+        events.add('server-end');
+      });
+      await serverStarted.future;
+
+      releaseLocal.complete();
+      await local;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      check(events).deepEquals(['local-start', 'server-start', 'local-end']);
+
+      releaseServer.complete();
+      await server;
+      await queuedLocal;
+      check(events).deepEquals([
+        'local-start',
+        'server-start',
+        'local-end',
+        'server-end',
+        'queued-local-start',
+      ]);
     });
 
     test('independent keys run concurrently', () async {
@@ -132,22 +173,24 @@ void main() {
       check(locks.isIdle).isTrue();
     });
 
-    test('action queued behind a failing predecessor still gets the result',
-        () async {
-      final results = <Object>[];
-      final futures = <Future<void>>[];
-      for (var i = 0; i < 4; i++) {
-        futures.add(
-          locks
-              .runExclusive('chat-a', () async {
-                if (i.isEven) throw StateError('boom $i');
-                return i;
-              })
-              .then(results.add, onError: (Object e) => results.add('err')),
-        );
-      }
-      await Future.wait(futures);
-      check(results).deepEquals(['err', 1, 'err', 3]);
-    });
+    test(
+      'action queued behind a failing predecessor still gets the result',
+      () async {
+        final results = <Object>[];
+        final futures = <Future<void>>[];
+        for (var i = 0; i < 4; i++) {
+          futures.add(
+            locks
+                .runExclusive('chat-a', () async {
+                  if (i.isEven) throw StateError('boom $i');
+                  return i;
+                })
+                .then(results.add, onError: (Object e) => results.add('err')),
+          );
+        }
+        await Future.wait(futures);
+        check(results).deepEquals(['err', 1, 'err', 3]);
+      },
+    );
   });
 }
