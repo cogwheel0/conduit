@@ -91,6 +91,17 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     return (delete(folders)..where((t) => t.id.equals(folderId))).go();
   }
 
+  /// Server-confirmed folder removal: delete the row and every pending/parked
+  /// outbox op for it in one transaction. Caller holds the folder lock.
+  Future<void> purgeReconciledFolder(String folderId) {
+    return transaction(() async {
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(folderId))).go();
+      await (delete(folders)..where((t) => t.id.equals(folderId))).go();
+    });
+  }
+
   // ---- local-mutation variants (CDT-RFC-001 §7.6, mirror chats_dao) -------
   //
   // Each writes its folder row AND enqueues its outbox op in ONE drift

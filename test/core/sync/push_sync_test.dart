@@ -100,6 +100,28 @@ Future<void> seedLocalChat(
   }
 }
 
+Future<void> seedParkedFolderOp(
+  AppDatabase db,
+  String folderId, {
+  OutboxKind kind = OutboxKind.folderUpsert,
+}) {
+  return db
+      .into(db.outboxOps)
+      .insert(
+        OutboxOpsCompanion.insert(
+          kind: kind.name,
+          chatId: Value(folderId),
+          status: const Value(OutboxStatus.failed),
+          attempts: const Value(5),
+          lastError: const Value('parked folder op'),
+        ),
+      );
+}
+
+Future<List<OutboxOp>> outboxOpsForChat(AppDatabase db, String chatId) {
+  return (db.select(db.outboxOps)..where((t) => t.chatId.equals(chatId))).get();
+}
+
 void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
@@ -804,6 +826,7 @@ void main() {
               dirty: const Value(true),
             ),
           );
+      await seedParkedFolderOp(db, 'missing-folder');
 
       await push.pushFolderUpsert(<String, dynamic>{
         'folderId': 'missing-folder',
@@ -813,6 +836,7 @@ void main() {
 
       final row = await db.foldersDao.getFolder('missing-folder');
       check(row).isNull();
+      check(await outboxOpsForChat(db, 'missing-folder')).isEmpty();
     });
 
     test('existing folder parent update 404 purges the local row', () async {
@@ -827,6 +851,7 @@ void main() {
               dirty: const Value(true),
             ),
           );
+      await seedParkedFolderOp(db, 'missing-parent-folder');
 
       await push.pushFolderUpsert(<String, dynamic>{
         'folderId': 'missing-parent-folder',
@@ -836,6 +861,7 @@ void main() {
 
       final row = await db.foldersDao.getFolder('missing-parent-folder');
       check(row).isNull();
+      check(await outboxOpsForChat(db, 'missing-parent-folder')).isEmpty();
     });
 
     test(
@@ -909,6 +935,29 @@ void main() {
         ).isEmpty();
       },
     );
+
+    test('folder delete purges parked outbox ops for the folder', () async {
+      final created = server.createFolder(name: 'Parked');
+      final id = created['id'] as String;
+      await db
+          .into(db.folders)
+          .insert(
+            FoldersCompanion.insert(
+              id: id,
+              name: 'Parked',
+              createdAt: 1,
+              updatedAt: 2,
+              deleted: const Value(true),
+              dirty: const Value(true),
+            ),
+          );
+      await seedParkedFolderOp(db, id);
+
+      await push.pushFolderDelete(id);
+
+      check(await db.foldersDao.getFolder(id)).isNull();
+      check(await outboxOpsForChat(db, id)).isEmpty();
+    });
 
     test(
       'folder delete treats an already-gone server folder as success',

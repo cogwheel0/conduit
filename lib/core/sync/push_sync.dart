@@ -408,7 +408,7 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId},
           );
-          await _db.foldersDao.hardDelete(folderId);
+          await _db.foldersDao.purgeReconciledFolder(folderId);
           return;
         }
       }
@@ -434,7 +434,7 @@ class PushSync {
             scope: 'sync/push',
             data: {'folderId': folderId},
           );
-          await _db.foldersDao.hardDelete(folderId);
+          await _db.foldersDao.purgeReconciledFolder(folderId);
           return;
         }
       }
@@ -448,7 +448,7 @@ class PushSync {
   Future<void> pushFolderDelete(String folderId) async {
     await _folderLocks.runExclusive(folderId, () async {
       await _client.deleteFolder(folderId, deleteContents: false);
-      await _db.foldersDao.hardDelete(folderId);
+      await _db.foldersDao.purgeReconciledFolder(folderId);
     });
   }
 
