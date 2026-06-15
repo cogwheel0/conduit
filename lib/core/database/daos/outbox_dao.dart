@@ -722,6 +722,9 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         return const _CoalesceDecision(insert: true);
 
       case OutboxKind.noteUpdate:
+        if (pendingKinds.contains(OutboxKind.noteDelete)) {
+          return const _CoalesceDecision(insert: false);
+        }
         // createChat-analog: a pending noteCreate reconstructs the live row at
         // push (note_mapper builds title+data from the row), so it already
         // carries the latest title/data. Refresh the surviving create's

@@ -567,6 +567,23 @@ void main() {
         check(payload.containsKey('data')).isFalse();
       },
     );
+
+    test('noteUpdate is dropped behind a pending noteDelete', () async {
+      final deleteSeq = await enqueue(
+        kind: OutboxKind.noteDelete,
+        chatId: 'n-delete',
+      );
+      final updateSeq = await enqueue(
+        kind: OutboxKind.noteUpdate,
+        chatId: 'n-delete',
+        payload: {'title': 'stale edit'},
+      );
+
+      check(updateSeq).equals(-1);
+      final pending = await dao.pendingForChat('n-delete');
+      check(pending.single.seq).equals(deleteSeq);
+      check(pending.single.kind).equals(OutboxKind.noteDelete.name);
+    });
   });
 
   group('claimNextRunnable (A2)', () {

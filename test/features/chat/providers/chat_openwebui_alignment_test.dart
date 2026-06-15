@@ -115,6 +115,16 @@ void main() {
       ]);
     });
 
+    test(
+      'unknown image filename extensions do not block server MIME lookup',
+      () {
+        check(mimeTypeFromFileNameForTest('photo.png')).equals('image/png');
+        check(mimeTypeFromFileNameForTest('camera-original.heic')).isNull();
+        check(mimeTypeFromFileNameForTest('scan.tiff')).isNull();
+        check(mimeTypeFromFileNameForTest('modern.avif')).isNull();
+      },
+    );
+
     test('headless landing detects structured non-text assistant output', () {
       final now = DateTime.utc(2026, 1, 1);
 

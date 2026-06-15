@@ -3202,9 +3202,9 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
             dataUrl = fileContent;
           } else {
             // Determine MIME type from content type or file extension
-            String mimeType = contentType.isNotEmpty
+            final mimeType = contentType.isNotEmpty
                 ? contentType.toString()
-                : _getMimeTypeFromFileName(fileName);
+                : _getMimeTypeFromFileName(fileName) ?? 'image/png';
             dataUrl = 'data:$mimeType;base64,$fileContent';
           }
           contentArray.add({
@@ -3243,7 +3243,7 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
   return messageMap;
 }
 
-String _getMimeTypeFromFileName(String fileName) {
+String? _getMimeTypeFromFileName(String fileName) {
   final ext = fileName.toLowerCase().split('.').last;
   return switch (ext) {
     'jpg' || 'jpeg' => 'image/jpeg',
@@ -3252,8 +3252,13 @@ String _getMimeTypeFromFileName(String fileName) {
     'webp' => 'image/webp',
     'svg' => 'image/svg+xml',
     'bmp' => 'image/bmp',
-    _ => 'image/png',
+    _ => null,
   };
+}
+
+@visibleForTesting
+String? mimeTypeFromFileNameForTest(String fileName) {
+  return _getMimeTypeFromFileName(fileName);
 }
 
 List<Map<String, dynamic>> _contextAttachmentsToFiles(
@@ -4424,7 +4429,10 @@ _AttachmentTypeMap _durableAttachmentContentTypesFromState(
       if (fileId == null || !ids.contains(fileId) || file.isImage != true) {
         continue;
       }
-      contentTypes[fileId] = _getMimeTypeFromFileName(file.fileName);
+      final contentType = _getMimeTypeFromFileName(file.fileName);
+      if (contentType != null && contentType.isNotEmpty) {
+        contentTypes[fileId] = contentType;
+      }
     }
   } catch (_) {}
 
