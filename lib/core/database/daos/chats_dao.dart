@@ -622,10 +622,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Send-on-existing-chat (W3.c): upserts the user message + assistant
-  /// placeholder rows (`dirty=true`), updates the chat envelope
-  /// (`currentMessageId`, `updatedAt`, `dirty=true`), enqueues an `updateChat`
-  /// op, and — when [enqueueCompletion] — a `requestCompletion` op (seq after
-  /// the update) — all in one transaction. Caller holds the chat lock.
+  /// placeholder rows, updates the chat envelope, enqueues an `updateChat` op
+  /// when [enqueueUpdate] is true, and — when [enqueueCompletion] — a
+  /// `requestCompletion` op (seq after the update when present) — all in one
+  /// transaction. Caller holds the chat lock.
   ///
   /// New message rows take `orderIndex = max(order_index)+1` for the chat,
   /// counting up across the batch; existing rows keep their orderIndex.
@@ -634,6 +634,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     required List<MessageRowData> messages,
     String? currentMessageId,
     int? updatedAt,
+    bool enqueueUpdate = true,
     required bool enqueueCompletion,
     RequestCompletionPayload? completion,
   }) async {
@@ -667,7 +668,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             createdAt: message.createdAt,
             orderIndex: orderIndex,
             payload: jsonEncode(message.payload),
-            dirty: const Value(true),
+            dirty: Value(enqueueUpdate),
           ),
         );
       }
@@ -680,11 +681,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           updatedAt: updatedAt == null
               ? const Value.absent()
               : Value(updatedAt),
-          dirty: const Value(true),
+          dirty: Value(enqueueUpdate),
         ),
       );
 
-      await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+      if (enqueueUpdate) {
+        await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+      }
 
       if (enqueueCompletion && completion != null) {
         await _outboxDao.enqueue(

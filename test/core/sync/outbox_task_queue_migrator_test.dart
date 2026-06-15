@@ -185,9 +185,13 @@ void main() {
         final ops = await db.outboxDao.pendingForChat('srv-1');
         check(
           ops.map((o) => o.kind).toList(),
-        ).deepEquals(['updateChat', 'requestCompletion']);
+        ).deepEquals(['requestCompletion']);
         // A stub row was materialized for the unpulled server id.
-        check(await db.chatsDao.getChat('srv-1')).isNotNull();
+        final chat = await db.chatsDao.getChat('srv-1');
+        check(chat).isNotNull();
+        check(chat!.dirty).isFalse();
+        final messages = await db.messagesDao.getForChat('srv-1');
+        check(messages.every((message) => !message.dirty)).isTrue();
       },
     );
 
@@ -423,7 +427,7 @@ void main() {
         check(firstMsgs).length.equals(2); // user + assistant
         check(
           firstOps.map((o) => o.kind).toList(),
-        ).deepEquals(['updateChat', 'requestCompletion']);
+        ).deepEquals(['requestCompletion']);
 
         // Simulate a partial-failure crash: flag never landed. Re-run.
         await (db.delete(db.syncMeta)..where(

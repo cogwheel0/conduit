@@ -328,6 +328,7 @@ class OutboxTaskQueueMigrator {
         ),
         currentMessageId: asstId,
         updatedAt: now,
+        enqueueUpdate: false,
         enqueueCompletion: true,
         completion: RequestCompletionPayload(
           assistantMessageId: asstId,

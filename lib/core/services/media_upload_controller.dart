@@ -36,8 +36,10 @@ class MediaUploadController {
   final Ref _ref;
 
   /// In-flight uploads keyed by the ORIGINAL source [filePath] (the key the UI
-  /// + cancellation reference, never the converted temp path).
-  final Map<String, _InflightUpload> _inflight = <String, _InflightUpload>{};
+  /// + cancellation reference, never the converted temp path). Multiple callers
+  /// can race the same source path, so cancellation owns every token for a path.
+  final Map<String, Set<_InflightUpload>> _inflight =
+      <String, Set<_InflightUpload>>{};
 
   /// Uploads [filePath] to the server, driving [attachedFilesProvider] progress
   /// in place. Behavior is identical to the legacy
@@ -70,9 +72,9 @@ class MediaUploadController {
   /// no upload is in flight (still runs the staging cleanup, matching the
   /// legacy "always delete the staged copy" behavior on attachment removal).
   Future<void> cancelUploadsForFile(String filePath) async {
-    final inflight = _inflight.remove(filePath);
-    if (inflight != null) {
-      await inflight.cancel();
+    final inflights = _inflight.remove(filePath);
+    if (inflights != null) {
+      await Future.wait([for (final inflight in inflights) inflight.cancel()]);
     }
     unawaited(deleteShareStagingFile(filePath));
   }
@@ -138,7 +140,16 @@ class MediaUploadController {
     final tempFilePath = uploadPath != filePath ? uploadPath : null;
 
     final inflight = _InflightUpload(completer: completer);
-    _inflight[filePath] = inflight;
+    (_inflight[filePath] ??= <_InflightUpload>{}).add(inflight);
+
+    void removeInflight() {
+      final inflights = _inflight[filePath];
+      if (inflights == null) return;
+      inflights.remove(inflight);
+      if (inflights.isEmpty) {
+        _inflight.remove(filePath);
+      }
+    }
 
     void cleanupTemp() {
       if (tempFilePath != null) {
@@ -201,7 +212,7 @@ class MediaUploadController {
           unawaited(deleteShareStagingFile(filePath));
           unawaited(sub.cancel());
           cleanupTemp();
-          _inflight.remove(filePath);
+          removeInflight();
           if (!completer.isCompleted) completer.complete();
           break;
         default:
