@@ -15,13 +15,14 @@ import 'sync_entity_adapter.dart';
 /// difference never reaches the interface. Carries the NANOSECOND clock unit
 /// implicitly via [pullOverlap] + each list item's `updatedAt` and the
 /// dedicated [watermarkKey]; those NEVER meet the chat (seconds) domain (R-09).
-class NoteAdapter implements SyncEntityAdapter {
+class NoteAdapter implements SyncEntityAdapter, SyncEntityPullPrepare {
   NoteAdapter({required NotePullSync pull, required NotePushSync push})
     : _pull = pull,
       _push = push;
 
   final NotePullSync _pull;
   final NotePushSync _push;
+  bool? _hasPendingCreateHashes;
 
   @override
   String get watermarkKey => SyncMetaDao.kNotesPullWatermarkKey;
@@ -74,8 +75,15 @@ class NoteAdapter implements SyncEntityAdapter {
   Future<Map<String, dynamic>?> fetchRaw(String id) => _pull.fetchRaw(id);
 
   @override
-  Future<bool> mergeServer(Map<String, dynamic> raw) =>
-      _pull.mergeNoteResponse(raw);
+  Future<void> preparePull() async {
+    _hasPendingCreateHashes = await _pull.hasPendingCreateContentHashes();
+  }
+
+  @override
+  Future<bool> mergeServer(Map<String, dynamic> raw) => _pull.mergeNoteResponse(
+    raw,
+    hasPendingCreateHashes: _hasPendingCreateHashes,
+  );
 
   @override
   Future<void> pushOp(OutboxOp op) async {

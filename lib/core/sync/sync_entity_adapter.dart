@@ -109,6 +109,12 @@ abstract interface class SyncEntityAdapter {
   Future<void> pushOp(OutboxOp op);
 }
 
+/// Optional adapter hook for per-pull snapshots that should be computed once
+/// before the worker pool starts.
+abstract interface class SyncEntityPullPrepare {
+  Future<void> preparePull();
+}
+
 /// Outcome of one generic pull pass over a single adapter's MAIN list.
 class AdapterPullResult {
   const AdapterPullResult({
@@ -152,6 +158,10 @@ Future<AdapterPullResult> runPullFor(
   final watermark = await _readWatermark(db, adapter.watermarkKey);
   final threshold = watermark - adapter.pullOverlap;
   var maxSeen = watermark;
+
+  if (adapter is SyncEntityPullPrepare) {
+    await (adapter as SyncEntityPullPrepare).preparePull();
+  }
 
   // Keyed by id; first occurrence wins (list order is newest-first).
   final changed = <String, SyncListItem>{};

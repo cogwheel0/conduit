@@ -62,7 +62,10 @@ class NotePullSync {
   /// On a merge that retained local-dirty content, enqueues a `noteUpdate`
   /// (mirrors the chat `mustPush` → updateChat enqueue). Public so the
   /// [NoteAdapter] seam can route a single raw map through it.
-  Future<bool> mergeNoteResponse(Map<String, dynamic> resp) {
+  Future<bool> mergeNoteResponse(
+    Map<String, dynamic> resp, {
+    bool? hasPendingCreateHashes,
+  }) {
     final id = resp['id'] is String ? resp['id'] as String : '';
     if (id.isEmpty) {
       throw const FormatException('NoteResponse without a string id');
@@ -73,12 +76,19 @@ class NotePullSync {
         serverId: id,
         serverCreatedAt: _asNs(resp['created_at']) ?? 0,
         serverUpdatedAt: _asNs(resp['updated_at']) ?? 0,
+        hasPendingCreateHashes: hasPendingCreateHashes,
       );
       if (healed) return false;
 
       final write = await _db.notesDao.mergeServerNote(serverRaw: resp);
       return write.mustPush;
     });
+  }
+
+  Future<bool> hasPendingCreateContentHashes() {
+    return _db.outboxDao.hasPendingCreateContentHashes(
+      kind: OutboxKind.noteCreate,
+    );
   }
 
   /// Attempts the note-create content-hash crash-heal. Returns true when the
@@ -89,13 +99,13 @@ class NotePullSync {
     required String serverId,
     required int serverCreatedAt,
     required int serverUpdatedAt,
+    bool? hasPendingCreateHashes,
   }) async {
     final remapper = _remapper;
     if (remapper == null) return false;
 
-    final hasPendingCreate = await _db.outboxDao.hasPendingCreateContentHashes(
-      kind: OutboxKind.noteCreate,
-    );
+    final hasPendingCreate =
+        hasPendingCreateHashes ?? await hasPendingCreateContentHashes();
     if (!hasPendingCreate) return false;
 
     final hash = noteCreateContentHashFromServer(serverRaw);

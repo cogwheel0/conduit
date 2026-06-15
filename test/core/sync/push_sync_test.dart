@@ -43,6 +43,17 @@ class _RevertArchiveToggleClient extends FakeSyncApiClient {
   }
 }
 
+class _RevertPinToggleClient extends FakeSyncApiClient {
+  _RevertPinToggleClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> togglePin(String id) async {
+    final response = await super.togglePin(id);
+    await super.togglePin(id);
+    return response;
+  }
+}
+
 /// Seeds a local (`local:`) chat + messages directly, dirty by default.
 Future<void> seedLocalChat(
   AppDatabase db, {
@@ -543,6 +554,48 @@ void main() {
       check(stored['archived']).equals(false);
       check(client.chatFetchStarts).isEmpty();
     });
+
+    test(
+      'pin mismatch adopts server state without parking updateChat',
+      () async {
+        final racingClient = _RevertPinToggleClient(server);
+        push = PushSync(
+          client: racingClient,
+          db: db,
+          chatLocks: chatLocks,
+          folderLocks: folderLocks,
+          clock: clock,
+          remapper: remapper,
+        );
+        server.seedChat(
+          id: 'srv-pin-mismatch',
+          blob: {
+            'title': 'pin',
+            'history': {'messages': {}, 'currentId': null},
+          },
+          createdAt: 1,
+          updatedAt: 2,
+          pinned: false,
+          archived: false,
+        );
+        await seedLocalChat(
+          db,
+          id: 'srv-pin-mismatch',
+          messageCount: 0,
+          pinned: true,
+          archived: false,
+        );
+
+        await push.pushUpdateChat('srv-pin-mismatch');
+
+        final chat = await db.chatsDao.getChat('srv-pin-mismatch');
+        check(chat).isNotNull();
+        check(chat!.pinned).isFalse();
+        check(chat.dirty).isFalse();
+        final stored = server.getChatById('srv-pin-mismatch')!;
+        check(stored['pinned']).equals(false);
+      },
+    );
 
     test('post-toggle archive 404 does not park updateChat', () async {
       final racingClient = _DeleteAfterArchiveToggleClient(server);

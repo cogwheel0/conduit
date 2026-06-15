@@ -275,10 +275,8 @@ class PushSync {
         scope: 'sync/push',
         data: {'chatId': chatId, 'desired': desired, 'actual': livePinned},
       );
-      throw SyncTerminalException(
-        statusCode: 0,
-        message: 'chat pin confirmation mismatch ($chatId)',
-      );
+      await _storeChatPinMirror(chatId, livePinned);
+      return;
     }
   }
 
@@ -496,6 +494,12 @@ class PushSync {
   Future<void> _storeChatArchiveMirror(String chatId, bool archived) {
     return (_db.update(_db.chats)..where((t) => t.id.equals(chatId))).write(
       ChatsCompanion(archived: Value(archived)),
+    );
+  }
+
+  Future<void> _storeChatPinMirror(String chatId, bool pinned) {
+    return (_db.update(_db.chats)..where((t) => t.id.equals(chatId))).write(
+      ChatsCompanion(pinned: Value(pinned)),
     );
   }
 
