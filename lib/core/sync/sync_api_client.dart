@@ -227,9 +227,6 @@ class ApiSyncApiClient implements SyncApiClient {
       return resp != null;
     } on DioException catch (e) {
       final status = e.response?.statusCode;
-      if (status == 404) {
-        return false;
-      }
       if (status == 401 && _isVendoredNotFound401(e.response?.data)) {
         return false;
       }

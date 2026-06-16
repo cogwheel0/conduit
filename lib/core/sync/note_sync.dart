@@ -23,13 +23,6 @@ const int kNotePullOverlapNs = 5 * 1000 * 1000 * 1000;
 /// the same as chats and cannot silently depend on an unpaged full-list call.
 const int kOpenWebUiNoteListPageSize = 60;
 
-/// Raw int64 NANOSECONDS — NO unit conversion (R-09).
-int? _asNs(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  return null;
-}
-
 /// Note-pull SEAM for the generic watermark-delta driver (CDT-RFC-001 D-11,
 /// R-09). The list/early-stop/worker-pool/watermark-advance spine itself lives
 /// in `runPullFor` over a [NoteAdapter]; this class supplies only the FLAT-doc
@@ -74,8 +67,8 @@ class NotePullSync {
       final healed = await _tryHealCreate(
         serverRaw: resp,
         serverId: id,
-        serverCreatedAt: _asNs(resp['created_at']) ?? 0,
-        serverUpdatedAt: _asNs(resp['updated_at']) ?? 0,
+        serverCreatedAt: asNs(resp['created_at']) ?? 0,
+        serverUpdatedAt: asNs(resp['updated_at']) ?? 0,
         hasPendingCreateHashes: hasPendingCreateHashes,
       );
       if (healed) return false;
@@ -237,8 +230,8 @@ class NotePushSync {
         throw StateError('createNote response without a string id');
       }
 
-      final serverCreatedAt = _asNs(resp['created_at']) ?? note.createdAt;
-      final serverUpdatedAt = _asNs(resp['updated_at']) ?? note.updatedAt;
+      final serverCreatedAt = asNs(resp['created_at']) ?? note.createdAt;
+      final serverUpdatedAt = asNs(resp['updated_at']) ?? note.updatedAt;
 
       // Keep the local-id lock while acquiring the server-id lock for remap.
       // Pull-side crash-heal claims a pending noteCreate before trying localId;
@@ -285,7 +278,7 @@ class NotePushSync {
         );
         return;
       }
-      final serverUpdatedAt = _asNs(resp['updated_at']) ?? note.updatedAt;
+      final serverUpdatedAt = asNs(resp['updated_at']) ?? note.updatedAt;
       await _clearNoteDirty(
         noteId: noteId,
         clearTitle: true,

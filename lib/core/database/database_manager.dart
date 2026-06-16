@@ -28,6 +28,7 @@ class DatabaseManager {
 
   AppDatabase? _active;
   String? _activeServerId;
+  Future<void>? _pendingClose;
 
   /// Sync, lazy-open accessor for [server]'s database.
   AppDatabase openFor(ServerConfig server) {
@@ -43,8 +44,9 @@ class DatabaseManager {
         data: {'serverId': previousId},
       );
       // Fire-and-forget: downstream streams re-derive from the new database.
-      // ignore: discarded_futures
-      existing.close().catchError((Object error) {
+      // Tracked via [_pendingClose] so [deleteFor] can await an in-flight
+      // close before deleting the previous server's files.
+      _pendingClose = existing.close().catchError((Object error) {
         DebugLogger.error(
           'close-failed',
           scope: 'db/manager',
@@ -64,6 +66,7 @@ class DatabaseManager {
     final active = _active;
     _active = null;
     _activeServerId = null;
+    _pendingClose = null;
     if (active != null) {
       DebugLogger.log('close-active', scope: 'db/manager');
       await active.close();
@@ -80,6 +83,13 @@ class DatabaseManager {
   Future<void> deleteFor(String serverId) async {
     if (_activeServerId == serverId) {
       await closeActive();
+    }
+    // Await any in-flight close from a prior server switch ([openFor]) so we
+    // never delete files while the previous database is still closing.
+    final pending = _pendingClose;
+    _pendingClose = null;
+    if (pending != null) {
+      await pending;
     }
     final directory = await _databaseDirectory();
     final base = p.join(directory.path, '${fileNameFor(serverId)}.sqlite');

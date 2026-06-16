@@ -68,9 +68,9 @@ NotesCompanion serverToNoteRow(
     data: Value(jsonEncode(data)),
     meta: Value(jsonEncode(meta)),
     isPinned: Value(server['is_pinned'] == true),
-    createdAt: _asNs(server['created_at']) ?? 0,
-    updatedAt: _asNs(server['updated_at']) ?? 0,
-    serverUpdatedAt: Value(_asNs(server['updated_at'])),
+    createdAt: asNs(server['created_at']) ?? 0,
+    updatedAt: asNs(server['updated_at']) ?? 0,
+    serverUpdatedAt: Value(asNs(server['updated_at'])),
     dirtyTitle: const Value(false),
     dirtyData: const Value(false),
     dirtyPinned: const Value(false),
@@ -85,11 +85,11 @@ NotesCompanion serverToNoteRow(
 /// key (rawExtra never holds a typed key, so there is no real collision).
 Map<String, dynamic> noteRowToServer(NoteRow row) {
   return <String, dynamic>{
-    ..._decodeMap(row.rawExtra),
+    ...decodeJsonMap(row.rawExtra),
     'id': row.id,
     'title': row.title,
-    'data': _decodeMap(row.data),
-    'meta': _decodeMap(row.meta),
+    'data': decodeJsonMap(row.data),
+    'meta': decodeJsonMap(row.meta),
     'is_pinned': row.isPinned,
     'created_at': row.createdAt,
     'updated_at': row.updatedAt,
@@ -104,7 +104,7 @@ Map<String, dynamic> noteRowToServer(NoteRow row) {
 Map<String, dynamic> noteRowToPatch(NoteRow row, {required bool includeData}) {
   return <String, dynamic>{
     'title': row.title,
-    if (includeData) 'data': _decodeMap(row.data),
+    if (includeData) 'data': decodeJsonMap(row.data),
   };
 }
 
@@ -112,7 +112,7 @@ Map<String, dynamic> noteRowToPatch(NoteRow row, {required bool includeData}) {
 /// by `NotePushSync.pushNoteCreate`: title and data. Server-minted id/timestamps
 /// and metadata never participate.
 String noteCreateContentHashFromRow(NoteRow row) {
-  return noteCreateContentHash(title: row.title, data: _decodeMap(row.data));
+  return noteCreateContentHash(title: row.title, data: decodeJsonMap(row.data));
 }
 
 /// Server-shaped counterpart to [noteCreateContentHashFromRow].
@@ -134,7 +134,7 @@ String noteCreateContentHash({
 /// Decodes a row's stored `data` JSON string into the server-shaped `data`
 /// dict (the full `{content: {md, html, json}, ...}` sub-object) for the
 /// create/update POST body. Tolerant of corrupt JSON (empty map).
-Map<String, dynamic> decodeNoteData(String raw) => _decodeMap(raw);
+Map<String, dynamic> decodeNoteData(String raw) => decodeJsonMap(raw);
 
 Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) return value;
@@ -146,8 +146,6 @@ Map<String, dynamic> _serverJsonObjectOrEmpty(Object? value) {
   if (value == null) return <String, dynamic>{};
   return _asMap(value);
 }
-
-Map<String, dynamic> _decodeMap(String raw) => decodeJsonMap(raw);
 
 /// Decodes a JSON string into a `Map<String, dynamic>`, tolerant of corrupt
 /// JSON (returns an empty map rather than throwing) and of `Map`s whose static
@@ -176,8 +174,6 @@ int? asNs(Object? value) {
   if (value is num) return value.toInt();
   return null;
 }
-
-int? _asNs(Object? value) => asNs(value);
 
 String _canonicalJson(Object? value) {
   final buffer = StringBuffer();

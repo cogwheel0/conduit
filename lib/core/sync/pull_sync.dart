@@ -180,6 +180,7 @@ class PullSync {
     }
 
     var failedFetches = 0;
+    var foldedArchivedCount = 0;
 
     // Archived items: full-fetch when a synced body would otherwise go
     // stale; envelope-only stub otherwise.
@@ -188,6 +189,7 @@ class PullSync {
         final local = await _db.chatsDao.getChat(item.id);
         if (local != null && local.bodySynced) {
           changed.putIfAbsent(item.id, () => item);
+          foldedArchivedCount++;
         } else {
           await _locks.runExclusive(item.id, () {
             return _db.chatsDao.upsertEnvelopeStub(
@@ -277,7 +279,8 @@ class PullSync {
       await _db.syncMetaDao.setPullWatermark(maxSeen);
     }
 
-    final changedCount = toFetch.length + archivedChanged.length;
+    final changedCount =
+        toFetch.length + (archivedChanged.length - foldedArchivedCount);
     DebugLogger.log(
       'cycle-done',
       scope: 'sync/pull',

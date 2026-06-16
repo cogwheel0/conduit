@@ -299,7 +299,6 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     String id, {
     Value<String> title = const Value.absent(),
     Value<String> data = const Value.absent(),
-    Value<String> meta = const Value.absent(),
     required int localUpdatedAtNs,
     required bool enqueue,
   }) {
@@ -310,7 +309,6 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
             NotesCompanion(
               title: title,
               data: data,
-              meta: meta,
               updatedAt: Value(localUpdatedAtNs),
               dirtyTitle: title.present
                   ? const Value(true)

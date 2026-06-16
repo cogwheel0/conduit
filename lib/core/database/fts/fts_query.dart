@@ -32,9 +32,7 @@ String toFtsMatchQuery(String raw) {
   final terms = <String>[];
   for (final token in trimmed.split(_whitespace)) {
     if (token.isEmpty) continue;
-    final term = _quoteToken(token);
-    if (term == null) continue;
-    terms.add(term);
+    terms.add(_quoteToken(token));
   }
 
   if (terms.isEmpty) return '';
@@ -49,11 +47,8 @@ String toFtsMatchQuery(String raw) {
 /// `(`, `)`, `*`, `:`, `^`, `AND`, `NEAR/2`, etc. all lose operator meaning.
 ///
 /// The trailing `*` (placed AFTER the closing quote) requests a prefix match on
-/// the phrase's final token — FTS5 accepts `"phrase"*`. Returns `null` when the
-/// token contributes nothing after escaping (e.g. an empty string), so the
-/// caller can skip it.
-String? _quoteToken(String token) {
-  if (token.isEmpty) return null;
+/// the phrase's final token — FTS5 accepts `"phrase"*`.
+String _quoteToken(String token) {
   final escaped = token.replaceAll('"', '""');
   return '"$escaped"*';
 }

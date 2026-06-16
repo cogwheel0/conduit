@@ -226,13 +226,11 @@ class PushSync {
           if (needsPinCheck) {
             await _setChatPinned(chatId, desired: chat.pinned);
           }
-          if (needsArchiveCheck) {
-            await _setChatArchived(
-              chatId,
-              desired: chat.archived,
-              initialRaw: liveRaw,
-            );
-          }
+          await _setChatArchived(
+            chatId,
+            desired: chat.archived,
+            initialRaw: liveRaw,
+          );
         }
       }
 

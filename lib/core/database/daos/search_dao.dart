@@ -180,7 +180,7 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
 
     final rows = await customSelect(
       'WITH hits AS MATERIALIZED ('
-      '  SELECT chat_id, kind, '
+      '  SELECT chat_id, '
       "         snippet(chat_fts, 0, '\u2068', '\u2069', '…', 12) AS snip, "
       '         bm25(chat_fts, ?) AS score '
       '  FROM chat_fts '

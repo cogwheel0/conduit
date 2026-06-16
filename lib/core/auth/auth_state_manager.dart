@@ -431,7 +431,7 @@ class AuthStateManager extends _$AuthStateManager {
           );
 
           _preloadDefaultModel();
-        } catch (error, stack) {
+        } catch (error) {
           if (!ref.mounted) return;
           if (_isConfirmedAuthFailure(error)) {
             final current = _current;
@@ -450,12 +450,6 @@ class AuthStateManager extends _$AuthStateManager {
             'background-auth-validation-deferred',
             scope: 'auth/state',
             data: {'error': error.toString()},
-          );
-          DebugLogger.error(
-            'background-auth-validation-failed',
-            scope: 'auth/state',
-            error: error,
-            stackTrace: stack,
           );
         }
       }),
@@ -1101,8 +1095,6 @@ class AuthStateManager extends _$AuthStateManager {
 
     try {
       return await _performSilentLoginAttempt(
-        showLoading: showLoading,
-        publishErrors: publishNetworkErrors,
         canCommit: canCommit,
         claimCommit: claimCommit,
       );
@@ -1123,8 +1115,6 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<bool> _performSilentLoginAttempt({
-    required bool showLoading,
-    required bool publishErrors,
     bool Function()? canCommit,
     bool Function()? claimCommit,
   }) async {

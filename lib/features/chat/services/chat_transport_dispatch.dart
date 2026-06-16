@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import '../../../core/models/chat_message.dart';
-import '../../../core/models/conversation.dart';
 import '../../../core/providers/app_providers.dart'
     show
         activeChatIdsProvider,
@@ -330,13 +329,9 @@ Future<void> dispatchChatTransport({
       // CDT-RFC-001 Phase 1 (E2): the post-stream snapshot refresh persists
       // through the sync engine (upsertServerChat under the chat lock).
       try {
-        final result = await ref
+        return await ref
             .read(syncEngineProvider.notifier)
             .pullChatNow(chatId);
-        if (result is Conversation) {
-          return result;
-        }
-        return null;
       } catch (error, stackTrace) {
         // Engine unavailable (no database / reviewer mode): the helper falls
         // back to the direct fetch.

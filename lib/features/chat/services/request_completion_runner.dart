@@ -42,10 +42,11 @@ class CompletionDatabaseUnavailableException
 /// op — it never forks a second streaming implementation, and it is no-op-safe
 /// on re-entry (idempotent if the turn already completed).
 ///
-/// Option A (minimal): the streaming pipeline is single-active-conversation
-/// scoped, so the runner makes the target chat the active conversation before
-/// driving the stream. The D-07 echo (`upsertLocalEcho` keyed on the PK
-/// `{chatId, assistantMessageId}`) then updates the SAME placeholder row the
+/// The runner drives the LIVE streaming pipeline only when the target chat is
+/// already the user's active conversation (and its placeholder is loaded);
+/// otherwise it runs HEADLESS without switching the active conversation. Either
+/// way the D-07 echo (`upsertLocalEcho` keyed on the PK
+/// `{chatId, assistantMessageId}`) updates the SAME placeholder row the
 /// `*WithOutbox` DAO wrote at enqueue, guaranteeing one row per turn (R8).
 class ChatRequestCompletionRunner implements RequestCompletionRunner {
   ChatRequestCompletionRunner(this._ref);

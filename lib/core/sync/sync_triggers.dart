@@ -86,6 +86,18 @@ class SyncTriggers extends _$SyncTriggers {
     _observer = observer;
     WidgetsBinding.instance.addObserver(observer);
 
+    // Flutter does NOT re-deliver the current lifecycle state to a freshly
+    // added observer (flutter/flutter#73947). On a cold launch the app is
+    // already resumed before this observer registers, so onResumed never fires
+    // and the periodic timer would not start until a background/foreground
+    // round-trip. Seed the initial foreground state and start the timer.
+    // We do NOT call onResumed() here, since that would also fire a redundant
+    // 'foreground' pull on top of the 'start' pull from _maybeFireStart().
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _isForeground = true;
+      _restartPeriodicTimer();
+    }
+
     ref.onDispose(() {
       _cancelPeriodicTimer();
       final installed = _observer;

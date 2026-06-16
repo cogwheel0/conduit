@@ -287,6 +287,11 @@ class OutboxTaskQueueMigrator {
         return _ConvertOutcome.skippedDuplicate;
       }
 
+      // Fetch the chat row once and reuse it for both the server-completed
+      // guard below and the stub/parent-link logic — they read the identical
+      // row with no write between them.
+      final existing = await _db.chatsDao.getChat(conversationId);
+
       // Server-completed guard: a legacy "running" task's completion may have
       // finished SERVER-SIDE before the crash, and `_runOnce` pulls BEFORE this
       // migration runs — so the chat may already hold that turn under the
@@ -296,11 +301,14 @@ class OutboxTaskQueueMigrator {
       // matches this task's text and already has a non-empty assistant reply,
       // the turn is done — skip. (Matching the latest turn, not any historical
       // message, avoids false-skipping legitimately-repeated text.)
-      if (await _latestTurnAlreadyCompleted(conversationId, text)) {
+      if (await _latestTurnAlreadyCompleted(
+        conversationId,
+        existing?.currentMessageId,
+        text,
+      )) {
         return _ConvertOutcome.skippedDuplicate;
       }
 
-      final existing = await _db.chatsDao.getChat(conversationId);
       if (existing == null) {
         // No local row yet (not pulled). Insert a bodySynced=false stub keyed
         // by the server id so the append has a parent row; the subsequent pull
@@ -361,11 +369,11 @@ class OutboxTaskQueueMigrator {
   /// Returns false for empty [userText].
   Future<bool> _latestTurnAlreadyCompleted(
     String chatId,
+    String? currentMessageId,
     String userText,
   ) async {
     if (userText.isEmpty) return false;
-    final chat = await _db.chatsDao.getChat(chatId);
-    final currentId = chat?.currentMessageId;
+    final currentId = currentMessageId;
     if (currentId == null) return false;
     final rows = await (_db.select(
       _db.messages,

@@ -9,8 +9,9 @@ import '../utils/debug_logger.dart';
 import 'database_provider.dart';
 import 'mappers/conversation_assembler.dart';
 
-/// Message count above which assembly is offloaded to the worker isolate
-/// (mirrors `ApiService._shouldUseWorkerForConversationPayload`).
+/// Message count above which assembly is offloaded to the worker isolate.
+/// (`ApiService` uses a separate payload byte-size heuristic for the same
+/// purpose.)
 const int kLocalConversationWorkerThreshold = 100;
 
 /// Fire-and-forget background pull for one chat. Best-effort freshening:
@@ -93,11 +94,10 @@ Future<Conversation?> loadLocalConversation(dynamic ref, String id) async {
       final envelope = buildChatResponseEnvelope(chat, messages);
       final workerManager = ref.read(workerManagerProvider);
       return await workerManager.schedule(
-            parseFullConversationModelWorker,
-            envelope,
-            debugLabel: 'db.assembleConversation',
-          )
-          as Conversation;
+        parseFullConversationModelWorker,
+        envelope,
+        debugLabel: 'db.assembleConversation',
+      );
     }
     return assembleConversation(chat, messages);
   } catch (error, stackTrace) {

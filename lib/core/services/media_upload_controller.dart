@@ -106,12 +106,14 @@ class MediaUploadController {
     String uploadPath = filePath;
     String uploadFileName = fileName;
     String? uploadMimeType = mimeType;
+    String? convertedTempPath;
     if (isImage) {
       final shouldConvert = await _shouldConvertImage(lowerName, fileSize);
       if (shouldConvert) {
         final convertedPath = await _convertImageForUpload(filePath);
         if (convertedPath != null) {
           uploadPath = convertedPath;
+          convertedTempPath = convertedPath;
           final baseName = fileName.contains('.')
               ? fileName.substring(0, fileName.lastIndexOf('.'))
               : fileName;
@@ -121,29 +123,47 @@ class MediaUploadController {
       }
     }
 
-    // Read image bytes before upload for instant display cache.
-    Uint8List? imageBytes;
-    if (isImage) {
-      try {
-        imageBytes = await File(uploadPath).readAsBytes();
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'image-upload-cache-read-failed',
-          scope: 'media/upload',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'fileName': uploadFileName},
-        );
+    // The work below (image-bytes read + enqueue) runs after the converted temp
+    // dir exists but before the queueStream listener / onCancel cleanup is
+    // wired. If any of it throws, control unwinds past the normal terminal
+    // cleanup, so the converted conduit_img_* temp dir would leak. Clean it up
+    // on this abort/error path only — never on the success path, where the queue
+    // still reads the file asynchronously during processQueue.
+    final Uint8List? imageBytes;
+    final String id;
+    try {
+      // Read image bytes before upload for instant display cache.
+      Uint8List? cachedImageBytes;
+      if (isImage) {
+        try {
+          cachedImageBytes = await File(uploadPath).readAsBytes();
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'image-upload-cache-read-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'fileName': uploadFileName},
+          );
+        }
       }
-    }
+      imageBytes = cachedImageBytes;
 
-    final id = await uploader.enqueue(
-      filePath: uploadPath,
-      fileName: uploadFileName,
-      fileSize: fileSize ?? 0,
-      mimeType: uploadMimeType,
-      checksum: checksum,
-    );
+      id = await uploader.enqueue(
+        filePath: uploadPath,
+        fileName: uploadFileName,
+        fileSize: fileSize ?? 0,
+        mimeType: uploadMimeType,
+        checksum: checksum,
+      );
+    } catch (_) {
+      if (convertedTempPath != null) {
+        try {
+          File(convertedTempPath).parent.deleteSync(recursive: true);
+        } catch (_) {}
+      }
+      rethrow;
+    }
 
     final completer = Completer<void>();
     final displayFileName = uploadFileName;

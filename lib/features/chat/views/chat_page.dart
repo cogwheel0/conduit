@@ -617,18 +617,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Drive uploads via the shared media-upload controller (fold-out, not an
       // outbox op) for unified retry/progress.
       for (final attachment in attachments) {
-        try {
-          await ref
+        unawaited(
+          ref
               .read(mediaUploadControllerProvider)
               .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize: await attachment.file.length(),
-              );
-        } catch (e) {
-          if (!mounted) return;
-          DebugLogger.log('Upload failed: $e', scope: 'chat/page');
-        }
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Upload failed: $e', scope: 'chat/page');
+              }),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -777,18 +777,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // retry/progress.
       DebugLogger.log('Uploading image(s)...', scope: 'chat/page');
       for (final attachment in attachments) {
-        try {
-          await ref
+        unawaited(
+          ref
               .read(mediaUploadControllerProvider)
               .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize:
                     imageSizes[attachment] ?? await attachment.file.length(),
-              );
-        } catch (e) {
-          DebugLogger.log('Image upload failed: $e', scope: 'chat/page');
-        }
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Image upload failed: $e', scope: 'chat/page');
+              }),
+        );
       }
     } catch (e) {
       DebugLogger.log('Image attachment error: $e', scope: 'chat/page');
@@ -813,22 +814,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Drive uploads via the shared media-upload controller for unified
     // retry/progress.
     for (final attachment in attachments) {
-      try {
-        final fileSize = await attachment.file.length();
-        DebugLogger.log(
-          'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
-          scope: 'chat/page',
-        );
-        await ref
+      final fileSize = await attachment.file.length();
+      DebugLogger.log(
+        'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
+        scope: 'chat/page',
+      );
+      unawaited(
+        ref
             .read(mediaUploadControllerProvider)
             .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize: fileSize,
-            );
-      } catch (e) {
-        DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
-      }
+            )
+            .catchError((Object e) {
+              DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
+            }),
+      );
     }
 
     DebugLogger.log(
