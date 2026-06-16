@@ -77,6 +77,21 @@ class SyncEngine extends _$SyncEngine {
   /// of duplicating. Disposed with the notifier.
   IdRemapper? _remapper;
 
+  /// Stable, session-independent sink for committed remaps. The per-session
+  /// [_remapper] is rebuilt on every dependency rebind and its own stream dies
+  /// with it, but [remapRouteSyncProvider] subscribes to [remapEvents] exactly
+  /// once at startup. Forwarding each session's remapper into this long-lived
+  /// broadcast controller keeps that single subscription live across rebinds
+  /// (otherwise post-rebind remaps would be silently dropped and an open chat
+  /// route would never swap its local id in place). Never closed — the engine
+  /// notifier is keepAlive for the app's lifetime.
+  final StreamController<RemapEvent> _remapEvents =
+      StreamController<RemapEvent>.broadcast(sync: true);
+
+  /// Forwards the current session's [_remapper] events into [_remapEvents].
+  /// Cancelled (and re-established against the new remapper) on every rebind.
+  StreamSubscription<RemapEvent>? _remapForward;
+
   /// The engine's single [OutboxDrainer], built lazily against the current db
   /// (which the notifier identity follows via [build]) and shared by BOTH drain
   /// entry points — the pull cycle ([_runOnce]) and connectivity-regained
@@ -160,6 +175,8 @@ class SyncEngine extends _$SyncEngine {
   void _resetSessionBoundState() {
     _debounce?.cancel();
     _debounce = null;
+    unawaited(_remapForward?.cancel());
+    _remapForward = null;
     unawaited(_remapper?.dispose());
     _remapper = null;
     _drainer = null;
@@ -209,14 +226,18 @@ class SyncEngine extends _$SyncEngine {
   IdRemapper? _ensureRemapper() {
     final db = _boundDb;
     if (db == null) return null;
-    return _remapper ??= IdRemapper(db);
+    final existing = _remapper;
+    if (existing != null) return existing;
+    final remapper = IdRemapper(db);
+    _remapForward = remapper.remapEvents.listen(_remapEvents.add);
+    return _remapper = remapper;
   }
 
   /// Stream of committed local->server id remaps (Wiring C). The route/active
   /// chat consumer (`remapRouteSyncProvider`) listens here to swap ids in place.
-  /// Empty (a never-emitting stream) while there is no active db.
-  Stream<RemapEvent> get remapEvents =>
-      _ensureRemapper()?.remapEvents ?? const Stream<RemapEvent>.empty();
+  /// Backed by a long-lived controller ([_remapEvents]) so the consumer's single
+  /// startup subscription survives session rebinds that replace [_remapper].
+  Stream<RemapEvent> get remapEvents => _remapEvents.stream;
 
   /// The engine's single [IdRemapper] (the same instance feeding [remapEvents]
   /// and shared with PushSync/PullSync). Exposed for tests to drive a committed
