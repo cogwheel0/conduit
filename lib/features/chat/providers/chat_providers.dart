@@ -5223,7 +5223,7 @@ Future<void> _saveConversationLocally(dynamic ref) async {
       updatedAt: DateTime.now(),
     );
 
-    final db = ref.read(appDatabaseProvider);
+    final db = _readAppDatabaseOrNull(ref);
     if (db != null && !isTemporaryChat(updatedConversation.id)) {
       final lastReadAt = updatedConversation.lastReadAt;
       // ChatLocks discipline: serialize with pull merges / turn echoes so a

@@ -21,11 +21,11 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Phase 1: chats, messages, folders, and the (not yet drained) outbox join
-/// the Phase 0 sync_meta table; schema version 2.
+/// Current schema version 5 includes sync metadata, chats, messages, folders,
+/// outbox operations, notes, and the shared chat/note FTS substrate.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
-/// on server switch or removal) is owned by the Phase 1 DatabaseManager.
+/// on server switch or removal) is owned by [DatabaseManager].
 @DriftDatabase(
   tables: [SyncMeta, Chats, Messages, Folders, OutboxOps, Notes],
   daos: [
@@ -199,8 +199,8 @@ class AppDatabase extends _$AppDatabase {
   ///
   ///  1. ensures the vtable + triggers exist (idempotent [_createFts]);
   ///  2. returns immediately if the dedicated `fts_built` flag is already set;
-  ///  3. otherwise backfills BOTH sources (message content + non-deleted chat
-  ///     titles) in ONE transaction, then sets the flag.
+  ///  3. otherwise backfills message content, non-deleted chat titles, and note
+  ///     title/text rows in ONE transaction, then sets the flag.
   ///
   /// The flag is dedicated (separate from `hive_cache_purged`) so a failed
   /// backfill leaves it unset and retries on the next sync cycle. This method

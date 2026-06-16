@@ -8,6 +8,7 @@ import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/push_sync.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -888,6 +889,17 @@ void main() {
         check(row!.dirty).isTrue();
       },
     );
+
+    test('local folder create rejects a missing folder name', () async {
+      await check(
+        push.pushFolderUpsert(<String, dynamic>{
+          'folderId': 'local:missing-name',
+          'createIfAbsent': true,
+        }),
+      ).throws<SyncTerminalException>();
+
+      check(server.getFolders()).isEmpty();
+    });
 
     test('existing folder update pushes name + parent', () async {
       final created = server.createFolder(name: 'Old');

@@ -423,7 +423,9 @@ class ChatBlobMapper {
       ..sort((a, b) {
         final byCreatedAt = a.createdAt.compareTo(b.createdAt);
         if (byCreatedAt != 0) return byCreatedAt;
-        return a.orderIndex.compareTo(b.orderIndex);
+        final byOrderIndex = a.orderIndex.compareTo(b.orderIndex);
+        if (byOrderIndex != 0) return byOrderIndex;
+        return a.id.compareTo(b.id);
       });
     return [for (final child in children) child.id];
   }

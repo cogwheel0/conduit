@@ -970,11 +970,11 @@ class AppStartupFlow extends _$AppStartupFlow {
   }) {
     // Install the sync engine's pull triggers (CDT-RFC-001 §7.6): app start,
     // auth, foreground, connectivity-regained, and the periodic timer.
-    ref.watch(syncTriggersProvider);
+    _keepAlive(syncTriggersProvider);
 
     // Install the remap-route consumer (Wiring C): swaps the active-chat /
     // pending-folder id in place when a local id is remapped to a server id.
-    ref.watch(remapRouteSyncProvider);
+    _keepAlive(remapRouteSyncProvider);
 
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.

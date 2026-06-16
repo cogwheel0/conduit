@@ -108,7 +108,15 @@ class NoteAdapter implements SyncEntityAdapter, SyncEntityPullPrepare {
         break;
       case OutboxKind.notePin:
         final payload = decodeNotePatch(op.payload);
-        await _push.pushNotePin(noteId, desired: payload['desired'] == true);
+        final desired = payload['desired'];
+        if (desired is! bool) {
+          throw SyncTerminalException(
+            statusCode: 400,
+            message:
+                'malformed ${OutboxKind.notePin.name} op: missing desired pin state',
+          );
+        }
+        await _push.pushNotePin(noteId, desired: desired);
         break;
       // Not owned (drainer never routes these here).
       case OutboxKind.createChat:

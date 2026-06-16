@@ -415,6 +415,64 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
+
+  testWidgets(
+    'folder conversation open falls back to cached row on API error',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final timestamp = DateTime(2026, 1, 1);
+      final conversation = Conversation(
+        id: 'folder-chat-1',
+        title: 'Folder Chat',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        folderId: 'work',
+      );
+      final api = _FakeFolderApiService(
+        getConversationError: StateError('offline'),
+      );
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'folder-chat-1',
+        title: 'Folder Chat',
+        createdAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+        updatedAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+        folderId: const Value('work'),
+      );
+      final container = _createContainer(
+        api: api,
+        folders: const [Folder(id: 'work', name: 'Work')],
+        conversations: [conversation],
+        isAuthenticated: true,
+        database: db,
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('folder-chat-folder-chat-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(api.requestedConversationIds, ['folder-chat-1']);
+      expect(container.read(activeConversationProvider)?.id, 'folder-chat-1');
+      expect(container.read(activeConversationProvider)?.title, 'Folder Chat');
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    },
+  );
 }
 
 Widget _buildHarness({
@@ -578,11 +636,13 @@ class _FakeOptimizedStorageService extends Fake
 }
 
 class _FakeFolderApiService extends Fake implements ApiService {
-  _FakeFolderApiService();
+  _FakeFolderApiService({this.getConversationError});
 
   String? lastUpdatedName;
   Map<String, dynamic>? lastUpdatedMeta;
   Map<String, dynamic>? lastUpdatedData;
+  final Object? getConversationError;
+  final List<String> requestedConversationIds = <String>[];
 
   Map<String, dynamic> _folder = <String, dynamic>{
     'id': 'work',
@@ -606,6 +666,21 @@ class _FakeFolderApiService extends Fake implements ApiService {
   @override
   Future<Map<String, dynamic>> getUserPermissions() async =>
       <String, dynamic>{};
+
+  @override
+  Future<Conversation> getConversation(String id) async {
+    requestedConversationIds.add(id);
+    final error = getConversationError;
+    if (error != null) {
+      throw error;
+    }
+    return Conversation(
+      id: id,
+      title: id,
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
+  }
 
   @override
   Future<Map<String, dynamic>?> updateFolder(

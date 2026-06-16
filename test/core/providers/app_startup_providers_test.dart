@@ -331,6 +331,28 @@ void main() {
     );
   });
 
+  test(
+    'resume active conversation refresh ignores server fetch failures',
+    () async {
+      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      final api = _StubApiService(getConversationError: StateError('offline'));
+      final container = await _createAuthenticatedWarmupContainer(
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('active-chat').copyWith(title: 'Local copy'));
+      container.read(foregroundRefreshProvider);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await _flushMicrotasks(5);
+
+      expect(api.requestedConversationIds, ['active-chat']);
+      expect(container.read(activeConversationProvider)?.title, 'Local copy');
+    },
+  );
+
   test('resume active conversation refresh ignores stale fetches', () async {
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
     final getConversationGate = Completer<void>();
@@ -469,6 +491,7 @@ class _StubApiService extends ApiService {
   _StubApiService({
     Map<String, Conversation>? conversations,
     this.getConversationGate,
+    this.getConversationError,
   }) : _conversations = conversations ?? const <String, Conversation>{},
        super(
          serverConfig: const ServerConfig(
@@ -481,6 +504,7 @@ class _StubApiService extends ApiService {
 
   final Map<String, Conversation> _conversations;
   final Completer<void>? getConversationGate;
+  final Object? getConversationError;
   final List<String> requestedConversationIds = <String>[];
 
   @override
@@ -489,6 +513,10 @@ class _StubApiService extends ApiService {
     final gate = getConversationGate;
     if (gate != null) {
       await gate.future;
+    }
+    final error = getConversationError;
+    if (error != null) {
+      throw error;
     }
     return _conversations[id] ?? _conversation(id);
   }

@@ -20,6 +20,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 
+import '../../utils/debug_logger.dart';
 import '../app_database.dart';
 
 /// Top-level server keys that map to TYPED columns; every OTHER key (including
@@ -157,8 +158,13 @@ Map<String, dynamic> decodeJsonMap(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is Map<String, dynamic>) return decoded;
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
-  } catch (_) {
+  } catch (error) {
     // Corrupt JSON: fall through to empty rather than crash a merge.
+    DebugLogger.warning(
+      'decode-json-failed',
+      scope: 'database/mapper',
+      data: {'length': raw.length, 'errorType': error.runtimeType.toString()},
+    );
   }
   return <String, dynamic>{};
 }

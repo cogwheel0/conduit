@@ -35,9 +35,8 @@ class Backoff {
   int delayMsForAttempt(int attempt) {
     // Clamp the shift to avoid 1<<n overflow; the window saturates at capMs
     // long before attempt reaches 30 anyway.
-    final shift = attempt.clamp(0, 30);
-    final exp = baseMs * (1 << shift);
-    final window = exp.clamp(baseMs, capMs);
+    final shift = attempt.clamp(0, 30).toInt();
+    final window = (baseMs * (1 << shift)).clamp(baseMs, capMs);
     final sample = jitter();
     final boundedJitter = sample.isNaN
         ? 0.0

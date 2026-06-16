@@ -13,12 +13,6 @@ import 'mappers/conversation_assembler.dart';
 /// (mirrors `ApiService._shouldUseWorkerForConversationPayload`).
 const int kLocalConversationWorkerThreshold = 100;
 
-/// DB-first conversation open (CDT-RFC-001 Phase 1, acceptance 1).
-///
-/// Returns the assembled [Conversation] when the local row exists and its
-/// body is synced; `null` otherwise so the caller can fall back to the
-/// network path. Accepts any Riverpod ref/container via dynamic dispatch
-/// (mirrors `refreshConversationsCache`).
 /// Fire-and-forget background pull for one chat. Best-effort freshening:
 /// swallows every failure (engine unavailable, network down) so DB-first
 /// opens never degrade to network-first.
@@ -66,11 +60,28 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
   if (refreshed == null) {
     final api = ref.read(apiServiceProvider);
     if (api == null) return null;
-    refreshed = await api.getConversation(id);
+    try {
+      refreshed = await api.getConversation(id);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'fallback-fetch-failed',
+        scope: 'db/conversation',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': id},
+      );
+      return null;
+    }
   }
   return refreshed;
 }
 
+/// DB-first conversation open (CDT-RFC-001 Phase 1, acceptance 1).
+///
+/// Returns the assembled [Conversation] when the local row exists and its
+/// body is synced; `null` otherwise so the caller can fall back to the
+/// network path. Accepts any Riverpod ref/container via dynamic dispatch
+/// (mirrors `refreshConversationsCache`).
 Future<Conversation?> loadLocalConversation(dynamic ref, String id) async {
   try {
     final db = ref.read(appDatabaseProvider);
@@ -82,10 +93,11 @@ Future<Conversation?> loadLocalConversation(dynamic ref, String id) async {
       final envelope = buildChatResponseEnvelope(chat, messages);
       final workerManager = ref.read(workerManagerProvider);
       return await workerManager.schedule(
-        parseFullConversationModelWorker,
-        envelope,
-        debugLabel: 'db.assembleConversation',
-      ) as Conversation;
+            parseFullConversationModelWorker,
+            envelope,
+            debugLabel: 'db.assembleConversation',
+          )
+          as Conversation;
     }
     return assembleConversation(chat, messages);
   } catch (error, stackTrace) {

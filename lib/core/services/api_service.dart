@@ -5589,6 +5589,7 @@ class ApiService {
     String fileName, {
     String? contentType,
     Map<String, dynamic>? metadata,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
@@ -5618,6 +5619,7 @@ class ApiService {
       final response = await _dio.post(
         '/api/v1/files/',
         data: formData,
+        cancelToken: cancelToken,
         options: Options(
           sendTimeout: uploadTimeout,
           receiveTimeout: uploadTimeout,

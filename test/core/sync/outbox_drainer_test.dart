@@ -517,7 +517,7 @@ void main() {
       check(await dao.pendingForChat('cB')).isEmpty();
     });
 
-    test('the same chat never runs two ops concurrently', () async {
+    test('pool of 2 caps concurrency even with 3 ready chats', () async {
       await seedServerChat('c1');
       await seedServerChat('c2');
       await seedServerChat('c3');

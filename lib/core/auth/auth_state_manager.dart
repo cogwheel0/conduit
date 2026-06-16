@@ -1164,10 +1164,6 @@ class AuthStateManager extends _$AuthStateManager {
         );
         return false;
       }
-      if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth('Silent login ignored stale missing-server result');
-        return false;
-      }
       await storage.deleteSavedCredentials();
       await storage.setActiveServerId(null);
       ref.invalidate(serverConfigsProvider);
@@ -1366,10 +1362,6 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth(
           'Background silent login ignored credential auth failure',
         );
-        return false;
-      }
-      if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth('Silent login ignored stale auth failure');
         return false;
       }
 

@@ -54,11 +54,11 @@ void main() {
   }
 
   Future<void> waitFor(
-    bool Function() condition, {
+    Future<bool> Function() condition, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final deadline = DateTime.now().add(timeout);
-    while (!condition()) {
+    while (!await condition()) {
       if (DateTime.now().isAfter(deadline)) {
         fail('waitFor timed out');
       }
@@ -107,7 +107,7 @@ void main() {
 
       await seedFolderRow('f2', 'Archive');
 
-      await waitFor(() {
+      await waitFor(() async {
         final state = container.read(foldersProvider);
         return (state.asData?.value ?? const <Folder>[]).length == 2;
       });
@@ -139,14 +139,9 @@ void main() {
         ).deepEquals(['Fresh']);
 
         // Row write lands and the next emission agrees (no flicker revert).
-        var landed = false;
-        await waitFor(() {
-          if (!landed) {
-            folderRows().then(
-              (rows) => landed = rows.any((row) => row.name == 'Fresh'),
-            );
-          }
-          return landed;
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Fresh');
         });
         await Future<void>.delayed(const Duration(milliseconds: 50));
         check(
@@ -178,14 +173,9 @@ void main() {
           namesOf(container.read(foldersProvider).requireValue),
         ).deepEquals(['Renamed']);
 
-        var renamed = false;
-        await waitFor(() {
-          if (!renamed) {
-            folderRows().then(
-              (rows) => renamed = rows.any((row) => row.name == 'Renamed'),
-            );
-          }
-          return renamed;
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Renamed');
         });
         await Future<void>.delayed(const Duration(milliseconds: 50));
         check(
@@ -207,14 +197,9 @@ void main() {
               (folder) => folder.copyWith(name: 'Renamed'),
             );
 
-        var renamed = false;
-        await waitFor(() {
-          if (!renamed) {
-            folderRows().then(
-              (rows) => renamed = rows.any((row) => row.name == 'Renamed'),
-            );
-          }
-          return renamed;
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Renamed');
         });
       },
     );
@@ -231,14 +216,9 @@ void main() {
         namesOf(container.read(foldersProvider).requireValue),
       ).deepEquals(['Play']);
 
-      var deleted = false;
-      await waitFor(() {
-        if (!deleted) {
-          folderRows().then(
-            (rows) => deleted = rows.every((row) => row.id != 'f1'),
-          );
-        }
-        return deleted;
+      await waitFor(() async {
+        final rows = await folderRows();
+        return rows.every((row) => row.id != 'f1');
       });
       await Future<void>.delayed(const Duration(milliseconds: 50));
       check(
@@ -258,7 +238,7 @@ void main() {
       await container.read(foldersProvider.notifier).warmIfNeeded();
 
       check(client.foldersRequests).isGreaterOrEqual(1);
-      await waitFor(() {
+      await waitFor(() async {
         final state = container.read(foldersProvider);
         return (state.asData?.value ?? const <Folder>[]).any(
           (folder) => folder.id == 'f-remote',

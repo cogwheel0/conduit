@@ -883,6 +883,55 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     _editFocusNode.unfocus();
   }
 
+  List<String>? _inlineEditAttachmentIds() {
+    final attachmentIds = widget.message.attachmentIds;
+    if (attachmentIds is List && attachmentIds.isNotEmpty) {
+      final ids = attachmentIds
+          .map((id) => id?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false);
+      if (ids.isNotEmpty) {
+        return ids;
+      }
+    }
+
+    final files = widget.message.files;
+    if (files is! List || files.isEmpty) {
+      return null;
+    }
+
+    final ids = <String>[];
+    final seen = <String>{};
+    void addId(String? value) {
+      final id = value?.trim();
+      if (id == null || id.isEmpty || !seen.add(id)) {
+        return;
+      }
+      ids.add(id);
+    }
+
+    for (final file in files) {
+      if (file is! Map) {
+        continue;
+      }
+      final explicitId = file['id']?.toString();
+      if (explicitId != null && explicitId.trim().isNotEmpty) {
+        addId(explicitId);
+        continue;
+      }
+
+      final fileUrl = getFileUrl(file);
+      if (fileUrl == null) {
+        continue;
+      }
+      final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
+      addId(fileIdMatch?.group(1) ?? fileUrl);
+    }
+
+    return ids.isEmpty ? null : ids;
+  }
+
   Future<void> _saveInlineEdit() async {
     final newText = _editController.text.trim();
     final oldText = (widget.message.content ?? '').toString();
@@ -909,11 +958,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
         // Durable send of the edited text as a new turn (updateChat +
         // requestCompletion under the chat lock), then drive streaming.
-        final attachmentIds = widget.message.attachmentIds;
-        final List<String>? attachments =
-            attachmentIds != null && attachmentIds.isNotEmpty
-            ? List<String>.of(attachmentIds)
-            : null;
+        final attachments = _inlineEditAttachmentIds();
         final toolIds = ref.read(selectedToolIdsProvider);
         await durableSend(
           ref,

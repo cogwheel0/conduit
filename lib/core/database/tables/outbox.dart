@@ -6,6 +6,13 @@ import 'package:drift/drift.dart';
 /// Phase 1.
 @DataClassName('OutboxOp')
 class OutboxOps extends Table {
+  @override
+  List<String> get customConstraints => const [
+    "CHECK (kind IN ('createChat', 'updateChat', 'deleteChat', 'requestCompletion', 'folderUpsert', 'folderDelete', 'noteCreate', 'noteUpdate', 'noteDelete', 'notePin'))",
+    "CHECK (status IN ('pending', 'inFlight', 'failed'))",
+    'CHECK (attempts >= 0)',
+  ];
+
   IntColumn get seq => integer().autoIncrement()();
 
   /// createChat|updateChat|deleteChat|requestCompletion|folderUpsert|folderDelete|noteCreate|noteUpdate|noteDelete|notePin

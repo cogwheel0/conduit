@@ -43,7 +43,7 @@ class SyncTriggers extends _$SyncTriggers {
     // are all ready.
     ref.listen(isAuthenticatedProvider2, (previous, next) {
       if (previous != true && next) {
-        _request('auth');
+        _requestIfReady('auth');
       }
       _maybeFireStart();
     });
@@ -123,6 +123,19 @@ class SyncTriggers extends _$SyncTriggers {
       if (!ref.mounted) return;
       _maybeFireStart();
     });
+  }
+
+  void _requestIfReady(String reason) {
+    if (ref.read(appDatabaseProvider) == null ||
+        ref.read(syncApiClientProvider) == null) {
+      DebugLogger.log(
+        'trigger-skipped-not-ready',
+        scope: 'sync/triggers',
+        data: {'reason': reason},
+      );
+      return;
+    }
+    _request(reason);
   }
 
   void _restartPeriodicTimer() {

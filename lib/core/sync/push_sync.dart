@@ -356,6 +356,13 @@ class PushSync {
       final meta = _asMap(payload['meta']);
 
       if (createIfAbsent && folderId.startsWith('local:')) {
+        final resolvedName = name;
+        if (resolvedName == null || resolvedName.trim().isEmpty) {
+          throw SyncTerminalException(
+            statusCode: 400,
+            message: 'malformed folderUpsert op: missing folder name',
+          );
+        }
         if (parentId != null && parentId.startsWith('local:')) {
           DebugLogger.log(
             'folder-create-defer-local-parent',
@@ -367,7 +374,7 @@ class PushSync {
           );
         }
         final resp = await _client.createFolder(
-          name: name ?? '',
+          name: resolvedName,
           parentId: parentId,
           data: data,
           meta: meta,

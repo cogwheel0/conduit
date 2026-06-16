@@ -27,6 +27,7 @@ import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../core/services/media_upload_controller.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
@@ -1088,15 +1089,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         container.read(activeConversationProvider.notifier).set(local);
         schedulePullChatNow(container, conversationId);
       } else {
-        final api = container.read(apiServiceProvider);
-        if (api != null) {
-          final fullConversation = await api.getConversation(conversationId);
-          container
-              .read(activeConversationProvider.notifier)
-              .set(fullConversation);
-          // Materialize the local row so the next open is DB-first.
-          schedulePullChatNow(container, conversationId);
-        } else {
+        Future<void> useCachedConversation() async {
           final conversations = await container.read(
             conversationsProvider.future,
           );
@@ -1112,6 +1105,29 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                 .read(activeConversationProvider.notifier)
                 .set(conversation);
           }
+        }
+
+        final api = container.read(apiServiceProvider);
+        if (api != null) {
+          try {
+            final fullConversation = await api.getConversation(conversationId);
+            container
+                .read(activeConversationProvider.notifier)
+                .set(fullConversation);
+            // Materialize the local row so the next open is DB-first.
+            schedulePullChatNow(container, conversationId);
+          } catch (error, stackTrace) {
+            DebugLogger.error(
+              'folder-conversation-fetch-failed',
+              scope: 'navigation/folder',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'conversationId': conversationId},
+            );
+            await useCachedConversation();
+          }
+        } else {
+          await useCachedConversation();
         }
       }
 

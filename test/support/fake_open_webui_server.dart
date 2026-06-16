@@ -343,8 +343,9 @@ class FakeOpenWebUiServer {
     required Map<String, dynamic> merged,
   }) {
     final existingHistory = existing['history'];
-    final existingMessages =
-        existingHistory is Map ? existingHistory['messages'] : null;
+    final existingMessages = existingHistory is Map
+        ? existingHistory['messages']
+        : null;
 
     final mergedHistory = merged['history'];
     if (mergedHistory is! Map) return;
@@ -359,10 +360,12 @@ class FakeOpenWebUiServer {
       final output = message['output'];
       if (output is! List || output.isEmpty) continue;
 
-      final existingMessage =
-          existingMessages is Map ? existingMessages[entry.key] : null;
-      final existingOutput =
-          existingMessage is Map ? existingMessage['output'] : null;
+      final existingMessage = existingMessages is Map
+          ? existingMessages[entry.key]
+          : null;
+      final existingOutput = existingMessage is Map
+          ? existingMessage['output']
+          : null;
       if (!_deepEq.equals(output, existingOutput)) {
         message['content'] = serializeOutput(output);
       }
@@ -512,12 +515,8 @@ class FakeOpenWebUiServer {
     _notes[id] = _NoteRecord(
       id: id,
       title: title,
-      data: data == null
-          ? <String, dynamic>{}
-          : _deepCopy(data),
-      meta: meta == null
-          ? <String, dynamic>{}
-          : _deepCopy(meta),
+      data: data == null ? <String, dynamic>{} : _deepCopy(data),
+      meta: meta == null ? <String, dynamic>{} : _deepCopy(meta),
       createdAt: createdAt,
       updatedAt: updatedAt,
       pinned: pinned,
@@ -776,8 +775,9 @@ class FakeOpenWebUiServer {
           );
 
           // Python `{duration or 0}`.
-          final Object shownDuration =
-              (duration == null || duration == 0) ? 0 : duration;
+          final Object shownDuration = (duration == null || duration == 0)
+              ? 0
+              : duration;
 
           if (status == 'completed' || duration != null || !isLastItem) {
             parts.add(
@@ -828,25 +828,24 @@ class FakeOpenWebUiServer {
   /// `form_data.chat['title'] if 'title' in form_data.chat else 'New Chat'`
   /// — a key-presence check, mirroring `insert_new_chat`/`update_chat_by_id`.
   static String _titleFromBlob(Map<String, dynamic> blob) =>
-      blob.containsKey('title') ? blob['title'] as String : 'New Chat';
+      blob['title'] is String ? blob['title'] as String : 'New Chat';
 
   /// `ChatResponse` shape from the vendored `models/chats.py`.
-  Map<String, dynamic> _toChatResponse(_ChatRecord record) =>
-      <String, dynamic>{
-        'id': record.id,
-        'user_id': userId,
-        'title': record.title,
-        'chat': _deepCopy(record.chat),
-        'updated_at': record.updatedAt,
-        'created_at': record.createdAt,
-        'share_id': null,
-        'archived': record.archived,
-        'pinned': record.pinned,
-        'meta': <String, dynamic>{},
-        'folder_id': record.folderId,
-        'tasks': null,
-        'summary': null,
-      };
+  Map<String, dynamic> _toChatResponse(_ChatRecord record) => <String, dynamic>{
+    'id': record.id,
+    'user_id': userId,
+    'title': record.title,
+    'chat': _deepCopy(record.chat),
+    'updated_at': record.updatedAt,
+    'created_at': record.createdAt,
+    'share_id': null,
+    'archived': record.archived,
+    'pinned': record.pinned,
+    'meta': <String, dynamic>{},
+    'folder_id': record.folderId,
+    'tasks': null,
+    'summary': null,
+  };
 
   /// Deep copy via JSON round-trip so callers can never alias server state.
   static Map<String, dynamic> _deepCopy(Map<String, dynamic> value) =>

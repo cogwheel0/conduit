@@ -129,6 +129,8 @@
   "chatQueuedFailedTitle": "Senden fehlgeschlagen",
   "chatQueuedFailedMessage": "Versuche die eingereihte Antwort erneut oder brich sie ab.",
   "chatQueuedSnackBar": "Nachricht eingereiht. Sie wird gesendet, sobald der Server erreichbar ist.",
+  "noteConflictCopySuffix": " (Konfliktkopie)",
+  "noteConflictCopyBadge": "Konfliktkopie",
   "ok": "OK",
   "inputField": "Eingabefeld",
   "checkConnection": "Verbindung prüfen",

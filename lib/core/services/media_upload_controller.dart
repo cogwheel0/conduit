@@ -97,7 +97,10 @@ class MediaUploadController {
     if (api == null) {
       throw Exception('API not available');
     }
-    await uploader.initialize(onUpload: (p, n) => api.uploadFile(p, n));
+    await uploader.initialize(
+      onUpload: (path, name, {cancelToken}) =>
+          api.uploadFile(path, name, cancelToken: cancelToken),
+    );
 
     // For images: convert unsupported formats to JPEG for compatibility.
     String uploadPath = filePath;
@@ -123,7 +126,15 @@ class MediaUploadController {
     if (isImage) {
       try {
         imageBytes = await File(uploadPath).readAsBytes();
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'image-upload-cache-read-failed',
+          scope: 'media/upload',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'fileName': uploadFileName},
+        );
+      }
     }
 
     final id = await uploader.enqueue(
@@ -203,7 +214,15 @@ class MediaUploadController {
               .read(attachedFilesProvider.notifier)
               .updateFileState(filePath, newState);
         }
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'file-upload-state-update-failed',
+          scope: 'media/upload',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+      }
 
       switch (entry.status) {
         case QueuedAttachmentStatus.completed:
@@ -224,8 +243,10 @@ class MediaUploadController {
     // awaiting caller unblocks (the legacy cancel flipped task state and let the
     // queue settle; here we resolve the future).
     inflight.onCancel = () async {
+      await uploader.cancel(id);
       await sub.cancel();
       cleanupTemp();
+      removeInflight();
       if (!completer.isCompleted) completer.complete();
     };
 

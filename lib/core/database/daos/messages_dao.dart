@@ -26,6 +26,10 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return (_forChat(chatId)).get();
   }
 
+  Future<MessageRow?> getMessage(String chatId, String messageId) {
+    return _messageById(chatId, messageId);
+  }
+
   /// Marks an assistant placeholder as submitted/completed without changing its
   /// content. Headless completions use this after the server accepts the
   /// request so replay can distinguish "already sent, awaiting pull" from a

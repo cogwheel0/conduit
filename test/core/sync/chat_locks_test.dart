@@ -106,7 +106,7 @@ void main() {
       check(locks.isIdle).isTrue();
     });
 
-    test('queued waiter reroutes after key remap before running', () async {
+    test('queued waiter drains before target-key work after remap', () async {
       final events = <String>[];
       final localStarted = Completer<void>();
       final releaseLocal = Completer<void>();
@@ -132,22 +132,18 @@ void main() {
         await releaseServer.future;
         events.add('server-end');
       });
-      await serverStarted.future;
-
       releaseLocal.complete();
       await local;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      check(events).deepEquals(['local-start', 'server-start', 'local-end']);
-
+      await queuedLocal;
+      await serverStarted.future;
       releaseServer.complete();
       await server;
-      await queuedLocal;
       check(events).deepEquals([
         'local-start',
-        'server-start',
         'local-end',
-        'server-end',
         'queued-local-start',
+        'server-start',
+        'server-end',
       ]);
     });
 

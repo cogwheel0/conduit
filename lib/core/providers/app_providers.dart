@@ -493,7 +493,8 @@ final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   final queue = AttachmentUploadQueue();
   // Initialize once; subsequent calls are no-ops due to singleton
   queue.initialize(
-    onUpload: (filePath, fileName) => api.uploadFile(filePath, fileName),
+    onUpload: (filePath, fileName, {cancelToken}) =>
+        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
   );
 
   return queue;
@@ -1136,15 +1137,19 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
 });
 
 /// Requests a debounced pull cycle from the sync engine and invalidates the
-/// folder summary caches (CDT-RFC-001 Phase 1: every refresh path converges
-/// on the engine; Drift streams deliver the resulting UI updates).
+/// folder summary caches after the pull has had a chance to write rows
+/// (CDT-RFC-001 Phase 1: every refresh path converges on the engine; Drift
+/// streams deliver the resulting UI updates).
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
-  ref.read(_folderConversationRefreshTickProvider.notifier).bump();
+  final _FolderConversationRefreshTick folderConversationRefresh = ref.read(
+    _folderConversationRefreshTickProvider.notifier,
+  );
   unawaited(
     Future<void>(() async {
       await ref
           .read(syncEngineProvider.notifier)
           .requestPull(reason: 'cache-refresh');
+      folderConversationRefresh.bumpIfMounted();
     }).catchError((Object error, StackTrace stackTrace) {
       DebugLogger.error(
         'refresh-cache-failed',
@@ -1292,7 +1297,11 @@ class Conversations extends _$Conversations {
     bool includeFolders = false,
     bool forceFresh = false,
   }) async {
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
+    );
     await ref.read(syncEngineProvider.notifier).requestPull(reason: 'refresh');
+    folderConversationRefresh.bumpIfMounted();
   }
 
   /// All chats are local rows; nothing to page in.
@@ -1314,19 +1323,22 @@ class Conversations extends _$Conversations {
     final db = ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(id)) return;
     final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
+    );
     unawaited(
-      locks.runExclusive(id, () => db.chatsDao.hardDelete(id)).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        DebugLogger.error(
-          'row-delete-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': id},
-        );
-      }),
+      locks
+          .runExclusive(id, () => db.chatsDao.hardDelete(id))
+          .then((_) => folderConversationRefresh.bumpIfMounted())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'row-delete-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': id},
+            );
+          }),
     );
   }
 
@@ -1440,6 +1452,9 @@ class Conversations extends _$Conversations {
     // through the per-chat mutex so a stale optimistic stub can never be
     // ordered after (and overwrite) a concurrent locked pull merge.
     final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
+    );
     unawaited(
       locks
           .runExclusive(conversation.id, () {
@@ -1456,6 +1471,7 @@ class Conversations extends _$Conversations {
                   : _epochSecondsOf(lastReadAt),
             );
           })
+          .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
               'envelope-stub-failed',
@@ -1472,6 +1488,9 @@ class Conversations extends _$Conversations {
     final db = ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(conversation.id)) return;
     final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
+    );
     unawaited(
       locks
           .runExclusive(conversation.id, () {
@@ -1484,6 +1503,7 @@ class Conversations extends _$Conversations {
               updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
             );
           })
+          .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
               'envelope-update-failed',
@@ -1492,7 +1512,6 @@ class Conversations extends _$Conversations {
               stackTrace: stackTrace,
               data: {'id': conversation.id},
             );
-            return 0;
           }),
     );
   }
@@ -1534,6 +1553,11 @@ class _FolderConversationRefreshTick extends Notifier<int> {
   int build() => 0;
 
   void bump() => state++;
+
+  void bumpIfMounted() {
+    if (!ref.mounted) return;
+    bump();
+  }
 }
 
 /// Loads folder conversation summaries from the local database
@@ -1987,6 +2011,21 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   if (trimmedQuery.isEmpty) {
     // Return empty list for empty query instead of all conversations
     return [];
+  }
+
+  if (ref.watch(reviewerModeProvider)) {
+    final conversations =
+        ref.watch(conversationsProvider).asData?.value ??
+        const <Conversation>[];
+    final lowerQuery = trimmedQuery.toLowerCase();
+    return conversations
+        .where((conversation) {
+          return conversation.title.toLowerCase().contains(lowerQuery) ||
+              conversation.messages.any(
+                (message) => message.content.toLowerCase().contains(lowerQuery),
+              );
+        })
+        .toList(growable: false);
   }
 
   final api = ref.watch(apiServiceProvider);
@@ -3069,7 +3108,17 @@ class Folders extends _$Folders {
     unawaited(
       ref
           .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'folders-reconcile'),
+          .requestPull(reason: 'folders-reconcile')
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'reconcile-pull-failed',
+              scope: 'folders',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'action': action},
+            );
+            return null;
+          }),
     );
   }
 

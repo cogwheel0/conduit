@@ -25,13 +25,36 @@ part 'chat_locks.g.dart';
 class ChatLocks {
   final Map<String, Future<void>> _tails = <String, Future<void>>{};
   final Map<String, String> _aliases = <String, String>{};
+  final Map<String, String> _bridgedSources = <String, String>{};
 
   /// Redirects future waiters for [fromId] to [toId]. If a waiter was already
   /// queued behind [fromId], it re-checks the alias after reaching the head of
   /// that queue and reroutes before running [action].
   void remapKeyInPlace({required String fromId, required String toId}) {
-    if (fromId == toId) return;
-    _aliases[fromId] = _canonicalKey(toId);
+    final sourceKey = _canonicalKey(fromId);
+    final targetKey = _canonicalKey(toId);
+    if (sourceKey == targetKey) return;
+
+    final sourceTail = _tails[sourceKey];
+    final targetTail = _tails[targetKey];
+    _aliases[sourceKey] = targetKey;
+
+    if (sourceTail == null) return;
+    _bridgedSources[sourceKey] = targetKey;
+    final bridge = targetTail == null
+        ? sourceTail
+        : Future.wait<void>([targetTail, sourceTail]).then((_) {});
+    _tails[targetKey] = bridge;
+    unawaited(
+      bridge.whenComplete(() {
+        if (identical(_tails[targetKey], bridge)) {
+          _tails.remove(targetKey);
+        }
+        if (_bridgedSources[sourceKey] == targetKey) {
+          _bridgedSources.remove(sourceKey);
+        }
+      }),
+    );
   }
 
   /// Runs [action] while holding the exclusive lock for [chatId].
@@ -70,7 +93,7 @@ class ChatLocks {
         await previous;
       }
       final latestLockId = _canonicalKey(requestedId);
-      if (latestLockId != lockId) {
+      if (latestLockId != lockId && _bridgedSources[lockId] != latestLockId) {
         finish();
         return _runExclusive(requestedId, latestLockId, action);
       }

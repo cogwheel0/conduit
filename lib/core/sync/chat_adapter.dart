@@ -129,7 +129,7 @@ class ChatAdapter implements SyncEntityAdapter {
         statusCode: 400,
         message:
             'malformed ${kind.name} op: missing chatId '
-            '(seq=${op.seq}, payload=${op.payload})',
+            '(seq=${op.seq}, payloadLength=${op.payload.length})',
       );
     }
     return chatId;

@@ -15,6 +15,7 @@ import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/note_adapter.dart';
 import 'package:conduit/core/sync/note_conflict.dart';
 import 'package:conduit/core/sync/note_sync.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_entity_adapter.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -809,6 +810,36 @@ void main() {
     // desired != live → exactly one toggle.
     await push.pushNotePin('p1', desired: true);
     check(client.togglePinNoteCalls).equals(1);
+  });
+
+  test('NoteAdapter rejects malformed notePin payloads', () async {
+    final adapter = NoteAdapter(
+      pull: NotePullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        remapper: syncRemapper,
+      ),
+      push: NotePushSync(
+        client: client,
+        db: db,
+        noteLocks: locks,
+        remapper: syncRemapper,
+      ),
+    );
+    await db
+        .into(db.outboxOps)
+        .insert(
+          OutboxOpsCompanion.insert(
+            kind: OutboxKind.notePin.name,
+            chatId: const Value('p-bad'),
+            payload: const Value('{}'),
+          ),
+        );
+    final op = (await db.outboxDao.pendingForChat('p-bad')).single;
+
+    await check(adapter.pushOp(op)).throws<SyncTerminalException>();
+    check(client.togglePinNoteCalls).equals(0);
   });
 
   test(

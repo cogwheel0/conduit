@@ -87,14 +87,10 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     //    durable marker on the placeholder row. Non-empty content alone is not
     //    enough: pause checkpoints also persist partial assistant text while
     //    the requestCompletion op is still pending/inFlight.
-    final rows = await db.messagesDao.getForChat(chatId);
-    MessageRow? placeholder;
-    for (final row in rows) {
-      if (row.id == assistantMessageId) {
-        placeholder = row;
-        break;
-      }
-    }
+    final placeholder = await db.messagesDao.getMessage(
+      chatId,
+      assistantMessageId,
+    );
     if (placeholder == null) {
       DebugLogger.log(
         'completion-placeholder-absent',
@@ -154,6 +150,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
 
     // Headless drive — no active-conversation switch, no chatMessagesProvider
     // mutation. Builds the request from this chat's DB rows.
+    final rows = await db.messagesDao.getForChat(chatId);
     final conversation = assembleConversation(chatRow, rows);
     await runHeadlessCompletion(
       _ref,

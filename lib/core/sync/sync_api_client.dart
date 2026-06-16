@@ -355,11 +355,14 @@ class ApiSyncApiClient implements SyncApiClient {
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   }) {
-    return api.createFolder(
-      name: name,
-      parentId: parentId,
-      data: data,
-      meta: meta,
+    return _withTerminalAuth(
+      () => api.createFolder(
+        name: name,
+        parentId: parentId,
+        data: data,
+        meta: meta,
+      ),
+      'createFolder',
     );
   }
 
@@ -405,7 +408,10 @@ class ApiSyncApiClient implements SyncApiClient {
 
   @override
   Future<bool> deleteFolder(String id, {bool deleteContents = false}) {
-    return api.deleteFolderRaw(id, deleteContents: deleteContents);
+    return _withTerminalAuth(
+      () => api.deleteFolderRaw(id, deleteContents: deleteContents),
+      'deleteFolder $id',
+    );
   }
 
   // ---- Phase 5 NOTES ----
@@ -417,7 +423,7 @@ class ApiSyncApiClient implements SyncApiClient {
 
   @override
   Future<Map<String, dynamic>?> getNoteRaw(String id) {
-    return api.getNoteRaw(id);
+    return _withTerminalAuth(() => api.getNoteRaw(id), 'getNoteRaw $id');
   }
 
   @override
@@ -426,7 +432,10 @@ class ApiSyncApiClient implements SyncApiClient {
     required Map<String, dynamic> data,
     Map<String, dynamic>? meta,
   }) {
-    return api.createNoteRaw(title: title, data: data, meta: meta);
+    return _withTerminalAuth(
+      () => api.createNoteRaw(title: title, data: data, meta: meta),
+      'createNote',
+    );
   }
 
   @override
@@ -434,17 +443,23 @@ class ApiSyncApiClient implements SyncApiClient {
     String id,
     Map<String, dynamic> patch,
   ) {
-    return api.updateNoteRaw(id, patch);
+    return _withTerminalAuth(
+      () => api.updateNoteRaw(id, patch),
+      'updateNote $id',
+    );
   }
 
   @override
   Future<bool> deleteNote(String id) {
-    return api.deleteNoteRaw(id);
+    return _withTerminalAuth(() => api.deleteNoteRaw(id), 'deleteNote $id');
   }
 
   @override
   Future<Map<String, dynamic>?> togglePinNote(String id) {
-    return api.togglePinNoteRaw(id);
+    return _withTerminalAuth(
+      () => api.togglePinNoteRaw(id),
+      'togglePinNote $id',
+    );
   }
 }
 

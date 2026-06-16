@@ -56,7 +56,15 @@ void remapRouteSync(Ref ref) {
         scope: 'notes/remap',
         data: {'from': event.fromId, 'to': event.toId},
       );
-      NavigationService.router.go(nextRoute);
+      try {
+        NavigationService.router.go(nextRoute);
+      } catch (error) {
+        DebugLogger.warning(
+          'remap-navigation-failed',
+          scope: 'notes/remap',
+          data: {'route': nextRoute, 'error': error.toString()},
+        );
+      }
     }
   });
   ref.onDispose(sub.cancel);

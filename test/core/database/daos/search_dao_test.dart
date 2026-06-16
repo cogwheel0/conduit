@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/search_dao.dart';
@@ -66,7 +68,11 @@ Future<void> _insertNote(
         NotesCompanion.insert(
           id: id,
           title: title,
-          data: Value('{"content":{"md":"$body"}}'),
+          data: Value(
+            jsonEncode({
+              'content': {'md': body},
+            }),
+          ),
           createdAt: createdAt,
           updatedAt: updatedAt,
         ),
@@ -74,10 +80,21 @@ Future<void> _insertNote(
 }
 
 void main() {
-  // Several tests intentionally open additional in-memory databases (separate
-  // executors) to exercise the pre-FTS backfill flow; the multi-database
-  // warning is expected and benign here.
-  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  late bool previousDontWarnAboutMultipleDatabases;
+
+  setUpAll(() {
+    // Several tests intentionally open additional in-memory databases (separate
+    // executors) to exercise the pre-FTS backfill flow; the multi-database
+    // warning is expected and benign here.
+    previousDontWarnAboutMultipleDatabases =
+        driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
+  tearDownAll(() {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases =
+        previousDontWarnAboutMultipleDatabases;
+  });
 
   late AppDatabase db;
 

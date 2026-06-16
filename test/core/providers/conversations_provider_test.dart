@@ -8,8 +8,6 @@
 /// archived/filtered split, and folder summaries.
 library;
 
-import 'dart:async';
-
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
@@ -74,6 +72,22 @@ void main() {
     }
   }
 
+  Future<T> waitForAsync<T>(
+    Future<T> Function() read, {
+    required bool Function(T value) condition,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (true) {
+      final value = await read();
+      if (condition(value)) return value;
+      if (DateTime.now().isAfter(deadline)) {
+        fail('waitForAsync timed out');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
   Future<void> seedServerChat(
     String id, {
     required int updatedAt,
@@ -116,32 +130,34 @@ void main() {
       conversations.map((conversation) => conversation.id).toList();
 
   group('Conversations', () {
-    test('unauthenticated build returns empty without touching the database',
-        () async {
-      final container = makeContainer(authenticated: false);
+    test(
+      'unauthenticated build returns empty without touching the database',
+      () async {
+        final container = makeContainer(authenticated: false);
 
-      final conversations =
-          await container.read(conversationsProvider.future);
+        final conversations = await container.read(
+          conversationsProvider.future,
+        );
 
-      check(conversations).isEmpty();
-    });
+        check(conversations).isEmpty();
+      },
+    );
 
     test('renders chat rows newest-first with no message bodies', () async {
       await seedServerChat('chat-old', updatedAt: 100);
       await seedServerChat('chat-new', updatedAt: 200);
       final container = makeContainer();
 
-      final conversations =
-          await container.read(conversationsProvider.future);
+      final conversations = await container.read(conversationsProvider.future);
 
       check(idsOf(conversations)).deepEquals(['chat-new', 'chat-old']);
       // Narrow list projection: summaries never carry message bodies.
       for (final conversation in conversations) {
         check(conversation.messages).isEmpty();
       }
-      check(conversations.first.updatedAt).equals(
-        DateTime.fromMillisecondsSinceEpoch(200 * 1000),
-      );
+      check(
+        conversations.first.updatedAt,
+      ).equals(DateTime.fromMillisecondsSinceEpoch(200 * 1000));
     });
 
     test('later database writes stream into provider state', () async {
@@ -155,8 +171,9 @@ void main() {
         final state = container.read(conversationsProvider);
         return idsOf(state.asData?.value ?? const []).contains('chat-2');
       });
-      check(idsOf(container.read(conversationsProvider).requireValue))
-          .deepEquals(['chat-2', 'chat-1']);
+      check(
+        idsOf(container.read(conversationsProvider).requireValue),
+      ).deepEquals(['chat-2', 'chat-1']);
     });
 
     test('archived/filtered split with pinned-first ordering', () async {
@@ -174,8 +191,7 @@ void main() {
       check(idsOf(archived)).deepEquals(['chat-archived']);
     });
 
-    test(
-        'markConversationRead persists a read mark that a stale server value '
+    test('markConversationRead persists a read mark that a stale server value '
         'never lowers', () async {
       await seedServerChat('chat-1', updatedAt: 100);
       final container = makeContainer();
@@ -188,16 +204,15 @@ void main() {
 
       // In-memory state updates synchronously.
       check(
-        container
-            .read(conversationsProvider)
-            .requireValue
-            .single
-            .lastReadAt,
+        container.read(conversationsProvider).requireValue.single.lastReadAt,
       ).equals(readAt);
 
       // The row write lands (max() rule in the DAO).
       await waitFor(() {
-        return container.read(conversationsProvider).requireValue.single
+        return container
+                .read(conversationsProvider)
+                .requireValue
+                .single
                 .lastReadAt ==
             readAt;
       });
@@ -205,17 +220,15 @@ void main() {
       // A pull merge carrying an older server read mark cannot lower it.
       await seedServerChat('chat-1', updatedAt: 600, lastReadAt: 50);
       await waitFor(() {
-        final current =
-            container.read(conversationsProvider).requireValue.single;
+        final current = container
+            .read(conversationsProvider)
+            .requireValue
+            .single;
         return current.updatedAt ==
             DateTime.fromMillisecondsSinceEpoch(600 * 1000);
       });
       check(
-        container
-            .read(conversationsProvider)
-            .requireValue
-            .single
-            .lastReadAt,
+        container.read(conversationsProvider).requireValue.single.lastReadAt,
       ).equals(readAt);
     });
 
@@ -223,20 +236,16 @@ void main() {
       final container = makeContainer();
       final newer = DateTime.fromMillisecondsSinceEpoch(900 * 1000);
       final older = DateTime.fromMillisecondsSinceEpoch(400 * 1000);
-      container.read(conversationsProvider.notifier).upsertConversation(
-            _conversation('chat-1', lastReadAt: newer),
-          );
+      container
+          .read(conversationsProvider.notifier)
+          .upsertConversation(_conversation('chat-1', lastReadAt: newer));
 
       container
           .read(conversationsProvider.notifier)
           .markConversationRead('chat-1', older);
 
       check(
-        container
-            .read(conversationsProvider)
-            .requireValue
-            .single
-            .lastReadAt,
+        container.read(conversationsProvider).requireValue.single.lastReadAt,
       ).equals(newer);
     });
 
@@ -251,50 +260,51 @@ void main() {
       check(socket.emits).isEmpty();
     });
 
-    test('free markConversationRead emits the events:chat socket frame',
-        () async {
-      await seedServerChat('chat-1', updatedAt: 100);
-      final socket = _RecordingSocketService();
-      final container = makeContainer(
-        extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
-      );
-      await container.read(conversationsProvider.future);
+    test(
+      'free markConversationRead emits the events:chat socket frame',
+      () async {
+        await seedServerChat('chat-1', updatedAt: 100);
+        final socket = _RecordingSocketService();
+        final container = makeContainer(
+          extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
+        );
+        await container.read(conversationsProvider.future);
 
-      markConversationRead(container, 'chat-1');
+        markConversationRead(container, 'chat-1');
 
-      check(socket.emits.length).equals(1);
-      check(socket.emits.single.$1).equals('events:chat');
-      check(
-        (socket.emits.single.$2 as Map<String, dynamic>)['chat_id'],
-      ).equals('chat-1');
-    });
+        check(socket.emits.length).equals(1);
+        check(socket.emits.single.$1).equals('events:chat');
+        check(
+          (socket.emits.single.$2 as Map<String, dynamic>)['chat_id'],
+        ).equals('chat-1');
+      },
+    );
 
     test('upsertConversation writes an envelope stub the next emission agrees '
         'with', () async {
       final container = makeContainer();
       await container.read(conversationsProvider.future);
 
-      container.read(conversationsProvider.notifier).upsertConversation(
-            _conversation('chat-new', updatedAtSeconds: 300),
-          );
+      container
+          .read(conversationsProvider.notifier)
+          .upsertConversation(_conversation('chat-new', updatedAtSeconds: 300));
 
       // Synchronous in-memory upsert.
-      check(idsOf(container.read(conversationsProvider).requireValue))
-          .deepEquals(['chat-new']);
+      check(
+        idsOf(container.read(conversationsProvider).requireValue),
+      ).deepEquals(['chat-new']);
 
       // The stub row materializes and the stream emission keeps the chat
       // (no flicker revert — risk guard 6).
-      ChatRow? row;
-      await waitFor(() {
-        unawaited(
-          db.chatsDao.getChat('chat-new').then((value) => row = value),
-        );
-        return row != null;
-      });
+      final row = await waitForAsync<ChatRow?>(
+        () => db.chatsDao.getChat('chat-new'),
+        condition: (row) => row != null,
+      );
       check(row!.bodySynced).isFalse();
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(idsOf(container.read(conversationsProvider).requireValue))
-          .deepEquals(['chat-new']);
+      check(
+        idsOf(container.read(conversationsProvider).requireValue),
+      ).deepEquals(['chat-new']);
     });
 
     test('updateConversation persists the rename across emissions', () async {
@@ -302,7 +312,9 @@ void main() {
       final container = makeContainer();
       await container.read(conversationsProvider.future);
 
-      container.read(conversationsProvider.notifier).updateConversation(
+      container
+          .read(conversationsProvider.notifier)
+          .updateConversation(
             'chat-1',
             (conversation) => conversation.copyWith(
               title: 'Renamed',
@@ -314,11 +326,10 @@ void main() {
         container.read(conversationsProvider).requireValue.single.title,
       ).equals('Renamed');
 
-      ChatRow? row;
-      await waitFor(() {
-        unawaited(db.chatsDao.getChat('chat-1').then((value) => row = value));
-        return row?.title == 'Renamed';
-      });
+      await waitForAsync<ChatRow?>(
+        () => db.chatsDao.getChat('chat-1'),
+        condition: (row) => row?.title == 'Renamed',
+      );
       // The next emission agrees with the optimistic state.
       await Future<void>.delayed(const Duration(milliseconds: 50));
       check(
@@ -326,23 +337,25 @@ void main() {
       ).equals('Renamed');
     });
 
-    test('updateConversationFromRemote keeps the frozen signature working',
-        () async {
-      await seedServerChat('chat-1', updatedAt: 100);
-      final container = makeContainer();
-      await container.read(conversationsProvider.future);
+    test(
+      'updateConversationFromRemote keeps the frozen signature working',
+      () async {
+        await seedServerChat('chat-1', updatedAt: 100);
+        final container = makeContainer();
+        await container.read(conversationsProvider.future);
 
-      container
-          .read(conversationsProvider.notifier)
-          .updateConversationFromRemote(
-            'chat-1',
-            (conversation) => conversation.copyWith(title: 'Remote rename'),
-          );
+        container
+            .read(conversationsProvider.notifier)
+            .updateConversationFromRemote(
+              'chat-1',
+              (conversation) => conversation.copyWith(title: 'Remote rename'),
+            );
 
-      check(
-        container.read(conversationsProvider).requireValue.single.title,
-      ).equals('Remote rename');
-    });
+        check(
+          container.read(conversationsProvider).requireValue.single.title,
+        ).equals('Remote rename');
+      },
+    );
 
     test('removeConversation hard-deletes the local row', () async {
       await seedServerChat('chat-1', updatedAt: 100);
@@ -354,36 +367,38 @@ void main() {
           .read(conversationsProvider.notifier)
           .removeConversation('chat-1');
 
-      check(idsOf(container.read(conversationsProvider).requireValue))
-          .deepEquals(['chat-2']);
+      check(
+        idsOf(container.read(conversationsProvider).requireValue),
+      ).deepEquals(['chat-2']);
 
-      var deleted = false;
-      await waitFor(() {
-        unawaited(
-          db.chatsDao.getChat('chat-1').then((row) => deleted = row == null),
-        );
-        return deleted;
-      });
+      await waitForAsync<ChatRow?>(
+        () => db.chatsDao.getChat('chat-1'),
+        condition: (row) => row == null,
+      );
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      check(idsOf(container.read(conversationsProvider).requireValue))
-          .deepEquals(['chat-2']);
+      check(
+        idsOf(container.read(conversationsProvider).requireValue),
+      ).deepEquals(['chat-2']);
     });
 
-    test('trustConversation is a no-op and loadMore reports no pagination',
-        () async {
-      await seedServerChat('chat-1', updatedAt: 100);
-      final container = makeContainer();
-      final before = await container.read(conversationsProvider.future);
+    test(
+      'trustConversation is a no-op and loadMore reports no pagination',
+      () async {
+        await seedServerChat('chat-1', updatedAt: 100);
+        final container = makeContainer();
+        final before = await container.read(conversationsProvider.future);
 
-      final notifier = container.read(conversationsProvider.notifier);
-      notifier.trustConversation('chat-1');
-      await notifier.loadMore();
+        final notifier = container.read(conversationsProvider.notifier);
+        notifier.trustConversation('chat-1');
+        await notifier.loadMore();
 
-      check(container.read(conversationsProvider).requireValue)
-          .deepEquals(before);
-      check(notifier.hasMoreRegularChats()).isFalse();
-      check(notifier.isLoadingMoreRegularChats()).isFalse();
-    });
+        check(
+          container.read(conversationsProvider).requireValue,
+        ).deepEquals(before);
+        check(notifier.hasMoreRegularChats()).isFalse();
+        check(notifier.isLoadingMoreRegularChats()).isFalse();
+      },
+    );
 
     test('refresh delegates to the sync engine pull', () async {
       final server = FakeOpenWebUiServer();
@@ -410,9 +425,7 @@ void main() {
         updatedAt: 100,
       );
       final container = makeContainer(
-        extraOverrides: [
-          syncApiClientProvider.overrideWith((ref) => client),
-        ],
+        extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
       );
       await container.read(conversationsProvider.future);
 
@@ -423,8 +436,7 @@ void main() {
       check(client.chatListPageRequests).isGreaterOrEqual(1);
       await waitFor(() {
         final state = container.read(conversationsProvider);
-        return idsOf(state.asData?.value ?? const [])
-            .contains('remote-chat');
+        return idsOf(state.asData?.value ?? const []).contains('remote-chat');
       });
     });
   });
@@ -465,6 +477,10 @@ void main() {
       await seedServerChat('chat-b', updatedAt: 300, folderId: 'f1');
       refreshConversationsCache(container);
 
+      await waitFor(() {
+        final state = container.read(folderConversationSummariesProvider('f1'));
+        return idsOf(state.asData?.value ?? const []).contains('chat-b');
+      });
       final after = await container.read(
         folderConversationSummariesProvider('f1').future,
       );
@@ -489,13 +505,13 @@ Conversation _conversation(
 
 class _RecordingSocketService extends SocketService {
   _RecordingSocketService()
-      : super(
-          serverConfig: const ServerConfig(
-            id: 'test-server',
-            name: 'Test Server',
-            url: 'https://example.com',
-          ),
-        );
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test-server',
+          name: 'Test Server',
+          url: 'https://example.com',
+        ),
+      );
 
   final List<(String, dynamic)> emits = <(String, dynamic)>[];
 
