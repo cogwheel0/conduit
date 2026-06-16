@@ -502,13 +502,8 @@ class AuthStateManager extends _$AuthStateManager {
     String authType = 'token',
     bool showLoading = true,
     bool publishErrors = true,
-    bool trackAuthAttempt = true,
-    bool Function()? canCommit,
-    bool Function()? claimCommit,
   }) async {
-    if (trackAuthAttempt) {
-      _beginAuthAttempt();
-    }
+    _beginAuthAttempt();
 
     if (showLoading) {
       _update(
@@ -545,33 +540,13 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid token format');
       }
 
-      if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth('JWT token login skipped for stale auth attempt');
-        return false;
-      }
-
       // Validate by attempting to fetch user info
       try {
-        final user = await _validateIssuedToken(
-          api,
-          tokenStr,
-          clearOnFailure: () => _canCommitAuth(canCommit),
-        );
-
-        if (!_claimAuthCommit(
-          operation: 'JWT token login',
-          claimCommit: claimCommit,
-        )) {
-          return false;
-        }
+        final user = await _validateIssuedToken(api, tokenStr);
 
         // Save token to storage
         final storage = ref.read(optimizedStorageServiceProvider);
         await storage.saveAuthToken(tokenStr);
-        if (!_canCommitAuth(canCommit)) {
-          DebugLogger.auth('JWT token login ignored after stale persistence');
-          return false;
-        }
 
         // Save JWT token if requested
         if (rememberCredentials) {
@@ -621,9 +596,7 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      if (_canCommitAuth(canCommit)) {
-        _updateApiServiceToken(null);
-      }
+      _updateApiServiceToken(null);
       if (publishErrors) {
         _update(
           (current) => current.copyWith(
@@ -661,13 +634,8 @@ class AuthStateManager extends _$AuthStateManager {
     bool rememberCredentials = false,
     bool showLoading = true,
     bool publishErrors = true,
-    bool trackAuthAttempt = true,
-    bool Function()? canCommit,
-    bool Function()? claimCommit,
   }) async {
-    if (trackAuthAttempt) {
-      _beginAuthAttempt();
-    }
+    _beginAuthAttempt();
 
     if (showLoading) {
       _update(
@@ -701,33 +669,13 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid authentication token format');
       }
 
-      if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth('Credential login skipped for stale auth attempt');
-        return false;
-      }
-
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
-      final user = await _validateIssuedToken(
-        api,
-        tokenStr,
-        clearOnFailure: () => _canCommitAuth(canCommit),
-      );
-
-      if (!_claimAuthCommit(
-        operation: 'Credential login',
-        claimCommit: claimCommit,
-      )) {
-        return false;
-      }
+      final user = await _validateIssuedToken(api, tokenStr);
 
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
-      if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth('Credential login ignored after stale persistence');
-        return false;
-      }
 
       // Save credentials if requested
       if (rememberCredentials) {
@@ -765,9 +713,7 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      if (_canCommitAuth(canCommit)) {
-        _updateApiServiceToken(null);
-      }
+      _updateApiServiceToken(null);
       if (publishErrors) {
         _update(
           (current) => current.copyWith(

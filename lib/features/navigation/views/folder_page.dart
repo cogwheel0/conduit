@@ -467,6 +467,18 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       );
 
       container.read(attachedFilesProvider.notifier).clearAll();
+    } catch (e, stackTrace) {
+      // durableSend adds an optimistic streaming placeholder before its
+      // throwable DB work; on failure recover the UI by finishing the
+      // placeholder so it does not hang in `isStreaming: true` forever
+      // (parity with chat_page.dart).
+      DebugLogger.error(
+        'durable-send-failed',
+        scope: 'navigation/folder',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      container.read(chat.chatMessagesProvider.notifier).finishStreaming();
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);

@@ -202,12 +202,36 @@ class PushSync {
       }
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
+      // folder-move delta runs BEFORE the pin/archive reconcile: the server's
+      // update_chat_folder_id forces pinned=false on every move (vendored
+      // models/chats.py), so a pin reconcile must run AFTER the move to re-
+      // assert the desired pinned state — otherwise a pinned chat that is moved
+      // in the same coalesced update silently loses its pin.
+      //
+      // update_chat IGNORES folder_id, so a changed folder must go through the
+      // dedicated /folder endpoint.
+      //
+      // FOLDER-BEFORE-CHAT ORDERING (§7.6, non-negotiable 6): never send a
+      // `local:`-prefixed folder id — the folder's createChat hasn't been
+      // drained+remapped yet, so the server would 400/404 the move. The
+      // pre-flight guard above throws before updateChat so the drainer backs
+      // off this same op until IdRemapper rewrites chats.folderId to the real
+      // server id.
+      final serverFolderId = resp['folder_id'] is String
+          ? resp['folder_id'] as String
+          : null;
+      final movedFolder = chat.folderId != serverFolderId;
+      if (movedFolder) {
+        await _client.moveChatToFolder(chatId, chat.folderId);
+      }
+
       // pin/archive toggle-delta (B1): the server only exposes stateless toggle
       // endpoints for these axes, so the sync path always drives them through
       // desired-state reconcilers that probe before toggling and confirm after.
       // A retry after a post-toggle timeout re-probes and therefore cannot
-      // double-flip.
-      final serverPinned = resp['pinned'] == true;
+      // double-flip. After a folder move the server pin is known to be false,
+      // so treat it as such (the pre-move ChatResponse copy is stale).
+      final serverPinned = movedFolder ? false : resp['pinned'] == true;
       final serverArchived = resp['archived'] == true;
       final needsPinCheck = chat.pinned != serverPinned;
       final needsArchiveCheck = chat.archived != serverArchived;
@@ -232,22 +256,6 @@ class PushSync {
             initialRaw: liveRaw,
           );
         }
-      }
-
-      // folder-move delta: update_chat IGNORES folder_id, so a changed folder
-      // must go through the dedicated /folder endpoint.
-      //
-      // FOLDER-BEFORE-CHAT ORDERING (§7.6, non-negotiable 6): never send a
-      // `local:`-prefixed folder id — the folder's createChat hasn't been
-      // drained+remapped yet, so the server would 400/404 the move. The
-      // pre-flight guard above throws before updateChat so the drainer backs
-      // off this same op until IdRemapper rewrites chats.folderId to the real
-      // server id.
-      final serverFolderId = resp['folder_id'] is String
-          ? resp['folder_id'] as String
-          : null;
-      if (chat.folderId != serverFolderId) {
-        await _client.moveChatToFolder(chatId, chat.folderId);
       }
 
       // Store serverUpdatedAt + clear dirty ONLY for the captured snapshot:

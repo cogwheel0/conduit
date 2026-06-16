@@ -410,8 +410,10 @@ class FakeOpenWebUiServer {
 
   /// Mirrors `POST /api/v1/chats/{id}/folder` (`update_chat_folder_id_by_id`):
   /// sets the chat's `folder_id` (a non-null target must reference a seeded
-  /// folder, mirroring the ownership check). Returns the `ChatResponse`; null
-  /// on a missing chat id.
+  /// folder, mirroring the ownership check). Like the vendored
+  /// `update_chat_folder_id_by_id_and_user_id` (`models/chats.py`), the move
+  /// ALSO forces `pinned = False`. Returns the `ChatResponse`; null on a
+  /// missing chat id.
   Map<String, dynamic>? moveChatToFolder(String id, String? folderId) {
     final record = _chats[id];
     if (record == null) return null;
@@ -419,6 +421,7 @@ class FakeOpenWebUiServer {
       throw FakeOpenWebUiHttpException(404, 'Not found');
     }
     record.folderId = folderId;
+    record.pinned = false;
     record.updatedAt = _now();
     return _toChatResponse(record);
   }

@@ -700,6 +700,43 @@ void main() {
     );
 
     test(
+      'pin survives a folder move (move resets server pin; reconcile re-asserts)',
+      () async {
+        server.seedFolder('srv-folder');
+        // Server chat is pinned and unfiled; the local row both pins it and
+        // moves it into the folder in one coalesced update. The /folder
+        // endpoint forces pinned=false server-side, so the pin reconcile must
+        // run AFTER the move (and treat the post-move pin as false) or the
+        // desired pinned=true is silently lost.
+        server.seedChat(
+          id: 'srv-mv-pin',
+          blob: {
+            'title': 'm',
+            'history': {'messages': {}, 'currentId': null},
+          },
+          createdAt: 1,
+          updatedAt: 2,
+          pinned: true,
+        );
+        await seedLocalChat(
+          db,
+          id: 'srv-mv-pin',
+          messageCount: 0,
+          folderId: 'srv-folder',
+          pinned: true,
+        );
+
+        await push.pushUpdateChat('srv-mv-pin');
+
+        final stored = server.getChatById('srv-mv-pin')!;
+        check(stored['folder_id']).equals('srv-folder');
+        check(stored['pinned']).equals(true);
+        final chat = await db.chatsDao.getChat('srv-mv-pin');
+        check(chat!.dirty).isFalse();
+      },
+    );
+
+    test(
       '404 (chat gone) is non-fatal: logs and returns, no dirty cleared',
       () async {
         await seedLocalChat(db, id: 'absent', messageCount: 1, dirty: true);
