@@ -111,10 +111,11 @@ class AuthStateManager extends _$AuthStateManager {
 
   bool _claimAuthCommit({
     required String operation,
-    bool Function()? canCommit,
     bool Function()? claimCommit,
   }) {
-    final canCommitNow = claimCommit?.call() ?? _canCommitAuth(canCommit);
+    // When [claimCommit] is null at every call site, [canCommit] is null too,
+    // so `_canCommitAuth(null)` would return true — hence the bare `?? true`.
+    final canCommitNow = claimCommit?.call() ?? true;
     if (!canCommitNow) {
       DebugLogger.auth('$operation ignored stale auth result');
     }
@@ -559,7 +560,6 @@ class AuthStateManager extends _$AuthStateManager {
 
         if (!_claimAuthCommit(
           operation: 'JWT token login',
-          canCommit: canCommit,
           claimCommit: claimCommit,
         )) {
           return false;
@@ -716,7 +716,6 @@ class AuthStateManager extends _$AuthStateManager {
 
       if (!_claimAuthCommit(
         operation: 'Credential login',
-        canCommit: canCommit,
         claimCommit: claimCommit,
       )) {
         return false;
@@ -1255,7 +1254,6 @@ class AuthStateManager extends _$AuthStateManager {
   }) async {
     if (!_claimAuthCommit(
       operation: 'Silent login',
-      canCommit: canCommit,
       claimCommit: claimCommit,
     )) {
       return false;

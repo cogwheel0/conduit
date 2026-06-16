@@ -283,7 +283,8 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       );
 
       if (image != null) {
-        await _attachFile(File(image.path));
+        _attachFile(File(image.path));
+        _focusComposer();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -320,8 +321,9 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
       if (images.isNotEmpty) {
         for (final image in images) {
-          await _attachFile(File(image.path));
+          _attachFile(File(image.path));
         }
+        _focusComposer();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -378,11 +380,11 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
 
-  Future<void> _attachFile(File file) async {
+  void _attachFile(File file) {
     if (!ref.mounted) return;
 
     // Warm the attachment service
-    final _ = ref.read(fileAttachmentServiceProvider);
+    ref.read(fileAttachmentServiceProvider);
     final notifier = ref.read(attachedFilesProvider.notifier);
     final mediaUpload = ref.read(mediaUploadControllerProvider);
 
@@ -393,22 +395,31 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
     notifier.addFiles([attachment]);
 
-    try {
-      await mediaUpload.upload(
-        filePath: file.path,
-        fileName: attachment.displayName,
-        fileSize: await file.length(),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'home-widget-upload',
-        scope: 'widget',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+    // Fire the upload concurrently: upload() blocks until terminal status, so
+    // awaiting it here would serialize a multi-photo pick (each upload waiting
+    // for the previous one to finish).
+    unawaited(() async {
+      try {
+        await mediaUpload.upload(
+          filePath: file.path,
+          fileName: attachment.displayName,
+          fileSize: await file.length(),
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'home-widget-upload',
+          scope: 'widget',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }());
+  }
 
-    // Focus the composer after attaching
+  /// Bumps [inputFocusTriggerProvider] once so the composer takes focus after
+  /// attachments are added — independent of when the uploads finish.
+  void _focusComposer() {
+    if (!ref.mounted) return;
     final tick = ref.read(inputFocusTriggerProvider);
     ref.read(inputFocusTriggerProvider.notifier).set(tick + 1);
   }

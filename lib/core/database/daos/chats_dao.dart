@@ -76,10 +76,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// [_listProjection] as [watchChatList] (REQ §10.2/§10.5 — never message
   /// bodies), WHERE deleted = false, ORDER BY updatedAt DESC, id ASC, with
   /// LIMIT/OFFSET. The ordering is byte-for-byte identical to [watchChatList],
-  /// so a paged read composes seamlessly with the watch stream that takes over
-  /// after first paint — the page is a render-fast hydrate, not a new source of
-  /// truth. The Conversations provider's PUBLIC API is unchanged: this stays an
-  /// internal optimization and `hasMore`/`loadMore` remain no-ops.
+  /// so a paged read would compose seamlessly with the watch stream that takes
+  /// over after first paint — the page is a render-fast hydrate, not a new
+  /// source of truth. Currently this first-page projection is exercised by the
+  /// perf-budget test (`test/core/database/fts_perf_test.dart`) and is not yet
+  /// wired into the live list hydrate; the Conversations provider's PUBLIC API
+  /// is unchanged and `hasMore`/`loadMore` remain no-ops.
   Future<List<ChatListEntry>> getChatPage({
     required int limit,
     required int offset,

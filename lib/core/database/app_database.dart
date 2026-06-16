@@ -160,7 +160,7 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  /// Creates the FTS5 vtable + the six maintenance triggers (CDT-RFC-001
+  /// Creates the FTS5 vtable + the seven maintenance triggers (CDT-RFC-001
   /// Phase 4 §A/§C). All DDL uses IF NOT EXISTS, so this is safe to call on
   /// every open and cheap. Idempotent.
   Future<void> _createFts() async {

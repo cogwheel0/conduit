@@ -2228,14 +2228,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   /// Minimal history-message shape (`{id, parentId, childrenIds, role,
   /// content, timestamp, model?}`) — explicitly a local echo.
-  MessageRowData _localEchoRow(
-    String chatId,
-    ChatMessage message, {
-    String? parentId,
-  }) {
+  ///
+  /// The `parentId` written here is only a placeholder for the payload map:
+  /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
+  /// rewriting both the row and `payload['parentId']` to the branch tip.
+  MessageRowData _localEchoRow(String chatId, ChatMessage message) {
     final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
-    final resolvedParentId =
-        parentId ?? message_tree.chatMessageParentId(message);
+    final resolvedParentId = message_tree.chatMessageParentId(message);
     final childrenIds = message_tree
         .chatMessageChildrenIds(message)
         .toList(growable: false);
@@ -4345,6 +4344,12 @@ Future<void> durableSend(
       );
     });
   }
+
+  // Context attachments (web page / YouTube transcript / KB doc) have now been
+  // folded into the persisted user message + durable rows, so clear them —
+  // otherwise they stay attached and are silently re-sent on the next message
+  // (mirrors `_sendMessageInternal`).
+  ref.read(contextAttachmentsProvider.notifier).clear();
 
   // Drive streaming immediately (online) via the requestCompletion op.
   await ref.read(syncEngineProvider.notifier).drainNow();

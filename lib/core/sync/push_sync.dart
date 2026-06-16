@@ -274,7 +274,6 @@ class PushSync {
         data: {'chatId': chatId, 'desired': desired, 'actual': livePinned},
       );
       await _storeChatPinMirror(chatId, livePinned);
-      return;
     }
   }
 

@@ -915,6 +915,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       if (file is! Map) {
         continue;
       }
+      // Skip note attachments: their id is a note id, not an uploaded file id,
+      // so feeding it to durableSend as a file attachment triggers a failing
+      // file-info lookup and re-sends the note as a bogus regular file.
+      if (_isRenderableNoteAttachment(file)) {
+        continue;
+      }
       final explicitId = file['id']?.toString();
       if (explicitId != null && explicitId.trim().isNotEmpty) {
         addId(explicitId);

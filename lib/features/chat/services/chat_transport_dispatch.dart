@@ -49,21 +49,6 @@ void writeTransportMetadata({
   }
 }
 
-/// Writes the abort handle flag to the assistant message metadata.
-///
-/// Called after transport dispatch when an abort handle is available.
-void writeAbortHandleMetadata({required dynamic ref}) {
-  try {
-    ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-      ChatMessage m,
-    ) {
-      final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-      meta['hasActiveAbortHandle'] = true;
-      return m.copyWith(metadata: meta);
-    });
-  } catch (_) {}
-}
-
 // ---------------------------------------------------------------------------
 // Socket binding helpers
 // ---------------------------------------------------------------------------

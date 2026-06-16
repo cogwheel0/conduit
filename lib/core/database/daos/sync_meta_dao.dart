@@ -78,8 +78,10 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase>
   // The note watermark is stored under a DEDICATED key and is in NANOSECONDS
   // (`time.time_ns()`, vendored `models/notes.py`), NEVER seconds. It is a
   // SEPARATE clock domain from [getPullWatermark] (chats, seconds): the two are
-  // never read against each other and never unit-converted (R-09). These typed
-  // accessors are the only sanctioned way to touch the note watermark so a
+  // never read against each other and never unit-converted (R-09). The
+  // seconds-vs-nanoseconds separation is guaranteed by the dedicated
+  // [kNotesPullWatermarkKey] constant — used both by these typed accessors and
+  // by `NoteAdapter.watermarkKey` on the generic adapter read/write path — so a
   // caller cannot accidentally feed it the chat watermark.
 
   /// Reserved `sync_meta` key for the note pull watermark (nanoseconds). Public

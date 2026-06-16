@@ -285,6 +285,7 @@ ChatMergeResult _threeWay({
       messages: merged,
       // (e) blob bookkeeping — SERVER wholesale, EXCEPT historyHadCurrentId.
       unmappableMessages: server.unmappableMessages,
+      unmappableMessageOrder: server.unmappableMessageOrder,
       blobHadTitle: server.blobHadTitle,
       blobTitleValue: server.blobTitleValue,
       blobHadHistory: server.blobHadHistory,

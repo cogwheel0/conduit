@@ -318,8 +318,8 @@ class IdRemapper {
       // stale localId FTS rows by deleting the local row last (trigger #12).
       await _rewriteNoteConflictOf(localId, serverId);
       await _deleteNoteRow(localId);
-      // (c) Repoint pending|inFlight outbox ops (the running noteCreate op is
-      // inFlight; after remap the drainer markDone()s it).
+      // (c) Repoint pending|inFlight|failed outbox ops (the running noteCreate
+      // op is inFlight; after remap the drainer markDone()s it).
       await _rewriteOutboxChatId(localId, serverId);
       await _db.syncMetaDao.setNoteRemapTarget(localId, serverId);
     });

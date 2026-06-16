@@ -578,8 +578,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Pin-to-top: the detection in _buildActualMessagesList will handle
       // scrolling to the user message once the streaming placeholder appears.
-    } catch (e) {
-      // Message send failed - error already handled by sendMessage
+    } catch (e, stackTrace) {
+      // durableSend persists rows + drains synchronously; on failure (DB error,
+      // lock failure, …) recover the UI by finishing the streaming placeholder
+      // so it does not hang in `isStreaming: true` forever.
+      DebugLogger.error(
+        'durable-send-failed',
+        scope: 'chat/page',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      ref.read(chatMessagesProvider.notifier).finishStreaming();
     }
   }
 

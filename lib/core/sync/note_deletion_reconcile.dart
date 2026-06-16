@@ -109,12 +109,11 @@ class NoteDeletionReconcile {
     //    floor AND a large fraction) aborts without purging. The floor keeps a
     //    legitimate small-library note deletion from being mistaken for a
     //    token-expiry mass-delete and blocked forever.
-    if (localServerIds.isNotEmpty &&
-        candidates.length >
-            math.max(
-              kReconcileMinCandidatesForValve,
-              localServerIds.length * kReconcileMaxPurgeFraction,
-            )) {
+    if (candidates.length >
+        math.max(
+          kReconcileMinCandidatesForValve,
+          localServerIds.length * kReconcileMaxPurgeFraction,
+        )) {
       DebugLogger.warning(
         'note-reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',

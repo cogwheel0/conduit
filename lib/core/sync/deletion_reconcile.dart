@@ -179,11 +179,17 @@ class DeletionReconcile {
     // without purging or advancing the throttle.
     try {
       await _client.getChatListPage(1);
-    } catch (_) {
+    } catch (error, stackTrace) {
       DebugLogger.warning(
         'reconcile-aborted-session-dead',
         scope: 'sync/reconcile',
         data: {'candidates': candidates.length},
+      );
+      DebugLogger.error(
+        'reconcile-preflight-failed',
+        scope: 'sync/reconcile',
+        error: error,
+        stackTrace: stackTrace,
       );
       return ReconcileResult(
         ran: true,

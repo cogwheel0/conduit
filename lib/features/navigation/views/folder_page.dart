@@ -501,14 +501,25 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       }
 
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      // Fire uploads concurrently without awaiting so one failure neither
+      // aborts the remaining attachments nor serializes them (mirrors
+      // chat_page.dart).
       for (final attachment in attachments) {
-        await ref
-            .read(mediaUploadControllerProvider)
-            .upload(
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: await attachment.file.length(),
-            );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize: await attachment.file.length(),
+              )
+              .catchError((Object e) {
+                DebugLogger.log(
+                  'Upload failed: $e',
+                  scope: 'navigation/folder',
+                );
+              }),
+        );
       }
     } catch (_) {}
   }
@@ -620,15 +631,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       }
 
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      // Fire uploads concurrently without awaiting so one failure neither
+      // aborts the remaining attachments nor serializes them (mirrors
+      // chat_page.dart).
       for (final attachment in attachments) {
-        await ref
-            .read(mediaUploadControllerProvider)
-            .upload(
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize:
-                  imageSizes[attachment] ?? await attachment.file.length(),
-            );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize:
+                    imageSizes[attachment] ?? await attachment.file.length(),
+              )
+              .catchError((Object e) {
+                DebugLogger.log(
+                  'Upload failed: $e',
+                  scope: 'navigation/folder',
+                );
+              }),
+        );
       }
     } catch (_) {}
   }
