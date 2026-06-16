@@ -113,8 +113,10 @@ class AuthStateManager extends _$AuthStateManager {
     required String operation,
     bool Function()? claimCommit,
   }) {
-    // When [claimCommit] is null at every call site, [canCommit] is null too,
-    // so `_canCommitAuth(null)` would return true — hence the bare `?? true`.
+    // [claimCommit] is null only on the foreground silent-login path (no
+    // staleness arbitration needed there); `?? true` lets that commit proceed
+    // unconditionally. The background path always supplies a non-null
+    // [claimCommit] that bumps the auth revision to claim the commit.
     final canCommitNow = claimCommit?.call() ?? true;
     if (!canCommitNow) {
       DebugLogger.auth('$operation ignored stale auth result');
