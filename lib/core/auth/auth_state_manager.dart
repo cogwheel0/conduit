@@ -856,18 +856,12 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<User> _validateIssuedToken(
-    ApiService api,
-    String token, {
-    bool Function()? clearOnFailure,
-  }) async {
+  Future<User> _validateIssuedToken(ApiService api, String token) async {
     api.updateAuthToken(token);
     try {
       return await api.getCurrentUser(suppressAuthFailureNotification: true);
     } catch (error, stackTrace) {
-      if (clearOnFailure == null || clearOnFailure()) {
-        api.updateAuthToken(null);
-      }
+      api.updateAuthToken(null);
       Error.throwWithStackTrace(
         Exception(_loginValidationMessage(error)),
         stackTrace,
