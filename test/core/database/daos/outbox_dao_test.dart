@@ -192,6 +192,47 @@ void main() {
       check(pending.single.attempts).equals(0);
       check(pending.single.nextAttemptAt).isNull();
     });
+
+    test(
+      'watchQueuedCompletionsForChat returns request completions only',
+      () async {
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final pendingCompletion = await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a1',
+            model: 'gpt',
+          ).toJson(),
+        );
+        final failedCompletion = await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a2',
+            model: 'gpt',
+          ).toJson(),
+        );
+        await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c2',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a3',
+            model: 'gpt',
+          ).toJson(),
+        );
+        await dao.markParked(failedCompletion, error: 'boom');
+
+        final queued = await dao.watchQueuedCompletionsForChat('c1').first;
+
+        check(
+          queued.map((op) => op.seq).toList(),
+        ).deepEquals([pendingCompletion, failedCompletion]);
+        check(
+          queued.map((op) => op.kind).toSet(),
+        ).deepEquals({OutboxKind.requestCompletion.name});
+      },
+    );
   });
 
   group('coalescing (A3)', () {

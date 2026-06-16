@@ -21,7 +21,9 @@ import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/database/database_provider.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -546,6 +548,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Get selected tools
       final toolIds = ref.read(selectedToolIdsProvider);
+      final wasOffline = !ref.read(isOnlineProvider);
+      final hasDurableOutbox =
+          ref.read(appDatabaseProvider) != null &&
+          !ref.read(reviewerModeProvider) &&
+          !ref.read(temporaryChatEnabledProvider) &&
+          !isTemporaryChat(ref.read(activeConversationProvider)?.id);
 
       // Durable send: persists rows + outbox op in one tx (survives a
       // force-quit) and drives streaming via the requestCompletion op.
@@ -558,6 +566,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();
+
+      if (wasOffline && hasDurableOutbox && mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.chatQueuedSnackBar,
+          type: AdaptiveSnackBarType.info,
+          duration: const Duration(seconds: 3),
+        );
+      }
 
       // Pin-to-top: the detection in _buildActualMessagesList will handle
       // scrolling to the user message once the streaming placeholder appears.

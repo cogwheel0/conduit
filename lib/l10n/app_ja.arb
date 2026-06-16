@@ -614,6 +614,34 @@
   "@cancel": {
     "description": "Cancel button label."
   },
+  "chatQueuedOfflineTitle": "オフラインでキュー済み",
+  "@chatQueuedOfflineTitle": {
+    "description": "Title shown on an assistant placeholder when a chat request is queued because the server is unreachable."
+  },
+  "chatQueuedOfflineMessage": "サーバーに接続できるようになると、この応答が開始されます。",
+  "@chatQueuedOfflineMessage": {
+    "description": "Body text shown for an offline queued assistant response."
+  },
+  "chatQueuedPendingTitle": "送信用にキュー済み",
+  "@chatQueuedPendingTitle": {
+    "description": "Title shown when a queued assistant response is waiting for sync/backoff."
+  },
+  "chatQueuedPendingMessage": "同期が実行され次第、Conduit がこの応答を開始します。",
+  "@chatQueuedPendingMessage": {
+    "description": "Body text shown for a queued assistant response that is waiting to be sent."
+  },
+  "chatQueuedFailedTitle": "送信に失敗しました",
+  "@chatQueuedFailedTitle": {
+    "description": "Title shown when a queued assistant response has failed and needs user action."
+  },
+  "chatQueuedFailedMessage": "キュー内の応答を再試行するか、キャンセルしてください。",
+  "@chatQueuedFailedMessage": {
+    "description": "Body text shown when a queued assistant response has failed and offers retry or cancel."
+  },
+  "chatQueuedSnackBar": "メッセージをキューに追加しました。サーバーに接続できるようになると送信されます。",
+  "@chatQueuedSnackBar": {
+    "description": "Snackbar shown after sending a chat message while offline."
+  },
   "ok": "OK",
   "@ok": {
     "description": "Generic OK button label."

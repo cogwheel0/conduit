@@ -614,6 +614,34 @@
   "@cancel": {
     "description": "Cancel button label."
   },
+  "chatQueuedOfflineTitle": "Zařazeno offline",
+  "@chatQueuedOfflineTitle": {
+    "description": "Title shown on an assistant placeholder when a chat request is queued because the server is unreachable."
+  },
+  "chatQueuedOfflineMessage": "Tato odpověď začne, až bude server dostupný.",
+  "@chatQueuedOfflineMessage": {
+    "description": "Body text shown for an offline queued assistant response."
+  },
+  "chatQueuedPendingTitle": "Zařazeno k odeslání",
+  "@chatQueuedPendingTitle": {
+    "description": "Title shown when a queued assistant response is waiting for sync/backoff."
+  },
+  "chatQueuedPendingMessage": "Conduit spustí tuto odpověď, jakmile poběží synchronizace.",
+  "@chatQueuedPendingMessage": {
+    "description": "Body text shown for a queued assistant response that is waiting to be sent."
+  },
+  "chatQueuedFailedTitle": "Odeslání se nezdařilo",
+  "@chatQueuedFailedTitle": {
+    "description": "Title shown when a queued assistant response has failed and needs user action."
+  },
+  "chatQueuedFailedMessage": "Zkuste odpověď ve frontě odeslat znovu nebo ji zrušte.",
+  "@chatQueuedFailedMessage": {
+    "description": "Body text shown when a queued assistant response has failed and offers retry or cancel."
+  },
+  "chatQueuedSnackBar": "Zpráva byla zařazena do fronty. Odešle se, až bude server dostupný.",
+  "@chatQueuedSnackBar": {
+    "description": "Snackbar shown after sending a chat message while offline."
+  },
   "ok": "OK",
   "@ok": {
     "description": "Generic OK button label."

@@ -494,6 +494,20 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     );
   }
 
+  /// Manual retry for an already-pending op whose backoff/offline marker is
+  /// keeping it from being claimed immediately.
+  Future<void> retryPendingNow(int seq, {required int nowEpochSeconds}) {
+    return (update(outboxOps)..where(
+          (t) => t.seq.equals(seq) & t.status.equals(OutboxStatus.pending),
+        ))
+        .write(
+          OutboxOpsCompanion(
+            nextAttemptAt: Value(nowEpochSeconds),
+            lastError: const Value(null),
+          ),
+        );
+  }
+
   /// Connectivity-regained backoff reset (A6/A7): re-arms every pending op for
   /// an immediate attempt. attempts/lastError are left intact.
   Future<void> resetBackoffForPending({required int nowEpochSeconds}) {
@@ -542,6 +556,24 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           ..where(
             (t) =>
                 t.chatId.equals(chatId) & t.status.equals(OutboxStatus.failed),
+          )
+          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+        .watch();
+  }
+
+  /// Queued request-completion ops for [chatId] (pending|failed, seq ASC).
+  /// This is intentionally narrower than [watchPendingCount]: the chat UI only
+  /// needs user-actionable assistant placeholders, not unrelated sync work.
+  Stream<List<OutboxOp>> watchQueuedCompletionsForChat(String chatId) {
+    return (select(outboxOps)
+          ..where(
+            (t) =>
+                t.chatId.equals(chatId) &
+                t.kind.equals(OutboxKind.requestCompletion.name) &
+                t.status.isIn(const [
+                  OutboxStatus.pending,
+                  OutboxStatus.failed,
+                ]),
           )
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .watch();

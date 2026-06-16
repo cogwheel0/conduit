@@ -12,6 +12,7 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
+import '../providers/queued_completion_provider.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'enhanced_attachment.dart';
@@ -938,6 +939,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final activeEmbeds = _resolveActiveEmbeds();
     final activeSources = _resolveActiveSources();
     final footer = _buildFooterBar(activeSources: activeSources);
+    final queuedCompletionAsync = ref.watch(
+      queuedCompletionInfoForMessageProvider(_messageId),
+    );
+    final queuedCompletion = queuedCompletionAsync.hasValue
+        ? queuedCompletionAsync.value
+        : null;
+    final hasQueuedCompletion = queuedCompletion != null;
+    final showQueuedAsEmptyState =
+        queuedCompletion != null &&
+        _isAssistantResponseEmpty &&
+        !queuedCompletion.isFailed;
+    final suppressEmptyQueuedContent =
+        queuedCompletion != null && _isAssistantResponseEmpty;
+    final showQueuedRecoveryBanner =
+        queuedCompletion != null && !showQueuedAsEmptyState;
 
     final content = Container(
       width: double.infinity,
@@ -979,31 +995,44 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.xs),
                 ],
 
-                // Smoothly crossfade between typing indicator and content
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, anim) {
-                    return FadeTransition(
-                      opacity: CurvedAnimation(
-                        parent: anim,
-                        curve: Curves.easeOutCubic,
-                        reverseCurve: Curves.easeInCubic,
-                      ),
-                      child: child,
-                    );
-                  },
-                  child: (_allowTypingIndicator && _shouldShowTypingIndicator)
-                      ? KeyedSubtree(
-                          key: const ValueKey('typing'),
-                          child: _buildTypingIndicator(),
-                        )
-                      : KeyedSubtree(
-                          key: const ValueKey('content'),
-                          child: _buildMessageContent(),
+                if (showQueuedAsEmptyState)
+                  _buildQueuedCompletionBanner(queuedCompletion)
+                else
+                  // Smoothly crossfade between typing indicator and content
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) {
+                      return FadeTransition(
+                        opacity: CurvedAnimation(
+                          parent: anim,
+                          curve: Curves.easeOutCubic,
+                          reverseCurve: Curves.easeInCubic,
                         ),
-                ),
+                        child: child,
+                      );
+                    },
+                    child: suppressEmptyQueuedContent
+                        ? const KeyedSubtree(
+                            key: ValueKey('queued-empty'),
+                            child: SizedBox.shrink(),
+                          )
+                        : (_allowTypingIndicator && _shouldShowTypingIndicator)
+                        ? KeyedSubtree(
+                            key: const ValueKey('typing'),
+                            child: _buildTypingIndicator(),
+                          )
+                        : KeyedSubtree(
+                            key: const ValueKey('content'),
+                            child: _buildMessageContent(),
+                          ),
+                  ),
+
+                if (showQueuedRecoveryBanner) ...[
+                  const SizedBox(height: Spacing.sm),
+                  _buildQueuedCompletionBanner(queuedCompletion),
+                ],
 
                 // Display error banner if message or active version has an error
                 if (_getActiveError() != null) ...[
@@ -1022,7 +1051,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
 
           // Action buttons below the message content (only after streaming completes)
-          if (_responseCompleted) ...[
+          if (_responseCompleted && !hasQueuedCompletion) ...[
             if (footer != null)
               Padding(
                 padding: EdgeInsets.only(
@@ -1058,6 +1087,149 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ),
         child: content,
       ),
+    );
+  }
+
+  Widget _buildQueuedCompletionBanner(QueuedCompletionInfo info) {
+    final l10n = AppLocalizations.of(context)!;
+    final conduitTheme = context.conduitTheme;
+    final errorColor = Theme.of(context).colorScheme.error;
+    final accentColor = info.isFailed ? errorColor : conduitTheme.buttonPrimary;
+    final title = info.isFailed
+        ? l10n.chatQueuedFailedTitle
+        : info.isOffline
+        ? l10n.chatQueuedOfflineTitle
+        : l10n.chatQueuedPendingTitle;
+    final message = info.isFailed
+        ? l10n.chatQueuedFailedMessage
+        : info.isOffline
+        ? l10n.chatQueuedOfflineMessage
+        : l10n.chatQueuedPendingMessage;
+    final icon = info.isFailed
+        ? (Platform.isIOS
+              ? CupertinoIcons.exclamationmark_triangle
+              : Icons.error_outline)
+        : info.isOffline
+        ? (Platform.isIOS ? CupertinoIcons.wifi_slash : Icons.wifi_off)
+        : (Platform.isIOS ? CupertinoIcons.clock : Icons.schedule);
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 560),
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.08),
+        border: Border.all(color: accentColor.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20, color: accentColor),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: conduitTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      message,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: conduitTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.sm),
+          Wrap(
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            children: [
+              TextButton.icon(
+                onPressed: () => _retryQueuedCompletion(info),
+                icon: Icon(
+                  Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                  size: 16,
+                ),
+                label: Text(l10n.retry),
+                style: TextButton.styleFrom(
+                  foregroundColor: accentColor,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: 6,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _cancelQueuedCompletion(info),
+                icon: Icon(
+                  Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                  size: 16,
+                ),
+                label: Text(l10n.cancel),
+                style: TextButton.styleFrom(
+                  foregroundColor: conduitTheme.textSecondary,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: 6,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _retryQueuedCompletion(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        await ref.read(queuedCompletionActionsProvider).retry(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  void _cancelQueuedCompletion(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        await ref.read(queuedCompletionActionsProvider).cancel(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  void _handleQueuedCompletionActionError(Object error, StackTrace stackTrace) {
+    DebugLogger.error(
+      'queued-completion-action-failed',
+      scope: 'chat/assistant',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
     );
   }
 
@@ -1134,8 +1306,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         isStreaming: bodyTreatsAsStreaming,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
-        onTapLink: (url, _) =>
-            launchExternalLink(url, scope: 'chat/assistant'),
+        onTapLink: (url, _) => launchExternalLink(url, scope: 'chat/assistant'),
         sources: activeSources,
         imageBuilderOverride: (uri, title, alt) {
           // Route markdown images through the enhanced image widget so they

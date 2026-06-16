@@ -751,6 +751,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
               .go();
 
       if (placeholders.isNotEmpty) {
+        for (final placeholder in placeholders) {
+          await _removeAssistantChildLink(
+            chatId: chatId,
+            parentId: placeholder.parentId,
+            assistantMessageId: placeholder.id,
+          );
+        }
+
         await (delete(messages)..where(
               (t) =>
                   t.chatId.equals(chatId) &
@@ -768,6 +776,86 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             ChatsCompanion(currentMessageId: Value<String?>(replacementTip)),
           );
         }
+      }
+
+      return removedOps;
+    });
+  }
+
+  /// Cancels one queued assistant completion from the chat UI. Unlike
+  /// [cancelPendingCompletion], this is scoped to a single assistant placeholder
+  /// and also removes parked `failed` ops so the failed-response affordance can
+  /// be dismissed without touching other queued turns for the chat.
+  Future<int> cancelQueuedCompletion(
+    String chatId, {
+    required String assistantMessageId,
+  }) {
+    return transaction(() async {
+      if (assistantMessageId.isEmpty) return 0;
+
+      final queued =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name) &
+                    t.status.isIn(const [
+                      OutboxStatus.pending,
+                      OutboxStatus.failed,
+                    ]),
+              ))
+              .get();
+      if (queued.isEmpty) return 0;
+
+      final matchingOps = [
+        for (final op in queued)
+          if (_requestCompletionAssistantId(op.payload) == assistantMessageId)
+            op,
+      ];
+      if (matchingOps.isEmpty) return 0;
+      final matchingSeqs = [for (final op in matchingOps) op.seq];
+
+      final placeholder =
+          await (select(messages)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.id.equals(assistantMessageId) &
+                    t.role.equals('assistant'),
+              ))
+              .getSingleOrNull();
+
+      final removedOps = await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.seq.isIn(matchingSeqs))).go();
+
+      if (placeholder != null) {
+        await _removeAssistantChildLink(
+          chatId: chatId,
+          parentId: placeholder.parentId,
+          assistantMessageId: assistantMessageId,
+        );
+
+        await (delete(messages)..where(
+              (t) => t.chatId.equals(chatId) & t.id.equals(assistantMessageId),
+            ))
+            .go();
+
+        final chat = await getChat(chatId);
+        if (chat?.currentMessageId == assistantMessageId) {
+          await (update(chats)..where((t) => t.id.equals(chatId))).write(
+            ChatsCompanion(
+              currentMessageId: Value<String?>(placeholder.parentId),
+              dirty: const Value(true),
+            ),
+          );
+        } else {
+          await (update(chats)..where((t) => t.id.equals(chatId))).write(
+            const ChatsCompanion(dirty: Value(true)),
+          );
+        }
+      }
+
+      if (placeholder != null) {
+        await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
       }
 
       return removedOps;
@@ -821,6 +909,89 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       }
     } catch (_) {}
     return null;
+  }
+
+  Future<void> _removeAssistantChildLink({
+    required String chatId,
+    required String? parentId,
+    required String assistantMessageId,
+  }) async {
+    if (parentId == null || parentId.isEmpty || assistantMessageId.isEmpty) {
+      return;
+    }
+
+    final parent =
+        await (select(messages)
+              ..where((t) => t.chatId.equals(chatId) & t.id.equals(parentId)))
+            .getSingleOrNull();
+    if (parent == null) return;
+
+    final updatedPayload = _payloadWithoutChildLink(
+      parent.payload,
+      assistantMessageId,
+    );
+    if (updatedPayload == null) return;
+
+    await (update(
+      messages,
+    )..where((t) => t.chatId.equals(chatId) & t.id.equals(parentId))).write(
+      MessagesCompanion(
+        payload: Value(updatedPayload),
+        dirty: const Value(true),
+      ),
+    );
+  }
+
+  static String? _payloadWithoutChildLink(String rawPayload, String childId) {
+    try {
+      final decoded = jsonDecode(rawPayload);
+      if (decoded is! Map) return null;
+
+      final payload = Map<String, dynamic>.from(decoded);
+      var changed = false;
+
+      final topLevelChildren = _childrenIdsWithout(
+        payload['childrenIds'],
+        childId,
+      );
+      if (topLevelChildren != null) {
+        payload['childrenIds'] = topLevelChildren;
+        changed = true;
+      }
+
+      final metadata = payload['metadata'];
+      if (metadata is Map) {
+        final metadataMap = Map<String, dynamic>.from(metadata);
+        final metadataChildren = _childrenIdsWithout(
+          metadataMap['childrenIds'],
+          childId,
+        );
+        if (metadataChildren != null) {
+          metadataMap['childrenIds'] = metadataChildren;
+          payload['metadata'] = metadataMap;
+          changed = true;
+        }
+      }
+
+      return changed ? jsonEncode(payload) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static List<dynamic>? _childrenIdsWithout(Object? raw, String childId) {
+    if (raw is! List) return null;
+
+    var changed = false;
+    final children = <dynamic>[];
+    for (final value in raw) {
+      if (value == childId) {
+        changed = true;
+      } else {
+        children.add(value);
+      }
+    }
+    return changed ? children : null;
   }
 
   JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {

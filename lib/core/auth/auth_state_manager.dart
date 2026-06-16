@@ -8,6 +8,7 @@ import '../providers/app_providers.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart';
+import '../services/worker_manager.dart';
 import 'token_validator.dart';
 import 'auth_cache_manager.dart';
 import 'webview_cookie_helper.dart';
@@ -92,6 +93,7 @@ enum AuthStatus {
 class AuthStateManager extends _$AuthStateManager {
   final AuthCacheManager _cacheManager = AuthCacheManager();
   Future<bool>? _silentLoginFuture;
+  int _authAttemptRevision = 0;
 
   // Prevent infinite retry loops
   int _retryCount = 0;
@@ -101,12 +103,68 @@ class AuthStateManager extends _$AuthStateManager {
   AuthState get _current =>
       state.asData?.value ?? const AuthState(status: AuthStatus.initial);
 
+  int _beginAuthAttempt() => ++_authAttemptRevision;
+
+  bool _canCommitAuth(bool Function()? canCommit) {
+    return canCommit == null || canCommit();
+  }
+
+  bool _claimAuthCommit({
+    required String operation,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) {
+    final canCommitNow = claimCommit?.call() ?? _canCommitAuth(canCommit);
+    if (!canCommitNow) {
+      DebugLogger.auth('$operation ignored stale auth result');
+    }
+    return canCommitNow;
+  }
+
+  Future<void> _restoreStaleSilentLoginPersistence({
+    required OptimizedStorageService storage,
+    required String staleServerId,
+    required String? previousServerId,
+    required String staleToken,
+    required String? previousToken,
+  }) async {
+    try {
+      final currentToken = await storage.getAuthToken();
+      if (currentToken == staleToken) {
+        final stateToken = _current.hasValidToken ? _current.token : null;
+        final replacementToken = stateToken ?? previousToken;
+        if (replacementToken != null &&
+            replacementToken.isNotEmpty &&
+            replacementToken != staleToken) {
+          await storage.saveAuthToken(replacementToken);
+        } else if (replacementToken == null || replacementToken.isEmpty) {
+          await storage.deleteAuthToken();
+        }
+      }
+
+      final currentServerId = await storage.getActiveServerId();
+      if (currentServerId == staleServerId) {
+        await storage.setActiveServerId(previousServerId);
+      }
+
+      ref.invalidate(activeServerProvider);
+      ref.invalidate(apiServiceProvider);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'stale-silent-login-restore-failed',
+        scope: 'auth/state',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
   void _set(AuthState next, {bool cache = false}) {
     final storage = ref.read(optimizedStorageServiceProvider);
     if (next.user != null && next.isAuthenticated) {
       // Persist user and avatar asynchronously without blocking state update
       unawaited(_persistUserWithAvatar(next, storage));
-    } else if (!next.isAuthenticated) {
+    } else if (_shouldClearPersistedUser(next)) {
       unawaited(
         storage.saveLocalUser(null).onError((error, stack) {
           DebugLogger.error(
@@ -132,6 +190,13 @@ class AuthStateManager extends _$AuthStateManager {
     if (cache) {
       _cacheManager.cacheAuthState(next);
     }
+  }
+
+  bool _shouldClearPersistedUser(AuthState next) {
+    if (next.hasValidToken) return false;
+    return next.status == AuthStatus.unauthenticated ||
+        next.status == AuthStatus.tokenExpired ||
+        next.status == AuthStatus.credentialError;
   }
 
   Future<void> _persistUserWithAvatar(
@@ -228,115 +293,14 @@ class AuthStateManager extends _$AuthStateManager {
         // Fast path: trust token format to avoid blocking startup on network
         final formatOk = _isValidTokenFormat(token);
         if (formatOk) {
-          // Network readiness gate: Wait for API to be reachable before
-          // transitioning to authenticated state. This prevents race conditions
-          // on cold starts with Cloudflare tunnels where the tunnel connection
-          // may not be established yet.
-          final apiReady = await _waitForApiReadiness();
-          if (!apiReady) {
-            DebugLogger.auth(
-              'API not reachable on cold start - keeping loading state',
-            );
-            // Keep loading state and retry via silent login if we have creds
-            final hasCreds = await storage.hasCredentials();
-            if (hasCreds) {
-              DebugLogger.auth(
-                'Has credentials - attempting silent login after API ready',
-              );
-              // Schedule a delayed retry that will wait for network.
-              // Allow time for network stack to stabilize after initial failure.
-              unawaited(
-                Future.delayed(const Duration(milliseconds: 500), () async {
-                  if (!ref.mounted) return;
-                  try {
-                    final retryReady = await _waitForApiReadiness(
-                      timeout: const Duration(seconds: 10),
-                    );
-                    if (!ref.mounted) return;
-                    if (retryReady) {
-                      await _performSilentLogin();
-                    } else {
-                      _update(
-                        (current) => current.copyWith(
-                          status: AuthStatus.error,
-                          error: 'Unable to connect to server',
-                          isLoading: false,
-                        ),
-                      );
-                    }
-                  } catch (e, stack) {
-                    if (!ref.mounted) return;
-                    DebugLogger.error(
-                      'delayed-retry-failed',
-                      scope: 'auth/state',
-                      error: e,
-                      stackTrace: stack,
-                    );
-                    _update(
-                      (current) => current.copyWith(
-                        status: AuthStatus.error,
-                        error: 'Connection retry failed',
-                        isLoading: false,
-                      ),
-                    );
-                  }
-                }),
-              );
-              return;
-            }
-            // No credentials - show error
-            _update(
-              (current) => current.copyWith(
-                status: AuthStatus.error,
-                error: 'Unable to connect to server',
-                isLoading: false,
-              ),
-            );
-            return;
-          }
-
-          try {
-            _updateApiServiceToken(token);
-            final user = await ref
-                .read(apiServiceProvider)
-                ?.getCurrentUser(suppressAuthFailureNotification: true);
-            if (user == null) {
-              throw StateError('API service unavailable during token restore');
-            }
-
-            _update(
-              (current) => current.copyWith(
-                status: AuthStatus.authenticated,
-                token: token,
-                user: user,
-                isLoading: false,
-                clearError: true,
-              ),
-              cache: true,
-            );
-
-            _preloadDefaultModel();
-          } catch (error) {
-            if (_isConfirmedAuthFailure(error)) {
-              DebugLogger.auth('Stored token rejected during initialization');
-              await onTokenInvalidated();
-            } else {
-              DebugLogger.warning(
-                'stored-token-validation-deferred',
-                scope: 'auth/state',
-                data: {'error': error.toString()},
-              );
-              _update(
-                (current) => current.copyWith(
-                  status: AuthStatus.error,
-                  token: token,
-                  error: 'Unable to validate session. Please retry shortly.',
-                  isLoading: false,
-                  clearUser: true,
-                ),
-              );
-            }
-          }
+          _updateApiServiceToken(token);
+          await _activateCachedTokenSession(
+            storage: storage,
+            token: token,
+            reason: 'stored-token-fast-path',
+          );
+          _validateStoredTokenInBackground(storage: storage, token: token);
+          return;
         } else {
           // Token format invalid; clear and require login
           DebugLogger.auth('Token format invalid, deleting token');
@@ -356,14 +320,17 @@ class AuthStateManager extends _$AuthStateManager {
         final hasCreds = await storage.hasCredentials();
         if (hasCreds) {
           DebugLogger.auth(
-            'No token but credentials exist - attempting silent login',
+            'No token but credentials exist - starting background silent login',
           );
-          // Keep loading state while we attempt silent login
-          // This prevents the router from redirecting to sign-in
-          await _performSilentLogin();
-          // _performSilentLogin() updates state appropriately on both success
-          // and failure (e.g., AuthStatus.error for network issues), so we
-          // return here to preserve that state.
+          _update(
+            (current) => current.copyWith(
+              status: AuthStatus.unauthenticated,
+              isLoading: false,
+              clearToken: true,
+              clearError: true,
+            ),
+          );
+          unawaited(_performSilentLoginInBackground());
           return;
         }
         // No credentials - set to unauthenticated
@@ -389,6 +356,128 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  Future<void> _activateCachedTokenSession({
+    required OptimizedStorageService storage,
+    required String token,
+    required String reason,
+  }) async {
+    final cachedUser = await _readCachedUserWithAvatar(storage);
+    DebugLogger.auth(
+      'cached-token-session-activated',
+      scope: 'auth/state',
+      data: {'reason': reason, 'hasUser': cachedUser != null},
+    );
+    _update(
+      (current) => current.copyWith(
+        status: AuthStatus.authenticated,
+        token: token,
+        user: cachedUser,
+        isLoading: false,
+        clearError: true,
+      ),
+      cache: true,
+    );
+  }
+
+  void _validateStoredTokenInBackground({
+    required OptimizedStorageService storage,
+    required String token,
+  }) {
+    unawaited(
+      Future<void>(() async {
+        try {
+          final apiReady = await _waitForApiReadiness(
+            timeout: const Duration(seconds: 10),
+          );
+          if (!ref.mounted) return;
+
+          if (!apiReady) {
+            DebugLogger.auth(
+              'API not reachable during background auth validation',
+            );
+            return;
+          }
+
+          final api = ref.read(apiServiceProvider);
+          final user = await api?.getCurrentUser(
+            suppressAuthFailureNotification: true,
+          );
+          if (!ref.mounted) return;
+
+          if (user == null) {
+            DebugLogger.auth(
+              'Background auth validation skipped: API service unavailable',
+            );
+            return;
+          }
+
+          final current = _current;
+          if (current.token != token || !current.hasValidToken) {
+            DebugLogger.auth(
+              'Background auth validation ignored stale token result',
+            );
+            return;
+          }
+
+          _update(
+            (current) => current.copyWith(
+              status: AuthStatus.authenticated,
+              token: token,
+              user: user,
+              isLoading: false,
+              clearError: true,
+            ),
+            cache: true,
+          );
+
+          _preloadDefaultModel();
+        } catch (error, stack) {
+          if (!ref.mounted) return;
+          if (_isConfirmedAuthFailure(error)) {
+            final current = _current;
+            if (current.token != token || !current.hasValidToken) {
+              DebugLogger.auth(
+                'Background auth validation ignored stale token failure',
+              );
+              return;
+            }
+            DebugLogger.auth('Stored token rejected during background check');
+            await onTokenInvalidated();
+            return;
+          }
+
+          DebugLogger.warning(
+            'background-auth-validation-deferred',
+            scope: 'auth/state',
+            data: {'error': error.toString()},
+          );
+          DebugLogger.error(
+            'background-auth-validation-failed',
+            scope: 'auth/state',
+            error: error,
+            stackTrace: stack,
+          );
+        }
+      }),
+    );
+  }
+
+  Future<User?> _readCachedUserWithAvatar(
+    OptimizedStorageService storage,
+  ) async {
+    final cachedUser = await storage.getLocalUser();
+    if (cachedUser == null) return null;
+
+    final cachedAvatar = await storage.getLocalUserAvatar();
+    if (cachedAvatar == null ||
+        cachedAvatar.isEmpty ||
+        cachedUser.profileImage == cachedAvatar) {
+      return cachedUser;
+    }
+
+    return cachedUser.copyWith(profileImage: cachedAvatar);
+  }
+
   /// Perform login with JWT token.
   ///
   /// Note: API keys (sk-...) are not supported for streaming.
@@ -400,14 +489,41 @@ class AuthStateManager extends _$AuthStateManager {
     String apiKey, {
     bool rememberCredentials = false,
     String authType = 'token',
-  }) async {
-    _update(
-      (current) => current.copyWith(
-        status: AuthStatus.loading,
-        isLoading: true,
-        clearError: true,
-      ),
+    bool showLoading = true,
+    bool publishErrors = true,
+  }) {
+    return _loginWithApiKeyInternal(
+      apiKey,
+      rememberCredentials: rememberCredentials,
+      authType: authType,
+      showLoading: showLoading,
+      publishErrors: publishErrors,
     );
+  }
+
+  Future<bool> _loginWithApiKeyInternal(
+    String apiKey, {
+    bool rememberCredentials = false,
+    String authType = 'token',
+    bool showLoading = true,
+    bool publishErrors = true,
+    bool trackAuthAttempt = true,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) async {
+    if (trackAuthAttempt) {
+      _beginAuthAttempt();
+    }
+
+    if (showLoading) {
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.loading,
+          isLoading: true,
+          clearError: true,
+        ),
+      );
+    }
 
     try {
       // Validate token is not empty
@@ -434,16 +550,34 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid token format');
       }
 
-      // Update API service with the API key
-      _updateApiServiceToken(tokenStr);
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('JWT token login skipped for stale auth attempt');
+        return false;
+      }
 
       // Validate by attempting to fetch user info
       try {
-        final user = await _validateIssuedToken(api, tokenStr);
+        final user = await _validateIssuedToken(
+          api,
+          tokenStr,
+          clearOnFailure: () => _canCommitAuth(canCommit),
+        );
+
+        if (!_claimAuthCommit(
+          operation: 'JWT token login',
+          canCommit: canCommit,
+          claimCommit: claimCommit,
+        )) {
+          return false;
+        }
 
         // Save token to storage
         final storage = ref.read(optimizedStorageServiceProvider);
         await storage.saveAuthToken(tokenStr);
+        if (!_canCommitAuth(canCommit)) {
+          DebugLogger.auth('JWT token login ignored after stale persistence');
+          return false;
+        }
 
         // Save JWT token if requested
         if (rememberCredentials) {
@@ -479,7 +613,12 @@ class AuthStateManager extends _$AuthStateManager {
         return true;
       } catch (e) {
         // If user fetch fails, the token might be invalid
-        throw Exception('Invalid token or insufficient permissions');
+        if (_isConfirmedAuthFailure(e)) {
+          throw Exception(
+            'authentication failed: invalid token or insufficient permissions',
+          );
+        }
+        rethrow;
       }
     } catch (e, stack) {
       DebugLogger.error(
@@ -488,15 +627,19 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      _updateApiServiceToken(null);
-      _update(
-        (current) => current.copyWith(
-          status: AuthStatus.error,
-          error: e.toString(),
-          isLoading: false,
-          clearToken: true,
-        ),
-      );
+      if (_canCommitAuth(canCommit)) {
+        _updateApiServiceToken(null);
+      }
+      if (publishErrors) {
+        _update(
+          (current) => current.copyWith(
+            status: AuthStatus.error,
+            error: e.toString(),
+            isLoading: false,
+            clearToken: true,
+          ),
+        );
+      }
       rethrow;
     }
   }
@@ -506,14 +649,41 @@ class AuthStateManager extends _$AuthStateManager {
     String username,
     String password, {
     bool rememberCredentials = false,
-  }) async {
-    _update(
-      (current) => current.copyWith(
-        status: AuthStatus.loading,
-        isLoading: true,
-        clearError: true,
-      ),
+    bool showLoading = true,
+    bool publishErrors = true,
+  }) {
+    return _loginInternal(
+      username,
+      password,
+      rememberCredentials: rememberCredentials,
+      showLoading: showLoading,
+      publishErrors: publishErrors,
     );
+  }
+
+  Future<bool> _loginInternal(
+    String username,
+    String password, {
+    bool rememberCredentials = false,
+    bool showLoading = true,
+    bool publishErrors = true,
+    bool trackAuthAttempt = true,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) async {
+    if (trackAuthAttempt) {
+      _beginAuthAttempt();
+    }
+
+    if (showLoading) {
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.loading,
+          isLoading: true,
+          clearError: true,
+        ),
+      );
+    }
 
     try {
       // Ensure API service is available (active server/provider rebuild race)
@@ -537,13 +707,34 @@ class AuthStateManager extends _$AuthStateManager {
         throw Exception('Invalid authentication token format');
       }
 
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Credential login skipped for stale auth attempt');
+        return false;
+      }
+
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
-      final user = await _validateIssuedToken(api, tokenStr);
+      final user = await _validateIssuedToken(
+        api,
+        tokenStr,
+        clearOnFailure: () => _canCommitAuth(canCommit),
+      );
+
+      if (!_claimAuthCommit(
+        operation: 'Credential login',
+        canCommit: canCommit,
+        claimCommit: claimCommit,
+      )) {
+        return false;
+      }
 
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Credential login ignored after stale persistence');
+        return false;
+      }
 
       // Save credentials if requested
       if (rememberCredentials) {
@@ -581,15 +772,19 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      _updateApiServiceToken(null);
-      _update(
-        (current) => current.copyWith(
-          status: AuthStatus.error,
-          error: e.toString(),
-          isLoading: false,
-          clearToken: true,
-        ),
-      );
+      if (_canCommitAuth(canCommit)) {
+        _updateApiServiceToken(null);
+      }
+      if (publishErrors) {
+        _update(
+          (current) => current.copyWith(
+            status: AuthStatus.error,
+            error: e.toString(),
+            isLoading: false,
+            clearToken: true,
+          ),
+        );
+      }
       rethrow;
     }
   }
@@ -603,6 +798,7 @@ class AuthStateManager extends _$AuthStateManager {
     String password, {
     bool rememberCredentials = false,
   }) async {
+    _beginAuthAttempt();
     _update(
       (current) => current.copyWith(
         status: AuthStatus.loading,
@@ -719,12 +915,18 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<User> _validateIssuedToken(ApiService api, String token) async {
-    _updateApiServiceToken(token);
+  Future<User> _validateIssuedToken(
+    ApiService api,
+    String token, {
+    bool Function()? clearOnFailure,
+  }) async {
+    api.updateAuthToken(token);
     try {
       return await api.getCurrentUser(suppressAuthFailureNotification: true);
     } catch (error, stackTrace) {
-      _updateApiServiceToken(null);
+      if (clearOnFailure == null || clearOnFailure()) {
+        api.updateAuthToken(null);
+      }
       Error.throwWithStackTrace(
         Exception(_loginValidationMessage(error)),
         stackTrace,
@@ -838,95 +1040,72 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<bool> _performSilentLogin() async {
-    _update(
-      (current) => current.copyWith(
-        status: AuthStatus.loading,
-        isLoading: true,
-        clearError: true,
-      ),
+    return _performSilentLoginInternal(
+      showLoading: true,
+      publishNetworkErrors: true,
     );
+  }
+
+  Future<bool> _performSilentLoginInBackground() async {
+    final startRevision = _authAttemptRevision;
+    int? claimRevision;
+
+    bool canCommit() {
+      final expectedRevision = claimRevision ?? startRevision;
+      final current = _current;
+      return ref.mounted &&
+          _authAttemptRevision == expectedRevision &&
+          current.status == AuthStatus.unauthenticated &&
+          !current.hasValidToken;
+    }
+
+    bool claimCommit() {
+      if (!canCommit()) return false;
+      claimRevision = _beginAuthAttempt();
+      return true;
+    }
 
     try {
-      final storage = ref.read(optimizedStorageServiceProvider);
-      final savedCredentials = await storage.getSavedCredentials();
+      return await _performSilentLoginInternal(
+        showLoading: false,
+        publishNetworkErrors: false,
+        canCommit: canCommit,
+        claimCommit: claimCommit,
+      );
+    } catch (error, stack) {
+      DebugLogger.error(
+        'background-silent-login-failed',
+        scope: 'auth/state',
+        error: error,
+        stackTrace: stack,
+      );
+      return false;
+    }
+  }
 
-      if (savedCredentials == null) {
-        _update(
-          (current) => current.copyWith(
-            status: AuthStatus.unauthenticated,
-            isLoading: false,
-            clearError: true,
-          ),
-        );
-        return false;
-      }
+  Future<bool> _performSilentLoginInternal({
+    required bool showLoading,
+    required bool publishNetworkErrors,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) async {
+    if (showLoading) {
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.loading,
+          isLoading: true,
+          clearError: true,
+        ),
+      );
+    }
 
-      final serverId = savedCredentials['serverId']!;
-      final username = savedCredentials['username']!;
-      final password = savedCredentials['password']!;
-
-      // Ensure the saved server still exists before switching
-      final serverConfigs = await ref.read(serverConfigsProvider.future);
-      final hasServer = serverConfigs.any((config) => config.id == serverId);
-
-      if (!hasServer) {
-        await storage.deleteSavedCredentials();
-        await storage.setActiveServerId(null);
-        ref.invalidate(serverConfigsProvider);
-        ref.invalidate(activeServerProvider);
-
-        _update(
-          (current) => current.copyWith(
-            status: AuthStatus.error,
-            error:
-                'Saved server configuration is no longer available. Please reconnect.',
-            isLoading: false,
-          ),
-        );
-        return false;
-      }
-
-      // Set active server once we know it exists
-      await storage.setActiveServerId(serverId);
-      ref.invalidate(activeServerProvider);
-
-      // Wait for server connection
-      final activeServer = await ref.read(activeServerProvider.future);
-      if (activeServer == null) {
-        await storage.setActiveServerId(null);
-        _update(
-          (current) => current.copyWith(
-            status: AuthStatus.error,
-            error: 'Server configuration not found',
-            isLoading: false,
-          ),
-        );
-        return false;
-      }
-
-      // Attempt login based on auth type
-      final authType = savedCredentials['authType'] ?? 'credentials';
-
-      // Handle JWT token-based authentication (includes legacy prefixes)
-      // LDAP now also stores JWT tokens for re-auth (not raw passwords)
-      if (username == 'api_key_user' ||
-          username == 'jwt_user' ||
-          username.startsWith('ldap:') ||
-          authType == 'token' ||
-          authType == 'sso' ||
-          authType == 'ldap') {
-        // This is a saved JWT token (manual entry, SSO, or LDAP-obtained)
-        // For LDAP, we store the JWT token returned by the server, not the
-        // original password, for security reasons
-        return await loginWithApiKey(
-          password, // This is the JWT token
-          rememberCredentials: false,
-          authType: authType,
-        );
-      } else {
-        // Standard credentials login (default)
-        return await login(username, password, rememberCredentials: false);
-      }
+    try {
+      return await _performSilentLoginAttempt(
+        showLoading: showLoading,
+        publishErrors: publishNetworkErrors,
+        canCommit: canCommit,
+        claimCommit: claimCommit,
+      );
     } catch (e, stack) {
       DebugLogger.error(
         'silent-login-failed',
@@ -935,56 +1114,303 @@ class AuthStateManager extends _$AuthStateManager {
         stackTrace: stack,
       );
 
-      String errorMessage = e.toString();
+      return await _handleSilentLoginFailure(
+        e,
+        publishNetworkErrors: publishNetworkErrors,
+        canCommit: canCommit,
+      );
+    }
+  }
 
-      // Don't clear credentials on connection errors - only clear on actual auth failures
-      // Check if this is a genuine auth failure vs network issue
-      final isNetworkError =
-          e.toString().contains('SocketException') ||
-          e.toString().contains('Connection') ||
-          e.toString().contains('timeout') ||
-          e.toString().contains('NetworkImage');
+  Future<bool> _performSilentLoginAttempt({
+    required bool showLoading,
+    required bool publishErrors,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final savedCredentials = await storage.getSavedCredentials();
 
-      if (!isNetworkError &&
-          (e.toString().contains('401') ||
-              e.toString().contains('403') ||
-              e.toString().contains('authentication') ||
-              e.toString().contains('unauthorized'))) {
-        // Only clear credentials if this is a real auth failure, not a network issue
-        final storage = ref.read(optimizedStorageServiceProvider);
-        try {
-          DebugLogger.auth('Clearing invalid credentials after auth failure');
-          await storage.deleteSavedCredentials();
-        } catch (deleteError, deleteStack) {
-          DebugLogger.error(
-            'silent-login-credential-clear-failed',
-            scope: 'auth/state',
-            error: deleteError,
-            stackTrace: deleteStack,
-          );
-          errorMessage =
-              '$errorMessage. Also failed to clear saved '
-              'credentials; please clear Conduit credentials from '
-              'system settings.';
-        }
-
-        // Set credential error status to trigger login page
+    if (savedCredentials == null) {
+      if (_canCommitAuth(canCommit)) {
         _update(
           (current) => current.copyWith(
-            status: AuthStatus.credentialError,
-            error: errorMessage,
+            status: AuthStatus.unauthenticated,
             isLoading: false,
-            clearToken: true,
+            clearError: true,
           ),
         );
-        return false;
-      } else if (isNetworkError) {
-        DebugLogger.auth(
-          'Silent login failed due to network error - keeping credentials',
-        );
-        errorMessage = 'Connection issue - please check your network';
+      }
+      return false;
+    }
 
-        // Set general error status to trigger connection issue page
+    final serverId = savedCredentials['serverId']!;
+    final username = savedCredentials['username']!;
+    final password = savedCredentials['password']!;
+
+    // Ensure the saved server still exists before switching
+    final serverConfigs = await ref.read(serverConfigsProvider.future);
+    final matchingServerConfigs = serverConfigs.where(
+      (config) => config.id == serverId,
+    );
+    final serverConfig = matchingServerConfigs.isEmpty
+        ? null
+        : matchingServerConfigs.first;
+
+    if (serverConfig == null) {
+      if (canCommit != null) {
+        DebugLogger.auth(
+          'Background silent login skipped missing-server credential cleanup',
+        );
+        return false;
+      }
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Silent login ignored stale missing-server result');
+        return false;
+      }
+      await storage.deleteSavedCredentials();
+      await storage.setActiveServerId(null);
+      ref.invalidate(serverConfigsProvider);
+      ref.invalidate(activeServerProvider);
+
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.error,
+          error:
+              'Saved server configuration is no longer available. Please reconnect.',
+          isLoading: false,
+        ),
+      );
+      return false;
+    }
+
+    if (!_canCommitAuth(canCommit)) {
+      DebugLogger.auth('Silent login skipped stale saved credentials');
+      return false;
+    }
+
+    // Attempt login based on auth type
+    final authType = savedCredentials['authType'] ?? 'credentials';
+    final tempApi = ApiService(
+      serverConfig: serverConfig,
+      workerManager: ref.read(workerManagerProvider),
+    );
+
+    // Handle JWT token-based authentication (includes legacy prefixes)
+    // LDAP now also stores JWT tokens for re-auth (not raw passwords)
+    final usesSavedJwt =
+        username == 'api_key_user' ||
+        username == 'jwt_user' ||
+        username.startsWith('ldap:') ||
+        authType == 'token' ||
+        authType == 'sso' ||
+        authType == 'ldap';
+
+    final result = usesSavedJwt
+        ? await _authenticateSavedJwt(tempApi, password)
+        : await _authenticateSavedCredentials(tempApi, username, password);
+
+    return _commitSilentLoginResult(
+      storage: storage,
+      serverId: serverId,
+      token: result.token,
+      user: result.user,
+      canCommit: canCommit,
+      claimCommit: claimCommit,
+    );
+  }
+
+  Future<({String token, User user})> _authenticateSavedJwt(
+    ApiService api,
+    String token,
+  ) async {
+    final tokenStr = token.trim();
+    if (tokenStr.isEmpty) {
+      throw Exception('Token cannot be empty');
+    }
+    if (TokenValidator.isApiKey(tokenStr)) {
+      throw Exception('apiKeyNotSupported');
+    }
+    if (!_isValidTokenFormat(tokenStr)) {
+      throw Exception('Invalid token format');
+    }
+
+    final user = await _validateIssuedToken(api, tokenStr);
+    return (token: tokenStr, user: user);
+  }
+
+  Future<({String token, User user})> _authenticateSavedCredentials(
+    ApiService api,
+    String username,
+    String password,
+  ) async {
+    final response = await api.login(username, password);
+    final token = response['token'] ?? response['access_token'];
+    if (token == null || token.toString().trim().isEmpty) {
+      throw Exception('No authentication token received');
+    }
+
+    final tokenStr = token.toString();
+    if (!_isValidTokenFormat(tokenStr)) {
+      throw Exception('Invalid authentication token format');
+    }
+
+    final user = await _validateIssuedToken(api, tokenStr);
+    return (token: tokenStr, user: user);
+  }
+
+  Future<bool> _commitSilentLoginResult({
+    required OptimizedStorageService storage,
+    required String serverId,
+    required String token,
+    required User user,
+    bool Function()? canCommit,
+    bool Function()? claimCommit,
+  }) async {
+    if (!_claimAuthCommit(
+      operation: 'Silent login',
+      canCommit: canCommit,
+      claimCommit: claimCommit,
+    )) {
+      return false;
+    }
+
+    final previousServerId = await storage.getActiveServerId();
+    final previousToken = await storage.getAuthToken();
+    if (!_canCommitAuth(canCommit)) {
+      DebugLogger.auth('Silent login skipped stale persistence commit');
+      return false;
+    }
+
+    var wrotePersistence = false;
+    try {
+      await storage.setActiveServerId(serverId);
+      wrotePersistence = true;
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Silent login restoring stale server commit');
+        await _restoreStaleSilentLoginPersistence(
+          storage: storage,
+          staleServerId: serverId,
+          previousServerId: previousServerId,
+          staleToken: token,
+          previousToken: previousToken,
+        );
+        return false;
+      }
+
+      await storage.saveAuthToken(token);
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Silent login restoring stale persistence commit');
+        await _restoreStaleSilentLoginPersistence(
+          storage: storage,
+          staleServerId: serverId,
+          previousServerId: previousServerId,
+          staleToken: token,
+          previousToken: previousToken,
+        );
+        return false;
+      }
+    } catch (error) {
+      if (wrotePersistence && !_canCommitAuth(canCommit)) {
+        await _restoreStaleSilentLoginPersistence(
+          storage: storage,
+          staleServerId: serverId,
+          previousServerId: previousServerId,
+          staleToken: token,
+          previousToken: previousToken,
+        );
+      }
+      rethrow;
+    }
+
+    ref.invalidate(activeServerProvider);
+    ref.invalidate(apiServiceProvider);
+    _update(
+      (current) => current.copyWith(
+        status: AuthStatus.authenticated,
+        token: token,
+        user: user,
+        isLoading: false,
+        clearError: true,
+      ),
+      cache: true,
+    );
+    _updateApiServiceToken(token);
+    _preloadDefaultModel();
+
+    DebugLogger.auth('Silent login successful');
+    return true;
+  }
+
+  Future<bool> _handleSilentLoginFailure(
+    Object error, {
+    required bool publishNetworkErrors,
+    bool Function()? canCommit,
+  }) async {
+    var errorMessage = error.toString();
+
+    // Don't clear credentials on connection errors - only clear on actual auth failures
+    // Check if this is a genuine auth failure vs network issue
+    final isNetworkError =
+        error.toString().contains('SocketException') ||
+        error.toString().contains('Connection') ||
+        error.toString().contains('timeout') ||
+        error.toString().contains('NetworkImage');
+
+    if (!isNetworkError &&
+        (error.toString().contains('401') ||
+            error.toString().contains('403') ||
+            error.toString().contains('authentication') ||
+            error.toString().contains('unauthorized'))) {
+      if (canCommit != null) {
+        DebugLogger.auth(
+          'Background silent login ignored credential auth failure',
+        );
+        return false;
+      }
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Silent login ignored stale auth failure');
+        return false;
+      }
+
+      // Only clear credentials if this is a real auth failure, not a network issue
+      final storage = ref.read(optimizedStorageServiceProvider);
+      try {
+        DebugLogger.auth('Clearing invalid credentials after auth failure');
+        await storage.deleteSavedCredentials();
+      } catch (deleteError, deleteStack) {
+        DebugLogger.error(
+          'silent-login-credential-clear-failed',
+          scope: 'auth/state',
+          error: deleteError,
+          stackTrace: deleteStack,
+        );
+        errorMessage =
+            '$errorMessage. Also failed to clear saved '
+            'credentials; please clear Conduit credentials from '
+            'system settings.';
+      }
+
+      // Set credential error status to trigger login page
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.credentialError,
+          error: errorMessage,
+          isLoading: false,
+          clearToken: true,
+        ),
+      );
+      return false;
+    } else if (isNetworkError) {
+      DebugLogger.auth(
+        'Silent login failed due to network error - keeping credentials',
+      );
+      if (publishNetworkErrors) {
+        if (!_canCommitAuth(canCommit)) {
+          DebugLogger.auth('Silent login ignored stale network failure');
+          return false;
+        }
+        errorMessage = 'Connection issue - please check your network';
         _update(
           (current) => current.copyWith(
             status: AuthStatus.error,
@@ -992,16 +1418,22 @@ class AuthStateManager extends _$AuthStateManager {
             isLoading: false,
           ),
         );
+      }
+      return false;
+    }
+
+    // Unknown error type - treat as connection issue but keep credentials
+    if (errorMessage.trim().isEmpty) {
+      errorMessage = 'Connection issue - please try again shortly';
+    }
+    DebugLogger.auth(
+      'Silent login failed with unknown error - keeping credentials',
+    );
+    if (publishNetworkErrors) {
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth('Silent login ignored stale failure');
         return false;
       }
-
-      // Unknown error type - treat as connection issue but keep credentials
-      if (errorMessage.trim().isEmpty) {
-        errorMessage = 'Connection issue - please try again shortly';
-      }
-      DebugLogger.auth(
-        'Silent login failed with unknown error - keeping credentials',
-      );
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
@@ -1009,8 +1441,8 @@ class AuthStateManager extends _$AuthStateManager {
           isLoading: false,
         ),
       );
-      return false;
     }
+    return false;
   }
 
   /// Reset retry counter (called when user manually retries)
@@ -1038,6 +1470,7 @@ class AuthStateManager extends _$AuthStateManager {
   /// Handle token invalidation (called by API service for explicit token expiry)
   /// This is only used when we need to clear the token for re-login attempts
   Future<void> onTokenInvalidated() async {
+    _beginAuthAttempt();
     // Prevent infinite retry loops
     final now = DateTime.now();
     if (_lastRetryTime != null &&
@@ -1118,6 +1551,7 @@ class AuthStateManager extends _$AuthStateManager {
   /// can quickly re-login. Users can navigate to server connection page to
   /// change server settings if needed.
   Future<void> logout() async {
+    _beginAuthAttempt();
     _update(
       (current) =>
           current.copyWith(status: AuthStatus.loading, isLoading: true),
