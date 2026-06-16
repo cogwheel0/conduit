@@ -855,9 +855,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             const ChatsCompanion(dirty: Value(true)),
           );
         }
-      }
 
-      if (placeholder != null) {
         await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
       }
 

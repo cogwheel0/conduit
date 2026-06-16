@@ -275,75 +275,30 @@ class ApiSyncApiClient implements SyncApiClient {
   Future<Map<String, dynamic>> createChat(
     Map<String, dynamic> chatBlob, {
     String? folderId,
-  }) {
-    return _withTerminalAuth(
-      () => api.createChatRaw(chatBlob, folderId: folderId),
-      'createChat',
-    );
-  }
+  }) => api.createChatRaw(chatBlob, folderId: folderId);
 
   @override
   Future<Map<String, dynamic>?> updateChat(
     String id,
     Map<String, dynamic> fullBlob,
-  ) {
-    return _withTerminalAuth(
-      () => api.updateChatRaw(id, fullBlob),
-      'updateChat $id',
-    );
-  }
+  ) => api.updateChatRaw(id, fullBlob);
 
   @override
-  Future<bool> deleteChat(String id) {
-    return _withTerminalAuth(() => api.deleteChatRaw(id), 'deleteChat $id');
-  }
+  Future<bool> deleteChat(String id) => api.deleteChatRaw(id);
 
   @override
-  Future<bool> getChatPinned(String id) {
-    return _withTerminalAuth(
-      () => api.getChatPinnedRaw(id),
-      'getChatPinned $id',
-    );
-  }
+  Future<bool> getChatPinned(String id) => api.getChatPinnedRaw(id);
 
   @override
-  Future<Map<String, dynamic>?> togglePin(String id) {
-    return _withTerminalAuth(() => api.togglePinRaw(id), 'togglePin $id');
-  }
+  Future<Map<String, dynamic>?> togglePin(String id) => api.togglePinRaw(id);
 
   @override
-  Future<Map<String, dynamic>?> toggleArchive(String id) {
-    return _withTerminalAuth(
-      () => api.toggleArchiveRaw(id),
-      'toggleArchive $id',
-    );
-  }
+  Future<Map<String, dynamic>?> toggleArchive(String id) =>
+      api.toggleArchiveRaw(id);
 
   @override
-  Future<Map<String, dynamic>?> moveChatToFolder(String id, String? folderId) {
-    return _withTerminalAuth(
-      () => api.moveChatToFolderRaw(id, folderId),
-      'moveChatToFolder $id',
-    );
-  }
-
-  Future<T> _withTerminalAuth<T>(
-    Future<T> Function() action,
-    String operation,
-  ) async {
-    try {
-      return await action();
-    } on DioException catch (e) {
-      final code = e.response?.statusCode;
-      if (code == 401 || code == 403) {
-        throw SyncTerminalException(
-          statusCode: code,
-          message: '$operation forbidden',
-        );
-      }
-      rethrow;
-    }
-  }
+  Future<Map<String, dynamic>?> moveChatToFolder(String id, String? folderId) =>
+      api.moveChatToFolderRaw(id, folderId);
 
   @override
   Future<Map<String, dynamic>> createFolder({
@@ -351,16 +306,24 @@ class ApiSyncApiClient implements SyncApiClient {
     String? parentId,
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
-  }) {
-    return _withTerminalAuth(
-      () => api.createFolder(
+  }) async {
+    try {
+      return await api.createFolder(
         name: name,
         parentId: parentId,
         data: data,
         meta: meta,
-      ),
-      'createFolder',
-    );
+      );
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'createFolder forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -404,12 +367,8 @@ class ApiSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<bool> deleteFolder(String id, {bool deleteContents = false}) {
-    return _withTerminalAuth(
-      () => api.deleteFolderRaw(id, deleteContents: deleteContents),
-      'deleteFolder $id',
-    );
-  }
+  Future<bool> deleteFolder(String id, {bool deleteContents = false}) =>
+      api.deleteFolderRaw(id, deleteContents: deleteContents);
 
   // ---- Phase 5 NOTES ----
 
@@ -419,45 +378,27 @@ class ApiSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<Map<String, dynamic>?> getNoteRaw(String id) {
-    return _withTerminalAuth(() => api.getNoteRaw(id), 'getNoteRaw $id');
-  }
+  Future<Map<String, dynamic>?> getNoteRaw(String id) => api.getNoteRaw(id);
 
   @override
   Future<Map<String, dynamic>> createNote({
     required String title,
     required Map<String, dynamic> data,
     Map<String, dynamic>? meta,
-  }) {
-    return _withTerminalAuth(
-      () => api.createNoteRaw(title: title, data: data, meta: meta),
-      'createNote',
-    );
-  }
+  }) => api.createNoteRaw(title: title, data: data, meta: meta);
 
   @override
   Future<Map<String, dynamic>?> updateNote(
     String id,
     Map<String, dynamic> patch,
-  ) {
-    return _withTerminalAuth(
-      () => api.updateNoteRaw(id, patch),
-      'updateNote $id',
-    );
-  }
+  ) => api.updateNoteRaw(id, patch);
 
   @override
-  Future<bool> deleteNote(String id) {
-    return _withTerminalAuth(() => api.deleteNoteRaw(id), 'deleteNote $id');
-  }
+  Future<bool> deleteNote(String id) => api.deleteNoteRaw(id);
 
   @override
-  Future<Map<String, dynamic>?> togglePinNote(String id) {
-    return _withTerminalAuth(
-      () => api.togglePinNoteRaw(id),
-      'togglePinNote $id',
-    );
-  }
+  Future<Map<String, dynamic>?> togglePinNote(String id) =>
+      api.togglePinNoteRaw(id);
 }
 
 /// Overridable seam for engine tests; null when no [ApiService] is available

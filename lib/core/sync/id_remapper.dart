@@ -167,7 +167,7 @@ class IdRemapper {
           // the local duplicate: repoint its ops, drop its messages + row.
           // _deleteMessagesForChat is a DIRECT delete on `messages`, so trigger
           // #2 already purges the local msg FTS rows; the subsequent
-          // _deleteChatRow fires trigger #6 (purges the local title row). No
+          // _deleteChatRow fires trigger #7 (purges the local title row). No
           // surviving local FTS rows remain to repoint, so the FTS remap is a
           // safe no-op on this branch.
           await _rewriteOutboxChatId(localId, serverId);
@@ -192,11 +192,11 @@ class IdRemapper {
       // _deleteChatRow(localId): _rewriteMessagesChatId is an UPDATE of
       // `chat_id` only, which fires NO FTS trigger (trigger #3 is AFTER UPDATE
       // OF content), so the msg FTS rows still key localId. If the local chat
-      // row were deleted first, trigger #6 (`DELETE FROM chat_fts WHERE
-      // chat_id = old.id`) would eat those orphaned msg rows and permanently
-      // drop the content from the index.
+      // row were deleted first, trigger #7 (`chats AFTER DELETE -> DELETE FROM
+      // chat_fts WHERE chat_id = old.id`) would eat those orphaned msg rows and
+      // permanently drop the content from the index.
       await _remapFtsRows(localId, serverId);
-      // (d) The local row now has no children: delete it cleanly. Trigger #6
+      // (d) The local row now has no children: delete it cleanly. Trigger #7
       // purges only the local title FTS row (msg rows now key serverId; the
       // serverId title row was already created by trigger #4 in step (a)).
       await _deleteChatRow(localId);
@@ -567,14 +567,14 @@ class IdRemapper {
   /// chat_id = ?`. The FTS maintenance trigger on messages (#3) fires only
   /// `AFTER UPDATE OF content`, so a chat_id-only update leaves the standalone
   /// `chat_fts` message rows still keyed to `localId`. Those orphaned rows would
-  /// then be eaten by trigger #6 (`chats AFTER DELETE` -> `DELETE FROM chat_fts
+  /// then be eaten by trigger #7 (`chats AFTER DELETE` -> `DELETE FROM chat_fts
   /// WHERE chat_id = old.id`) when [_deleteChatRow] purges the local chat,
   /// permanently dropping the chat's message content from the index. Repoint
   /// them directly on the vtable instead.
   ///
   /// Restricted to `kind = 'msg'`: the serverId title row is (re)created by
   /// trigger #4 in [_insertChatCopy], and the stale local title row is purged by
-  /// trigger #6 on [_deleteChatRow]. Repointing the title here would leave a
+  /// trigger #7 on [_deleteChatRow]. Repointing the title here would leave a
   /// duplicate title row at serverId.
   ///
   /// Tolerant of a not-yet-built index: when the `chat_fts` vtable does not

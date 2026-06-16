@@ -164,10 +164,7 @@ class NotePullSync {
 
   /// One explicit server page of raw note maps.
   /// Exposed for the [NoteAdapter] seam.
-  Future<List<Map<String, dynamic>>> getListPageRaw(int page) =>
-      _getNoteListPage(page);
-
-  Future<List<Map<String, dynamic>>> _getNoteListPage(int page) async {
+  Future<List<Map<String, dynamic>>> getListPageRaw(int page) async {
     // The vendored endpoint applies `limit = 60` only when `?page=N` is present.
     // Pull always uses explicit pages so large note libraries are enumerated
     // with the same early-stop semantics as chat pull.

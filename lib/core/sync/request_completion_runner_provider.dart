@@ -9,7 +9,7 @@ part 'request_completion_runner_provider.g.dart';
 /// The concrete [RequestCompletionRunner] lives in
 /// `features/chat/services/request_completion_runner.dart` (it touches the
 /// streaming providers). The [SyncEngine]'s drainer reads THIS provider to get
-/// the runner; `app_startup_providers.dart` `overrideWith`s it with the chat
+/// the runner; `main.dart` `overrideWith`s it with the chat
 /// implementation. Until overridden it is a throwing stub — the drainer only
 /// invokes it for `requestCompletion` ops, which never exist before the chat
 /// layer (and its override) is installed.

@@ -1380,16 +1380,48 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value;
-    if (current == null) return;
-    final update = _transformItemById(
-      current,
-      id,
-      transform,
-      idOf: (conversation) => conversation.id,
-    );
-    if (update == null) return;
+    final update = current == null
+        ? null
+        : _transformItemById(
+            current,
+            id,
+            transform,
+            idOf: (conversation) => conversation.id,
+          );
+    if (update == null) {
+      // The chat list stream has not loaded yet, or this id is absent from the
+      // loaded projection. Request a reconcile pull so the server-confirmed
+      // envelope mutation is not lost (mirrors Folders.updateFolder).
+      _requestConversationReconcilePull(
+        action: current == null ? 'update-cold' : 'update-missing',
+      );
+      return;
+    }
     _replaceState(update.items);
     _writeEnvelopeUpdate(update.item);
+  }
+
+  void _requestConversationReconcilePull({required String action}) {
+    DebugLogger.log(
+      'reconcile-after-remote-mutation',
+      scope: 'conversations',
+      data: {'action': action},
+    );
+    unawaited(
+      ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'conversations-reconcile')
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'reconcile-pull-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'action': action},
+            );
+            return null;
+          }),
+    );
   }
 
   void markConversationRead(String id, DateTime readAt) {
@@ -2030,7 +2062,7 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
 
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
-    // Offline / reviewer mode: serve ranked results straight from the local
+    // Offline: serve ranked results straight from the local
     // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
     DebugLogger.log('offline-search', scope: 'search');
     return _offlineSearch(ref, trimmedQuery);

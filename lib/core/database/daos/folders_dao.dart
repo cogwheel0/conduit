@@ -148,7 +148,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
         // Existing folder edit: overlay provided fields, mark dirty, keep
         // serverUpdatedAt as-is (LWW pull gate keys off dirty).
         final mergedExtra = <String, dynamic>{
-          ...(_decodeMap(existing.rawExtra)),
+          ...decodeJsonMap(existing.rawExtra),
           'data': ?data,
           'meta': ?meta,
         };
@@ -246,5 +246,4 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     );
   }
 
-  static Map<String, dynamic> _decodeMap(String raw) => decodeJsonMap(raw);
 }

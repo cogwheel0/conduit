@@ -145,12 +145,11 @@ class DeletionReconcile {
     //    fraction), abort without purging. The floor keeps a legitimate
     //    small-library deletion (e.g. a user's only chat) from being mistaken
     //    for a mass-delete and blocked forever.
-    if (localServerIds.isNotEmpty &&
-        candidates.length >
-            math.max(
-              kReconcileMinCandidatesForValve,
-              localServerIds.length * kReconcileMaxPurgeFraction,
-            )) {
+    if (candidates.length >
+        math.max(
+          kReconcileMinCandidatesForValve,
+          localServerIds.length * kReconcileMaxPurgeFraction,
+        )) {
       DebugLogger.warning(
         'reconcile-aborted-safety-valve',
         scope: 'sync/reconcile',

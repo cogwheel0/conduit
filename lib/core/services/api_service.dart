@@ -1404,8 +1404,10 @@ class ApiService {
   }
 
   /// POST `/api/v1/chats/{id}` with the COMPLETE blob. Returns the parsed
-  /// `ChatResponse` map; null on 404 (chat gone); throws
-  /// [SyncTerminalException] on 401/403.
+  /// `ChatResponse` map; throws [SyncTerminalException] on 401/403.
+  /// NOTE: the vendored `update_chat_by_id` route returns 401 (not 404) for a
+  /// missing/unowned chat, so a server-side delete surfaces as
+  /// [SyncTerminalException], not null; the 404->null branch is defensive only.
   Future<Map<String, dynamic>?> updateChatRaw(
     String id,
     Map<String, dynamic> chat,

@@ -46,14 +46,19 @@ class DatabaseManager {
       // Fire-and-forget: downstream streams re-derive from the new database.
       // Tracked via [_pendingClose] so [deleteFor] can await an in-flight
       // close before deleting the previous server's files.
-      _pendingClose = existing.close().catchError((Object error) {
-        DebugLogger.error(
-          'close-failed',
-          scope: 'db/manager',
-          error: error,
-          data: {'serverId': previousId},
-        );
-      });
+      final prior = _pendingClose;
+      _pendingClose =
+          (prior == null
+                  ? existing.close()
+                  : prior.then((_) => existing.close()))
+              .catchError((Object error) {
+                DebugLogger.error(
+                  'close-failed',
+                  scope: 'db/manager',
+                  error: error,
+                  data: {'serverId': previousId},
+                );
+              });
     }
     DebugLogger.log('open', scope: 'db/manager', data: {'serverId': server.id});
     final db = _openDatabase(fileNameFor(server.id));
@@ -64,9 +69,13 @@ class DatabaseManager {
 
   Future<void> closeActive() async {
     final active = _active;
+    final pending = _pendingClose;
     _active = null;
     _activeServerId = null;
     _pendingClose = null;
+    if (pending != null) {
+      await pending;
+    }
     if (active != null) {
       DebugLogger.log('close-active', scope: 'db/manager');
       await active.close();
