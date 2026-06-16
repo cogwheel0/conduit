@@ -674,6 +674,62 @@ void main() {
       check(pending.single.kind).equals('updateChat');
     });
 
+    test('three-way does not duplicate an in-flight updateChat push', () async {
+      await seedAndPull('chat-1');
+
+      await locks.runExclusive('chat-1', () async {
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: 'chat-1',
+          messages: [
+            MessageRowData(
+              id: 'chat-1-local',
+              chatId: 'chat-1',
+              parentId: 'chat-1-m2',
+              role: 'user',
+              content: 'local follow-up',
+              createdAt: 1500,
+              orderIndex: 99,
+              payload: {
+                'id': 'chat-1-local',
+                'parentId': 'chat-1-m2',
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'local follow-up',
+                'timestamp': 1500,
+              },
+            ),
+          ],
+          currentMessageId: 'chat-1-local',
+          updatedAt: 150,
+          enqueueCompletion: false,
+        );
+      });
+      final claimed = await db.outboxDao.claimNextRunnable(
+        nowEpochSeconds: 0,
+        busyChatIds: const {},
+      );
+      check(claimed).isNotNull();
+      check(claimed!.kind).equals('updateChat');
+      check(claimed.status).equals('inFlight');
+      check(await db.outboxDao.pendingForChat('chat-1')).isEmpty();
+
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 3),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+
+      final second = await pull.run();
+      check(second.success).isTrue();
+
+      check(await db.outboxDao.pendingForChat('chat-1')).isEmpty();
+      final active = await db.outboxDao.activeForChat('chat-1');
+      check(active).length.equals(1);
+      check(active.single.kind).equals('updateChat');
+      check(active.single.status).equals('inFlight');
+    });
+
     test('a dirty tombstone is NOT resurrected by a fast-forward', () async {
       await seedAndPull('chat-1');
 

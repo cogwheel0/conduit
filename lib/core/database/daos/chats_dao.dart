@@ -316,7 +316,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
-  /// Caller is inside [mergeServerChat]'s transaction. Reasserts a pending
+  /// Caller is inside [mergeServerChat]'s transaction. Reasserts an active
   /// updateChat atomically with dirty merge writes unless an update/create
   /// already covers this chat.
   Future<ChatMergeWriteResult> _mergeResultWithUpdateOpIfMissing(
@@ -324,8 +324,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     ChatMergeWriteResult result,
   ) async {
     if (!result.mustPush) return result;
-    final pending = await _outboxDao.pendingForChat(chatId);
-    final hasUpdateOrCreate = pending.any((op) {
+    final active = await _outboxDao.activeForChat(
+      chatId,
+      domainKind: OutboxKind.updateChat,
+    );
+    final hasUpdateOrCreate = active.any((op) {
       final kind = OutboxKind.fromName(op.kind);
       return kind == OutboxKind.updateChat || kind == OutboxKind.createChat;
     });
