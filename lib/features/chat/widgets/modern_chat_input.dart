@@ -792,6 +792,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     int requestId,
   ) async {
     final api = ref.read(apiServiceProvider);
+    final token = ref.read(authTokenProvider3);
     if (api == null) {
       if (!mounted || _isDeactivated) return;
       if (requestId != _contextSuggestionRequestId) return;
@@ -828,7 +829,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             noteResults = await api.searchNotes(query: normalizedQuery);
           } on DioException catch (error) {
             final statusCode = error.response?.statusCode;
-            if (statusCode == 401 || statusCode == 403) {
+            if ((statusCode == 401 || statusCode == 403) &&
+                mounted &&
+                !_isDeactivated &&
+                identical(ref.read(apiServiceProvider), api) &&
+                ref.read(authTokenProvider3) == token) {
               ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
             }
             noteResults = const <Map<String, dynamic>>[];
@@ -1187,11 +1192,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final locale = Localizations.localeOf(context);
     String? userLocation;
     const parser = PromptVariableParser();
-    final needsUserLocation = parser.parse(prompt.content).any(
-      (variable) =>
-          variable.isSystemVariable &&
-          variable.name.toUpperCase() == 'USER_LOCATION',
-    );
+    final needsUserLocation = parser
+        .parse(prompt.content)
+        .any(
+          (variable) =>
+              variable.isSystemVariable &&
+              variable.name.toUpperCase() == 'USER_LOCATION',
+        );
 
     if (needsUserLocation) {
       final locationResult = await ref

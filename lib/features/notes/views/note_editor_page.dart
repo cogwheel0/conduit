@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../core/database/database_provider.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
@@ -104,20 +105,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     super.dispose();
   }
 
+  bool _isCurrentNoteSession({required Object api, required Object? db}) {
+    if (!identical(ref.read(apiServiceProvider), api)) return false;
+    final currentDb = ref.read(appDatabaseProvider);
+    return db == null ? currentDb == null : identical(currentDb, db);
+  }
+
   Future<void> _loadNote() async {
     setState(() => _isLoading = true);
 
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      setState(() => _isLoading = false);
-      return;
-    }
-
     try {
-      final json = await api.getNoteById(widget.noteId);
-      final note = Note.fromJson(json);
+      final note = await _readNoteById(widget.noteId);
 
       if (mounted) {
+        if (note == null) {
+          setState(() => _isLoading = false);
+          return;
+        }
         setState(() {
           _note = note;
           _titleController.text = note.title;
@@ -133,6 +137,43 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _showError(e.toString());
       }
     }
+  }
+
+  Future<Note?> _readNoteById(String noteId) {
+    final provider = noteByIdProvider(noteId);
+    final current = ref.read(provider);
+    if (current.hasValue) {
+      return Future<Note?>.value(current.value);
+    }
+    if (current.hasError) {
+      return Future<Note?>.error(
+        current.error ?? StateError('Failed to load note'),
+      );
+    }
+
+    final completer = Completer<Note?>();
+    ProviderSubscription<AsyncValue<Note?>>? subscription;
+
+    void completeFromState(AsyncValue<Note?> state) {
+      if (completer.isCompleted) return;
+      if (state.hasValue) {
+        completer.complete(state.value);
+        subscription?.close();
+      } else if (state.hasError) {
+        completer.completeError(
+          state.error ?? StateError('Failed to load note'),
+        );
+        subscription?.close();
+      }
+    }
+
+    subscription = ref.listenManual<AsyncValue<Note?>>(
+      provider,
+      (_, next) => completeFromState(next),
+      fireImmediately: true,
+    );
+
+    return completer.future.whenComplete(() => subscription?.close());
   }
 
   void _onContentChanged() {
@@ -170,6 +211,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() => _isSaving = true);
 
     final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
     if (api == null) {
       setState(() => _isSaving = false);
       return;
@@ -196,9 +238,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
       final updatedNote = Note.fromJson(json);
 
-      ref.read(notesListProvider.notifier).updateNote(updatedNote);
-
       if (mounted) {
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isSaving = false);
+          return;
+        }
+
+        ref
+            .read(notesListProvider.notifier)
+            .updateNote(updatedNote, sourceDb: db);
+
         setState(() {
           _note = updatedNote;
           _isSaving = false;
@@ -631,6 +680,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Uploads an audio file to the server and attaches it to the note.
   Future<void> _uploadAudioFile(File audioFile) async {
     final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
     final l10n = AppLocalizations.of(context)!;
 
     if (api == null || _note == null) {
@@ -704,9 +754,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final updatedNote = Note.fromJson(json);
 
       if (mounted) {
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isUploadingAudio = false);
+          return;
+        }
+
         // Update provider state inside mounted check to avoid accessing
         // invalid ref after widget disposal
-        ref.read(notesListProvider.notifier).updateNote(updatedNote);
+        ref
+            .read(notesListProvider.notifier)
+            .updateNote(updatedNote, sourceDb: db);
 
         setState(() {
           _note = updatedNote;
@@ -1266,6 +1323,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (confirmed != true || _note == null) return;
 
     final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
     if (api == null) return;
 
     setState(() => _isSaving = true);
@@ -1295,9 +1353,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
 
       final updatedNote = Note.fromJson(json);
-      ref.read(notesListProvider.notifier).updateNote(updatedNote);
 
       if (mounted) {
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isSaving = false);
+          return;
+        }
+
+        ref
+            .read(notesListProvider.notifier)
+            .updateNote(updatedNote, sourceDb: db);
+
         setState(() {
           _note = updatedNote;
           _isSaving = false;

@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
@@ -29,6 +32,8 @@ import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
+import '../persistence/hive_boxes.dart';
+import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
 import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
@@ -2921,11 +2926,17 @@ final foldersFeatureEnabledProvider =
     );
 
 class FoldersFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('folders', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('folders', enabled, scope: _scope);
   }
 }
 
@@ -2937,11 +2948,17 @@ final notesFeatureEnabledProvider =
     );
 
 class NotesFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('notes', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('notes', enabled, scope: _scope);
   }
 }
 
@@ -2953,11 +2970,181 @@ final channelsFeatureEnabledProvider =
     );
 
 class ChannelsFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('channels', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('channels', enabled, scope: _scope);
+  }
+}
+
+_FeatureAvailabilityScope? _featureAvailabilityScope(Ref ref) {
+  final activeServerId = ref.watch(
+    activeServerProvider.select((value) => value.asData?.value?.id),
+  );
+  final serverId = activeServerId ?? _FeatureAvailabilityCache.activeServerId();
+  if (serverId == null) return null;
+
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  final tokenUserId = _featureAvailabilityTokenUserId(
+    ref.watch(authTokenProvider3),
+  );
+  if (userId != null && userId.isNotEmpty) {
+    return _FeatureAvailabilityScope(
+      serverId: serverId,
+      userId: userId,
+      fallbackUserId: tokenUserId,
+    );
+  }
+
+  if (tokenUserId == null) return null;
+  return _FeatureAvailabilityScope(serverId: serverId, userId: tokenUserId);
+}
+
+String? _featureAvailabilityTokenUserId(String? token) {
+  final trimmed = token?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  final digest = sha256.convert(utf8.encode(trimmed)).toString();
+  return '__token_${digest.substring(0, 24)}';
+}
+
+final class _FeatureAvailabilityScope {
+  const _FeatureAvailabilityScope({
+    required this.serverId,
+    required this.userId,
+    this.fallbackUserId,
+  });
+
+  final String serverId;
+  final String userId;
+  final String? fallbackUserId;
+
+  String get cacheKey => '$serverId::$userId';
+
+  String? get fallbackCacheKey {
+    final fallback = fallbackUserId;
+    if (fallback == null || fallback == userId) return null;
+    return '$serverId::$fallback';
+  }
+}
+
+final class _FeatureAvailabilityCache {
+  const _FeatureAvailabilityCache._();
+
+  static bool? read(String featureKey, {_FeatureAvailabilityScope? scope}) {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return null;
+    final resolvedScope = scope;
+    if (resolvedScope == null) return null;
+
+    final value = _readFeature(box, resolvedScope.cacheKey, featureKey);
+    if (value != null) return value;
+
+    final fallbackCacheKey = resolvedScope.fallbackCacheKey;
+    if (fallbackCacheKey == null) return null;
+    final fallbackValue = _readFeature(box, fallbackCacheKey, featureKey);
+    if (fallbackValue == null) return null;
+    _backfillFeature(box, resolvedScope.cacheKey, featureKey, fallbackValue);
+    return fallbackValue;
+  }
+
+  static void write(
+    String featureKey,
+    bool enabled, {
+    _FeatureAvailabilityScope? scope,
+  }) {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return;
+    final resolvedScope = scope;
+    if (resolvedScope == null) return;
+
+    final allFlags = _allFlags(box);
+    final cacheKeys = {resolvedScope.cacheKey, ?resolvedScope.fallbackCacheKey};
+    for (final cacheKey in cacheKeys) {
+      final serverFlags = _serverFlags(box, cacheKey);
+      serverFlags[featureKey] = enabled;
+      allFlags[cacheKey] = serverFlags;
+    }
+
+    _persistAllFlags(box, allFlags, featureKey: featureKey);
+  }
+
+  static String? activeServerId() {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return null;
+    return _activeServerId(box);
+  }
+
+  static Box<dynamic>? _preferencesBoxOrNull() {
+    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) return null;
+    return Hive.box<dynamic>(HiveBoxNames.preferences);
+  }
+
+  static String? _activeServerId(Box<dynamic> box) {
+    final value = box.get(PreferenceKeys.activeServerId);
+    if (value is! String || value.isEmpty) return null;
+    return value;
+  }
+
+  static Map<String, dynamic> _allFlags(Box<dynamic> box) {
+    final raw = box.get(PreferenceKeys.serverFeatureAvailability);
+    if (raw is! Map) return <String, dynamic>{};
+    return raw.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  static Map<String, dynamic> _serverFlags(Box<dynamic> box, String serverId) {
+    final value = _allFlags(box)[serverId];
+    if (value is! Map) return <String, dynamic>{};
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  static bool? _readFeature(
+    Box<dynamic> box,
+    String cacheKey,
+    String featureKey,
+  ) {
+    final value = _serverFlags(box, cacheKey)[featureKey];
+    return value is bool ? value : null;
+  }
+
+  static void _backfillFeature(
+    Box<dynamic> box,
+    String cacheKey,
+    String featureKey,
+    bool enabled,
+  ) {
+    final allFlags = _allFlags(box);
+    final serverFlags = _serverFlags(box, cacheKey);
+    serverFlags[featureKey] = enabled;
+    allFlags[cacheKey] = serverFlags;
+    _persistAllFlags(box, allFlags, featureKey: featureKey);
+  }
+
+  static void _persistAllFlags(
+    Box<dynamic> box,
+    Map<String, dynamic> allFlags, {
+    required String featureKey,
+  }) {
+    unawaited(
+      box.put(PreferenceKeys.serverFeatureAvailability, allFlags).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'feature-cache-write-failed',
+          scope: 'features/cache',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'feature': featureKey},
+        );
+      }),
+    );
   }
 }
 

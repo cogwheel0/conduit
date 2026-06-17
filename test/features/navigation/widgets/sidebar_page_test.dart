@@ -219,7 +219,7 @@ void main() {
     expect(find.byType(TerminalTab), findsNothing);
   });
 
-  testWidgets('keeps terminal tab visible when terminal discovery fails', (
+  testWidgets('hides terminal tab when terminal discovery fails', (
     tester,
   ) async {
     final controllers = _SidebarHarnessControllers();
@@ -231,8 +231,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
-    expect(find.byType(TerminalTab), findsOneWidget);
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsNothing);
+    expect(find.byType(TerminalTab), findsNothing);
   });
 
   testWidgets('channel helpers align when terminal tab is hidden', (

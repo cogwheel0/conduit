@@ -14,12 +14,15 @@ part 'notes_dao.g.dart';
 /// localization-free; the UI can re-derive/badge from `isConflictCopy`.
 const String kNoteConflictCopySuffix = ' (conflict copy)';
 
-/// Exactly the fields the notes-list UI uses (REQ §10.2 parity — NEVER `data`,
-/// note bodies can be large).
+/// Exactly the fields the notes-list UI uses (REQ §10.2 parity): metadata plus
+/// a bounded markdown preview. The full `data` blob can be large and is not
+/// materialized into Dart for list rows.
 class NoteListEntry {
   const NoteListEntry({
     required this.id,
+    required this.userId,
     required this.title,
+    required this.previewMarkdown,
     required this.createdAt,
     required this.updatedAt,
     required this.isPinned,
@@ -27,7 +30,9 @@ class NoteListEntry {
   });
 
   final String id;
+  final String userId;
   final String title;
+  final String previewMarkdown;
 
   /// NANOSECONDS.
   final int createdAt;
@@ -56,28 +61,120 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   NotesDao(super.db);
 
   static const Uuid _uuid = Uuid();
+  static const int _listPreviewMaxChars = 1000;
+  static const String _ownerPredicate = '''
+json_valid(raw_extra)
+AND (
+  CAST(json_extract(raw_extra, '\$.user_id') AS TEXT) = ?
+  OR CAST(json_extract(raw_extra, '\$.user.id') AS TEXT) = ?
+)
+''';
 
   OutboxDao get _outboxDao => attachedDatabase.outboxDao;
 
   // ---- list / read ----
 
-  /// NARROW projection (REQ §10.2): never selects `data`. WHERE deleted=false,
-  /// ORDER BY updatedAt DESC, id ASC.
-  Stream<List<NoteListEntry>> watchNotes() {
-    final query = _listProjection()
-      ..where(notes.deleted.equals(false))
-      ..orderBy([
-        OrderingTerm.desc(notes.updatedAt),
-        OrderingTerm.asc(notes.id),
-      ]);
-    return query.watch().map(
-      (rows) => rows.map(_entryFromProjection).toList(growable: false),
+  /// NARROW projection (REQ §10.2): returns only list fields plus a bounded
+  /// markdown preview. WHERE deleted=false, ORDER BY updatedAt DESC, id ASC.
+  Stream<List<NoteListEntry>> watchNotes({required String userId}) {
+    final query = customSelect(
+      '''
+SELECT
+  id,
+  CAST(
+    COALESCE(
+      json_extract(raw_extra, '\$.user_id'),
+      json_extract(raw_extra, '\$.user.id'),
+      ''
+    ) AS TEXT
+  ) AS note_user_id,
+  title,
+  created_at,
+  updated_at,
+  is_pinned,
+  is_conflict_copy,
+  substr(
+    CASE
+      WHEN json_valid(data) THEN COALESCE(json_extract(data, '\$.content.md'), '')
+      ELSE ''
+    END,
+    1,
+    $_listPreviewMaxChars
+  ) AS preview_markdown
+FROM notes
+WHERE deleted = 0
+  AND $_ownerPredicate
+ORDER BY updated_at DESC, id ASC
+''',
+      variables: _ownerVariables(userId),
+      readsFrom: {notes},
     );
+    return query.watch().map(
+      (rows) => rows.map(_entryFromListRow).toList(growable: false),
+    );
+  }
+
+  /// Full-body note search for the notes screen. Unlike [watchNotes], this is
+  /// only used after the user enters a query, so returning full rows for the
+  /// bounded result set is acceptable and keeps search from being limited to
+  /// the list preview.
+  Future<List<NoteRow>> searchNotesByQuery(
+    String query, {
+    required String userId,
+    int limit = 250,
+  }) async {
+    final trimmed = query.trim().toLowerCase();
+    if (trimmed.isEmpty || limit <= 0) return const <NoteRow>[];
+    final pattern = '%${_escapeLikePattern(trimmed)}%';
+
+    final rows = await customSelect(
+      '''
+SELECT *
+FROM notes
+WHERE deleted = 0
+  AND $_ownerPredicate
+  AND (
+    LOWER(title) LIKE ? ESCAPE '\\'
+    OR (
+      json_valid(data)
+      AND LOWER(COALESCE(json_extract(data, '\$.content.md'), '')) LIKE ? ESCAPE '\\'
+    )
+  )
+ORDER BY updated_at DESC, id ASC
+LIMIT ?
+''',
+      variables: [
+        ..._ownerVariables(userId),
+        Variable.withString(pattern),
+        Variable.withString(pattern),
+        Variable.withInt(limit),
+      ],
+      readsFrom: {notes},
+    ).get();
+
+    return rows.map((row) => notes.map(row.data)).toList(growable: false);
   }
 
   /// Full row, one-shot.
   Future<NoteRow?> getNote(String id) {
     return (select(notes)..where((t) => t.id.equals(id))).getSingleOrNull();
+  }
+
+  /// Full row, one-shot, restricted to the current authenticated user.
+  Future<NoteRow?> getNoteForUser(String id, {required String userId}) async {
+    final row = await customSelect(
+      '''
+SELECT *
+FROM notes
+WHERE id = ?
+  AND deleted = 0
+  AND $_ownerPredicate
+LIMIT 1
+''',
+      variables: [Variable.withString(id), ..._ownerVariables(userId)],
+      readsFrom: {notes},
+    ).getSingleOrNull();
+    return row == null ? null : notes.map(row.data);
   }
 
   /// Every non-tombstoned note carrying a SERVER id (`id NOT LIKE 'local:%'`) —
@@ -217,7 +314,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
           dirtyData: const Value(true),
           dirtyPinned: const Value(false),
           deleted: const Value(false),
-          rawExtra: const Value('{}'),
+          rawExtra: Value(existing.rawExtra),
           isConflictCopy: const Value(true),
           conflictOf: Value(existing.id),
         ),
@@ -356,6 +453,18 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     });
   }
 
+  /// Server-confirmed pin mirror write: stores the current per-user pin state
+  /// without enqueuing an outbox op or touching title/data watermarks.
+  Future<void> storeNotePinMirror(String id, {required bool isPinned}) async {
+    final noteId = await _resolveLocalRemapTarget(id);
+    await (update(notes)..where((t) => t.id.equals(noteId))).write(
+      NotesCompanion(
+        isPinned: Value(isPinned),
+        dirtyPinned: const Value(false),
+      ),
+    );
+  }
+
   /// Local delete: tombstones the note (`deleted=true`) and enqueues a
   /// `noteDelete` op. Rows are normally NOT hard-deleted here (tombstone
   /// discipline); the drainer purges on confirm. The exception is a pure-local
@@ -422,26 +531,28 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     return row == null ? id : target;
   }
 
-  JoinedSelectStatement<HasResultSet, dynamic> _listProjection() {
-    return selectOnly(notes)..addColumns([
-      notes.id,
-      notes.title,
-      notes.createdAt,
-      notes.updatedAt,
-      notes.isPinned,
-      notes.isConflictCopy,
-    ]);
+  NoteListEntry _entryFromListRow(QueryRow row) {
+    return NoteListEntry(
+      id: row.read<String>('id'),
+      userId: row.read<String>('note_user_id'),
+      title: row.read<String>('title'),
+      previewMarkdown: row.read<String>('preview_markdown'),
+      createdAt: row.read<int>('created_at'),
+      updatedAt: row.read<int>('updated_at'),
+      isPinned: row.read<int>('is_pinned') != 0,
+      isConflictCopy: row.read<int>('is_conflict_copy') != 0,
+    );
   }
 
-  NoteListEntry _entryFromProjection(TypedResult row) {
-    return NoteListEntry(
-      id: row.read(notes.id)!,
-      title: row.read(notes.title)!,
-      createdAt: row.read(notes.createdAt)!,
-      updatedAt: row.read(notes.updatedAt)!,
-      isPinned: row.read(notes.isPinned)!,
-      isConflictCopy: row.read(notes.isConflictCopy)!,
-    );
+  String _escapeLikePattern(String value) {
+    return value
+        .replaceAll(r'\', r'\\')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
+  }
+
+  List<Variable<String>> _ownerVariables(String userId) {
+    return [Variable.withString(userId), Variable.withString(userId)];
   }
 
   static int? _asNs(Object? value) => asNs(value);

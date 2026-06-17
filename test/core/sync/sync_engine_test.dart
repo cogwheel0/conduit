@@ -556,6 +556,52 @@ void main() {
         ).isEmpty();
       },
     );
+
+    test(
+      'ignores stale note feature results after the active database changes',
+      () async {
+        final firstDb = db;
+        final secondDb = AppDatabase(NativeDatabase.memory());
+        final activeDbProvider =
+            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+              () => _MutableValue<AppDatabase?>(firstDb),
+            );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith(
+              (ref) => ref.watch(activeDbProvider),
+            ),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await secondDb.close();
+        });
+
+        final gate = Completer<void>();
+        client.notesFeatureEnabled = false;
+        client.noteListGate = gate.future;
+        final engine = container.read(syncEngineProvider.notifier);
+
+        check(container.read(notesFeatureEnabledProvider)).isTrue();
+        final resultFuture = engine.requestPull(
+          reason: 'switch-during-note-feature',
+        );
+        await waitFor(() => client.noteListRequests > 0);
+
+        container.read(activeDbProvider.notifier).set(secondDb);
+        container.read(syncEngineProvider);
+
+        gate.complete();
+        final result = await resultFuture;
+
+        check(result).isNull();
+        check(container.read(notesFeatureEnabledProvider)).isTrue();
+      },
+    );
   });
 
   group('SyncEngine.pullChatNow', () {

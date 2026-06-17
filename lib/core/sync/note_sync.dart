@@ -37,11 +37,13 @@ class NotePullSync {
     required AppDatabase db,
     required ChatLocks locks,
     IdRemapper? remapper,
+    void Function(bool enabled)? onFeatureEnabled,
   }) : _client = client,
        _db = db,
        _locks = locks,
        // ignore: prefer_initializing_formals
-       _remapper = remapper;
+       _remapper = remapper,
+       _onFeatureEnabled = onFeatureEnabled;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -50,6 +52,7 @@ class NotePullSync {
   /// Used by pull-side note create crash-heal when a process crashed after the
   /// server minted a note but before the local `noteCreate` remap committed.
   final IdRemapper? _remapper;
+  final void Function(bool enabled)? _onFeatureEnabled;
 
   /// Lock + one-transaction field-LWW merge of a full `NoteModel` map (D-11).
   /// On a merge that retained local-dirty content, enqueues a `noteUpdate`
@@ -168,7 +171,8 @@ class NotePullSync {
     // The vendored endpoint applies `limit = 60` only when `?page=N` is present.
     // Pull always uses explicit pages so large note libraries are enumerated
     // with the same early-stop semantics as chat pull.
-    final (items, _) = await _client.getNoteListRaw(page: page);
+    final (items, featureEnabled) = await _client.getNoteListRaw(page: page);
+    _onFeatureEnabled?.call(featureEnabled);
     return items;
   }
 }

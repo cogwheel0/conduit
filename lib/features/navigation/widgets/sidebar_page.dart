@@ -435,11 +435,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final channelsEnabled = ref.watch(channelsFeatureEnabledProvider);
     final terminalServers = ref.watch(terminalAvailableServersProvider);
-    final showTerminalTab = terminalServers.maybeWhen(
-      data: (servers) => servers.isNotEmpty,
-      error: (_, _) => true,
-      orElse: () => true,
-    );
+    final showTerminalTab = terminalServers.hasError
+        ? false
+        : terminalServers.hasValue
+        ? terminalServers.requireValue.isNotEmpty
+        : true;
     final visibleTabIds = <_SidebarTabId>[
       _SidebarTabId.chats,
       if (notesEnabled) _SidebarTabId.notes,

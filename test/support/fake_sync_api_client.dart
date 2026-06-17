@@ -305,6 +305,9 @@ class FakeSyncApiClient implements SyncApiClient {
   /// note watermark stays frozen).
   bool failNoteList = false;
 
+  /// When set, every [getNoteListRaw] awaits this future before returning.
+  Future<void>? noteListGate;
+
   /// Note ids whose [getNoteRaw] throws (transient fetch failure).
   final Set<String> failNoteIds = <String>{};
 
@@ -346,6 +349,10 @@ class FakeSyncApiClient implements SyncApiClient {
   Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
     noteListRequests++;
     noteListPages.add(page);
+    final gate = noteListGate;
+    if (gate != null) {
+      await gate;
+    }
     if (failNoteList) {
       throw StateError('injected note list failure');
     }

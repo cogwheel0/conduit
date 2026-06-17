@@ -346,18 +346,24 @@ class SyncEngine extends _$SyncEngine {
   /// Engine-internal: the note pull driver (Phase 5, D-11). Shares the engine's
   /// IdRemapper (the §7.3 remap stream is single) + the SEPARATE noteLocks
   /// domain. Null until db/client/remapper are ready.
-  NotePullSync? _buildNotePullSync() {
+  NotePullSync? _buildNotePullSync({int? sessionEpoch}) {
     final db = _boundDb;
     final client = _boundClient;
     final noteLocks = _boundNoteLocks;
     if (db == null || client == null || noteLocks == null) return null;
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
+    final boundSessionEpoch = sessionEpoch ?? _sessionEpoch;
     return NotePullSync(
       client: client,
       db: db,
       locks: noteLocks,
       remapper: remapper,
+      onFeatureEnabled: (enabled) {
+        if (!ref.mounted) return;
+        if (boundSessionEpoch != _sessionEpoch) return;
+        ref.read(notesFeatureEnabledProvider.notifier).setEnabled(enabled);
+      },
     );
   }
 
@@ -382,8 +388,8 @@ class SyncEngine extends _$SyncEngine {
   /// (`runPullFor`). A fresh instance per cycle is fine — the adapter is
   /// stateless over its injected pull/push/locks; the locks + remapper that
   /// carry cross-cycle state are the shared engine-owned singletons.
-  NoteAdapter? _buildNoteAdapterForPull() {
-    final notePull = _buildNotePullSync();
+  NoteAdapter? _buildNoteAdapterForPull(int sessionEpoch) {
+    final notePull = _buildNotePullSync(sessionEpoch: sessionEpoch);
     final notePush = _buildNotePushSync();
     if (notePull == null || notePush == null) return null;
     return NoteAdapter(pull: notePull, push: notePush);
@@ -655,7 +661,7 @@ class SyncEngine extends _$SyncEngine {
     // chat seconds watermark; runPullFor reads the adapter's OWN key). A note
     // pull failure must NOT freeze the chat watermark or abort the cycle; it is
     // logged and the idempotent field-LWW merge self-heals next cycle.
-    final noteAdapter = _buildNoteAdapterForPull();
+    final noteAdapter = _buildNoteAdapterForPull(cycleEpoch);
     AdapterPullResult? noteResult;
     int? previousNotesWatermark;
     if (noteAdapter != null) {

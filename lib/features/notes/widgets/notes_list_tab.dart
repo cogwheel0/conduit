@@ -92,6 +92,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   List<ConduitContextMenuAction> _buildNoteActions(Note note) {
     return buildNoteContextMenuActions(
       context: context,
+      ref: ref,
       note: note,
       onEdit: _onNoteTap,
       onTogglePin: _togglePin,
@@ -333,8 +334,8 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.markdownContent.isNotEmpty
-        ? note.markdownContent.replaceAll('\n', ' ').trim()
+    final preview = note.listPreviewMarkdown.isNotEmpty
+        ? note.listPreviewMarkdown.replaceAll('\n', ' ').trim()
         : '';
     final timeAgo = _formatTime(note.updatedDateTime);
 
