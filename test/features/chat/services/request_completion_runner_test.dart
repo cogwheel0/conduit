@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
@@ -46,6 +47,7 @@ void main() {
       overrides: [
         appDatabaseProvider.overrideWith((ref) => attachDatabase ? db : null),
         isChatStreamingProvider.overrideWithValue(isStreaming),
+        chatMessagesProvider.overrideWith(() => _TestMessagesNotifier()),
         activeConversationProvider.overrideWith(() => _SeededActive(active)),
         // No api/socket stack here: the headless/live drive both short-circuit
         // on the null-api guard, letting these tests assert the PATH choice
@@ -121,6 +123,36 @@ void main() {
     await check(
       runner.run(chatId: chatId, payload: payload('asst-1')),
     ).throws<CompletionBusyException>();
+  });
+
+  test('does not defer its own optimistic streaming placeholder', () async {
+    const chatId = 'chat-own-placeholder';
+    await seedChat(chatId);
+    await seedMessage(chatId, 'asst-own', '');
+
+    final (:container, :runner) = makeRunner(
+      isStreaming: true,
+      active: conv(chatId),
+    );
+    container.read(chatMessagesProvider.notifier).setMessages([
+      ChatMessage(
+        id: 'user-own',
+        role: 'user',
+        content: 'hello',
+        timestamp: DateTime.now(),
+      ),
+      ChatMessage(
+        id: 'asst-own',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.now(),
+        isStreaming: true,
+      ),
+    ]);
+
+    await check(
+      runner.run(chatId: chatId, payload: payload('asst-own')),
+    ).throws<StateError>();
   });
 
   test('defers when no active database is attached', () async {
@@ -306,4 +338,14 @@ class _SeededActive extends ActiveConversationNotifier {
 
   @override
   Conversation? build() => _initial;
+}
+
+class _TestMessagesNotifier extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => const [];
+
+  @override
+  void setMessages(List<ChatMessage> messages) {
+    state = List<ChatMessage>.from(messages);
+  }
 }

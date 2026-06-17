@@ -75,11 +75,26 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     //    exact chat, defer (throw-transient) so we never clobber it.
     final isStreaming = _ref.read(isChatStreamingProvider);
     final activeId = _ref.read(activeConversationProvider)?.id;
-    if (isStreaming && activeId == chatId) {
+    final activeMessages = _ref.read(chatMessagesProvider);
+    final activeLastMessage = activeMessages.isNotEmpty
+        ? activeMessages.last
+        : null;
+    final activeStreamingAssistantId =
+        activeLastMessage?.role == 'assistant' &&
+            activeLastMessage?.isStreaming == true
+        ? activeLastMessage?.id
+        : null;
+    final isOwnOptimisticPlaceholder =
+        activeStreamingAssistantId == assistantMessageId;
+    if (isStreaming && activeId == chatId && !isOwnOptimisticPlaceholder) {
       DebugLogger.log(
         'completion-deferred-busy',
         scope: 'chat/completion',
-        data: {'chatId': chatId},
+        data: {
+          'chatId': chatId,
+          'assistantMessageId': assistantMessageId,
+          'activeStreamingAssistantId': activeStreamingAssistantId,
+        },
       );
       throw CompletionBusyException(chatId);
     }
@@ -127,9 +142,9 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     }
 
     if (activeId == chatId &&
-        _ref.read(chatMessagesProvider).any(
-          (message) => message.id == assistantMessageId,
-        )) {
+        _ref
+            .read(chatMessagesProvider)
+            .any((message) => message.id == assistantMessageId)) {
       // Live drive — the placeholder is loaded + marked streaming inside
       // runQueuedCompletion; the stream final + D-07 echo land on the SAME
       // assistantMessageId row (R8 one-row-per-turn).
