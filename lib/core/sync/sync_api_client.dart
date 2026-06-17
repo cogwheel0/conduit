@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../providers/app_providers.dart';
 import '../services/api_service.dart';
+import '../utils/debug_logger.dart';
 
 part 'sync_api_client.g.dart';
 
@@ -119,7 +120,11 @@ abstract interface class SyncApiClient {
     Map<String, dynamic>? meta,
   });
 
-  /// POST `/api/v1/folders/{id}/update`; null on 404.
+  /// POST `/api/v1/folders/{id}/update`. Returns the updated folder map on
+  /// success; null ONLY on a genuine HTTP 404 (folder gone — the caller may
+  /// purge the local row). A 2xx response with a non-map/empty body is still a
+  /// successful update and returns a (possibly empty) map, NEVER null, so the
+  /// caller never mistakes a healthy server reply for a deletion.
   Future<Map<String, dynamic>?> updateFolder(
     String id, {
     String? name,
@@ -334,7 +339,26 @@ class ApiSyncApiClient implements SyncApiClient {
     Map<String, dynamic>? meta,
   }) async {
     try {
-      return await api.updateFolder(id, name: name, data: data, meta: meta);
+      final resp = await api.updateFolder(
+        id,
+        name: name,
+        data: data,
+        meta: meta,
+      );
+      // A genuine 404 throws a DioException (Dio rejects status >= 400), so it
+      // is handled in the catch below. Reaching here means a 2xx success. When
+      // `api.updateFolder` returns null on a 2xx it only means the body was not
+      // a JSON map (unexpected shape / empty body) — the update DID succeed, so
+      // surface a non-null map to keep the caller from purging the local folder.
+      if (resp == null) {
+        DebugLogger.warning(
+          'update-folder-non-map-2xx',
+          scope: 'sync/folders',
+          data: {'folderId': id},
+        );
+        return const <String, dynamic>{};
+      }
+      return resp;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;

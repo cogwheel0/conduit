@@ -27,6 +27,7 @@ import '../../../core/sync/id_remapper.dart';
 import '../../../core/sync/outbox_drainer.dart' show OutboxDeferralException;
 import '../../../core/sync/sync_engine.dart';
 
+import '../../../core/services/chat_completion_transport.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
@@ -3992,6 +3993,7 @@ Future<void> runHeadlessCompletion(
         error: error,
         data: {'chatId': chatId},
       );
+      await _abortQuietly(session);
       throw _QueuedCompletionDeferred(
         'headless stream drain timed out for chat $chatId',
       );
@@ -4002,6 +4004,7 @@ Future<void> runHeadlessCompletion(
         error: error,
         data: {'chatId': chatId},
       );
+      await _abortQuietly(session);
       throw _QueuedCompletionDeferred(
         'headless stream drain failed for chat $chatId: $error',
       );
@@ -4069,6 +4072,25 @@ class _QueuedCompletionDeferred implements OutboxDeferralException {
 
   @override
   String toString() => message;
+}
+
+/// Cancels the active completion's underlying request (e.g. the Dio
+/// CancelToken for the httpStream transport), tearing down the byte-stream
+/// subscription and closing the socket. Swallows abort errors so callers can
+/// continue propagating their original failure/deferral.
+Future<void> _abortQuietly(ChatCompletionSession session) async {
+  final abort = session.abort;
+  if (abort == null) return;
+  try {
+    await abort();
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'headless-stream-abort-failed',
+      scope: 'chat/completion',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 }
 
 Future<void> _markHeadlessCompletionSubmitted(

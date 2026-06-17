@@ -150,6 +150,24 @@ void main() {
       ),
     ).isNull();
   });
+
+  test('folder route remap preserves query params', () {
+    check(
+      remappedFolderRouteForTesting(
+        '/folder/local%3Af1?view=grid',
+        fromId: 'local:f1',
+        toId: 'srv-folder',
+      ),
+    ).equals('/folder/srv-folder?view=grid');
+
+    check(
+      remappedFolderRouteForTesting(
+        '/folder/other?view=grid',
+        fromId: 'local:f1',
+        toId: 'srv-folder',
+      ),
+    ).isNull();
+  });
 }
 
 Future<void> _runRemapAndWait(

@@ -216,6 +216,14 @@ class OutboxTaskQueueMigrator {
       // the contentHash). The message ids are derived DETERMINISTICALLY from
       // the stable legacy task id so a re-run of the same task rebuilds an
       // identical blob -> identical createChatContentHash -> dedupe (R7).
+      //
+      // The blob's per-message timestamps MUST be deterministic too: they feed
+      // createChatContentHash (which only strips the TOP-LEVEL timestamp/id),
+      // so passing wall-clock `now` would make the hash drift across re-runs on
+      // a later app launch -> both dedupe checks miss -> a duplicate chat is
+      // POSTed. Use a fixed constant (0) for the blob; user-visible ordering is
+      // driven by the chat row createdAt/updatedAt (still `now`) and the server
+      // assigns its own timestamps on createChat.
       final localId = 'local:${_uuid.v4()}';
       final userMsgId = _uuid.v5(Namespace.url.value, '$taskId/user');
       final asstId = _uuid.v5(Namespace.url.value, '$taskId/assistant');
@@ -224,7 +232,7 @@ class OutboxTaskQueueMigrator {
         asstId: asstId,
         text: text,
         attachments: attachments,
-        now: now,
+        now: 0,
       );
       final rows = ChatBlobMapper.blobToRows(
         chatId: localId,

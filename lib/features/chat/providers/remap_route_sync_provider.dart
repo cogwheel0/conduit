@@ -44,6 +44,27 @@ void remapRouteSync(Ref ref) {
         );
         ref.read(pendingFolderIdProvider.notifier).set(event.toId);
       }
+      final nextRoute = remappedFolderRouteForTesting(
+        NavigationService.currentRoute,
+        fromId: event.fromId,
+        toId: event.toId,
+      );
+      if (nextRoute != null) {
+        DebugLogger.log(
+          'remap-open-folder-route',
+          scope: 'chat/remap',
+          data: {'from': event.fromId, 'to': event.toId},
+        );
+        try {
+          NavigationService.router.go(nextRoute);
+        } catch (error) {
+          DebugLogger.warning(
+            'remap-navigation-failed',
+            scope: 'chat/remap',
+            data: {'route': nextRoute, 'error': error.toString()},
+          );
+        }
+      }
     } else if (event.entityKind == 'note') {
       final nextRoute = remappedNoteRouteForTesting(
         NavigationService.currentRoute,
@@ -86,5 +107,24 @@ String? remappedNoteRouteForTesting(
   }
   return currentUri
       .replace(path: '/notes/${Uri.encodeComponent(toId)}')
+      .toString();
+}
+
+String? remappedFolderRouteForTesting(
+  String? currentRoute, {
+  required String fromId,
+  required String toId,
+}) {
+  if (currentRoute == null) return null;
+  final currentUri = Uri.tryParse(currentRoute);
+  if (currentUri == null) return null;
+  final segments = currentUri.pathSegments;
+  if (segments.length != 2 ||
+      segments.first != 'folder' ||
+      segments[1] != fromId) {
+    return null;
+  }
+  return currentUri
+      .replace(path: '/folder/${Uri.encodeComponent(toId)}')
       .toString();
 }
