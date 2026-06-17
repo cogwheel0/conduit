@@ -1,0 +1,26 @@
+name: Check Xcode Versions
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-xcode:
+    runs-on: macos-latest
+
+    steps:
+      - name: Show current Xcode
+        run: |
+          echo "Current Xcode:"
+          xcodebuild -version
+          echo ""
+          echo "Developer directory:"
+          xcode-select -p
+
+      - name: List installed Xcodes
+        run: |
+          echo "Installed Xcodes:"
+          ls -1 /Applications | grep Xcode || true
+
+      - name: Show available SDKs
+        run: |
+          xcodebuild -showsdks
