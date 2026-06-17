@@ -128,12 +128,12 @@ END;
 /// missing/NULL path so the FTS row is never NULL (which FTS5 would reject).
 const List<String> kNoteFtsTriggers = <String>[
   // 8. notes AFTER INSERT → title row + extracted-body text row.
-  '''
+  r'''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_ai AFTER INSERT ON notes BEGIN
   INSERT INTO chat_fts(text, chat_id, message_id, kind)
   VALUES (new.title, new.id, '', 'note_title');
   INSERT INTO chat_fts(text, chat_id, message_id, kind)
-  VALUES (coalesce(json_extract(new.data, '\$.content.md'), ''),
+  VALUES (coalesce(json_extract(new.data, '$.content.md'), ''),
           new.id, '', 'note_text');
 END;
 ''',
@@ -147,12 +147,12 @@ WHEN new.title <> old.title BEGIN
 END;
 ''',
   // 10. notes AFTER UPDATE OF data — re-extract the body (guarded on raw data).
-  '''
+  r'''
 CREATE TRIGGER IF NOT EXISTS chat_fts_note_data_au AFTER UPDATE OF data ON notes
 WHEN new.data <> old.data BEGIN
   DELETE FROM chat_fts WHERE kind = 'note_text' AND chat_id = old.id;
   INSERT INTO chat_fts(text, chat_id, message_id, kind)
-  VALUES (coalesce(json_extract(new.data, '\$.content.md'), ''),
+  VALUES (coalesce(json_extract(new.data, '$.content.md'), ''),
           new.id, '', 'note_text');
 END;
 ''',
@@ -197,9 +197,9 @@ INSERT INTO chat_fts(text, chat_id, message_id, kind)
 SELECT title, id, '', 'note_title' FROM notes WHERE deleted = 0;
 ''';
 
-const String kBackfillNoteText = '''
+const String kBackfillNoteText = r'''
 INSERT INTO chat_fts(text, chat_id, message_id, kind)
-SELECT coalesce(json_extract(data, '\$.content.md'), ''), id, '', 'note_text'
+SELECT coalesce(json_extract(data, '$.content.md'), ''), id, '', 'note_text'
 FROM notes WHERE deleted = 0;
 ''';
 

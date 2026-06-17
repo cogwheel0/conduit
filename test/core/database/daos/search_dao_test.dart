@@ -354,6 +354,34 @@ void main() {
       check(leftover.read<int>('n')).equals(0);
     });
 
+    test('note insert indexes markdown body as note_text', () async {
+      await _insertNote(
+        db,
+        id: 'body-note',
+        title: 'plain note title',
+        body: 'clementine markdown body',
+      );
+
+      final rows = await db
+          .customSelect(
+            "SELECT kind, text FROM chat_fts WHERE chat_id = 'body-note' "
+            'ORDER BY kind',
+          )
+          .get();
+      check(
+        rows.map((row) => row.read<String>('kind')).toList(),
+      ).deepEquals(['note_text', 'note_title']);
+      check(rows.first.read<String>('text')).equals('clementine markdown body');
+
+      final noteHits = await db.searchDao.searchNotes('clementine');
+      check(noteHits.single.kind).equals(SearchHitKind.note);
+      check(noteHits.single.chatId).equals('body-note');
+
+      final allHits = await db.searchDao.searchAll('clementine');
+      check(allHits.single.kind).equals(SearchHitKind.note);
+      check(allHits.single.chatId).equals('body-note');
+    });
+
     test('note soft-delete purges both note rows', () async {
       await _insertNote(
         db,
