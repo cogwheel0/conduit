@@ -310,10 +310,12 @@ Future<Note?> noteById(Ref ref, String id) async {
 
   try {
     final json = await api.getNoteById(id);
+    if (!ref.mounted) return cachedNote;
+    if (!_isCurrentNoteSession(ref, api: api, db: db)) {
+      return cachedNote;
+    }
     final note = Note.fromJson(json);
-    if (db != null &&
-        ref.mounted &&
-        _isCurrentNoteSession(ref, api: api, db: db)) {
+    if (db != null) {
       await _persistServerNoteRow(db, json, noteId: id);
     }
     return note;

@@ -393,6 +393,72 @@ void main() {
     });
 
     test(
+      'does not publish stale individual note responses after the active API changes',
+      () async {
+        final gate = Completer<void>();
+        final staleApi = _FakeNotesApiService(
+          fetchedRaw: _buildNoteJson(
+            id: 'stale-note',
+            title: 'Stale note',
+            markdown: 'stale body',
+            updatedAt: 1713786305000000000,
+          ),
+          fetchGate: gate.future,
+        );
+        final currentApi = _FakeNotesApiService(
+          fetchedRaw: _buildNoteJson(
+            id: 'stale-note',
+            title: 'Current note',
+            markdown: 'current body',
+            updatedAt: 1713872705000000000,
+          ),
+        );
+        final activeApiProvider =
+            NotifierProvider<_MutableValue<ApiService?>, ApiService?>(
+              () => _MutableValue<ApiService?>(staleApi),
+            );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => null),
+            apiServiceProvider.overrideWith(
+              (ref) => ref.watch(activeApiProvider),
+            ),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            isOnlineProvider.overrideWithValue(true),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final provider = noteByIdProvider('stale-note');
+        final emittedNotes = <Note?>[];
+        final subscription = container.listen<AsyncValue<Note?>>(provider, (
+          _,
+          next,
+        ) {
+          if (next.hasValue) emittedNotes.add(next.value);
+        }, fireImmediately: true);
+        addTearDown(subscription.close);
+        await _waitFor(() => staleApi.fetchedIds.isNotEmpty);
+
+        container.read(activeApiProvider.notifier).set(currentApi);
+        gate.complete();
+
+        await _waitFor(() => currentApi.fetchedIds.isNotEmpty);
+        final note = await container.read(provider.future);
+
+        check(note)
+            .isNotNull()
+            .has((it) => it.markdownContent, 'body')
+            .equals('current body');
+        check(
+          emittedNotes
+              .where((note) => note?.markdownContent == 'stale body')
+              .toList(),
+        ).isEmpty();
+      },
+    );
+
+    test(
       'uses an individual cached note without fetching while offline',
       () async {
         await db
@@ -879,6 +945,7 @@ class _FakeNotesApiService extends ApiService {
     this.notesFeatureEnabled = true,
     this.notesGate,
     this.fetchedRaw,
+    this.fetchGate,
     this.fetchError,
     this.updatedRaw,
     this.updateGate,
@@ -896,6 +963,7 @@ class _FakeNotesApiService extends ApiService {
   final bool notesFeatureEnabled;
   final Future<void>? notesGate;
   final Map<String, dynamic>? fetchedRaw;
+  final Future<void>? fetchGate;
   final Object? fetchError;
   final Map<String, dynamic>? updatedRaw;
   final Future<void>? updateGate;
@@ -917,6 +985,10 @@ class _FakeNotesApiService extends ApiService {
   @override
   Future<Map<String, dynamic>> getNoteById(String id) async {
     fetchedIds.add(id);
+    final gate = fetchGate;
+    if (gate != null) {
+      await gate;
+    }
     final error = fetchError;
     if (error != null) throw error;
     return fetchedRaw ?? (throw StateError('fetchedRaw not set'));
