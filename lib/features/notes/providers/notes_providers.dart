@@ -99,8 +99,6 @@ bool _isCurrentNoteSession(
 @Riverpod(keepAlive: true)
 class NotesList extends _$NotesList {
   StreamSubscription<List<NoteListEntry>>? _notesSubscription;
-  AppDatabase? _watchedDb;
-  String? _watchedUserId;
 
   @override
   Future<List<Note>> build() async {
@@ -146,14 +144,10 @@ class NotesList extends _$NotesList {
     AppDatabase db, {
     required String userId,
   }) async {
-    if (!identical(_watchedDb, db) || _watchedUserId != userId) {
-      await _cancelLocalWatch();
-      _watchedDb = db;
-      _watchedUserId = userId;
-    } else {
-      await _notesSubscription?.cancel();
-      _notesSubscription = null;
-    }
+    // Always tear down any prior watch and re-subscribe: the dispose callback
+    // (run before every recompute) cancels the subscription, so a fresh one is
+    // required on each build.
+    await _cancelLocalWatch();
 
     final completer = Completer<List<Note>>();
     _notesSubscription = db.notesDao
@@ -195,16 +189,12 @@ class NotesList extends _$NotesList {
     ref.onDispose(() {
       unawaited(_notesSubscription?.cancel());
       _notesSubscription = null;
-      _watchedDb = null;
-      _watchedUserId = null;
     });
   }
 
   Future<void> _cancelLocalWatch() async {
     await _notesSubscription?.cancel();
     _notesSubscription = null;
-    _watchedDb = null;
-    _watchedUserId = null;
   }
 
   /// Refresh the notes list from the server.

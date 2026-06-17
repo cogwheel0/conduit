@@ -35,7 +35,7 @@ String toFtsMatchQuery(String raw) {
       .map(_quoteToken)
       .toList();
 
-  if (terms.isEmpty) return '';
+  // Joining an empty list yields '', preserving the empty-input contract.
   return terms.join(' ');
 }
 

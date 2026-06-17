@@ -21,6 +21,28 @@ part 'remap_route_sync_provider.g.dart';
 /// `syncTriggersProvider`).
 @Riverpod(keepAlive: true)
 void remapRouteSync(Ref ref) {
+  // Navigates an open route to its remapped target, logging the swap and
+  // warning (without throwing) if go_router rejects the navigation.
+  void goRemappedRoute(
+    String? nextRoute, {
+    required String logEvent,
+    required String scope,
+    required String fromId,
+    required String toId,
+  }) {
+    if (nextRoute == null) return;
+    DebugLogger.log(logEvent, scope: scope, data: {'from': fromId, 'to': toId});
+    try {
+      NavigationService.router.go(nextRoute);
+    } catch (error) {
+      DebugLogger.warning(
+        'remap-navigation-failed',
+        scope: scope,
+        data: {'route': nextRoute, 'error': error.toString()},
+      );
+    }
+  }
+
   final sub = ref.read(syncEngineProvider.notifier).remapEvents.listen((event) {
     if (event.entityKind == 'chat') {
       final active = ref.read(activeConversationProvider);
@@ -44,48 +66,29 @@ void remapRouteSync(Ref ref) {
         );
         ref.read(pendingFolderIdProvider.notifier).set(event.toId);
       }
-      final nextRoute = remappedFolderRouteForTesting(
-        NavigationService.currentRoute,
+      goRemappedRoute(
+        remappedFolderRouteForTesting(
+          NavigationService.currentRoute,
+          fromId: event.fromId,
+          toId: event.toId,
+        ),
+        logEvent: 'remap-open-folder-route',
+        scope: 'chat/remap',
         fromId: event.fromId,
         toId: event.toId,
       );
-      if (nextRoute != null) {
-        DebugLogger.log(
-          'remap-open-folder-route',
-          scope: 'chat/remap',
-          data: {'from': event.fromId, 'to': event.toId},
-        );
-        try {
-          NavigationService.router.go(nextRoute);
-        } catch (error) {
-          DebugLogger.warning(
-            'remap-navigation-failed',
-            scope: 'chat/remap',
-            data: {'route': nextRoute, 'error': error.toString()},
-          );
-        }
-      }
     } else if (event.entityKind == 'note') {
-      final nextRoute = remappedNoteRouteForTesting(
-        NavigationService.currentRoute,
+      goRemappedRoute(
+        remappedNoteRouteForTesting(
+          NavigationService.currentRoute,
+          fromId: event.fromId,
+          toId: event.toId,
+        ),
+        logEvent: 'remap-open-note-route',
+        scope: 'notes/remap',
         fromId: event.fromId,
         toId: event.toId,
       );
-      if (nextRoute == null) return;
-      DebugLogger.log(
-        'remap-open-note-route',
-        scope: 'notes/remap',
-        data: {'from': event.fromId, 'to': event.toId},
-      );
-      try {
-        NavigationService.router.go(nextRoute);
-      } catch (error) {
-        DebugLogger.warning(
-          'remap-navigation-failed',
-          scope: 'notes/remap',
-          data: {'route': nextRoute, 'error': error.toString()},
-        );
-      }
     }
   });
   ref.onDispose(sub.cancel);
@@ -95,23 +98,30 @@ String? remappedNoteRouteForTesting(
   String? currentRoute, {
   required String fromId,
   required String toId,
-}) {
-  if (currentRoute == null) return null;
-  final currentUri = Uri.tryParse(currentRoute);
-  if (currentUri == null) return null;
-  final segments = currentUri.pathSegments;
-  if (segments.length != 2 ||
-      segments.first != 'notes' ||
-      segments[1] != fromId) {
-    return null;
-  }
-  return currentUri
-      .replace(path: '/notes/${Uri.encodeComponent(toId)}')
-      .toString();
-}
+}) => _remappedSingleSegmentRoute(
+  currentRoute,
+  prefix: 'notes',
+  fromId: fromId,
+  toId: toId,
+);
 
 String? remappedFolderRouteForTesting(
   String? currentRoute, {
+  required String fromId,
+  required String toId,
+}) => _remappedSingleSegmentRoute(
+  currentRoute,
+  prefix: 'folder',
+  fromId: fromId,
+  toId: toId,
+);
+
+/// Rewrites a `/<prefix>/<fromId>` route to `/<prefix>/<toId>` (preserving
+/// query params), or returns null when [currentRoute] does not target exactly
+/// that entity. Shared by the note/folder remap branches.
+String? _remappedSingleSegmentRoute(
+  String? currentRoute, {
+  required String prefix,
   required String fromId,
   required String toId,
 }) {
@@ -120,11 +130,11 @@ String? remappedFolderRouteForTesting(
   if (currentUri == null) return null;
   final segments = currentUri.pathSegments;
   if (segments.length != 2 ||
-      segments.first != 'folder' ||
+      segments.first != prefix ||
       segments[1] != fromId) {
     return null;
   }
   return currentUri
-      .replace(path: '/folder/${Uri.encodeComponent(toId)}')
+      .replace(path: '/$prefix/${Uri.encodeComponent(toId)}')
       .toString();
 }

@@ -59,8 +59,8 @@ NotesCompanion serverToNoteRow(
     for (final entry in server.entries)
       if (!_typedNoteKeys.contains(entry.key)) entry.key: entry.value,
   };
-  final data = _serverJsonObjectOrEmpty(server['data']);
-  final meta = _serverJsonObjectOrEmpty(server['meta']);
+  final data = _asMap(server['data']);
+  final meta = _asMap(server['meta']);
   return NotesCompanion.insert(
     id: rawId,
     title: server['title'] is String ? server['title'] as String : '',
@@ -118,7 +118,7 @@ String noteCreateContentHashFromRow(NoteRow row) {
 String noteCreateContentHashFromServer(Map<String, dynamic> server) {
   return noteCreateContentHash(
     title: server['title'] is String ? server['title'] as String : '',
-    data: _serverJsonObjectOrEmpty(server['data']),
+    data: _asMap(server['data']),
   );
 }
 
@@ -139,10 +139,6 @@ Map<String, dynamic> _asMap(Object? value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   return <String, dynamic>{};
-}
-
-Map<String, dynamic> _serverJsonObjectOrEmpty(Object? value) {
-  return _asMap(value);
 }
 
 /// Decodes a JSON string into a `Map<String, dynamic>`, tolerant of corrupt
