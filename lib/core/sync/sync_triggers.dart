@@ -78,10 +78,7 @@ class SyncTriggers extends _$SyncTriggers {
         _request('foreground');
         _restartPeriodicTimer();
       },
-      onPaused: _leaveForeground,
-      onInactive: _leaveForeground,
-      onHidden: _leaveForeground,
-      onDetached: _leaveForeground,
+      onSuspended: _leaveForeground,
     );
     _observer = observer;
     WidgetsBinding.instance.addObserver(observer);
@@ -190,17 +187,11 @@ class SyncTriggers extends _$SyncTriggers {
 class _SyncLifecycleObserver with WidgetsBindingObserver {
   _SyncLifecycleObserver({
     required this.onResumed,
-    required this.onPaused,
-    required this.onInactive,
-    required this.onHidden,
-    required this.onDetached,
+    required this.onSuspended,
   });
 
   final void Function() onResumed;
-  final void Function() onPaused;
-  final void Function() onInactive;
-  final void Function() onHidden;
-  final void Function() onDetached;
+  final void Function() onSuspended;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -209,16 +200,10 @@ class _SyncLifecycleObserver with WidgetsBindingObserver {
         onResumed();
         break;
       case AppLifecycleState.paused:
-        onPaused();
-        break;
       case AppLifecycleState.detached:
-        onDetached();
-        break;
       case AppLifecycleState.inactive:
-        onInactive();
-        break;
       case AppLifecycleState.hidden:
-        onHidden();
+        onSuspended();
         break;
     }
   }

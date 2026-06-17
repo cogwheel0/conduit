@@ -167,9 +167,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     );
   }
 
-  Widget _buildNotesList(BuildContext context, List<Note> allNotes) {
-    final List<Note> notes = allNotes;
-
+  Widget _buildNotesList(BuildContext context, List<Note> notes) {
     if (notes.isEmpty) {
       return _buildEmptyState(context);
     }

@@ -1346,23 +1346,18 @@ class ApiService {
         // Defensive: some adapters may have decoded already.
         return _requireResponseMap(data, 'getChatRaw $id');
       }
-      if (bytes.lengthInBytes >= _conversationWorkerByteThreshold) {
-        final map = await _workerManager
-            .schedule<Uint8List, Map<String, dynamic>?>(
+      final Map<String, dynamic>? map =
+          bytes.lengthInBytes >= _conversationWorkerByteThreshold
+          ? await _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
               decodeChatResponseEnvelopeWorker,
               bytes,
               debugLabel: 'decode_chat_raw',
-            );
-        return map ??
-            (throw FormatException(
-              'getChatRaw $id: expected JSON object response',
-            ));
+            )
+          : decodeChatResponseEnvelopeWorker(bytes);
+      if (map == null) {
+        throw FormatException('getChatRaw $id: expected JSON object response');
       }
-      final map = decodeChatResponseEnvelopeWorker(bytes);
-      return map ??
-          (throw FormatException(
-            'getChatRaw $id: expected JSON object response',
-          ));
+      return map;
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return null;

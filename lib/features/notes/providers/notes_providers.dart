@@ -101,7 +101,6 @@ class NotesList extends _$NotesList {
   StreamSubscription<List<NoteListEntry>>? _notesSubscription;
   AppDatabase? _watchedDb;
   String? _watchedUserId;
-  bool _disposeRegistered = false;
 
   @override
   Future<List<Note>> build() async {
@@ -189,8 +188,10 @@ class NotesList extends _$NotesList {
   }
 
   void _registerDispose() {
-    if (_disposeRegistered) return;
-    _disposeRegistered = true;
+    // Registered on every build. Riverpod runs (and clears) onDispose
+    // callbacks before each recompute, so this keeps exactly one live
+    // cleanup tied to the current build and ensures the Drift watch
+    // subscription is cancelled on every recompute and on final disposal.
     ref.onDispose(() {
       unawaited(_notesSubscription?.cancel());
       _notesSubscription = null;

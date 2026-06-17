@@ -9,6 +9,16 @@ import 'outbox_dao.dart';
 
 part 'folders_dao.g.dart';
 
+/// Top-level server keys that map to TYPED columns; every OTHER key is
+/// preserved verbatim in [Folders.rawExtra].
+const Set<String> _typedFolderKeys = <String>{
+  'id',
+  'name',
+  'parent_id',
+  'created_at',
+  'updated_at',
+};
+
 /// Folder row accessor (CDT-RFC-001 §6, §7.6).
 @DriftAccessor(tables: [Folders])
 class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
@@ -225,12 +235,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     final parentId = raw['parent_id'];
     final rawExtra = <String, dynamic>{
       for (final entry in raw.entries)
-        if (entry.key != 'id' &&
-            entry.key != 'name' &&
-            entry.key != 'parent_id' &&
-            entry.key != 'created_at' &&
-            entry.key != 'updated_at')
-          entry.key: entry.value,
+        if (!_typedFolderKeys.contains(entry.key)) entry.key: entry.value,
     };
     final updatedAtSeconds = updatedAt is int ? updatedAt : 0;
     return FoldersCompanion.insert(

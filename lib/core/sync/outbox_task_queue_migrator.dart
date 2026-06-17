@@ -373,14 +373,13 @@ class OutboxTaskQueueMigrator {
     String userText,
   ) async {
     if (userText.isEmpty) return false;
-    final currentId = currentMessageId;
-    if (currentId == null) return false;
+    if (currentMessageId == null) return false;
     final rows = await (_db.select(
       _db.messages,
     )..where((t) => t.chatId.equals(chatId))).get();
     final byId = {for (final r in rows) r.id: r};
     // The active-branch tip must be a COMPLETED assistant reply.
-    final tip = byId[currentId];
+    final tip = byId[currentMessageId];
     if (tip == null || tip.role != 'assistant' || tip.content.trim().isEmpty) {
       return false;
     }

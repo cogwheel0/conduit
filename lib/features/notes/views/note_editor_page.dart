@@ -158,12 +158,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (completer.isCompleted) return;
       if (state.hasValue) {
         completer.complete(state.value);
-        subscription?.close();
       } else if (state.hasError) {
         completer.completeError(
           state.error ?? StateError('Failed to load note'),
         );
-        subscription?.close();
       }
     }
 

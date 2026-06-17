@@ -188,10 +188,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   }
 
   Future<void> _upsertLocalEchoRow(MessageRowData row) async {
-    final existing =
-        await (select(messages)
-              ..where((t) => t.chatId.equals(row.chatId) & t.id.equals(row.id)))
-            .getSingleOrNull();
+    final existing = await _messageById(row.chatId, row.id);
 
     final int orderIndex;
     if (existing != null) {

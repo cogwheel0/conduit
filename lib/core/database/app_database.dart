@@ -181,10 +181,7 @@ class AppDatabase extends _$AppDatabase {
   /// always present by the time this runs (onCreate `createAll`, or the
   /// `from<5` migration creates it before this call). All DDL is idempotent.
   Future<void> _ensureNotesFts({required bool backfill}) async {
-    final hasNotes = await customSelect(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'",
-    ).get();
-    if (hasNotes.isEmpty) return;
+    if (!await _hasNotesTable()) return;
     for (final trigger in kNoteFtsTriggers) {
       await customStatement(trigger);
     }
@@ -226,11 +223,17 @@ class AppDatabase extends _$AppDatabase {
   /// otherwise. Used inside the one-time [buildFtsIfNeeded] gate so a v5 install
   /// seeds notes alongside chats in the same transaction.
   Future<void> _backfillNotesFtsIfPresent() async {
-    final hasNotes = await customSelect(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'",
-    ).get();
-    if (hasNotes.isEmpty) return;
+    if (!await _hasNotesTable()) return;
     await customStatement(kBackfillNoteTitles);
     await customStatement(kBackfillNoteText);
+  }
+
+  /// Probes `sqlite_master` for the `notes` table; the shared early-return guard
+  /// for the note FTS helpers ([_ensureNotesFts], [_backfillNotesFtsIfPresent]).
+  Future<bool> _hasNotesTable() async {
+    final rows = await customSelect(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'",
+    ).get();
+    return rows.isNotEmpty;
   }
 }

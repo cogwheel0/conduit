@@ -170,23 +170,15 @@ ChatMergeResult _threeWay({
   // Local side first (preserves local relative ordering).
   for (final localMsg in local.messages) {
     final id = localMsg.id;
-    final inServer = serverById.containsKey(id);
-    final isDirty = dirtyMessageIds.contains(id);
-    if (inServer) {
-      // In both: local wins iff dirty, else server wins.
-      if (isDirty) {
-        survivors.add(localMsg);
-        survivingDirtyIds.add(id);
-      } else {
-        survivors.add(serverById[id]!);
-      }
-    } else {
-      // Only in L: keep iff locally new (dirty); else remotely deleted → drop.
-      if (isDirty) {
-        survivors.add(localMsg);
-        survivingDirtyIds.add(id);
-      }
+    if (dirtyMessageIds.contains(id)) {
+      // Dirty local always wins (both-sides or local-only-new).
+      survivors.add(localMsg);
+      survivingDirtyIds.add(id);
+    } else if (serverById.containsKey(id)) {
+      // Clean and present on server: server wins.
+      survivors.add(serverById[id]!);
     }
+    // else: clean, local-only → remotely deleted → drop.
   }
 
   // Server-only inserts (id present in S but not in L), in server map order.

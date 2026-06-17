@@ -762,15 +762,31 @@ Future<SharedPayloadProcessResult> _processPayload(
       // Drive uploads via the shared media-upload controller to unify
       // progress + retry.
       for (final attachment in attachments) {
+        final int fileSize;
         try {
-          await ref
+          fileSize = await attachment.file.length();
+        } catch (e) {
+          DebugLogger.log(
+            'ShareReceiver: upload prep failed: $e',
+            scope: 'share',
+          );
+          continue;
+        }
+        unawaited(
+          ref
               .read(mediaUploadControllerProvider)
               .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
-                fileSize: await attachment.file.length(),
-              );
-        } catch (_) {}
+                fileSize: fileSize,
+              )
+              .catchError(
+                (Object e) => DebugLogger.log(
+                  'ShareReceiver: upload failed: $e',
+                  scope: 'share',
+                ),
+              ),
+        );
       }
     }
 

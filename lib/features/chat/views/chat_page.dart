@@ -823,23 +823,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Drive uploads via the shared media-upload controller for unified
     // retry/progress.
     for (final attachment in attachments) {
-      final fileSize = await attachment.file.length();
-      DebugLogger.log(
-        'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
-        scope: 'chat/page',
-      );
-      unawaited(
-        ref
-            .read(mediaUploadControllerProvider)
-            .upload(
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: fileSize,
-            )
-            .catchError((Object e) {
-              DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
-            }),
-      );
+      try {
+        final fileSize = await attachment.file.length();
+        DebugLogger.log(
+          'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
+          scope: 'chat/page',
+        );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize: fileSize,
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
+              }),
+        );
+      } catch (e) {
+        DebugLogger.log(
+          'Pasted upload prep failed: $e',
+          scope: 'chat/page',
+        );
+      }
     }
 
     DebugLogger.log(

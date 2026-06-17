@@ -845,18 +845,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             .go();
 
         final chat = await getChat(chatId);
-        if (chat?.currentMessageId == assistantMessageId) {
-          await (update(chats)..where((t) => t.id.equals(chatId))).write(
-            ChatsCompanion(
-              currentMessageId: Value<String?>(placeholder.parentId),
-              dirty: const Value(true),
-            ),
-          );
-        } else {
-          await (update(chats)..where((t) => t.id.equals(chatId))).write(
-            const ChatsCompanion(dirty: Value(true)),
-          );
-        }
+        await (update(chats)..where((t) => t.id.equals(chatId))).write(
+          ChatsCompanion(
+            currentMessageId: chat?.currentMessageId == assistantMessageId
+                ? Value<String?>(placeholder.parentId)
+                : const Value.absent(),
+            dirty: const Value(true),
+          ),
+        );
 
         await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
       }

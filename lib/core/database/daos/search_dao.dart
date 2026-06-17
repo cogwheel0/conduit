@@ -114,8 +114,7 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
     // before then raises "no such table: chat_fts". Gate on the dedicated
     // `fts_built` flag so a not-yet-built index returns [] gracefully instead of
     // throwing — search simply yields nothing until the first sync populates it.
-    final built = await attachedDatabase.syncMetaDao.getValue(kFtsBuiltKey);
-    if (built != '1') return const [];
+    if (!await _ftsReady()) return const [];
 
     final rows = await customSelect(
       // The bm25()/snippet() FTS5 auxiliary functions can ONLY be evaluated in
@@ -175,8 +174,7 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   }) async {
     final match = toFtsMatchQuery(raw);
     if (match.isEmpty) return const [];
-    final built = await attachedDatabase.syncMetaDao.getValue(kFtsBuiltKey);
-    if (built != '1') return const [];
+    if (!await _ftsReady()) return const [];
 
     final rows = await customSelect(
       'WITH hits AS MATERIALIZED ('
@@ -271,4 +269,10 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   }
 
   int _nsToEpochSeconds(int nanoseconds) => nanoseconds ~/ 1000000000;
+
+  /// Whether the `chat_fts` vtable has been populated by the post-first-sync
+  /// gate (`buildFtsIfNeeded`). Querying the vtable before then raises
+  /// "no such table: chat_fts"; callers short-circuit to an empty result.
+  Future<bool> _ftsReady() async =>
+      (await attachedDatabase.syncMetaDao.getValue(kFtsBuiltKey)) == '1';
 }

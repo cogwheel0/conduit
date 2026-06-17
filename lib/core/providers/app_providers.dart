@@ -1146,7 +1146,7 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
 /// (CDT-RFC-001 Phase 1: every refresh path converges on the engine; Drift
 /// streams deliver the resulting UI updates).
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
-  final _FolderConversationRefreshTick folderConversationRefresh = ref.read(
+  final folderConversationRefresh = ref.read(
     _folderConversationRefreshTickProvider.notifier,
   );
   unawaited(

@@ -167,10 +167,9 @@ class MediaUploadController {
 
     final completer = Completer<void>();
     final displayFileName = uploadFileName;
-    final cachedBytes = imageBytes;
     final tempFilePath = uploadPath != filePath ? uploadPath : null;
 
-    final inflight = _InflightUpload(completer: completer);
+    final inflight = _InflightUpload();
     (_inflight[filePath] ??= <_InflightUpload>{}).add(inflight);
 
     void removeInflight() {
@@ -201,7 +200,7 @@ class MediaUploadController {
         if (idx != -1) {
           final existing = current[idx];
           final status = switch (entry.status) {
-            QueuedAttachmentStatus.pending => FileUploadStatus.uploading,
+            QueuedAttachmentStatus.pending ||
             QueuedAttachmentStatus.uploading => FileUploadStatus.uploading,
             QueuedAttachmentStatus.completed => FileUploadStatus.completed,
             QueuedAttachmentStatus.failed => FileUploadStatus.failed,
@@ -210,8 +209,8 @@ class MediaUploadController {
 
           if (status == FileUploadStatus.completed &&
               entry.fileId != null &&
-              cachedBytes != null) {
-            preCacheImageBytes(entry.fileId!, cachedBytes);
+              imageBytes != null) {
+            preCacheImageBytes(entry.fileId!, imageBytes);
           }
 
           if (status == FileUploadStatus.completed && entry.fileId != null) {
@@ -369,9 +368,6 @@ class MediaUploadController {
 /// Tracks an in-flight upload so [MediaUploadController.cancelUploadsForFile]
 /// can stop it.
 class _InflightUpload {
-  _InflightUpload({required this.completer});
-
-  final Completer<void> completer;
   Future<void> Function()? onCancel;
 
   Future<void> cancel() async {

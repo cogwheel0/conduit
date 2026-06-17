@@ -230,6 +230,7 @@ class IdRemapper {
       final local = await _getFolder(localId);
       if (local == null) {
         await _rewriteChatsFolderId(localId, serverId);
+        await _rewriteFoldersParentId(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
         return;
       }
@@ -237,8 +238,9 @@ class IdRemapper {
       final serverRow = await _getFolder(serverId);
       if (serverRow != null) {
         // A pull already created the server folder: discard the local stub,
-        // repoint its chats + ops to the surviving server row.
+        // repoint its chats + child folders + ops to the surviving server row.
         await _rewriteChatsFolderId(localId, serverId);
+        await _rewriteFoldersParentId(localId, serverId);
         await _rewriteOutboxChatId(localId, serverId);
         await _deleteFolderRow(localId);
         return;
@@ -249,6 +251,7 @@ class IdRemapper {
         serverUpdatedAt: serverUpdatedAt,
       );
       await _rewriteChatsFolderId(localId, serverId);
+      await _rewriteFoldersParentId(localId, serverId);
       await _deleteFolderRow(localId);
       await _rewriteOutboxChatId(localId, serverId);
     });
@@ -530,6 +533,21 @@ class IdRemapper {
       'UPDATE chats SET folder_id = ? WHERE folder_id = ?',
       variables: [Variable.withString(toId), Variable.withString(fromId)],
       updates: {_db.chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// Repoints nested child folders whose `parent_id` points at the remapped
+  /// folder from [fromId] to [toId]. Folders nest (`folders.parent_id` is a
+  /// nullable text column with no FK), so an offline-created subfolder can hold
+  /// `parent_id = local:<uuid>` of its remapped parent; without this rewrite the
+  /// child row is left dangling and renders orphaned at root. Mirrors
+  /// [_rewriteChatsFolderId].
+  Future<void> _rewriteFoldersParentId(String fromId, String toId) {
+    return _db.customUpdate(
+      'UPDATE folders SET parent_id = ? WHERE parent_id = ?',
+      variables: [Variable.withString(toId), Variable.withString(fromId)],
+      updates: {_db.folders},
       updateKind: UpdateKind.update,
     );
   }

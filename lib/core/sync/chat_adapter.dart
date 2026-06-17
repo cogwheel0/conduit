@@ -89,9 +89,10 @@ class ChatAdapter implements SyncEntityAdapter {
         await _push.pushFolderUpsert(payload);
         break;
       case OutboxKind.folderDelete:
+        final opChatId = op.chatId;
         final payloadFolderId = decodeOutboxPayload(op.payload)['folderId'];
-        final folderId = op.chatId != null && op.chatId!.isNotEmpty
-            ? op.chatId
+        final folderId = (opChatId != null && opChatId.isNotEmpty)
+            ? opChatId
             : payloadFolderId;
         if (folderId is! String || folderId.isEmpty) {
           throw const SyncTerminalException(

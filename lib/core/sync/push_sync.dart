@@ -322,7 +322,6 @@ class PushSync {
         data: {'chatId': chatId, 'desired': desired, 'actual': liveArchived},
       );
       await _storeChatArchiveMirror(chatId, liveArchived);
-      return;
     }
   }
 

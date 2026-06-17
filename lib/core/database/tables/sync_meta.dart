@@ -10,5 +10,5 @@ class SyncMeta extends Table {
   TextColumn get value => text()();
 
   @override
-  Set<Column<Object>> get primaryKey => {key};
+  Set<Column> get primaryKey => {key};
 }

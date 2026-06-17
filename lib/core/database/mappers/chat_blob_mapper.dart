@@ -229,9 +229,7 @@ class ChatBlobMapper {
     // Non-String keys cannot come from jsonDecode, but Dart-built blobs can
     // carry them; treat such a history as malformed and keep it verbatim.
     final blobHadHistory =
-        blob.containsKey('history') &&
-        historyValue is Map &&
-        _hasOnlyStringKeys(historyValue);
+        historyValue is Map && _hasOnlyStringKeys(historyValue);
 
     final rawExtra = <String, dynamic>{};
     for (final entry in blob.entries) {

@@ -198,7 +198,7 @@ LIMIT 1
     required Map<String, dynamic> serverRaw,
   }) {
     final serverId = serverRaw['id'] as String;
-    final serverUpdatedAt = _asNs(serverRaw['updated_at']) ?? 0;
+    final serverUpdatedAt = asNs(serverRaw['updated_at']) ?? 0;
     return transaction(() async {
       final existing = await getNote(serverId);
       final decision = resolveNoteMerge(
@@ -555,7 +555,6 @@ LIMIT 1
     return [Variable.withString(userId), Variable.withString(userId)];
   }
 
-  static int? _asNs(Object? value) => asNs(value);
 }
 
 /// Decodes an outbox `noteUpdate` patch payload (used by the push handler /

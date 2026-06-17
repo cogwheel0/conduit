@@ -77,10 +77,9 @@ String? remappedNoteRouteForTesting(
 }) {
   if (currentRoute == null) return null;
   final currentUri = Uri.tryParse(currentRoute);
-  final segments = currentUri?.pathSegments;
-  if (currentUri == null ||
-      segments == null ||
-      segments.length != 2 ||
+  if (currentUri == null) return null;
+  final segments = currentUri.pathSegments;
+  if (segments.length != 2 ||
       segments.first != 'notes' ||
       segments[1] != fromId) {
     return null;

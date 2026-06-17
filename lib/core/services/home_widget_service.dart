@@ -13,9 +13,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
-import 'media_upload_controller.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
+import 'media_upload_controller.dart';
 import 'navigation_service.dart';
 
 part 'home_widget_service.g.dart';

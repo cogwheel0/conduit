@@ -516,13 +516,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   AppDatabase? _maybeDatabase() {
-    try {
-      return ref.read(appDatabaseProvider);
-    } catch (_) {
-      // Database dependencies unavailable (e.g. teardown or test harness
-      // without an active server).
-      return null;
-    }
+    // Database dependencies unavailable (e.g. teardown or test harness
+    // without an active server) resolve to null.
+    return _readAppDatabaseOrNull(ref);
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -3735,9 +3731,6 @@ Future<void> runQueuedCompletion(
     modelId: effectiveModelId,
   );
 
-  final webSearchEnabled = enableWebSearch;
-  final imageGenerationEnabled = enableImageGeneration;
-
   final Map<String, dynamic> modelItem =
       (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
@@ -3759,8 +3752,8 @@ Future<void> runQueuedCompletion(
   final bgTasks = _buildOpenWebUiBackgroundTasks(
     userSettings: userSettingsData,
     shouldGenerateTitle: false,
-    webSearchEnabled: webSearchEnabled,
-    imageGenerationEnabled: imageGenerationEnabled,
+    webSearchEnabled: enableWebSearch,
+    imageGenerationEnabled: enableImageGeneration,
   );
 
   final bool isBackgroundToolsFlowPre =
@@ -3802,8 +3795,8 @@ Future<void> runQueuedCompletion(
       terminalId: terminalId,
       toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-      enableWebSearch: webSearchEnabled,
-      enableImageGeneration: imageGenerationEnabled,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
       toolServers: toolServers,
@@ -3820,8 +3813,8 @@ Future<void> runQueuedCompletion(
 
     final bool isBackgroundFlow =
         isBackgroundToolsFlowPre ||
-        webSearchEnabled ||
-        imageGenerationEnabled ||
+        enableWebSearch ||
+        enableImageGeneration ||
         bgTasks.isNotEmpty;
 
     await dispatchChatTransport(
@@ -3834,15 +3827,15 @@ Future<void> runQueuedCompletion(
       api: api,
       socketService: socketService,
       workerManager: ref.read(workerManagerProvider),
-      webSearchEnabled: webSearchEnabled,
-      imageGenerationEnabled: imageGenerationEnabled,
+      webSearchEnabled: enableWebSearch,
+      imageGenerationEnabled: enableImageGeneration,
       isBackgroundFlow: isBackgroundFlow,
       modelUsesReasoning: modelUsesReasoning,
       toolsEnabled:
           toolIdsForApi.isNotEmpty ||
           terminalId != null ||
           (toolServers != null && toolServers.isNotEmpty) ||
-          imageGenerationEnabled,
+          enableImageGeneration,
       isTemporary: isTemporary,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
     );
@@ -3929,9 +3922,6 @@ Future<void> runHeadlessCompletion(
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
 
-  final webSearchEnabled = enableWebSearch;
-  final imageGenerationEnabled = enableImageGeneration;
-
   List<Map<String, dynamic>>? toolServers;
   try {
     toolServers = await _resolveToolServersForRequest(
@@ -3944,8 +3934,8 @@ Future<void> runHeadlessCompletion(
   final bgTasks = _buildOpenWebUiBackgroundTasks(
     userSettings: userSettingsData,
     shouldGenerateTitle: false,
-    webSearchEnabled: webSearchEnabled,
-    imageGenerationEnabled: imageGenerationEnabled,
+    webSearchEnabled: enableWebSearch,
+    imageGenerationEnabled: enableImageGeneration,
   );
 
   final lastUserMessageId = _lastUserMessageId(messages);
@@ -3974,8 +3964,8 @@ Future<void> runHeadlessCompletion(
     terminalId: terminalId,
     toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
     filterIds: filterIds.isNotEmpty ? filterIds : null,
-    enableWebSearch: webSearchEnabled,
-    enableImageGeneration: imageGenerationEnabled,
+    enableWebSearch: enableWebSearch,
+    enableImageGeneration: enableImageGeneration,
     modelItem: modelItem,
     sessionIdOverride: socketSessionId,
     toolServers: toolServers,

@@ -332,20 +332,8 @@ class PullSync {
   /// (the max() rule preserves the local value). Returns `mustPush`. Adapter
   /// seam — the archived path inside [run] supplies a real lastReadAt and is NOT
   /// routed here.
-  Future<bool> mergeChatResponseForAdapter(Map<String, dynamic> resp) async {
-    final id = resp['id'] is String ? resp['id'] as String : '';
-    if (id.isEmpty) {
-      throw const FormatException('ChatResponse without a string id');
-    }
-    var mustPush = false;
-    await _locks.runExclusive(id, () async {
-      mustPush = await _upsertServerChatUnlockedReturningPush(
-        resp,
-        listLastReadAt: null,
-      );
-    });
-    return mustPush;
-  }
+  Future<bool> mergeChatResponseForAdapter(Map<String, dynamic> resp) =>
+      _mergeChatResponse(resp, listLastReadAt: null);
 
   /// Single-chat pull. `getChatRaw` null (404) -> returns null, no local
   /// change (deletion reconcile is Phase 3). Otherwise lock + upsert
@@ -365,7 +353,8 @@ class PullSync {
   }
 
   /// Lock + one-transaction merge of a raw `ChatResponse` map (REQ 1/3).
-  Future<void> _mergeChatResponse(
+  /// Returns `mustPush` from the upsert (REQ 4); pull-path callers ignore it.
+  Future<bool> _mergeChatResponse(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
     bool? hasPendingCreateHashes,

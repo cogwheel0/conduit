@@ -29,11 +29,11 @@ String toFtsMatchQuery(String raw) {
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return '';
 
-  final terms = <String>[];
-  for (final token in trimmed.split(_whitespace)) {
-    if (token.isEmpty) continue;
-    terms.add(_quoteToken(token));
-  }
+  final terms = trimmed
+      .split(_whitespace)
+      .where((token) => token.isNotEmpty)
+      .map(_quoteToken)
+      .toList();
 
   if (terms.isEmpty) return '';
   return terms.join(' ');

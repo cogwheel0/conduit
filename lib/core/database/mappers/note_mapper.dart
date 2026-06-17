@@ -55,7 +55,6 @@ NotesCompanion serverToNoteRow(
       'must be a non-empty String',
     );
   }
-  final id = rawId;
   final rawExtra = <String, dynamic>{
     for (final entry in server.entries)
       if (!_typedNoteKeys.contains(entry.key)) entry.key: entry.value,
@@ -63,7 +62,7 @@ NotesCompanion serverToNoteRow(
   final data = _serverJsonObjectOrEmpty(server['data']);
   final meta = _serverJsonObjectOrEmpty(server['meta']);
   return NotesCompanion.insert(
-    id: id,
+    id: rawId,
     title: server['title'] is String ? server['title'] as String : '',
     data: Value(jsonEncode(data)),
     meta: Value(jsonEncode(meta)),
@@ -143,7 +142,6 @@ Map<String, dynamic> _asMap(Object? value) {
 }
 
 Map<String, dynamic> _serverJsonObjectOrEmpty(Object? value) {
-  if (value == null) return <String, dynamic>{};
   return _asMap(value);
 }
 

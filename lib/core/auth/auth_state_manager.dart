@@ -1081,12 +1081,9 @@ class AuthStateManager extends _$AuthStateManager {
 
     // Ensure the saved server still exists before switching
     final serverConfigs = await ref.read(serverConfigsProvider.future);
-    final matchingServerConfigs = serverConfigs.where(
-      (config) => config.id == serverId,
-    );
-    final serverConfig = matchingServerConfigs.isEmpty
-        ? null
-        : matchingServerConfigs.first;
+    final serverConfig = serverConfigs
+        .where((config) => config.id == serverId)
+        .firstOrNull;
 
     if (serverConfig == null) {
       if (canCommit != null) {

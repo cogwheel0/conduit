@@ -334,9 +334,7 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.listPreviewMarkdown.isNotEmpty
-        ? note.listPreviewMarkdown.replaceAll('\n', ' ').trim()
-        : '';
+    final preview = note.listPreviewMarkdown.replaceAll('\n', ' ').trim();
     final timeAgo = _formatTime(note.updatedDateTime);
 
     final background = selected
