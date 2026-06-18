@@ -627,6 +627,15 @@ class AuthStateManager extends _$AuthStateManager {
           }
         }
 
+        // Re-check after the persistence awaits: a newer login/logout may have
+        // started, and must not be overwritten by this attempt's state.
+        if (_authAttemptSuperseded(attemptRevision)) {
+          DebugLogger.auth(
+            'JWT login superseded after persistence; not publishing',
+          );
+          return false;
+        }
+
         // Update state with the validated user data.
         _update(
           (current) => current.copyWith(
@@ -765,6 +774,13 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
 
+      // Re-check after the persistence awaits: a newer login/logout may have
+      // started, and must not be overwritten by this attempt's published state.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        DebugLogger.auth('Login superseded after persistence; not publishing');
+        return false;
+      }
+
       // Update state and API service
       _update(
         (current) => current.copyWith(
@@ -891,6 +907,15 @@ class AuthStateManager extends _$AuthStateManager {
       }
 
       if (!ref.mounted) return false;
+
+      // Re-check after the persistence awaits: a newer login/logout may have
+      // started, and must not be overwritten by this attempt's published state.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        DebugLogger.auth(
+          'LDAP login superseded after persistence; not publishing',
+        );
+        return false;
+      }
 
       // Update state and API service
       _update(
