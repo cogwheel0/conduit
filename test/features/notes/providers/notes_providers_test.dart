@@ -827,6 +827,55 @@ void main() {
         check(api.updatedIds).isEmpty();
       },
     );
+
+    test(
+      'a content-only update preserves existing versions and files',
+      () async {
+        await db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': 'note-1',
+                'user_id': 'user-1',
+                'title': 'Original',
+                'data': {
+                  'content': {'md': 'original body', 'html': ''},
+                  'versions': [
+                    {'md': 'v1', 'html': ''},
+                  ],
+                  'files': [
+                    {'id': 'f1', 'name': 'a.pdf'},
+                  ],
+                },
+                'meta': {},
+                'is_pinned': false,
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+              }),
+            );
+
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => db),
+            apiServiceProvider.overrideWithValue(_FakeNotesApiService()),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            currentUserProvider2.overrideWithValue(_testUser),
+            syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container
+            .read(noteUpdaterProvider.notifier)
+            .updateNote('note-1', markdownContent: 'new body');
+
+        final row = await db.notesDao.getNote('note-1');
+        final data = decodeNoteData(row!.data);
+        check((data['content'] as Map)['md']).equals('new body');
+        check((data['versions'] as List).length).equals(1);
+        check((data['files'] as List).length).equals(1);
+      },
+    );
   });
 
   group('NotePinToggler', () {
