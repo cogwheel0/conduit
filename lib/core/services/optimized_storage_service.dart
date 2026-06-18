@@ -275,6 +275,17 @@ class OptimizedStorageService {
     );
   }
 
+  /// Compare-and-clear: clears the active server id ONLY if it still equals
+  /// [expectedId]. The read and conditional write run in one continuation (no
+  /// foreign interleaving between them), so a concurrently-selected active
+  /// server isn't clobbered by a stale cleanup. Returns true if it cleared.
+  Future<bool> clearActiveServerIdIfMatches(String expectedId) async {
+    final current = await getActiveServerId();
+    if (current != expectedId) return false;
+    await setActiveServerId(null);
+    return true;
+  }
+
   Future<void> _syncActiveServerConfigFlags(String? serverId) async {
     final configs = await getServerConfigs();
     if (configs.isEmpty) {

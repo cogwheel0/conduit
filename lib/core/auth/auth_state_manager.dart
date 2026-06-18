@@ -1224,12 +1224,11 @@ class AuthStateManager extends _$AuthStateManager {
           stored['password'] == password;
       if (stillSameCreds) {
         await storage.deleteSavedCredentials();
-        // Final freshness + value check immediately before clearing the active
-        // server, so a concurrent foreground login / server switch that selected
-        // a new active server isn't clobbered by this stale cleanup.
-        if (_canCommitAuth(canCommit) &&
-            await storage.getActiveServerId() == serverId) {
-          await storage.setActiveServerId(null);
+        // Compare-and-clear the active server (only if it still points at the
+        // missing one) so a concurrent foreground login / server switch that
+        // selected a new active server isn't clobbered by this stale cleanup.
+        if (_canCommitAuth(canCommit)) {
+          await storage.clearActiveServerIdIfMatches(serverId);
         }
         ref.invalidate(serverConfigsProvider);
         ref.invalidate(activeServerProvider);
