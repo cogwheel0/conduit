@@ -63,12 +63,17 @@ final queuedCompletionInfoForMessageProvider = StreamProvider.autoDispose
               : QueuedCompletionPhase.pending;
           final offline = op.lastError == 'offline' || !isOnline;
 
-          // A just-created online op is claimed almost immediately; hiding that
-          // transient state avoids a one-frame queued banner during normal send.
+          // A fresh, never-attempted op is "sending", not "queued" — hide its
+          // transient state so the retry/cancel banner doesn't flash on a normal
+          // (especially first) send before the drainer claims it. This must NOT
+          // depend on `isOnline`: at app/first-send time connectivity may still
+          // be resolving (reported as not-online), which previously surfaced the
+          // banner on the first prompt of a new chat. Once the op is genuinely
+          // offline-deferred (`lastError == 'offline'`), backoff-scheduled
+          // (`nextAttemptAt`), or failed, it falls through and the banner shows.
           if (phase == QueuedCompletionPhase.pending &&
               op.lastError == null &&
-              op.nextAttemptAt == null &&
-              isOnline) {
+              op.nextAttemptAt == null) {
             continue;
           }
 

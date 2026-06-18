@@ -2984,6 +2984,34 @@ class ChannelsFeatureEnabledNotifier extends Notifier<bool> {
   }
 }
 
+/// Tracks whether the Terminal feature has any available servers on the active
+/// server, cached per server/user. The terminal tab's visibility is otherwise
+/// derived live from [terminalAvailableServersProvider]; this cache lets the tab
+/// reflect the last-known state when offline (loading/error) instead of
+/// optimistically defaulting to visible — matching notes/channels behavior so a
+/// server with terminal disabled doesn't surface the tab offline. The live
+/// derivation lives in `terminalTabVisibleProvider` (terminal feature), which
+/// writes back here via [setEnabled] whenever the server list resolves.
+final terminalFeatureEnabledProvider =
+    NotifierProvider<TerminalFeatureEnabledNotifier, bool>(
+      TerminalFeatureEnabledNotifier.new,
+    );
+
+class TerminalFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
+  @override
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('terminal', scope: _scope) ?? true;
+  }
+
+  void setEnabled(bool enabled) {
+    state = enabled;
+    _FeatureAvailabilityCache.write('terminal', enabled, scope: _scope);
+  }
+}
+
 _FeatureAvailabilityScope? _featureAvailabilityScope(Ref ref) {
   final activeServerId = ref.watch(
     activeServerProvider.select((value) => value.asData?.value?.id),
