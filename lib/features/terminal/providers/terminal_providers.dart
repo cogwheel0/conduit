@@ -21,36 +21,37 @@ final terminalAvailableServersProvider =
     FutureProvider<List<TerminalServerInfo>>((ref) async {
       final service = ref.watch(terminalServiceProvider);
       if (service == null) {
+        // No API/service yet (startup, auth/active-server rebuild). This is a
+        // PLACEHOLDER, not a real probe — do NOT persist it as "terminal
+        // disabled", or a transient service gap would poison the cache and keep
+        // the tab hidden offline for a terminal-enabled server.
         return const <TerminalServerInfo>[];
       }
 
-      return service.getAvailableServers();
+      final servers = await service.getAvailableServers();
+      // A real probe succeeded for the current API/session: persist whether
+      // terminal is enabled so the offline/error fallback reflects the true
+      // last-known state. Deferred — can't mutate a provider during build.
+      Future.microtask(
+        () => ref
+            .read(terminalFeatureEnabledProvider.notifier)
+            .setEnabled(servers.isNotEmpty),
+      );
+      return servers;
     });
 
 /// Whether the Terminal tab should be visible. When the server list resolves,
-/// use it live (terminal is enabled iff at least one server exists) and persist
-/// that into [terminalFeatureEnabledProvider]'s per-server/user cache. While the
-/// list is loading or errored (e.g. offline), fall back to the cached last-known
-/// value instead of optimistically showing the tab — so a server with terminal
-/// disabled doesn't surface the tab offline (matching notes/channels).
+/// use it live (terminal is enabled iff at least one server exists); while it is
+/// loading or errored (e.g. offline), fall back to the cached last-known value
+/// (written by [terminalAvailableServersProvider] after a real probe) instead of
+/// optimistically showing the tab — so a server with terminal disabled doesn't
+/// surface the tab offline (matching notes/channels).
 final terminalTabVisibleProvider = Provider<bool>((ref) {
   final cached = ref.watch(terminalFeatureEnabledProvider);
   final serversAsync = ref.watch(terminalAvailableServersProvider);
-  return serversAsync.when(
-    data: (servers) {
-      final enabled = servers.isNotEmpty;
-      if (enabled != cached) {
-        // Can't mutate a provider during another provider's build; defer.
-        Future.microtask(
-          () => ref.read(terminalFeatureEnabledProvider.notifier).setEnabled(
-            enabled,
-          ),
-        );
-      }
-      return enabled;
-    },
-    loading: () => cached,
-    error: (_, _) => cached,
+  return serversAsync.maybeWhen(
+    data: (servers) => servers.isNotEmpty,
+    orElse: () => cached,
   );
 });
 
