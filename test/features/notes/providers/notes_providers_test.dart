@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/note_mapper.dart';
 import 'package:conduit/core/models/note.dart';
@@ -757,55 +758,63 @@ void main() {
     });
 
     test(
-      'does not persist stale updates after the active database changes',
+      'writes the edit durably to the active database and enqueues a '
+      'noteUpdate op (never the REST update endpoint)',
       () async {
-        final secondDb = AppDatabase(NativeDatabase.memory());
-        final activeDbProvider =
-            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
-              () => _MutableValue<AppDatabase?>(db),
+        await db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': 'note-1',
+                'user_id': 'user-1',
+                'title': 'Original',
+                'data': {
+                  'content': {'md': 'original body', 'html': ''},
+                },
+                'meta': {},
+                'is_pinned': false,
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+              }),
             );
-        final gate = Completer<void>();
-        final api = _FakeNotesApiService(
-          updatedRaw: _buildNoteJson(
-            id: 'note-1',
-            title: 'Updated on old server',
-            markdown: 'old server body',
-            updatedAt: 1713872705000000000,
-          ),
-          updateGate: gate.future,
-        );
+
+        // The durable path never touches the REST update endpoint, so the
+        // fake's `updatedRaw` is intentionally left unset.
+        final api = _FakeNotesApiService();
         final container = ProviderContainer(
           overrides: [
-            appDatabaseProvider.overrideWith(
-              (ref) => ref.watch(activeDbProvider),
-            ),
+            appDatabaseProvider.overrideWith((ref) => db),
             apiServiceProvider.overrideWithValue(api),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            currentUserProvider2.overrideWithValue(_testUser),
           ],
         );
-        addTearDown(() async {
-          container.dispose();
-          await secondDb.close();
-        });
+        addTearDown(container.dispose);
 
-        final updateFuture = container
+        final note = await container
             .read(noteUpdaterProvider.notifier)
-            .updateNote('note-1', title: 'Updated on old server');
-        await _waitFor(() => api.updatedIds.isNotEmpty);
+            .updateNote(
+              'note-1',
+              title: 'Durable title',
+              markdownContent: 'durable body',
+            );
 
-        container.read(activeDbProvider.notifier).set(secondDb);
-        gate.complete();
-
-        final note = await updateFuture;
-
-        check(note).isNull();
-        check(await secondDb.notesDao.getNote('note-1')).isNull();
-        check(container.read(noteUpdaterProvider).requireValue).isNull();
+        check(
+          note,
+        ).isNotNull().has((it) => it.title, 'title').equals('Durable title');
+        final row = await db.notesDao.getNote('note-1');
+        check(row).isNotNull().has((it) => it.dirtyTitle, 'dirtyTitle').isTrue();
+        check(row).isNotNull().has((it) => it.dirtyData, 'dirtyData').isTrue();
+        check(
+          (await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind),
+        ).deepEquals([OutboxKind.noteUpdate.name]);
+        check(api.updatedIds).isEmpty();
       },
     );
   });
 
   group('NotePinToggler', () {
-    test('persists confirmed pin toggles to the cached pin mirror', () async {
+    test('enqueues a durable pin toggle (row + notePin op)', () async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
 
@@ -854,9 +863,13 @@ void main() {
       ).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
       final row = await db.notesDao.getNote('note-1');
       check(row).isNotNull().has((it) => it.isPinned, 'isPinned').isTrue();
+      // The pin is a local change awaiting push: dirtyPinned stays set until the
+      // drainer confirms it, and a notePin op is queued in the outbox.
+      check(row).isNotNull().has((it) => it.dirtyPinned, 'dirtyPinned').isTrue();
       check(
-        row,
-      ).isNotNull().has((it) => it.dirtyPinned, 'dirtyPinned').isFalse();
+        (await db.outboxDao.pendingForChat('note-1')).map((op) => op.kind),
+      ).deepEquals([OutboxKind.notePin.name]);
+      check(api.toggledIds).isEmpty();
     });
 
     test(

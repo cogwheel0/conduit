@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/notes_dao.dart';
@@ -10,6 +13,7 @@ import 'package:conduit/core/database/mappers/note_mapper.dart';
 import 'package:conduit/core/models/note.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
+import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -93,6 +97,123 @@ bool _isCurrentNoteSession(
 }) {
   return identical(ref.read(apiServiceProvider), api) &&
       _isCurrentDatabase(ref, db);
+}
+
+// ---- durable note mutations (CDT-RFC-001 §7 write path) -------------------
+//
+// When a Drift database is active, note mutations write the row AND the outbox
+// op in ONE transaction via the `*WithOutbox` DAO methods under
+// `noteLocks.runExclusive(id)`, then kick the drainer so an online edit pushes
+// immediately. Offline, the op waits durably in the outbox so the edit is never
+// lost — the UI updates from the reactive `watchNotes` stream regardless. These
+// mirror the chat durable-send write path (`durableSend`) and take a loosely
+// typed `ref` so both the keep-alive providers (`Ref`) and the note editor
+// (`WidgetRef`) can drive them. Callers without a database keep the legacy
+// API-first path (reviewer mode / no active server).
+
+/// PROVISIONAL local nanosecond stamp for list ordering; the server overwrites
+/// `updated_at` on push (see [NotesDao.updateNoteWithOutbox]).
+int _localNoteNowNs() => DateTime.now().microsecondsSinceEpoch * 1000;
+
+/// Fire-and-forget drainer kick; failures are non-fatal (the op stays queued).
+Future<void> _drainNotes(dynamic ref) async {
+  try {
+    await ref.read(syncEngineProvider.notifier).drainNow();
+  } catch (error) {
+    DebugLogger.warning(
+      'drain-failed',
+      scope: 'notes',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+  }
+}
+
+/// Durable note title/data edit. Returns the stored note (from the just-written
+/// row) or `null` if the row no longer exists (e.g. concurrently deleted).
+Future<Note?> durableUpdateNote(
+  dynamic ref,
+  AppDatabase db, {
+  required String id,
+  String? title,
+  Map<String, dynamic>? data,
+}) async {
+  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  await noteLocks.runExclusive(id, () async {
+    await db.notesDao.updateNoteWithOutbox(
+      id,
+      title: title == null ? const Value<String>.absent() : Value(title),
+      data: data == null
+          ? const Value<String>.absent()
+          : Value(jsonEncode(data)),
+      localUpdatedAtNs: _localNoteNowNs(),
+      enqueue: true,
+    );
+  });
+  unawaited(_drainNotes(ref));
+  final row = await db.notesDao.getNote(id);
+  return row == null ? null : _noteFromRow(row);
+}
+
+/// Durable pin toggle. Returns the stored note (from the just-written row) or
+/// `null` if the row no longer exists.
+Future<Note?> durablePinNote(
+  dynamic ref,
+  AppDatabase db, {
+  required String id,
+  required bool desiredPinned,
+}) async {
+  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  await noteLocks.runExclusive(id, () async {
+    await db.notesDao.pinNoteWithOutbox(id, desiredPinned: desiredPinned);
+  });
+  unawaited(_drainNotes(ref));
+  final row = await db.notesDao.getNote(id);
+  return row == null ? null : _noteFromRow(row);
+}
+
+/// Durable delete (tombstone + `noteDelete` op).
+Future<void> durableDeleteNote(
+  dynamic ref,
+  AppDatabase db, {
+  required String id,
+}) async {
+  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  await noteLocks.runExclusive(id, () async {
+    await db.notesDao.tombstoneWithOutbox(id);
+  });
+  unawaited(_drainNotes(ref));
+}
+
+/// Durable offline create: inserts a `local:<uuid>` row + `noteCreate` op. The
+/// `rawExtra.user_id` is stamped so the row matches the owner predicate used by
+/// [NotesDao.watchNotes]/[NotesDao.getNoteForUser]. Returns the stored note.
+Future<Note?> durableCreateNote(
+  dynamic ref,
+  AppDatabase db, {
+  required String? userId,
+  required String title,
+  required Map<String, dynamic> data,
+}) async {
+  final localId = 'local:${const Uuid().v4()}';
+  final nowNs = _localNoteNowNs();
+  final rawExtra = (userId == null || userId.isEmpty)
+      ? '{}'
+      : jsonEncode(<String, dynamic>{'user_id': userId});
+  final companion = NotesCompanion.insert(
+    id: localId,
+    title: title,
+    data: Value(jsonEncode(data)),
+    createdAt: nowNs,
+    updatedAt: nowNs,
+    rawExtra: Value(rawExtra),
+  );
+  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  await noteLocks.runExclusive(localId, () async {
+    await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
+  });
+  unawaited(_drainNotes(ref));
+  final row = await db.notesDao.getNote(localId);
+  return row == null ? null : _noteFromRow(row);
 }
 
 /// Provider for the list of all notes with user information.
@@ -452,6 +573,41 @@ class NoteCreator extends _$NoteCreator {
 
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+
+    final data = <String, dynamic>{
+      'content': <String, dynamic>{
+        'json': null,
+        'html': htmlContent ?? '',
+        'md': markdownContent ?? '',
+      },
+      'versions': <dynamic>[],
+      'files': null,
+    };
+
+    // Offline with a durable backend: create a local note + `noteCreate` op so
+    // the edit survives until connectivity returns. Online (or reviewer mode
+    // without a database) keeps the API-first path so the editor opens on the
+    // server id with no local→server remap underneath it.
+    if (db != null && !ref.read(isOnlineProvider)) {
+      try {
+        final userId = ref.read(currentUserProvider2)?.id;
+        final note = await durableCreateNote(
+          ref,
+          db,
+          userId: userId,
+          title: title,
+          data: data,
+        );
+        if (!ref.mounted) return null;
+        state = AsyncValue.data(note);
+        return note;
+      } catch (e, st) {
+        if (!ref.mounted) return null;
+        state = AsyncValue.error(e, st);
+        return null;
+      }
+    }
+
     if (api == null) {
       if (!ref.mounted) return null;
       state = AsyncValue.error(
@@ -462,16 +618,6 @@ class NoteCreator extends _$NoteCreator {
     }
 
     try {
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': htmlContent ?? '',
-          'md': markdownContent ?? '',
-        },
-        'versions': <dynamic>[],
-        'files': null,
-      };
-
       final json = await api.createNote(
         title: title,
         data: data,
@@ -517,6 +663,39 @@ class NoteUpdater extends _$NoteUpdater {
 
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+
+    Map<String, dynamic>? data;
+    if (markdownContent != null || htmlContent != null || jsonContent != null) {
+      data = <String, dynamic>{
+        'content': <String, dynamic>{
+          'json': jsonContent,
+          'html': htmlContent ?? '',
+          'md': markdownContent ?? '',
+        },
+      };
+    }
+
+    // Durable backend: write the row + `noteUpdate` op transactionally so an
+    // offline edit is never lost; the list updates from the watch stream.
+    if (db != null) {
+      try {
+        final note = await durableUpdateNote(
+          ref,
+          db,
+          id: id,
+          title: title,
+          data: data,
+        );
+        if (!ref.mounted) return null;
+        state = AsyncValue.data(note);
+        return note;
+      } catch (e, st) {
+        if (!ref.mounted) return null;
+        state = AsyncValue.error(e, st);
+        return null;
+      }
+    }
+
     if (api == null) {
       if (!ref.mounted) return null;
       state = AsyncValue.error(
@@ -527,19 +706,6 @@ class NoteUpdater extends _$NoteUpdater {
     }
 
     try {
-      Map<String, dynamic>? data;
-      if (markdownContent != null ||
-          htmlContent != null ||
-          jsonContent != null) {
-        data = <String, dynamic>{
-          'content': <String, dynamic>{
-            'json': jsonContent,
-            'html': htmlContent ?? '',
-            'md': markdownContent ?? '',
-          },
-        };
-      }
-
       final json = await api.updateNote(id, title: title, data: data);
 
       if (!ref.mounted) return null;
@@ -574,6 +740,33 @@ class NotePinToggler extends _$NotePinToggler {
 
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+
+    // Durable backend: write the pin axis + `notePin` op transactionally so an
+    // offline toggle is never lost; the list updates from the watch stream.
+    if (db != null) {
+      try {
+        final updatedNote = await durablePinNote(
+          ref,
+          db,
+          id: note.id,
+          desiredPinned: !note.isPinned,
+        );
+        if (!ref.mounted) return null;
+        if (updatedNote != null) {
+          final activeNote = ref.read(activeNoteProvider);
+          if (activeNote?.id == updatedNote.id) {
+            ref.read(activeNoteProvider.notifier).set(updatedNote);
+          }
+        }
+        state = AsyncValue.data(updatedNote);
+        return updatedNote;
+      } catch (e, st) {
+        if (!ref.mounted) return null;
+        state = AsyncValue.error(e, st);
+        return null;
+      }
+    }
+
     if (api == null) {
       if (!ref.mounted) return null;
       state = AsyncValue.error(
@@ -628,6 +821,23 @@ class NoteDeleter extends _$NoteDeleter {
 
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
+
+    // Durable backend: tombstone the row + enqueue a `noteDelete` op
+    // transactionally so an offline delete is never lost; the list drops the
+    // note from the watch stream (WHERE deleted = 0).
+    if (db != null) {
+      try {
+        await durableDeleteNote(ref, db, id: id);
+        if (!ref.mounted) return false;
+        state = const AsyncValue.data(true);
+        return true;
+      } catch (e, st) {
+        if (!ref.mounted) return false;
+        state = AsyncValue.error(e, st);
+        return false;
+      }
+    }
+
     if (api == null) {
       if (!ref.mounted) return false;
       state = AsyncValue.error(
