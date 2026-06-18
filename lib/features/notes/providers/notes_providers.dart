@@ -610,6 +610,12 @@ class NoteCreator extends _$NoteCreator {
           data: data,
         );
         if (!ref.mounted) return null;
+        // The session may have switched during the durable await; don't publish
+        // a note from the previous database into the new session.
+        if (!_isCurrentNoteSession(ref, api: api, db: db)) {
+          state = const AsyncValue.data(null);
+          return null;
+        }
         state = AsyncValue.data(note);
         return note;
       } catch (e, st) {
@@ -698,6 +704,12 @@ class NoteUpdater extends _$NoteUpdater {
           data: data,
         );
         if (!ref.mounted) return null;
+        // The session may have switched during the durable await; don't publish
+        // a note from the previous database into the new session.
+        if (!_isCurrentNoteSession(ref, api: api, db: db)) {
+          state = const AsyncValue.data(null);
+          return null;
+        }
         state = AsyncValue.data(note);
         return note;
       } catch (e, st) {
@@ -763,6 +775,12 @@ class NotePinToggler extends _$NotePinToggler {
           desiredPinned: !note.isPinned,
         );
         if (!ref.mounted) return null;
+        // The session may have switched during the durable await; don't publish
+        // a note from the previous database into the new session.
+        if (!_isCurrentNoteSession(ref, api: api, db: db)) {
+          state = const AsyncValue.data(null);
+          return null;
+        }
         if (updatedNote != null) {
           final activeNote = ref.read(activeNoteProvider);
           if (activeNote?.id == updatedNote.id) {
