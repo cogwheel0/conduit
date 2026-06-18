@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
@@ -207,11 +208,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Drift database is active) so an offline edit is never lost, falling back to
   /// the API-first path in reviewer mode / with no active server. Returns the
   /// stored note, or `null` if it could not be persisted.
+  ///
+  /// [api]/[db] are the session captured by the caller BEFORE its awaits; if the
+  /// active account/database changed in the meantime (e.g. during an audio
+  /// upload), this bails without persisting so the old editor's note is never
+  /// written into a newly active account.
   Future<Note?> _persistNoteUpdate({
+    required Object? api,
+    required AppDatabase? db,
     required String title,
     required Map<String, dynamic> data,
   }) async {
-    final db = ref.read(appDatabaseProvider);
+    if (!_isCurrentNoteSession(api: api, db: db)) return null;
     if (db != null) {
       return durableUpdateNote(
         ref,
@@ -221,10 +229,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         data: data,
       );
     }
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return null;
+    // Session confirmed current, so the live API equals the captured one.
+    final currentApi = ref.read(apiServiceProvider);
+    if (currentApi == null) return null;
     final note = Note.fromJson(
-      await api.updateNote(widget.noteId, title: title, data: data),
+      await currentApi.updateNote(widget.noteId, title: title, data: data),
     );
     if (mounted && _isCurrentNoteSession(api: api, db: db)) {
       ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
@@ -260,6 +269,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ? AppLocalizations.of(context)!.untitled
           : title;
       final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
         title: resolvedTitle,
         data: data,
       );
@@ -766,6 +777,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ? l10n.untitled
           : _titleController.text;
       final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
         title: resolvedTitle,
         data: data,
       );
@@ -1363,6 +1376,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ? l10n.untitled
           : _titleController.text;
       final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
         title: resolvedTitle,
         data: data,
       );
