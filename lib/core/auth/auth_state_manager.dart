@@ -1330,6 +1330,22 @@ class AuthStateManager extends _$AuthStateManager {
       rethrow;
     }
 
+    // Final freshness gate immediately before publishing the in-memory session:
+    // if a logout / newer auth attempt landed during persistence, undo our
+    // writes and bail so a stale background login can't resurrect the previous
+    // session (invalidate providers + install the old token).
+    if (!_canCommitAuth(canCommit)) {
+      DebugLogger.auth('Silent login skipped stale in-memory commit');
+      await _restoreStaleSilentLoginPersistence(
+        storage: storage,
+        staleServerId: serverId,
+        previousServerId: previousServerId,
+        staleToken: token,
+        previousToken: previousToken,
+      );
+      return false;
+    }
+
     ref.invalidate(activeServerProvider);
     ref.invalidate(apiServiceProvider);
     _update(
