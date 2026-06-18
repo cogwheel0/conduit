@@ -128,6 +128,22 @@ Future<void> _drainNotes(dynamic ref) async {
   }
 }
 
+/// Kicks the drainer, then reads the note back RE-RESOLVING the remap target.
+/// The drain can push a brand-new note and remap its `local:` id to the server
+/// id between the write and this read, so the id resolved before the kick may be
+/// stale; re-resolving avoids returning `null` (a false "save failed") for a
+/// row that was actually written then remapped.
+Future<Note?> _drainAndReadBackNote(
+  dynamic ref,
+  AppDatabase db,
+  String id,
+) async {
+  unawaited(_drainNotes(ref));
+  final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
+  final row = await db.notesDao.getNote(resolvedId);
+  return row == null ? null : _noteFromRow(row);
+}
+
 /// Durable note title/data edit. Returns the stored note (from the just-written
 /// row) or `null` if the row no longer exists (e.g. concurrently deleted).
 Future<Note?> durableUpdateNote(
@@ -152,9 +168,7 @@ Future<Note?> durableUpdateNote(
       enqueue: true,
     );
   });
-  unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNote(resolvedId);
-  return row == null ? null : _noteFromRow(row);
+  return _drainAndReadBackNote(ref, db, resolvedId);
 }
 
 /// Durable pin toggle. Returns the stored note (from the just-written row) or
@@ -173,9 +187,7 @@ Future<Note?> durablePinNote(
       desiredPinned: desiredPinned,
     );
   });
-  unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNote(resolvedId);
-  return row == null ? null : _noteFromRow(row);
+  return _drainAndReadBackNote(ref, db, resolvedId);
 }
 
 /// Durable delete (tombstone + `noteDelete` op).
@@ -219,12 +231,7 @@ Future<Note?> durableCreateNote(
   await noteLocks.runExclusive(localId, () async {
     await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
   });
-  unawaited(_drainNotes(ref));
-  // The drain may push + remap this brand-new note before the read-back, so
-  // resolve the (possibly now-remapped) id before reading the row.
-  final resolvedId = await db.notesDao.resolveNoteRemapTarget(localId);
-  final row = await db.notesDao.getNote(resolvedId);
-  return row == null ? null : _noteFromRow(row);
+  return _drainAndReadBackNote(ref, db, localId);
 }
 
 /// Provider for the list of all notes with user information.
