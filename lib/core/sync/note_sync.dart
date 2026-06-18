@@ -139,6 +139,11 @@ class NotePullSync {
           serverCreatedAt: serverCreatedAt,
           serverUpdatedAt: serverUpdatedAt,
         );
+        // Alias the lock key so an edit/pin/delete already queued on the stale
+        // local id reroutes to the server-id lock (the DAO resolves the remap
+        // internally and mutates the server row) — mirrors the create-push
+        // path so a queued mutation can't run on a different key than pull/push.
+        _locks.remapKeyInPlace(fromId: localId, toId: serverId);
         // The server note exists, so the claimed create is satisfied. Drop it
         // after remap so the drainer cannot POST a duplicate.
         await _db.outboxDao.markDone(op.seq);
