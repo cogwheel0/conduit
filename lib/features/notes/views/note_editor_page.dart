@@ -204,19 +204,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     await _saveNote(showFeedback: false);
   }
 
-  /// Builds the note `data` payload for an update, preserving the existing
-  /// note's fields (notably `versions`, and `files` unless [files] is provided)
-  /// so a save never truncates server-managed note data. Only `content` (and
-  /// `files`, when changed) is overwritten.
+  /// Builds the note `data` PATCH for an update: only the fields the editor
+  /// actually changes — `content`, plus `files` when [files] is provided. It
+  /// deliberately does NOT spread the (possibly stale) in-memory `_note.data`:
+  /// `durableUpdateNote` merges this patch onto the CURRENT DB row, which
+  /// preserves server-managed fields like `versions` (a pull may have added
+  /// entries while the editor was open — spreading the editor's stale copy here
+  /// would revert them on the next save).
   Map<String, dynamic> _composeUpdatedNoteData({
     required String markdown,
     List<Map<String, dynamic>>? files,
   }) {
-    final data = <String, dynamic>{...?_note?.data.toJson()};
-    data['content'] = <String, dynamic>{
-      'json': null,
-      'html': _markdownToHtml(markdown),
-      'md': markdown,
+    final data = <String, dynamic>{
+      'content': <String, dynamic>{
+        'json': null,
+        'html': _markdownToHtml(markdown),
+        'md': markdown,
+      },
     };
     if (files != null) {
       data['files'] = files;
