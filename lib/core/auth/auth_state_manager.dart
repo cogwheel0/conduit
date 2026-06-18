@@ -1125,6 +1125,12 @@ class AuthStateManager extends _$AuthStateManager {
       );
     }
 
+    // Snapshot the credentials being attempted so a confirmed-auth-failure
+    // cleanup clears only THESE, not credentials a concurrent login may save.
+    final attemptedCredentials = await ref
+        .read(optimizedStorageServiceProvider)
+        .getSavedCredentials();
+
     try {
       return await _performSilentLoginAttempt(
         canCommit: canCommit,
@@ -1142,6 +1148,7 @@ class AuthStateManager extends _$AuthStateManager {
         e,
         publishNetworkErrors: publishNetworkErrors,
         canCommit: canCommit,
+        attemptedCredentials: attemptedCredentials,
       );
     }
   }
@@ -1187,15 +1194,28 @@ class AuthStateManager extends _$AuthStateManager {
         );
         return false;
       }
-      await storage.deleteSavedCredentials();
-      await storage.setActiveServerId(null);
-      ref.invalidate(serverConfigsProvider);
-      ref.invalidate(activeServerProvider);
+      // Only clear the exact credentials/server we attempted: a concurrent
+      // foreground login could have saved fresh credentials or selected a new
+      // server in the await window above, and must not be clobbered.
+      final stored = await storage.getSavedCredentials();
+      final stillSameCreds =
+          stored != null &&
+          stored['serverId'] == serverId &&
+          stored['username'] == username &&
+          stored['password'] == password;
+      if (stillSameCreds) {
+        await storage.deleteSavedCredentials();
+        if (await storage.getActiveServerId() == serverId) {
+          await storage.setActiveServerId(null);
+        }
+        ref.invalidate(serverConfigsProvider);
+        ref.invalidate(activeServerProvider);
+      }
 
       // Re-check freshness after the delete awaits before publishing state.
-      if (!_canCommitAuth(canCommit)) {
+      if (!stillSameCreds || !_canCommitAuth(canCommit)) {
         DebugLogger.auth(
-          'Silent login cleared missing-server creds but skipped stale state commit',
+          'Silent login skipped missing-server state commit (stale or creds changed)',
         );
         return false;
       }
@@ -1336,13 +1356,28 @@ class AuthStateManager extends _$AuthStateManager {
         return false;
       }
     } catch (error) {
-      if (wrotePersistence && !_canCommitAuth(canCommit)) {
-        await _restoreStaleSilentLoginPersistence(
-          storage: storage,
-          staleServerId: serverId,
-          previousServerId: previousServerId,
-          staleToken: token,
-          previousToken: previousToken,
+      if (!_canCommitAuth(canCommit)) {
+        if (wrotePersistence) {
+          await _restoreStaleSilentLoginPersistence(
+            storage: storage,
+            staleServerId: serverId,
+            previousServerId: previousServerId,
+            staleToken: token,
+            previousToken: previousToken,
+          );
+        }
+      } else {
+        // We already claimed this attempt (the revision bump suppresses the
+        // bootstrap fallback), so a bare rethrow would leave cold start stuck on
+        // `loading` with no token. Resolve the claimed attempt to
+        // unauthenticated before propagating the persistence error.
+        DebugLogger.auth('Silent login resolving claimed attempt after persistence failure');
+        _update(
+          (current) => current.copyWith(
+            status: AuthStatus.unauthenticated,
+            isLoading: false,
+            clearToken: true,
+          ),
         );
       }
       rethrow;
@@ -1387,6 +1422,7 @@ class AuthStateManager extends _$AuthStateManager {
     Object error, {
     required bool publishNetworkErrors,
     bool Function()? canCommit,
+    Map<String, String>? attemptedCredentials,
   }) async {
     var errorMessage = error.toString();
 
@@ -1415,11 +1451,26 @@ class AuthStateManager extends _$AuthStateManager {
         return false;
       }
 
-      // Only clear credentials if this is a real auth failure, not a network issue
+      // Only clear credentials if this is a real auth failure, not a network
+      // issue — and only the exact credentials we attempted, so a concurrent
+      // login that saved fresh credentials during this attempt isn't clobbered.
       final storage = ref.read(optimizedStorageServiceProvider);
       try {
-        DebugLogger.auth('Clearing invalid credentials after auth failure');
-        await storage.deleteSavedCredentials();
+        final current = await storage.getSavedCredentials();
+        final stillSame =
+            attemptedCredentials == null ||
+            (current != null &&
+                current['serverId'] == attemptedCredentials['serverId'] &&
+                current['username'] == attemptedCredentials['username'] &&
+                current['password'] == attemptedCredentials['password']);
+        if (stillSame) {
+          DebugLogger.auth('Clearing invalid credentials after auth failure');
+          await storage.deleteSavedCredentials();
+        } else {
+          DebugLogger.auth(
+            'Skipped clearing credentials that changed during the auth attempt',
+          );
+        }
       } catch (deleteError, deleteStack) {
         DebugLogger.error(
           'silent-login-credential-clear-failed',

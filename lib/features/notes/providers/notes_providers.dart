@@ -128,19 +128,20 @@ Future<void> _drainNotes(dynamic ref) async {
   }
 }
 
-/// Kicks the drainer, then reads the note back RE-RESOLVING the remap target.
-/// The drain can push a brand-new note and remap its `local:` id to the server
-/// id between the write and this read, so the id resolved before the kick may be
-/// stale; re-resolving avoids returning `null` (a false "save failed") for a
-/// row that was actually written then remapped.
-Future<Note?> _drainAndReadBackNote(
+/// Reads the just-written note back, THEN kicks the drainer. The write already
+/// committed under the note lock, so reading first returns it deterministically
+/// and cannot race the push+remap the drain may trigger (which deletes the
+/// `local:` row). The drainer is still fire-and-forget so the UI never blocks on
+/// the network. (Resolving the remap target is a no-op here since no remap can
+/// have happened yet, but is kept for callers that pass a pre-existing id.)
+Future<Note?> _readBackThenDrainNote(
   dynamic ref,
   AppDatabase db,
   String id,
 ) async {
-  unawaited(_drainNotes(ref));
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
   final row = await db.notesDao.getNote(resolvedId);
+  unawaited(_drainNotes(ref));
   return row == null ? null : _noteFromRow(row);
 }
 
@@ -168,7 +169,7 @@ Future<Note?> durableUpdateNote(
       enqueue: true,
     );
   });
-  return _drainAndReadBackNote(ref, db, resolvedId);
+  return _readBackThenDrainNote(ref, db, resolvedId);
 }
 
 /// Durable pin toggle. Returns the stored note (from the just-written row) or
@@ -187,7 +188,7 @@ Future<Note?> durablePinNote(
       desiredPinned: desiredPinned,
     );
   });
-  return _drainAndReadBackNote(ref, db, resolvedId);
+  return _readBackThenDrainNote(ref, db, resolvedId);
 }
 
 /// Durable delete (tombstone + `noteDelete` op).
@@ -231,7 +232,7 @@ Future<Note?> durableCreateNote(
   await noteLocks.runExclusive(localId, () async {
     await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
   });
-  return _drainAndReadBackNote(ref, db, localId);
+  return _readBackThenDrainNote(ref, db, localId);
 }
 
 /// Provider for the list of all notes with user information.
