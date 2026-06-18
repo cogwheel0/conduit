@@ -341,12 +341,18 @@ class OptimizedStorageService {
   /// Returns true if it cleared.
   Future<bool> clearActiveServerIdIfMatches(String expectedId) {
     return _authStateLock.synchronized(() async {
-      final rawServerId = _readActiveServerIdState().rawServerId;
-      if (rawServerId != expectedId) return false;
+      if (_rawStoredActiveServerId() != expectedId) return false;
       await _setActiveServerIdUnlocked(null);
       return true;
     });
   }
+
+  /// The active-server id as stored in Hive, bypassing the in-memory cache and
+  /// the saved-config validation in [getActiveServerId] (which returns null once
+  /// the referenced server is deleted). Compare-and-clear/restore use this so a
+  /// dangling preference for a removed server is still detected and cleared.
+  String? _rawStoredActiveServerId() =>
+      _preferencesBox.get(_activeServerIdKey) as String?;
 
   /// Atomically undoes a stale silent-login's persistence: under
   /// [_authStateLock], restores the auth token and active server to their
@@ -372,8 +378,7 @@ class OptimizedStorageService {
         }
       }
 
-      final rawServerId = _readActiveServerIdState().rawServerId;
-      if (rawServerId == staleServerId) {
+      if (_rawStoredActiveServerId() == staleServerId) {
         await _setActiveServerIdUnlocked(previousServerId);
       }
     });
