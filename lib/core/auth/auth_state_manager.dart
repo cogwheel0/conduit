@@ -1816,14 +1816,36 @@ class AuthStateManager extends _$AuthStateManager {
   /// Handle token invalidation (called by API service for explicit token expiry)
   /// This is only used when we need to clear the token for re-login attempts
   Future<void> onTokenInvalidated() async {
-    // Coalesce onto an in-flight silent re-login. Bumping the attempt revision
-    // here would mark that running login stale, and the logic below would then
-    // skip starting a replacement (reloginInProgress) — dead-ending in
-    // tokenExpired even though valid saved credentials are available. Let the
-    // running login resolve instead.
+    // Coalesce onto an in-flight silent re-login (a prior invalidation, a manual
+    // retry, or bootstrap). Bumping the attempt revision here would mark that
+    // running login stale, and the logic below would then skip starting a
+    // replacement (reloginInProgress) — dead-ending in tokenExpired even though
+    // valid saved credentials are available. Let the running login resolve.
+    //
+    // But still clear the REJECTED token before coalescing: that in-flight login
+    // may have been started by a manual/bootstrap flow that won't run the
+    // invalidation cleanup, and if it ultimately fails the bad token would
+    // otherwise linger and be restored on the next cold start. Value-matched so
+    // we never clobber a fresh token the in-flight login may have just saved.
     if (_silentLoginFuture != null) {
+      final rejectedToken = _current.hasValidToken ? _current.token : null;
+      if (rejectedToken != null && rejectedToken.isNotEmpty) {
+        try {
+          await ref
+              .read(optimizedStorageServiceProvider)
+              .deleteAuthTokenIfMatches(rejectedToken);
+        } catch (error, stack) {
+          DebugLogger.error(
+            'token-delete-failed',
+            scope: 'auth/state',
+            error: error,
+            stackTrace: stack,
+          );
+        }
+      }
       DebugLogger.auth(
-        'Token invalidated while a silent re-login is in progress; coalescing',
+        'Token invalidated while a silent re-login is in progress; cleared '
+        'the rejected token and coalesced onto it',
       );
       return;
     }
