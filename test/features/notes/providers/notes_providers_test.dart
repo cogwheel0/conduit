@@ -12,6 +12,8 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/core/sync/pull_sync.dart';
+import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:dio/dio.dart';
@@ -25,6 +27,19 @@ const _testUser = User(
   email: 'user@example.com',
   role: 'user',
 );
+
+/// Replaces the real engine so the durable write path's fire-and-forget drain
+/// kick is a no-op: the outbox op stays PENDING (never claimed) for assertions.
+class _NoDrainSyncEngine extends SyncEngine {
+  @override
+  Future<void> drainNow() async {}
+
+  @override
+  Future<void> drainOutbox() async {}
+
+  @override
+  Future<PullResult?> requestPull({required String reason}) async => null;
+}
 
 void main() {
   group('NotesList', () {
@@ -787,6 +802,7 @@ void main() {
             apiServiceProvider.overrideWithValue(api),
             isAuthenticatedProvider2.overrideWithValue(true),
             currentUserProvider2.overrideWithValue(_testUser),
+            syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
           ],
         );
         addTearDown(container.dispose);
@@ -848,6 +864,7 @@ void main() {
           apiServiceProvider.overrideWithValue(api),
           isAuthenticatedProvider2.overrideWithValue(true),
           currentUserProvider2.overrideWithValue(_testUser),
+          syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
         ],
       );
       addTearDown(container.dispose);
@@ -960,8 +977,6 @@ class _FakeNotesApiService extends ApiService {
     this.fetchedRaw,
     this.fetchGate,
     this.fetchError,
-    this.updatedRaw,
-    this.updateGate,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test',
@@ -978,8 +993,6 @@ class _FakeNotesApiService extends ApiService {
   final Map<String, dynamic>? fetchedRaw;
   final Future<void>? fetchGate;
   final Object? fetchError;
-  final Map<String, dynamic>? updatedRaw;
-  final Future<void>? updateGate;
   final toggledIds = <String>[];
   var notesListRequests = 0;
   final fetchedIds = <String>[];
@@ -1015,12 +1028,10 @@ class _FakeNotesApiService extends ApiService {
     Map<String, dynamic>? meta,
     Map<String, dynamic>? accessControl,
   }) async {
+    // The durable write path must never hit the REST update endpoint; record
+    // the call so tests can assert it stayed unused.
     updatedIds.add(id);
-    final gate = updateGate;
-    if (gate != null) {
-      await gate;
-    }
-    return updatedRaw ?? (throw StateError('updatedRaw not set'));
+    throw StateError('REST updateNote should not be called on the durable path');
   }
 
   @override

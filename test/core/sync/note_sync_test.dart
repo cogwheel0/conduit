@@ -666,6 +666,34 @@ void main() {
     check(await db.syncMetaDao.getNoteRemapTarget(localId)).isNull();
   });
 
+  test('getNoteResolvingRemap follows a local→server id remap', () async {
+    const localId = 'local:read-remap';
+    const serverId = 'server-read-remap';
+    await db
+        .into(db.notes)
+        .insert(
+          NotesCompanion.insert(
+            id: serverId,
+            title: 'Server note',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'body'},
+              }),
+            ),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+    await db.syncMetaDao.setNoteRemapTarget(localId, serverId);
+
+    // The stale local id no longer has a row, but the resolving read-back
+    // returns the server row it was remapped to (regression guard for an
+    // editor autosave reading back its own edit after a create remap).
+    check(await db.notesDao.getNote(localId)).isNull();
+    final resolved = await db.notesDao.getNoteResolvingRemap(localId);
+    check(resolved).isNotNull().has((it) => it.id, 'id').equals(serverId);
+  });
+
   test(
     'pull crash-heals a pending noteCreate with a matching server note',
     () async {

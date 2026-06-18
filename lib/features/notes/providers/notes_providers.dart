@@ -150,7 +150,7 @@ Future<Note?> durableUpdateNote(
     );
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNote(id);
+  final row = await db.notesDao.getNoteResolvingRemap(id);
   return row == null ? null : _noteFromRow(row);
 }
 
@@ -167,7 +167,7 @@ Future<Note?> durablePinNote(
     await db.notesDao.pinNoteWithOutbox(id, desiredPinned: desiredPinned);
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNote(id);
+  final row = await db.notesDao.getNoteResolvingRemap(id);
   return row == null ? null : _noteFromRow(row);
 }
 
@@ -212,7 +212,7 @@ Future<Note?> durableCreateNote(
     await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNote(localId);
+  final row = await db.notesDao.getNoteResolvingRemap(localId);
   return row == null ? null : _noteFromRow(row);
 }
 
