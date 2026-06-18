@@ -858,6 +858,12 @@ class NoteDeleter extends _$NoteDeleter {
       try {
         await durableDeleteNote(ref, db, id: id);
         if (!ref.mounted) return false;
+        // The session may have switched during the durable await; don't report
+        // success into the new session (the editor caller navigates away on it).
+        if (!_isCurrentNoteSession(ref, api: api, db: db)) {
+          state = const AsyncValue.data(false);
+          return false;
+        }
         state = const AsyncValue.data(true);
         return true;
       } catch (e, st) {
