@@ -948,12 +948,21 @@ class AppStartupFlow extends _$AppStartupFlow {
 
     _ensureSocketAttached();
     _applyCurrentAuthTokenToApi(api);
+    _warmApiConnection(api);
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );
 
     // Kick background chat warmup now that we're authenticated
     _scheduleConversationWarmup(ref, force: true);
+  }
+
+  /// Warm the API client's connection pool as soon as we're authenticated, so
+  /// the first chat completion doesn't race a cold TLS/HTTP handshake and
+  /// transiently fail (which would otherwise queue a retry). Fire-and-forget on
+  /// the SAME Dio the completion uses; `checkHealth()` swallows its own errors.
+  void _warmApiConnection(ApiService api) {
+    unawaited(api.checkHealth());
   }
 
   void _requestPostAuthenticationStartup({
