@@ -128,4 +128,43 @@ void main() {
         .has((i) => i.phase, 'phase')
         .equals(QueuedCompletionPhase.failed);
   });
+
+  test(
+    'a single transient retry (attempts=1) stays hidden — no flash on the '
+    'cold-connection first send',
+    () async {
+      const chatId = 'c1';
+      const assistantId = 'a1';
+      final seq = await enqueueCompletion(chatId, assistantId);
+      // First attempt failed transiently (e.g. cold connection); auto-retry
+      // scheduled with backoff. attempts -> 1, non-offline error.
+      await db.outboxDao.markFailedRetryable(
+        seq,
+        error: 'Connection closed',
+        nextAttemptAt: 1,
+      );
+
+      final container = makeContainer(online: true, chatId: chatId);
+      check(await firstInfo(container, assistantId)).isNull();
+    },
+  );
+
+  test('a stalled completion (attempts >= 2) surfaces the banner', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final seq = await enqueueCompletion(chatId, assistantId);
+    await db.outboxDao.markFailedRetryable(
+      seq,
+      error: 'Connection closed',
+      nextAttemptAt: 1,
+    );
+    await db.outboxDao.markFailedRetryable(
+      seq,
+      error: 'Connection closed',
+      nextAttemptAt: 1,
+    );
+
+    final container = makeContainer(online: true, chatId: chatId);
+    check(await firstInfo(container, assistantId)).isNotNull();
+  });
 }

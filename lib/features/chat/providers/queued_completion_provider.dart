@@ -14,6 +14,12 @@ import 'chat_providers.dart' show chatMessagesProvider;
 
 enum QueuedCompletionPhase { pending, failed }
 
+/// A pending completion is only surfaced as "queued" once it has failed at least
+/// this many attempts (i.e. a retry is genuinely pending), so a single transient
+/// first-attempt failure — e.g. a cold network/socket connection on the first
+/// message of a session — auto-retries invisibly instead of flashing the banner.
+const int _queuedCompletionStallAttempts = 2;
+
 class QueuedCompletionInfo {
   const QueuedCompletionInfo({
     required this.seq,
@@ -63,18 +69,24 @@ final queuedCompletionInfoForMessageProvider = StreamProvider.autoDispose
               : QueuedCompletionPhase.pending;
           final offline = op.lastError == 'offline' || !isOnline;
 
-          // A fresh, never-attempted op is "sending", not "queued" — hide its
-          // transient state so the retry/cancel banner doesn't flash on a normal
-          // (especially first) send before the drainer claims it. This must NOT
-          // depend on `isOnline`: at app/first-send time connectivity may still
-          // be resolving (reported as not-online), which previously surfaced the
-          // banner on the first prompt of a new chat. Once the op is genuinely
-          // offline-deferred (`lastError == 'offline'`), backoff-scheduled
-          // (`nextAttemptAt`), or failed, it falls through and the banner shows.
-          if (phase == QueuedCompletionPhase.pending &&
-              op.lastError == null &&
-              op.nextAttemptAt == null) {
-            continue;
+          // Only surface a PENDING completion when it genuinely needs the user's
+          // attention — never for a transient auto-retry. A normal send (and
+          // especially the FIRST send of a session, which can race a cold
+          // network/socket connection) often fails once and is retried with a
+          // ~1s backoff; showing the retry/cancel banner for that single attempt
+          // makes it flash on screen. Surface a pending op only when:
+          //   • it is offline-deferred (queued until connectivity returns), or
+          //   • it has stalled across multiple attempts (the drainer has retried
+          //     it `>= _queuedCompletionStallAttempts` times without success).
+          // A `failed` (parked) op always surfaces for manual retry. This is
+          // independent of `isOnline`, which can be transiently not-online while
+          // connectivity is still resolving at startup.
+          if (phase == QueuedCompletionPhase.pending) {
+            final offlineDeferred = op.lastError == 'offline';
+            final stalled = op.attempts >= _queuedCompletionStallAttempts;
+            if (!offlineDeferred && !stalled) {
+              continue;
+            }
           }
 
           return QueuedCompletionInfo(
