@@ -105,6 +105,14 @@ class AuthStateManager extends _$AuthStateManager {
 
   int _beginAuthAttempt() => ++_authAttemptRevision;
 
+  /// True when a newer auth attempt (login / logout / token-invalidation, each
+  /// of which calls [_beginAuthAttempt]) has started since [attemptRevision] was
+  /// captured, or the notifier is gone. Foreground logins check this before
+  /// persisting a token or publishing state so a slow attempt can't overwrite a
+  /// newer one's result.
+  bool _authAttemptSuperseded(int attemptRevision) =>
+      !ref.mounted || _authAttemptRevision != attemptRevision;
+
   bool _canCommitAuth(bool Function()? canCommit) {
     return canCommit == null || canCommit();
   }
@@ -562,6 +570,7 @@ class AuthStateManager extends _$AuthStateManager {
       );
     }
 
+    final attemptRevision = _authAttemptRevision;
     try {
       // Validate token is not empty
       if (apiKey.trim().isEmpty) {
@@ -590,6 +599,15 @@ class AuthStateManager extends _$AuthStateManager {
       // Validate by attempting to fetch user info
       try {
         final user = await _validateIssuedToken(api, tokenStr);
+
+        // A concurrent login / logout that started during validation owns the
+        // session now; don't persist this token or publish over its state.
+        if (_authAttemptSuperseded(attemptRevision)) {
+          DebugLogger.auth(
+            'JWT login superseded by a newer attempt; not committing',
+          );
+          return false;
+        }
 
         // Save token to storage
         final storage = ref.read(optimizedStorageServiceProvider);
@@ -643,16 +661,19 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      _updateApiServiceToken(null);
-      if (publishErrors) {
-        _update(
-          (current) => current.copyWith(
-            status: AuthStatus.error,
-            error: e.toString(),
-            isLoading: false,
-            clearToken: true,
-          ),
-        );
+      // Don't clear the API token or publish an error over a newer attempt.
+      if (!_authAttemptSuperseded(attemptRevision)) {
+        _updateApiServiceToken(null);
+        if (publishErrors) {
+          _update(
+            (current) => current.copyWith(
+              status: AuthStatus.error,
+              error: e.toString(),
+              isLoading: false,
+              clearToken: true,
+            ),
+          );
+        }
       }
       rethrow;
     }
@@ -694,6 +715,7 @@ class AuthStateManager extends _$AuthStateManager {
       );
     }
 
+    final attemptRevision = _authAttemptRevision;
     try {
       // Ensure API service is available (active server/provider rebuild race)
       await _ensureApiServiceAvailable();
@@ -719,6 +741,13 @@ class AuthStateManager extends _$AuthStateManager {
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
       final user = await _validateIssuedToken(api, tokenStr);
+
+      // A concurrent login / logout that started during validation owns the
+      // session now; don't persist this token or publish over its state.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        DebugLogger.auth('Login superseded by a newer attempt; not committing');
+        return false;
+      }
 
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
@@ -760,16 +789,19 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      _updateApiServiceToken(null);
-      if (publishErrors) {
-        _update(
-          (current) => current.copyWith(
-            status: AuthStatus.error,
-            error: e.toString(),
-            isLoading: false,
-            clearToken: true,
-          ),
-        );
+      // Don't clear the API token or publish an error over a newer attempt.
+      if (!_authAttemptSuperseded(attemptRevision)) {
+        _updateApiServiceToken(null);
+        if (publishErrors) {
+          _update(
+            (current) => current.copyWith(
+              status: AuthStatus.error,
+              error: e.toString(),
+              isLoading: false,
+              clearToken: true,
+            ),
+          );
+        }
       }
       rethrow;
     }
@@ -793,6 +825,7 @@ class AuthStateManager extends _$AuthStateManager {
       ),
     );
 
+    final attemptRevision = _authAttemptRevision;
     try {
       // Ensure API service is available
       await _ensureApiServiceAvailable();
@@ -821,6 +854,15 @@ class AuthStateManager extends _$AuthStateManager {
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
       final user = await _validateIssuedToken(api, tokenStr);
+
+      // A concurrent login / logout that started during validation owns the
+      // session now; don't persist this token or publish over its state.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        DebugLogger.auth(
+          'LDAP login superseded by a newer attempt; not committing',
+        );
+        return false;
+      }
 
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
@@ -874,7 +916,8 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
-      if (ref.mounted) {
+      // Don't clear the API token or publish an error over a newer attempt.
+      if (!_authAttemptSuperseded(attemptRevision)) {
         _update(
           (current) => current.copyWith(
             status: AuthStatus.error,
@@ -883,8 +926,8 @@ class AuthStateManager extends _$AuthStateManager {
             clearToken: true,
           ),
         );
+        _updateApiServiceToken(null);
       }
-      _updateApiServiceToken(null);
       rethrow;
     }
   }
@@ -1451,11 +1494,22 @@ class AuthStateManager extends _$AuthStateManager {
         error.toString().contains('timeout') ||
         error.toString().contains('NetworkImage');
 
-    if (!isNetworkError &&
-        (error.toString().contains('401') ||
-            error.toString().contains('403') ||
-            error.toString().contains('authentication') ||
-            error.toString().contains('unauthorized'))) {
+    // Local saved-token validation failures (raised by `_authenticateSavedJwt`
+    // before any server request) mean the stored credential can never succeed,
+    // so treat them as terminal credential failures too — otherwise they fall
+    // to the unknown-error path, keep the bad credential, and repeat the
+    // impossible silent login on every cold start.
+    final isInvalidSavedToken =
+        error.toString().contains('apiKeyNotSupported') ||
+        error.toString().contains('Invalid token format') ||
+        error.toString().contains('Token cannot be empty');
+
+    if ((!isNetworkError &&
+            (error.toString().contains('401') ||
+                error.toString().contains('403') ||
+                error.toString().contains('authentication') ||
+                error.toString().contains('unauthorized'))) ||
+        isInvalidSavedToken) {
       // A confirmed auth failure means the saved secret is bad: clear it so it
       // isn't retried on every cold start (the background bootstrap path turns a
       // bare `false` into a generic unauthenticated state otherwise). Only bail
