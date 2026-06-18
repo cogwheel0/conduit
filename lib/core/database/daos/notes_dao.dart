@@ -177,15 +177,14 @@ LIMIT 1
     return row == null ? null : notes.map(row.data);
   }
 
-  /// Full row, one-shot, following a `local:` → server id remap. Callers that
-  /// still hold a stale `local:` id after a create remap (e.g. an open editor
-  /// reading back its own just-written edit) get the row that was actually
-  /// mutated rather than `null`. Mirrors the resolution the `*WithOutbox`
-  /// writers apply before mutating.
-  Future<NoteRow?> getNoteResolvingRemap(String id) async {
-    final resolvedId = await _resolveLocalRemapTarget(id);
-    return getNote(resolvedId);
-  }
+  /// Resolve a possibly-stale `local:` id to the server id it was remapped to
+  /// (or [id] when there is no remap / the target row is absent). Callers take
+  /// the note lock on the RESOLVED id — and write/read back with it — so a UI
+  /// mutation serializes on the SAME key as concurrent pull/push for the row
+  /// (the `*WithOutbox` writers resolve internally too, so a lock taken on the
+  /// stale id would otherwise guard a different key than the row it mutates).
+  Future<String> resolveNoteRemapTarget(String id) =>
+      _resolveLocalRemapTarget(id);
 
   /// Every non-tombstoned note carrying a SERVER id (`id NOT LIKE 'local:%'`) —
   /// the §7.5 deletion reconcile diff source.

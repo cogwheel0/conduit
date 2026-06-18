@@ -666,7 +666,7 @@ void main() {
     check(await db.syncMetaDao.getNoteRemapTarget(localId)).isNull();
   });
 
-  test('getNoteResolvingRemap follows a local→server id remap', () async {
+  test('resolveNoteRemapTarget follows a local→server id remap', () async {
     const localId = 'local:read-remap';
     const serverId = 'server-read-remap';
     await db
@@ -686,12 +686,12 @@ void main() {
         );
     await db.syncMetaDao.setNoteRemapTarget(localId, serverId);
 
-    // The stale local id no longer has a row, but the resolving read-back
-    // returns the server row it was remapped to (regression guard for an
-    // editor autosave reading back its own edit after a create remap).
+    // The stale local id resolves to the server id it was remapped to, so a UI
+    // mutation locks/writes/reads on the row the DAO actually mutates (and a
+    // server id with no remap resolves to itself).
+    check(await db.notesDao.resolveNoteRemapTarget(localId)).equals(serverId);
+    check(await db.notesDao.resolveNoteRemapTarget(serverId)).equals(serverId);
     check(await db.notesDao.getNote(localId)).isNull();
-    final resolved = await db.notesDao.getNoteResolvingRemap(localId);
-    check(resolved).isNotNull().has((it) => it.id, 'id').equals(serverId);
   });
 
   test(

@@ -137,10 +137,13 @@ Future<Note?> durableUpdateNote(
   String? title,
   Map<String, dynamic>? data,
 }) async {
+  // Resolve a stale `local:` id to the server id BEFORE locking so the lock,
+  // write, and read-back all key on the row the DAO actually mutates.
+  final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
   final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
-  await noteLocks.runExclusive(id, () async {
+  await noteLocks.runExclusive(resolvedId, () async {
     await db.notesDao.updateNoteWithOutbox(
-      id,
+      resolvedId,
       title: title == null ? const Value<String>.absent() : Value(title),
       data: data == null
           ? const Value<String>.absent()
@@ -150,7 +153,7 @@ Future<Note?> durableUpdateNote(
     );
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNoteResolvingRemap(id);
+  final row = await db.notesDao.getNote(resolvedId);
   return row == null ? null : _noteFromRow(row);
 }
 
@@ -162,12 +165,16 @@ Future<Note?> durablePinNote(
   required String id,
   required bool desiredPinned,
 }) async {
+  final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
   final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
-  await noteLocks.runExclusive(id, () async {
-    await db.notesDao.pinNoteWithOutbox(id, desiredPinned: desiredPinned);
+  await noteLocks.runExclusive(resolvedId, () async {
+    await db.notesDao.pinNoteWithOutbox(
+      resolvedId,
+      desiredPinned: desiredPinned,
+    );
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNoteResolvingRemap(id);
+  final row = await db.notesDao.getNote(resolvedId);
   return row == null ? null : _noteFromRow(row);
 }
 
@@ -177,9 +184,10 @@ Future<void> durableDeleteNote(
   AppDatabase db, {
   required String id,
 }) async {
+  final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
   final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
-  await noteLocks.runExclusive(id, () async {
-    await db.notesDao.tombstoneWithOutbox(id);
+  await noteLocks.runExclusive(resolvedId, () async {
+    await db.notesDao.tombstoneWithOutbox(resolvedId);
   });
   unawaited(_drainNotes(ref));
 }
@@ -212,7 +220,10 @@ Future<Note?> durableCreateNote(
     await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
   });
   unawaited(_drainNotes(ref));
-  final row = await db.notesDao.getNoteResolvingRemap(localId);
+  // The drain may push + remap this brand-new note before the read-back, so
+  // resolve the (possibly now-remapped) id before reading the row.
+  final resolvedId = await db.notesDao.resolveNoteRemapTarget(localId);
+  final row = await db.notesDao.getNote(resolvedId);
   return row == null ? null : _noteFromRow(row);
 }
 
