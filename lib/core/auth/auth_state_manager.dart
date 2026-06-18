@@ -113,6 +113,30 @@ class AuthStateManager extends _$AuthStateManager {
   bool _authAttemptSuperseded(int attemptRevision) =>
       !ref.mounted || _authAttemptRevision != attemptRevision;
 
+  /// Rolls back a superseded foreground login's persisted writes: value-match
+  /// deletes the token (and remembered credentials) it just wrote, so the next
+  /// cold start can't restore the rejected session. Value-matched so a newer
+  /// login's writes are never clobbered.
+  Future<void> _rollbackSupersededLoginWrites({
+    required OptimizedStorageService storage,
+    required String token,
+    Map<String, String>? credentials,
+  }) async {
+    try {
+      await storage.deleteAuthTokenIfMatches(token);
+      if (credentials != null) {
+        await storage.deleteSavedCredentialsIfMatches(credentials);
+      }
+    } catch (error, stack) {
+      DebugLogger.error(
+        'superseded-login-rollback-failed',
+        scope: 'auth/state',
+        error: error,
+        stackTrace: stack,
+      );
+    }
+  }
+
   bool _canCommitAuth(bool Function()? canCommit) {
     return canCommit == null || canCommit();
   }
@@ -614,9 +638,15 @@ class AuthStateManager extends _$AuthStateManager {
         await storage.saveAuthToken(tokenStr);
 
         // Save JWT token if requested
+        Map<String, String>? writtenCredentials;
         if (rememberCredentials) {
           final activeServer = await ref.read(activeServerProvider.future);
           if (activeServer != null) {
+            writtenCredentials = {
+              'serverId': activeServer.id,
+              'username': 'jwt_user',
+              'password': tokenStr,
+            };
             // Store JWT as a special credential type
             await storage.saveCredentials(
               serverId: activeServer.id,
@@ -632,6 +662,11 @@ class AuthStateManager extends _$AuthStateManager {
         if (_authAttemptSuperseded(attemptRevision)) {
           DebugLogger.auth(
             'JWT login superseded after persistence; not publishing',
+          );
+          await _rollbackSupersededLoginWrites(
+            storage: storage,
+            token: tokenStr,
+            credentials: writtenCredentials,
           );
           return false;
         }
@@ -763,9 +798,15 @@ class AuthStateManager extends _$AuthStateManager {
       await storage.saveAuthToken(tokenStr);
 
       // Save credentials if requested
+      Map<String, String>? writtenCredentials;
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
         if (activeServer != null) {
+          writtenCredentials = {
+            'serverId': activeServer.id,
+            'username': username,
+            'password': password,
+          };
           await storage.saveCredentials(
             serverId: activeServer.id,
             username: username,
@@ -778,6 +819,11 @@ class AuthStateManager extends _$AuthStateManager {
       // started, and must not be overwritten by this attempt's published state.
       if (_authAttemptSuperseded(attemptRevision)) {
         DebugLogger.auth('Login superseded after persistence; not publishing');
+        await _rollbackSupersededLoginWrites(
+          storage: storage,
+          token: tokenStr,
+          credentials: writtenCredentials,
+        );
         return false;
       }
 
@@ -891,10 +937,16 @@ class AuthStateManager extends _$AuthStateManager {
       // - JWT tokens can be revoked server-side
       // - Avoids storing the user's directory password
       // - Consistent with SSO token storage approach
+      Map<String, String>? writtenCredentials;
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
         if (!ref.mounted) return false;
         if (activeServer != null) {
+          writtenCredentials = {
+            'serverId': activeServer.id,
+            'username': 'ldap:$username',
+            'password': tokenStr,
+          };
           await storage.saveCredentials(
             serverId: activeServer.id,
             // Prefix with ldap: to preserve original username for debugging
@@ -913,6 +965,11 @@ class AuthStateManager extends _$AuthStateManager {
       if (_authAttemptSuperseded(attemptRevision)) {
         DebugLogger.auth(
           'LDAP login superseded after persistence; not publishing',
+        );
+        await _rollbackSupersededLoginWrites(
+          storage: storage,
+          token: tokenStr,
+          credentials: writtenCredentials,
         );
         return false;
       }

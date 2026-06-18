@@ -123,6 +123,19 @@ class OptimizedStorageService {
   Future<void> deleteAuthToken() =>
       _authStateLock.synchronized(_deleteAuthTokenUnlocked);
 
+  /// Compare-and-delete: deletes the stored auth token ONLY if it still equals
+  /// [expected]. Read + conditional delete run under [_authStateLock], so a
+  /// superseded login can roll back its own token write without clobbering a
+  /// newer login's token. Returns true if it deleted.
+  Future<bool> deleteAuthTokenIfMatches(String expected) {
+    return _authStateLock.synchronized(() async {
+      final current = await getAuthToken();
+      if (current != expected) return false;
+      await _deleteAuthTokenUnlocked();
+      return true;
+    });
+  }
+
   Future<void> _deleteAuthTokenUnlocked() async {
     try {
       await _secureCredentialStorage.deleteAuthToken();
