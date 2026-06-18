@@ -1040,9 +1040,16 @@ class AuthStateManager extends _$AuthStateManager {
   /// state in background mode), fall back to `unauthenticated` so the app
   /// reaches the sign-in page instead of hanging on the splash.
   Future<void> _bootstrapSilentLogin() async {
+    // Capture the attempt revision: every foreground login / logout /
+    // token-invalidation bumps it via `_beginAuthAttempt`. If one starts while
+    // this background login runs, it is also briefly `loading` with no token, so
+    // the fallback below must NOT fire — otherwise this stale task would clobber
+    // the newer attempt with `unauthenticated` and bounce the user to sign-in.
+    final bootstrapRevision = _authAttemptRevision;
     final committed = await _performSilentLoginInBackground();
     if (!ref.mounted) return;
     if (!committed &&
+        _authAttemptRevision == bootstrapRevision &&
         _current.status == AuthStatus.loading &&
         !_current.hasValidToken) {
       DebugLogger.auth(
