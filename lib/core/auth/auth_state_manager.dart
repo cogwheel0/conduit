@@ -976,7 +976,14 @@ class AuthStateManager extends _$AuthStateManager {
       await storage.saveAuthToken(tokenStr);
       persistedToken = tokenStr;
 
-      if (!ref.mounted) return false;
+      if (!ref.mounted) {
+        await _rollbackUncommittedLoginWrites(
+          storage: storage,
+          token: tokenStr,
+          credentials: writtenCredentials,
+        );
+        return false;
+      }
 
       // Save JWT token for re-authentication if requested
       // We store the token (not the raw LDAP password) for security:
@@ -985,7 +992,14 @@ class AuthStateManager extends _$AuthStateManager {
       // - Consistent with SSO token storage approach
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
-        if (!ref.mounted) return false;
+        if (!ref.mounted) {
+          await _rollbackUncommittedLoginWrites(
+            storage: storage,
+            token: tokenStr,
+            credentials: writtenCredentials,
+          );
+          return false;
+        }
         if (activeServer != null) {
           writtenCredentials = {
             'serverId': activeServer.id,
@@ -1003,7 +1017,14 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
 
-      if (!ref.mounted) return false;
+      if (!ref.mounted) {
+        await _rollbackUncommittedLoginWrites(
+          storage: storage,
+          token: tokenStr,
+          credentials: writtenCredentials,
+        );
+        return false;
+      }
 
       // Re-check after the persistence awaits: a newer login/logout may have
       // started, and must not be overwritten by this attempt's published state.
