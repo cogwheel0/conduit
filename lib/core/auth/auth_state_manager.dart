@@ -1368,22 +1368,27 @@ class AuthStateManager extends _$AuthStateManager {
         return false;
       }
     } catch (error) {
-      if (!_canCommitAuth(canCommit)) {
-        if (wrotePersistence) {
-          await _restoreStaleSilentLoginPersistence(
-            storage: storage,
-            staleServerId: serverId,
-            previousServerId: previousServerId,
-            staleToken: token,
-            previousToken: previousToken,
-          );
-        }
-      } else {
+      // Undo any PARTIAL persistence (value-matched, atomic) whenever we wrote
+      // some of it — not only when the attempt went stale — so a storage failure
+      // between setActiveServerId and saveAuthToken can't strand the app on the
+      // silent-login server/token without committing.
+      if (wrotePersistence) {
+        await _restoreStaleSilentLoginPersistence(
+          storage: storage,
+          staleServerId: serverId,
+          previousServerId: previousServerId,
+          staleToken: token,
+          previousToken: previousToken,
+        );
+      }
+      if (_canCommitAuth(canCommit)) {
         // We already claimed this attempt (the revision bump suppresses the
         // bootstrap fallback), so a bare rethrow would leave cold start stuck on
-        // `loading` with no token. Resolve the claimed attempt to
-        // unauthenticated before propagating the persistence error.
-        DebugLogger.auth('Silent login resolving claimed attempt after persistence failure');
+        // `loading` with no token. Resolve the claimed attempt to unauthenticated
+        // before propagating the persistence error.
+        DebugLogger.auth(
+          'Silent login resolving claimed attempt after persistence failure',
+        );
         _update(
           (current) => current.copyWith(
             status: AuthStatus.unauthenticated,

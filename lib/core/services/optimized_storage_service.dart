@@ -333,14 +333,16 @@ class OptimizedStorageService {
     );
   }
 
-  /// Compare-and-clear: clears the active server id ONLY if it still equals
-  /// [expectedId]. The read and conditional write run under [_authStateLock], so
-  /// a concurrently-selected active server isn't clobbered by a stale cleanup.
+  /// Compare-and-clear: clears the active server id ONLY if the RAW stored
+  /// preference still equals [expectedId]. Compares the raw value (not
+  /// [getActiveServerId], which validates against saved configs and returns null
+  /// once the server is deleted — the very case this is used for), under
+  /// [_authStateLock] so a concurrently-selected active server isn't clobbered.
   /// Returns true if it cleared.
   Future<bool> clearActiveServerIdIfMatches(String expectedId) {
     return _authStateLock.synchronized(() async {
-      final current = await getActiveServerId();
-      if (current != expectedId) return false;
+      final rawServerId = _readActiveServerIdState().rawServerId;
+      if (rawServerId != expectedId) return false;
       await _setActiveServerIdUnlocked(null);
       return true;
     });
@@ -370,8 +372,8 @@ class OptimizedStorageService {
         }
       }
 
-      final currentServerId = await getActiveServerId();
-      if (currentServerId == staleServerId) {
+      final rawServerId = _readActiveServerIdState().rawServerId;
+      if (rawServerId == staleServerId) {
         await _setActiveServerIdUnlocked(previousServerId);
       }
     });
