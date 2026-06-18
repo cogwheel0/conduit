@@ -132,23 +132,16 @@ class AuthStateManager extends _$AuthStateManager {
     required String? previousToken,
   }) async {
     try {
-      final currentToken = await storage.getAuthToken();
-      if (currentToken == staleToken) {
-        final stateToken = _current.hasValidToken ? _current.token : null;
-        final replacementToken = stateToken ?? previousToken;
-        if (replacementToken != null &&
-            replacementToken.isNotEmpty &&
-            replacementToken != staleToken) {
-          await storage.saveAuthToken(replacementToken);
-        } else if (replacementToken == null || replacementToken.isEmpty) {
-          await storage.deleteAuthToken();
-        }
-      }
-
-      final currentServerId = await storage.getActiveServerId();
-      if (currentServerId == staleServerId) {
-        await storage.setActiveServerId(previousServerId);
-      }
+      final stateToken = _current.hasValidToken ? _current.token : null;
+      final replacementToken = stateToken ?? previousToken;
+      // Atomic value-matched restore: only entries that still hold the stale
+      // token/server are reverted, so a newer login's writes aren't clobbered.
+      await storage.restoreActiveServerAndTokenIfStale(
+        staleServerId: staleServerId,
+        previousServerId: previousServerId,
+        staleToken: staleToken,
+        replacementToken: replacementToken,
+      );
 
       ref.invalidate(activeServerProvider);
       ref.invalidate(apiServiceProvider);
@@ -1213,20 +1206,17 @@ class AuthStateManager extends _$AuthStateManager {
         );
         return false;
       }
-      // Only clear the exact credentials/server we attempted: a concurrent
-      // foreground login could have saved fresh credentials or selected a new
-      // server in the await window above, and must not be clobbered.
-      final stored = await storage.getSavedCredentials();
-      final stillSameCreds =
-          stored != null &&
-          stored['serverId'] == serverId &&
-          stored['username'] == username &&
-          stored['password'] == password;
-      if (stillSameCreds) {
-        await storage.deleteSavedCredentials();
+      // Atomic compare-and-delete: only clears the exact credentials we
+      // attempted, so a concurrent foreground login that saved fresh
+      // credentials in the await window above isn't clobbered.
+      final clearedCreds = await storage.deleteSavedCredentialsIfMatches({
+        'serverId': serverId,
+        'username': username,
+        'password': password,
+      });
+      if (clearedCreds) {
         // Compare-and-clear the active server (only if it still points at the
-        // missing one) so a concurrent foreground login / server switch that
-        // selected a new active server isn't clobbered by this stale cleanup.
+        // missing one) so a concurrent server switch isn't clobbered.
         if (_canCommitAuth(canCommit)) {
           await storage.clearActiveServerIdIfMatches(serverId);
         }
@@ -1235,7 +1225,7 @@ class AuthStateManager extends _$AuthStateManager {
       }
 
       // Re-check freshness after the delete awaits before publishing state.
-      if (!stillSameCreds || !_canCommitAuth(canCommit)) {
+      if (!clearedCreds || !_canCommitAuth(canCommit)) {
         DebugLogger.auth(
           'Silent login skipped missing-server state commit (stale or creds changed)',
         );
@@ -1478,21 +1468,22 @@ class AuthStateManager extends _$AuthStateManager {
       // login that saved fresh credentials during this attempt isn't clobbered.
       final storage = ref.read(optimizedStorageServiceProvider);
       try {
-        final current = await storage.getSavedCredentials();
-        final stillSame =
-            attemptedCredentials == null ||
-            (current != null &&
-                current['serverId'] == attemptedCredentials['serverId'] &&
-                current['username'] == attemptedCredentials['username'] &&
-                current['password'] == attemptedCredentials['password']);
-        if (stillSame) {
-          DebugLogger.auth('Clearing invalid credentials after auth failure');
+        // Atomic compare-and-delete: clear only the exact credentials we tried,
+        // so a concurrent login that saved fresh credentials isn't clobbered.
+        final bool cleared;
+        if (attemptedCredentials == null) {
           await storage.deleteSavedCredentials();
+          cleared = true;
         } else {
-          DebugLogger.auth(
-            'Skipped clearing credentials that changed during the auth attempt',
+          cleared = await storage.deleteSavedCredentialsIfMatches(
+            attemptedCredentials,
           );
         }
+        DebugLogger.auth(
+          cleared
+              ? 'Cleared invalid credentials after auth failure'
+              : 'Skipped clearing credentials that changed during the auth attempt',
+        );
       } catch (deleteError, deleteStack) {
         DebugLogger.error(
           'silent-login-credential-clear-failed',

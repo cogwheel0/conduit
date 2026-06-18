@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../models/backend_config.dart';
 import '../models/model.dart';
@@ -41,6 +42,15 @@ class OptimizedStorageService {
   final WorkerManager _workerManager;
   final CacheManager _cacheManager = CacheManager(maxEntries: 64);
 
+  /// Serializes read-modify-write sequences over the auth token, saved
+  /// credentials, and active server id so a stale background task's
+  /// compare-and-write can't interleave with (and clobber) a newer login /
+  /// server selection. All WRITES to those three keys take this lock; the
+  /// compound `*IfMatches` / `restore*` helpers do their read AND write under a
+  /// single hold via the private `_*Unlocked` bodies (the lock is NOT
+  /// reentrant, so locked methods must call the unlocked bodies internally).
+  final Lock _authStateLock = Lock();
+
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
@@ -67,7 +77,10 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Auth token APIs (secure storage + in-memory cache)
   // ---------------------------------------------------------------------------
-  Future<void> saveAuthToken(String token) async {
+  Future<void> saveAuthToken(String token) =>
+      _authStateLock.synchronized(() => _saveAuthTokenUnlocked(token));
+
+  Future<void> _saveAuthTokenUnlocked(String token) async {
     try {
       await _secureCredentialStorage.saveAuthToken(token);
       _cacheManager.write(_authTokenKey, token, ttl: _authTokenTtl);
@@ -107,7 +120,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> deleteAuthToken() async {
+  Future<void> deleteAuthToken() =>
+      _authStateLock.synchronized(_deleteAuthTokenUnlocked);
+
+  Future<void> _deleteAuthTokenUnlocked() async {
     try {
       await _secureCredentialStorage.deleteAuthToken();
       _cacheManager.invalidate(_authTokenKey);
@@ -129,6 +145,22 @@ class OptimizedStorageService {
   // Credential APIs (secure storage only)
   // ---------------------------------------------------------------------------
   Future<void> saveCredentials({
+    required String serverId,
+    required String username,
+    required String password,
+    String authType = 'credentials',
+  }) {
+    return _authStateLock.synchronized(
+      () => _saveCredentialsUnlocked(
+        serverId: serverId,
+        username: username,
+        password: password,
+        authType: authType,
+      ),
+    );
+  }
+
+  Future<void> _saveCredentialsUnlocked({
     required String serverId,
     required String username,
     required String password,
@@ -175,7 +207,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> deleteSavedCredentials() async {
+  Future<void> deleteSavedCredentials() =>
+      _authStateLock.synchronized(_deleteSavedCredentialsUnlocked);
+
+  Future<void> _deleteSavedCredentialsUnlocked() async {
     try {
       await _secureCredentialStorage.deleteSavedCredentials();
       _cacheManager.invalidate('has_credentials');
@@ -191,6 +226,26 @@ class OptimizedStorageService {
       );
       rethrow;
     }
+  }
+
+  /// Compare-and-delete: deletes the saved credentials ONLY if they still match
+  /// [expected] (serverId/username/password). Read + conditional delete run
+  /// under [_authStateLock], so a newer login that saved different credentials
+  /// isn't clobbered. Returns true if it deleted.
+  Future<bool> deleteSavedCredentialsIfMatches(
+    Map<String, String> expected,
+  ) {
+    return _authStateLock.synchronized(() async {
+      final current = await getSavedCredentials();
+      final matches =
+          current != null &&
+          current['serverId'] == expected['serverId'] &&
+          current['username'] == expected['username'] &&
+          current['password'] == expected['password'];
+      if (!matches) return false;
+      await _deleteSavedCredentialsUnlocked();
+      return true;
+    });
   }
 
   Future<bool> hasCredentials() async {
@@ -257,7 +312,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> setActiveServerId(String? serverId) async {
+  Future<void> setActiveServerId(String? serverId) =>
+      _authStateLock.synchronized(() => _setActiveServerIdUnlocked(serverId));
+
+  Future<void> _setActiveServerIdUnlocked(String? serverId) async {
     if (serverId != null) {
       await _preferencesBox.put(_activeServerIdKey, serverId);
     } else {
@@ -276,14 +334,47 @@ class OptimizedStorageService {
   }
 
   /// Compare-and-clear: clears the active server id ONLY if it still equals
-  /// [expectedId]. The read and conditional write run in one continuation (no
-  /// foreign interleaving between them), so a concurrently-selected active
-  /// server isn't clobbered by a stale cleanup. Returns true if it cleared.
-  Future<bool> clearActiveServerIdIfMatches(String expectedId) async {
-    final current = await getActiveServerId();
-    if (current != expectedId) return false;
-    await setActiveServerId(null);
-    return true;
+  /// [expectedId]. The read and conditional write run under [_authStateLock], so
+  /// a concurrently-selected active server isn't clobbered by a stale cleanup.
+  /// Returns true if it cleared.
+  Future<bool> clearActiveServerIdIfMatches(String expectedId) {
+    return _authStateLock.synchronized(() async {
+      final current = await getActiveServerId();
+      if (current != expectedId) return false;
+      await _setActiveServerIdUnlocked(null);
+      return true;
+    });
+  }
+
+  /// Atomically undoes a stale silent-login's persistence: under
+  /// [_authStateLock], restores the auth token and active server to their
+  /// pre-attempt values — but only the entries that still hold the stale
+  /// values, so a newer login that already wrote a fresh token / server isn't
+  /// overwritten. [replacementToken] is the token to restore when the stored
+  /// token still equals [staleToken] (null/empty → delete it).
+  Future<void> restoreActiveServerAndTokenIfStale({
+    required String staleServerId,
+    required String? previousServerId,
+    required String staleToken,
+    required String? replacementToken,
+  }) {
+    return _authStateLock.synchronized(() async {
+      final currentToken = await getAuthToken();
+      if (currentToken == staleToken) {
+        if (replacementToken != null &&
+            replacementToken.isNotEmpty &&
+            replacementToken != staleToken) {
+          await _saveAuthTokenUnlocked(replacementToken);
+        } else if (replacementToken == null || replacementToken.isEmpty) {
+          await _deleteAuthTokenUnlocked();
+        }
+      }
+
+      final currentServerId = await getActiveServerId();
+      if (currentServerId == staleServerId) {
+        await _setActiveServerIdUnlocked(previousServerId);
+      }
+    });
   }
 
   Future<void> _syncActiveServerConfigFlags(String? serverId) async {

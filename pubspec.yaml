@@ -30,6 +30,7 @@ dependencies:
   hive_ce: ^2.14.0
   hive_ce_flutter: ^2.3.2
   shared_preferences: ^2.3.2
+  synchronized: ^3.4.1
   
   # UI Components - Markdown Rendering
   markdown: ^7.3.0
