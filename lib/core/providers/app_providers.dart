@@ -374,6 +374,14 @@ class SocketServiceManager extends _$SocketServiceManager {
   ProviderSubscription<ConnectivityStatus>? _connectivitySubscription;
   int _connectToken = 0;
 
+  /// The current live service, available even while [build] is re-running (the
+  /// async provider is briefly `loading` on every rebuild). [socketServiceProvider]
+  /// falls back to this so the socket doesn't momentarily read as `null` — which
+  /// would otherwise drop consumers to HTTP-only sends mid-session. Null only
+  /// when there is genuinely no service (reviewer mode / no active server /
+  /// disposed).
+  SocketService? get currentService => _service;
+
   @override
   FutureOr<SocketService?> build() async {
     final reviewerMode = ref.watch(reviewerModeProvider);
@@ -487,7 +495,15 @@ class SocketServiceManager extends _$SocketServiceManager {
 
 final socketServiceProvider = Provider<SocketService?>((ref) {
   final asyncService = ref.watch(socketServiceManagerProvider);
-  return asyncService.maybeWhen(data: (service) => service, orElse: () => null);
+  // While the manager re-runs its async `build` (on any watched-dependency
+  // change), it is briefly `loading`; don't collapse the live socket to `null`
+  // then — that churns consumers and forces HTTP-only sends. Fall back to the
+  // manager's current service during loading/error; it's only truly null when
+  // there is no active server / reviewer mode / it was disposed.
+  return asyncService.maybeWhen(
+    data: (service) => service,
+    orElse: () => ref.read(socketServiceManagerProvider.notifier).currentService,
+  );
 });
 
 // Attachment upload queue provider
