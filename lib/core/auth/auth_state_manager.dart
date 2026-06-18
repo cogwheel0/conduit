@@ -654,11 +654,6 @@ class AuthStateManager extends _$AuthStateManager {
         if (rememberCredentials) {
           final activeServer = await ref.read(activeServerProvider.future);
           if (activeServer != null) {
-            writtenCredentials = {
-              'serverId': activeServer.id,
-              'username': 'jwt_user',
-              'password': tokenStr,
-            };
             // Store JWT as a special credential type
             await storage.saveCredentials(
               serverId: activeServer.id,
@@ -666,6 +661,13 @@ class AuthStateManager extends _$AuthStateManager {
               password: tokenStr, // Store JWT in password field
               authType: authType, // 'token' for manual entry, 'sso' for OAuth
             );
+            // Mark rollback-owned only AFTER the write succeeds (see
+            // _loginInternal).
+            writtenCredentials = {
+              'serverId': activeServer.id,
+              'username': 'jwt_user',
+              'password': tokenStr,
+            };
           }
         }
 
@@ -830,16 +832,19 @@ class AuthStateManager extends _$AuthStateManager {
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
         if (activeServer != null) {
-          writtenCredentials = {
-            'serverId': activeServer.id,
-            'username': username,
-            'password': password,
-          };
           await storage.saveCredentials(
             serverId: activeServer.id,
             username: username,
             password: password,
           );
+          // Mark rollback-owned only AFTER the write succeeds, so a failed
+          // saveCredentials doesn't make the catch delete a pre-existing
+          // identical remembered credential this attempt never wrote.
+          writtenCredentials = {
+            'serverId': activeServer.id,
+            'username': username,
+            'password': password,
+          };
         }
       }
 
@@ -1001,11 +1006,6 @@ class AuthStateManager extends _$AuthStateManager {
           return false;
         }
         if (activeServer != null) {
-          writtenCredentials = {
-            'serverId': activeServer.id,
-            'username': 'ldap:$username',
-            'password': tokenStr,
-          };
           await storage.saveCredentials(
             serverId: activeServer.id,
             // Prefix with ldap: to preserve original username for debugging
@@ -1014,6 +1014,12 @@ class AuthStateManager extends _$AuthStateManager {
             password: tokenStr, // Store JWT token, not LDAP password
             authType: 'ldap', // Track that this originated from LDAP login
           );
+          // Mark rollback-owned only AFTER the write succeeds (see _loginInternal).
+          writtenCredentials = {
+            'serverId': activeServer.id,
+            'username': 'ldap:$username',
+            'password': tokenStr,
+          };
         }
       }
 
