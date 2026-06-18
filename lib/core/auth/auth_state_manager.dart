@@ -325,15 +325,20 @@ class AuthStateManager extends _$AuthStateManager {
           DebugLogger.auth(
             'No token but credentials exist - starting background silent login',
           );
+          // Stay in the loading/revalidation state (router shows the splash)
+          // while the saved-credential login is in flight, rather than
+          // publishing `unauthenticated` — which `authNavigationStateProvider`
+          // maps to `needsLogin`, briefly bouncing a cold-starting user to the
+          // sign-in page before a valid silent login completes.
           _update(
             (current) => current.copyWith(
-              status: AuthStatus.unauthenticated,
-              isLoading: false,
+              status: AuthStatus.loading,
+              isLoading: true,
               clearToken: true,
               clearError: true,
             ),
           );
-          unawaited(_performSilentLoginInBackground());
+          unawaited(_bootstrapSilentLogin());
           return;
         }
         // No credentials - set to unauthenticated
@@ -1028,6 +1033,32 @@ class AuthStateManager extends _$AuthStateManager {
     );
   }
 
+  /// Bootstrap path (no stored token but saved credentials): runs the
+  /// background silent login, then GUARANTEES the bootstrap `loading` state
+  /// resolves. On success the login commits `authenticated`; if it commits
+  /// nothing (auth/network/unknown failure all `return false` without touching
+  /// state in background mode), fall back to `unauthenticated` so the app
+  /// reaches the sign-in page instead of hanging on the splash.
+  Future<void> _bootstrapSilentLogin() async {
+    final committed = await _performSilentLoginInBackground();
+    if (!ref.mounted) return;
+    if (!committed &&
+        _current.status == AuthStatus.loading &&
+        !_current.hasValidToken) {
+      DebugLogger.auth(
+        'bootstrap-silent-login-unresolved-needs-login',
+        scope: 'auth/state',
+      );
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.unauthenticated,
+          isLoading: false,
+          clearToken: true,
+        ),
+      );
+    }
+  }
+
   Future<bool> _performSilentLoginInBackground() async {
     final startRevision = _authAttemptRevision;
     int? claimRevision;
@@ -1035,9 +1066,15 @@ class AuthStateManager extends _$AuthStateManager {
     bool canCommit() {
       final expectedRevision = claimRevision ?? startRevision;
       final current = _current;
+      // Accept the bootstrap `loading` state too: the no-token-with-credentials
+      // path now holds `loading` (not `unauthenticated`) while this background
+      // login runs, so a successful login must still be allowed to commit.
+      final commitableStatus =
+          current.status == AuthStatus.unauthenticated ||
+          current.status == AuthStatus.loading;
       return ref.mounted &&
           _authAttemptRevision == expectedRevision &&
-          current.status == AuthStatus.unauthenticated &&
+          commitableStatus &&
           !current.hasValidToken;
     }
 
