@@ -158,22 +158,24 @@ Future<Note?> durableUpdateNote(
   // write, and read-back all key on the row the DAO actually mutates.
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
 
-  // Merge a partial `data` patch onto the existing note data so an update that
-  // only carries `content` doesn't silently drop `versions`/`files` (the patch
-  // becomes the note's whole data, locally and on the next server push). The
-  // patch's sub-objects (content, and files when provided) override; everything
-  // else (versions, etc.) is preserved.
-  Map<String, dynamic>? mergedData;
-  if (data != null) {
-    final existingRow = await db.notesDao.getNote(resolvedId);
-    final existing = existingRow == null
-        ? const <String, dynamic>{}
-        : decodeNoteData(existingRow.data);
-    mergedData = <String, dynamic>{...existing, ...data};
-  }
-
   final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
   await noteLocks.runExclusive(resolvedId, () async {
+    // Merge a partial `data` patch onto the existing note data so an update that
+    // only carries `content` doesn't silently drop `versions`/`files` (the patch
+    // becomes the note's whole data, locally and on the next server push). The
+    // patch's sub-objects (content, and files when provided) override; everything
+    // else (versions, etc.) is preserved. The read+merge runs INSIDE the lock so
+    // a concurrent pull/merge (which takes the same note lock) can't change the
+    // row between the read and the write and invalidate the merge baseline.
+    Map<String, dynamic>? mergedData;
+    if (data != null) {
+      final existingRow = await db.notesDao.getNote(resolvedId);
+      final existing = existingRow == null
+          ? const <String, dynamic>{}
+          : decodeNoteData(existingRow.data);
+      mergedData = <String, dynamic>{...existing, ...data};
+    }
+
     await db.notesDao.updateNoteWithOutbox(
       resolvedId,
       title: title == null ? const Value<String>.absent() : Value(title),
