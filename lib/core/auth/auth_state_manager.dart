@@ -399,26 +399,28 @@ class AuthStateManager extends _$AuthStateManager {
     );
   }
 
-  /// Offline fallback for the no-cached-user bootstrap: when background
-  /// validation cannot reach the server to recover a user, proceed as
-  /// authenticated (without a user) rather than hang on the loading state set by
-  /// [_activateCachedTokenSession]. No-op once a user has been recovered or the
-  /// token changed.
-  void _proceedAuthenticatedWithoutCachedUser(String token) {
+  /// Terminal resolution for the no-cached-user bootstrap when background
+  /// validation cannot recover a scoped user (offline, server unreachable, or a
+  /// transient validation error). We must NOT mark the session authenticated
+  /// without a user — user-scoped reads (notes) would pass the auth gate then
+  /// return empty — and we must NOT hang on the loading state set by
+  /// [_activateCachedTokenSession]. Fall back to a re-login state instead (the
+  /// stored token is kept so a later online attempt can reuse it). No-op once a
+  /// user has been recovered or the token changed.
+  void _failBootstrapWithoutCachedUser(String token) {
     final current = _current;
     if (current.token != token || !current.hasValidToken) return;
     if (current.user != null || current.status != AuthStatus.loading) return;
     DebugLogger.auth(
-      'offline-bootstrap-without-cached-user',
+      'bootstrap-without-cached-user-needs-relogin',
       scope: 'auth/state',
     );
     _update(
       (current) => current.copyWith(
-        status: AuthStatus.authenticated,
+        status: AuthStatus.unauthenticated,
         isLoading: false,
-        clearError: true,
+        error: 'Sign in again to load your account',
       ),
-      cache: true,
     );
   }
 
@@ -438,7 +440,7 @@ class AuthStateManager extends _$AuthStateManager {
             DebugLogger.auth(
               'API not reachable during background auth validation',
             );
-            _proceedAuthenticatedWithoutCachedUser(token);
+            _failBootstrapWithoutCachedUser(token);
             return;
           }
 
@@ -452,7 +454,7 @@ class AuthStateManager extends _$AuthStateManager {
             DebugLogger.auth(
               'Background auth validation skipped: API service unavailable',
             );
-            _proceedAuthenticatedWithoutCachedUser(token);
+            _failBootstrapWithoutCachedUser(token);
             return;
           }
 
@@ -496,6 +498,9 @@ class AuthStateManager extends _$AuthStateManager {
             scope: 'auth/state',
             data: {'error': error.toString()},
           );
+          // A transient (non-auth) failure must not strand the no-cached-user
+          // bootstrap on the loading state forever; resolve it to re-login.
+          _failBootstrapWithoutCachedUser(token);
         }
       }),
     );
