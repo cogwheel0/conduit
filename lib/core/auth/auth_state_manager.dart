@@ -1816,6 +1816,17 @@ class AuthStateManager extends _$AuthStateManager {
   /// Handle token invalidation (called by API service for explicit token expiry)
   /// This is only used when we need to clear the token for re-login attempts
   Future<void> onTokenInvalidated() async {
+    // Coalesce onto an in-flight silent re-login. Bumping the attempt revision
+    // here would mark that running login stale, and the logic below would then
+    // skip starting a replacement (reloginInProgress) — dead-ending in
+    // tokenExpired even though valid saved credentials are available. Let the
+    // running login resolve instead.
+    if (_silentLoginFuture != null) {
+      DebugLogger.auth(
+        'Token invalidated while a silent re-login is in progress; coalescing',
+      );
+      return;
+    }
     _beginAuthAttempt();
     // Prevent infinite retry loops
     final now = DateTime.now();
