@@ -204,6 +204,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     await _saveNote(showFeedback: false);
   }
 
+  /// Builds the note `data` payload for an update, preserving the existing
+  /// note's fields (notably `versions`, and `files` unless [files] is provided)
+  /// so a save never truncates server-managed note data. Only `content` (and
+  /// `files`, when changed) is overwritten.
+  Map<String, dynamic> _composeUpdatedNoteData({
+    required String markdown,
+    List<Map<String, dynamic>>? files,
+  }) {
+    final data = <String, dynamic>{...?_note?.data.toJson()};
+    data['content'] = <String, dynamic>{
+      'json': null,
+      'html': _markdownToHtml(markdown),
+      'md': markdown,
+    };
+    if (files != null) {
+      data['files'] = files;
+    }
+    return data;
+  }
+
   /// Persists a note title/data edit through the durable outbox path (when a
   /// Drift database is active) so an offline edit is never lost, falling back to
   /// the API-first path in reviewer mode / with no active server. Returns the
@@ -257,13 +277,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final title = _titleController.text.trim();
       final content = _contentController.text;
 
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(content),
-          'md': content,
-        },
-      };
+      // Preserve existing note data (versions, attached files) — only the
+      // content changes here.
+      final data = _composeUpdatedNoteData(markdown: content);
 
       final resolvedTitle = title.isEmpty
           ? AppLocalizations.of(context)!.untitled
@@ -764,14 +780,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ];
 
       // Update note with the file attachment
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(_contentController.text),
-          'md': _contentController.text,
-        },
-        'files': updatedFiles,
-      };
+      final data = _composeUpdatedNoteData(
+        markdown: _contentController.text,
+        files: updatedFiles,
+      );
 
       final resolvedTitle = _titleController.text.isEmpty
           ? l10n.untitled
@@ -1363,14 +1375,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .where((f) => f['id']?.toString() != fileId)
           .toList();
 
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(_contentController.text),
-          'md': _contentController.text,
-        },
-        'files': updatedFiles,
-      };
+      final data = _composeUpdatedNoteData(
+        markdown: _contentController.text,
+        files: updatedFiles,
+      );
 
       final resolvedTitle = _titleController.text.isEmpty
           ? l10n.untitled
