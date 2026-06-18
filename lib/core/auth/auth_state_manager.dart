@@ -1203,11 +1203,13 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<bool> _performSilentLogin() async {
-    // Revision freshness gate: if a manual login / logout / token-invalidation
-    // starts after this silent login begins, it bumps `_authAttemptRevision`
-    // (via `_beginAuthAttempt`), so this now-stale task must not persist a token
-    // or publish authenticated/credentialError/error over the newer auth state.
-    final startRevision = _authAttemptRevision;
+    // Claim our OWN attempt revision up front (don't piggyback on the current
+    // one): otherwise, if a manual login is already validating at revision N,
+    // this silent re-login would capture the same N and could `claimCommit()`
+    // the OLD saved credentials, bumping the revision and making the manual
+    // login treat itself as superseded. Claiming here means a manual login that
+    // starts AFTER bumps again and wins; a stale silent login can't commit.
+    final startRevision = _beginAuthAttempt();
     int? claimRevision;
     bool canCommit() {
       final expectedRevision = claimRevision ?? startRevision;
