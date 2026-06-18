@@ -1177,9 +1177,13 @@ class AuthStateManager extends _$AuthStateManager {
         .firstOrNull;
 
     if (serverConfig == null) {
-      if (canCommit != null) {
+      // The saved credentials point at a server that no longer exists, so they
+      // can never log in: clear them (and the dangling active server) so cold
+      // start doesn't re-enter this impossible path every launch. Only skip the
+      // mutation for a stale background attempt superseded by a newer login.
+      if (!_canCommitAuth(canCommit)) {
         DebugLogger.auth(
-          'Background silent login skipped missing-server credential cleanup',
+          'Silent login skipped stale missing-server credential cleanup',
         );
         return false;
       }
@@ -1188,6 +1192,13 @@ class AuthStateManager extends _$AuthStateManager {
       ref.invalidate(serverConfigsProvider);
       ref.invalidate(activeServerProvider);
 
+      // Re-check freshness after the delete awaits before publishing state.
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth(
+          'Silent login cleared missing-server creds but skipped stale state commit',
+        );
+        return false;
+      }
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
