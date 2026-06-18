@@ -1027,9 +1027,28 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<bool> _performSilentLogin() async {
+    // Revision freshness gate: if a manual login / logout / token-invalidation
+    // starts after this silent login begins, it bumps `_authAttemptRevision`
+    // (via `_beginAuthAttempt`), so this now-stale task must not persist a token
+    // or publish authenticated/credentialError/error over the newer auth state.
+    final startRevision = _authAttemptRevision;
+    int? claimRevision;
+    bool canCommit() {
+      final expectedRevision = claimRevision ?? startRevision;
+      return ref.mounted && _authAttemptRevision == expectedRevision;
+    }
+
+    bool claimCommit() {
+      if (!canCommit()) return false;
+      claimRevision = _beginAuthAttempt();
+      return true;
+    }
+
     return _performSilentLoginInternal(
       showLoading: true,
       publishNetworkErrors: true,
+      canCommit: canCommit,
+      claimCommit: claimCommit,
     );
   }
 
@@ -1205,7 +1224,11 @@ class AuthStateManager extends _$AuthStateManager {
           stored['password'] == password;
       if (stillSameCreds) {
         await storage.deleteSavedCredentials();
-        if (await storage.getActiveServerId() == serverId) {
+        // Final freshness + value check immediately before clearing the active
+        // server, so a concurrent foreground login / server switch that selected
+        // a new active server isn't clobbered by this stale cleanup.
+        if (_canCommitAuth(canCommit) &&
+            await storage.getActiveServerId() == serverId) {
           await storage.setActiveServerId(null);
         }
         ref.invalidate(serverConfigsProvider);
