@@ -1392,9 +1392,14 @@ class AuthStateManager extends _$AuthStateManager {
             error.toString().contains('403') ||
             error.toString().contains('authentication') ||
             error.toString().contains('unauthorized'))) {
-      if (canCommit != null) {
+      // A confirmed auth failure means the saved secret is bad: clear it so it
+      // isn't retried on every cold start (the background bootstrap path turns a
+      // bare `false` into a generic unauthenticated state otherwise). Only bail
+      // without cleanup when a newer auth attempt has superseded this (stale)
+      // background task.
+      if (!_canCommitAuth(canCommit)) {
         DebugLogger.auth(
-          'Background silent login ignored credential auth failure',
+          'Silent login ignored stale credential auth failure',
         );
         return false;
       }
@@ -1415,6 +1420,15 @@ class AuthStateManager extends _$AuthStateManager {
             '$errorMessage. Also failed to clear saved '
             'credentials; please clear Conduit credentials from '
             'system settings.';
+      }
+
+      // The bad credential is gone regardless; only publish the error state if a
+      // newer auth attempt hasn't started during the delete await.
+      if (!_canCommitAuth(canCommit)) {
+        DebugLogger.auth(
+          'Silent login cleared bad credentials but skipped stale state commit',
+        );
+        return false;
       }
 
       // Set credential error status to trigger login page
