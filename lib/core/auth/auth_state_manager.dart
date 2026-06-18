@@ -137,6 +137,15 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// `_validateIssuedToken` installs the candidate token on the shared
+  /// `ApiService` interceptor before a login is checked for staleness. When a
+  /// login is superseded after validation, restore the interceptor token to the
+  /// authoritative current auth state so in-flight/subsequent requests don't
+  /// keep using the rejected attempt's token until the next update.
+  void _restoreApiServiceTokenToCurrent() {
+    _updateApiServiceToken(_current.hasValidToken ? _current.token : null);
+  }
+
   bool _canCommitAuth(bool Function()? canCommit) {
     return canCommit == null || canCommit();
   }
@@ -632,6 +641,7 @@ class AuthStateManager extends _$AuthStateManager {
           DebugLogger.auth(
             'JWT login superseded by a newer attempt; not committing',
           );
+          _restoreApiServiceTokenToCurrent();
           return false;
         }
 
@@ -670,6 +680,7 @@ class AuthStateManager extends _$AuthStateManager {
             token: tokenStr,
             credentials: writtenCredentials,
           );
+          _restoreApiServiceTokenToCurrent();
           return false;
         }
 
@@ -716,8 +727,11 @@ class AuthStateManager extends _$AuthStateManager {
           credentials: writtenCredentials,
         );
       }
-      // Don't clear the API token or publish an error over a newer attempt.
-      if (!_authAttemptSuperseded(attemptRevision)) {
+      // Don't clear the API token or publish an error over a newer attempt;
+      // restore the interceptor token to the newer attempt's state instead.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _restoreApiServiceTokenToCurrent();
+      } else {
         _updateApiServiceToken(null);
         if (publishErrors) {
           _update(
@@ -803,6 +817,7 @@ class AuthStateManager extends _$AuthStateManager {
       // session now; don't persist this token or publish over its state.
       if (_authAttemptSuperseded(attemptRevision)) {
         DebugLogger.auth('Login superseded by a newer attempt; not committing');
+        _restoreApiServiceTokenToCurrent();
         return false;
       }
 
@@ -837,6 +852,7 @@ class AuthStateManager extends _$AuthStateManager {
           token: tokenStr,
           credentials: writtenCredentials,
         );
+        _restoreApiServiceTokenToCurrent();
         return false;
       }
 
@@ -874,8 +890,11 @@ class AuthStateManager extends _$AuthStateManager {
           credentials: writtenCredentials,
         );
       }
-      // Don't clear the API token or publish an error over a newer attempt.
-      if (!_authAttemptSuperseded(attemptRevision)) {
+      // Don't clear the API token or publish an error over a newer attempt;
+      // restore the interceptor token to the newer attempt's state instead.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _restoreApiServiceTokenToCurrent();
+      } else {
         _updateApiServiceToken(null);
         if (publishErrors) {
           _update(
@@ -948,6 +967,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth(
           'LDAP login superseded by a newer attempt; not committing',
         );
+        _restoreApiServiceTokenToCurrent();
         return false;
       }
 
@@ -996,6 +1016,7 @@ class AuthStateManager extends _$AuthStateManager {
           token: tokenStr,
           credentials: writtenCredentials,
         );
+        _restoreApiServiceTokenToCurrent();
         return false;
       }
 
@@ -1032,8 +1053,11 @@ class AuthStateManager extends _$AuthStateManager {
           credentials: writtenCredentials,
         );
       }
-      // Don't clear the API token or publish an error over a newer attempt.
-      if (!_authAttemptSuperseded(attemptRevision)) {
+      // Don't clear the API token or publish an error over a newer attempt;
+      // restore the interceptor token to the newer attempt's state instead.
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _restoreApiServiceTokenToCurrent();
+      } else {
         _update(
           (current) => current.copyWith(
             status: AuthStatus.error,
