@@ -117,7 +117,7 @@ class AuthStateManager extends _$AuthStateManager {
   /// deletes the token (and remembered credentials) it just wrote, so the next
   /// cold start can't restore the rejected session. Value-matched so a newer
   /// login's writes are never clobbered.
-  Future<void> _rollbackSupersededLoginWrites({
+  Future<void> _rollbackUncommittedLoginWrites({
     required OptimizedStorageService storage,
     required String token,
     Map<String, String>? credentials,
@@ -595,6 +595,8 @@ class AuthStateManager extends _$AuthStateManager {
     }
 
     final attemptRevision = _authAttemptRevision;
+    String? persistedToken;
+    Map<String, String>? writtenCredentials;
     try {
       // Validate token is not empty
       if (apiKey.trim().isEmpty) {
@@ -636,9 +638,9 @@ class AuthStateManager extends _$AuthStateManager {
         // Save token to storage
         final storage = ref.read(optimizedStorageServiceProvider);
         await storage.saveAuthToken(tokenStr);
+        persistedToken = tokenStr;
 
         // Save JWT token if requested
-        Map<String, String>? writtenCredentials;
         if (rememberCredentials) {
           final activeServer = await ref.read(activeServerProvider.future);
           if (activeServer != null) {
@@ -663,7 +665,7 @@ class AuthStateManager extends _$AuthStateManager {
           DebugLogger.auth(
             'JWT login superseded after persistence; not publishing',
           );
-          await _rollbackSupersededLoginWrites(
+          await _rollbackUncommittedLoginWrites(
             storage: storage,
             token: tokenStr,
             credentials: writtenCredentials,
@@ -705,6 +707,15 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
+      // A failed login must not leave its token/credentials in storage; value-
+      // match roll them back so a cold start can't restore a failed session.
+      if (persistedToken != null) {
+        await _rollbackUncommittedLoginWrites(
+          storage: ref.read(optimizedStorageServiceProvider),
+          token: persistedToken,
+          credentials: writtenCredentials,
+        );
+      }
       // Don't clear the API token or publish an error over a newer attempt.
       if (!_authAttemptSuperseded(attemptRevision)) {
         _updateApiServiceToken(null);
@@ -760,6 +771,8 @@ class AuthStateManager extends _$AuthStateManager {
     }
 
     final attemptRevision = _authAttemptRevision;
+    String? persistedToken;
+    Map<String, String>? writtenCredentials;
     try {
       // Ensure API service is available (active server/provider rebuild race)
       await _ensureApiServiceAvailable();
@@ -796,9 +809,9 @@ class AuthStateManager extends _$AuthStateManager {
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
+      persistedToken = tokenStr;
 
       // Save credentials if requested
-      Map<String, String>? writtenCredentials;
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
         if (activeServer != null) {
@@ -819,7 +832,7 @@ class AuthStateManager extends _$AuthStateManager {
       // started, and must not be overwritten by this attempt's published state.
       if (_authAttemptSuperseded(attemptRevision)) {
         DebugLogger.auth('Login superseded after persistence; not publishing');
-        await _rollbackSupersededLoginWrites(
+        await _rollbackUncommittedLoginWrites(
           storage: storage,
           token: tokenStr,
           credentials: writtenCredentials,
@@ -851,6 +864,16 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
+      // A failed login must not leave its token/credentials in storage (a later
+      // exception can follow a successful token write); value-match roll them
+      // back so a cold start can't restore a session presented as failed.
+      if (persistedToken != null) {
+        await _rollbackUncommittedLoginWrites(
+          storage: ref.read(optimizedStorageServiceProvider),
+          token: persistedToken,
+          credentials: writtenCredentials,
+        );
+      }
       // Don't clear the API token or publish an error over a newer attempt.
       if (!_authAttemptSuperseded(attemptRevision)) {
         _updateApiServiceToken(null);
@@ -888,6 +911,8 @@ class AuthStateManager extends _$AuthStateManager {
     );
 
     final attemptRevision = _authAttemptRevision;
+    String? persistedToken;
+    Map<String, String>? writtenCredentials;
     try {
       // Ensure API service is available
       await _ensureApiServiceAvailable();
@@ -929,6 +954,7 @@ class AuthStateManager extends _$AuthStateManager {
       // Save token to storage
       final storage = ref.read(optimizedStorageServiceProvider);
       await storage.saveAuthToken(tokenStr);
+      persistedToken = tokenStr;
 
       if (!ref.mounted) return false;
 
@@ -937,7 +963,6 @@ class AuthStateManager extends _$AuthStateManager {
       // - JWT tokens can be revoked server-side
       // - Avoids storing the user's directory password
       // - Consistent with SSO token storage approach
-      Map<String, String>? writtenCredentials;
       if (rememberCredentials) {
         final activeServer = await ref.read(activeServerProvider.future);
         if (!ref.mounted) return false;
@@ -966,7 +991,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth(
           'LDAP login superseded after persistence; not publishing',
         );
-        await _rollbackSupersededLoginWrites(
+        await _rollbackUncommittedLoginWrites(
           storage: storage,
           token: tokenStr,
           credentials: writtenCredentials,
@@ -998,6 +1023,15 @@ class AuthStateManager extends _$AuthStateManager {
         error: e,
         stackTrace: stack,
       );
+      // A failed login must not leave its token/credentials in storage; value-
+      // match roll them back so a cold start can't restore a failed session.
+      if (persistedToken != null) {
+        await _rollbackUncommittedLoginWrites(
+          storage: ref.read(optimizedStorageServiceProvider),
+          token: persistedToken,
+          credentials: writtenCredentials,
+        );
+      }
       // Don't clear the API token or publish an error over a newer attempt.
       if (!_authAttemptSuperseded(attemptRevision)) {
         _update(
