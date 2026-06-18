@@ -1322,14 +1322,17 @@ class AuthStateManager extends _$AuthStateManager {
       );
     }
 
-    // Snapshot the credentials being attempted so a confirmed-auth-failure
-    // cleanup clears only THESE, not credentials a concurrent login may save.
+    // Snapshot the credentials being attempted ONCE and use it for both the
+    // login attempt AND the failure cleanup, so a confirmed-auth-failure clears
+    // exactly the credentials that were tried (not a re-read that may have
+    // changed) and never a concurrent login's freshly saved credentials.
     final attemptedCredentials = await ref
         .read(optimizedStorageServiceProvider)
         .getSavedCredentials();
 
     try {
       return await _performSilentLoginAttempt(
+        savedCredentials: attemptedCredentials,
         canCommit: canCommit,
         claimCommit: claimCommit,
       );
@@ -1351,11 +1354,11 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<bool> _performSilentLoginAttempt({
+    required Map<String, String>? savedCredentials,
     bool Function()? canCommit,
     bool Function()? claimCommit,
   }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
-    final savedCredentials = await storage.getSavedCredentials();
 
     if (savedCredentials == null) {
       if (_canCommitAuth(canCommit)) {
