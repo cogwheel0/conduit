@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_test/flutter_test.dart';
 
 TerminalServerInfo _server() => TerminalServerInfo(
   kind: TerminalServerKind.direct,
