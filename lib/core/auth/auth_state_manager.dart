@@ -1816,6 +1816,12 @@ class AuthStateManager extends _$AuthStateManager {
   /// Handle token invalidation (called by API service for explicit token expiry)
   /// This is only used when we need to clear the token for re-login attempts
   Future<void> onTokenInvalidated() async {
+    // Capture the token being rejected up-front — synchronously, before any
+    // await or revision bump — so every cleanup path below deletes only THIS
+    // token and never a fresh one that a concurrent foreground login may have
+    // already saved through `_authStateLock`.
+    final rejectedToken = _current.hasValidToken ? _current.token : null;
+
     // Coalesce onto an in-flight silent re-login (a prior invalidation, a manual
     // retry, or bootstrap). Bumping the attempt revision here would mark that
     // running login stale, and the logic below would then skip starting a
@@ -1828,7 +1834,6 @@ class AuthStateManager extends _$AuthStateManager {
     // otherwise linger and be restored on the next cold start. Value-matched so
     // we never clobber a fresh token the in-flight login may have just saved.
     if (_silentLoginFuture != null) {
-      final rejectedToken = _current.hasValidToken ? _current.token : null;
       if (rejectedToken != null && rejectedToken.isNotEmpty) {
         try {
           await ref
@@ -1889,7 +1894,13 @@ class AuthStateManager extends _$AuthStateManager {
 
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
-      await storage.deleteAuthToken();
+      // Value-matched delete: only remove the rejected token, never a fresh one
+      // a concurrent foreground login may have saved between this 401 arriving
+      // and the lock-serialised delete running (which would otherwise leave the
+      // app authenticated in memory but with no stored token).
+      if (rejectedToken != null && rejectedToken.isNotEmpty) {
+        await storage.deleteAuthTokenIfMatches(rejectedToken);
+      }
       await storage.clearUserScopedAuthData();
       DebugLogger.auth('Cleared invalidated token from secure storage');
     } catch (e, stack) {
