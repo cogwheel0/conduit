@@ -106,6 +106,33 @@ void main() {
     check(caches.containsKey(HiveStoreKeys.localBackendConfig)).isFalse();
   });
 
+  test('migrates the Hive attachment queue into the Drift table', () async {
+    await attachmentQueue.put(HiveStoreKeys.attachmentQueueEntries, [
+      {
+        'id': 'a1',
+        'filePath': '/tmp/a.png',
+        'fileName': 'a.png',
+        'fileSize': 10,
+        'status': 'pending',
+        'retryCount': 0,
+        'enqueuedAt': DateTime.utc(2026).toIso8601String(),
+      },
+    ]);
+
+    await migrator().migrateIfNeeded();
+
+    final rows = await db.attachmentQueueDao.getAll();
+    check(rows.length).equals(1);
+    check(rows.single.id).equals('a1');
+    check(rows.single.fileName).equals('a.png');
+    check(
+      await db.syncMetaDao.getValue('hive_attachment_queue_migrated'),
+    ).equals('1');
+    check(
+      attachmentQueue.containsKey(HiveStoreKeys.attachmentQueueEntries),
+    ).isFalse();
+  });
+
   test('is gated: a second run does not re-import deleted keys', () async {
     await caches.put(HiveStoreKeys.localUserAvatar, 'https://x/a.png');
     await migrator().migrateIfNeeded();

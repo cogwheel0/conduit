@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
+import '../database/database_provider.dart';
 import '../models/file_info.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -100,6 +101,7 @@ class MediaUploadController {
     await uploader.initialize(
       onUpload: (path, name, {cancelToken}) =>
           api.uploadFile(path, name, cancelToken: cancelToken),
+      database: () => _ref.read(appDatabaseProvider),
     );
 
     // For images: convert unsupported formats to JPEG for compatibility.

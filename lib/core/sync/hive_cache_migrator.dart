@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../database/app_database.dart';
 import '../persistence/hive_boxes.dart';
+import '../services/attachment_upload_queue.dart';
 import '../utils/debug_logger.dart';
 
 /// One-time, per-server migration of the structured caches in the Hive `caches`
@@ -31,6 +32,7 @@ class HiveCacheMigrator {
   final Future<String?> Function() _resolveActiveServerId;
 
   static const String _flagKey = 'hive_caches_migrated';
+  static const String _attachmentFlagKey = 'hive_attachment_queue_migrated';
 
   static const List<String> _keys = [
     HiveStoreKeys.localUser,
@@ -42,6 +44,11 @@ class HiveCacheMigrator {
   ];
 
   Future<void> migrateIfNeeded() async {
+    await _migrateCaches();
+    await _migrateAttachmentQueue();
+  }
+
+  Future<void> _migrateCaches() async {
     if (await _db.syncMetaDao.getValue(_flagKey) == '1') return;
 
     final activeServerId = _normalize(await _resolveActiveServerId());
@@ -63,6 +70,50 @@ class HiveCacheMigrator {
       'Hive caches → Drift migration completed',
       scope: 'persistence/migration',
     );
+  }
+
+  /// The Hive attachment queue is GLOBAL (one box), so it migrates into the
+  /// ACTIVE server's table at migration time (its uploads already targeted the
+  /// active server's API). Gated separately from the caches.
+  Future<void> _migrateAttachmentQueue() async {
+    if (await _db.syncMetaDao.getValue(_attachmentFlagKey) == '1') return;
+
+    final stored = _boxes.attachmentQueue.get(
+      HiveStoreKeys.attachmentQueueEntries,
+    );
+    final entries = _coerceJsonList(stored);
+    if (entries.isNotEmpty) {
+      await _db.transaction(() async {
+        for (final entry in entries) {
+          await _db.attachmentQueueDao.upsert(
+            AttachmentUploadQueue.companionFromLegacyJson(entry),
+          );
+        }
+      });
+    }
+
+    await _db.syncMetaDao.setValue(_attachmentFlagKey, '1');
+    await _boxes.attachmentQueue.delete(HiveStoreKeys.attachmentQueueEntries);
+
+    DebugLogger.log(
+      'Hive attachment queue → Drift migration completed',
+      scope: 'persistence/migration',
+    );
+  }
+
+  List<Map<String, dynamic>> _coerceJsonList(Object? stored) {
+    List<dynamic>? raw;
+    if (stored is String && stored.isNotEmpty) {
+      final decoded = jsonDecode(stored);
+      if (decoded is List) raw = decoded;
+    } else if (stored is List) {
+      raw = stored;
+    }
+    if (raw == null) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
   }
 
   /// Converts a stored Hive caches value into the JSON string `app_cache`

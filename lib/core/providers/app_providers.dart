@@ -511,10 +511,12 @@ final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   if (api == null) return null;
 
   final queue = AttachmentUploadQueue();
-  // Initialize once; subsequent calls are no-ops due to singleton
+  // Re-runs when the API (and thus active server) changes, reloading the queue
+  // from the active server's Drift table.
   queue.initialize(
     onUpload: (filePath, fileName, {cancelToken}) =>
         api.uploadFile(filePath, fileName, cancelToken: cancelToken),
+    database: () => ref.read(appDatabaseProvider),
   );
 
   return queue;

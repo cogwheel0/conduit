@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'package:dio/dio.dart';
-import 'package:hive_ce/hive.dart';
-import '../persistence/hive_boxes.dart';
+import 'package:drift/drift.dart' show Value;
+import '../database/app_database.dart';
+import '../database/daos/attachment_queue_dao.dart';
 import '../utils/debug_logger.dart';
 
 /// Status of a queued attachment upload
@@ -119,8 +119,10 @@ class AttachmentUploadQueue {
   static const Duration _baseRetryDelay = Duration(seconds: 5);
   static const Duration _maxRetryDelay = Duration(minutes: 5);
 
-  late final Box<dynamic> _queueBox;
-  bool _initialized = false;
+  /// Resolves the active server's Drift database. Re-supplied on each
+  /// [initialize] (the owning provider re-runs on server switch), so the queue
+  /// reloads and persists against the active server's `attachment_queue` table.
+  AppDatabase? Function()? _databaseResolver;
   final List<QueuedAttachment> _queue = [];
   Timer? _retryTimer;
   bool _isProcessing = false;
@@ -138,21 +140,22 @@ class AttachmentUploadQueue {
 
   Future<void> initialize({
     required UploadCallback onUpload,
+    required AppDatabase? Function() database,
     AttachmentsEventCallback? onQueueChanged,
   }) async {
     _onUpload = onUpload;
     _onQueueChanged = onQueueChanged;
-    if (!_initialized) {
-      _queueBox = Hive.box<dynamic>(HiveBoxNames.attachmentQueue);
-      _initialized = true;
-    }
+    _databaseResolver = database;
     await _load();
     _startPeriodicProcessing();
     DebugLogger.log(
-      'AttachmentUploadQueue initialized with \${_queue.length} items',
+      'AttachmentUploadQueue initialized with ${_queue.length} items',
       scope: 'attachments/queue',
     );
   }
+
+  AttachmentQueueDao? get _attachmentDao =>
+      _databaseResolver?.call()?.attachmentQueueDao;
 
   Future<String> enqueue({
     required String filePath,
@@ -376,33 +379,69 @@ class AttachmentUploadQueue {
 
   // Utilities
   Future<void> _load() async {
-    final stored = _queueBox.get(HiveStoreKeys.attachmentQueueEntries);
-    if (stored == null) {
-      return;
-    }
-
-    List<dynamic> rawList;
-    if (stored is String && stored.isNotEmpty) {
-      rawList = (jsonDecode(stored) as List<dynamic>);
-    } else if (stored is List) {
-      rawList = stored;
-    } else {
-      return;
-    }
-
-    _queue
-      ..clear()
-      ..addAll(
-        rawList.map(
-          (item) =>
-              QueuedAttachment.fromJson(Map<String, dynamic>.from(item as Map)),
-        ),
-      );
+    _queue.clear();
+    final dao = _attachmentDao;
+    if (dao == null) return;
+    final rows = await dao.getAll();
+    _queue.addAll(rows.map(_rowToModel));
   }
 
   Future<void> _save() async {
-    final list = _queue.map((e) => e.toJson()).toList(growable: false);
-    await _queueBox.put(HiveStoreKeys.attachmentQueueEntries, list);
+    final db = _databaseResolver?.call();
+    if (db == null) return;
+    // The in-memory list is the source of truth; mirror it wholesale.
+    final snapshot = List<QueuedAttachment>.from(_queue);
+    await db.transaction(() async {
+      await db.attachmentQueueDao.clearAll();
+      for (final item in snapshot) {
+        await db.attachmentQueueDao.upsert(_modelToCompanion(item));
+      }
+    });
+  }
+
+  static QueuedAttachment _rowToModel(AttachmentQueueData row) {
+    return QueuedAttachment(
+      id: row.id,
+      filePath: row.filePath,
+      fileName: row.fileName,
+      fileSize: row.fileSize,
+      mimeType: row.mimeType,
+      checksum: row.checksum,
+      enqueuedAt: DateTime.fromMillisecondsSinceEpoch(row.enqueuedAt),
+      retryCount: row.retryCount,
+      nextRetryAt: row.nextRetryAt != null
+          ? DateTime.fromMillisecondsSinceEpoch(row.nextRetryAt!)
+          : null,
+      status: QueuedAttachmentStatus.values.firstWhere(
+        (e) => e.name == row.status,
+        orElse: () => QueuedAttachmentStatus.pending,
+      ),
+      lastError: row.lastError,
+      fileId: row.fileId,
+    );
+  }
+
+  /// Maps a legacy Hive attachment-queue JSON entry to a Drift row companion.
+  /// Used by the one-time Hive → Drift migration.
+  static AttachmentQueueCompanion companionFromLegacyJson(
+    Map<String, dynamic> json,
+  ) => _modelToCompanion(QueuedAttachment.fromJson(json));
+
+  static AttachmentQueueCompanion _modelToCompanion(QueuedAttachment item) {
+    return AttachmentQueueCompanion.insert(
+      id: item.id,
+      filePath: item.filePath,
+      fileName: item.fileName,
+      fileSize: item.fileSize,
+      mimeType: Value(item.mimeType),
+      checksum: Value(item.checksum),
+      status: item.status.name,
+      retryCount: Value(item.retryCount),
+      nextRetryAt: Value(item.nextRetryAt?.millisecondsSinceEpoch),
+      lastError: Value(item.lastError),
+      fileId: Value(item.fileId),
+      enqueuedAt: item.enqueuedAt.millisecondsSinceEpoch,
+    );
   }
 
   void _notify() {
