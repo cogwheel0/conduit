@@ -1513,6 +1513,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       activeChatIds: activeChatIds,
     );
 
+    final bool isGenerating =
+        conv.id != null && activeChatIds.contains(conv.id);
+
     final tileWidget = ConversationTile(
       key: ValueKey<String>('drawer-chat-${conv.id}'),
       title: title,
@@ -1520,6 +1523,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       selected: isActive,
       unread: unread,
       isLoading: isLoadingSelected,
+      isGenerating: isGenerating,
       onTap: _isLoadingConversation
           ? null
           : () => _selectConversation(context, conv.id),

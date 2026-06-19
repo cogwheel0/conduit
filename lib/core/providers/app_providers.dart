@@ -3844,6 +3844,148 @@ class ActiveChatIds extends _$ActiveChatIds {
   }
 }
 
+/// Keeps [activeChatIdsProvider] correct beyond the locally-streaming chat.
+///
+/// OpenWebUI's sidebar both bulk-fetches active chats on load and listens for
+/// `chat:active` events for any chat. This provider mirrors that: it
+/// bulk-fetches on cold open + socket reconnect (`setAll`) and registers a
+/// GLOBAL `chat:active` handler so generations started by other sessions/
+/// devices also light up the sidebar spinner.
+@Riverpod(keepAlive: true)
+class ActiveChatsSync extends _$ActiveChatsSync {
+  SocketEventSubscription? _globalActiveSub;
+  StreamSubscription<void>? _reconnectSub;
+  SocketService? _boundSocket;
+  bool _initialFetchDone = false;
+
+  @override
+  void build() {
+    ref.onDispose(() {
+      _globalActiveSub?.dispose();
+      _globalActiveSub = null;
+      _reconnectSub?.cancel();
+      _reconnectSub = null;
+    });
+
+    _bindSocket(ref.read(socketServiceProvider));
+    ref.listen<SocketService?>(socketServiceProvider, (prev, next) {
+      _bindSocket(next);
+    });
+
+    // Cold-open population: refresh once the conversation list first resolves.
+    ref.listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
+      prev,
+      next,
+    ) {
+      final convos = next.asData?.value;
+      if (convos == null || convos.isEmpty || _initialFetchDone) {
+        return;
+      }
+      _initialFetchDone = true;
+      unawaited(_refresh(convos.map((c) => c.id).toList()));
+    }, fireImmediately: true);
+  }
+
+  void _bindSocket(SocketService? socket) {
+    if (identical(socket, _boundSocket)) {
+      return;
+    }
+    _boundSocket = socket;
+    _globalActiveSub?.dispose();
+    _globalActiveSub = null;
+    _reconnectSub?.cancel();
+    _reconnectSub = null;
+    if (socket == null) {
+      return;
+    }
+
+    // All selectors null => `_shouldDeliver` treats this as a wildcard handler.
+    // requireFocus:false so background generations on other chats still update
+    // the badge.
+    _globalActiveSub = socket.addChatEventHandler(
+      requireFocus: false,
+      handler: (map, _) => _handleChatActiveEvent(map),
+    );
+
+    // Redis task state may have changed while disconnected: refresh on connect.
+    _reconnectSub = socket.onReconnect.listen((_) {
+      final convos = ref.read(conversationsProvider).asData?.value;
+      if (convos == null || convos.isEmpty) {
+        return;
+      }
+      unawaited(_refresh(convos.map((c) => c.id).toList()));
+    });
+  }
+
+  void _handleChatActiveEvent(Map<String, dynamic> map) {
+    final data = map['data'];
+    if (data is! Map || data['type'] != 'chat:active') {
+      return;
+    }
+    final payload = data['data'];
+    final active = payload is Map ? payload['active'] : null;
+    if (active is! bool) {
+      return;
+    }
+    final chatId = _extractActiveChatId(map);
+    if (chatId == null || chatId.isEmpty) {
+      return;
+    }
+    final notifier = ref.read(activeChatIdsProvider.notifier);
+    if (active) {
+      notifier.setActive(chatId);
+    } else {
+      notifier.setInactive(chatId);
+    }
+  }
+
+  String? _extractActiveChatId(Map<String, dynamic> map) {
+    final direct = map['chat_id'] ?? map['chatId'];
+    if (direct != null) {
+      return direct.toString();
+    }
+    final data = map['data'];
+    if (data is Map) {
+      final outer = data['chat_id'] ?? data['chatId'];
+      if (outer != null) {
+        return outer.toString();
+      }
+      final inner = data['data'];
+      if (inner is Map) {
+        final nested = inner['chat_id'] ?? inner['chatId'];
+        if (nested != null) {
+          return nested.toString();
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> _refresh(List<String> chatIds) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+    final ids = chatIds
+        .where((id) => id.isNotEmpty && !isTemporaryChat(id))
+        .toList();
+    if (ids.isEmpty) {
+      return;
+    }
+    try {
+      final active = await api.checkActiveChats(ids);
+      ref.read(activeChatIdsProvider.notifier).setAll(active);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'active-chats refresh failed',
+        scope: 'chat/active-sync',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+}
+
 /// Resolves socket transport availability from backend configuration.
 ///
 /// Used by both the sync [socketTransportOptionsProvider] and the

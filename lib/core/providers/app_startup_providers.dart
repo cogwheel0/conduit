@@ -949,6 +949,10 @@ class AppStartupFlow extends _$AppStartupFlow {
     _ensureSocketAttached();
     _applyCurrentAuthTokenToApi(api);
     _warmApiConnection(api);
+    // Activate the active-chats sync (global chat:active handler + initial bulk
+    // fetch) so the sidebar generating spinner is correct app-wide, including
+    // for generations started by other sessions. keepAlive keeps it running.
+    ref.read(activeChatsSyncProvider);
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );

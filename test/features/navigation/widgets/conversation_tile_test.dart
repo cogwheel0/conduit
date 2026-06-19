@@ -52,6 +52,57 @@ void main() {
     final title = tester.widget<Text>(find.text('Read chat'));
     expect(title.style?.fontWeight, FontWeight.w600);
   });
+
+  testWidgets('generating conversations show a spinner', (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        const ConversationTile(
+          title: 'Generating chat',
+          pinned: false,
+          selected: false,
+          unread: false,
+          isLoading: false,
+          isGenerating: true,
+          onTap: null,
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('conversation-generating-indicator'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('tap-load spinner takes precedence over generating spinner', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        const ConversationTile(
+          title: 'Loading chat',
+          pinned: false,
+          selected: false,
+          unread: false,
+          isLoading: true,
+          isGenerating: true,
+          onTap: null,
+        ),
+      ),
+    );
+
+    // Only one spinner, and it is not keyed as the generating indicator.
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey<String>('conversation-generating-indicator'),
+      ),
+      findsNothing,
+    );
+  });
 }
 
 Widget _harness(Widget child) {
