@@ -438,10 +438,16 @@ Future<Note?> noteById(Ref ref, String id) async {
     return null;
   }
 
+  // Read every provider dependency up-front, before the first await. Calling
+  // ref.watch after an await is a Riverpod anti-pattern (the dependency may not
+  // be registered and can throw on newer SDK versions).
   final db = ref.watch(appDatabaseProvider);
+  final userId = ref.watch(currentUserProvider2)?.id;
+  final api = ref.watch(apiServiceProvider);
+  final isOnline = ref.watch(isOnlineProvider);
+
   Note? cachedNote;
   if (db != null) {
-    final userId = ref.watch(currentUserProvider2)?.id;
     final row = userId == null || userId.isEmpty
         ? null
         : await db.notesDao.getNoteForUser(id, userId: userId);
@@ -450,10 +456,7 @@ Future<Note?> noteById(Ref ref, String id) async {
     }
   }
 
-  final api = ref.watch(apiServiceProvider);
   if (api == null) return cachedNote;
-
-  final isOnline = ref.watch(isOnlineProvider);
   if (!isOnline) return cachedNote;
 
   try {

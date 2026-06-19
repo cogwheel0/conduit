@@ -129,6 +129,7 @@ void main() {
           apiServiceProvider.overrideWithValue(null),
           isAuthenticatedProvider2.overrideWithValue(true),
           currentUserProvider2.overrideWithValue(_testUser),
+          isOnlineProvider.overrideWithValue(true),
         ],
       );
       addTearDown(container.dispose);
@@ -316,6 +317,7 @@ void main() {
             apiServiceProvider.overrideWithValue(null),
             isAuthenticatedProvider2.overrideWithValue(true),
             currentUserProvider2.overrideWithValue(_testUser),
+            isOnlineProvider.overrideWithValue(true),
           ],
         );
         addTearDown(container.dispose);
