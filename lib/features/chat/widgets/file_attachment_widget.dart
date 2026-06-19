@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
 import 'dart:io' show File, Platform;
 import 'package:conduit/l10n/app_localizations.dart';
 import '../services/file_attachment_service.dart';
 import '../../../core/services/share_receiver_service.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/services/media_upload_controller.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 
 const Set<String> _previewableImageExtensions = <String>{
@@ -224,9 +226,22 @@ class _FileAttachmentCard extends ConsumerWidget {
   void _removeAttachment(WidgetRef ref) {
     ref.read(attachedFilesProvider.notifier).removeFile(fileState.file.path);
     if (!fileState.isRemote) {
-      ref
-          .read(taskQueueProvider.notifier)
-          .cancelUploadsForFile(fileState.file.path);
+      // Controller cancels any in-flight upload AND performs the share-staging
+      // cleanup the legacy task_queue did on attachment removal.
+      unawaited(
+        ref
+            .read(mediaUploadControllerProvider)
+            .cancelUploadsForFile(fileState.file.path)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'cancel-upload-failed',
+                scope: 'chat/attachment',
+                error: error,
+                stackTrace: stackTrace,
+                data: {'path': fileState.file.path},
+              );
+            }),
+      );
     }
   }
 

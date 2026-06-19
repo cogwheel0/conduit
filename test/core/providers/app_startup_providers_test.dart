@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -36,6 +37,10 @@ Future<ProviderContainer> _createAuthenticatedWarmupContainer({
           ),
       isOnlineProvider.overrideWithValue(true),
       authTokenProvider3.overrideWithValue('test-token'),
+      // No active server DB in these warmup-focused tests: keep the sync
+      // engine / remap-route consumer inert so building AppStartupFlow does
+      // not reach the (unimplemented) hiveBoxesProvider via appDatabase.
+      appDatabaseProvider.overrideWithValue(null),
       apiOverride ?? apiServiceProvider.overrideWithValue(_StubApiService()),
       connectivityServiceProvider.overrideWithValue(_FakeConnectivityService()),
       conversationsOverride ??
@@ -283,11 +288,11 @@ void main() {
 
     final notifiers = _readWarmupNotifiers(container);
 
-    _expectForcedWarmup(
-      notifiers.conversations,
-      notifiers.folders,
-      warmIfNeededCalls: 1,
-    );
+    // CDT-RFC-001 Phase 1: the resume refresh flows through the sync
+    // engine (refreshConversationsCache -> requestPull), so the notifier's
+    // own refresh is NOT re-invoked; the warmup pass only warms folders.
+    expect(notifiers.conversations.refreshCalls, 0);
+    expect(notifiers.folders.warmIfNeededCalls, 1);
   });
 
   test('resume refreshes the active conversation from the server', () async {
@@ -325,6 +330,28 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'resume active conversation refresh ignores server fetch failures',
+    () async {
+      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      final api = _StubApiService(getConversationError: StateError('offline'));
+      final container = await _createAuthenticatedWarmupContainer(
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('active-chat').copyWith(title: 'Local copy'));
+      container.read(foregroundRefreshProvider);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await _flushMicrotasks(5);
+
+      expect(api.requestedConversationIds, ['active-chat']);
+      expect(container.read(activeConversationProvider)?.title, 'Local copy');
+    },
+  );
 
   test('resume active conversation refresh ignores stale fetches', () async {
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -464,6 +491,7 @@ class _StubApiService extends ApiService {
   _StubApiService({
     Map<String, Conversation>? conversations,
     this.getConversationGate,
+    this.getConversationError,
   }) : _conversations = conversations ?? const <String, Conversation>{},
        super(
          serverConfig: const ServerConfig(
@@ -476,6 +504,7 @@ class _StubApiService extends ApiService {
 
   final Map<String, Conversation> _conversations;
   final Completer<void>? getConversationGate;
+  final Object? getConversationError;
   final List<String> requestedConversationIds = <String>[];
 
   @override
@@ -484,6 +513,10 @@ class _StubApiService extends ApiService {
     final gate = getConversationGate;
     if (gate != null) {
       await gate.future;
+    }
+    final error = getConversationError;
+    if (error != null) {
+      throw error;
     }
     return _conversations[id] ?? _conversation(id);
   }

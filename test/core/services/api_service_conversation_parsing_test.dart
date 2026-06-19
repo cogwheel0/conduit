@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,6 +51,40 @@ void main() {
       check(conversations.first.messages).isEmpty();
     });
 
+    test('getChatListPageRaw parses JSON-string list payloads', () async {
+      final adapter = _RouteJsonAdapter({
+        '/api/v1/chats/': jsonEncode([
+          {'id': 'chat-1', 'title': 'Encoded'},
+        ]),
+      });
+      final api = _buildApiService(adapter);
+
+      final rows = await api.getChatListPageRaw(page: 1);
+
+      check(rows).has((it) => it.length, 'length').equals(1);
+      check(rows.single['id']).equals('chat-1');
+      check(rows.single['title']).equals('Encoded');
+    });
+
+    test(
+      'getChatListPageRaw throws on malformed JSON-string payloads',
+      () async {
+        final adapter = _RouteJsonAdapter({'/api/v1/chats/': 'not json'});
+        final api = _buildApiService(adapter);
+
+        await check(api.getChatListPageRaw(page: 1)).throws<FormatException>();
+      },
+    );
+
+    test('getChatListPageRaw throws on non-list payloads', () async {
+      final adapter = _RouteJsonAdapter({
+        '/api/v1/chats/': {'items': <Object?>[]},
+      });
+      final api = _buildApiService(adapter);
+
+      await check(api.getChatListPageRaw(page: 1)).throws<FormatException>();
+    });
+
     test('searchChats parses wrapped byte summary payloads', () async {
       final adapter = _RouteJsonAdapter({
         '/api/v1/chats/search': {
@@ -69,6 +104,91 @@ void main() {
       check(conversations.single.id).equals('search-hit');
     });
   });
+
+  group('ApiService sync raw error mapping', () {
+    test('probeChatExists treats vendored 401 NOT_FOUND as gone', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(
+          statusCode: 401,
+          body: {'detail': "We could not find what you're looking for :/"},
+        ),
+      );
+
+      final exists = await ApiSyncApiClient(api).probeChatExists('ghost');
+
+      check(exists).isFalse();
+    });
+
+    test('probeChatExists rethrows non-NOT_FOUND 401 responses', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(
+          statusCode: 401,
+          body: {'detail': 'Invalid authentication credentials'},
+        ),
+      );
+
+      await check(
+        ApiSyncApiClient(api).probeChatExists('auth-failed'),
+      ).throws<DioException>();
+    });
+
+    test('getNoteRaw maps 404 to null', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(statusCode: 404, body: {'detail': 'not found'}),
+      );
+
+      check(await api.getNoteRaw('missing-note')).isNull();
+    });
+
+    test('getChatPinnedRaw maps 404 to false', () async {
+      final api = _buildApiService(
+        _StatusJsonAdapter(statusCode: 404, body: {'detail': 'not found'}),
+      );
+
+      check(await api.getChatPinnedRaw('missing-chat')).isFalse();
+    });
+
+    for (final statusCode in [401, 403]) {
+      test('getNoteRaw maps $statusCode to SyncTerminalException', () async {
+        final api = _buildApiService(
+          _StatusJsonAdapter(
+            statusCode: statusCode,
+            body: {'detail': 'forbidden'},
+          ),
+        );
+
+        await check(
+          api.getNoteRaw('forbidden-note'),
+        ).throws<SyncTerminalException>();
+      });
+    }
+
+    for (final entry in <String, Future<void> Function(ApiService)>{
+      'createChatRaw': (api) async {
+        await api.createChatRaw(const {'history': <String, dynamic>{}});
+      },
+      'getChatPinnedRaw': (api) async {
+        await api.getChatPinnedRaw('c1');
+      },
+      'togglePinRaw': (api) async {
+        await api.togglePinRaw('c1');
+      },
+      'toggleArchiveRaw': (api) async {
+        await api.toggleArchiveRaw('c1');
+      },
+      'moveChatToFolderRaw': (api) async {
+        await api.moveChatToFolderRaw('c1', 'f1');
+      },
+    }.entries) {
+      test('${entry.key} maps 401 to SyncTerminalException', () async {
+        final api = _buildApiService(
+          _StatusJsonAdapter(statusCode: 401, body: {'detail': 'forbidden'}),
+        );
+
+        await check(entry.value(api)).throws<SyncTerminalException>();
+      });
+    }
+  });
 }
 
 class _RouteJsonAdapter implements HttpClientAdapter {
@@ -86,6 +206,31 @@ class _RouteJsonAdapter implements HttpClientAdapter {
     return ResponseBody(
       Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(response)))),
       200,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _StatusJsonAdapter implements HttpClientAdapter {
+  _StatusJsonAdapter({required this.statusCode, required this.body});
+
+  final int statusCode;
+  final Object? body;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody(
+      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(body)))),
+      statusCode,
       headers: {
         'content-type': ['application/json'],
       },

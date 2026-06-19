@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
@@ -29,6 +32,8 @@ import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
+import '../persistence/hive_boxes.dart';
+import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
 import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
@@ -36,6 +41,12 @@ import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
+import 'package:drift/drift.dart' show Value;
+import '../database/database_provider.dart';
+import '../database/local_conversation_loader.dart';
+import '../database/mappers/conversation_assembler.dart';
+import '../sync/chat_locks.dart';
+import '../sync/sync_engine.dart';
 
 export 'storage_providers.dart';
 
@@ -363,6 +374,14 @@ class SocketServiceManager extends _$SocketServiceManager {
   ProviderSubscription<ConnectivityStatus>? _connectivitySubscription;
   int _connectToken = 0;
 
+  /// The current live service, available even while [build] is re-running (the
+  /// async provider is briefly `loading` on every rebuild). [socketServiceProvider]
+  /// falls back to this so the socket doesn't momentarily read as `null` — which
+  /// would otherwise drop consumers to HTTP-only sends mid-session. Null only
+  /// when there is genuinely no service (reviewer mode / no active server /
+  /// disposed).
+  SocketService? get currentService => _service;
+
   @override
   FutureOr<SocketService?> build() async {
     final reviewerMode = ref.watch(reviewerModeProvider);
@@ -476,7 +495,15 @@ class SocketServiceManager extends _$SocketServiceManager {
 
 final socketServiceProvider = Provider<SocketService?>((ref) {
   final asyncService = ref.watch(socketServiceManagerProvider);
-  return asyncService.maybeWhen(data: (service) => service, orElse: () => null);
+  // While the manager re-runs its async `build` (on any watched-dependency
+  // change), it is briefly `loading`; don't collapse the live socket to `null`
+  // then — that churns consumers and forces HTTP-only sends. Fall back to the
+  // manager's current service during loading/error; it's only truly null when
+  // there is no active server / reviewer mode / it was disposed.
+  return asyncService.maybeWhen(
+    data: (service) => service,
+    orElse: () => ref.read(socketServiceManagerProvider.notifier).currentService,
+  );
 });
 
 // Attachment upload queue provider
@@ -487,7 +514,8 @@ final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   final queue = AttachmentUploadQueue();
   // Initialize once; subsequent calls are no-ops due to singleton
   queue.initialize(
-    onUpload: (filePath, fileName) => api.uploadFile(filePath, fileName),
+    onUpload: (filePath, fileName, {cancelToken}) =>
+        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
   );
 
   return queue;
@@ -1129,87 +1157,30 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
   });
 });
 
-// Cache timestamp for conversations to prevent rapid re-fetches
-@Riverpod(keepAlive: true)
-class _ConversationsCacheTimestamp extends _$ConversationsCacheTimestamp {
-  @override
-  DateTime? build() => null;
-
-  void set(DateTime? timestamp) => state = timestamp;
-}
-
-/// Clears the in-memory timestamp cache and triggers a fresh conversations
-/// reload. Optionally refreshes folders in parallel so folder metadata does not
-/// wait on the page-1 conversations request to finish.
+/// Requests a debounced pull cycle from the sync engine and invalidates the
+/// folder summary caches after the pull has had a chance to write rows
+/// (CDT-RFC-001 Phase 1: every refresh path converges on the engine; Drift
+/// streams deliver the resulting UI updates).
 void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
-  void refreshWithLogging({
-    required Future<void> Function() refresh,
-    required String event,
-    required String scope,
-  }) {
-    unawaited(
-      refresh().catchError((Object error, StackTrace stackTrace) {
-        DebugLogger.error(
-          event,
-          scope: scope,
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }),
-    );
-  }
-
-  ref.read(_conversationsCacheTimestampProvider.notifier).set(null);
-  ref.read(_folderConversationRefreshTickProvider.notifier).bump();
-  refreshWithLogging(
-    refresh: () =>
-        ref.read(conversationsProvider.notifier).refresh(forceFresh: true),
-    event: 'refresh-cache-failed',
-    scope: 'conversations',
+  final folderConversationRefresh = ref.read(
+    _folderConversationRefreshTickProvider.notifier,
   );
-  if (includeFolders) {
-    refreshWithLogging(
-      refresh: () =>
-          ref.read(foldersProvider.notifier).refresh(forceFresh: true),
-      event: 'refresh-folders-cache-failed',
-      scope: 'folders',
-    );
-  }
+  unawaited(
+    Future<void>(() async {
+      await ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'cache-refresh');
+      folderConversationRefresh.bumpIfMounted();
+    }).catchError((Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'refresh-cache-failed',
+        scope: 'conversations',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
 }
-
-class _ScopedLoad<T> {
-  const _ScopedLoad({
-    required this.generation,
-    required this.key,
-    required this.data,
-  });
-
-  final int generation;
-  final _ServerScopedRequestKey key;
-  final T data;
-}
-
-class _ServerScopedRequestKey {
-  const _ServerScopedRequestKey({
-    required this.api,
-    required this.serverId,
-    required this.authToken,
-  });
-
-  final ApiService? api;
-  final String? serverId;
-  final String? authToken;
-
-  bool matches(_ServerScopedRequestKey other) =>
-      identical(api, other.api) &&
-      serverId == other.serverId &&
-      authToken == other.authToken;
-}
-
-typedef _TrackedScopedLoad<T> = ({
-  Future<_ScopedLoad<T>> future,
-  _ServerScopedRequestKey key,
-});
 
 typedef _UpdatedItem<T> = ({List<T> items, T item});
 typedef _RemovedItems<T> = ({List<T> items, bool didRemove});
@@ -1218,80 +1189,6 @@ DateTime? _latestDateTime(DateTime? left, DateTime? right) {
   if (left == null) return right;
   if (right == null) return left;
   return right.isAfter(left) ? right : left;
-}
-
-void _clearTrackedScopedLoadWhenSettled<T>({
-  required Future<T> future,
-  required Future<T>? Function() currentFuture,
-  required void Function() clearTrackedLoad,
-}) {
-  unawaited(
-    Future<void>(() async {
-      try {
-        await future;
-      } catch (_) {
-        // Errors are handled by the callers awaiting the request.
-      } finally {
-        if (identical(currentFuture(), future)) {
-          clearTrackedLoad();
-        }
-      }
-    }),
-  );
-}
-
-void _scheduleWarmRefresh({
-  required Future<void> Function() refresh,
-  required String scope,
-}) {
-  Future.microtask(() async {
-    try {
-      await refresh();
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'warm-refresh-failed',
-        scope: scope,
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  });
-}
-
-Future<_ScopedLoad<T>?> _currentScopedInFlightLoad<T>({
-  required _TrackedScopedLoad<T>? inFlightLoad,
-  required bool Function(_ServerScopedRequestKey key) isCurrentKey,
-}) async {
-  final latest = inFlightLoad;
-  if (latest == null || !isCurrentKey(latest.key)) {
-    return null;
-  }
-  return latest.future;
-}
-
-Future<_ScopedLoad<T>?> _newerScopedLoad<T>({
-  required _ScopedLoad<T> load,
-  required _ScopedLoad<T>? latestCompletedLoad,
-  required _TrackedScopedLoad<T>? inFlightLoad,
-  required bool Function(_ServerScopedRequestKey key) isCurrentKey,
-}) async {
-  final latestCompleted = latestCompletedLoad;
-  if (latestCompleted != null &&
-      latestCompleted.generation != load.generation &&
-      isCurrentKey(latestCompleted.key)) {
-    return latestCompleted;
-  }
-
-  final latest = inFlightLoad;
-  if (latest == null) {
-    return null;
-  }
-
-  final latestLoad = await latest.future;
-  if (latestLoad.generation != load.generation) {
-    return latestLoad;
-  }
-  return null;
 }
 
 List<T> _upsertItemById<T>(
@@ -1339,306 +1236,131 @@ _RemovedItems<T> _removeItemById<T>(
   return (items: updated, didRemove: index >= 0);
 }
 
-String? _normalizeScopedAuthToken(String? token) {
-  if (token == null || token.isEmpty) {
-    return null;
-  }
-  return token;
-}
+/// Server-style epoch seconds for envelope writes derived from model
+/// timestamps (which round-trip epoch seconds themselves).
+int _epochSecondsOf(DateTime dateTime) =>
+    dateTime.millisecondsSinceEpoch ~/ 1000;
 
-/// Keeps scope keys aligned with the auth token the ApiService will actually
-/// attach to the request.
-String? _syncApiAuthTokenForScopedRequest(
-  Ref ref,
-  ApiService? api, {
-  String? desiredAuthToken,
-}) {
-  final normalizedToken = _normalizeScopedAuthToken(
-    desiredAuthToken ?? ref.read(authTokenProvider3),
-  );
-  if (api != null && api.authToken != normalizedToken) {
-    api.updateAuthToken(normalizedToken);
-  }
-  return api?.authToken ?? normalizedToken;
-}
-
-_ServerScopedRequestKey _buildScopedRequestKey(
-  ApiService? api, {
-  required String? authToken,
-}) {
-  return _ServerScopedRequestKey(
-    api: api,
-    serverId: api?.serverConfig.id,
-    authToken: authToken,
-  );
-}
-
-_ServerScopedRequestKey _syncApiAuthTokenAndBuildScopedRequestKey(
-  Ref ref,
-  ApiService? api, {
-  String? desiredAuthToken,
-}) {
-  final authToken = _syncApiAuthTokenForScopedRequest(
-    ref,
-    api,
-    desiredAuthToken: desiredAuthToken,
-  );
-  return _buildScopedRequestKey(api, authToken: authToken);
-}
-
-// Conversation providers - Now using correct OpenWebUI API with caching and
-// immediate mutation helpers.
+// Conversation list provider — Drift-backed read path (CDT-RFC-001 Phase 1).
+//
+// The list renders from `ChatsDao.watchChatList()` (a narrow projection that
+// never selects message bodies). Mutators keep their synchronous in-memory
+// update for snappiness and write the same envelope change to the database in
+// the same call, so the next stream emission always agrees with the
+// optimistic state.
 @Riverpod(keepAlive: true)
 class Conversations extends _$Conversations {
-  static const int _regularPageSize = 50;
-
-  int _currentRegularPage = 0;
-  bool _allRegularChatsLoaded = false;
-  bool _isLoadingMoreRegularChats = false;
-  int _currentInitialLoadGeneration = 0;
-  _TrackedScopedLoad<List<Conversation>>? _inFlightInitialLoad;
-  _ScopedLoad<List<Conversation>>? _latestInitialLoad;
-  _ServerScopedRequestKey? _currentConversationStateKey;
-  _ServerScopedRequestKey? _trustedFolderConversationStateKey;
-  _ServerScopedRequestKey? _localReadStateKey;
-  final Set<String> _trustedFolderConversationIds = <String>{};
-  final Map<String, DateTime> _localReadAtByConversationId =
-      <String, DateTime>{};
-
-  bool hasMoreRegularChats() => !_allRegularChatsLoaded;
-  bool isLoadingMoreRegularChats() => _isLoadingMoreRegularChats;
+  /// Every chat row is local now; pagination is permanently exhausted.
+  bool hasMoreRegularChats() => false;
+  bool isLoadingMoreRegularChats() => false;
 
   @override
   Future<List<Conversation>> build() async {
     final authed = ref.watch(isAuthenticatedProvider2);
     if (!authed) {
       DebugLogger.log('skip-unauthed', scope: 'conversations');
-      _resetPaginationState(allLoaded: true);
-      _resetInitialLoadTracking();
-      _clearConversationScopeState();
       return const [];
     }
 
     if (ref.watch(reviewerModeProvider)) {
-      _resetPaginationState(currentPage: 1, allLoaded: true);
-      _resetInitialLoadTracking();
-      _clearConversationScopeState();
       return _demoConversations();
     }
 
-    final storage = ref.read(optimizedStorageServiceProvider);
-    try {
-      final cached = await storage.getLocalConversations();
-      if (cached.isNotEmpty) {
-        final preparedCache = _prepareCachedSidebarFeed(cached);
-        // Treat cache-hydrated folder summaries as untrusted until the current
-        // auth scope confirms them with a fresh remote load.
-        _clearConversationScopeState();
-        _scheduleWarmRefresh(
-          refresh: () => refresh(),
-          scope: 'conversations/cache',
-        );
-        _scheduleWarmRefresh(
-          refresh: () => ref.read(foldersProvider.notifier).warmIfNeeded(),
-          scope: 'folders/cache',
-        );
-        return preparedCache;
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'cache-load-failed',
-        scope: 'conversations/cache',
-        error: error,
-        stackTrace: stackTrace,
-      );
+    final db = ref.watch(appDatabaseProvider);
+    if (db == null) {
+      return const [];
     }
 
-    final fresh = await _loadAndRecordInitialConversations();
-    _persistConversationsAsync(fresh);
-    return fresh;
+    final completer = Completer<List<Conversation>>();
+    // Cold-start instrumentation (CDT-RFC-001 §10 Budget 1): time from build()
+    // start to the FIRST narrow-projection emission. Numeric-only data (no chat
+    // content) so nothing untrusted is logged.
+    final coldStart = Stopwatch()..start();
+    final subscription = db.chatsDao.watchChatList().listen(
+      (entries) {
+        final conversations = List<Conversation>.unmodifiable(
+          entries.map(conversationFromListEntry),
+        );
+        if (!completer.isCompleted) {
+          coldStart.stop();
+          DebugLogger.log(
+            'cold-start-ms',
+            scope: 'perf/list',
+            data: {'ms': coldStart.elapsedMilliseconds, 'rows': entries.length},
+          );
+          completer.complete(conversations);
+          return;
+        }
+        if (ref.mounted) {
+          state = AsyncData<List<Conversation>>(conversations);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'watch-failed',
+          scope: 'conversations',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        if (!completer.isCompleted) {
+          completer.complete(const <Conversation>[]);
+        }
+      },
+    );
+    ref.onDispose(subscription.cancel);
+    return completer.future;
   }
 
+  /// Refreshing is a pull request; the database stream delivers the result.
+  /// Folders are part of every pull cycle, so [includeFolders] needs no extra
+  /// work.
   Future<void> refresh({
     bool includeFolders = false,
     bool forceFresh = false,
   }) async {
-    final authed = ref.read(isAuthenticatedProvider2);
-    if (!authed) {
-      _resetPaginationState(allLoaded: true);
-      _clearConversationScopeState();
-      _updateCacheTimestamp(null);
-      state = AsyncData<List<Conversation>>(<Conversation>[]);
-      _persistConversationsAsync(const <Conversation>[]);
-      if (includeFolders) {
-        unawaited(ref.read(foldersProvider.notifier).refresh());
-      }
-      return;
-    }
-
-    if (ref.read(reviewerModeProvider)) {
-      _resetPaginationState(currentPage: 1, allLoaded: true);
-      _clearConversationScopeState();
-      state = AsyncData<List<Conversation>>(_demoConversations());
-      if (includeFolders) {
-        unawaited(ref.read(foldersProvider.notifier).refresh());
-      }
-      return;
-    }
-
-    final requestKey = _currentSyncedInitialLoadKey();
-    final preserveTrustedReadState =
-        state.asData?.value != null &&
-        _hasCurrentConversationStateFor(requestKey);
-    final result = await AsyncValue.guard(() async {
-      return _loadAndRecordInitialConversations(reuseInFlight: !forceFresh);
-    });
-    if (!ref.mounted) return;
-    result.when(
-      data: (conversations) {
-        final resolvedKey = _currentConversationStateKey;
-        final canPreserveTrustedReadState =
-            resolvedKey != null &&
-            preserveTrustedReadState &&
-            resolvedKey.matches(requestKey);
-        final canPreserveLocalReadState =
-            resolvedKey != null && _hasLocalReadStateFor(resolvedKey);
-        final nextConversations =
-            canPreserveTrustedReadState || canPreserveLocalReadState
-            ? _preserveLocalReadState(
-                conversations,
-                includeCurrentState: canPreserveTrustedReadState,
-                requestKey: resolvedKey,
-              )
-            : conversations;
-        state = AsyncData<List<Conversation>>(nextConversations);
-        _persistConversationsAsync(nextConversations);
-      },
-      error: (error, stackTrace) {
-        final preservedCurrentScope = _shouldPreserveConversationStateOnError(
-          requestKey,
-        );
-        if (!preservedCurrentScope) {
-          _resetPaginationState(allLoaded: true);
-          _clearConversationScopeState();
-          _updateCacheTimestamp(null);
-          state = const AsyncData<List<Conversation>>(<Conversation>[]);
-        }
-        DebugLogger.error(
-          'refresh-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {
-            'preservedData': preservedCurrentScope,
-            'requestScopeTrusted': _hasCurrentConversationStateFor(requestKey),
-          },
-        );
-      },
-      loading: () {},
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
     );
-    if (includeFolders) {
-      unawaited(ref.read(foldersProvider.notifier).refresh());
-    }
+    await ref.read(syncEngineProvider.notifier).requestPull(reason: 'refresh');
+    folderConversationRefresh.bumpIfMounted();
   }
 
-  Future<void> loadMore() async {
-    final current = state.asData?.value;
-    if (current == null ||
-        _isLoadingMoreRegularChats ||
-        _allRegularChatsLoaded) {
-      return;
-    }
-    if (!ref.read(isAuthenticatedProvider2) || ref.read(reviewerModeProvider)) {
-      return;
-    }
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      return;
-    }
-
-    final requestKey = _currentSyncedInitialLoadKey();
-    if (!_hasCurrentConversationStateFor(requestKey)) {
-      await refresh(forceFresh: true);
-      return;
-    }
-
-    final nextPage = (_currentRegularPage == 0 ? 1 : _currentRegularPage + 1);
-    _isLoadingMoreRegularChats = true;
-
-    try {
-      final nextConversations = await api.getConversationPage(
-        page: nextPage,
-        includeFolders: true,
-      );
-      if (!ref.mounted) {
-        return;
-      }
-
-      if (!_isCurrentInitialLoadKey(requestKey) ||
-          !_hasCurrentConversationStateFor(requestKey)) {
-        DebugLogger.log(
-          'page-discarded-stale-scope',
-          scope: 'conversations',
-          data: {'page': nextPage},
-        );
-        await refresh(forceFresh: true);
-        return;
-      }
-
-      final latestCurrent = state.asData?.value;
-      if (latestCurrent == null) {
-        await refresh(forceFresh: true);
-        return;
-      }
-
-      _currentRegularPage = nextPage;
-      if (nextConversations.isEmpty) {
-        _allRegularChatsLoaded = true;
-        return;
-      }
-
-      _allRegularChatsLoaded = nextConversations.length < _regularPageSize;
-
-      final merged = _mergeConversationLists(latestCurrent, nextConversations);
-      _recordRemoteConversationScope(merged);
-      _updateCacheTimestamp(DateTime.now());
-      state = AsyncData<List<Conversation>>(merged);
-      _persistConversationsAsync(merged);
-
-      DebugLogger.log(
-        'page-loaded',
-        scope: 'conversations',
-        data: {
-          'page': nextPage,
-          'count': nextConversations.length,
-          'total': merged.length,
-          'hasMore': !_allRegularChatsLoaded,
-        },
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'load-more-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'page': nextPage},
-      );
-      rethrow;
-    } finally {
-      _isLoadingMoreRegularChats = false;
-    }
-  }
+  /// All chats are local rows; nothing to page in.
+  Future<void> loadMore() async {}
 
   void removeConversation(String id) {
     final current = state.asData?.value;
-    if (current == null) return;
-    final removal = _removeItemById(
-      current,
-      id,
-      idOf: (conversation) => conversation.id,
+    if (current != null) {
+      final removal = _removeItemById(
+        current,
+        id,
+        idOf: (conversation) => conversation.id,
+      );
+      if (removal.didRemove) {
+        _replaceState(removal.items);
+      }
+    }
+    // Caller already deleted the chat server-side; drop the local row.
+    final db = ref.read(appDatabaseProvider);
+    if (db == null || isTemporaryChat(id)) return;
+    final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
     );
-    _replaceState(removal.items);
+    unawaited(
+      locks
+          .runExclusive(id, () => db.chatsDao.hardDelete(id))
+          .then((_) => folderConversationRefresh.bumpIfMounted())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'row-delete-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': id},
+            );
+          }),
+    );
   }
 
   void upsertConversation(
@@ -1658,33 +1380,19 @@ class Conversations extends _$Conversations {
               conversation.lastReadAt,
             ),
           );
-    final updated = _upsertItemById(
-      current,
-      preparedConversation,
-      idOf: (item) => item.id,
-    );
     _replaceState(
-      updated,
-      trustedFolderConversations: trustFolderConversation
-          ? <Conversation>[preparedConversation]
-          : const <Conversation>[],
+      _upsertItemById(current, preparedConversation, idOf: (item) => item.id),
     );
+    _writeEnvelopeStub(preparedConversation);
   }
 
   void upsertConversations(
     Iterable<Conversation> conversations, {
     bool trustFolderConversations = false,
   }) {
-    final current = state.asData?.value ?? const <Conversation>[];
-    final incoming = conversations.toList(growable: false);
-    final merged = _mergeConversationLists(current, incoming);
-    _replaceState(
-      merged,
-      sort: false,
-      trustedFolderConversations: trustFolderConversations
-          ? incoming
-          : const <Conversation>[],
-    );
+    for (final conversation in conversations) {
+      upsertConversation(conversation);
+    }
   }
 
   void updateConversation(
@@ -1693,375 +1401,178 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value;
-    if (current == null) return;
-    final update = _transformItemById(
-      current,
-      id,
-      transform,
-      idOf: (conversation) => conversation.id,
+    final update = current == null
+        ? null
+        : _transformItemById(
+            current,
+            id,
+            transform,
+            idOf: (conversation) => conversation.id,
+          );
+    if (update == null) {
+      // The chat list stream has not loaded yet, or this id is absent from the
+      // loaded projection. Request a reconcile pull so the server-confirmed
+      // envelope mutation is not lost (mirrors Folders.updateFolder).
+      _requestConversationReconcilePull(
+        action: current == null ? 'update-cold' : 'update-missing',
+      );
+      return;
+    }
+    _replaceState(update.items);
+    _writeEnvelopeUpdate(update.item);
+  }
+
+  void _requestConversationReconcilePull({required String action}) {
+    DebugLogger.log(
+      'reconcile-after-remote-mutation',
+      scope: 'conversations',
+      data: {'action': action},
     );
-    if (update == null) return;
-    _replaceState(
-      update.items,
-      trustedFolderConversations: trustFolderConversation
-          ? <Conversation>[update.item]
-          : const <Conversation>[],
+    unawaited(
+      ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'conversations-reconcile')
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'reconcile-pull-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'action': action},
+            );
+            return null;
+          }),
     );
   }
 
   void markConversationRead(String id, DateTime readAt) {
     if (id.isEmpty) return;
-    _recordLocalReadState(id, readAt);
-    updateConversation(id, (conversation) {
-      final current = conversation.lastReadAt;
-      if (current != null && !readAt.isAfter(current)) {
-        return conversation;
-      }
-      return conversation.copyWith(lastReadAt: readAt);
-    });
-  }
-
-  /// Applies a server-confirmed conversation summary mutation.
-  ///
-  /// This re-trusts folder conversations for the current auth/server scope so
-  /// a subsequent forced refresh preserves them in the sidebar.
-  void updateConversationFromRemote(
-    String id,
-    Conversation Function(Conversation conversation) transform,
-  ) {
-    updateConversation(id, transform, trustFolderConversation: true);
-  }
-
-  /// Marks the current summary for [id] as server-confirmed without changing
-  /// its contents.
-  void trustConversation(String id) {
-    updateConversationFromRemote(id, (conversation) => conversation);
-  }
-
-  void _replaceState(
-    List<Conversation> conversations, {
-    Iterable<Conversation> trustedFolderConversations = const <Conversation>[],
-    bool sort = true,
-  }) {
-    final nextState = sort ? _sortByUpdatedAt(conversations) : conversations;
-    final currentKey = _currentSyncedInitialLoadKey();
-    _syncTrustedFolderConversationState(
-      nextState,
-      newlyTrustedConversations: trustedFolderConversations,
-      trustKey: currentKey,
-    );
-    state = AsyncData<List<Conversation>>(nextState);
-    if (_hasCurrentConversationStateFor(currentKey)) {
-      _persistConversationsAsync(nextState);
-      return;
-    }
-    DebugLogger.log(
-      'skip-stale-state-persist',
-      scope: 'conversations',
-      data: {'count': nextState.length},
-    );
-  }
-
-  void _persistConversationsAsync(List<Conversation> conversations) {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    unawaited(
-      Future<void>(() async {
-        try {
-          await storage.saveLocalConversations(conversations);
-        } catch (error, stackTrace) {
-          DebugLogger.error(
-            'cache-save-failed',
-            scope: 'conversations/cache',
-            error: error,
-            stackTrace: stackTrace,
-          );
+    final current = state.asData?.value;
+    if (current != null) {
+      final update = _transformItemById(current, id, (conversation) {
+        final existing = conversation.lastReadAt;
+        if (existing != null && !readAt.isAfter(existing)) {
+          return conversation;
         }
+        return conversation.copyWith(lastReadAt: readAt);
+      }, idOf: (conversation) => conversation.id);
+      if (update != null) {
+        _replaceState(update.items);
+      }
+    }
+    final db = ref.read(appDatabaseProvider);
+    if (db == null || isTemporaryChat(id)) return;
+    // Pre-existing UI-only read marks come from the device clock; the DAO's
+    // max() rule means the column is never lowered and the value never enters
+    // watermark logic.
+    unawaited(
+      db.chatsDao.setLastReadAt(id, _epochSecondsOf(readAt)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'read-mark-failed',
+          scope: 'conversations',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
       }),
     );
   }
 
-  void _resetPaginationState({int currentPage = 0, bool allLoaded = false}) {
-    _currentRegularPage = currentPage;
-    _allRegularChatsLoaded = allLoaded;
-    _isLoadingMoreRegularChats = false;
-  }
-
-  void _resetInitialLoadTracking() {
-    _currentInitialLoadGeneration++;
-    _inFlightInitialLoad = null;
-    _latestInitialLoad = null;
-  }
-
-  void _clearConversationScopeState() {
-    _currentConversationStateKey = null;
-    _trustedFolderConversationStateKey = null;
-    _trustedFolderConversationIds.clear();
-    _clearLocalReadState();
-  }
-
-  void _recordRemoteConversationScope(List<Conversation> conversations) {
-    final currentKey = _currentSyncedInitialLoadKey();
-    _currentConversationStateKey = currentKey;
-    _syncTrustedFolderConversationState(
-      conversations,
-      newlyTrustedConversations: conversations,
-      trustKey: currentKey,
-    );
-  }
-
-  bool _hasCurrentConversationStateFor(_ServerScopedRequestKey key) =>
-      _currentConversationStateKey?.matches(key) ?? false;
-
-  bool _hasTrustedFolderConversationStateFor(_ServerScopedRequestKey key) =>
-      _trustedFolderConversationStateKey?.matches(key) ?? false;
-
-  bool _hasLocalReadStateFor(_ServerScopedRequestKey key) =>
-      (_localReadStateKey?.matches(key) ?? false) &&
-      _localReadAtByConversationId.isNotEmpty;
-
-  bool _canPreserveCurrentConversationStateOnError(
-    _ServerScopedRequestKey requestKey,
-  ) =>
-      state.asData?.value != null &&
-      _hasCurrentConversationStateFor(requestKey);
-
-  bool _shouldPreserveConversationStateOnError(
-    _ServerScopedRequestKey requestKey,
+  /// Applies a server-confirmed conversation summary mutation.
+  void updateConversationFromRemote(
+    String id,
+    Conversation Function(Conversation conversation) transform,
   ) {
-    if (_canPreserveCurrentConversationStateOnError(requestKey)) {
-      return true;
-    }
-    if (_isCurrentInitialLoadKey(requestKey) || state.asData?.value == null) {
-      return false;
-    }
-    return _hasCurrentConversationStateFor(_currentSyncedInitialLoadKey());
+    updateConversation(id, transform);
   }
 
-  void _syncTrustedFolderConversationState(
-    List<Conversation> conversations, {
-    Iterable<Conversation> newlyTrustedConversations = const <Conversation>[],
-    required _ServerScopedRequestKey trustKey,
-  }) {
-    final activeFolderIds = conversations
-        .where(_isFolderConversation)
-        .map((conversation) => conversation.id)
-        .toSet();
-    _trustedFolderConversationIds.retainAll(activeFolderIds);
+  /// Rows are id-keyed in the database; the summary "trust" machinery is
+  /// obsolete. Kept as a frozen no-op for callers.
+  void trustConversation(String id) {}
 
-    var addedTrustedFolderConversation = false;
-    for (final conversation in newlyTrustedConversations) {
-      if (_isFolderConversation(conversation) &&
-          activeFolderIds.contains(conversation.id)) {
-        _trustedFolderConversationIds.add(conversation.id);
-        addedTrustedFolderConversation = true;
-      }
-    }
-
-    if (_trustedFolderConversationIds.isEmpty) {
-      _trustedFolderConversationStateKey = null;
-      return;
-    }
-
-    if (addedTrustedFolderConversation) {
-      _trustedFolderConversationStateKey = trustKey;
-    }
+  void _replaceState(List<Conversation> conversations) {
+    state = AsyncData<List<Conversation>>(_sortByUpdatedAt(conversations));
   }
 
-  List<Conversation> _prepareCachedSidebarFeed(
-    List<Conversation> conversations,
-  ) {
-    final visible = <Conversation>[];
-    var totalRegularCount = 0;
-    var visibleRegularCount = 0;
-
-    for (final conversation in _sortByUpdatedAt(conversations)) {
-      final isRegular =
-          !conversation.archived &&
-          !conversation.pinned &&
-          !_isFolderConversation(conversation);
-      if (!isRegular) {
-        visible.add(conversation);
-        continue;
-      }
-
-      totalRegularCount += 1;
-      if (visibleRegularCount < _regularPageSize) {
-        visible.add(conversation);
-        visibleRegularCount += 1;
-      }
-    }
-    _resetPaginationState(
-      currentPage: visibleRegularCount == 0 ? 0 : 1,
-      allLoaded: totalRegularCount < _regularPageSize,
+  void _writeEnvelopeStub(Conversation conversation) {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null || isTemporaryChat(conversation.id)) return;
+    final lastReadAt = conversation.lastReadAt;
+    // ChatLocks discipline: every write touching one chat's rows serializes
+    // through the per-chat mutex so a stale optimistic stub can never be
+    // ordered after (and overwrite) a concurrent locked pull merge.
+    final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
     );
-    return List<Conversation>.unmodifiable(visible);
-  }
-
-  List<Conversation> _mergeConversationLists(
-    List<Conversation> current,
-    Iterable<Conversation> incoming, {
-    bool authoritativeIncomingFolderIds = false,
-  }) {
-    final merged = <String, Conversation>{};
-    for (final conversation in current) {
-      _upsertConversationMap(
-        merged,
-        conversation,
-        authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
-      );
-    }
-    for (final conversation in incoming) {
-      _upsertConversationMap(
-        merged,
-        conversation,
-        authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
-      );
-    }
-    return _sortByUpdatedAt(merged.values.toList(growable: false));
-  }
-
-  void _recordLocalReadState(String id, DateTime readAt) {
-    final currentKey = _currentSyncedInitialLoadKey();
-    if (!(_localReadStateKey?.matches(currentKey) ?? false)) {
-      _localReadStateKey = currentKey;
-      _localReadAtByConversationId.clear();
-    }
-    final current = _localReadAtByConversationId[id];
-    if (current == null || readAt.isAfter(current)) {
-      _localReadAtByConversationId[id] = readAt;
-    }
-  }
-
-  void _clearLocalReadState() {
-    _localReadStateKey = null;
-    _localReadAtByConversationId.clear();
-  }
-
-  List<Conversation> _preserveLocalReadState(
-    Iterable<Conversation> incoming, {
-    required bool includeCurrentState,
-    required _ServerScopedRequestKey requestKey,
-  }) {
-    final current = state.asData?.value;
-    final incomingList = incoming.toList(growable: false);
-    if (incomingList.isEmpty) {
-      return incomingList;
-    }
-
-    final localReadAtById = <String, DateTime>{};
-    if (includeCurrentState && current != null) {
-      for (final conversation in current) {
-        final lastReadAt = conversation.lastReadAt;
-        if (lastReadAt != null) {
-          localReadAtById[conversation.id] = lastReadAt;
-        }
-      }
-    }
-    if (_localReadStateKey?.matches(requestKey) ?? false) {
-      for (final entry in _localReadAtByConversationId.entries) {
-        localReadAtById[entry.key] =
-            _latestDateTime(localReadAtById[entry.key], entry.value) ??
-            entry.value;
-      }
-    }
-    if (localReadAtById.isEmpty) {
-      return incomingList;
-    }
-
-    return incomingList
-        .map((conversation) {
-          final localReadAt = localReadAtById[conversation.id];
-          if (localReadAt == null) {
-            return conversation;
-          }
-          final latestReadAt = _latestDateTime(
-            localReadAt,
-            conversation.lastReadAt,
-          );
-          if (latestReadAt == conversation.lastReadAt) {
-            return conversation;
-          }
-          return conversation.copyWith(lastReadAt: latestReadAt);
-        })
-        .toList(growable: false);
-  }
-
-  bool _isFolderConversation(Conversation conversation) {
-    final folderId = conversation.folderId;
-    return folderId != null &&
-        folderId.isNotEmpty &&
-        !conversation.pinned &&
-        !conversation.archived;
-  }
-
-  void _upsertConversationMap(
-    Map<String, Conversation> conversationMap,
-    Conversation conversation, {
-    bool authoritativeIncomingFolderIds = false,
-  }) {
-    final existing = conversationMap[conversation.id];
-    conversationMap[conversation.id] = existing == null
-        ? conversation
-        : _mergeConversationSummary(
-            existing,
-            conversation,
-            authoritativeIncomingFolderIds: authoritativeIncomingFolderIds,
-          );
-  }
-
-  Conversation _mergeConversationSummary(
-    Conversation existing,
-    Conversation incoming, {
-    bool authoritativeIncomingFolderIds = false,
-  }) {
-    final incomingHasResolvedTitle =
-        incoming.title.isNotEmpty && incoming.title != 'Chat';
-    final existingLooksLikePlaceholder =
-        existing.title == 'Chat' && existing.messages.isEmpty;
-    final preferIncomingSummary =
-        existingLooksLikePlaceholder && incomingHasResolvedTitle;
-    final normalizedIncomingFolderId = _normalizeConversationFolderId(
-      incoming.folderId,
-    );
-
-    return existing.copyWith(
-      title: preferIncomingSummary
-          ? incoming.title
-          : (incomingHasResolvedTitle ? incoming.title : existing.title),
-      createdAt: preferIncomingSummary
-          ? incoming.createdAt
-          : (existing.createdAt.isBefore(incoming.createdAt)
-                ? existing.createdAt
-                : incoming.createdAt),
-      updatedAt: preferIncomingSummary
-          ? incoming.updatedAt
-          : (incoming.updatedAt.isAfter(existing.updatedAt)
-                ? incoming.updatedAt
-                : existing.updatedAt),
-      lastReadAt: _latestDateTime(existing.lastReadAt, incoming.lastReadAt),
-      model: incoming.model ?? existing.model,
-      systemPrompt: incoming.systemPrompt ?? existing.systemPrompt,
-      messages: incoming.messages.isNotEmpty
-          ? incoming.messages
-          : existing.messages,
-      metadata: incoming.metadata.isNotEmpty
-          ? incoming.metadata
-          : existing.metadata,
-      pinned: existing.pinned || incoming.pinned,
-      archived: existing.archived || incoming.archived,
-      shareId: incoming.shareId ?? existing.shareId,
-      folderId: authoritativeIncomingFolderIds
-          ? normalizedIncomingFolderId
-          : (normalizedIncomingFolderId ?? existing.folderId),
-      tags: incoming.tags.isNotEmpty ? incoming.tags : existing.tags,
+    unawaited(
+      locks
+          .runExclusive(conversation.id, () {
+            return db.chatsDao.upsertEnvelopeStub(
+              id: conversation.id,
+              title: conversation.title,
+              createdAt: _epochSecondsOf(conversation.createdAt),
+              updatedAt: _epochSecondsOf(conversation.updatedAt),
+              pinned: conversation.pinned,
+              archived: conversation.archived,
+              folderId: Value(conversation.folderId),
+              lastReadAt: lastReadAt == null
+                  ? null
+                  : _epochSecondsOf(lastReadAt),
+            );
+          })
+          .then((_) => folderConversationRefresh.bumpIfMounted())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'envelope-stub-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': conversation.id},
+            );
+          }),
     );
   }
 
-  String? _normalizeConversationFolderId(String? folderId) {
-    if (folderId == null || folderId.isEmpty) {
-      return null;
-    }
-    return folderId;
+  void _writeEnvelopeUpdate(Conversation conversation) {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null || isTemporaryChat(conversation.id)) return;
+    final locks = ref.read(chatLocksProvider);
+    final folderConversationRefresh = ref.read(
+      _folderConversationRefreshTickProvider.notifier,
+    );
+    unawaited(
+      locks
+          .runExclusive(conversation.id, () {
+            return db.chatsDao.updateEnvelope(
+              conversation.id,
+              title: Value(conversation.title),
+              folderId: Value(conversation.folderId),
+              pinned: Value(conversation.pinned),
+              archived: Value(conversation.archived),
+              updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+            );
+          })
+          .then((_) => folderConversationRefresh.bumpIfMounted())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'envelope-update-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': conversation.id},
+            );
+          }),
+    );
+  }
+
+  List<Conversation> _sortByUpdatedAt(List<Conversation> conversations) {
+    final sorted = [...conversations];
+    sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List<Conversation>.unmodifiable(sorted);
   }
 
   List<Conversation> _demoConversations() => [
@@ -2083,213 +1594,6 @@ class Conversations extends _$Conversations {
       ],
     ),
   ];
-
-  Future<List<Conversation>> _loadAndRecordInitialConversations({
-    bool reuseInFlight = true,
-  }) async {
-    final load = await _loadInitialRemoteConversations(
-      reuseInFlight: reuseInFlight,
-    );
-    final conversations = await _resolveCurrentInitialLoad(load);
-    _recordRemoteConversationScope(conversations);
-    return conversations;
-  }
-
-  Future<_ScopedLoad<List<Conversation>>> _loadInitialRemoteConversations({
-    bool reuseInFlight = true,
-  }) {
-    final requestKey = _currentSyncedInitialLoadKey();
-    if (reuseInFlight) {
-      final inFlight = _inFlightInitialLoad;
-      if (inFlight != null && inFlight.key.matches(requestKey)) {
-        return inFlight.future;
-      }
-    }
-
-    final generation = ++_currentInitialLoadGeneration;
-    final future =
-        _loadRemoteConversationsImpl(
-          page: 1,
-          initialLoadGeneration: generation,
-          initialLoadKey: requestKey,
-        ).then((conversations) {
-          final load = _ScopedLoad<List<Conversation>>(
-            generation: generation,
-            key: requestKey,
-            data: conversations,
-          );
-          if (load.generation == _currentInitialLoadGeneration &&
-              _isCurrentInitialLoadKey(load.key)) {
-            _latestInitialLoad = load;
-          }
-          return load;
-        });
-    _inFlightInitialLoad = (future: future, key: requestKey);
-    _clearTrackedScopedLoadWhenSettled(
-      future: future,
-      currentFuture: () => _inFlightInitialLoad?.future,
-      clearTrackedLoad: () => _inFlightInitialLoad = null,
-    );
-    return future;
-  }
-
-  Future<List<Conversation>> _resolveCurrentInitialLoad(
-    _ScopedLoad<List<Conversation>> load,
-  ) async {
-    final loadKeyIsCurrent = _isCurrentInitialLoadKey(load.key);
-    if (load.generation == _currentInitialLoadGeneration && loadKeyIsCurrent) {
-      return load.data;
-    }
-
-    if (!loadKeyIsCurrent) {
-      if (!ref.read(isAuthenticatedProvider2) ||
-          ref.read(reviewerModeProvider)) {
-        return const <Conversation>[];
-      }
-
-      final latestLoad = await _currentScopedInFlightLoad(
-        inFlightLoad: _inFlightInitialLoad,
-        isCurrentKey: _isCurrentInitialLoadKey,
-      );
-      if (latestLoad != null) {
-        return _resolveCurrentInitialLoad(latestLoad);
-      }
-
-      final freshLoad = await _loadInitialRemoteConversations();
-      return _resolveCurrentInitialLoad(freshLoad);
-    }
-
-    final newerLoad = await _newerScopedLoad(
-      load: load,
-      latestCompletedLoad: _latestInitialLoad,
-      inFlightLoad: _inFlightInitialLoad,
-      isCurrentKey: _isCurrentInitialLoadKey,
-    );
-    if (newerLoad != null) {
-      return _resolveCurrentInitialLoad(newerLoad);
-    }
-
-    final current = state.asData?.value;
-    if (current != null && _hasCurrentConversationStateFor(load.key)) {
-      return current;
-    }
-
-    return load.data;
-  }
-
-  Future<List<Conversation>> _loadRemoteConversationsImpl({
-    int page = 1,
-    int? initialLoadGeneration,
-    _ServerScopedRequestKey? initialLoadKey,
-  }) async {
-    final api = initialLoadKey?.api ?? ref.read(apiServiceProvider);
-    if (api == null) {
-      DebugLogger.warning('api-missing', scope: 'conversations');
-      return const [];
-    }
-
-    try {
-      DebugLogger.log(
-        'fetch-start',
-        scope: 'conversations',
-        data: {'page': page},
-      );
-      final regularFuture = api.getConversationPage(
-        page: page,
-        includeFolders: true,
-      );
-      final pinnedFuture = api.getPinnedChats();
-      final archivedFuture = api.getArchivedChats();
-      final results = await Future.wait<List<Conversation>>([
-        regularFuture,
-        pinnedFuture,
-        archivedFuture,
-      ]);
-      final regularConversations = results[0];
-      final pinnedConversations = results[1];
-      final archivedConversations = results[2];
-      final allRegularChatsLoaded =
-          regularConversations.length < _regularPageSize;
-      final isSupersededInitialLoad =
-          page == 1 &&
-          initialLoadGeneration != null &&
-          (initialLoadGeneration != _currentInitialLoadGeneration ||
-              (initialLoadKey != null &&
-                  !_isCurrentInitialLoadKey(initialLoadKey)));
-
-      if (!isSupersededInitialLoad) {
-        _currentRegularPage = page;
-        _allRegularChatsLoaded = allRegularChatsLoaded;
-        _isLoadingMoreRegularChats = false;
-      }
-
-      DebugLogger.log(
-        'fetch-ok',
-        scope: 'conversations',
-        data: {
-          'page': page,
-          'regular': regularConversations.length,
-          'pinned': pinnedConversations.length,
-          'archived': archivedConversations.length,
-          'hasMore': !allRegularChatsLoaded,
-          'superseded': isSupersededInitialLoad,
-        },
-      );
-      final preservedFolderConversations =
-          initialLoadKey != null &&
-              !_hasTrustedFolderConversationStateFor(initialLoadKey)
-          ? const <Conversation>[]
-          : (state.asData?.value ?? const [])
-                .where(
-                  (conversation) =>
-                      _isFolderConversation(conversation) &&
-                      _trustedFolderConversationIds.contains(conversation.id),
-                )
-                .toList(growable: false);
-      final sortedConversations = _mergeConversationLists(
-        [
-          ...preservedFolderConversations,
-          ...pinnedConversations,
-          ...archivedConversations,
-        ],
-        regularConversations,
-        authoritativeIncomingFolderIds: true,
-      );
-      if (!isSupersededInitialLoad) {
-        _updateCacheTimestamp(DateTime.now());
-      }
-      return sortedConversations;
-    } catch (e, stackTrace) {
-      DebugLogger.error(
-        'fetch-failed',
-        scope: 'conversations',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      if (e.toString().contains('403')) {
-        DebugLogger.warning('endpoint-403', scope: 'conversations');
-      }
-      Error.throwWithStackTrace(e, stackTrace);
-    }
-  }
-
-  List<Conversation> _sortByUpdatedAt(List<Conversation> conversations) {
-    final sorted = [...conversations];
-    sorted.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return List<Conversation>.unmodifiable(sorted);
-  }
-
-  _ServerScopedRequestKey _currentSyncedInitialLoadKey() {
-    final api = ref.read(apiServiceProvider);
-    return _syncApiAuthTokenAndBuildScopedRequestKey(ref, api);
-  }
-
-  bool _isCurrentInitialLoadKey(_ServerScopedRequestKey key) =>
-      key.matches(_currentSyncedInitialLoadKey());
-
-  void _updateCacheTimestamp(DateTime? timestamp) {
-    ref.read(_conversationsCacheTimestampProvider.notifier).set(timestamp);
-  }
 }
 
 final _folderConversationRefreshTickProvider =
@@ -2302,10 +1606,17 @@ class _FolderConversationRefreshTick extends Notifier<int> {
   int build() => 0;
 
   void bump() => state++;
+
+  void bumpIfMounted() {
+    if (!ref.mounted) return;
+    bump();
+  }
 }
 
-/// Loads folder conversation summaries on demand, mirroring OpenWebUI's
-/// expanded-folder fetch behavior.
+/// Loads folder conversation summaries from the local database
+/// (CDT-RFC-001 Phase 1: per-folder server fetches are gone; pull sync keeps
+/// the rows fresh and `_folderConversationRefreshTickProvider` invalidates
+/// after pulls and mutations).
 final folderConversationSummariesProvider =
     FutureProvider.family<List<Conversation>, String>((ref, folderId) async {
       ref.watch(_folderConversationRefreshTickProvider);
@@ -2315,70 +1626,13 @@ final folderConversationSummariesProvider =
         return const <Conversation>[];
       }
 
-      final authToken = _normalizeScopedAuthToken(
-        ref.watch(authTokenProvider3),
-      );
-      if (authToken == null) {
+      final db = ref.watch(appDatabaseProvider);
+      if (db == null) {
         return const <Conversation>[];
       }
 
-      final api = ref.watch(apiServiceProvider);
-      if (api == null) {
-        return const <Conversation>[];
-      }
-      final requestAuthToken = _syncApiAuthTokenForScopedRequest(
-        ref,
-        api,
-        desiredAuthToken: authToken,
-      );
-      if (requestAuthToken == null) {
-        return const <Conversation>[];
-      }
-      final conversationsNotifier = ref.read(conversationsProvider.notifier);
-      final requestKey = _buildScopedRequestKey(
-        api,
-        authToken: requestAuthToken,
-      );
-
-      try {
-        final conversations = await api.getFolderConversationSummaries(
-          folderId,
-        );
-        final normalized = conversations
-            .map(
-              (conversation) => conversation.folderId == null
-                  ? conversation.copyWith(folderId: folderId)
-                  : conversation,
-            )
-            .toList(growable: false);
-        final isCurrentScope =
-            ref.read(isAuthenticatedProvider2) &&
-            !ref.read(reviewerModeProvider) &&
-            conversationsNotifier._isCurrentInitialLoadKey(requestKey);
-        if (isCurrentScope) {
-          conversationsNotifier.upsertConversations(
-            normalized,
-            trustFolderConversations: true,
-          );
-        } else {
-          DebugLogger.log(
-            'folder-conversations-discarded-stale-scope',
-            scope: 'folders/conversations',
-            data: {'folderId': folderId},
-          );
-          return const <Conversation>[];
-        }
-        return normalized;
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'folder-conversations-failed',
-          scope: 'folders/conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'folderId': folderId},
-        );
-        return const <Conversation>[];
-      }
+      final entries = await db.chatsDao.getChatsInFolder(folderId);
+      return entries.map(conversationFromListEntry).toList(growable: false);
     });
 
 /// Whether the current chat session is temporary (not persisted to server).
@@ -2444,11 +1698,65 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
+@immutable
+class ActiveConversationInPlaceRemap {
+  const ActiveConversationInPlaceRemap({
+    required this.fromId,
+    required this.toId,
+  });
+
+  final String fromId;
+  final String toId;
+
+  bool matches(String? previousId, String? nextId) =>
+      previousId == fromId && nextId == toId;
+}
+
+final activeConversationInPlaceRemapProvider =
+    NotifierProvider<
+      ActiveConversationInPlaceRemapNotifier,
+      ActiveConversationInPlaceRemap?
+    >(ActiveConversationInPlaceRemapNotifier.new);
+
+class ActiveConversationInPlaceRemapNotifier
+    extends Notifier<ActiveConversationInPlaceRemap?> {
+  @override
+  ActiveConversationInPlaceRemap? build() => null;
+
+  void mark({required String fromId, required String toId}) {
+    state = ActiveConversationInPlaceRemap(fromId: fromId, toId: toId);
+  }
+}
+
+bool isActiveConversationInPlaceRemap(
+  dynamic ref,
+  String? previousId,
+  String? nextId,
+) {
+  try {
+    return ref
+            .read(activeConversationInPlaceRemapProvider)
+            ?.matches(previousId, nextId) ??
+        false;
+  } catch (_) {
+    return false;
+  }
+}
+
 class ActiveConversationNotifier extends Notifier<Conversation?> {
   @override
   Conversation? build() => null;
 
   void set(Conversation? conversation) => state = conversation;
+
+  void remapIdInPlace({required String fromId, required String toId}) {
+    final current = state;
+    if (current == null || current.id != fromId) return;
+    ref
+        .read(activeConversationInPlaceRemapProvider.notifier)
+        .mark(fromId: fromId, toId: toId);
+    state = current.copyWith(id: toId);
+  }
 
   void clear() => state = null;
 }
@@ -2456,6 +1764,19 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
 // Provider to load full conversation with messages
 @riverpod
 Future<Conversation> loadConversation(Ref ref, String conversationId) async {
+  // DB-first open (CDT-RFC-001 Phase 1): synced rows render without the
+  // network; a background pull freshens them.
+  final local = await loadLocalConversation(ref, conversationId);
+  if (local != null) {
+    DebugLogger.log(
+      'load-local-ok',
+      scope: 'conversation',
+      data: {'id': conversationId, 'messages': local.messages.length},
+    );
+    schedulePullChatNow(ref, conversationId);
+    return local;
+  }
+
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
     throw Exception('No API service available');
@@ -2472,6 +1793,8 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
+  // Materialize the local row so the next open is DB-first.
+  schedulePullChatNow(ref, conversationId);
 
   return fullConversation;
 }
@@ -2714,19 +2037,59 @@ class SearchQuery extends _$SearchQuery {
   void set(String query) => state = query;
 }
 
-// Server-side search provider for chats
+/// Offline full-text search over the synced Drift history (CDT-RFC-001 Phase 4).
+///
+/// Runs ranked FTS5 search via [SearchDao.search] and maps the hits to the same
+/// list-summary [Conversation] shape the server search returns, so callers can
+/// treat online and offline results identically. Returns `[]` when there is no
+/// active database (no server / reviewer mode) or before the index is built
+/// (the DAO short-circuits on the `fts_built` gate). Results are already bm25
+/// ascending (most relevant first); order is preserved.
+Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
+  final db = ref.read(appDatabaseProvider);
+  if (db == null) return const [];
+  try {
+    final hits = await db.searchDao.search(query, limit: 50);
+    return hits.map(conversationFromSearchHit).toList(growable: false);
+  } catch (e) {
+    DebugLogger.error('offline-search-failed', scope: 'search', error: e);
+    return const [];
+  }
+}
+
+// Server-side search provider for chats, with an offline FTS5 fallback.
 @riverpod
 Future<List<Conversation>> serverSearch(Ref ref, String query) async {
-  if (query.trim().isEmpty) {
+  final trimmedQuery = query.trim();
+  if (trimmedQuery.isEmpty) {
     // Return empty list for empty query instead of all conversations
     return [];
   }
 
+  if (ref.watch(reviewerModeProvider)) {
+    final conversations =
+        ref.watch(conversationsProvider).asData?.value ??
+        const <Conversation>[];
+    final lowerQuery = trimmedQuery.toLowerCase();
+    return conversations
+        .where((conversation) {
+          return conversation.title.toLowerCase().contains(lowerQuery) ||
+              conversation.messages.any(
+                (message) => message.content.toLowerCase().contains(lowerQuery),
+              );
+        })
+        .toList(growable: false);
+  }
+
   final api = ref.watch(apiServiceProvider);
-  if (api == null) return [];
+  if (api == null) {
+    // Offline: serve ranked results straight from the local
+    // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
+    DebugLogger.log('offline-search', scope: 'search');
+    return _offlineSearch(ref, trimmedQuery);
+  }
 
   try {
-    final trimmedQuery = query.trim();
     DebugLogger.log(
       'server-search',
       scope: 'search',
@@ -2812,17 +2175,11 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   } catch (e) {
     DebugLogger.error('server-search-failed', scope: 'search', error: e);
 
-    // Fallback to local search if server search fails
-    final allConversations = await ref.read(conversationsProvider.future);
-    DebugLogger.log('fallback-local', scope: 'search');
-    return allConversations.where((conv) {
-      return !conv.archived &&
-          (conv.title.toLowerCase().contains(query.toLowerCase()) ||
-              conv.messages.any(
-                (msg) =>
-                    msg.content.toLowerCase().contains(query.toLowerCase()),
-              ));
-    }).toList();
+    // Fallback to the offline FTS index when the server search fails. This is a
+    // ranked search across ALL synced history (not just the in-memory page),
+    // matching the offline path (CDT-RFC-001 Phase 4).
+    DebugLogger.log('fallback-offline', scope: 'search');
+    return _offlineSearch(ref, trimmedQuery);
   }
 }
 
@@ -3585,11 +2942,17 @@ final foldersFeatureEnabledProvider =
     );
 
 class FoldersFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('folders', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('folders', enabled, scope: _scope);
   }
 }
 
@@ -3601,11 +2964,17 @@ final notesFeatureEnabledProvider =
     );
 
 class NotesFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('notes', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('notes', enabled, scope: _scope);
   }
 }
 
@@ -3617,421 +2986,414 @@ final channelsFeatureEnabledProvider =
     );
 
 class ChannelsFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
   @override
-  bool build() => true;
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('channels', scope: _scope) ?? true;
+  }
 
   void setEnabled(bool enabled) {
     state = enabled;
+    _FeatureAvailabilityCache.write('channels', enabled, scope: _scope);
   }
 }
 
-typedef _FolderFetchPayload = ({List<Folder> folders, bool featureEnabled});
+/// Tracks whether the Terminal feature has any available servers on the active
+/// server, cached per server/user. The terminal tab's visibility is otherwise
+/// derived live from [terminalAvailableServersProvider]; this cache lets the tab
+/// reflect the last-known state when offline (loading/error) instead of
+/// optimistically defaulting to visible — matching notes/channels behavior so a
+/// server with terminal disabled doesn't surface the tab offline. The live
+/// derivation lives in `terminalTabVisibleProvider` (terminal feature), which
+/// writes back here via [setEnabled] whenever the server list resolves.
+final terminalFeatureEnabledProvider =
+    NotifierProvider<TerminalFeatureEnabledNotifier, bool>(
+      TerminalFeatureEnabledNotifier.new,
+    );
 
+class TerminalFeatureEnabledNotifier extends Notifier<bool> {
+  _FeatureAvailabilityScope? _scope;
+
+  @override
+  bool build() {
+    _scope = _featureAvailabilityScope(ref);
+    return _FeatureAvailabilityCache.read('terminal', scope: _scope) ?? true;
+  }
+
+  void setEnabled(bool enabled) {
+    state = enabled;
+    _FeatureAvailabilityCache.write('terminal', enabled, scope: _scope);
+  }
+}
+
+_FeatureAvailabilityScope? _featureAvailabilityScope(Ref ref) {
+  final activeServerId = ref.watch(
+    activeServerProvider.select((value) => value.asData?.value?.id),
+  );
+  final serverId = activeServerId ?? _FeatureAvailabilityCache.activeServerId();
+  if (serverId == null) return null;
+
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  final tokenUserId = _featureAvailabilityTokenUserId(
+    ref.watch(authTokenProvider3),
+  );
+  if (userId != null && userId.isNotEmpty) {
+    return _FeatureAvailabilityScope(
+      serverId: serverId,
+      userId: userId,
+      fallbackUserId: tokenUserId,
+    );
+  }
+
+  if (tokenUserId == null) return null;
+  return _FeatureAvailabilityScope(serverId: serverId, userId: tokenUserId);
+}
+
+String? _featureAvailabilityTokenUserId(String? token) {
+  final trimmed = token?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  final digest = sha256.convert(utf8.encode(trimmed)).toString();
+  return '__token_${digest.substring(0, 24)}';
+}
+
+final class _FeatureAvailabilityScope {
+  const _FeatureAvailabilityScope({
+    required this.serverId,
+    required this.userId,
+    this.fallbackUserId,
+  });
+
+  final String serverId;
+  final String userId;
+  final String? fallbackUserId;
+
+  String get cacheKey => '$serverId::$userId';
+
+  String? get fallbackCacheKey {
+    final fallback = fallbackUserId;
+    if (fallback == null || fallback == userId) return null;
+    return '$serverId::$fallback';
+  }
+}
+
+final class _FeatureAvailabilityCache {
+  const _FeatureAvailabilityCache._();
+
+  static bool? read(String featureKey, {_FeatureAvailabilityScope? scope}) {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return null;
+    final resolvedScope = scope;
+    if (resolvedScope == null) return null;
+
+    final value = _readFeature(box, resolvedScope.cacheKey, featureKey);
+    if (value != null) return value;
+
+    final fallbackCacheKey = resolvedScope.fallbackCacheKey;
+    if (fallbackCacheKey == null) return null;
+    final fallbackValue = _readFeature(box, fallbackCacheKey, featureKey);
+    if (fallbackValue == null) return null;
+    _backfillFeature(box, resolvedScope.cacheKey, featureKey, fallbackValue);
+    return fallbackValue;
+  }
+
+  static void write(
+    String featureKey,
+    bool enabled, {
+    _FeatureAvailabilityScope? scope,
+  }) {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return;
+    final resolvedScope = scope;
+    if (resolvedScope == null) return;
+
+    final allFlags = _allFlags(box);
+    final cacheKeys = {resolvedScope.cacheKey, ?resolvedScope.fallbackCacheKey};
+    for (final cacheKey in cacheKeys) {
+      final serverFlags = _serverFlags(box, cacheKey);
+      serverFlags[featureKey] = enabled;
+      allFlags[cacheKey] = serverFlags;
+    }
+
+    _persistAllFlags(box, allFlags, featureKey: featureKey);
+  }
+
+  static String? activeServerId() {
+    final box = _preferencesBoxOrNull();
+    if (box == null) return null;
+    return _activeServerId(box);
+  }
+
+  static Box<dynamic>? _preferencesBoxOrNull() {
+    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) return null;
+    return Hive.box<dynamic>(HiveBoxNames.preferences);
+  }
+
+  static String? _activeServerId(Box<dynamic> box) {
+    final value = box.get(PreferenceKeys.activeServerId);
+    if (value is! String || value.isEmpty) return null;
+    return value;
+  }
+
+  static Map<String, dynamic> _allFlags(Box<dynamic> box) {
+    final raw = box.get(PreferenceKeys.serverFeatureAvailability);
+    if (raw is! Map) return <String, dynamic>{};
+    return raw.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  static Map<String, dynamic> _serverFlags(Box<dynamic> box, String serverId) {
+    final value = _allFlags(box)[serverId];
+    if (value is! Map) return <String, dynamic>{};
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  static bool? _readFeature(
+    Box<dynamic> box,
+    String cacheKey,
+    String featureKey,
+  ) {
+    final value = _serverFlags(box, cacheKey)[featureKey];
+    return value is bool ? value : null;
+  }
+
+  static void _backfillFeature(
+    Box<dynamic> box,
+    String cacheKey,
+    String featureKey,
+    bool enabled,
+  ) {
+    final allFlags = _allFlags(box);
+    final serverFlags = _serverFlags(box, cacheKey);
+    serverFlags[featureKey] = enabled;
+    allFlags[cacheKey] = serverFlags;
+    _persistAllFlags(box, allFlags, featureKey: featureKey);
+  }
+
+  static void _persistAllFlags(
+    Box<dynamic> box,
+    Map<String, dynamic> allFlags, {
+    required String featureKey,
+  }) {
+    unawaited(
+      box.put(PreferenceKeys.serverFeatureAvailability, allFlags).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'feature-cache-write-failed',
+          scope: 'features/cache',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'feature': featureKey},
+        );
+      }),
+    );
+  }
+}
+
+// Folders provider — Drift-backed read path (CDT-RFC-001 Phase 1). Renders
+// from `FoldersDao.watchFolders()`; server-confirmed mutations land in memory
+// and in the database in the same call so the next emission agrees.
+// `foldersFeatureEnabledProvider` is now set by the SyncEngine from
+// PullResult.
 @Riverpod(keepAlive: true)
 class Folders extends _$Folders {
-  int _currentLoadGeneration = 0;
-  _TrackedScopedLoad<_FolderFetchPayload>? _inFlightLoad;
-  _ScopedLoad<_FolderFetchPayload>? _latestLoad;
-  bool _lastRemoteLoadFailed = false;
-  _ServerScopedRequestKey? _currentFolderStateKey;
-  _ServerScopedRequestKey? _lastSuccessfulLoadKey;
-
   @override
   Future<List<Folder>> build() async {
     if (!ref.watch(isAuthenticatedProvider2)) {
       DebugLogger.log('skip-unauthed', scope: 'folders');
-      _resetLoadTracking();
-      _clearFolderScopeState(resetRemoteFailure: true);
-      _persistFoldersAsync(const []);
       return const [];
     }
 
-    final storage = ref.watch(optimizedStorageServiceProvider);
-    final cached = await storage.getLocalFolders();
-    if (cached.isNotEmpty) {
-      // Keep cached folders visible for startup, but do not trust them for
-      // mutations until a remote load confirms the current auth/server scope.
-      _resetLoadTracking();
-      _clearFolderScopeState(resetRemoteFailure: true);
-      _scheduleWarmRefresh(refresh: refresh, scope: 'folders/cache');
-      return _sort(cached);
-    }
-
-    final api = ref.watch(apiServiceProvider);
-    if (api == null) {
-      DebugLogger.warning('api-missing', scope: 'folders');
-      _resetLoadTracking();
-      _clearFolderScopeState();
+    final db = ref.watch(appDatabaseProvider);
+    if (db == null) {
       return const [];
     }
-    final fresh = await _load(api);
-    return fresh;
+
+    final completer = Completer<List<Folder>>();
+    final subscription = db.foldersDao.watchFolders().listen(
+      (rows) {
+        final folders = _sort([for (final row in rows) folderFromRow(row)]);
+        if (!completer.isCompleted) {
+          completer.complete(folders);
+          return;
+        }
+        if (ref.mounted) {
+          state = AsyncData<List<Folder>>(folders);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'watch-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        if (!completer.isCompleted) {
+          completer.complete(const <Folder>[]);
+        }
+      },
+    );
+    ref.onDispose(subscription.cancel);
+    return completer.future;
   }
 
   Future<void> refresh({bool forceFresh = false}) async {
-    if (!ref.read(isAuthenticatedProvider2)) {
-      _resetLoadTracking();
-      _clearFolderScopeState();
-      state = const AsyncData<List<Folder>>([]);
-      _persistFoldersAsync(const []);
-      return;
-    }
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      _resetLoadTracking();
-      _clearFolderScopeState();
-      state = const AsyncData<List<Folder>>([]);
-      _persistFoldersAsync(const []);
-      return;
-    }
-    final result = await AsyncValue.guard(
-      () => _load(api, reuseInFlight: !forceFresh),
-    );
-    if (!ref.mounted) return;
-    state = result;
+    await ref
+        .read(syncEngineProvider.notifier)
+        .requestPull(reason: 'folders-refresh');
   }
 
-  /// Warm folders with a retryable fetch path so background startup work can
-  /// distinguish an empty folder list from a failed load.
   Future<void> warmIfNeeded() async {
-    if (!ref.read(isAuthenticatedProvider2)) {
-      _resetLoadTracking();
-      _clearFolderScopeState(resetRemoteFailure: true);
-      return;
-    }
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('No API service available');
-    }
-    final requestKey = _currentSyncedFolderLoadKey(api);
-
-    if (state.hasValue &&
-        !_lastRemoteLoadFailed &&
-        (_lastSuccessfulLoadKey?.matches(requestKey) ?? false)) {
-      return;
-    }
-
-    final folders = await _load(api, throwOnError: true);
-    if (!ref.mounted) return;
-    state = AsyncData<List<Folder>>(folders);
+    await ref
+        .read(syncEngineProvider.notifier)
+        .requestPull(reason: 'folders-warm');
   }
 
   void upsertFolder(Folder folder) {
-    if (!_hasCurrentFolderState()) {
-      _refreshFoldersForUntrustedState(action: 'upsert');
-      return;
-    }
-    final current = _currentFolderStateOrEmpty();
-    final updated = _upsertItemById(current, folder, idOf: (item) => item.id);
-    _replaceState(updated);
+    _replaceState(
+      _upsertItemById(
+        state.asData?.value ?? const <Folder>[],
+        folder,
+        idOf: (item) => item.id,
+      ),
+    );
+    _persistFolder(folder);
   }
 
   /// Applies a server-confirmed folder upsert.
-  ///
-  /// When the current folder list is still untrusted (for example after a
-  /// cache hydration or auth-scope change), the folder is updated in-memory so
-  /// the UI reflects the successful server write immediately, then a refresh is
-  /// scheduled to reconcile the full list without persisting mixed-scope data.
-  void upsertFolderFromRemote(Folder folder) {
-    final current = _currentFolderStateOrEmpty();
-    final updated = _upsertItemById(current, folder, idOf: (item) => item.id);
-    _applyRemoteFolderMutation(updated, action: 'upsert');
-  }
+  void upsertFolderFromRemote(Folder folder) => upsertFolder(folder);
 
   void updateFolder(String id, Folder Function(Folder folder) transform) {
-    if (!_hasCurrentFolderState()) {
-      _refreshFoldersForUntrustedState(action: 'update');
+    final current = state.asData?.value;
+    final update = current == null
+        ? null
+        : _transformItemById(current, id, transform, idOf: (f) => f.id);
+    if (update == null) {
+      _persistFolderTransform(id, transform);
+      _requestReconcilePull(
+        action: current == null ? 'update-cold' : 'update-missing',
+      );
       return;
     }
-    final current = state.asData?.value;
-    if (current == null) return;
-    final update = _transformItemById(
-      current,
-      id,
-      transform,
-      idOf: (folder) => folder.id,
-    );
-    if (update == null) return;
     _replaceState(update.items);
+    _persistFolder(update.item);
   }
 
   /// Applies a server-confirmed folder update.
-  ///
-  /// If the folder is not currently present in memory, a refresh is triggered
-  /// so the current server scope can repopulate the folder list.
   void updateFolderFromRemote(
     String id,
     Folder Function(Folder folder) transform,
   ) {
-    final current = state.asData?.value;
-    if (current == null) {
-      _refreshFoldersForUntrustedState(action: 'remote-update');
-      return;
-    }
-    final update = _transformItemById(
-      current,
-      id,
-      transform,
-      idOf: (folder) => folder.id,
-    );
-    if (update == null) {
-      _refreshFoldersForUntrustedState(action: 'remote-update-missing');
-      return;
-    }
-    _applyRemoteFolderMutation(update.items, action: 'update');
+    updateFolder(id, transform);
   }
 
   void removeFolder(String id) {
-    if (!_hasCurrentFolderState()) {
-      _refreshFoldersForUntrustedState(action: 'remove');
-      return;
-    }
     final current = state.asData?.value;
-    if (current == null) return;
-    final removal = _removeItemById(current, id, idOf: (folder) => folder.id);
-    _replaceState(removal.items);
+    if (current != null) {
+      final removal = _removeItemById(current, id, idOf: (f) => f.id);
+      if (removal.didRemove) {
+        _replaceState(removal.items);
+      }
+    }
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    unawaited(
+      db.foldersDao.hardDelete(id).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'row-delete-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+      }),
+    );
   }
 
   /// Applies a server-confirmed folder deletion.
-  ///
-  /// If the current list is untrusted, the removal is reflected in-memory but
-  /// not persisted until a reconciliation refresh confirms the new full list.
-  void removeFolderFromRemote(String id) {
-    final current = state.asData?.value;
-    if (current == null) {
-      _refreshFoldersForUntrustedState(action: 'remote-remove');
-      return;
-    }
-    final removal = _removeItemById(current, id, idOf: (folder) => folder.id);
-    if (!removal.didRemove) {
-      _refreshFoldersForUntrustedState(action: 'remote-remove-missing');
-      return;
-    }
-    _applyRemoteFolderMutation(removal.items, action: 'remove');
-  }
+  void removeFolderFromRemote(String id) => removeFolder(id);
 
-  Future<List<Folder>> _load(
-    ApiService api, {
-    bool throwOnError = false,
-    bool preserveCurrentStateOnError = true,
-    bool reuseInFlight = true,
-  }) async {
-    final requestKey = _currentSyncedFolderLoadKey(api);
-    void logFailure({required Object error, required StackTrace stackTrace}) {
-      DebugLogger.error(
-        'fetch-failed',
-        scope: 'folders',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-
-    final inFlight = _inFlightLoad;
-    if (reuseInFlight && inFlight != null && inFlight.key.matches(requestKey)) {
-      try {
-        final load = await inFlight.future;
-        return _resolveCurrentFolderLoad(load, throwOnError: throwOnError);
-      } catch (error, stackTrace) {
-        logFailure(error: error, stackTrace: stackTrace);
-        if (throwOnError) {
-          rethrow;
-        }
-        return _folderErrorFallback(
-          requestKey,
-          preserveCurrentStateOnError: preserveCurrentStateOnError,
+  void _persistFolder(Folder folder) {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    unawaited(
+      db.foldersDao.upsertServerFolder(_rawFolder(folder)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'row-upsert-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': folder.id},
         );
-      }
-    }
-
-    final generation = ++_currentLoadGeneration;
-    final future = _fetchFolders(api)
-        .then((payload) {
-          final load = _ScopedLoad<_FolderFetchPayload>(
-            generation: generation,
-            key: requestKey,
-            data: payload,
-          );
-          if (ref.mounted &&
-              load.generation == _currentLoadGeneration &&
-              _isCurrentFolderLoadKey(load.key)) {
-            _latestLoad = load;
-            _lastRemoteLoadFailed = false;
-            _currentFolderStateKey = load.key;
-            _lastSuccessfulLoadKey = load.key;
-            ref
-                .read(foldersFeatureEnabledProvider.notifier)
-                .setEnabled(load.data.featureEnabled);
-            _persistFoldersAsync(load.data.folders);
-          }
-          return load;
-        })
-        .catchError((Object error, StackTrace stackTrace) {
-          if (ref.mounted &&
-              generation == _currentLoadGeneration &&
-              _isCurrentFolderLoadKey(requestKey)) {
-            _lastRemoteLoadFailed = true;
-          }
-          return Error.throwWithStackTrace(error, stackTrace);
-        });
-    _inFlightLoad = (future: future, key: requestKey);
-    _clearTrackedScopedLoadWhenSettled(
-      future: future,
-      currentFuture: () => _inFlightLoad?.future,
-      clearTrackedLoad: () => _inFlightLoad = null,
+      }),
     );
-
-    try {
-      final load = await future;
-      return _resolveCurrentFolderLoad(load, throwOnError: throwOnError);
-    } catch (e, stackTrace) {
-      logFailure(error: e, stackTrace: stackTrace);
-      if (throwOnError) {
-        rethrow;
-      }
-      return _folderErrorFallback(
-        requestKey,
-        preserveCurrentStateOnError: preserveCurrentStateOnError,
-      );
-    }
   }
 
-  Future<List<Folder>> _resolveCurrentFolderLoad(
-    _ScopedLoad<_FolderFetchPayload> load, {
-    required bool throwOnError,
-  }) async {
-    final loadKeyIsCurrent = _isCurrentFolderLoadKey(load.key);
-    if (load.generation == _currentLoadGeneration && loadKeyIsCurrent) {
-      return load.data.folders;
-    }
-
-    if (!loadKeyIsCurrent) {
-      if (!ref.read(isAuthenticatedProvider2)) {
-        return const <Folder>[];
-      }
-
-      final latest = _inFlightLoad;
-      if (latest != null && _isCurrentFolderLoadKey(latest.key)) {
-        try {
-          final latestLoad = await _currentScopedInFlightLoad(
-            inFlightLoad: _inFlightLoad,
-            isCurrentKey: _isCurrentFolderLoadKey,
-          );
-          if (latestLoad != null) {
-            return _resolveCurrentFolderLoad(
-              latestLoad,
-              throwOnError: throwOnError,
-            );
-          }
-        } catch (error) {
-          if (throwOnError) {
-            rethrow;
-          }
-          return _currentTrustedFolderStateOrEmpty();
-        }
-      }
-
-      final api = ref.read(apiServiceProvider);
-      if (api == null) {
-        if (throwOnError) {
-          throw StateError('No API service available');
-        }
-        return const <Folder>[];
-      }
-
-      try {
-        final freshLoad = await _load(
-          api,
-          throwOnError: throwOnError,
-          preserveCurrentStateOnError: false,
-        );
-        return freshLoad;
-      } catch (error) {
-        if (throwOnError) {
-          rethrow;
-        }
-        return _currentTrustedFolderStateOrEmpty();
-      }
-    }
-
-    final current = state.asData?.value;
-    if (current != null) {
-      return current;
-    }
-
-    try {
-      final newerLoad = await _newerScopedLoad(
-        load: load,
-        latestCompletedLoad: _latestLoad,
-        inFlightLoad: _inFlightLoad,
-        isCurrentKey: _isCurrentFolderLoadKey,
-      );
-      if (newerLoad != null) {
-        return _resolveCurrentFolderLoad(newerLoad, throwOnError: throwOnError);
-      }
-    } catch (error) {
-      if (throwOnError) {
-        rethrow;
-      }
-      return _currentFolderStateOrEmpty();
-    }
-
-    return load.data.folders;
-  }
-
-  List<Folder> _currentFolderStateOrEmpty() =>
-      state.asData?.value ?? const <Folder>[];
-
-  bool _canPreserveCurrentFolderStateOnError(
-    _ServerScopedRequestKey requestKey,
+  void _persistFolderTransform(
+    String id,
+    Folder Function(Folder folder) transform,
   ) {
-    if (state.asData?.value == null) {
-      return false;
-    }
-    return _currentFolderStateKey?.matches(requestKey) ?? false;
-  }
-
-  List<Folder> _folderErrorFallback(
-    _ServerScopedRequestKey requestKey, {
-    required bool preserveCurrentStateOnError,
-  }) {
-    if (!preserveCurrentStateOnError) {
-      return _currentTrustedFolderStateOrEmpty();
-    }
-    if (_canPreserveCurrentFolderStateOnError(requestKey)) {
-      return _currentFolderStateOrEmpty();
-    }
-    if (!_isCurrentFolderLoadKey(requestKey)) {
-      return _currentTrustedFolderStateOrEmpty();
-    }
-    return const <Folder>[];
-  }
-
-  List<Folder> _currentTrustedFolderStateOrEmpty() {
-    final current = state.asData?.value;
-    if (current == null || !_hasCurrentFolderState()) {
-      return const <Folder>[];
-    }
-    return current;
-  }
-
-  Future<_FolderFetchPayload> _fetchFolders(ApiService api) async {
-    final (foldersData, featureEnabled) = await api.getFolders();
-
-    final folders = foldersData
-        .map((folderData) => Folder.fromJson(folderData))
-        .toList();
-    DebugLogger.log(
-      'fetch-ok',
-      scope: 'folders',
-      data: {'count': folders.length, 'enabled': featureEnabled},
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    unawaited(
+      (() async {
+        final row = await db.foldersDao.getFolder(id);
+        if (row == null) return;
+        await db.foldersDao.upsertServerFolder(
+          _rawFolder(transform(folderFromRow(row))),
+        );
+      })().catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'row-transform-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+      }),
     );
-    return (folders: _sort(folders), featureEnabled: featureEnabled);
   }
 
-  void _persistFoldersAsync(List<Folder> folders) {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    unawaited(storage.saveLocalFolders(folders));
+  void _requestReconcilePull({required String action}) {
+    DebugLogger.log(
+      'reconcile-after-remote-mutation',
+      scope: 'folders',
+      data: {'action': action},
+    );
+    unawaited(
+      ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'folders-reconcile')
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'reconcile-pull-failed',
+              scope: 'folders',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'action': action},
+            );
+            return null;
+          }),
+    );
+  }
+
+  /// `FoldersDao.upsertServerFolder`-shaped raw map (timestamps as server
+  /// epoch seconds; everything else rides in rawExtra verbatim).
+  static Map<String, dynamic> _rawFolder(Folder folder) {
+    final raw = folder.toJson();
+    final createdAt = folder.createdAt;
+    final updatedAt = folder.updatedAt;
+    raw['created_at'] = createdAt == null ? 0 : _epochSecondsOf(createdAt);
+    raw['updated_at'] = updatedAt == null ? 0 : _epochSecondsOf(updatedAt);
+    return raw;
   }
 
   List<Folder> _sort(List<Folder> input) {
@@ -4040,96 +3402,8 @@ class Folders extends _$Folders {
     return List<Folder>.unmodifiable(sorted);
   }
 
-  void _replaceState(List<Folder> folders, {bool persist = true}) {
-    final sorted = _sort(folders);
-    state = AsyncData<List<Folder>>(sorted);
-    if (persist) {
-      _persistFoldersAsync(sorted);
-    }
-  }
-
-  _ServerScopedRequestKey _currentSyncedFolderLoadKey(ApiService api) {
-    return _syncApiAuthTokenAndBuildScopedRequestKey(ref, api);
-  }
-
-  bool _isCurrentFolderLoadKey(_ServerScopedRequestKey key) {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      return false;
-    }
-    return key.matches(_currentSyncedFolderLoadKey(api));
-  }
-
-  bool _hasCurrentFolderState() {
-    if (state.asData?.value == null) {
-      return false;
-    }
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      return false;
-    }
-    return (_currentFolderStateKey?.matches(_currentSyncedFolderLoadKey(api)) ??
-        false);
-  }
-
-  void _applyRemoteFolderMutation(
-    List<Folder> folders, {
-    required String action,
-  }) {
-    if (_hasCurrentFolderState()) {
-      final api = ref.read(apiServiceProvider);
-      if (api != null && ref.read(isAuthenticatedProvider2)) {
-        final requestKey = _currentSyncedFolderLoadKey(api);
-        _currentFolderStateKey = requestKey;
-        _lastSuccessfulLoadKey = requestKey;
-        _lastRemoteLoadFailed = false;
-      }
-      _replaceState(folders);
-      return;
-    }
-
-    _replaceState(folders, persist: false);
-    _reconcileFoldersAfterRemoteMutation(action: action);
-  }
-
-  void _clearFolderScopeState({bool resetRemoteFailure = false}) {
-    if (resetRemoteFailure) {
-      _lastRemoteLoadFailed = false;
-    }
-    _currentFolderStateKey = null;
-    _lastSuccessfulLoadKey = null;
-  }
-
-  void _reconcileFoldersAfterRemoteMutation({required String action}) {
-    if (!ref.read(isAuthenticatedProvider2) ||
-        ref.read(apiServiceProvider) == null) {
-      return;
-    }
-    DebugLogger.log(
-      'reconcile-after-remote-mutation',
-      scope: 'folders',
-      data: {'action': action},
-    );
-    unawaited(refresh(forceFresh: true));
-  }
-
-  void _refreshFoldersForUntrustedState({required String action}) {
-    if (!ref.read(isAuthenticatedProvider2) ||
-        ref.read(apiServiceProvider) == null) {
-      return;
-    }
-    DebugLogger.log(
-      'skip-stale-state-mutation',
-      scope: 'folders',
-      data: {'action': action},
-    );
-    unawaited(refresh());
-  }
-
-  void _resetLoadTracking() {
-    _currentLoadGeneration++;
-    _inFlightLoad = null;
-    _latestLoad = null;
+  void _replaceState(List<Folder> folders) {
+    state = AsyncData<List<Folder>>(_sort(folders));
   }
 }
 
@@ -4567,6 +3841,154 @@ class ActiveChatIds extends _$ActiveChatIds {
   /// Bulk-initialize from a server response.
   void setAll(Set<String> chatIds) {
     state = chatIds;
+  }
+}
+
+/// Keeps [activeChatIdsProvider] correct beyond the locally-streaming chat.
+///
+/// OpenWebUI's sidebar both bulk-fetches active chats on load and listens for
+/// `chat:active` events for any chat. This provider mirrors that: it
+/// bulk-fetches on cold open + socket reconnect (`setAll`) and registers a
+/// GLOBAL `chat:active` handler so generations started by other sessions/
+/// devices also light up the sidebar spinner.
+@Riverpod(keepAlive: true)
+class ActiveChatsSync extends _$ActiveChatsSync {
+  SocketEventSubscription? _globalActiveSub;
+  StreamSubscription<void>? _reconnectSub;
+  SocketService? _boundSocket;
+  bool _initialFetchDone = false;
+
+  @override
+  void build() {
+    ref.onDispose(() {
+      _globalActiveSub?.dispose();
+      _globalActiveSub = null;
+      _reconnectSub?.cancel();
+      _reconnectSub = null;
+    });
+
+    _bindSocket(ref.read(socketServiceProvider));
+    ref.listen<SocketService?>(socketServiceProvider, (prev, next) {
+      _bindSocket(next);
+    });
+
+    // Cold-open population: refresh once the conversation list first resolves.
+    ref.listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
+      prev,
+      next,
+    ) {
+      final convos = next.asData?.value;
+      if (convos == null || convos.isEmpty || _initialFetchDone) {
+        return;
+      }
+      _initialFetchDone = true;
+      unawaited(_refresh(convos.map((c) => c.id).toList()));
+    }, fireImmediately: true);
+  }
+
+  void _bindSocket(SocketService? socket) {
+    if (identical(socket, _boundSocket)) {
+      return;
+    }
+    _boundSocket = socket;
+    _globalActiveSub?.dispose();
+    _globalActiveSub = null;
+    _reconnectSub?.cancel();
+    _reconnectSub = null;
+    if (socket == null) {
+      return;
+    }
+
+    // A new socket means a (re)connection or a fresh session (e.g. after
+    // logout/login). Re-arm the one-shot cold-open fetch so the conversations
+    // listener bulk-fetches active chats again for the new session instead of
+    // skipping it because the flag stayed true from the previous one.
+    _initialFetchDone = false;
+
+    // All selectors null => `_shouldDeliver` treats this as a wildcard handler.
+    // requireFocus:false so background generations on other chats still update
+    // the badge.
+    _globalActiveSub = socket.addChatEventHandler(
+      requireFocus: false,
+      handler: (map, _) => _handleChatActiveEvent(map),
+    );
+
+    // Redis task state may have changed while disconnected: refresh on connect.
+    _reconnectSub = socket.onReconnect.listen((_) {
+      final convos = ref.read(conversationsProvider).asData?.value;
+      if (convos == null || convos.isEmpty) {
+        return;
+      }
+      unawaited(_refresh(convos.map((c) => c.id).toList()));
+    });
+  }
+
+  void _handleChatActiveEvent(Map<String, dynamic> map) {
+    final data = map['data'];
+    if (data is! Map || data['type'] != 'chat:active') {
+      return;
+    }
+    final payload = data['data'];
+    final active = payload is Map ? payload['active'] : null;
+    if (active is! bool) {
+      return;
+    }
+    final chatId = _extractActiveChatId(map);
+    if (chatId == null || chatId.isEmpty) {
+      return;
+    }
+    final notifier = ref.read(activeChatIdsProvider.notifier);
+    if (active) {
+      notifier.setActive(chatId);
+    } else {
+      notifier.setInactive(chatId);
+    }
+  }
+
+  String? _extractActiveChatId(Map<String, dynamic> map) {
+    final direct = map['chat_id'] ?? map['chatId'];
+    if (direct != null) {
+      return direct.toString();
+    }
+    final data = map['data'];
+    if (data is Map) {
+      final outer = data['chat_id'] ?? data['chatId'];
+      if (outer != null) {
+        return outer.toString();
+      }
+      final inner = data['data'];
+      if (inner is Map) {
+        final nested = inner['chat_id'] ?? inner['chatId'];
+        if (nested != null) {
+          return nested.toString();
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> _refresh(List<String> chatIds) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+    final ids = chatIds
+        .where((id) => id.isNotEmpty && !isTemporaryChat(id))
+        .toList();
+    if (ids.isEmpty) {
+      return;
+    }
+    try {
+      final active = await api.checkActiveChats(ids);
+      ref.read(activeChatIdsProvider.notifier).setAll(active);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'active-chats refresh failed',
+        scope: 'chat/active-sync',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 }
 

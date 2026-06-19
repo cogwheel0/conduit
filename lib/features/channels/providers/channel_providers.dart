@@ -3,6 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/models/channel.dart';
 import '../../../core/models/channel_message.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 
 part 'channel_providers.g.dart';
 
@@ -12,8 +13,14 @@ class ChannelsList extends _$ChannelsList {
   @override
   Future<List<Channel>> build() async {
     final api = ref.watch(apiServiceProvider);
+    final token = ref.watch(authTokenProvider3);
     if (api == null) return [];
     final (rawChannels, featureEnabled) = await api.getChannels();
+    if (!ref.mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        ref.read(authTokenProvider3) != token) {
+      return state.value ?? const <Channel>[];
+    }
     ref
         .read(channelsFeatureEnabledProvider.notifier)
         .setEnabled(featureEnabled);

@@ -12,6 +12,7 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
+import '../providers/queued_completion_provider.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'enhanced_attachment.dart';
@@ -147,6 +148,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   String? _cachedAvatarIconUrl;
   bool _allowTypingIndicator = false;
   Timer? _typingGateTimer;
+  // Hysteresis for the action row: a message that has streamed in this widget's
+  // lifetime must reach a settled completion before the action row replaces the
+  // typing indicator, so a transient `isStreaming:false` blip can never flash
+  // the row mid-stream. Settled on the streaming-end transition (the same
+  // authoritative signal the completion haptic uses) or a confirmed
+  // `responseDone`. History messages never set `_hasStreamedThisMessage` and
+  // show their action row immediately.
+  bool _hasStreamedThisMessage = false;
+  bool _actionRowSettled = false;
   String _ttsPlainText = '';
   String? _lastAppliedTtsPlainTextSource;
   int _ttsPlainTextRequestId = 0;
@@ -225,6 +235,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
     _updateTypingIndicatorGate();
+    _updateActionRowSettle();
     _syncStreamingContentSubscription();
   }
 
@@ -275,6 +286,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
+      // Genuine streaming end: allow the action row to replace the indicator.
+      _hasStreamedThisMessage = true;
+      _actionRowSettled = true;
     }
 
     // Refresh rendered content when the active message changes.
@@ -287,6 +301,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.message.metadata?['responseDone'] !=
             widget.message.metadata?['responseDone']) {
       _updateTypingIndicatorGate();
+      _updateActionRowSettle();
     }
 
     // Rebuild cached avatar if model name or icon changes
@@ -390,12 +405,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   void _updateTypingIndicatorGate() {
     _typingGateTimer?.cancel();
-    if (_shouldShowTypingIndicator) {
+    if (_shouldShowStreamingIndicator) {
       if (_allowTypingIndicator) {
         return;
       }
       _typingGateTimer = Timer(const Duration(milliseconds: 150), () {
-        if (!mounted || !_shouldShowTypingIndicator) {
+        if (!mounted || !_shouldShowStreamingIndicator) {
           return;
         }
         setState(() {
@@ -413,6 +428,43 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _allowTypingIndicator = false;
       }
     }
+  }
+
+  /// Drives the action-row hysteresis. While streaming, the row stays
+  /// suppressed and `_actionRowSettled` is reset so a later resume can't show
+  /// a stale row. A confirmed `responseDone` settles it; the genuine
+  /// streaming-end transition (see [didUpdateWidget]) settles it for paths that
+  /// don't write `responseDone`.
+  void _updateActionRowSettle() {
+    if (_uiTreatsAsStreaming) {
+      _hasStreamedThisMessage = true;
+      _actionRowSettled = false;
+      return;
+    }
+    if (!_hasStreamedThisMessage) {
+      // History message: action row shows immediately, no settle needed.
+      return;
+    }
+    if (widget.message.metadata?['responseDone'] == true) {
+      _actionRowSettled = true;
+    }
+  }
+
+  /// Whether the streaming/typing indicator should currently occupy the footer
+  /// slot. Gated by the 150ms anti-flash window.
+  bool get _showStreamingIndicatorNow =>
+      _allowTypingIndicator && _shouldShowStreamingIndicator;
+
+  /// Whether the action row may replace the streaming indicator in the footer.
+  bool get _showActionRowNow {
+    if (_uiTreatsAsStreaming || !_responseCompleted) {
+      return false;
+    }
+    if (!_hasStreamedThisMessage) {
+      return true;
+    }
+    return widget.message.metadata?['responseDone'] == true ||
+        _actionRowSettled;
   }
 
   String get _messageId {
@@ -607,8 +659,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  bool get _shouldShowTypingIndicator =>
-      _uiTreatsAsStreaming && _isAssistantResponseEmpty;
+  bool get _hasPendingVisibleStatus => widget.message.statusHistory
+      .where((status) => status.hidden != true)
+      .any((status) => status.done != true);
+
+  /// The streaming indicator lives in the footer slot and persists for the
+  /// whole generation (text/tool-calls/status stream in above it), then is
+  /// swapped for the action row once streaming completes. A pending visible
+  /// status already renders its own shimmer, so suppress the indicator then
+  /// (matches the behaviour the widget test asserts).
+  bool get _shouldShowStreamingIndicator =>
+      _uiTreatsAsStreaming && !_hasPendingVisibleStatus;
 
   bool get _isAssistantResponseEmpty {
     final content = _displayedContent.trim();
@@ -938,6 +999,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final activeEmbeds = _resolveActiveEmbeds();
     final activeSources = _resolveActiveSources();
     final footer = _buildFooterBar(activeSources: activeSources);
+    final queuedCompletionAsync = ref.watch(
+      queuedCompletionInfoForMessageProvider(_messageId),
+    );
+    final queuedCompletion = queuedCompletionAsync.hasValue
+        ? queuedCompletionAsync.value
+        : null;
+    final hasQueuedCompletion = queuedCompletion != null;
+    final showQueuedAsEmptyState =
+        queuedCompletion != null &&
+        _isAssistantResponseEmpty &&
+        !queuedCompletion.isFailed;
+    final suppressEmptyQueuedContent =
+        queuedCompletion != null && _isAssistantResponseEmpty;
+    final showQueuedRecoveryBanner =
+        queuedCompletion != null && !showQueuedAsEmptyState;
 
     final content = Container(
       width: double.infinity,
@@ -979,31 +1055,38 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.xs),
                 ],
 
-                // Smoothly crossfade between typing indicator and content
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, anim) {
-                    return FadeTransition(
-                      opacity: CurvedAnimation(
-                        parent: anim,
-                        curve: Curves.easeOutCubic,
-                        reverseCurve: Curves.easeInCubic,
-                      ),
-                      child: child,
-                    );
-                  },
-                  child: (_allowTypingIndicator && _shouldShowTypingIndicator)
-                      ? KeyedSubtree(
-                          key: const ValueKey('typing'),
-                          child: _buildTypingIndicator(),
-                        )
-                      : KeyedSubtree(
-                          key: const ValueKey('content'),
-                          child: _buildMessageContent(),
+                if (showQueuedAsEmptyState)
+                  _buildQueuedCompletionBanner(queuedCompletion)
+                else if (suppressEmptyQueuedContent)
+                  const SizedBox.shrink()
+                else
+                  // Content streams in here; the typing indicator now lives in
+                  // the footer slot below (and persists while text streams in
+                  // above it). Empty content renders as SizedBox.shrink.
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) {
+                      return FadeTransition(
+                        opacity: CurvedAnimation(
+                          parent: anim,
+                          curve: Curves.easeOutCubic,
+                          reverseCurve: Curves.easeInCubic,
                         ),
-                ),
+                        child: child,
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: const ValueKey('content'),
+                      child: _buildMessageContent(),
+                    ),
+                  ),
+
+                if (showQueuedRecoveryBanner) ...[
+                  const SizedBox(height: Spacing.sm),
+                  _buildQueuedCompletionBanner(queuedCompletion),
+                ],
 
                 // Display error banner if message or active version has an error
                 if (_getActiveError() != null) ...[
@@ -1021,20 +1104,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ),
           ),
 
-          // Action buttons below the message content (only after streaming completes)
-          if (_responseCompleted) ...[
-            if (footer != null)
-              Padding(
-                padding: EdgeInsets.only(
-                  top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
-                ),
-                child: footer,
+          // Footer slot: the typing indicator occupies the action-row position
+          // while streaming (content streams above it) and crossfades to the
+          // action row exactly once, when generation completes.
+          if (!hasQueuedCompletion)
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) {
+                return FadeTransition(
+                  opacity: CurvedAnimation(
+                    parent: anim,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  ),
+                  child: child,
+                );
+              },
+              child: _buildFooterSlot(
+                footer: footer,
+                hasFollowUps: hasFollowUps,
+                activeFollowUps: activeFollowUps,
               ),
-            if (hasFollowUps) ...[
-              const SizedBox(height: Spacing.md),
-              _buildFollowUpSuggestions(activeFollowUps),
-            ],
-          ],
+            ),
         ],
       ),
     );
@@ -1058,6 +1151,199 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ),
         child: content,
       ),
+    );
+  }
+
+  /// Builds the keyed child for the footer [AnimatedSwitcher]: the typing
+  /// indicator while streaming, the action row + follow-ups once completed,
+  /// or an empty slot during the gate / transient window.
+  Widget _buildFooterSlot({
+    required Widget? footer,
+    required bool hasFollowUps,
+    required List<String> activeFollowUps,
+  }) {
+    if (_showStreamingIndicatorNow) {
+      return KeyedSubtree(
+        key: const ValueKey('typing'),
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+          ),
+          child: _buildTypingIndicator(),
+        ),
+      );
+    }
+
+    if (_showActionRowNow) {
+      final children = <Widget>[];
+      if (footer != null) {
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(
+              top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+            ),
+            child: footer,
+          ),
+        );
+      }
+      if (hasFollowUps) {
+        children.add(const SizedBox(height: Spacing.md));
+        children.add(_buildFollowUpSuggestions(activeFollowUps));
+      }
+      if (children.isNotEmpty) {
+        return KeyedSubtree(
+          key: const ValueKey('actions'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        );
+      }
+    }
+
+    return const SizedBox.shrink(key: ValueKey('footer-empty'));
+  }
+
+  Widget _buildQueuedCompletionBanner(QueuedCompletionInfo info) {
+    final l10n = AppLocalizations.of(context)!;
+    final conduitTheme = context.conduitTheme;
+    final errorColor = Theme.of(context).colorScheme.error;
+    final accentColor = info.isFailed ? errorColor : conduitTheme.buttonPrimary;
+    final title = info.isFailed
+        ? l10n.chatQueuedFailedTitle
+        : info.isOffline
+        ? l10n.chatQueuedOfflineTitle
+        : l10n.chatQueuedPendingTitle;
+    final message = info.isFailed
+        ? l10n.chatQueuedFailedMessage
+        : info.isOffline
+        ? l10n.chatQueuedOfflineMessage
+        : l10n.chatQueuedPendingMessage;
+    final icon = info.isFailed
+        ? (Platform.isIOS
+              ? CupertinoIcons.exclamationmark_triangle
+              : Icons.error_outline)
+        : info.isOffline
+        ? (Platform.isIOS ? CupertinoIcons.wifi_slash : Icons.wifi_off)
+        : (Platform.isIOS ? CupertinoIcons.clock : Icons.schedule);
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 560),
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: accentColor.withValues(alpha: 0.08),
+        border: Border.all(color: accentColor.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20, color: accentColor),
+              const SizedBox(width: Spacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: conduitTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      message,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: conduitTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.sm),
+          Wrap(
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            children: [
+              TextButton.icon(
+                onPressed: () => _retryQueuedCompletion(info),
+                icon: Icon(
+                  Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                  size: 16,
+                ),
+                label: Text(l10n.retry),
+                style: TextButton.styleFrom(
+                  foregroundColor: accentColor,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: 6,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _cancelQueuedCompletion(info),
+                icon: Icon(
+                  Platform.isIOS ? CupertinoIcons.xmark : Icons.close,
+                  size: 16,
+                ),
+                label: Text(l10n.cancel),
+                style: TextButton.styleFrom(
+                  foregroundColor: conduitTheme.textSecondary,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: 6,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _retryQueuedCompletion(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        await ref.read(queuedCompletionActionsProvider).retry(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  void _cancelQueuedCompletion(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        await ref.read(queuedCompletionActionsProvider).cancel(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  void _handleQueuedCompletionActionError(Object error, StackTrace stackTrace) {
+    DebugLogger.error(
+      'queued-completion-action-failed',
+      scope: 'chat/assistant',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
     );
   }
 
@@ -1134,8 +1420,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         isStreaming: bodyTreatsAsStreaming,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
-        onTapLink: (url, _) =>
-            launchExternalLink(url, scope: 'chat/assistant'),
+        onTapLink: (url, _) => launchExternalLink(url, scope: 'chat/assistant'),
         sources: activeSources,
         imageBuilderOverride: (uri, title, alt) {
           // Route markdown images through the enhanced image widget so they

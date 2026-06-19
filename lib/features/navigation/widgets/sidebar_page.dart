@@ -434,12 +434,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final localizations = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final channelsEnabled = ref.watch(channelsFeatureEnabledProvider);
-    final terminalServers = ref.watch(terminalAvailableServersProvider);
-    final showTerminalTab = terminalServers.maybeWhen(
-      data: (servers) => servers.isNotEmpty,
-      error: (_, _) => true,
-      orElse: () => true,
-    );
+    // Live when the server list resolves; cached last-known value when offline
+    // (so a terminal-disabled server doesn't surface the tab offline).
+    final showTerminalTab = ref.watch(terminalTabVisibleProvider);
     final visibleTabIds = <_SidebarTabId>[
       _SidebarTabId.chats,
       if (notesEnabled) _SidebarTabId.notes,

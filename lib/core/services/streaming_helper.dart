@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/chat_message.dart';
+import '../../core/models/conversation.dart';
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
 import '../../core/services/socket_service.dart';
 import '../../core/utils/tool_calls_parser.dart';
@@ -441,15 +442,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
+
+  /// Pull-through snapshot fetch (CDT-RFC-001 Phase 1): persists the chat via
+  /// `upsertServerChat` under the chat lock and returns the assembled
+  /// conversation. When null or when it yields null (engine inert), the
+  /// legacy direct `api.getConversation` fetch is used instead.
+  Future<Conversation?> Function(String chatId)? pullChatSnapshot,
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
   bool completionDoneHandled = false;
   bool delayedDoneRecoveryScheduled = false;
+  bool postCompletionSnapshotRefreshScheduled = false;
   bool isObsoleteStream = false;
   bool backgroundExecutionStopped = false;
   Timer? terminalCompletionRecoveryTimer;
+  Future<void>? chatCompletedSyncFuture;
   int stableNonTerminalTerminalRecoveryCount = 0;
   String? stableNonTerminalTerminalRecoverySignature;
   var currentStreamSessionId = sessionId;
@@ -1502,7 +1511,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     refreshingSnapshot = true;
     try {
-      final conversation = await api.getConversation(chatId);
+      // The server save already happened via POST /api/chat/completed; the
+      // pull persists the resulting blob locally (under the chat lock) and
+      // returns it for the followUps/sources/usage patch below.
+      Conversation? pulled;
+      if (pullChatSnapshot != null) {
+        try {
+          pulled = await pullChatSnapshot(chatId);
+        } catch (_) {
+          pulled = null;
+        }
+      }
+      final conversation = pulled ?? await api.getConversation(chatId);
       if (isObsoleteStream) {
         return;
       }
@@ -2028,76 +2048,96 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// OpenWebUI 0.9.1+ already persists outlet changes server-side, and
   /// pushing the local buffer back can truncate chats when the client only
   /// has a partial history snapshot in memory.
-  void sendChatCompletedAndSync() {
-    unawaited(
-      Future(() async {
-        if (isObsoleteStream) {
-          return;
+  Future<void> sendChatCompletedAndSync() async {
+    if (isObsoleteStream) {
+      return;
+    }
+    try {
+      // Build message list for the completed notification
+      final currentMessages = getMessages();
+      final messagesForCompleted = currentMessages.map((m) {
+        final msgMap = <String, dynamic>{
+          'id': m.id,
+          'role': m.role,
+          'content': m.content,
+          'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
+        };
+        if (m.role == 'assistant' && m.usage != null) {
+          msgMap['usage'] = m.usage;
         }
-        try {
-          // Build message list for the completed notification
-          final currentMessages = getMessages();
-          final messagesForCompleted = currentMessages.map((m) {
-            final msgMap = <String, dynamic>{
-              'id': m.id,
-              'role': m.role,
-              'content': m.content,
-              'timestamp': m.timestamp.millisecondsSinceEpoch ~/ 1000,
+        if (m.sources.isNotEmpty) {
+          msgMap['sources'] = m.sources.map((s) => s.toJson()).toList();
+        }
+        return msgMap;
+      }).toList();
+
+      // 1. Send chatCompleted and AWAIT the response (outlet filters may
+      //    modify messages). OpenWebUI awaits this before saving.
+      final completedResp = await api.sendChatCompleted(
+        chatId: activeConversationId ?? '',
+        messageId: assistantMessageId,
+        messages: messagesForCompleted,
+        model: modelId,
+        modelItem: modelItem,
+        sessionId: currentStreamSessionId,
+        filterIds: filterIds,
+      );
+      if (isObsoleteStream) {
+        return;
+      }
+
+      // 2. Apply outlet filter modifications if any.
+      // OpenWebUI does a full object spread; we merge all returned fields.
+      final modifiedMsgs = completedResp?['messages'];
+      if (modifiedMsgs is List) {
+        for (final msg in modifiedMsgs) {
+          if (msg is! Map) continue;
+          final id = msg['id']?.toString();
+          if (id == null) continue;
+          updateMessageById(id, (current) {
+            final newContent = msg['content']?.toString();
+            if (newContent == null) return current;
+            if (current.content == newContent) return current;
+            // Preserve original content before filter modification
+            final meta = <String, dynamic>{
+              ...?current.metadata,
+              'originalContent': current.content,
             };
-            if (m.role == 'assistant' && m.usage != null) {
-              msgMap['usage'] = m.usage;
-            }
-            if (m.sources.isNotEmpty) {
-              msgMap['sources'] = m.sources.map((s) => s.toJson()).toList();
-            }
-            return msgMap;
-          }).toList();
-
-          // 1. Send chatCompleted and AWAIT the response (outlet filters may
-          //    modify messages). OpenWebUI awaits this before saving.
-          final completedResp = await api.sendChatCompleted(
-            chatId: activeConversationId ?? '',
-            messageId: assistantMessageId,
-            messages: messagesForCompleted,
-            model: modelId,
-            modelItem: modelItem,
-            sessionId: currentStreamSessionId,
-            filterIds: filterIds,
-          );
-          if (isObsoleteStream) {
-            return;
-          }
-
-          // 2. Apply outlet filter modifications if any.
-          // OpenWebUI does a full object spread; we merge all returned fields.
-          final modifiedMsgs = completedResp?['messages'];
-          if (modifiedMsgs is List) {
-            for (final msg in modifiedMsgs) {
-              if (msg is! Map) continue;
-              final id = msg['id']?.toString();
-              if (id == null) continue;
-              updateMessageById(id, (current) {
-                final newContent = msg['content']?.toString();
-                if (newContent == null) return current;
-                if (current.content == newContent) return current;
-                // Preserve original content before filter modification
-                final meta = <String, dynamic>{
-                  ...?current.metadata,
-                  'originalContent': current.content,
-                };
-                return current.copyWith(content: newContent, metadata: meta);
-              });
-            }
-          }
-        } catch (e, st) {
-          DebugLogger.error(
-            'chat completion sync failed',
-            error: e,
-            stackTrace: st,
-            scope: 'chat/streaming',
-          );
+            return current.copyWith(content: newContent, metadata: meta);
+          });
         }
-      }),
+      }
+    } catch (e, st) {
+      DebugLogger.error(
+        'chat completion sync failed',
+        error: e,
+        stackTrace: st,
+        scope: 'chat/streaming',
+      );
+    }
+  }
+
+  Future<void> ensureChatCompletedSynced() {
+    return chatCompletedSyncFuture ??= sendChatCompletedAndSync();
+  }
+
+  void schedulePostCompletionSnapshotRefresh() {
+    if (postCompletionSnapshotRefreshScheduled ||
+        isTemporaryChat(activeConversationId)) {
+      return;
+    }
+    postCompletionSnapshotRefreshScheduled = true;
+    unawaited(
+      ensureChatCompletedSynced()
+          .then((_) => refreshConversationSnapshot())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'post-completion-refresh-failed',
+              error: error,
+              stackTrace: stackTrace,
+              scope: 'chat/streaming',
+            );
+          }),
     );
   }
 
@@ -2252,8 +2292,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void handleCompletionDone({
     String? doneTitle,
     bool allowEmptyContentRecovery = false,
+    bool refreshSnapshotAfterCompleted = false,
   }) {
-    if (hasFinished || completionDoneHandled) {
+    if (hasFinished) {
+      return;
+    }
+    if (completionDoneHandled) {
+      if (refreshSnapshotAfterCompleted) {
+        schedulePostCompletionSnapshotRefresh();
+      }
       return;
     }
     completionDoneHandled = true;
@@ -2264,11 +2311,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     try {
       if (!isTemporaryChat(activeConversationId)) {
-        sendChatCompletedAndSync();
-        Future.delayed(
-          const Duration(milliseconds: 500),
-          refreshConversationSnapshot,
-        );
+        final completed = ensureChatCompletedSynced();
+        if (refreshSnapshotAfterCompleted) {
+          schedulePostCompletionSnapshotRefresh();
+        } else {
+          unawaited(completed);
+        }
       }
     } catch (_) {
       // Non-critical - continue if sync fails
@@ -2323,7 +2371,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       finalizeStreamingReasoning();
       if (!isTemporaryChat(activeConversationId)) {
-        sendChatCompletedAndSync();
+        unawaited(ensureChatCompletedSynced());
       }
       wrappedFinishStreaming();
     }
@@ -3192,7 +3240,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               update,
               onDone: () {
                 receivedDone = true;
-                handleCompletionDone(allowEmptyContentRecovery: true);
+                handleCompletionDone(
+                  allowEmptyContentRecovery: true,
+                  refreshSnapshotAfterCompleted: true,
+                );
               },
               onStructuredDoneEvent: () {
                 receivedDone = true;

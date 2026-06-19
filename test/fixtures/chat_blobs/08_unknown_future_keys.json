@@ -1,0 +1,123 @@
+{
+  "description": "Forward-compatibility fixture: novel unknown keys at the blob top level (must land verbatim in rawExtra), extra keys inside history besides messages/currentId (must land in historyExtra), and unknown keys inside message objects (must survive verbatim in payload). Also includes known stream-noise keys lastSentence and favorite, and an assistant 'output' list with a reasoning item.",
+  "envelope": {
+    "id": "6e7f8091-a2b3-4c4d-8e5f-60718293a4b5",
+    "title": "Future format chat",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749707000,
+    "updated_at": 1749707100
+  },
+  "chat": {
+    "id": "6e7f8091-a2b3-4c4d-8e5f-60718293a4b5",
+    "title": "Future format chat",
+    "models": ["o4-mega"],
+    "system": "Be helpful.",
+    "params": {
+      "temperature": 0.2,
+      "custom_params": {
+        "hyperdrive": true
+      }
+    },
+    "quantum_settings": {
+      "entanglement": "high",
+      "qubits": [1, 1, 2, 3, 5]
+    },
+    "x_experimental_flags": ["multiverse_mode", "tachyon_cache"],
+    "schema_version": 7,
+    "history": {
+      "currentId": "fa11fa11-2222-4333-8444-555566667777",
+      "messages": {
+        "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f": {
+          "id": "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f",
+          "parentId": null,
+          "childrenIds": ["fa11fa11-2222-4333-8444-555566667777"],
+          "role": "user",
+          "content": "Think hard: why is the sky dark at night?",
+          "timestamp": 1749707000,
+          "models": ["o4-mega"],
+          "x_client_hint": {
+            "composer": "voice",
+            "locale": "en-NZ"
+          }
+        },
+        "fa11fa11-2222-4333-8444-555566667777": {
+          "id": "fa11fa11-2222-4333-8444-555566667777",
+          "parentId": "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "<details type=\"reasoning\" done=\"true\" duration=\"3\">\n<summary>Thought for 3 seconds</summary>\n> Olbers' paradox...\n</details>\nBecause the universe has a finite age and is expanding, distant starlight is redshifted and has not had time to fill the sky (Olbers' paradox).",
+          "model": "o4-mega",
+          "modelName": "O4 Mega",
+          "modelIdx": 0,
+          "timestamp": 1749707020,
+          "done": true,
+          "lastSentence": "distant starlight is redshifted and has not had time to fill the sky (Olbers' paradox).",
+          "favorite": true,
+          "output": [
+            {
+              "type": "reasoning",
+              "id": "r_1a2b3c4d5e6f",
+              "status": "completed",
+              "start_tag": "<think>",
+              "end_tag": "</think>",
+              "attributes": {
+                "type": "reasoning_content"
+              },
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Olbers' paradox..."
+                }
+              ],
+              "summary": null,
+              "started_at": 1749707017.41,
+              "ended_at": 1749707020.12,
+              "duration": 3
+            },
+            {
+              "type": "message",
+              "id": "msg_9f8e7d6c5b4a",
+              "status": "completed",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Because the universe has a finite age and is expanding, distant starlight is redshifted and has not had time to fill the sky (Olbers' paradox).",
+                  "annotations": []
+                }
+              ]
+            }
+          ],
+          "neural_trace_v2": {
+            "checksum": "abc123",
+            "layers": [0.1, 0.9]
+          }
+        }
+      },
+      "currentBranchHints": {
+        "fa11fa11-2222-4333-8444-555566667777": "primary"
+      },
+      "lastCompactedAt": 1749707050
+    },
+    "messages": [
+      {
+        "id": "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f",
+        "parentId": null,
+        "childrenIds": ["fa11fa11-2222-4333-8444-555566667777"],
+        "role": "user",
+        "content": "Think hard: why is the sky dark at night?",
+        "timestamp": 1749707000,
+        "models": ["o4-mega"],
+        "x_client_hint": {
+          "composer": "voice",
+          "locale": "en-NZ"
+        }
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749707000777,
+    "files": []
+  }
+}

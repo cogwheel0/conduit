@@ -5,6 +5,11 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'note.freezed.dart';
 part 'note.g.dart';
 
+/// Transient metadata key used by cached note-list rows to carry a bounded
+/// preview without pretending it is the full note body.
+const String kNoteListPreviewMarkdownMetaKey =
+    '__conduit_list_preview_markdown';
+
 /// Helper to extract user_id from JSON, falling back to user.id if not present.
 /// OpenWebUI's NoteItemResponse (list endpoint) doesn't include user_id directly
 /// but does include the user object with an id field.
@@ -139,6 +144,25 @@ sealed class Note with _$Note {
 
   /// Get the markdown content of the note
   String get markdownContent => data.content.md;
+
+  /// Get markdown suitable for list previews.
+  ///
+  /// Cached list rows intentionally avoid materializing the full note body, so
+  /// they carry a bounded preview in metadata while leaving [markdownContent]
+  /// empty. Full note detail rows and server responses simply fall back to the
+  /// full markdown body.
+  String get listPreviewMarkdown {
+    final preview = meta?[kNoteListPreviewMarkdownMetaKey];
+    if (preview is String && preview.isNotEmpty) return preview;
+    return markdownContent;
+  }
+
+  /// Whether this object contains only a bounded list preview, not the full
+  /// markdown body.
+  bool get hasListPreviewOnly =>
+      markdownContent.isEmpty &&
+      htmlContent.isEmpty &&
+      meta?[kNoteListPreviewMarkdownMetaKey] is String;
 
   /// Get the HTML content of the note
   String get htmlContent => data.content.html;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,8 +13,21 @@ import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/file_info.dart';
+import '../../../core/database/app_database.dart';
+import '../../../core/database/daos/outbox_dao.dart';
+import '../../../core/database/database_provider.dart';
+import '../../../core/database/local_conversation_loader.dart';
+import '../../../core/database/mappers/chat_blob_mapper.dart';
+import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/sync/chat_locks.dart';
+import '../../../core/sync/clock.dart';
+import '../../../core/sync/id_remapper.dart';
+import '../../../core/sync/outbox_drainer.dart' show OutboxDeferralException;
+import '../../../core/sync/sync_engine.dart';
 
+import '../../../core/services/chat_completion_transport.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
@@ -26,9 +40,9 @@ import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
-import '../../../shared/services/tasks/task_queue.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
+import '../services/file_attachment_service.dart';
 import '../services/reviewer_mode_service.dart';
 
 part 'chat_capability_providers.dart';
@@ -198,6 +212,8 @@ String? _connectedSocketSessionId(SocketService? socketService) {
   return sessionId;
 }
 
+const Duration _headlessStreamDrainTimeout = Duration(minutes: 5);
+
 Future<String?> _ensureConnectedSocketSessionId(
   SocketService? socketService, {
   Duration timeout = const Duration(milliseconds: 1200),
@@ -299,6 +315,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   final List<VoidCallback> _socketSubscriptions = [];
   VoidCallback? _socketTeardown;
   SocketEventSubscription? _passiveConversationSocketSubscription;
+  StreamSubscription<List<MessageRow>>? _dbMessagesSubscription;
+  String? _dbWatchedChatId;
+  int _dbMessagesGeneration = 0;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
   Timer? _streamingSyncTimer;
@@ -338,11 +357,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
 
         _configurePassiveConversationSync(next);
+        _configureDbMessagesWatch(next?.id);
 
         // Only react when the conversation actually changes
-        if (previous?.id == next?.id) {
+        if (previous?.id == next?.id ||
+            isActiveConversationInPlaceRemap(ref, previous?.id, next?.id)) {
           final serverMessages = next?.messages ?? const [];
-          if (_shouldAdoptServerMessages(serverMessages)) {
+          // While resuming a reopened, server-active chat the progressive poll
+          // owns content; don't let a same-id server snapshot (isStreaming:false)
+          // clobber the streaming state and end it prematurely.
+          if (!_isResumeStreamingActive &&
+              _shouldAdoptServerMessages(serverMessages)) {
             _adoptServerMessages(
               serverMessages,
               source: 'active conversation update',
@@ -364,6 +389,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           if (_hasStreamingAssistant) {
             _ensureRemoteTaskMonitor();
+          } else {
+            // The opened chat may still be generating on the server; the server
+            // never sends `isStreaming`, so detect it from the task registry and
+            // re-engage the indicator + monitor.
+            unawaited(_detectActiveOnOpen(next));
           }
         } else {
           state = [];
@@ -380,6 +410,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _subscriptions.clear();
 
         _teardownPassiveConversationSync();
+        _cancelDbMessagesWatch();
         _cancelMessageStream(clearStreamingContent: false);
         _stopRemoteTaskMonitor();
         _streamingSyncTimer?.cancel();
@@ -394,7 +425,110 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final activeConversation = ref.read(activeConversationProvider);
     _configurePassiveConversationSync(activeConversation);
+    _configureDbMessagesWatch(activeConversation?.id);
     return activeConversation?.messages ?? const [];
+  }
+
+  /// One narrow Drift watch over the active chat's message rows
+  /// (CDT-RFC-001 §10.2: always `WHERE chatId = ?`). Resubscribed on
+  /// conversation change, cancelled on null/dispose.
+  void _configureDbMessagesWatch(String? conversationId) {
+    if (conversationId == null ||
+        conversationId.isEmpty ||
+        isTemporaryChat(conversationId)) {
+      _cancelDbMessagesWatch();
+      return;
+    }
+    if (_dbWatchedChatId == conversationId && _dbMessagesSubscription != null) {
+      return;
+    }
+    _cancelDbMessagesWatch();
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    _dbWatchedChatId = conversationId;
+    _dbMessagesSubscription = db.messagesDao
+        .watchForChat(conversationId)
+        .listen(
+          (rows) {
+            final generation = ++_dbMessagesGeneration;
+            unawaited(_onDbMessagesChanged(conversationId, rows, generation));
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'db-watch-failed',
+              scope: 'chat/providers',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'conversationId': conversationId},
+            );
+          },
+        );
+  }
+
+  void _cancelDbMessagesWatch() {
+    _dbMessagesSubscription?.cancel();
+    _dbMessagesSubscription = null;
+    _dbWatchedChatId = null;
+    _dbMessagesGeneration++;
+  }
+
+  /// Database emissions adopt through the exact same protected path as
+  /// server snapshots: streaming state is never touched while
+  /// [_shouldProtectLocalStreamingState] holds, and all dedupe/protection
+  /// lives in [_adoptServerMessages].
+  Future<void> _onDbMessagesChanged(
+    String conversationId,
+    List<MessageRow> rows,
+    int generation,
+  ) async {
+    if (_disposed ||
+        generation != _dbMessagesGeneration ||
+        _shouldProtectLocalStreamingState) {
+      return;
+    }
+    if (ref.read(activeConversationProvider)?.id != conversationId) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    try {
+      final chat = await db.chatsDao.getChat(conversationId);
+      if (generation != _dbMessagesGeneration) {
+        return;
+      }
+      if (chat == null || !chat.bodySynced) {
+        return;
+      }
+      final conversation = assembleConversation(chat, rows);
+      if (_disposed ||
+          !ref.mounted ||
+          generation != _dbMessagesGeneration ||
+          _shouldProtectLocalStreamingState) {
+        return;
+      }
+      if (ref.read(activeConversationProvider)?.id != conversationId) {
+        return;
+      }
+      _adoptServerMessages(conversation.messages, source: 'database watch');
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'db-adopt-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'conversationId': conversationId},
+      );
+    }
+  }
+
+  AppDatabase? _maybeDatabase() {
+    // Database dependencies unavailable (e.g. teardown or test harness
+    // without an active server) resolve to null.
+    return _readAppDatabaseOrNull(ref);
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -810,21 +944,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     required String source,
   }) async {
     if (_passiveConversationRefreshInFlight ||
-        _shouldProtectLocalStreamingState) {
+        _shouldProtectLocalStreamingState ||
+        _isResumeStreamingActive) {
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
     final activeConversation = ref.read(activeConversationProvider);
-    if (api == null ||
-        activeConversation == null ||
-        activeConversation.id != conversationId) {
+    if (activeConversation == null || activeConversation.id != conversationId) {
       return;
     }
 
     _passiveConversationRefreshInFlight = true;
     try {
-      final refreshed = await api.getConversation(conversationId);
+      // Pull through the sync engine: the raw fetch persists via
+      // upsertServerChat under the chat lock, then returns the assembled
+      // conversation (CDT-RFC-001 Phase 1). Falls back to a direct fetch when
+      // the engine is inert/unavailable (no database, reviewer mode).
+      final refreshed = await pullChatOrFetch(ref, conversationId);
+      if (refreshed == null) {
+        return;
+      }
       if (!ref.mounted) {
         return;
       }
@@ -1100,6 +1239,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _taskStatusCheckInFlight;
   }
 
+  /// True while streaming was re-engaged for a reopened, server-active chat
+  /// (typing indicator + 1s poll) with no genuine local transport. The
+  /// progressive poll owns content updates during this window; passive server
+  /// refreshes must not clobber the streaming state and end it prematurely.
+  bool get _isResumeStreamingActive =>
+      _taskStatusTimer != null &&
+      _hasStreamingAssistant &&
+      !_shouldProtectLocalStreamingState;
+
   void _dropStreamingTransportState({
     required String source,
     String? messageId,
@@ -1136,6 +1284,66 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       source: 'obsolete stream retirement',
       messageId: messageId,
     );
+  }
+
+  /// When a chat is opened that is still generating on the server, mark its
+  /// last assistant message as streaming so the typing indicator + remote-task
+  /// monitor engage. The server never sends `isStreaming`, so a reopened
+  /// in-flight chat would otherwise render as an empty/partial response.
+  Future<void> _detectActiveOnOpen(Conversation conversation) async {
+    final chatId = conversation.id;
+    if (_disposed || isTemporaryChat(chatId)) {
+      return;
+    }
+    // A genuine local stream, or an already-streaming message, owns this chat.
+    if (_shouldProtectLocalStreamingState || _hasStreamingAssistant) {
+      return;
+    }
+    if (state.isEmpty || state.last.role != 'assistant') {
+      return;
+    }
+
+    // Fast path: the active-chats set (populated by ActiveChatsSync) may already
+    // know. Otherwise ask the server's task registry directly.
+    var isActive = ref.read(activeChatIdsProvider).contains(chatId);
+    if (!isActive) {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        return;
+      }
+      try {
+        final taskIds = await api.getTaskIdsByChat(chatId);
+        isActive = taskIds.isNotEmpty;
+      } catch (_) {
+        // Offline / unreachable: leave the response as-is (static).
+        return;
+      }
+    }
+    if (!isActive || _disposed) {
+      return;
+    }
+
+    // The active chat may have changed, or a real stream may have started,
+    // while we awaited the probe.
+    if (ref.read(activeConversationProvider)?.id != chatId) {
+      return;
+    }
+    if (_shouldProtectLocalStreamingState || _hasStreamingAssistant) {
+      return;
+    }
+    if (state.isEmpty || state.last.role != 'assistant') {
+      return;
+    }
+
+    final last = state.last;
+    state = [
+      ...state.sublist(0, state.length - 1),
+      last.copyWith(isStreaming: true),
+    ];
+    // Pre-seed so the monitor's tasksDone finalization resolves once the server
+    // task disappears (otherwise tasksDone could never become true).
+    _observedRemoteTask = true;
+    _ensureRemoteTaskMonitor();
   }
 
   void _ensureRemoteTaskMonitor() {
@@ -1189,6 +1397,54 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       // When no active tasks and we previously observed tasks, streaming should be done.
       final tasksDone = _observedRemoteTask && !hasActiveTasks;
+
+      // Resume case: while the server task is still running and no genuine local
+      // stream owns this chat (i.e. we re-engaged streaming on reopen), adopt the
+      // growing server content so a reopened in-flight chat streams in instead of
+      // showing an empty/partial response. A real local send delivers its own
+      // socket/HTTP deltas, so it is excluded via _shouldProtectLocalStreamingState.
+      if (_hasStreamingAssistant &&
+          hasActiveTasks &&
+          !_shouldProtectLocalStreamingState) {
+        try {
+          final refreshed = await pullChatOrFetch(ref, activeConversation.id);
+          // Bail if we switched chats or a real stream started during the await.
+          if (refreshed == null ||
+              _disposed ||
+              ref.read(activeConversationProvider)?.id !=
+                  activeConversation.id ||
+              !_hasStreamingAssistant ||
+              _shouldProtectLocalStreamingState) {
+            return;
+          }
+          if (state.isNotEmpty) {
+            final localLast = state.last;
+            if (localLast.role == 'assistant' && localLast.isStreaming) {
+              final snapshot = _readStreamingMessageComparisonSnapshot(
+                localLast.id,
+              );
+              final serverVersion = refreshed.messages
+                  .where((m) => m.id == localLast.id)
+                  .firstOrNull;
+              final serverContent = serverVersion?.content ?? '';
+              // Monotonic growth guard: only adopt when the server has strictly
+              // more content than we already show (prevents flicker/duplicates).
+              if (serverVersion != null &&
+                  serverContent.length > snapshot.comparisonContent.length) {
+                state = [
+                  ...state.sublist(0, state.length - 1),
+                  serverVersion.copyWith(isStreaming: true),
+                ];
+              }
+            }
+          }
+        } catch (e) {
+          DebugLogger.log(
+            'Progressive resume fetch failed: $e',
+            scope: 'chat/providers',
+          );
+        }
+      }
 
       // Secondary check: fetch conversation from server and compare message state.
       // This catches cases where the done signal was missed AND syncs any missed
@@ -1964,6 +2220,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurn();
   }
 
   void completeStreamingUi() {
@@ -1972,6 +2229,163 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
+  }
+
+  /// D-07 local echo: after a stream lands, write the trailing user message
+  /// and the completed assistant message to the local database under the
+  /// chat lock. The rows are plain local echoes the next pull fast-forwards
+  /// over (no dirty flag in Phase 1; outbox semantics arrive in Phase 2).
+  /// Silently no-ops for temporary chats and when the chats row is absent
+  /// (`upsertLocalEcho` returns false).
+  void _persistCompletedTurn() {
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    final messages = state;
+    if (messages.isEmpty) {
+      return;
+    }
+    final assistant = messages.last;
+    if (assistant.role != 'assistant' || assistant.isStreaming) {
+      return;
+    }
+    final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    unawaited(
+      _writeTurnEcho(
+        db: db,
+        locks: locks,
+        chatId: activeId,
+        trailingUser: trailingUser,
+        assistant: assistant,
+      ),
+    );
+  }
+
+  /// D-07 pause checkpoint: when the app backgrounds mid-stream, flush the
+  /// streaming buffer into state and echo the in-flight turn so a process
+  /// kill cannot lose it. No-op unless a stream is active; silently no-ops
+  /// when the chats row is absent.
+  Future<void> persistPauseCheckpoint() async {
+    if (!_hasStreamingAssistant) {
+      return;
+    }
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    final db = _maybeDatabase();
+    if (db == null) {
+      return;
+    }
+    syncStreamingBuffer();
+    final messages = state;
+    if (messages.isEmpty) {
+      return;
+    }
+    final assistant = messages.last;
+    if (assistant.role != 'assistant') {
+      return;
+    }
+    final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    await _writeTurnEcho(
+      db: db,
+      locks: locks,
+      chatId: activeId,
+      trailingUser: trailingUser,
+      assistant: assistant,
+    );
+  }
+
+  Future<void> _writeTurnEcho({
+    required AppDatabase db,
+    required ChatLocks locks,
+    required String chatId,
+    required ChatMessage? trailingUser,
+    required ChatMessage assistant,
+  }) async {
+    try {
+      await locks.runExclusive(chatId, () async {
+        await db.messagesDao.upsertLocalEchoTurn(
+          chatId: chatId,
+          user: trailingUser == null
+              ? null
+              : _localEchoRow(chatId, trailingUser),
+          assistant: _localEchoRow(chatId, assistant),
+        );
+      });
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'turn-echo-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'chatId': chatId},
+      );
+    }
+  }
+
+  ChatMessage? _trailingUserMessage(List<ChatMessage> messages) {
+    for (var index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role == 'user') {
+        return messages[index];
+      }
+    }
+    return null;
+  }
+
+  /// Minimal history-message shape (`{id, parentId, childrenIds, role,
+  /// content, timestamp, model?}`) — explicitly a local echo.
+  ///
+  /// The `parentId` written here is only a placeholder for the payload map:
+  /// `MessagesDao.upsertLocalEchoTurn` re-parents these rows via `_withParent`,
+  /// rewriting both the row and `payload['parentId']` to the branch tip.
+  MessageRowData _localEchoRow(String chatId, ChatMessage message) {
+    final timestamp = message.timestamp.millisecondsSinceEpoch ~/ 1000;
+    final resolvedParentId = message_tree.chatMessageParentId(message);
+    final childrenIds = message_tree
+        .chatMessageChildrenIds(message)
+        .toList(growable: false);
+    return MessageRowData(
+      id: message.id,
+      chatId: chatId,
+      parentId: resolvedParentId,
+      role: message.role,
+      content: message.content,
+      model: message.model,
+      createdAt: timestamp,
+      // Recomputed by upsertLocalEcho for new rows.
+      orderIndex: 0,
+      payload: <String, dynamic>{
+        'id': message.id,
+        'parentId': resolvedParentId,
+        'childrenIds': childrenIds,
+        'role': message.role,
+        'content': message.content,
+        'timestamp': timestamp,
+        'isStreaming': message.isStreaming,
+        if (message.role == 'assistant' && !message.isStreaming) 'done': true,
+        if (message.model != null) 'model': message.model,
+        if (message.metadata != null && message.metadata!.isNotEmpty)
+          'metadata': message.metadata,
+      },
+    );
   }
 }
 
@@ -2490,6 +2904,98 @@ Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
   return resolved.isEmpty ? null : resolved;
 }
 
+/// Builds the chat-completion request `messages` for both the foreground
+/// ([runQueuedCompletion]) and headless ([runHeadlessCompletion]) paths:
+/// rebuild the live conversation history (skip archived/non-history rows,
+/// sanitize content, merge attachment/file/output payloads), prepend the
+/// effective system message (conversation prompt, falling back to the user
+/// prompt) when one is absent, then apply [_buildChatCompletionMessages].
+Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
+  required dynamic api,
+  required List<ChatMessage> messages,
+  required String? conversationSystemPrompt,
+  required String? userSystemPrompt,
+  required bool isTemporary,
+}) async {
+  final conversationMessages = <Map<String, dynamic>>[];
+  for (final msg in messages) {
+    if (_isArchivedAssistantVariant(msg)) continue;
+    if (!_shouldIncludeConversationHistoryMessage(msg)) continue;
+    final cleaned = ToolCallsParser.sanitizeForApi(msg.content);
+    final attachments = msg.attachmentIds ?? const <String>[];
+    if (attachments.isNotEmpty) {
+      final messageMap = await _buildMessagePayloadWithAttachments(
+        api: api,
+        role: msg.role,
+        cleanedText: cleaned,
+        attachmentIds: attachments,
+      );
+      if (msg.files != null && msg.files!.isNotEmpty) {
+        final raw = messageMap['files'];
+        final existing = raw is List
+            ? raw.whereType<Map<String, dynamic>>().toList()
+            : <Map<String, dynamic>>[];
+        messageMap['files'] = [...existing, ...msg.files!];
+      }
+      if (msg.output != null && msg.output!.isNotEmpty) {
+        messageMap['output'] = msg.output;
+      }
+      conversationMessages.add(messageMap);
+    } else {
+      conversationMessages.add({
+        'role': msg.role,
+        'content': cleaned,
+        if (msg.files != null) 'files': msg.files,
+        if (msg.output != null) 'output': msg.output,
+      });
+    }
+  }
+
+  final convSystemPrompt = conversationSystemPrompt?.trim();
+  final effectiveSystemPrompt =
+      (convSystemPrompt != null && convSystemPrompt.isNotEmpty)
+      ? convSystemPrompt
+      : userSystemPrompt;
+  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
+    final hasSystem = conversationMessages.any(
+      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
+    );
+    if (!hasSystem) {
+      conversationMessages.insert(0, {
+        'role': 'system',
+        'content': effectiveSystemPrompt,
+      });
+    }
+  }
+
+  return _buildChatCompletionMessages(
+    conversationMessages: conversationMessages,
+    isTemporary: isTemporary,
+  );
+}
+
+/// Last `user`-role message id in [messages], scanning newest-first; `null`
+/// when none exists.
+String? _lastUserMessageId(List<ChatMessage> messages) {
+  for (int i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role == 'user') {
+      return messages[i].id;
+    }
+  }
+  return null;
+}
+
+/// Whether [modelId] looks like a reasoning model, based on common naming
+/// patterns (o1/o3/deepseek-r1/reasoning/think).
+bool _modelUsesReasoning(String modelId) {
+  final m = modelId.toLowerCase();
+  return m.contains('o1') ||
+      m.contains('o3') ||
+      m.contains('deepseek-r1') ||
+      m.contains('reasoning') ||
+      m.contains('think');
+}
+
 List<Map<String, dynamic>> _buildChatCompletionMessages({
   required List<Map<String, dynamic>> conversationMessages,
   required bool isTemporary,
@@ -2820,9 +3326,9 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
             dataUrl = fileContent;
           } else {
             // Determine MIME type from content type or file extension
-            String mimeType = contentType.isNotEmpty
+            final mimeType = contentType.isNotEmpty
                 ? contentType.toString()
-                : _getMimeTypeFromFileName(fileName);
+                : _getMimeTypeFromFileName(fileName) ?? 'image/png';
             dataUrl = 'data:$mimeType;base64,$fileContent';
           }
           contentArray.add({
@@ -2834,14 +3340,17 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
         }
       } else {
         // Non-image files go to files array for RAG/server-side processing
-        allFiles.add({
+        final filePayload = <String, dynamic>{
           'type': 'file',
           'id': attachmentId,
           // OpenWebUI now stores just the file ID, not the full URL path
           'url': attachmentId,
           'name': fileName,
-          'size': ?fileSize,
-        });
+        };
+        if (fileSize != null) {
+          filePayload['size'] = fileSize;
+        }
+        allFiles.add(filePayload);
       }
     } catch (_) {
       // Swallow and continue to keep regeneration robust
@@ -2858,7 +3367,7 @@ Future<Map<String, dynamic>> _buildMessagePayloadWithAttachments({
   return messageMap;
 }
 
-String _getMimeTypeFromFileName(String fileName) {
+String? _getMimeTypeFromFileName(String fileName) {
   final ext = fileName.toLowerCase().split('.').last;
   return switch (ext) {
     'jpg' || 'jpeg' => 'image/jpeg',
@@ -2867,8 +3376,13 @@ String _getMimeTypeFromFileName(String fileName) {
     'webp' => 'image/webp',
     'svg' => 'image/svg+xml',
     'bmp' => 'image/bmp',
-    _ => 'image/png',
+    _ => null,
   };
+}
+
+@visibleForTesting
+String? mimeTypeFromFileNameForTest(String fileName) {
+  return _getMimeTypeFromFileName(fileName);
 }
 
 List<Map<String, dynamic>> _contextAttachmentsToFiles(
@@ -3051,8 +3565,8 @@ Future<void> regenerateMessage(
           conversationMessages.add({
             'role': msg.role,
             'content': cleaned,
-            'files': ?msg.files,
-            'output': ?msg.output,
+            if (msg.files != null) 'files': msg.files,
+            if (msg.output != null) 'output': msg.output,
           });
         }
       }
@@ -3227,14 +3741,7 @@ Future<void> regenerateMessage(
         files: _extractTopLevelRequestFiles(parentMsgMap),
       );
 
-      // Check if model uses reasoning based on common naming patterns
-      final modelLower = selectedModel.id.toLowerCase();
-      final modelUsesReasoning =
-          modelLower.contains('o1') ||
-          modelLower.contains('o3') ||
-          modelLower.contains('deepseek-r1') ||
-          modelLower.contains('reasoning') ||
-          modelLower.contains('think');
+      final modelUsesReasoning = _modelUsesReasoning(selectedModel.id);
 
       final bool isBackgroundFlow =
           isBackgroundToolsFlowPre ||
@@ -3275,6 +3782,883 @@ Future<void> regenerateMessage(
   } catch (e) {
     rethrow;
   }
+}
+
+/// Drives the EXISTING streaming pipeline for a turn whose rows already exist
+/// (the user message + assistant placeholder are in the DB and loaded into
+/// `chatMessagesProvider`). The SHARED streaming tail used by both the queued
+/// completion runner (Wiring D) and — over time — the interactive send paths,
+/// so there is exactly ONE `sendMessageSession`/`dispatchChatTransport`
+/// dispatch path.
+///
+/// It rebuilds `requestMessages` LIVE from `chatMessagesProvider` rows (never
+/// snapshots), passes [assistantMessageId] as `responseMessageId` (load-bearing
+/// for the R8 one-row-per-turn guarantee), and does NOT mint a new assistant id
+/// nor re-add the user message. Caller has already ensured the placeholder is
+/// the last message and marked streaming (via [_preseedAssistantAndPersist]).
+Future<void> runQueuedCompletion(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+  required String model,
+  List<String> toolIds = const <String>[],
+  List<String> filterIds = const <String>[],
+  String? terminalId,
+  bool enableWebSearch = false,
+  bool enableImageGeneration = false,
+  String? sessionIdOverride,
+}) async {
+  final api = ref.read(apiServiceProvider);
+  if (api == null) {
+    throw StateError('runQueuedCompletion requires an API service');
+  }
+  final selectedModel = ref.read(selectedModelProvider);
+  // Empty model => fall back to the selected default model (mirrors the
+  // migrator's empty-model contract). A still-empty model is a hard error.
+  final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
+  if (effectiveModelId.isEmpty) {
+    throw StateError('runQueuedCompletion has no model to send');
+  }
+
+  final activeConversation = ref.read(activeConversationProvider);
+  if (activeConversation == null || activeConversation.id != chatId) {
+    // The caller (runner) activates the chat before driving; a mismatch means
+    // the active chat changed under us — let the op retry on a later drain.
+    throw _QueuedCompletionDeferred(
+      'runQueuedCompletion: chat $chatId is not active',
+    );
+  }
+
+  Map<String, dynamic>? userSettingsData;
+  String? userSystemPrompt;
+  try {
+    userSettingsData = await api.getUserSettings();
+    userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+  } catch (_) {}
+
+  final toolIdsForApi = _extractToolIdsForApi(toolIds);
+  final selectedFilterIds = filterIds;
+
+  // Rebuild the conversation history LIVE from the loaded rows (§3.iii).
+  final List<ChatMessage> messages = ref.read(chatMessagesProvider);
+  final isTemporary =
+      isTemporaryChat(activeConversation.id) ||
+      ref.read(temporaryChatEnabledProvider);
+  final requestMessages = await _buildCompletionRequestMessages(
+    api: api,
+    messages: messages,
+    conversationSystemPrompt: activeConversation.systemPrompt,
+    userSystemPrompt: userSystemPrompt,
+    isTemporary: isTemporary,
+  );
+
+  // Ensure the (already-existing) assistant placeholder is loaded + streaming.
+  await _preseedAssistantAndPersist(
+    ref,
+    existingAssistantId: assistantMessageId,
+    modelId: effectiveModelId,
+  );
+
+  final Map<String, dynamic> modelItem =
+      (selectedModel != null && selectedModel.id == effectiveModelId)
+      ? _buildLocalModelItem(selectedModel)
+      : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+
+  final socketService = ref.read(socketServiceProvider);
+  final socketSessionId =
+      sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
+
+  List<Map<String, dynamic>>? toolServers;
+  try {
+    toolServers = await _resolveToolServersForRequest(
+      api: api,
+      userSettings: userSettingsData,
+      selectedToolIds: toolIds,
+    );
+  } catch (_) {}
+
+  final bgTasks = _buildOpenWebUiBackgroundTasks(
+    userSettings: userSettingsData,
+    shouldGenerateTitle: false,
+    webSearchEnabled: enableWebSearch,
+    imageGenerationEnabled: enableImageGeneration,
+  );
+
+  final bool isBackgroundToolsFlowPre =
+      toolIdsForApi.isNotEmpty ||
+      terminalId != null ||
+      (toolServers != null && toolServers.isNotEmpty);
+
+  final lastUserMessageId = _lastUserMessageId(messages);
+
+  Map<String, dynamic>? promptVars2;
+  Map<String, dynamic>? parentMsgMap;
+  try {
+    promptVars2 = await _buildOpenWebUiPromptVariablesForRequest(
+      ref,
+      now: DateTime.now(),
+      userSettings: userSettingsData,
+    );
+  } catch (_) {}
+  try {
+    parentMsgMap = _buildOpenWebUiUserMessage(
+      messages: messages,
+      userMessageId: lastUserMessageId,
+      modelId: effectiveModelId,
+      assistantChildMessageId: assistantMessageId,
+    );
+  } catch (_) {}
+
+  socketService?.startBuffering(
+    chatId,
+    sessionId: socketSessionId,
+    messageId: assistantMessageId,
+  );
+
+  try {
+    final session = await api.sendMessageSession(
+      messages: requestMessages,
+      model: effectiveModelId,
+      conversationId: chatId,
+      terminalId: terminalId,
+      toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+      enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
+      modelItem: modelItem,
+      sessionIdOverride: socketSessionId,
+      toolServers: toolServers,
+      backgroundTasks: bgTasks,
+      responseMessageId: assistantMessageId,
+      userSettings: userSettingsData,
+      parentId: parentMsgMap?['parentId']?.toString(),
+      userMessage: parentMsgMap,
+      variables: promptVars2,
+      files: _extractTopLevelRequestFiles(parentMsgMap),
+    );
+
+    final modelUsesReasoning = _modelUsesReasoning(effectiveModelId);
+
+    final bool isBackgroundFlow =
+        isBackgroundToolsFlowPre ||
+        enableWebSearch ||
+        enableImageGeneration ||
+        bgTasks.isNotEmpty;
+
+    await dispatchChatTransport(
+      ref: ref,
+      session: session,
+      assistantMessageId: assistantMessageId,
+      modelId: effectiveModelId,
+      modelItem: modelItem,
+      activeConversationId: chatId,
+      api: api,
+      socketService: socketService,
+      workerManager: ref.read(workerManagerProvider),
+      webSearchEnabled: enableWebSearch,
+      imageGenerationEnabled: enableImageGeneration,
+      isBackgroundFlow: isBackgroundFlow,
+      modelUsesReasoning: modelUsesReasoning,
+      toolsEnabled:
+          toolIdsForApi.isNotEmpty ||
+          terminalId != null ||
+          (toolServers != null && toolServers.isNotEmpty) ||
+          enableImageGeneration,
+      isTemporary: isTemporary,
+      filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+    );
+  } finally {
+    socketService?.stopBuffering(
+      chatId,
+      sessionId: socketSessionId,
+      messageId: assistantMessageId,
+    );
+  }
+}
+
+/// HEADLESS completion (CDT-RFC-001 Option B). Drives a queued
+/// `requestCompletion` for a chat the user is NOT looking at WITHOUT touching
+/// the global UI providers (no active-conversation switch, no
+/// chatMessagesProvider mutation).
+///
+/// This is feasible because Open WebUI persists the assistant message
+/// SERVER-SIDE during the completion (`upsert_message_to_chat_by_id...` in the
+/// server's `utils/middleware.py`; the outlet handler "replaces the POST
+/// /api/chat/completed round-trip"). Verified live: firing the completion and
+/// DISCARDING every stream chunk still leaves the full reply persisted on the
+/// chat. So the client only has to: build the request from the DB rows, fire
+/// it, drain the stream to EOF so the server runs to completion, then PULL the
+/// chat to merge the server-persisted reply into the local DB (Phase 3 merge).
+///
+/// No second streaming implementation; the rich-field accumulation lives on the
+/// server. [messages] is the target chat's history (DB-derived), NOT
+/// `chatMessagesProvider` (which holds whatever chat the user is viewing).
+Future<void> runHeadlessCompletion(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+  required List<ChatMessage> messages,
+  required Conversation conversation,
+  required String model,
+  List<String> toolIds = const <String>[],
+  List<String> filterIds = const <String>[],
+  String? terminalId,
+  bool enableWebSearch = false,
+  bool enableImageGeneration = false,
+  String? sessionIdOverride,
+}) async {
+  final api = ref.read(apiServiceProvider);
+  if (api == null) {
+    throw StateError('runHeadlessCompletion requires an API service');
+  }
+  final selectedModel = ref.read(selectedModelProvider);
+  final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
+  if (effectiveModelId.isEmpty) {
+    throw StateError('runHeadlessCompletion has no model to send');
+  }
+  if (isTemporaryChat(chatId)) {
+    // Temp chats are not persisted server-side, so headless persistence does
+    // not apply; the caller never queues completions for them.
+    return;
+  }
+
+  Map<String, dynamic>? userSettingsData;
+  String? userSystemPrompt;
+  try {
+    userSettingsData = await api.getUserSettings();
+    userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
+  } catch (_) {}
+
+  final toolIdsForApi = _extractToolIdsForApi(toolIds);
+
+  // Build the request history from the PASSED messages (the target chat's DB
+  // rows), never the globally-active chat's provider state.
+  final requestMessages = await _buildCompletionRequestMessages(
+    api: api,
+    messages: messages,
+    conversationSystemPrompt: conversation.systemPrompt,
+    userSystemPrompt: userSystemPrompt,
+    isTemporary: false,
+  );
+
+  final modelItem =
+      (selectedModel != null && selectedModel.id == effectiveModelId)
+      ? _buildLocalModelItem(selectedModel)
+      : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+
+  final socketService = ref.read(socketServiceProvider);
+  final socketSessionId =
+      sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
+
+  List<Map<String, dynamic>>? toolServers;
+  try {
+    toolServers = await _resolveToolServersForRequest(
+      api: api,
+      userSettings: userSettingsData,
+      selectedToolIds: toolIds,
+    );
+  } catch (_) {}
+
+  final bgTasks = _buildOpenWebUiBackgroundTasks(
+    userSettings: userSettingsData,
+    shouldGenerateTitle: false,
+    webSearchEnabled: enableWebSearch,
+    imageGenerationEnabled: enableImageGeneration,
+  );
+
+  final lastUserMessageId = _lastUserMessageId(messages);
+  Map<String, dynamic>? promptVars;
+  Map<String, dynamic>? parentMsgMap;
+  try {
+    promptVars = await _buildOpenWebUiPromptVariablesForRequest(
+      ref,
+      now: DateTime.now(),
+      userSettings: userSettingsData,
+    );
+  } catch (_) {}
+  try {
+    parentMsgMap = _buildOpenWebUiUserMessage(
+      messages: messages,
+      userMessageId: lastUserMessageId,
+      modelId: effectiveModelId,
+      assistantChildMessageId: assistantMessageId,
+    );
+  } catch (_) {}
+
+  final session = await api.sendMessageSession(
+    messages: requestMessages,
+    model: effectiveModelId,
+    conversationId: chatId,
+    terminalId: terminalId,
+    toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+    filterIds: filterIds.isNotEmpty ? filterIds : null,
+    enableWebSearch: enableWebSearch,
+    enableImageGeneration: enableImageGeneration,
+    modelItem: modelItem,
+    sessionIdOverride: socketSessionId,
+    toolServers: toolServers,
+    backgroundTasks: bgTasks,
+    responseMessageId: assistantMessageId,
+    userSettings: userSettingsData,
+    parentId: parentMsgMap?['parentId']?.toString(),
+    userMessage: parentMsgMap,
+    variables: promptVars,
+    files: _extractTopLevelRequestFiles(parentMsgMap),
+  );
+
+  // Drain the HTTP byte stream to EOF (discarding chunks) so the server runs to
+  // completion + persists. The socket/task flow has no byteStream — the server
+  // generates it as a background task; the subsequent pull(s) collect it.
+  final byteStream = session.byteStream;
+  if (byteStream != null) {
+    try {
+      await byteStream.drain<void>().timeout(_headlessStreamDrainTimeout);
+    } on TimeoutException catch (error) {
+      DebugLogger.error(
+        'headless-stream-drain-timeout',
+        scope: 'chat/completion',
+        error: error,
+        data: {'chatId': chatId},
+      );
+      await _abortQuietly(session);
+      throw _QueuedCompletionDeferred(
+        'headless stream drain timed out for chat $chatId',
+      );
+    } catch (error) {
+      DebugLogger.error(
+        'headless-stream-drain-failed',
+        scope: 'chat/completion',
+        error: error,
+        data: {'chatId': chatId},
+      );
+      await _abortQuietly(session);
+      throw _QueuedCompletionDeferred(
+        'headless stream drain failed for chat $chatId: $error',
+      );
+    }
+  }
+
+  await _markHeadlessCompletionSubmitted(
+    ref,
+    chatId: chatId,
+    assistantMessageId: assistantMessageId,
+  );
+
+  // Pull the chat (bounded) until the server-persisted assistant reply lands
+  // locally. The Phase 3 merge applies it under the chat lock. Both transport
+  // flows persist the assistant message ASYNCHRONOUSLY (the server defaults
+  // ENABLE_REALTIME_CHAT_SAVE=False, so even after the HTTP byte stream drains
+  // to EOF the final upsert can trail the stream close), so BOTH paths poll
+  // with a short backoff rather than trusting a single immediate pull. If it
+  // still hasn't landed within the window the content is safe on the server and
+  // the next sync cycle collects it — this only tightens the latency.
+  final engine = ref.read(syncEngineProvider.notifier);
+  for (var attempt = 0; attempt < 6; attempt++) {
+    if (attempt > 0) await Future<void>.delayed(const Duration(seconds: 2));
+    final convo = await engine.pullChatNow(chatId);
+    final asst = convo?.messages
+        .where((m) => m.id == assistantMessageId)
+        .firstOrNull;
+    if (asst != null && _headlessAssistantLanded(asst)) {
+      DebugLogger.log(
+        'headless-completion-landed',
+        scope: 'chat/completion',
+        data: {'chatId': chatId, 'attempt': attempt},
+      );
+      return;
+    }
+  }
+  DebugLogger.log(
+    'headless-completion-not-yet-landed',
+    scope: 'chat/completion',
+    data: {'chatId': chatId},
+  );
+}
+
+bool _headlessAssistantLanded(ChatMessage message) {
+  if (message.content.trim().isNotEmpty) return true;
+  if (message.output?.isNotEmpty == true) return true;
+  if (message.files?.isNotEmpty == true) return true;
+  if (message.embeds?.isNotEmpty == true) return true;
+  if (message.sources.isNotEmpty) return true;
+  if (message.codeExecutions.isNotEmpty) return true;
+  if (message.followUps.isNotEmpty) return true;
+  if (message.error != null) return true;
+
+  return false;
+}
+
+@visibleForTesting
+bool headlessAssistantLandedForTest(ChatMessage message) =>
+    _headlessAssistantLanded(message);
+
+class _QueuedCompletionDeferred implements OutboxDeferralException {
+  const _QueuedCompletionDeferred(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Cancels the active completion's underlying request (e.g. the Dio
+/// CancelToken for the httpStream transport), tearing down the byte-stream
+/// subscription and closing the socket. Swallows abort errors so callers can
+/// continue propagating their original failure/deferral.
+Future<void> _abortQuietly(ChatCompletionSession session) async {
+  final abort = session.abort;
+  if (abort == null) return;
+  try {
+    await abort();
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'headless-stream-abort-failed',
+      scope: 'chat/completion',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+Future<void> _markHeadlessCompletionSubmitted(
+  dynamic ref, {
+  required String chatId,
+  required String assistantMessageId,
+}) async {
+  final db = _readAppDatabaseOrNull(ref);
+  if (db == null) return;
+  try {
+    await db.messagesDao.markAssistantResponseDone(
+      chatId: chatId,
+      messageId: assistantMessageId,
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'headless-completion-marker-failed',
+      scope: 'chat/completion',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
+    );
+  }
+}
+
+AppDatabase? _readAppDatabaseOrNull(dynamic ref) {
+  try {
+    return ref.read(appDatabaseProvider);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue
+/// retirement). Replaces the legacy `taskQueueProvider.enqueueSendText` path.
+///
+/// Writes the user message + assistant placeholder rows AND the outbox op(s)
+/// (createChat or updateChat, plus requestCompletion) in ONE transaction via the
+/// `*WithOutbox` DAO methods, under `ChatLocks.runExclusive(chatId)`, so a send
+/// composed offline survives a force-quit (NON-NEGOTIABLE 4). The optimistic UI
+/// add is separate + instant. The SAME [assistantMessageId] is threaded into the
+/// in-memory placeholder, the DB row, and `RequestCompletionPayload`
+/// (NON-NEGOTIABLE 1, R8). Streaming is then driven by the requestCompletion op
+/// via the drainer's runner — `drainNow()` fires immediately so an online send
+/// streams with no perceptible delay.
+///
+/// Falls back to the legacy inline send ([_sendMessageInternal]) when there is
+/// no active database (reviewer mode / no active server), preserving behavior.
+Future<void> durableSend(
+  dynamic ref,
+  String message,
+  List<String>? attachments, {
+  List<String>? toolIds,
+  String? pendingFolderIdOverride,
+  bool isVoiceMode = false,
+}) async {
+  final activeAtSendStart = ref.read(activeConversationProvider);
+  if (isTemporaryChat(activeAtSendStart?.id)) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
+  final db = _readAppDatabaseOrNull(ref);
+  final reviewerMode = ref.read(reviewerModeProvider);
+  final selectedModel = ref.read(selectedModelProvider);
+  final temporary = ref.read(temporaryChatEnabledProvider);
+
+  // No durable backend (reviewer mode, no active server) OR a temporary chat
+  // (never persisted): fall back to the legacy inline send path unchanged.
+  if (db == null || reviewerMode || selectedModel == null || temporary) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
+  final filterIds = ref.read(selectedFilterIdsProvider);
+  final now = ref.read(syncClockProvider).nowEpochSeconds();
+  final selectedTerminalId = ref.read(selectedTerminalIdProvider);
+  final terminalIdForCompletion = modelSupportsTerminal(selectedModel)
+      ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
+      : null;
+  final webSearchEnabled =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
+  final imageGenerationEnabled =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
+
+  final existingMessages = ref.read(chatMessagesProvider);
+  final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
+
+  // Mint both ids ONCE (R8): the placeholder, the DB row, and the completion
+  // payload all share `assistantMessageId`.
+  final userMessageId = const Uuid().v4();
+  final assistantMessageId = const Uuid().v4();
+
+  // ---- optimistic UI (instant; NON-NEGOTIABLE 4) ----
+  final contextAttachments = ref.read(contextAttachmentsProvider);
+  final contextFiles = _contextAttachmentsToFiles(contextAttachments);
+  final attachmentIds = attachments;
+  final userMessage = ChatMessage(
+    id: userMessageId,
+    role: 'user',
+    content: message,
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    attachmentIds: attachmentIds,
+    files: contextFiles.isEmpty ? null : contextFiles,
+    metadata: {
+      'parentId': parentId,
+      'childrenIds': <String>[assistantMessageId],
+      'models': <String>[selectedModel.id],
+    },
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
+  final assistantPlaceholder = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+  );
+  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+
+  final chatLocks = ref.read(chatLocksProvider);
+  final attachmentList = attachments ?? const <String>[];
+  final toolIdList = toolIds ?? const <String>[];
+  final durableAttachmentFiles = await _resolveDurableFilesFor(
+    ref,
+    attachmentList,
+  );
+  final durableFiles = <Map<String, dynamic>>[
+    ...durableAttachmentFiles,
+    ...contextFiles,
+  ];
+
+  final completion = RequestCompletionPayload(
+    assistantMessageId: assistantMessageId,
+    model: selectedModel.id,
+    toolIds: toolIdList,
+    filterIds: filterIds,
+    terminalId: terminalIdForCompletion,
+    enableWebSearch: webSearchEnabled,
+    enableImageGeneration: imageGenerationEnabled,
+  );
+
+  var activeConversation = activeAtSendStart;
+
+  if (activeConversation == null) {
+    // ---- NEW local chat ----
+    final pendingFolderId =
+        pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider);
+    final localId = 'local:${const Uuid().v4()}';
+    final title = _titleFromText(message);
+
+    final blob = _buildDurableNewChatBlob(
+      userMsgId: userMessageId,
+      asstId: assistantMessageId,
+      parentId: parentId,
+      text: message,
+      files: durableFiles,
+      modelId: selectedModel.id,
+      now: now,
+    );
+    final rows = ChatBlobMapper.blobToRows(
+      chatId: localId,
+      blob: blob,
+      title: title,
+      folderId: pendingFolderId,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final contentHash = createChatContentHash(rows);
+
+    // Set the active conversation to the local id BEFORE persisting so the
+    // runner / remap consumer see a stable id.
+    final localConversation = Conversation(
+      id: localId,
+      title: title,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: ref.read(chatMessagesProvider),
+      folderId: pendingFolderId,
+    );
+    ref.read(activeConversationProvider.notifier).set(localConversation);
+    activeConversation = localConversation;
+    ref.read(pendingFolderIdProvider.notifier).clear();
+
+    await chatLocks.runExclusive(localId, () async {
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: contentHash,
+        completion: completion,
+      );
+    });
+  } else {
+    // ---- EXISTING chat ----
+    final chatId = activeConversation.id;
+    final userRow = MessageRowData(
+      id: userMessageId,
+      chatId: chatId,
+      parentId: parentId,
+      role: 'user',
+      content: message,
+      createdAt: now,
+      orderIndex: 0,
+      payload: <String, dynamic>{
+        'id': userMessageId,
+        'parentId': parentId,
+        'childrenIds': <String>[assistantMessageId],
+        'role': 'user',
+        'content': message,
+        'files': durableFiles,
+        'models': <String>[selectedModel.id],
+        'timestamp': now,
+      },
+    );
+    final asstRow = MessageRowData(
+      id: assistantMessageId,
+      chatId: chatId,
+      parentId: userMessageId,
+      role: 'assistant',
+      content: '',
+      model: selectedModel.id,
+      createdAt: now,
+      orderIndex: 1,
+      payload: <String, dynamic>{
+        'id': assistantMessageId,
+        'parentId': userMessageId,
+        'childrenIds': <String>[],
+        'role': 'assistant',
+        'content': '',
+        'model': selectedModel.id,
+        'timestamp': now,
+      },
+    );
+
+    await chatLocks.runExclusive(chatId, () async {
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: chatId,
+        messages: [userRow, asstRow],
+        currentMessageId: assistantMessageId,
+        updatedAt: now,
+        enqueueCompletion: true,
+        completion: completion,
+      );
+    });
+  }
+
+  // Context attachments (web page / YouTube transcript / KB doc) have now been
+  // folded into the persisted user message + durable rows, so clear them —
+  // otherwise they stay attached and are silently re-sent on the next message
+  // (mirrors `_sendMessageInternal`).
+  ref.read(contextAttachmentsProvider.notifier).clear();
+
+  // Drive streaming immediately (online) via the requestCompletion op.
+  await ref.read(syncEngineProvider.notifier).drainNow();
+}
+
+Map<String, dynamic> _buildDurableNewChatBlob({
+  required String userMsgId,
+  required String asstId,
+  required String? parentId,
+  required String text,
+  required List<Map<String, dynamic>> files,
+  required String modelId,
+  required int now,
+}) {
+  return <String, dynamic>{
+    'title': _titleFromText(text),
+    'models': <String>[modelId],
+    'history': <String, dynamic>{
+      'currentId': asstId,
+      'messages': <String, dynamic>{
+        userMsgId: <String, dynamic>{
+          'id': userMsgId,
+          'parentId': parentId,
+          'childrenIds': <String>[asstId],
+          'role': 'user',
+          'content': text,
+          'files': files,
+          'models': <String>[modelId],
+          'timestamp': now,
+        },
+        asstId: <String, dynamic>{
+          'id': asstId,
+          'parentId': userMsgId,
+          'childrenIds': <String>[],
+          'role': 'assistant',
+          'content': '',
+          'model': modelId,
+          'timestamp': now,
+        },
+      },
+    },
+  };
+}
+
+typedef _AttachmentTypeMap = Map<String, String>;
+
+Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
+  dynamic ref,
+  List<String> attachments,
+) async {
+  if (attachments.isEmpty) return const [];
+
+  final contentTypes = _durableAttachmentContentTypesFromState(
+    ref,
+    attachments,
+  );
+  final missingIds = attachments
+      .where((id) => !id.startsWith('data:image/'))
+      .where((id) => (contentTypes[id] ?? '').isEmpty)
+      .toSet();
+
+  final api = ref.read(apiServiceProvider);
+  if (api != null && missingIds.isNotEmpty) {
+    final fetchedTypes = await Future.wait(
+      missingIds.map((id) async {
+        try {
+          final raw = await api.getFileInfo(id);
+          if (raw is! Map) return null;
+          final contentType = _contentTypeFromFileInfo(raw);
+          if (contentType.isEmpty) return null;
+          return MapEntry(id, contentType);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    for (final entry in fetchedTypes) {
+      if (entry != null) contentTypes[entry.key] = entry.value;
+    }
+  }
+
+  return _durableFilesFor(attachments, contentTypes: contentTypes);
+}
+
+_AttachmentTypeMap _durableAttachmentContentTypesFromState(
+  dynamic ref,
+  List<String> attachments,
+) {
+  final ids = attachments.where((id) => !id.startsWith('data:image/')).toSet();
+  if (ids.isEmpty) return <String, String>{};
+
+  final contentTypes = <String, String>{};
+
+  try {
+    for (final file in ref.read(attachedFilesProvider)) {
+      final fileId = file.fileId;
+      if (fileId == null || !ids.contains(fileId) || file.isImage != true) {
+        continue;
+      }
+      final contentType = _getMimeTypeFromFileName(file.fileName);
+      if (contentType != null && contentType.isNotEmpty) {
+        contentTypes[fileId] = contentType;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    final cachedFiles = ref.read(userFilesProvider).asData?.value;
+    if (cachedFiles != null) {
+      for (final FileInfo file in cachedFiles) {
+        final contentType = file.mimeType.trim();
+        if (ids.contains(file.id) && contentType.isNotEmpty) {
+          contentTypes[file.id] = contentType;
+        }
+      }
+    }
+  } catch (_) {}
+
+  return contentTypes;
+}
+
+String _contentTypeFromFileInfo(Map<dynamic, dynamic> fileInfo) {
+  final meta = fileInfo['meta'] ?? fileInfo['metadata'];
+  Object? contentType;
+  if (meta is Map) {
+    contentType = meta['content_type'] ?? meta['mimeType'] ?? meta['mime_type'];
+  }
+  contentType ??=
+      fileInfo['content_type'] ?? fileInfo['mimeType'] ?? fileInfo['mime_type'];
+  return contentType?.toString().trim() ?? '';
+}
+
+List<Map<String, dynamic>> _durableFilesFor(
+  List<String> attachments, {
+  _AttachmentTypeMap contentTypes = const {},
+}) {
+  return [
+    for (final id in attachments)
+      if (id.startsWith('data:image/'))
+        <String, dynamic>{'type': 'image', 'url': id}
+      else
+        _durableFileFor(id, contentType: contentTypes[id]),
+  ];
+}
+
+Map<String, dynamic> _durableFileFor(String id, {String? contentType}) {
+  final normalizedContentType = contentType?.trim() ?? '';
+  final file = <String, dynamic>{
+    'type': normalizedContentType.startsWith('image/') ? 'image' : 'file',
+    'id': id,
+    'url': id,
+  };
+  if (normalizedContentType.isNotEmpty) {
+    file['content_type'] = normalizedContentType;
+  }
+  return file;
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> buildDurableFilesForTest(
+  List<String> attachments, {
+  Map<String, String> contentTypes = const {},
+}) {
+  return _durableFilesFor(attachments, contentTypes: contentTypes);
+}
+
+String _titleFromText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return 'New Chat';
+  return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
 }
 
 // Send message function for widgets
@@ -3435,17 +4819,24 @@ Future<void> _sendMessageInternal(
         // Determine type: 'image' for image content types, 'file' for others
         // .toString() for safety against malformed API responses returning non-String
         final isImage = contentType.toString().startsWith('image/');
-        return <String, dynamic>{
+        final filePayload = <String, dynamic>{
           'type': isImage ? 'image' : 'file',
           'id': fileId,
           'name': fileName,
           // OpenWebUI now stores just the file ID, not the full URL path
           // The frontend resolves it when displaying
           'url': fileId,
-          'size': ?fileSize,
-          'collection_name': ?collectionName,
-          if (contentType.isNotEmpty) 'content_type': contentType,
         };
+        if (fileSize != null) {
+          filePayload['size'] = fileSize;
+        }
+        if (collectionName != null) {
+          filePayload['collection_name'] = collectionName;
+        }
+        if (contentType.isNotEmpty) {
+          filePayload['content_type'] = contentType;
+        }
+        return filePayload;
       } catch (_) {
         return <String, dynamic>{
           'type': 'file',
@@ -3556,6 +4947,10 @@ Future<void> _sendMessageInternal(
                     updatedConversation.folderId!.isNotEmpty,
               );
 
+          // CDT-RFC-001 Phase 1 (E4): materialize the chats row so the
+          // stream-completion echo and pause checkpoint have a parent row.
+          schedulePullChatNow(ref, serverConversation.id);
+
           // Invalidate conversations provider to refresh the list
           // Adding a small delay to prevent rapid invalidations that could cause duplicates
           Future.delayed(const Duration(milliseconds: 100), () {
@@ -3660,7 +5055,7 @@ Future<void> _sendMessageInternal(
         final Map<String, dynamic> messageMap = {
           'role': msg.role,
           'content': cleaned,
-          'output': ?msg.output,
+          if (msg.output != null) 'output': msg.output,
         };
         if (msg.files != null && msg.files!.isNotEmpty) {
           messageMap['files'] = msg.files;
@@ -3767,13 +5162,7 @@ Future<void> _sendMessageInternal(
     final bool isBackgroundWebSearchPre = webSearchEnabled;
 
     // Find the last user message ID for proper parent linking
-    String? lastUserMessageId;
-    for (int i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role == 'user') {
-        lastUserMessageId = messages[i].id;
-        break;
-      }
-    }
+    final lastUserMessageId = _lastUserMessageId(messages);
 
     // Use transport-aware session dispatch
     // Build template variables for prompt substitution (matches OpenWebUI's
@@ -3841,14 +5230,7 @@ Future<void> _sendMessageInternal(
         files: _extractTopLevelRequestFiles(userMessageMap),
       );
 
-      // Check if model uses reasoning based on common naming patterns
-      final modelLower2 = selectedModel.id.toLowerCase();
-      final modelUsesReasoning2 =
-          modelLower2.contains('o1') ||
-          modelLower2.contains('o3') ||
-          modelLower2.contains('deepseek-r1') ||
-          modelLower2.contains('reasoning') ||
-          modelLower2.contains('think');
+      final modelUsesReasoning2 = _modelUsesReasoning(selectedModel.id);
 
       final bool isBackgroundFlow =
           isBackgroundToolsFlowPre ||
@@ -3964,7 +5346,6 @@ String _errorContentForException(Object e) {
 // Fallback: Save current conversation to local storage
 Future<void> _saveConversationLocally(dynamic ref) async {
   try {
-    final storage = ref.read(optimizedStorageServiceProvider);
     final messages = ref.read(chatMessagesProvider);
     final activeConversation = ref.read(activeConversationProvider);
 
@@ -3986,18 +5367,29 @@ Future<void> _saveConversationLocally(dynamic ref) async {
       updatedAt: DateTime.now(),
     );
 
-    final conversations = await storage.getLocalConversations();
-    final updatedConversations = conversations.toList(growable: true);
-    final existingIndex = updatedConversations.indexWhere(
-      (conversation) => conversation.id == updatedConversation.id,
-    );
-    if (existingIndex >= 0) {
-      updatedConversations[existingIndex] = updatedConversation;
-    } else {
-      updatedConversations.add(updatedConversation);
+    final db = _readAppDatabaseOrNull(ref);
+    if (db != null && !isTemporaryChat(updatedConversation.id)) {
+      final lastReadAt = updatedConversation.lastReadAt;
+      // ChatLocks discipline: serialize with pull merges / turn echoes so a
+      // stale optimistic stub can never overwrite a just-merged server row.
+      final ChatLocks locks = ref.read(chatLocksProvider);
+      await locks.runExclusive(updatedConversation.id, () async {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: updatedConversation.id,
+          title: updatedConversation.title,
+          createdAt:
+              updatedConversation.createdAt.millisecondsSinceEpoch ~/ 1000,
+          updatedAt:
+              updatedConversation.updatedAt.millisecondsSinceEpoch ~/ 1000,
+          pinned: updatedConversation.pinned,
+          archived: updatedConversation.archived,
+          folderId: Value(updatedConversation.folderId),
+          lastReadAt: lastReadAt == null
+              ? null
+              : lastReadAt.millisecondsSinceEpoch ~/ 1000,
+        );
+      });
     }
-
-    await storage.saveLocalConversations(updatedConversations);
     ref.read(activeConversationProvider.notifier).set(updatedConversation);
     refreshConversationsCache(ref);
   } catch (e) {
@@ -4327,13 +5719,20 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
           } catch (_) {}
         }());
 
-        // Also cancel local queue tasks for this conversation
+        // Drop any PENDING requestCompletion op for this chat so a stopped
+        // turn is not re-driven by the next drain (W14). An inFlight op (the
+        // stream already started) is left to the transport-cancel above.
         try {
-          // Fire-and-forget local queue cancellation
-          // ignore: unawaited_futures
-          ref
-              .read(taskQueueProvider.notifier)
-              .cancelByConversation(activeConv.id);
+          final db = ref.read(appDatabaseProvider);
+          if (db != null) {
+            final chatLocks = ref.read(chatLocksProvider);
+            // Fire-and-forget; the lock serializes against the drainer.
+            // ignore: unawaited_futures
+            chatLocks.runExclusive(
+              activeConv.id,
+              () => db.chatsDao.cancelPendingCompletion(activeConv.id),
+            );
+          }
         } catch (_) {}
       }
     } catch (_) {}

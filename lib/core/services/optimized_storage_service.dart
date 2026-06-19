@@ -2,10 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../models/backend_config.dart';
-import '../models/conversation.dart';
-import '../models/folder.dart';
 import '../models/model.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
@@ -43,6 +42,15 @@ class OptimizedStorageService {
   final WorkerManager _workerManager;
   final CacheManager _cacheManager = CacheManager(maxEntries: 64);
 
+  /// Serializes read-modify-write sequences over the auth token, saved
+  /// credentials, and active server id so a stale background task's
+  /// compare-and-write can't interleave with (and clobber) a newer login /
+  /// server selection. All WRITES to those three keys take this lock; the
+  /// compound `*IfMatches` / `restore*` helpers do their read AND write under a
+  /// single hold via the private `_*Unlocked` bodies (the lock is NOT
+  /// reentrant, so locked methods must call the unlocked bodies internally).
+  final Lock _authStateLock = Lock();
+
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
@@ -69,7 +77,10 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Auth token APIs (secure storage + in-memory cache)
   // ---------------------------------------------------------------------------
-  Future<void> saveAuthToken(String token) async {
+  Future<void> saveAuthToken(String token) =>
+      _authStateLock.synchronized(() => _saveAuthTokenUnlocked(token));
+
+  Future<void> _saveAuthTokenUnlocked(String token) async {
     try {
       await _secureCredentialStorage.saveAuthToken(token);
       _cacheManager.write(_authTokenKey, token, ttl: _authTokenTtl);
@@ -109,7 +120,23 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> deleteAuthToken() async {
+  Future<void> deleteAuthToken() =>
+      _authStateLock.synchronized(_deleteAuthTokenUnlocked);
+
+  /// Compare-and-delete: deletes the stored auth token ONLY if it still equals
+  /// [expected]. Read + conditional delete run under [_authStateLock], so a
+  /// superseded login can roll back its own token write without clobbering a
+  /// newer login's token. Returns true if it deleted.
+  Future<bool> deleteAuthTokenIfMatches(String expected) {
+    return _authStateLock.synchronized(() async {
+      final current = await getAuthToken();
+      if (current != expected) return false;
+      await _deleteAuthTokenUnlocked();
+      return true;
+    });
+  }
+
+  Future<void> _deleteAuthTokenUnlocked() async {
     try {
       await _secureCredentialStorage.deleteAuthToken();
       _cacheManager.invalidate(_authTokenKey);
@@ -131,6 +158,22 @@ class OptimizedStorageService {
   // Credential APIs (secure storage only)
   // ---------------------------------------------------------------------------
   Future<void> saveCredentials({
+    required String serverId,
+    required String username,
+    required String password,
+    String authType = 'credentials',
+  }) {
+    return _authStateLock.synchronized(
+      () => _saveCredentialsUnlocked(
+        serverId: serverId,
+        username: username,
+        password: password,
+        authType: authType,
+      ),
+    );
+  }
+
+  Future<void> _saveCredentialsUnlocked({
     required String serverId,
     required String username,
     required String password,
@@ -177,7 +220,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> deleteSavedCredentials() async {
+  Future<void> deleteSavedCredentials() =>
+      _authStateLock.synchronized(_deleteSavedCredentialsUnlocked);
+
+  Future<void> _deleteSavedCredentialsUnlocked() async {
     try {
       await _secureCredentialStorage.deleteSavedCredentials();
       _cacheManager.invalidate('has_credentials');
@@ -193,6 +239,26 @@ class OptimizedStorageService {
       );
       rethrow;
     }
+  }
+
+  /// Compare-and-delete: deletes the saved credentials ONLY if they still match
+  /// [expected] (serverId/username/password). Read + conditional delete run
+  /// under [_authStateLock], so a newer login that saved different credentials
+  /// isn't clobbered. Returns true if it deleted.
+  Future<bool> deleteSavedCredentialsIfMatches(
+    Map<String, String> expected,
+  ) {
+    return _authStateLock.synchronized(() async {
+      final current = await getSavedCredentials();
+      final matches =
+          current != null &&
+          current['serverId'] == expected['serverId'] &&
+          current['username'] == expected['username'] &&
+          current['password'] == expected['password'];
+      if (!matches) return false;
+      await _deleteSavedCredentialsUnlocked();
+      return true;
+    });
   }
 
   Future<bool> hasCredentials() async {
@@ -259,7 +325,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> setActiveServerId(String? serverId) async {
+  Future<void> setActiveServerId(String? serverId) =>
+      _authStateLock.synchronized(() => _setActiveServerIdUnlocked(serverId));
+
+  Future<void> _setActiveServerIdUnlocked(String? serverId) async {
     if (serverId != null) {
       await _preferencesBox.put(_activeServerIdKey, serverId);
     } else {
@@ -275,6 +344,57 @@ class OptimizedStorageService {
       rawServerId: activeServerIdState.rawServerId,
       cacheWhenUnchanged: !activeServerIdState.hasCachedId,
     );
+  }
+
+  /// Compare-and-clear: clears the active server id ONLY if the RAW stored
+  /// preference still equals [expectedId]. Compares the raw value (not
+  /// [getActiveServerId], which validates against saved configs and returns null
+  /// once the server is deleted — the very case this is used for), under
+  /// [_authStateLock] so a concurrently-selected active server isn't clobbered.
+  /// Returns true if it cleared.
+  Future<bool> clearActiveServerIdIfMatches(String expectedId) {
+    return _authStateLock.synchronized(() async {
+      if (_rawStoredActiveServerId() != expectedId) return false;
+      await _setActiveServerIdUnlocked(null);
+      return true;
+    });
+  }
+
+  /// The active-server id as stored in Hive, bypassing the in-memory cache and
+  /// the saved-config validation in [getActiveServerId] (which returns null once
+  /// the referenced server is deleted). Compare-and-clear/restore use this so a
+  /// dangling preference for a removed server is still detected and cleared.
+  String? _rawStoredActiveServerId() =>
+      _preferencesBox.get(_activeServerIdKey) as String?;
+
+  /// Atomically undoes a stale silent-login's persistence: under
+  /// [_authStateLock], restores the auth token and active server to their
+  /// pre-attempt values — but only the entries that still hold the stale
+  /// values, so a newer login that already wrote a fresh token / server isn't
+  /// overwritten. [replacementToken] is the token to restore when the stored
+  /// token still equals [staleToken] (null/empty → delete it).
+  Future<void> restoreActiveServerAndTokenIfStale({
+    required String staleServerId,
+    required String? previousServerId,
+    required String staleToken,
+    required String? replacementToken,
+  }) {
+    return _authStateLock.synchronized(() async {
+      final currentToken = await getAuthToken();
+      if (currentToken == staleToken) {
+        if (replacementToken != null &&
+            replacementToken.isNotEmpty &&
+            replacementToken != staleToken) {
+          await _saveAuthTokenUnlocked(replacementToken);
+        } else if (replacementToken == null || replacementToken.isEmpty) {
+          await _deleteAuthTokenUnlocked();
+        }
+      }
+
+      if (_rawStoredActiveServerId() == staleServerId) {
+        await _setActiveServerIdUnlocked(previousServerId);
+      }
+    });
   }
 
   Future<void> _syncActiveServerConfigFlags(String? serverId) async {
@@ -396,55 +516,20 @@ class OptimizedStorageService {
     );
   }
 
-  Future<List<Conversation>> getLocalConversations() {
-    return _readSafely(
-      errorMessage: 'Failed to retrieve local conversations',
-      fallback: List<Conversation>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localConversationsKey,
-        decodeDebugLabel: 'decode_local_conversations',
-        fromJson: Conversation.fromJson,
-        allowLegacyPayload: true,
-        migrateLegacy: true,
-      ),
-    );
-  }
-
-  Future<void> saveLocalConversations(List<Conversation> conversations) {
+  /// CDT-RFC-001 §9.3: deletes the legacy Hive conversation/folder caches.
+  /// The Drift database is the only conversation/folder read substrate in
+  /// Phase 1; the SyncEngine calls this exactly once after the first
+  /// fully-successful full pull (guarded by the `hive_cache_purged`
+  /// sync_meta flag). Idempotent.
+  Future<void> deleteLegacyConversationCaches() {
     return _writeSafely(
-      errorMessage: 'Failed to save local conversations',
-      write: () => _saveServerScopedJsonList(
-        _localConversationsKey,
-        items: conversations,
-        toJson: (conversation) => conversation.toJson(),
-        encodeDebugLabel: 'encode_local_conversations',
-      ),
-    );
-  }
-
-  Future<List<Folder>> getLocalFolders() {
-    return _readSafely(
-      errorMessage: 'Failed to retrieve local folders',
-      fallback: List<Folder>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localFoldersKey,
-        decodeDebugLabel: 'decode_local_folders',
-        fromJson: Folder.fromJson,
-        allowLegacyPayload: true,
-        migrateLegacy: true,
-      ),
-    );
-  }
-
-  Future<void> saveLocalFolders(List<Folder> folders) {
-    return _writeSafely(
-      errorMessage: 'Failed to save local folders',
-      write: () => _saveServerScopedJsonList(
-        _localFoldersKey,
-        items: folders,
-        toJson: (folder) => folder.toJson(),
-        encodeDebugLabel: 'encode_local_folders',
-      ),
+      errorMessage: 'Failed to delete legacy conversation caches',
+      write: () async {
+        await Future.wait([
+          _cachesBox.delete(_localConversationsKey),
+          _cachesBox.delete(_localFoldersKey),
+        ]);
+      },
     );
   }
 
@@ -773,123 +858,33 @@ class OptimizedStorageService {
     return {'data': data, 'serverId': _normalizeServerId(serverId)};
   }
 
-  Future<void> _maybeMigrateLegacyServerScopedCache({
-    required String key,
-    required Object? stored,
-    required Object? payload,
-    required String? activeServerId,
-  }) async {
-    if (_isServerScopedPayload(stored)) {
-      return;
-    }
-
-    try {
-      await _cachesBox.put(
-        key,
-        _wrapServerScopedForServerId(
-          _normalizeLegacyCachePayload(payload),
-          activeServerId,
-        ),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'Failed to migrate legacy server-scoped cache',
-        scope: 'storage/optimized',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'key': key, 'serverId': _normalizeServerId(activeServerId)},
-      );
-    }
-  }
-
-  Object? _normalizeLegacyCachePayload(Object? payload) {
-    if (payload is String) {
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is List) {
-          return decoded
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList(growable: false);
-        }
-        if (decoded is Map) {
-          return Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        return payload;
-      }
-    }
-    if (payload is List) {
-      return payload
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
-    }
-    if (payload is Map) {
-      return Map<String, dynamic>.from(payload);
-    }
-    return payload;
-  }
-
   Object? _resolveServerScopedPayload(
     Object? stored, {
     required String? activeServerId,
-    bool allowLegacyPayload = false,
   }) {
     if (stored == null) {
       return null;
     }
 
-    final isLegacyPayload = !_isServerScopedPayload(stored);
     final (payload, ownerServerId) = _unwrapServerScoped(stored);
-    final shouldEnforceScope = !isLegacyPayload || !allowLegacyPayload;
-    if (shouldEnforceScope &&
-        !_matchesActiveServer(activeServerId, ownerServerId)) {
+    if (!_matchesActiveServer(activeServerId, ownerServerId)) {
       return null;
     }
     return payload;
   }
 
-  Future<Object?> _getServerScopedPayload({
-    required String key,
-    bool allowLegacyPayload = false,
-    bool migrateLegacy = false,
-  }) async {
+  Future<Object?> _getServerScopedPayload({required String key}) async {
     final stored = _cachesBox.get(key);
     final activeServerId = await getActiveServerId();
-    final payload = _resolveServerScopedPayload(
-      stored,
-      activeServerId: activeServerId,
-      allowLegacyPayload: allowLegacyPayload,
-    );
-    if (payload == null) {
-      return null;
-    }
-
-    if (migrateLegacy) {
-      await _maybeMigrateLegacyServerScopedCache(
-        key: key,
-        stored: stored,
-        payload: payload,
-        activeServerId: activeServerId,
-      );
-    }
-
-    return payload;
+    return _resolveServerScopedPayload(stored, activeServerId: activeServerId);
   }
 
   Future<List<T>> _readServerScopedJsonList<T>({
     required String key,
     required String decodeDebugLabel,
     required T Function(Map<String, dynamic> json) fromJson,
-    bool allowLegacyPayload = false,
-    bool migrateLegacy = false,
   }) async {
-    final payload = await _getServerScopedPayload(
-      key: key,
-      allowLegacyPayload: allowLegacyPayload,
-      migrateLegacy: migrateLegacy,
-    );
+    final payload = await _getServerScopedPayload(key: key);
     if (payload == null) {
       return List<T>.empty(growable: false);
     }

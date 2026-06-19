@@ -101,7 +101,11 @@ class QueuedAttachment {
 }
 
 typedef UploadCallback =
-    Future<String> Function(String filePath, String fileName);
+    Future<String> Function(
+      String filePath,
+      String fileName, {
+      CancelToken? cancelToken,
+    });
 typedef AttachmentsEventCallback = void Function(List<QueuedAttachment> queue);
 
 /// A lightweight background queue to upload attachments when back online.
@@ -120,6 +124,7 @@ class AttachmentUploadQueue {
   final List<QueuedAttachment> _queue = [];
   Timer? _retryTimer;
   bool _isProcessing = false;
+  final Map<String, CancelToken> _cancelTokens = <String, CancelToken>{};
 
   // Dependencies
   UploadCallback? _onUpload;
@@ -205,10 +210,20 @@ class AttachmentUploadQueue {
 
   Future<void> _processSingle(QueuedAttachment item) async {
     if (_onUpload == null) return;
+    if (_isCancelled(item.id)) return;
+    final cancelToken = CancelToken();
+    _cancelTokens[item.id] = cancelToken;
     try {
       _update(item.id, item.copyWith(status: QueuedAttachmentStatus.uploading));
 
-      final fileId = await _onUpload!.call(item.filePath, item.fileName);
+      final fileId = await _onUpload!.call(
+        item.filePath,
+        item.fileName,
+        cancelToken: cancelToken,
+      );
+      if (cancelToken.isCancelled || _isCancelled(item.id)) {
+        return;
+      }
 
       _update(
         item.id,
@@ -228,6 +243,10 @@ class AttachmentUploadQueue {
         scope: 'attachments/queue',
       );
     } catch (e) {
+      if (cancelToken.isCancelled || _isCancelled(item.id)) {
+        await _markCancelled(item.id);
+        return;
+      }
       final retries = item.retryCount + 1;
       if (retries >= _maxRetries) {
         _update(
@@ -263,6 +282,8 @@ class AttachmentUploadQueue {
         'Scheduled retry for attachment ${item.id} in ${delay.inSeconds}s',
         scope: 'attachments/queue',
       );
+    } finally {
+      _cancelTokens.remove(item.id);
     }
   }
 
@@ -298,10 +319,33 @@ class AttachmentUploadQueue {
     }
   }
 
-  Future<void> remove(String id) async {
-    _queue.removeWhere((e) => e.id == id);
+  bool _isCancelled(String id) {
+    final idx = _queue.indexWhere((e) => e.id == id);
+    return idx != -1 && _queue[idx].status == QueuedAttachmentStatus.cancelled;
+  }
+
+  Future<void> _markCancelled(String id) async {
+    final idx = _queue.indexWhere((e) => e.id == id);
+    if (idx == -1) return;
+    _queue[idx] = _queue[idx].copyWith(
+      status: QueuedAttachmentStatus.cancelled,
+      nextRetryAt: null,
+      lastError: 'cancelled',
+    );
     await _save();
     _notify();
+  }
+
+  Future<void> remove(String id) async {
+    _queue.removeWhere((e) => e.id == id);
+    _cancelTokens.remove(id)?.cancel('Upload removed');
+    await _save();
+    _notify();
+  }
+
+  Future<void> cancel(String id) async {
+    _cancelTokens.remove(id)?.cancel('Upload cancelled');
+    await _markCancelled(id);
   }
 
   Future<void> retry(String id) async {

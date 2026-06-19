@@ -1,3 +1,5 @@
+import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
@@ -14,12 +16,13 @@ import 'package:conduit/features/chat/providers/context_attachments_provider.dar
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/navigation/views/folder_page.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/shared/services/tasks/outbound_task.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
-import 'package:conduit/shared/services/tasks/task_queue.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -284,7 +287,7 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  testWidgets('composer sends keep the folder target in the queued task', (
+  testWidgets('composer sends durably persist a folder-targeted local chat', (
     tester,
   ) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
@@ -295,10 +298,14 @@ void main() {
       FlutterError.onError = originalFlutterErrorOnError;
     });
 
-    final recordingTaskQueue = _RecordingTaskQueueNotifier();
+    // Real in-memory DB so the durable write path (rows + outbox ops) lands.
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
     final container = _createContainer(
       folders: const [Folder(id: 'work', name: 'Work')],
-      taskQueueNotifier: recordingTaskQueue,
+      isAuthenticated: true,
+      database: db,
     );
     addTearDown(container.dispose);
 
@@ -316,9 +323,32 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    expect(recordingTaskQueue.lastConversationId, isNull);
-    expect(recordingTaskQueue.lastPendingFolderId, 'work');
-    expect(recordingTaskQueue.lastText, 'Folder draft');
+    await tester.runAsync(() async {
+      // A new `local:` chat with folderId == 'work' carrying the user text.
+      final chats = await db.chatsDao.watchChatList().first;
+      final localChats = chats.where((c) => c.id.startsWith('local:')).toList();
+      expect(localChats, hasLength(1));
+      final chatId = localChats.single.id;
+      expect(localChats.single.folderId, 'work');
+
+      final messages = await db.messagesDao.getForChat(chatId);
+      final userRow = messages.firstWhere((m) => m.role == 'user');
+      expect(userRow.content, 'Folder draft');
+
+      // The outbox carries a createChat + requestCompletion op pair for it.
+      final ops = await db.outboxDao.pendingForChat(chatId);
+      final kinds = ops.map((o) => o.kind).toList();
+      expect(kinds, contains(OutboxKind.createChat.name));
+      expect(kinds, contains(OutboxKind.requestCompletion.name));
+      // createChat is sequenced BEFORE requestCompletion (§B2.4).
+      final createSeq = ops
+          .firstWhere((o) => o.kind == OutboxKind.createChat.name)
+          .seq;
+      final completionSeq = ops
+          .firstWhere((o) => o.kind == OutboxKind.requestCompletion.name)
+          .seq;
+      expect(createSeq, lessThan(completionSeq));
+    });
 
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;
@@ -344,11 +374,23 @@ void main() {
       updatedAt: timestamp,
       folderId: 'work',
     );
+    // Folder summaries render from the local database now (CDT-RFC-001
+    // Phase 1): seed the chats row instead of stubbing a server endpoint.
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await db.chatsDao.upsertEnvelopeStub(
+      id: 'folder-chat-1',
+      title: 'Folder Chat',
+      createdAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+      updatedAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+      folderId: const Value('work'),
+    );
     final container = _createContainer(
-      api: _FakeFolderApiService(conversationSummaries: [conversation]),
+      api: _FakeFolderApiService(),
       folders: const [Folder(id: 'work', name: 'Work')],
       conversations: [conversation],
       isAuthenticated: true,
+      database: db,
     );
     addTearDown(container.dispose);
 
@@ -373,6 +415,64 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
+
+  testWidgets(
+    'folder conversation open falls back to cached row on API error',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final timestamp = DateTime(2026, 1, 1);
+      final conversation = Conversation(
+        id: 'folder-chat-1',
+        title: 'Folder Chat',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        folderId: 'work',
+      );
+      final api = _FakeFolderApiService(
+        getConversationError: StateError('offline'),
+      );
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'folder-chat-1',
+        title: 'Folder Chat',
+        createdAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+        updatedAt: timestamp.millisecondsSinceEpoch ~/ 1000,
+        folderId: const Value('work'),
+      );
+      final container = _createContainer(
+        api: api,
+        folders: const [Folder(id: 'work', name: 'Work')],
+        conversations: [conversation],
+        isAuthenticated: true,
+        database: db,
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('folder-chat-folder-chat-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(api.requestedConversationIds, ['folder-chat-1']);
+      expect(container.read(activeConversationProvider)?.id, 'folder-chat-1');
+      expect(container.read(activeConversationProvider)?.title, 'Folder Chat');
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    },
+  );
 }
 
 Widget _buildHarness({
@@ -402,7 +502,7 @@ ProviderContainer _createContainer({
   List<Model>? availableModels,
   Conversation? activeConversation,
   List<ChatMessage> initialMessages = const <ChatMessage>[],
-  TaskQueueNotifier? taskQueueNotifier,
+  AppDatabase? database,
 }) {
   final resolvedSelectedModel =
       selectedModel ?? const Model(id: 'model-1', name: 'Model 1');
@@ -411,11 +511,10 @@ ProviderContainer _createContainer({
     overrides: [
       appSettingsProvider.overrideWithValue(settings),
       apiServiceProvider.overrideWithValue(api),
+      appDatabaseProvider.overrideWith((ref) => database),
       isAuthenticatedProvider2.overrideWithValue(isAuthenticated),
       if (isAuthenticated) authTokenProvider3.overrideWithValue('test-token'),
       reviewerModeProvider.overrideWithValue(reviewerMode),
-      if (taskQueueNotifier != null)
-        taskQueueProvider.overrideWith(() => taskQueueNotifier),
       selectedModelProvider.overrideWith(
         () => _SeededSelectedModelNotifier(resolvedSelectedModel),
       ),
@@ -530,49 +629,20 @@ class _SeededChatMessagesNotifier extends ChatMessagesNotifier {
   List<ChatMessage> build() => List<ChatMessage>.from(initialMessages);
 }
 
-class _RecordingTaskQueueNotifier extends TaskQueueNotifier {
-  String? lastConversationId;
-  String? lastPendingFolderId;
-  String? lastText;
-
-  @override
-  List<OutboundTask> build() => const <OutboundTask>[];
-
-  @override
-  Future<String> enqueueSendText({
-    required String? conversationId,
-    String? pendingFolderId,
-    required String text,
-    List<String>? attachments,
-    List<String>? toolIds,
-    String? idempotencyKey,
-  }) async {
-    lastConversationId = conversationId;
-    lastPendingFolderId = pendingFolderId;
-    lastText = text;
-    return 'recorded-send-task';
-  }
-}
-
 class _FakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
-  @override
-  Future<void> saveLocalFolders(List<Folder> folders) async {}
-
-  @override
-  Future<void> saveLocalConversations(List<Conversation> conversations) async {}
-
   @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
 class _FakeFolderApiService extends Fake implements ApiService {
-  _FakeFolderApiService({this.conversationSummaries = const <Conversation>[]});
+  _FakeFolderApiService({this.getConversationError});
 
-  final List<Conversation> conversationSummaries;
   String? lastUpdatedName;
   Map<String, dynamic>? lastUpdatedMeta;
   Map<String, dynamic>? lastUpdatedData;
+  final Object? getConversationError;
+  final List<String> requestedConversationIds = <String>[];
 
   Map<String, dynamic> _folder = <String, dynamic>{
     'id': 'work',
@@ -598,12 +668,18 @@ class _FakeFolderApiService extends Fake implements ApiService {
       <String, dynamic>{};
 
   @override
-  Future<List<Conversation>> getFolderConversationSummaries(
-    String folderId,
-  ) async {
-    return conversationSummaries
-        .where((conversation) => conversation.folderId == folderId)
-        .toList(growable: false);
+  Future<Conversation> getConversation(String id) async {
+    requestedConversationIds.add(id);
+    final error = getConversationError;
+    if (error != null) {
+      throw error;
+    }
+    return Conversation(
+      id: id,
+      title: id,
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+    );
   }
 
   @override

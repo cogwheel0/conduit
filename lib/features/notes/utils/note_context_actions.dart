@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Builds the shared note context-menu actions.
 List<ConduitContextMenuAction> buildNoteContextMenuActions({
   required BuildContext context,
+  required WidgetRef ref,
   required Note note,
   required Future<void> Function(Note note) onEdit,
   required Future<void> Function(Note note) onTogglePin,
@@ -34,7 +35,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
       materialIcon: Icons.copy_rounded,
       label: l10n.copy,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
-      onSelected: () async => copyNoteMarkdown(context, note),
+      onSelected: () async => copyNoteMarkdown(context, ref, note),
     ),
     ConduitContextMenuAction(
       cupertinoIcon: note.isPinned
@@ -57,9 +58,23 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
 }
 
 /// Copies a note's Markdown content and shows the shared success feedback.
-Future<void> copyNoteMarkdown(BuildContext context, Note note) async {
+Future<void> copyNoteMarkdown(
+  BuildContext context,
+  WidgetRef ref,
+  Note note,
+) async {
   final l10n = AppLocalizations.of(context)!;
-  await Clipboard.setData(ClipboardData(text: note.markdownContent));
+  var markdown = note.markdownContent;
+  if (note.hasListPreviewOnly) {
+    try {
+      final fullNote = await ref.read(noteByIdProvider(note.id).future);
+      markdown = fullNote?.markdownContent ?? markdown;
+    } catch (_) {
+      // Keep the previous copy behavior for transient detail-load failures.
+    }
+  }
+
+  await Clipboard.setData(ClipboardData(text: markdown));
   if (!context.mounted) return;
 
   AdaptiveSnackBar.show(

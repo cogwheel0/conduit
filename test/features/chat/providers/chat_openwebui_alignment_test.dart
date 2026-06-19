@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -78,6 +79,92 @@ void main() {
   });
 
   group('OpenWebUI message alignment', () {
+    test('durable attachments preserve data URL images separately', () {
+      const dataUrl = 'data:image/png;base64,AA==';
+
+      final files = buildDurableFilesForTest(const [dataUrl, 'file-123']);
+
+      check(files).deepEquals(const [
+        {'type': 'image', 'url': dataUrl},
+        {'type': 'file', 'id': 'file-123', 'url': 'file-123'},
+      ]);
+    });
+
+    test('durable attachments classify uploaded image ids by content type', () {
+      final files = buildDurableFilesForTest(
+        const ['image-file', 'document-file'],
+        contentTypes: const {
+          'image-file': 'image/png',
+          'document-file': 'application/pdf',
+        },
+      );
+
+      check(files).deepEquals(const [
+        {
+          'type': 'image',
+          'id': 'image-file',
+          'url': 'image-file',
+          'content_type': 'image/png',
+        },
+        {
+          'type': 'file',
+          'id': 'document-file',
+          'url': 'document-file',
+          'content_type': 'application/pdf',
+        },
+      ]);
+    });
+
+    test(
+      'unknown image filename extensions do not block server MIME lookup',
+      () {
+        check(mimeTypeFromFileNameForTest('photo.png')).equals('image/png');
+        check(mimeTypeFromFileNameForTest('camera-original.heic')).isNull();
+        check(mimeTypeFromFileNameForTest('scan.tiff')).isNull();
+        check(mimeTypeFromFileNameForTest('modern.avif')).isNull();
+      },
+    );
+
+    test('headless landing detects structured non-text assistant output', () {
+      final now = DateTime.utc(2026, 1, 1);
+
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a1',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            output: const [
+              {'type': 'tool_calls'},
+            ],
+          ),
+        ),
+      ).isTrue();
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a2',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            metadata: const {'responseDone': true},
+          ),
+        ),
+      ).isFalse();
+      check(
+        headlessAssistantLandedForTest(
+          ChatMessage(
+            id: 'a3',
+            role: 'assistant',
+            content: '',
+            timestamp: now,
+            metadata: const {'parentId': 'u1', 'childrenIds': <String>[]},
+          ),
+        ),
+      ).isFalse();
+    });
+
     test('temporary chats keep full outbound history', () {
       final messages = buildChatCompletionMessagesForTest(
         conversationMessages: const [

@@ -46,6 +46,11 @@ class WebContentEmbed extends StatefulWidget {
   @visibleForTesting
   final VoidCallback? debugOnControllerReset;
 
+  @visibleForTesting
+  static String debugWrapHtmlDocument(String source, {String argsText = ''}) {
+    return _WebContentEmbedState._wrapHtmlDocument(source, argsText: argsText);
+  }
+
   @override
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
@@ -172,7 +177,10 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   void _scheduleControllerInitialization(BuildContext context) {
-    if (!_isExpanded || _loadScheduled || _shouldRenderWebView || !_isSupported) {
+    if (!_isExpanded ||
+        _loadScheduled ||
+        _shouldRenderWebView ||
+        !_isSupported) {
       return;
     }
 
@@ -203,7 +211,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     });
   }
 
-  Future<void> _initializeController({bool reuseCurrentRequestId = false}) async {
+  Future<void> _initializeController({
+    bool reuseCurrentRequestId = false,
+  }) async {
     if (!_isSupported || !_isExpanded) {
       _loadScheduled = false;
       return;
@@ -264,7 +274,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       } else {
         final baseUrl = WebUri('https://embed.conduit.local/');
         await controller.loadData(
-          data: _wrapHtmlDocument(widget.source),
+          data: _wrapHtmlDocument(widget.source, argsText: widget.argsText),
           baseUrl: baseUrl,
           historyUrl: baseUrl,
         );
@@ -295,7 +305,10 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     } catch (_) {}
   }
 
-  void _scheduleHeightUpdates(InAppWebViewController controller, int requestId) {
+  void _scheduleHeightUpdates(
+    InAppWebViewController controller,
+    int requestId,
+  ) {
     _updateHeight(controller, requestId);
     for (final delay in <int>[60, 250, 600]) {
       Future<void>.delayed(Duration(milliseconds: delay), () {
@@ -396,7 +409,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
               if (requestId != _loadRequestId) {
                 return;
               }
-              await _injectArguments(controller);
+              if (_isRemoteUrl) {
+                await _injectArguments(controller);
+              }
               _scheduleHeightUpdates(controller, requestId);
             },
             onReceivedError: (controller, request, error) {
@@ -453,12 +468,9 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     );
   }
 
-  static String _wrapHtmlDocument(String source) {
-    final trimmed = source.trimLeft();
-    if (trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html')) {
-      return source;
-    }
-
+  static String _wrapHtmlDocument(String source, {String argsText = ''}) {
+    final sandboxedSource = _injectSandboxBootstrap(source, argsText: argsText);
+    final encodedSource = _escapeHtmlAttribute(sandboxedSource);
     return '''
 <!DOCTYPE html>
 <html>
@@ -470,14 +482,122 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         margin: 0;
         padding: 0;
         background: transparent;
+        width: 100%;
+      }
+      #embed-frame {
+        display: block;
+        width: 100%;
+        height: ${_embedDefaultHeight}px;
+        min-height: ${_embedMinHeight}px;
+        border: 0;
+        background: transparent;
       }
     </style>
+    <script>
+      (() => {
+        const minHeight = $_embedMinHeight;
+        const maxHeight = $_embedMaxHeight;
+        window.addEventListener('message', (event) => {
+          const data = event.data || {};
+          if (data.type !== 'conduit-embed-height') return;
+
+          const height = Number(data.height);
+          if (!Number.isFinite(height) || height <= 0) return;
+
+          const frame = document.getElementById('embed-frame');
+          if (!frame) return;
+
+          const clamped = Math.min(Math.max(height, minHeight), maxHeight);
+          frame.style.height = `\${clamped}px`;
+        });
+      })();
+    </script>
   </head>
   <body>
-    $source
+    <iframe
+      id="embed-frame"
+      sandbox="allow-scripts allow-forms"
+      referrerpolicy="no-referrer"
+      srcdoc="$encodedSource"
+    ></iframe>
   </body>
 </html>
 ''';
+  }
+
+  static String _injectSandboxBootstrap(
+    String source, {
+    required String argsText,
+  }) {
+    final assignments = <String>[];
+    if (argsText.trim().isNotEmpty) {
+      assignments.add('window.args = ${_jsonForInlineScript(argsText)};');
+    }
+
+    final bootstrap =
+        '''
+<script>
+  ${assignments.join('\n  ')}
+  (() => {
+    const reportHeight = () => {
+      const body = document.body;
+      const html = document.documentElement;
+      const height = Math.ceil(Math.max(
+        body?.scrollHeight || 0,
+        body?.offsetHeight || 0,
+        html?.clientHeight || 0,
+        html?.scrollHeight || 0,
+        html?.offsetHeight || 0
+      ));
+      parent.postMessage({ type: 'conduit-embed-height', height }, '*');
+    };
+
+    window.addEventListener('load', reportHeight);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(reportHeight);
+      observer.observe(document.documentElement);
+      if (document.body) observer.observe(document.body);
+    }
+    setTimeout(reportHeight, 0);
+    setTimeout(reportHeight, 250);
+    setTimeout(reportHeight, 1000);
+  })();
+</script>
+''';
+
+    final headMatch = RegExp(
+      r'<head\b[^>]*>',
+      caseSensitive: false,
+    ).firstMatch(source);
+    if (headMatch != null) {
+      return source.replaceRange(headMatch.end, headMatch.end, bootstrap);
+    }
+
+    final htmlMatch = RegExp(
+      r'<html\b[^>]*>',
+      caseSensitive: false,
+    ).firstMatch(source);
+    if (htmlMatch != null) {
+      return source.replaceRange(htmlMatch.end, htmlMatch.end, bootstrap);
+    }
+
+    return '$bootstrap$source';
+  }
+
+  static String _jsonForInlineScript(String value) {
+    return jsonEncode(value)
+        .replaceAll('&', r'\u0026')
+        .replaceAll('<', r'\u003C')
+        .replaceAll('>', r'\u003E');
+  }
+
+  static String _escapeHtmlAttribute(String value) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
   }
 }
 

@@ -11,6 +11,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../core/database/app_database.dart';
+import '../../../core/database/database_provider.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
@@ -104,20 +106,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     super.dispose();
   }
 
+  bool _isCurrentNoteSession({required Object? api, required Object? db}) {
+    if (!identical(ref.read(apiServiceProvider), api)) return false;
+    final currentDb = ref.read(appDatabaseProvider);
+    return db == null ? currentDb == null : identical(currentDb, db);
+  }
+
   Future<void> _loadNote() async {
     setState(() => _isLoading = true);
 
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      setState(() => _isLoading = false);
-      return;
-    }
-
     try {
-      final json = await api.getNoteById(widget.noteId);
-      final note = Note.fromJson(json);
+      final note = await _readNoteById(widget.noteId);
 
       if (mounted) {
+        if (note == null) {
+          setState(() => _isLoading = false);
+          return;
+        }
         setState(() {
           _note = note;
           _titleController.text = note.title;
@@ -133,6 +138,41 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _showError(e.toString());
       }
     }
+  }
+
+  Future<Note?> _readNoteById(String noteId) {
+    final provider = noteByIdProvider(noteId);
+    final current = ref.read(provider);
+    if (current.hasValue) {
+      return Future<Note?>.value(current.value);
+    }
+    if (current.hasError) {
+      return Future<Note?>.error(
+        current.error ?? StateError('Failed to load note'),
+      );
+    }
+
+    final completer = Completer<Note?>();
+    ProviderSubscription<AsyncValue<Note?>>? subscription;
+
+    void completeFromState(AsyncValue<Note?> state) {
+      if (completer.isCompleted) return;
+      if (state.hasValue) {
+        completer.complete(state.value);
+      } else if (state.hasError) {
+        completer.completeError(
+          state.error ?? StateError('Failed to load note'),
+        );
+      }
+    }
+
+    subscription = ref.listenManual<AsyncValue<Note?>>(
+      provider,
+      (_, next) => completeFromState(next),
+      fireImmediately: true,
+    );
+
+    return completer.future.whenComplete(() => subscription?.close());
   }
 
   void _onContentChanged() {
@@ -164,13 +204,75 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     await _saveNote(showFeedback: false);
   }
 
+  /// Builds the note `data` PATCH for an update: only the fields the editor
+  /// actually changes — `content`, plus `files` when [files] is provided. It
+  /// deliberately does NOT spread the (possibly stale) in-memory `_note.data`:
+  /// `durableUpdateNote` merges this patch onto the CURRENT DB row, which
+  /// preserves server-managed fields like `versions` (a pull may have added
+  /// entries while the editor was open — spreading the editor's stale copy here
+  /// would revert them on the next save).
+  Map<String, dynamic> _composeUpdatedNoteData({
+    required String markdown,
+    List<Map<String, dynamic>>? files,
+  }) {
+    final data = <String, dynamic>{
+      'content': <String, dynamic>{
+        'json': null,
+        'html': _markdownToHtml(markdown),
+        'md': markdown,
+      },
+    };
+    if (files != null) {
+      data['files'] = files;
+    }
+    return data;
+  }
+
+  /// Persists a note title/data edit through the durable outbox path (when a
+  /// Drift database is active) so an offline edit is never lost, falling back to
+  /// the API-first path in reviewer mode / with no active server. Returns the
+  /// stored note, or `null` if it could not be persisted.
+  ///
+  /// [api]/[db] are the session captured by the caller BEFORE its awaits; if the
+  /// active account/database changed in the meantime (e.g. during an audio
+  /// upload), this bails without persisting so the old editor's note is never
+  /// written into a newly active account.
+  Future<Note?> _persistNoteUpdate({
+    required Object? api,
+    required AppDatabase? db,
+    required String title,
+    required Map<String, dynamic> data,
+  }) async {
+    if (!_isCurrentNoteSession(api: api, db: db)) return null;
+    if (db != null) {
+      return durableUpdateNote(
+        ref,
+        db,
+        id: widget.noteId,
+        title: title,
+        data: data,
+      );
+    }
+    // Session confirmed current, so the live API equals the captured one.
+    final currentApi = ref.read(apiServiceProvider);
+    if (currentApi == null) return null;
+    final note = Note.fromJson(
+      await currentApi.updateNote(widget.noteId, title: title, data: data),
+    );
+    if (mounted && _isCurrentNoteSession(api: api, db: db)) {
+      ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
+    }
+    return note;
+  }
+
   Future<void> _saveNote({bool showFeedback = true}) async {
     if (_note == null) return;
 
     setState(() => _isSaving = true);
 
     final api = ref.read(apiServiceProvider);
-    if (api == null) {
+    final db = ref.read(appDatabaseProvider);
+    if (api == null && db == null) {
       setState(() => _isSaving = false);
       return;
     }
@@ -179,34 +281,38 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final title = _titleController.text.trim();
       final content = _contentController.text;
 
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(content),
-          'md': content,
-        },
-      };
+      // Preserve existing note data (versions, attached files) — only the
+      // content changes here.
+      final data = _composeUpdatedNoteData(markdown: content);
 
-      // Use the server's response to get authoritative data (including updated_at)
-      final json = await api.updateNote(
-        widget.noteId,
-        title: title.isEmpty ? AppLocalizations.of(context)!.untitled : title,
+      final resolvedTitle = title.isEmpty
+          ? AppLocalizations.of(context)!.untitled
+          : title;
+      final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
+        title: resolvedTitle,
         data: data,
       );
 
-      final updatedNote = Note.fromJson(json);
-
-      ref.read(notesListProvider.notifier).updateNote(updatedNote);
-
       if (mounted) {
-        setState(() {
-          _note = updatedNote;
-          _isSaving = false;
-          _hasChanges = false;
-        });
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isSaving = false);
+          return;
+        }
 
-        if (showFeedback) {
-          ConduitHaptics.lightImpact();
+        if (updatedNote != null) {
+          setState(() {
+            _note = updatedNote;
+            _isSaving = false;
+            _hasChanges = false;
+          });
+
+          if (showFeedback) {
+            ConduitHaptics.lightImpact();
+          }
+        } else {
+          setState(() => _isSaving = false);
         }
       }
     } catch (e) {
@@ -631,6 +737,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Uploads an audio file to the server and attaches it to the note.
   Future<void> _uploadAudioFile(File audioFile) async {
     final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
     final l10n = AppLocalizations.of(context)!;
 
     if (api == null || _note == null) {
@@ -676,51 +783,45 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         },
       ];
 
-      debugPrint('NoteEditorPage: Saving files: $updatedFiles');
-
       // Update note with the file attachment
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(_contentController.text),
-          'md': _contentController.text,
-        },
-        'files': updatedFiles,
-      };
+      final data = _composeUpdatedNoteData(
+        markdown: _contentController.text,
+        files: updatedFiles,
+      );
 
-      debugPrint('NoteEditorPage: Updating note with data: $data');
-
-      final json = await api.updateNote(
-        widget.noteId,
-        title: _titleController.text.isEmpty
-            ? l10n.untitled
-            : _titleController.text,
+      final resolvedTitle = _titleController.text.isEmpty
+          ? l10n.untitled
+          : _titleController.text;
+      final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
+        title: resolvedTitle,
         data: data,
       );
 
-      debugPrint('NoteEditorPage: Update response: $json');
-      debugPrint('NoteEditorPage: Response files: ${json['data']?['files']}');
-
-      final updatedNote = Note.fromJson(json);
-
       if (mounted) {
-        // Update provider state inside mounted check to avoid accessing
-        // invalid ref after widget disposal
-        ref.read(notesListProvider.notifier).updateNote(updatedNote);
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isUploadingAudio = false);
+          return;
+        }
 
-        setState(() {
-          _note = updatedNote;
-          _isUploadingAudio = false;
-          _hasChanges = false;
-        });
+        if (updatedNote != null) {
+          setState(() {
+            _note = updatedNote;
+            _isUploadingAudio = false;
+            _hasChanges = false;
+          });
 
-        ConduitHaptics.mediumImpact();
-        AdaptiveSnackBar.show(
-          context,
-          message: l10n.audioRecordingSaved,
-          type: AdaptiveSnackBarType.success,
-          duration: const Duration(seconds: 2),
-        );
+          ConduitHaptics.mediumImpact();
+          AdaptiveSnackBar.show(
+            context,
+            message: l10n.audioRecordingSaved,
+            type: AdaptiveSnackBarType.success,
+            duration: const Duration(seconds: 2),
+          );
+        } else {
+          setState(() => _isUploadingAudio = false);
+        }
       }
 
       // Clean up temp file
@@ -1266,7 +1367,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (confirmed != true || _note == null) return;
 
     final api = ref.read(apiServiceProvider);
-    if (api == null) return;
+    final db = ref.read(appDatabaseProvider);
+    if (api == null && db == null) return;
 
     setState(() => _isSaving = true);
 
@@ -1277,40 +1379,44 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .where((f) => f['id']?.toString() != fileId)
           .toList();
 
-      final data = <String, dynamic>{
-        'content': <String, dynamic>{
-          'json': null,
-          'html': _markdownToHtml(_contentController.text),
-          'md': _contentController.text,
-        },
-        'files': updatedFiles,
-      };
+      final data = _composeUpdatedNoteData(
+        markdown: _contentController.text,
+        files: updatedFiles,
+      );
 
-      final json = await api.updateNote(
-        widget.noteId,
-        title: _titleController.text.isEmpty
-            ? l10n.untitled
-            : _titleController.text,
+      final resolvedTitle = _titleController.text.isEmpty
+          ? l10n.untitled
+          : _titleController.text;
+      final updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
+        title: resolvedTitle,
         data: data,
       );
 
-      final updatedNote = Note.fromJson(json);
-      ref.read(notesListProvider.notifier).updateNote(updatedNote);
-
       if (mounted) {
-        setState(() {
-          _note = updatedNote;
-          _isSaving = false;
-          _hasChanges = false;
-        });
+        if (!_isCurrentNoteSession(api: api, db: db)) {
+          setState(() => _isSaving = false);
+          return;
+        }
 
-        ConduitHaptics.lightImpact();
-        AdaptiveSnackBar.show(
-          context,
-          message: l10n.fileRemoved,
-          type: AdaptiveSnackBarType.success,
-          duration: const Duration(seconds: 2),
-        );
+        if (updatedNote != null) {
+          setState(() {
+            _note = updatedNote;
+            _isSaving = false;
+            _hasChanges = false;
+          });
+
+          ConduitHaptics.lightImpact();
+          AdaptiveSnackBar.show(
+            context,
+            message: l10n.fileRemoved,
+            type: AdaptiveSnackBarType.success,
+            duration: const Duration(seconds: 2),
+          );
+        } else {
+          setState(() => _isSaving = false);
+        }
       }
     } catch (e) {
       if (mounted) {

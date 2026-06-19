@@ -6,7 +6,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../database/local_conversation_loader.dart';
 import '../providers/app_providers.dart';
+import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
@@ -23,6 +25,7 @@ import '../utils/system_ui_style.dart';
 import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
+import '../../features/chat/providers/remap_route_sync_provider.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -945,12 +948,25 @@ class AppStartupFlow extends _$AppStartupFlow {
 
     _ensureSocketAttached();
     _applyCurrentAuthTokenToApi(api);
+    _warmApiConnection(api);
+    // Activate the active-chats sync (global chat:active handler + initial bulk
+    // fetch) so the sidebar generating spinner is correct app-wide, including
+    // for generations started by other sessions. keepAlive keeps it running.
+    ref.read(activeChatsSyncProvider);
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );
 
     // Kick background chat warmup now that we're authenticated
     _scheduleConversationWarmup(ref, force: true);
+  }
+
+  /// Warm the API client's connection pool as soon as we're authenticated, so
+  /// the first chat completion doesn't race a cold TLS/HTTP handshake and
+  /// transiently fail (which would otherwise queue a retry). Fire-and-forget on
+  /// the SAME Dio the completion uses; `checkHealth()` swallows its own errors.
+  void _warmApiConnection(ApiService api) {
+    unawaited(api.checkHealth());
   }
 
   void _requestPostAuthenticationStartup({
@@ -965,6 +981,14 @@ class AppStartupFlow extends _$AppStartupFlow {
   void _installStartupListeners({
     Duration apiWaitTimeout = const Duration(seconds: 1),
   }) {
+    // Install the sync engine's pull triggers (CDT-RFC-001 §7.6): app start,
+    // auth, foreground, connectivity-regained, and the periodic timer.
+    _keepAlive(syncTriggersProvider);
+
+    // Install the remap-route consumer (Wiring C): swaps the active-chat /
+    // pending-folder id in place when a local id is remapped to a server id.
+    _keepAlive(remapRouteSyncProvider);
+
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.
     ref.listen<ApiService?>(apiServiceProvider, (previous, next) {
@@ -1131,6 +1155,31 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
         // finish the warmup work that should run alongside it.
         _scheduleForcedConversationWarmup(_ref, refreshConversations: false);
       });
+    } else if (state == AppLifecycleState.paused) {
+      // D-07 pause checkpoint: echo an in-flight streaming turn to the local
+      // database so a background kill cannot lose it.
+      try {
+        unawaited(
+          _ref
+              .read(chatMessagesProvider.notifier)
+              .persistPauseCheckpoint()
+              .catchError((Object error, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'pause-checkpoint-failed',
+                  scope: 'chat/pause-checkpoint',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'pause-checkpoint-unavailable',
+          scope: 'chat/pause-checkpoint',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
   }
 }
@@ -1142,17 +1191,22 @@ Future<void> _refreshActiveConversationOnResume(Ref ref) async {
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
     final active = ref.read(activeConversationProvider);
-    if (api == null ||
-        active == null ||
+    if (active == null ||
         isTemporaryChat(active.id) ||
         ref.read(shouldProtectLocalStreamingStateProvider)) {
       return;
     }
 
     conversationId = active.id;
-    final refreshed = await api.getConversation(conversationId);
+    // Pull through the sync engine: persists via upsertServerChat under the
+    // chat lock, then returns the assembled conversation (CDT-RFC-001
+    // Phase 1). Falls back to a direct fetch when the engine is
+    // inert/unavailable (no database, reviewer mode).
+    final refreshed = await pullChatOrFetch(ref, conversationId);
+    if (refreshed == null) {
+      return;
+    }
     if (!ref.mounted) {
       return;
     }

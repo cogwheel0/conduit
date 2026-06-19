@@ -106,24 +106,17 @@ _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
   return _SidebarCreateActionKind.chat;
 }
 
+// Single source of truth for terminal-tab visibility (shared with the sidebar).
+// Must match `sidebar_page.dart`'s `showTerminalTab` exactly, or the create
+// action's tab-index mapping drifts from the rendered tabs and the wrong (or no)
+// create action is shown — e.g. hiding the Channels create action while terminal
+// availability is still loading.
 bool _watchTerminalTabVisible(WidgetRef ref) {
-  return ref
-      .watch(terminalAvailableServersProvider)
-      .maybeWhen(
-        data: (servers) => servers.isNotEmpty,
-        error: (_, _) => true,
-        orElse: () => true,
-      );
+  return ref.watch(terminalTabVisibleProvider);
 }
 
 bool _readTerminalTabVisible(WidgetRef ref) {
-  return ref
-      .read(terminalAvailableServersProvider)
-      .maybeWhen(
-        data: (servers) => servers.isNotEmpty,
-        error: (_, _) => true,
-        orElse: () => true,
-      );
+  return ref.read(terminalTabVisibleProvider);
 }
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {

@@ -76,6 +76,9 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether the conversation is loading.
   final bool isLoading;
 
+  /// Whether the conversation has an active generation running on the server.
+  final bool isGenerating;
+
   /// Whether the row should size itself to its contents instead of filling width.
   final bool shrinkWrap;
 
@@ -87,6 +90,7 @@ class ConversationTileContent extends StatelessWidget {
     required this.selected,
     this.unread = false,
     required this.isLoading,
+    this.isGenerating = false,
     this.shrinkWrap = false,
   });
 
@@ -121,10 +125,16 @@ class ConversationTileContent extends StatelessWidget {
       ]);
     }
 
-    if (isLoading) {
+    // A server-side generation in progress shows the same spinner as a tile
+    // that's loading on tap (the tap-load state takes precedence so we never
+    // show two spinners).
+    if (isLoading || isGenerating) {
       trailingWidgets.addAll([
         const SizedBox(width: Spacing.sm),
         SizedBox(
+          key: isGenerating && !isLoading
+              ? const ValueKey<String>('conversation-generating-indicator')
+              : null,
           width: IconSize.sm,
           height: IconSize.sm,
           child: CircularProgressIndicator(
@@ -185,6 +195,9 @@ class ConversationTile extends StatelessWidget {
   /// Whether the conversation is loading.
   final bool isLoading;
 
+  /// Whether the conversation has an active generation running on the server.
+  final bool isGenerating;
+
   /// Callback when the tile is tapped.
   final VoidCallback? onTap;
 
@@ -196,6 +209,7 @@ class ConversationTile extends StatelessWidget {
     required this.selected,
     this.unread = false,
     required this.isLoading,
+    this.isGenerating = false,
     required this.onTap,
   });
 
@@ -245,6 +259,7 @@ class ConversationTile extends StatelessWidget {
                 selected: selected,
                 unread: unread,
                 isLoading: isLoading,
+                isGenerating: isGenerating,
               ),
             ),
           ),

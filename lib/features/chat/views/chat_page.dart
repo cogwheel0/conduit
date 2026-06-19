@@ -21,7 +21,9 @@ import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/database/database_provider.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -44,7 +46,7 @@ import '../services/historical_message_regeneration.dart';
 import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/services/media_upload_controller.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
@@ -546,25 +548,47 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Get selected tools
       final toolIds = ref.read(selectedToolIdsProvider);
+      final wasOffline = !ref.read(isOnlineProvider);
+      final hasDurableOutbox =
+          ref.read(appDatabaseProvider) != null &&
+          !ref.read(reviewerModeProvider) &&
+          !ref.read(temporaryChatEnabledProvider) &&
+          !isTemporaryChat(ref.read(activeConversationProvider)?.id);
 
-      // Enqueue task-based send to unify flow across text, images, and tools
-      final activeConv = ref.read(activeConversationProvider);
-      await ref
-          .read(taskQueueProvider.notifier)
-          .enqueueSendText(
-            conversationId: activeConv?.id,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+      // Durable send: persists rows + outbox op in one tx (survives a
+      // force-quit) and drives streaming via the requestCompletion op.
+      await durableSend(
+        ref,
+        text,
+        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+      );
 
       // Clear attachments after successful send
       ref.read(attachedFilesProvider.notifier).clearAll();
 
+      if (wasOffline && hasDurableOutbox && mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.chatQueuedSnackBar,
+          type: AdaptiveSnackBarType.info,
+          duration: const Duration(seconds: 3),
+        );
+      }
+
       // Pin-to-top: the detection in _buildActualMessagesList will handle
       // scrolling to the user message once the streaming placeholder appears.
-    } catch (e) {
-      // Message send failed - error already handled by sendMessage
+    } catch (e, stackTrace) {
+      // durableSend persists rows + drains synchronously; on failure (DB error,
+      // lock failure, …) recover the UI by finishing the streaming placeholder
+      // so it does not hang in `isStreaming: true` forever.
+      DebugLogger.error(
+        'durable-send-failed',
+        scope: 'chat/page',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      ref.read(chatMessagesProvider.notifier).finishStreaming();
     }
   }
 
@@ -599,22 +623,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Add files to the attachment list
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
 
-      // Enqueue uploads via task queue for unified retry/progress
-      final activeConv = ref.read(activeConversationProvider);
+      // Drive uploads via the shared media-upload controller (fold-out, not an
+      // outbox op) for unified retry/progress.
       for (final attachment in attachments) {
-        try {
-          await ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize: await attachment.file.length(),
-              );
-        } catch (e) {
-          if (!mounted) return;
-          DebugLogger.log('Enqueue upload failed: $e', scope: 'chat/page');
-        }
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Upload failed: $e', scope: 'chat/page');
+              }),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -759,26 +782,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         scope: 'chat/page',
       );
 
-      // Enqueue upload via task queue for unified retry/progress
-      DebugLogger.log('Enqueueing image upload(s)...', scope: 'chat/page');
-      final activeConv = ref.read(activeConversationProvider);
+      // Drive uploads via the shared media-upload controller for unified
+      // retry/progress.
+      DebugLogger.log('Uploading image(s)...', scope: 'chat/page');
       for (final attachment in attachments) {
-        try {
-          await ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize:
                     imageSizes[attachment] ?? await attachment.file.length(),
-              );
-        } catch (e) {
-          DebugLogger.log(
-            'Enqueue image upload failed: $e',
-            scope: 'chat/page',
-          );
-        }
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Image upload failed: $e', scope: 'chat/page');
+              }),
+        );
       }
     } catch (e) {
       DebugLogger.log('Image attachment error: $e', scope: 'chat/page');
@@ -800,8 +820,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Add attachments to the list
     ref.read(attachedFilesProvider.notifier).addFiles(attachments);
 
-    // Enqueue uploads via task queue for unified retry/progress
-    final activeConv = ref.read(activeConversationProvider);
+    // Drive uploads via the shared media-upload controller for unified
+    // retry/progress.
     for (final attachment in attachments) {
       try {
         final fileSize = await attachment.file.length();
@@ -809,16 +829,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
           scope: 'chat/page',
         );
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: activeConv?.id,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: fileSize,
-            );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize: fileSize,
+              )
+              .catchError((Object e) {
+                DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
+              }),
+        );
       } catch (e) {
-        DebugLogger.log('Enqueue pasted upload failed: $e', scope: 'chat/page');
+        DebugLogger.log(
+          'Pasted upload prep failed: $e',
+          scope: 'chat/page',
+        );
       }
     }
 
@@ -1285,6 +1312,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conversationId == _lastConversationId) return;
 
     final outgoingId = _lastConversationId;
+    if (isActiveConversationInPlaceRemap(ref, outgoingId, conversationId)) {
+      if (outgoingId != null &&
+          conversationId != null &&
+          _savedScrollOffsets.containsKey(outgoingId)) {
+        _savedScrollOffsets[conversationId] = _savedScrollOffsets.remove(
+          outgoingId,
+        )!;
+      }
+      _lastConversationId = conversationId;
+      markConversationRead(ref, conversationId);
+      return;
+    }
+
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     if (outgoingId != null && _scrollController.hasClients) {

@@ -614,6 +614,34 @@
   "@cancel": {
     "description": "Cancel button label."
   },
+  "chatQueuedOfflineTitle": "Queued offline",
+  "@chatQueuedOfflineTitle": {
+    "description": "Title shown on an assistant placeholder when a chat request is queued because the server is unreachable."
+  },
+  "chatQueuedOfflineMessage": "This response will start when the server is reachable.",
+  "@chatQueuedOfflineMessage": {
+    "description": "Body text shown for an offline queued assistant response."
+  },
+  "chatQueuedPendingTitle": "Queued for sending",
+  "@chatQueuedPendingTitle": {
+    "description": "Title shown when a queued assistant response is waiting for sync/backoff."
+  },
+  "chatQueuedPendingMessage": "Conduit will start this response as soon as sync runs.",
+  "@chatQueuedPendingMessage": {
+    "description": "Body text shown for a queued assistant response that is waiting to be sent."
+  },
+  "chatQueuedFailedTitle": "Send failed",
+  "@chatQueuedFailedTitle": {
+    "description": "Title shown when a queued assistant response has failed and needs user action."
+  },
+  "chatQueuedFailedMessage": "Retry the queued response or cancel it.",
+  "@chatQueuedFailedMessage": {
+    "description": "Body text shown when a queued assistant response has failed and offers retry or cancel."
+  },
+  "chatQueuedSnackBar": "Message queued. It will send when the server is reachable.",
+  "@chatQueuedSnackBar": {
+    "description": "Snackbar shown after sending a chat message while offline."
+  },
   "ok": "OK",
   "@ok": {
     "description": "Generic OK button label."
@@ -1716,6 +1744,14 @@
   "noNotesFound": "No notes found",
   "@noNotesFound": {
     "description": "Empty state title when search returns no results."
+  },
+  "noteConflictCopySuffix": " (conflict copy)",
+  "@noteConflictCopySuffix": {
+    "description": "Title suffix appended to a note created when a concurrent edit could not be merged; both copies are kept so no local edit is lost."
+  },
+  "noteConflictCopyBadge": "Conflict copy",
+  "@noteConflictCopyBadge": {
+    "description": "Badge label shown on a conflict-copy note in the list and editor so the user understands two copies of the note exist."
   },
   "createFirstNoteHint": "Tap the + button to create your first note.",
   "@createFirstNoteHint": {

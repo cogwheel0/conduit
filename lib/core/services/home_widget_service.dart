@@ -13,10 +13,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../shared/services/tasks/task_queue.dart';
-import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
 import 'app_intents_service.dart';
+import 'media_upload_controller.dart';
 import 'navigation_service.dart';
 
 part 'home_widget_service.g.dart';
@@ -284,7 +283,8 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
       );
 
       if (image != null) {
-        await _attachFile(File(image.path));
+        _attachFile(File(image.path));
+        _focusComposer();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -321,8 +321,9 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
       if (images.isNotEmpty) {
         for (final image in images) {
-          await _attachFile(File(image.path));
+          _attachFile(File(image.path));
         }
+        _focusComposer();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -379,14 +380,13 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
 
-  Future<void> _attachFile(File file) async {
+  void _attachFile(File file) {
     if (!ref.mounted) return;
 
     // Warm the attachment service
-    final _ = ref.read(fileAttachmentServiceProvider);
+    ref.read(fileAttachmentServiceProvider);
     final notifier = ref.read(attachedFilesProvider.notifier);
-    final taskQueue = ref.read(taskQueueProvider.notifier);
-    final activeConv = ref.read(activeConversationProvider);
+    final mediaUpload = ref.read(mediaUploadControllerProvider);
 
     final attachment = LocalAttachment(
       file: file,
@@ -395,23 +395,31 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
     notifier.addFiles([attachment]);
 
-    try {
-      await taskQueue.enqueueUploadMedia(
-        conversationId: activeConv?.id,
-        filePath: file.path,
-        fileName: attachment.displayName,
-        fileSize: await file.length(),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'home-widget-upload',
-        scope: 'widget',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+    // Fire the upload concurrently: upload() blocks until terminal status, so
+    // awaiting it here would serialize a multi-photo pick (each upload waiting
+    // for the previous one to finish).
+    unawaited(() async {
+      try {
+        await mediaUpload.upload(
+          filePath: file.path,
+          fileName: attachment.displayName,
+          fileSize: await file.length(),
+        );
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'home-widget-upload',
+          scope: 'widget',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }());
+  }
 
-    // Focus the composer after attaching
+  /// Bumps [inputFocusTriggerProvider] once so the composer takes focus after
+  /// attachments are added — independent of when the uploads finish.
+  void _focusComposer() {
+    if (!ref.mounted) return;
     final tick = ref.read(inputFocusTriggerProvider);
     ref.read(inputFocusTriggerProvider.notifier).set(tick + 1);
   }

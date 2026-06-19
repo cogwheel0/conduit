@@ -48,6 +48,8 @@ final class PreferenceKeys {
   static const String notesListShowRecent = 'notes_list_show_recent';
 
   static const String sidebarActiveTab = 'sidebar_active_tab';
+  static const String serverFeatureAvailability =
+      'server_feature_availability_v1';
 }
 
 final class LegacyPreferenceKeys {

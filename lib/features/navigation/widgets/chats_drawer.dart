@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -1512,6 +1513,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       activeChatIds: activeChatIds,
     );
 
+    final bool isGenerating =
+        conv.id != null && activeChatIds.contains(conv.id);
+
     final tileWidget = ConversationTile(
       key: ValueKey<String>('drawer-chat-${conv.id}'),
       title: title,
@@ -1519,6 +1523,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       selected: isActive,
       unread: unread,
       isLoading: isLoadingSelected,
+      isGenerating: isGenerating,
       onTap: _isLoadingConversation
           ? null
           : () => _selectConversation(context, conv.id),
@@ -1639,6 +1644,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final selectedReadAt = DateTime.now();
     markConversationRead(container, id, readAt: selectedReadAt);
 
+    // Overlay the just-selected read time when it is newer than the source's
+    // own lastReadAt, so the active conversation reflects the optimistic read.
+    Conversation withOptimisticReadAt(Conversation c) {
+      final readAt = c.lastReadAt;
+      return readAt == null || selectedReadAt.isAfter(readAt)
+          ? c.copyWith(lastReadAt: selectedReadAt)
+          : c;
+    }
+
     try {
       // Mark global loading to show skeletons in chat
       container.read(chat.isLoadingConversationProvider.notifier).set(true);
@@ -1666,29 +1680,43 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
       }
 
-      // Load the full conversation details in the background
-      final api = container.read(apiServiceProvider);
-      if (api != null) {
-        final full = await api.getConversation(id);
-        final fullReadAt = full.lastReadAt;
-        final optimisticFull =
-            fullReadAt == null || selectedReadAt.isAfter(fullReadAt)
-            ? full.copyWith(lastReadAt: selectedReadAt)
-            : full;
-        container.read(activeConversationProvider.notifier).set(optimisticFull);
-      } else {
-        // Fallback: use the lightweight item to update the active conversation
-        final fallback = (await container.read(
-          conversationsProvider.future,
-        )).firstWhere((c) => c.id == id);
-        final fallbackReadAt = fallback.lastReadAt;
-        final optimisticFallback =
-            fallbackReadAt == null || selectedReadAt.isAfter(fallbackReadAt)
-            ? fallback.copyWith(lastReadAt: selectedReadAt)
-            : fallback;
+      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
+      // instantly — offline included — and a background pull freshens it.
+      final local = await loadLocalConversation(container, id);
+      if (local != null) {
         container
             .read(activeConversationProvider.notifier)
-            .set(optimisticFallback);
+            .set(withOptimisticReadAt(local));
+        schedulePullChatNow(container, id);
+      } else {
+        // No row / envelope stub / reviewer mode: load from the server.
+        final api = container.read(apiServiceProvider);
+        if (api != null) {
+          final full = await api.getConversation(id);
+          container
+              .read(activeConversationProvider.notifier)
+              .set(withOptimisticReadAt(full));
+          // Materialize the local row so the next open is DB-first.
+          schedulePullChatNow(container, id);
+        } else {
+          // Fallback: use the lightweight item to update the active
+          // conversation
+          final conversations = await container.read(
+            conversationsProvider.future,
+          );
+          Conversation? fallback;
+          for (final conversation in conversations) {
+            if (conversation.id == id) {
+              fallback = conversation;
+              break;
+            }
+          }
+          if (fallback != null) {
+            container
+                .read(activeConversationProvider.notifier)
+                .set(withOptimisticReadAt(fallback));
+          }
+        }
       }
 
       // Clear loading after data is ready

@@ -1,695 +1,271 @@
-import 'dart:async';
+/// Folders provider tests on the Drift read substrate (CDT-RFC-001 Phase 1).
+///
+/// The provider renders `FoldersDao.watchFolders()`; server-confirmed
+/// mutations land in memory and in the database in the same call. Refresh
+/// and warm paths converge on the sync engine.
+library;
 
+import 'package:checks/checks.dart';
+import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/core/sync/sync_api_client.dart';
+import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'package:flutter_riverpod/misc.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Future<void> _flushMicrotasks([int count = 1]) async {
-  for (var i = 0; i < count; i++) {
-    await Future<void>.delayed(Duration.zero);
-  }
-}
+import '../../support/fake_open_webui_server.dart';
+import '../../support/fake_sync_api_client.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late AppDatabase db;
+
+  setUp(() {
+    db = AppDatabase(NativeDatabase.memory());
+  });
+
+  tearDown(() async {
+    await db.close();
+  });
+
+  ProviderContainer makeContainer({
+    bool authenticated = true,
+    List<Override> extraOverrides = const <Override>[],
+  }) {
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => db),
+        isAuthenticatedProvider2.overrideWithValue(authenticated),
+        reviewerModeProvider.overrideWithValue(false),
+        legacyConversationCachePurgerProvider.overrideWith(
+          (ref) => () async {},
+        ),
+        ...extraOverrides,
+      ],
+    );
+    addTearDown(container.dispose);
+    return container;
+  }
+
+  Future<void> waitFor(
+    Future<bool> Function() condition, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!await condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('waitFor timed out');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
+
+  Future<void> seedFolderRow(String id, String name) {
+    return db.foldersDao.upsertServerFolder(<String, dynamic>{
+      'id': id,
+      'name': name,
+      'parent_id': null,
+      'created_at': 100,
+      'updated_at': 100,
+    });
+  }
+
+  Future<List<FolderRow>> folderRows() => db.foldersDao.watchFolders().first;
+
+  List<String> namesOf(List<Folder> folders) =>
+      folders.map((folder) => folder.name).toList();
+
   group('Folders', () {
-    test('warmIfNeeded reuses an in-flight provider load', () async {
-      final api = _SequencedFoldersApiService();
-      final storage = _FakeOptimizedStorageService();
-      final container = _container(api: api, storage: storage);
-      addTearDown(container.dispose);
+    test('unauthenticated build returns empty', () async {
+      await seedFolderRow('f1', 'Work');
+      final container = makeContainer(authenticated: false);
 
-      final initialLoad = container.read(foldersProvider.future);
-      await _flushMicrotasks(2);
-
-      final warmFuture = container
-          .read(foldersProvider.notifier)
-          .warmIfNeeded();
-      await _flushMicrotasks();
-
-      expect(api.getFoldersCalls, 1);
-
-      api.completeFolders([
-        {'id': 'folder-a', 'name': 'Folder A'},
-      ]);
-
-      final initialFolders = await initialLoad;
-      await warmFuture;
-      final current = container.read(foldersProvider).requireValue;
-
-      expect(initialFolders.map((folder) => folder.id), ['folder-a']);
-      expect(current.map((folder) => folder.id), ['folder-a']);
+      check(await container.read(foldersProvider.future)).isEmpty();
     });
 
-    test('cache-backed folders stay untrusted until refresh settles', () async {
-      final api = _SequencedFoldersApiService();
-      final storage = _FakeOptimizedStorageService(
-        localFolders: const [
-          Folder(id: 'cached-folder', name: 'Cached Folder'),
-        ],
-      );
-      final container = _container(
-        api: api,
-        storage: storage,
-        authTokenOverride: authTokenProvider3.overrideWithValue('test-token'),
-      );
-      addTearDown(container.dispose);
+    test('renders folder rows sorted case-insensitively by name', () async {
+      await seedFolderRow('f1', 'zeta');
+      await seedFolderRow('f2', 'Alpha');
+      await seedFolderRow('f3', 'beta');
+      final container = makeContainer();
 
-      final initialFolders = await container.read(foldersProvider.future);
-      expect(initialFolders.map((folder) => folder.id), ['cached-folder']);
+      final folders = await container.read(foldersProvider.future);
 
-      await _flushMicrotasks(2);
-      expect(api.getFoldersCalls, 1);
+      check(namesOf(folders)).deepEquals(['Alpha', 'beta', 'zeta']);
+    });
 
-      final notifier = container.read(foldersProvider.notifier);
-      notifier.updateFolder(
-        'cached-folder',
-        (folder) => folder.copyWith(name: 'Renamed Folder'),
-      );
-      notifier.upsertFolder(const Folder(id: 'new-folder', name: 'New Folder'));
-      notifier.removeFolder('cached-folder');
+    test('later database writes stream into provider state', () async {
+      await seedFolderRow('f1', 'Work');
+      final container = makeContainer();
+      await container.read(foldersProvider.future);
 
-      expect(api.getFoldersCalls, 1);
-      expect(
-        container.read(foldersProvider).requireValue.map((folder) => folder.id),
-        ['cached-folder'],
-      );
-      expect(storage.savedFolderSnapshots, isEmpty);
+      await seedFolderRow('f2', 'Archive');
 
-      api.completeFolders([
-        {'id': 'fresh-folder', 'name': 'Fresh Folder'},
-      ]);
-      await _flushMicrotasks(2);
-
-      final current = container.read(foldersProvider).requireValue;
-      expect(current.map((folder) => folder.id), ['fresh-folder']);
-      expect(storage.savedFolderSnapshots, isNotEmpty);
-      expect(storage.savedFolderSnapshots.last, ['fresh-folder']);
+      await waitFor(() async {
+        final state = container.read(foldersProvider);
+        return (state.asData?.value ?? const <Folder>[]).length == 2;
+      });
+      check(
+        namesOf(container.read(foldersProvider).requireValue),
+      ).deepEquals(['Archive', 'Work']);
     });
 
     test(
-      'server-confirmed folder upserts force a fresh reconcile and ignore an older refresh',
+      'upsertFolderFromRemote lands in memory and in the database',
       () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService(
-          localFolders: const [
-            Folder(id: 'cached-folder', name: 'Cached Folder'),
-          ],
-        );
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWithValue('test-token'),
-        );
-        addTearDown(container.dispose);
+        final container = makeContainer();
+        await container.read(foldersProvider.future);
 
-        final initialFolders = await container.read(foldersProvider.future);
-        expect(initialFolders.map((folder) => folder.id), ['cached-folder']);
-
-        await _flushMicrotasks(2);
-        expect(api.getFoldersCalls, 1);
-
-        final notifier = container.read(foldersProvider.notifier);
-        notifier.upsertFolderFromRemote(
-          const Folder(id: 'new-folder', name: 'New Folder'),
-        );
-        await _flushMicrotasks();
-
-        expect(
-          container
-              .read(foldersProvider)
-              .requireValue
-              .map((folder) => folder.id),
-          ['cached-folder', 'new-folder'],
-        );
-        expect(api.getFoldersCalls, 2);
-        expect(storage.savedFolderSnapshots, isEmpty);
-
-        api.completeFolders([
-          {'id': 'cached-folder', 'name': 'Cached Folder'},
-        ]);
-        await _flushMicrotasks(2);
-
-        expect(
-          container
-              .read(foldersProvider)
-              .requireValue
-              .map((folder) => folder.id),
-          ['cached-folder', 'new-folder'],
-        );
-
-        api.completeFolders([
-          {'id': 'cached-folder', 'name': 'Cached Folder'},
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ], index: 1);
-        await _flushMicrotasks(2);
-
-        final current = container.read(foldersProvider).requireValue;
-        expect(current.map((folder) => folder.id), [
-          'cached-folder',
-          'new-folder',
-        ]);
-        expect(storage.savedFolderSnapshots, isNotEmpty);
-        expect(storage.savedFolderSnapshots.last, [
-          'cached-folder',
-          'new-folder',
-        ]);
-      },
-    );
-
-    test('warmIfNeeded starts a new load after auth token changes', () async {
-      final api = _SequencedFoldersApiService();
-      final storage = _FakeOptimizedStorageService();
-      var authToken = 'old-token';
-      final container = _container(
-        api: api,
-        storage: storage,
-        authTokenOverride: authTokenProvider3.overrideWith((ref) => authToken),
-      );
-      addTearDown(container.dispose);
-
-      final initialLoad = container.read(foldersProvider.future);
-      await _flushMicrotasks(2);
-
-      authToken = 'new-token';
-      container.invalidate(authTokenProvider3);
-      final warmFuture = container
-          .read(foldersProvider.notifier)
-          .warmIfNeeded();
-      await _flushMicrotasks();
-
-      expect(api.getFoldersCalls, 2);
-      expect(api.requestAuthTokens, ['old-token', 'new-token']);
-
-      api.completeFolders([
-        {'id': 'old-folder', 'name': 'Old Folder'},
-      ]);
-      await _flushMicrotasks();
-
-      api.completeFolders([
-        {'id': 'new-folder', 'name': 'New Folder'},
-      ], index: 1);
-
-      await initialLoad;
-      await warmFuture;
-      final current = container.read(foldersProvider).requireValue;
-
-      expect(current.map((folder) => folder.id), ['new-folder']);
-    });
-
-    test(
-      'warmIfNeeded ignores a stale initial load that completes after the fresh load',
-      () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
-
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
-        final warmFuture = container
-            .read(foldersProvider.notifier)
-            .warmIfNeeded();
-        await _flushMicrotasks();
-
-        expect(api.getFoldersCalls, 2);
-
-        api.completeFolders([
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ], index: 1);
-        await warmFuture;
-
-        api.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
-
-        final initialFolders = await initialLoad;
-        await _flushMicrotasks();
-        final current = container.read(foldersProvider).requireValue;
-
-        expect(initialFolders.map((folder) => folder.id), ['new-folder']);
-        expect(current.map((folder) => folder.id), ['new-folder']);
-        expect(storage.savedFolderSnapshots, isNotEmpty);
-        expect(storage.savedFolderSnapshots.last, ['new-folder']);
-      },
-    );
-
-    test(
-      'an in-flight load is revalidated against the current api service before it lands',
-      () async {
-        final oldApi = _SequencedFoldersApiService(serverId: 'old-server');
-        final newApi = _SequencedFoldersApiService(serverId: 'new-server');
-        final storage = _FakeOptimizedStorageService();
-        ApiService currentApi = oldApi;
-        final container = _container(
-          storage: storage,
-          apiOverride: apiServiceProvider.overrideWith((ref) => currentApi),
-          authTokenOverride: authTokenProvider3.overrideWithValue('test-token'),
-        );
-        addTearDown(container.dispose);
-        final subscription = container.listen<AsyncValue<List<Folder>>>(
-          foldersProvider,
-          (previous, next) {},
-        );
-        addTearDown(subscription.close);
-
-        container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-
-        currentApi = newApi;
-        container.invalidate(apiServiceProvider);
-
-        oldApi.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
-        await _flushMicrotasks(2);
-
-        expect(newApi.getFoldersCalls, 1);
-
-        newApi.completeFolders([
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ]);
-
-        final current = await container.read(foldersProvider.future);
-
-        expect(current.map((folder) => folder.id), ['new-folder']);
-        expect(storage.savedFolderSnapshots, isNotEmpty);
-        expect(storage.savedFolderSnapshots.last, ['new-folder']);
-      },
-    );
-
-    test(
-      'warmIfNeeded refreshes settled folders after auth token changes',
-      () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
-
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-
-        api.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
-
-        final initialFolders = await initialLoad;
-        expect(initialFolders.map((folder) => folder.id), ['old-folder']);
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
-        final warmFuture = container
-            .read(foldersProvider.notifier)
-            .warmIfNeeded();
-        await _flushMicrotasks();
-
-        expect(api.getFoldersCalls, 2);
-
-        api.completeFolders([
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ], index: 1);
-
-        await warmFuture;
-        final current = container.read(foldersProvider).requireValue;
-
-        expect(current.map((folder) => folder.id), ['new-folder']);
-      },
-    );
-
-    test(
-      'folder mutations refresh instead of merging stale state after auth token changes',
-      () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
-
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-
-        api.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
-
-        final initialFolders = await initialLoad;
-        expect(initialFolders.map((folder) => folder.id), ['old-folder']);
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
         container
             .read(foldersProvider.notifier)
-            .upsertFolder(
-              const Folder(id: 'optimistic-folder', name: 'Optimistic Folder'),
+            .upsertFolderFromRemote(
+              Folder(
+                id: 'f-new',
+                name: 'Fresh',
+                createdAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
+                updatedAt: DateTime.fromMillisecondsSinceEpoch(100 * 1000),
+              ),
             );
-        await _flushMicrotasks();
 
-        expect(api.getFoldersCalls, 2);
-        expect(
-          container
-              .read(foldersProvider)
-              .requireValue
-              .map((folder) => folder.id),
-          ['old-folder'],
-        );
+        // Synchronous in-memory upsert.
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Fresh']);
 
-        api.completeFolders([
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ], index: 1);
-        await _flushMicrotasks(2);
-
-        final current = container.read(foldersProvider).requireValue;
-        expect(current.map((folder) => folder.id), ['new-folder']);
+        // Row write lands and the next emission agrees (no flicker revert).
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Fresh');
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Fresh']);
       },
     );
 
     test(
-      'stale folder refresh clears untrusted state when the new-scope load fails',
+      'updateFolderFromRemote renames in memory and in the database',
       () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService(
-          localFolders: const [
-            Folder(id: 'cached-folder', name: 'Cached Folder'),
-          ],
-        );
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
+        await seedFolderRow('f1', 'Work');
+        final container = makeContainer();
+        await container.read(foldersProvider.future);
 
-        final initialFolders = await container.read(foldersProvider.future);
-        expect(initialFolders.map((folder) => folder.id), ['cached-folder']);
-
-        await _flushMicrotasks(2);
-        expect(api.getFoldersCalls, 1);
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
-        final warmFuture = container
+        container
             .read(foldersProvider.notifier)
-            .warmIfNeeded();
-        await _flushMicrotasks();
+            .updateFolderFromRemote(
+              'f1',
+              (folder) => Folder(
+                id: folder.id,
+                name: 'Renamed',
+                createdAt: folder.createdAt,
+                updatedAt: folder.updatedAt,
+              ),
+            );
 
-        expect(api.getFoldersCalls, 2);
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Renamed']);
 
-        api.failFolders(Exception('folder warmup failed'), index: 1);
-        await expectLater(warmFuture, throwsA(isA<Exception>()));
-
-        api.completeFolders([
-          {'id': 'stale-folder', 'name': 'Stale Folder'},
-        ]);
-        await _flushMicrotasks();
-        expect(api.getFoldersCalls, 3);
-
-        api.failFolders(Exception('retry failed'), index: 2);
-        await _flushMicrotasks(2);
-
-        final current = container.read(foldersProvider).requireValue;
-        expect(current, isEmpty);
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Renamed');
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        check(
+          namesOf(container.read(foldersProvider).requireValue),
+        ).deepEquals(['Renamed']);
       },
     );
 
     test(
-      'refresh clears trusted folders when a new-scope load fails',
+      'updateFolderFromRemote persists while provider state is cold',
       () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
+        await seedFolderRow('f1', 'Work');
+        final container = makeContainer();
 
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-
-        api.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
-
-        final initialFolders = await initialLoad;
-        expect(initialFolders.map((folder) => folder.id), ['old-folder']);
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
-        final refreshFuture = container
+        container
             .read(foldersProvider.notifier)
-            .refresh();
-        await _flushMicrotasks();
+            .updateFolderFromRemote(
+              'f1',
+              (folder) => folder.copyWith(name: 'Renamed'),
+            );
 
-        expect(api.getFoldersCalls, 2);
-        expect(api.requestAuthTokens, ['old-token', 'new-token']);
-
-        api.failFolders(Exception('new-scope refresh failed'), index: 1);
-
-        await refreshFuture;
-        await _flushMicrotasks();
-
-        final current = container.read(foldersProvider).requireValue;
-        expect(current, isEmpty);
+        await waitFor(() async {
+          final rows = await folderRows();
+          return rows.any((row) => row.name == 'Renamed');
+        });
       },
     );
 
-    test(
-      'a stale refresh failure does not clear newer folders from a new auth scope',
-      () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        var authToken = 'old-token';
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWith(
-            (ref) => authToken,
-          ),
-        );
-        addTearDown(container.dispose);
+    test('removeFolderFromRemote hard-deletes the row', () async {
+      await seedFolderRow('f1', 'Work');
+      await seedFolderRow('f2', 'Play');
+      final container = makeContainer();
+      await container.read(foldersProvider.future);
 
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
+      container.read(foldersProvider.notifier).removeFolderFromRemote('f1');
 
-        api.completeFolders([
-          {'id': 'old-folder', 'name': 'Old Folder'},
-        ]);
+      check(
+        namesOf(container.read(foldersProvider).requireValue),
+      ).deepEquals(['Play']);
 
-        final initialFolders = await initialLoad;
-        expect(initialFolders.map((folder) => folder.id), ['old-folder']);
-
-        final notifier = container.read(foldersProvider.notifier);
-        final staleRefresh = notifier.refresh();
-        await _flushMicrotasks();
-
-        authToken = 'new-token';
-        container.invalidate(authTokenProvider3);
-        final freshRefresh = notifier.refresh();
-        await _flushMicrotasks();
-
-        expect(api.getFoldersCalls, 3);
-        expect(api.requestAuthTokens, ['old-token', 'old-token', 'new-token']);
-
-        api.completeFolders([
-          {'id': 'new-folder', 'name': 'New Folder'},
-        ], index: 2);
-
-        await freshRefresh;
-        await _flushMicrotasks();
-        expect(
-          container
-              .read(foldersProvider)
-              .requireValue
-              .map((folder) => folder.id),
-          ['new-folder'],
-        );
-
-        api.failFolders(Exception('stale refresh failed'), index: 1);
-
-        await staleRefresh;
-        await _flushMicrotasks();
-        final current = container.read(foldersProvider).requireValue;
-        expect(current.map((folder) => folder.id), ['new-folder']);
-      },
-    );
-
-    test(
-      'refresh reusing an in-flight same-scope load preserves current state on failure',
-      () async {
-        final api = _SequencedFoldersApiService();
-        final storage = _FakeOptimizedStorageService();
-        final container = _container(
-          api: api,
-          storage: storage,
-          authTokenOverride: authTokenProvider3.overrideWithValue('test-token'),
-        );
-        addTearDown(container.dispose);
-
-        final initialLoad = container.read(foldersProvider.future);
-        await _flushMicrotasks(2);
-        expect(api.getFoldersCalls, 1);
-
-        api.completeFolders([
-          {'id': 'existing-folder', 'name': 'Existing Folder'},
-        ]);
-        final initialFolders = await initialLoad;
-        expect(initialFolders.map((folder) => folder.id), ['existing-folder']);
-
-        final notifier = container.read(foldersProvider.notifier);
-        final primaryRefresh = notifier.refresh();
-        await _flushMicrotasks();
-
-        final reusedRefresh = notifier.refresh();
-        await _flushMicrotasks();
-
-        expect(api.getFoldersCalls, 2);
-
-        api.failFolders(Exception('shared refresh failed'), index: 1);
-
-        await primaryRefresh;
-        await reusedRefresh;
-        await _flushMicrotasks();
-
-        final current = container.read(foldersProvider).requireValue;
-        expect(current.map((folder) => folder.id), ['existing-folder']);
-      },
-    );
-
-    test('warmIfNeeded surfaces fetch failures for startup retries', () async {
-      final api = _ThrowingFoldersApiService();
-      final storage = _FakeOptimizedStorageService();
-      final container = _container(api: api, storage: storage);
-      addTearDown(container.dispose);
-
-      final notifier = container.read(foldersProvider.notifier);
-
-      await expectLater(notifier.warmIfNeeded(), throwsA(isA<Exception>()));
-      expect(api.getFoldersCalls, greaterThanOrEqualTo(1));
+      await waitFor(() async {
+        final rows = await folderRows();
+        return rows.every((row) => row.id != 'f1');
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      check(
+        namesOf(container.read(foldersProvider).requireValue),
+      ).deepEquals(['Play']);
     });
+
+    test('warmIfNeeded and refresh converge on the sync engine pull', () async {
+      final server = FakeOpenWebUiServer();
+      final client = FakeSyncApiClient(server);
+      server.seedFolder('f-remote');
+      final container = makeContainer(
+        extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
+      );
+      await container.read(foldersProvider.future);
+
+      await container.read(foldersProvider.notifier).warmIfNeeded();
+
+      check(client.foldersRequests).isGreaterOrEqual(1);
+      await waitFor(() async {
+        final state = container.read(foldersProvider);
+        return (state.asData?.value ?? const <Folder>[]).any(
+          (folder) => folder.id == 'f-remote',
+        );
+      });
+
+      final requestsBefore = client.foldersRequests;
+      await container.read(foldersProvider.notifier).refresh(forceFresh: true);
+      check(client.foldersRequests).isGreaterOrEqual(requestsBefore + 1);
+    });
+
+    test(
+      'a pull reporting folders 403 disables foldersFeatureEnabledProvider',
+      () async {
+        final server = FakeOpenWebUiServer();
+        final client = FakeSyncApiClient(server)..foldersFeatureEnabled = false;
+        final container = makeContainer(
+          extraOverrides: [syncApiClientProvider.overrideWith((ref) => client)],
+        );
+        check(container.read(foldersFeatureEnabledProvider)).isTrue();
+
+        await container
+            .read(syncEngineProvider.notifier)
+            .requestPull(reason: 'test');
+
+        check(container.read(foldersFeatureEnabledProvider)).isFalse();
+      },
+    );
   });
-}
-
-ProviderContainer _container({
-  required OptimizedStorageService storage,
-  ApiService? api,
-  Override? apiOverride,
-  Override? authTokenOverride,
-}) {
-  assert(api != null || apiOverride != null);
-  return ProviderContainer(
-    overrides: [
-      isAuthenticatedProvider2.overrideWithValue(true),
-      ?authTokenOverride,
-      apiOverride ?? apiServiceProvider.overrideWithValue(api!),
-      optimizedStorageServiceProvider.overrideWithValue(storage),
-    ],
-  );
-}
-
-class _SequencedFoldersApiService extends ApiService {
-  _SequencedFoldersApiService({String serverId = 'test-server'})
-    : super(
-        serverConfig: ServerConfig(
-          id: serverId,
-          name: 'Test Server',
-          url: 'https://example.com',
-        ),
-        workerManager: WorkerManager(),
-      );
-
-  int getFoldersCalls = 0;
-  final requestAuthTokens = <String?>[];
-  final _completers = <Completer<(List<Map<String, dynamic>>, bool)>>[];
-
-  @override
-  Future<(List<Map<String, dynamic>>, bool)> getFolders() {
-    getFoldersCalls += 1;
-    requestAuthTokens.add(authToken);
-    final completer = Completer<(List<Map<String, dynamic>>, bool)>();
-    _completers.add(completer);
-    return completer.future;
-  }
-
-  void completeFolders(List<Map<String, dynamic>> folders, {int index = 0}) {
-    _completers[index].complete((folders, true));
-  }
-
-  void failFolders(Object error, {int index = 0}) {
-    _completers[index].completeError(error);
-  }
-}
-
-class _FakeOptimizedStorageService extends Fake
-    implements OptimizedStorageService {
-  _FakeOptimizedStorageService({List<Folder> localFolders = const <Folder>[]})
-    : _localFolders = List<Folder>.unmodifiable(localFolders);
-
-  final List<Folder> _localFolders;
-  final savedFolderSnapshots = <List<String>>[];
-
-  @override
-  Future<List<Folder>> getLocalFolders() async {
-    await Future<void>.delayed(Duration.zero);
-    return _localFolders;
-  }
-
-  @override
-  Future<void> saveLocalFolders(List<Folder> folders) async {
-    savedFolderSnapshots.add(folders.map((folder) => folder.id).toList());
-  }
-}
-
-class _ThrowingFoldersApiService extends ApiService {
-  _ThrowingFoldersApiService()
-    : super(
-        serverConfig: const ServerConfig(
-          id: 'test-server',
-          name: 'Test Server',
-          url: 'https://example.com',
-        ),
-        workerManager: WorkerManager(),
-      );
-
-  int getFoldersCalls = 0;
-
-  @override
-  Future<(List<Map<String, dynamic>>, bool)> getFolders() async {
-    getFoldersCalls += 1;
-    throw Exception('folder warmup failed');
-  }
 }

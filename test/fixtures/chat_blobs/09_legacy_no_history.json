@@ -1,0 +1,50 @@
+{
+  "description": "Ancient/legacy blob with NO history key at all: only a flat linear messages list at the top level (the shape convertMessagesToHistory in src/lib/utils/index.ts exists to upgrade). blobToRows must yield zero message rows, blobHadHistory=false, and everything except title goes to rawExtra.",
+  "envelope": {
+    "id": "8091a2b3-c4d5-4e6f-8071-8293a4b5c6d7",
+    "title": "Old exported chat",
+    "folder_id": null,
+    "pinned": false,
+    "archived": true,
+    "created_at": 1672531200,
+    "updated_at": 1672534800
+  },
+  "chat": {
+    "title": "Old exported chat",
+    "models": ["gpt-3.5-turbo"],
+    "messages": [
+      {
+        "id": "c1d2e3f4-a5b6-4708-9a0b-c1d2e3f4a5b6",
+        "role": "user",
+        "content": "What year did the Berlin Wall fall?",
+        "timestamp": 1672531200
+      },
+      {
+        "id": "d2e3f4a5-b6c7-4819-8b1c-d2e3f4a5b6c7",
+        "role": "assistant",
+        "content": "The Berlin Wall fell in 1989.",
+        "timestamp": 1672531230,
+        "info": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21,
+          "openai": true
+        }
+      },
+      {
+        "id": "e3f4a5b6-c7d8-492a-9c2d-e3f4a5b6c7d8",
+        "role": "user",
+        "content": "And reunification?",
+        "timestamp": 1672534700
+      },
+      {
+        "id": "f4a5b6c7-d8e9-4a3b-8d3e-f4a5b6c7d8e9",
+        "role": "assistant",
+        "content": "Germany reunified on 3 October 1990.",
+        "timestamp": 1672534790
+      }
+    ],
+    "timestamp": 1672531200000,
+    "tags": []
+  }
+}

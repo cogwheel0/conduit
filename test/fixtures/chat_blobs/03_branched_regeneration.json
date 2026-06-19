@@ -1,0 +1,130 @@
+{
+  "description": "Branched tree from a regenerated assistant answer (Chat.svelte:2686-2716): the root user message has two assistant children (siblings = regenerations, both done after stopResponse semantics), the conversation continues under the second sibling, currentId points at the leaf of the active branch, and the top-level messages list reflects only the active branch.",
+  "envelope": {
+    "id": "3c4d5e6f-7a8b-49c0-9d1e-2f3a4b5c6d7e",
+    "title": "Name ideas",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749702000,
+    "updated_at": 1749702400
+  },
+  "chat": {
+    "id": "3c4d5e6f-7a8b-49c0-9d1e-2f3a4b5c6d7e",
+    "title": "Name ideas",
+    "models": ["llama3.1:8b"],
+    "params": {},
+    "history": {
+      "currentId": "a3a3a3a3-3333-4333-8333-333333333333",
+      "messages": {
+        "u1u1u1u1-1111-4111-8111-111111111111": {
+          "id": "u1u1u1u1-1111-4111-8111-111111111111",
+          "parentId": null,
+          "childrenIds": [
+            "a1a1a1a1-1111-4111-8111-111111111111",
+            "a2a2a2a2-2222-4222-8222-222222222222"
+          ],
+          "role": "user",
+          "content": "Suggest a name for a hedgehog-themed cafe.",
+          "timestamp": 1749702000,
+          "models": ["llama3.1:8b"]
+        },
+        "a1a1a1a1-1111-4111-8111-111111111111": {
+          "id": "a1a1a1a1-1111-4111-8111-111111111111",
+          "parentId": "u1u1u1u1-1111-4111-8111-111111111111",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "How about \"Prickly Beans\"?",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749702010,
+          "done": true
+        },
+        "a2a2a2a2-2222-4222-8222-222222222222": {
+          "id": "a2a2a2a2-2222-4222-8222-222222222222",
+          "parentId": "u1u1u1u1-1111-4111-8111-111111111111",
+          "childrenIds": ["u2u2u2u2-2222-4222-8222-222222222222"],
+          "role": "assistant",
+          "content": "\"The Quill & Cup\" has a nice ring to it.",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749702060,
+          "done": true
+        },
+        "u2u2u2u2-2222-4222-8222-222222222222": {
+          "id": "u2u2u2u2-2222-4222-8222-222222222222",
+          "parentId": "a2a2a2a2-2222-4222-8222-222222222222",
+          "childrenIds": ["a3a3a3a3-3333-4333-8333-333333333333"],
+          "role": "user",
+          "content": "I love it. Tagline?",
+          "timestamp": 1749702300,
+          "models": ["llama3.1:8b"]
+        },
+        "a3a3a3a3-3333-4333-8333-333333333333": {
+          "id": "a3a3a3a3-3333-4333-8333-333333333333",
+          "parentId": "u2u2u2u2-2222-4222-8222-222222222222",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "\"Slow brews, sharp company.\"",
+          "model": "llama3.1:8b",
+          "modelName": "llama3.1:8b",
+          "modelIdx": 0,
+          "timestamp": 1749702390,
+          "done": true
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "u1u1u1u1-1111-4111-8111-111111111111",
+        "parentId": null,
+        "childrenIds": [
+          "a1a1a1a1-1111-4111-8111-111111111111",
+          "a2a2a2a2-2222-4222-8222-222222222222"
+        ],
+        "role": "user",
+        "content": "Suggest a name for a hedgehog-themed cafe.",
+        "timestamp": 1749702000,
+        "models": ["llama3.1:8b"]
+      },
+      {
+        "id": "a2a2a2a2-2222-4222-8222-222222222222",
+        "parentId": "u1u1u1u1-1111-4111-8111-111111111111",
+        "childrenIds": ["u2u2u2u2-2222-4222-8222-222222222222"],
+        "role": "assistant",
+        "content": "\"The Quill & Cup\" has a nice ring to it.",
+        "model": "llama3.1:8b",
+        "modelName": "llama3.1:8b",
+        "modelIdx": 0,
+        "timestamp": 1749702060,
+        "done": true
+      },
+      {
+        "id": "u2u2u2u2-2222-4222-8222-222222222222",
+        "parentId": "a2a2a2a2-2222-4222-8222-222222222222",
+        "childrenIds": ["a3a3a3a3-3333-4333-8333-333333333333"],
+        "role": "user",
+        "content": "I love it. Tagline?",
+        "timestamp": 1749702300,
+        "models": ["llama3.1:8b"]
+      },
+      {
+        "id": "a3a3a3a3-3333-4333-8333-333333333333",
+        "parentId": "u2u2u2u2-2222-4222-8222-222222222222",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "\"Slow brews, sharp company.\"",
+        "model": "llama3.1:8b",
+        "modelName": "llama3.1:8b",
+        "modelIdx": 0,
+        "timestamp": 1749702390,
+        "done": true
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749702000789,
+    "files": []
+  }
+}

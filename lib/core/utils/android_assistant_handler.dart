@@ -7,7 +7,7 @@ import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../services/navigation_service.dart';
-import '../../shared/services/tasks/task_queue.dart';
+import '../services/media_upload_controller.dart';
 import '../providers/app_providers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import 'debug_logger.dart';
@@ -99,13 +99,11 @@ class AndroidAssistantHandler {
 
         _ref.read(attachedFilesProvider.notifier).addFiles([attachment]);
 
-        // Enqueue upload via task queue
-        final activeConv = _ref.read(activeConversationProvider);
+        // Drive upload via the shared media-upload controller.
         try {
           await _ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
                 fileSize: await attachment.file.length(),

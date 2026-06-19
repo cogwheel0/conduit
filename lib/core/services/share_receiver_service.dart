@@ -12,7 +12,7 @@ import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../core/providers/app_providers.dart';
-import '../../shared/services/tasks/task_queue.dart';
+import 'media_upload_controller.dart';
 import 'package:path/path.dart' as path;
 import 'navigation_service.dart';
 import 'share_staging_cleanup.dart';
@@ -759,19 +759,34 @@ Future<SharedPayloadProcessResult> _processPayload(
     if (attachments.isNotEmpty) {
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
 
-      // Enqueue uploads via task queue to unify progress + retry
-      final activeConv = ref.read(activeConversationProvider);
+      // Drive uploads via the shared media-upload controller to unify
+      // progress + retry.
       for (final attachment in attachments) {
+        final int fileSize;
         try {
-          await ref
-              .read(taskQueueProvider.notifier)
-              .enqueueUploadMedia(
-                conversationId: activeConv?.id,
+          fileSize = await attachment.file.length();
+        } catch (e) {
+          DebugLogger.log(
+            'ShareReceiver: upload prep failed: $e',
+            scope: 'share',
+          );
+          continue;
+        }
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
                 filePath: attachment.file.path,
                 fileName: attachment.displayName,
-                fileSize: await attachment.file.length(),
-              );
-        } catch (_) {}
+                fileSize: fileSize,
+              )
+              .catchError(
+                (Object e) => DebugLogger.log(
+                  'ShareReceiver: upload failed: $e',
+                  scope: 'share',
+                ),
+              ),
+        );
       }
     }
 

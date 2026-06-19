@@ -15,7 +15,7 @@ import '../../features/chat/providers/context_attachments_provider.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../features/chat/services/file_attachment_service.dart';
-import '../../shared/services/tasks/task_queue.dart';
+import 'media_upload_controller.dart';
 
 part 'app_intents_service.g.dart';
 
@@ -372,8 +372,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
     // Warm the attachment service to ensure dependencies are ready.
     final _ = ref.read(fileAttachmentServiceProvider);
     final notifier = ref.read(attachedFilesProvider.notifier);
-    final taskQueue = ref.read(taskQueueProvider.notifier);
-    final activeConv = ref.read(activeConversationProvider);
+    final mediaUpload = ref.read(mediaUploadControllerProvider);
 
     final attachments = files
         .map((f) => LocalAttachment(file: f, displayName: p.basename(f.path)))
@@ -383,8 +382,7 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
 
     for (final attachment in attachments) {
       try {
-        await taskQueue.enqueueUploadMedia(
-          conversationId: activeConv?.id,
+        await mediaUpload.upload(
           filePath: attachment.file.path,
           fileName: attachment.displayName,
           fileSize: await attachment.file.length(),

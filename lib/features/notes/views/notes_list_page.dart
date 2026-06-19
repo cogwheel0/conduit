@@ -156,7 +156,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   }
 
   Widget _buildBody(BuildContext context) {
-    final notesAsync = ref.watch(notesListProvider);
+    final notesAsync = _query.isEmpty
+        ? ref.watch(notesListProvider)
+        : ref.watch(filteredNotesProvider(_query));
 
     return notesAsync.when(
       data: (notes) => _buildNotesList(context, notes),
@@ -165,11 +167,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     );
   }
 
-  Widget _buildNotesList(BuildContext context, List<Note> allNotes) {
-    final List<Note> notes = _query.isEmpty
-        ? allNotes
-        : filterNotesByQuery(allNotes, _query);
-
+  Widget _buildNotesList(BuildContext context, List<Note> notes) {
     if (notes.isEmpty) {
       return _buildEmptyState(context);
     }
@@ -415,7 +413,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
         : dateFormat.format(note.updatedDateTime);
 
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final preview = note.markdownContent.replaceAll('\n', ' ').trim();
+    final preview = note.listPreviewMarkdown.replaceAll('\n', ' ').trim();
     final hasContent = preview.isNotEmpty;
 
     // Compute opaque background for proper context menu snapshot rendering
@@ -605,6 +603,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
   ) {
     return buildNoteContextMenuActions(
       context: context,
+      ref: ref,
       note: note,
       onEdit: (note) async {
         context.pushNamed(

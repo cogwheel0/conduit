@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -18,14 +20,53 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 });
 
 final terminalAvailableServersProvider =
-    FutureProvider<List<TerminalServerInfo>>((ref) async {
+    FutureProvider<List<TerminalServerInfo>>((ref) {
       final service = ref.watch(terminalServiceProvider);
       if (service == null) {
-        return const <TerminalServerInfo>[];
+        // No API/service yet (startup, auth/active-server rebuild). There is no
+        // real probe to report: stay UNRESOLVED (loading) rather than resolving
+        // to an empty list, so consumers fall back to their cached/last-known
+        // state (e.g. terminalTabVisibleProvider keeps the cached flag) instead
+        // of treating "no service" as "terminal disabled" — which would poison
+        // the cache and hide the tab offline for a terminal-enabled server. The
+        // future is abandoned (replaced) as soon as the service becomes
+        // available and this provider recomputes.
+        return Completer<List<TerminalServerInfo>>().future;
       }
 
-      return service.getAvailableServers();
+      return _probeTerminalServers(ref, service);
     });
+
+Future<List<TerminalServerInfo>> _probeTerminalServers(
+  Ref ref,
+  TerminalService service,
+) async {
+  final servers = await service.getAvailableServers();
+  // A real probe succeeded for the current API/session: persist whether
+  // terminal is enabled so the offline/error fallback reflects the true
+  // last-known state. Deferred — can't mutate a provider during build.
+  Future.microtask(
+    () => ref
+        .read(terminalFeatureEnabledProvider.notifier)
+        .setEnabled(servers.isNotEmpty),
+  );
+  return servers;
+}
+
+/// Whether the Terminal tab should be visible. When the server list resolves,
+/// use it live (terminal is enabled iff at least one server exists); while it is
+/// loading or errored (e.g. offline), fall back to the cached last-known value
+/// (written by [terminalAvailableServersProvider] after a real probe) instead of
+/// optimistically showing the tab — so a server with terminal disabled doesn't
+/// surface the tab offline (matching notes/channels).
+final terminalTabVisibleProvider = Provider<bool>((ref) {
+  final cached = ref.watch(terminalFeatureEnabledProvider);
+  final serversAsync = ref.watch(terminalAvailableServersProvider);
+  return serversAsync.maybeWhen(
+    data: (servers) => servers.isNotEmpty,
+    orElse: () => cached,
+  );
+});
 
 final terminalSelectedServerProvider = FutureProvider<TerminalServerInfo?>((
   ref,

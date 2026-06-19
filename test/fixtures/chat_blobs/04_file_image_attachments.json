@@ -1,0 +1,182 @@
+{
+  "description": "Messages with attachments: user message carries an uploaded file entry (MessageInput.svelte:610-666 shape, including transient itemId/status/error keys that leak into the saved blob) plus a pasted data-URL image; the assistant reply carries a backend-generated image file (middleware.py:4209). The nested `file` object is the upload route's full FileModelResponse (models/files.py:77-89), which always serializes `hash` and `data` (with the extracted `data.content`) alongside id/user_id/filename/meta/created_at/updated_at. Chat-level files mirrors the uploaded file. Chat lives in a folder.",
+  "envelope": {
+    "id": "5e6f7a8b-9c0d-41e2-83f4-a5b6c7d8e9f0",
+    "title": "Quarterly report review",
+    "folder_id": "f0e1d2c3-b4a5-4968-8776-655443322110",
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749703000,
+    "updated_at": 1749703120
+  },
+  "chat": {
+    "id": "5e6f7a8b-9c0d-41e2-83f4-a5b6c7d8e9f0",
+    "title": "Quarterly report review",
+    "models": ["gpt-4o"],
+    "params": {},
+    "history": {
+      "currentId": "ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7",
+      "messages": {
+        "fe98dc76-ba54-4321-8fed-cba987654321": {
+          "id": "fe98dc76-ba54-4321-8fed-cba987654321",
+          "parentId": null,
+          "childrenIds": ["ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7"],
+          "role": "user",
+          "content": "Summarize this report and recreate the cover image as a sketch.",
+          "timestamp": 1749703000,
+          "models": ["gpt-4o"],
+          "files": [
+            {
+              "type": "file",
+              "file": {
+                "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+                "user_id": "0a1b2c3d-4e5f-4678-9a0b-c1d2e3f4a5b6",
+                "hash": "3b8f2c5e9a1d4f7b6c0e8a2d5f9b1c4e7a0d3f6b9c2e5a8d1f4b7c0e3a6d9f2b",
+                "filename": "q1-report.pdf",
+                "data": {
+                  "content": "Q1 Report\n\nRevenue grew 12% quarter over quarter, driven mostly by the EU segment. Operating costs were flat."
+                },
+                "meta": {
+                  "name": "q1-report.pdf",
+                  "content_type": "application/pdf",
+                  "size": 482133,
+                  "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f"
+                },
+                "created_at": 1749702990,
+                "updated_at": 1749702990
+              },
+              "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+              "url": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+              "name": "q1-report.pdf",
+              "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+              "status": "uploaded",
+              "size": 482133,
+              "error": "",
+              "itemId": "11223344-5566-4788-99aa-bbccddeeff00",
+              "content_type": "application/pdf"
+            },
+            {
+              "type": "image",
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+            }
+          ]
+        },
+        "ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7": {
+          "id": "ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7",
+          "parentId": "fe98dc76-ba54-4321-8fed-cba987654321",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "Revenue grew 12% quarter over quarter, driven mostly by the EU segment. Here is the sketch version of the cover image.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749703060,
+          "done": true,
+          "files": [
+            {
+              "type": "image",
+              "url": "/cache/image/generations/3f2e1d0c-9b8a-4765-8432-10fedcba9876.png"
+            }
+          ]
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "fe98dc76-ba54-4321-8fed-cba987654321",
+        "parentId": null,
+        "childrenIds": ["ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7"],
+        "role": "user",
+        "content": "Summarize this report and recreate the cover image as a sketch.",
+        "timestamp": 1749703000,
+        "models": ["gpt-4o"],
+        "files": [
+          {
+            "type": "file",
+            "file": {
+              "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+              "user_id": "0a1b2c3d-4e5f-4678-9a0b-c1d2e3f4a5b6",
+              "hash": "3b8f2c5e9a1d4f7b6c0e8a2d5f9b1c4e7a0d3f6b9c2e5a8d1f4b7c0e3a6d9f2b",
+              "filename": "q1-report.pdf",
+              "data": {
+                "content": "Q1 Report\n\nRevenue grew 12% quarter over quarter, driven mostly by the EU segment. Operating costs were flat."
+              },
+              "meta": {
+                "name": "q1-report.pdf",
+                "content_type": "application/pdf",
+                "size": 482133,
+                "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f"
+              },
+              "created_at": 1749702990,
+              "updated_at": 1749702990
+            },
+            "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+            "url": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+            "name": "q1-report.pdf",
+            "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+            "status": "uploaded",
+            "size": 482133,
+            "error": "",
+            "itemId": "11223344-5566-4788-99aa-bbccddeeff00",
+            "content_type": "application/pdf"
+          },
+          {
+            "type": "image",
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          }
+        ]
+      },
+      {
+        "id": "ab12cd34-ef56-4a78-9b01-c2d3e4f5a6b7",
+        "parentId": "fe98dc76-ba54-4321-8fed-cba987654321",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "Revenue grew 12% quarter over quarter, driven mostly by the EU segment. Here is the sketch version of the cover image.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 0,
+        "timestamp": 1749703060,
+        "done": true,
+        "files": [
+          {
+            "type": "image",
+            "url": "/cache/image/generations/3f2e1d0c-9b8a-4765-8432-10fedcba9876.png"
+          }
+        ]
+      }
+    ],
+    "tags": [],
+    "timestamp": 1749703000222,
+    "files": [
+      {
+        "type": "file",
+        "file": {
+          "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+          "user_id": "0a1b2c3d-4e5f-4678-9a0b-c1d2e3f4a5b6",
+          "hash": "3b8f2c5e9a1d4f7b6c0e8a2d5f9b1c4e7a0d3f6b9c2e5a8d1f4b7c0e3a6d9f2b",
+          "filename": "q1-report.pdf",
+          "data": {
+            "content": "Q1 Report\n\nRevenue grew 12% quarter over quarter, driven mostly by the EU segment. Operating costs were flat."
+          },
+          "meta": {
+            "name": "q1-report.pdf",
+            "content_type": "application/pdf",
+            "size": 482133,
+            "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f"
+          },
+          "created_at": 1749702990,
+          "updated_at": 1749702990
+        },
+        "id": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+        "url": "8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+        "name": "q1-report.pdf",
+        "collection_name": "file-8d7c6b5a-4f3e-42d1-9c0b-a1928374655f",
+        "status": "uploaded",
+        "size": 482133,
+        "error": "",
+        "itemId": "11223344-5566-4788-99aa-bbccddeeff00",
+        "content_type": "application/pdf"
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
@@ -580,4 +581,188 @@ void main() {
       expect(regenerateTapCount, 0);
     },
   );
+
+  testWidgets('queued offline placeholder shows retry and cancel actions', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'queued-assistant',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          queuedCompletionInfoForMessageProvider(
+            'queued-assistant',
+          ).overrideWith(
+            (ref) => Stream<QueuedCompletionInfo?>.value(
+              const QueuedCompletionInfo(
+                seq: 42,
+                chatId: 'chat-1',
+                assistantMessageId: 'queued-assistant',
+                phase: QueuedCompletionPhase.pending,
+                isOffline: true,
+                lastError: 'offline',
+                nextAttemptAt: 123,
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Queued offline'), findsOneWidget);
+    expect(
+      find.text('This response will start when the server is reachable.'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy), findsNothing);
+  });
+
+  testWidgets('failed queued completion keeps partial content and recovery', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'partial-assistant',
+      role: 'assistant',
+      content: 'Partial answer',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          queuedCompletionInfoForMessageProvider(
+            'partial-assistant',
+          ).overrideWith(
+            (ref) => Stream<QueuedCompletionInfo?>.value(
+              const QueuedCompletionInfo(
+                seq: 43,
+                chatId: 'chat-1',
+                assistantMessageId: 'partial-assistant',
+                phase: QueuedCompletionPhase.failed,
+                isOffline: false,
+                lastError: 'boom',
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Partial answer'), findsOneWidget);
+    expect(find.text('Send failed'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy), findsNothing);
+  });
+
+  testWidgets('pending queued completion keeps partial content and recovery', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'pending-partial-assistant',
+      role: 'assistant',
+      content: 'Partial pending answer',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          queuedCompletionInfoForMessageProvider(
+            'pending-partial-assistant',
+          ).overrideWith(
+            (ref) => Stream<QueuedCompletionInfo?>.value(
+              const QueuedCompletionInfo(
+                seq: 44,
+                chatId: 'chat-1',
+                assistantMessageId: 'pending-partial-assistant',
+                phase: QueuedCompletionPhase.pending,
+                isOffline: true,
+                lastError: 'offline',
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Partial pending answer'), findsOneWidget);
+    expect(find.text('Queued offline'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy), findsNothing);
+  });
 }

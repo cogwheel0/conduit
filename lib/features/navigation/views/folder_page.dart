@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
@@ -25,7 +26,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/services/tasks/task_queue.dart';
+import '../../../core/services/media_upload_controller.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
@@ -453,17 +455,30 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       NavigationService.router.go(Routes.chat);
 
-      await container
-          .read(taskQueueProvider.notifier)
-          .enqueueSendText(
-            conversationId: null,
-            pendingFolderId: widget.folderId,
-            text: text,
-            attachments: uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-          );
+      // Durable send: a NEW local chat with folderId set on the chat row
+      // (PushSync.pushCreateChat passes folder_id to createChat), plus a
+      // requestCompletion op; streaming is driven via the drainer.
+      await chat.durableSend(
+        container,
+        text,
+        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+        pendingFolderIdOverride: widget.folderId,
+      );
 
       container.read(attachedFilesProvider.notifier).clearAll();
+    } catch (e, stackTrace) {
+      // durableSend adds an optimistic streaming placeholder before its
+      // throwable DB work; on failure recover the UI by finishing the
+      // placeholder so it does not hang in `isStreaming: true` forever
+      // (parity with chat_page.dart).
+      DebugLogger.error(
+        'durable-send-failed',
+        scope: 'navigation/folder',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      container.read(chat.chatMessagesProvider.notifier).finishStreaming();
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
@@ -498,15 +513,25 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       }
 
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      // Fire uploads concurrently without awaiting so one failure neither
+      // aborts the remaining attachments nor serializes them (mirrors
+      // chat_page.dart).
       for (final attachment in attachments) {
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: await attachment.file.length(),
-            );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize: await attachment.file.length(),
+              )
+              .catchError((Object e) {
+                DebugLogger.log(
+                  'Upload failed: $e',
+                  scope: 'navigation/folder',
+                );
+              }),
+        );
       }
     } catch (_) {}
   }
@@ -618,16 +643,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       }
 
       ref.read(attachedFilesProvider.notifier).addFiles(attachments);
+      // Fire uploads concurrently without awaiting so one failure neither
+      // aborts the remaining attachments nor serializes them (mirrors
+      // chat_page.dart).
       for (final attachment in attachments) {
-        await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize:
-                  imageSizes[attachment] ?? await attachment.file.length(),
-            );
+        unawaited(
+          ref
+              .read(mediaUploadControllerProvider)
+              .upload(
+                filePath: attachment.file.path,
+                fileName: attachment.displayName,
+                fileSize:
+                    imageSizes[attachment] ?? await attachment.file.length(),
+              )
+              .catchError((Object e) {
+                DebugLogger.log(
+                  'Upload failed: $e',
+                  scope: 'navigation/folder',
+                );
+              }),
+        );
       }
     } catch (_) {}
   }
@@ -643,9 +678,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     for (final attachment in attachments) {
       try {
         await ref
-            .read(taskQueueProvider.notifier)
-            .enqueueUploadMedia(
-              conversationId: null,
+            .read(mediaUploadControllerProvider)
+            .upload(
               filePath: attachment.file.path,
               fileName: attachment.displayName,
               fileSize: await attachment.file.length(),
@@ -1082,17 +1116,53 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       NavigationService.router.go(Routes.chat);
 
-      final api = container.read(apiServiceProvider);
-      if (api != null) {
-        final fullConversation = await api.getConversation(conversationId);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(fullConversation);
+      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
+      // instantly — offline included — and a background pull freshens it.
+      final local = await loadLocalConversation(container, conversationId);
+      if (local != null) {
+        container.read(activeConversationProvider.notifier).set(local);
+        schedulePullChatNow(container, conversationId);
       } else {
-        final conversation = (await container.read(
-          conversationsProvider.future,
-        )).firstWhere((item) => item.id == conversationId);
-        container.read(activeConversationProvider.notifier).set(conversation);
+        Future<void> useCachedConversation() async {
+          final conversations = await container.read(
+            conversationsProvider.future,
+          );
+          Conversation? conversation;
+          for (final item in conversations) {
+            if (item.id == conversationId) {
+              conversation = item;
+              break;
+            }
+          }
+          if (conversation != null) {
+            container
+                .read(activeConversationProvider.notifier)
+                .set(conversation);
+          }
+        }
+
+        final api = container.read(apiServiceProvider);
+        if (api != null) {
+          try {
+            final fullConversation = await api.getConversation(conversationId);
+            container
+                .read(activeConversationProvider.notifier)
+                .set(fullConversation);
+            // Materialize the local row so the next open is DB-first.
+            schedulePullChatNow(container, conversationId);
+          } catch (error, stackTrace) {
+            DebugLogger.error(
+              'folder-conversation-fetch-failed',
+              scope: 'navigation/folder',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'conversationId': conversationId},
+            );
+            await useCachedConversation();
+          }
+        } else {
+          await useCachedConversation();
+        }
       }
 
       container.read(chat.isLoadingConversationProvider.notifier).set(false);

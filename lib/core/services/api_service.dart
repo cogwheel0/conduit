@@ -22,6 +22,7 @@ import '../models/server_user_settings.dart';
 import '../models/user.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
+import '../sync/sync_api_client.dart' show SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'connectivity_service.dart';
 import '../utils/debug_logger.dart';
@@ -1265,6 +1266,325 @@ class ApiService {
     );
   }
 
+  // ---- CDT-RFC-001 Phase 1: raw sync-engine reads ----------------------
+  // These exist because every legacy chat method parses to `Conversation`
+  // and discards the blob/epoch ints the sync engine needs. All three are
+  // read-only GETs through the existing Dio instance, so ApiAuthInterceptor
+  // bearer/custom-header behavior applies unchanged.
+  //
+  // TODO(CDT-RFC-001 §7.2, §3.iii): Phase 2 push needs a generic
+  // `updateChat(id, blob)` that always sends the complete `rowsToBlob`
+  // reconstruction, never a partial dict (the server shallow-merges
+  // top-level keys).
+
+  /// GET `/api/v1/chats/?page={page}&include_pinned={..}&include_folders={..}`
+  ///
+  /// Raw `ChatTitleIdResponse` maps: `{id, title, updated_at, created_at,
+  /// last_read_at}`. No model parsing; epoch-second ints preserved. Server
+  /// page size is 60 (`routers/chats.py` `get_session_user_chat_list`,
+  /// `limit = 60`); the legacy `expectedPageSize: 50` path above is
+  /// untouched (it goes dead in Stage C).
+  Future<List<Map<String, dynamic>>> getChatListPageRaw({
+    required int page,
+    bool includePinned = true,
+    bool includeFolders = true,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/',
+      queryParameters: {
+        'page': page,
+        'include_pinned': includePinned,
+        'include_folders': includeFolders,
+      },
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// GET `/api/v1/chats/archived?page={page}&order_by=updated_at&direction=desc`
+  ///
+  /// Raw `ChatTitleIdResponse` maps; fixed server limit 60
+  /// (`get_archived_session_user_chat_list`). The existing
+  /// [getArchivedChats] sends limit/offset params the server ignores; it is
+  /// left alone and goes dead in Stage C.
+  Future<List<Map<String, dynamic>>> getArchivedChatListPageRaw({
+    required int page,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/archived',
+      queryParameters: {
+        'page': page,
+        'order_by': 'updated_at',
+        'direction': 'desc',
+      },
+    );
+    return _coerceRawMapList(response.data);
+  }
+
+  /// GET `/api/v1/chats/{id}` — the raw `ChatResponse` map (id, user_id,
+  /// title, chat, updated_at, created_at, share_id, archived, pinned, meta,
+  /// folder_id).
+  ///
+  /// Returns null on 404; malformed 2xx bodies throw. NOTE: the vendored route
+  /// signals a missing/unowned chat with HTTP 401 (`ERROR_MESSAGES.NOT_FOUND`),
+  /// which intentionally surfaces here as an error so an expired token can
+  /// never read as a mass delete; Phase 3 deletion reconcile handles 404/401
+  /// explicitly. Large payloads are decoded off the UI isolate, mirroring
+  /// the bytes->worker path of [_parseConversationPayload], but stop at the
+  /// decoded map — no `Conversation` parsing.
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    DebugLogger.log('fetch-raw', scope: 'api/chat', data: {'id': id});
+    try {
+      final response = await _dio.get(
+        '/api/v1/chats/$id',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      final bytes = data is Uint8List
+          ? data
+          : (data is List<int> ? Uint8List.fromList(data) : null);
+      if (bytes == null) {
+        // Defensive: some adapters may have decoded already.
+        return _requireResponseMap(data, 'getChatRaw $id');
+      }
+      final Map<String, dynamic>? map =
+          bytes.lengthInBytes >= _conversationWorkerByteThreshold
+          ? await _workerManager.schedule<Uint8List, Map<String, dynamic>?>(
+              decodeChatResponseEnvelopeWorker,
+              bytes,
+              debugLabel: 'decode_chat_raw',
+            )
+          : decodeChatResponseEnvelopeWorker(bytes);
+      if (map == null) {
+        throw FormatException('getChatRaw $id: expected JSON object response');
+      }
+      return map;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  // ===== Phase 2 sync write seams (CDT-RFC-001 §7.2/§7.4) =====
+  //
+  // These accept a prebuilt `rowsToBlob` blob and return the decoded
+  // `ChatResponse` map verbatim. They deliberately do NOT reuse
+  // `createConversation` (which builds its own blob from `ChatMessage`) nor
+  // `updateConversation` (which sends a partial `{title, system}` dict — the
+  // §3.iii shallow-merge hazard).
+
+  /// POST `/api/v1/chats/new` with the COMPLETE blob; returns the parsed
+  /// `ChatResponse` map (the server mints `id`).
+  Future<Map<String, dynamic>> createChatRaw(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/new',
+        data: {'chat': chatBlob, 'folder_id': ?folderId},
+      );
+      return _requireResponseMap(response.data, 'createChatRaw');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'createChat forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}` with the COMPLETE blob. Returns the parsed
+  /// `ChatResponse` map; throws [SyncTerminalException] on 401/403.
+  /// NOTE: the vendored `update_chat_by_id` route returns 401 (not 404) for a
+  /// missing/unowned chat, so a server-side delete surfaces as
+  /// [SyncTerminalException], not null; the 404->null branch is defensive only.
+  Future<Map<String, dynamic>?> updateChatRaw(
+    String id,
+    Map<String, dynamic> chat,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/$id',
+        data: {'chat': chat},
+      );
+      return _requireResponseMap(response.data, 'updateChatRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/chats/{id}`. `true` on success; 404 -> `false` (already
+  /// gone, no throw); 401/403 -> [SyncTerminalException].
+  Future<bool> deleteChatRaw(String id) async {
+    try {
+      await _dio.delete('/api/v1/chats/$id');
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// GET `/api/v1/chats/{id}/pinned` -> bool (false on a null/absent body).
+  Future<bool> getChatPinnedRaw(String id) async {
+    try {
+      final response = await _dio.get('/api/v1/chats/$id/pinned');
+      return response.data == true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'getChatPinned $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}/pin` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. Sync write paths must call
+  /// desired-state reconcilers that probe before toggling and confirm after,
+  /// because retrying this primitive alone can double-flip.
+  ///
+  /// Returns the parsed `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> togglePinRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/chats/$id/pin');
+      return _requireResponseMap(response.data, 'togglePinRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'pinChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}/archive` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. Sync write paths must call
+  /// desired-state reconcilers that probe before toggling and confirm after,
+  /// because retrying this primitive alone can double-flip.
+  ///
+  /// Returns the parsed `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> toggleArchiveRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/chats/$id/archive');
+      return _requireResponseMap(response.data, 'toggleArchiveRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'archiveChat $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/chats/{id}/folder` body `{folder_id: folderId}`. Returns
+  /// the parsed `ChatResponse`; null on 404.
+  Future<Map<String, dynamic>?> moveChatToFolderRaw(
+    String id,
+    String? folderId,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chats/$id/folder',
+        data: {'folder_id': folderId},
+      );
+      return _requireResponseMap(response.data, 'moveChatToFolderRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'moveChatToFolder $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/folders/{id}?delete_contents=<flag>`.
+  ///
+  /// Distinct from [deleteFolder] (which omits the param and gets the
+  /// DESTRUCTIVE server default `true`). Sync-driven deletes pass `false` so
+  /// contained chats are re-parented to root, not deleted (verified
+  /// `routers/folders.py:delete_folder_by_id`).
+  /// Returns `true` on success; `false` on 404 (already gone); 401/403 ->
+  /// [SyncTerminalException].
+  Future<bool> deleteFolderRaw(String id, {bool deleteContents = false}) async {
+    try {
+      await _dio.delete(
+        '/api/v1/folders/$id',
+        queryParameters: {'delete_contents': deleteContents},
+      );
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteFolder $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  static List<Map<String, dynamic>> _coerceRawMapList(Object? data) {
+    Object? normalized = data;
+    if (normalized is String && normalized.isNotEmpty) {
+      normalized = jsonDecode(normalized);
+    }
+    if (normalized is! List) {
+      throw FormatException('Expected JSON array response, got $normalized');
+    }
+    final rows = <Map<String, dynamic>>[];
+    for (final item in normalized) {
+      if (item is Map<String, dynamic>) {
+        rows.add(item);
+      } else if (item is Map) {
+        rows.add(Map<String, dynamic>.from(item));
+      } else {
+        throw FormatException('Expected JSON object item, got $item');
+      }
+    }
+    return rows;
+  }
+
   // Parse full OpenWebUI chat with messages
   // Parse OpenWebUI message format to our ChatMessage format
   // Build ordered messages list from Open‑WebUI history using parent chain to currentId
@@ -1665,6 +1985,14 @@ class ApiService {
       }
     }
     return _coerceJsonMap(value);
+  }
+
+  Map<String, dynamic> _requireResponseMap(dynamic value, String context) {
+    final map = _coerceResponseMap(value);
+    if (map == null) {
+      throw FormatException('$context: expected JSON object response');
+    }
+    return map;
   }
 
   String? _normalizeNullableString(String? value) {
@@ -2282,11 +2610,18 @@ class ApiService {
   Future<Map<String, dynamic>> createFolder({
     required String name,
     String? parentId,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
   }) async {
     _traceApi('Creating folder: $name');
     final response = await _dio.post(
       '/api/v1/folders/',
-      data: {'name': name, 'parent_id': ?parentId},
+      data: {
+        'name': name,
+        'parent_id': ?parentId,
+        'data': ?data,
+        'meta': ?meta,
+      },
     );
     return response.data as Map<String, dynamic>;
   }
@@ -5229,6 +5564,45 @@ class ApiService {
     }
   }
 
+  /// Set once the bulk active-chats endpoint returns 404 (older servers), so we
+  /// stop probing it for the rest of the session.
+  bool _activeChatsEndpointUnsupported = false;
+
+  /// POST `/api/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
+  ///
+  /// Bulk query for which of [chatIds] currently have an active server task
+  /// (mirrors OpenWebUI's `checkActiveChats`). Returns an empty set when
+  /// [chatIds] is empty or the endpoint is missing on the server (cached after
+  /// the first 404 so we don't keep probing).
+  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
+    if (chatIds.isEmpty || _activeChatsEndpointUnsupported) {
+      return <String>{};
+    }
+    try {
+      final resp = await _dio.post(
+        '/api/tasks/active/chats',
+        data: {'chat_ids': chatIds},
+      );
+      final data = resp.data;
+      if (data is Map && data['active_chat_ids'] is List) {
+        return (data['active_chat_ids'] as List)
+            .map((e) => e.toString())
+            .toSet();
+      }
+      return <String>{};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        _activeChatsEndpointUnsupported = true;
+        DebugLogger.log(
+          'active-chats endpoint unsupported (404); disabling bulk probe',
+          scope: 'api/tasks',
+        );
+        return <String>{};
+      }
+      rethrow;
+    }
+  }
+
   // Cancel an active streaming message by its messageId (client-side abort)
   void cancelStreamingMessage(String messageId) {
     try {
@@ -5251,6 +5625,7 @@ class ApiService {
     String fileName, {
     String? contentType,
     Map<String, dynamic>? metadata,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
@@ -5280,6 +5655,7 @@ class ApiService {
       final response = await _dio.post(
         '/api/v1/files/',
         data: formData,
+        cancelToken: cancelToken,
         options: Options(
           sendTimeout: uploadTimeout,
           receiveTimeout: uploadTimeout,
@@ -5583,10 +5959,15 @@ class ApiService {
   /// Get all notes with user information.
   /// Returns a record with (notes data, feature enabled flag).
   /// When the notes feature is disabled server-side (403), returns ([], false).
-  Future<(List<Map<String, dynamic>>, bool)> getNotes() async {
+  Future<(List<Map<String, dynamic>>, bool)> getNotes({int? page}) async {
     try {
-      _traceApi('Fetching notes');
-      final response = await _dio.get('/api/v1/notes/');
+      _traceApi('Fetching notes${page == null ? '' : ', page: $page'}');
+      final queryParams = <String, dynamic>{};
+      if (page != null) queryParams['page'] = page;
+      final response = await _dio.get(
+        '/api/v1/notes/',
+        queryParameters: queryParams.isEmpty ? null : queryParams,
+      );
       DebugLogger.log(
         'fetch-status',
         scope: 'api/notes',
@@ -5735,6 +6116,122 @@ class ApiService {
     return response.data == true;
   }
 
+  // ===== Phase 5 NOTES sync write seams (CDT-RFC-001 D-11) =====
+  //
+  // Raw equivalents of the note CRUD that surface the §B5 terminal-error
+  // contract (401/403 -> SyncTerminalException, 404 -> null/false). All note
+  // timestamps in/out are server NANOSECONDS — copied verbatim (R-09).
+
+  /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on 404;
+  /// malformed 2xx bodies throw; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    try {
+      final response = await _dio.get('/api/v1/notes/$id');
+      return _requireResponseMap(response.data, 'getNoteRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'getNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/create` body `{title, data, meta?}`. Returns the
+  /// minted note map; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>> createNoteRaw({
+    required String title,
+    required Map<String, dynamic> data,
+    Map<String, dynamic>? meta,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/notes/create',
+        data: {'title': title, 'data': data, 'meta': ?meta},
+      );
+      return _requireResponseMap(response.data, 'createNoteRaw');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'createNote forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/{id}/update` body = the patch map. Returns the updated
+  /// note map; null on 404; 401/403 -> [SyncTerminalException].
+  Future<Map<String, dynamic>?> updateNoteRaw(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
+    try {
+      final response = await _dio.post('/api/v1/notes/$id/update', data: patch);
+      return _requireResponseMap(response.data, 'updateNoteRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE `/api/v1/notes/{id}/delete`. `true` on success; 404 -> `false`
+  /// (already gone, no throw); 401/403 -> [SyncTerminalException].
+  Future<bool> deleteNoteRaw(String id) async {
+    try {
+      final response = await _dio.delete('/api/v1/notes/$id/delete');
+      return response.data == true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// POST `/api/v1/notes/{id}/pin` — low-level stateless toggle primitive.
+  ///
+  /// Do not enqueue or retry this operation directly. [NoteSync.pushNotePin]
+  /// drives a desired final state by reading before the toggle and confirming
+  /// after it, so retries re-probe instead of double-flipping.
+  ///
+  /// Returns the note map after the flip; null on 404; 401/403 ->
+  /// [SyncTerminalException].
+  Future<Map<String, dynamic>?> togglePinNoteRaw(String id) async {
+    try {
+      final response = await _dio.post('/api/v1/notes/$id/pin');
+      return _requireResponseMap(response.data, 'togglePinNoteRaw $id');
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return null;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'pinNote $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Generate a title for note content using AI
   Future<String?> generateNoteTitle(
     String content, {
@@ -5854,4 +6351,16 @@ List<Map<String, dynamic>> _normalizeMapListWorker(
     }
   }
   return normalized;
+}
+
+/// Top-level worker entrypoint (CDT-RFC-001 Phase 1): decodes a raw
+/// `ChatResponse` byte payload into its JSON map form WITHOUT any
+/// `Conversation` parsing, so the sync engine keeps the blob and the
+/// epoch-second ints intact. Returns null when the body is JSON `null`
+/// (the route's `response_model` allows `None`).
+Map<String, dynamic>? decodeChatResponseEnvelopeWorker(Uint8List bytes) {
+  final decoded = jsonDecode(utf8.decode(bytes));
+  if (decoded is Map<String, dynamic>) return decoded;
+  if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  return null;
 }
