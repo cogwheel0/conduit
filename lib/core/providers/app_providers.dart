@@ -6,7 +6,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_ce/hive.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
@@ -32,7 +31,7 @@ import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
-import '../persistence/hive_boxes.dart';
+import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
 import '../services/worker_manager.dart';
@@ -3081,20 +3080,26 @@ final class _FeatureAvailabilityScope {
 final class _FeatureAvailabilityCache {
   const _FeatureAvailabilityCache._();
 
+  // The nested flag map is stored in shared_preferences as a JSON string. It's
+  // read per-feature per-build, so keep the decoded map cached and only re-parse
+  // when the underlying string actually changes (e.g. a write here, or an
+  // external clear). Keyed by the raw string so a clearAll invalidates it.
+  static String? _cachedRaw;
+  static Map<String, dynamic> _cachedMap = const <String, dynamic>{};
+
   static bool? read(String featureKey, {_FeatureAvailabilityScope? scope}) {
-    final box = _preferencesBoxOrNull();
-    if (box == null) return null;
+    if (!PreferencesStore.isReady) return null;
     final resolvedScope = scope;
     if (resolvedScope == null) return null;
 
-    final value = _readFeature(box, resolvedScope.cacheKey, featureKey);
+    final value = _readFeature(resolvedScope.cacheKey, featureKey);
     if (value != null) return value;
 
     final fallbackCacheKey = resolvedScope.fallbackCacheKey;
     if (fallbackCacheKey == null) return null;
-    final fallbackValue = _readFeature(box, fallbackCacheKey, featureKey);
+    final fallbackValue = _readFeature(fallbackCacheKey, featureKey);
     if (fallbackValue == null) return null;
-    _backfillFeature(box, resolvedScope.cacheKey, featureKey, fallbackValue);
+    _backfillFeature(resolvedScope.cacheKey, featureKey, fallbackValue);
     return fallbackValue;
   }
 
@@ -3103,83 +3108,87 @@ final class _FeatureAvailabilityCache {
     bool enabled, {
     _FeatureAvailabilityScope? scope,
   }) {
-    final box = _preferencesBoxOrNull();
-    if (box == null) return;
+    if (!PreferencesStore.isReady) return;
     final resolvedScope = scope;
     if (resolvedScope == null) return;
 
-    final allFlags = _allFlags(box);
+    final allFlags = _allFlags();
     final cacheKeys = {resolvedScope.cacheKey, ?resolvedScope.fallbackCacheKey};
     for (final cacheKey in cacheKeys) {
-      final serverFlags = _serverFlags(box, cacheKey);
+      final serverFlags = _serverFlags(cacheKey);
       serverFlags[featureKey] = enabled;
       allFlags[cacheKey] = serverFlags;
     }
 
-    _persistAllFlags(box, allFlags, featureKey: featureKey);
+    _persistAllFlags(allFlags, featureKey: featureKey);
   }
 
   static String? activeServerId() {
-    final box = _preferencesBoxOrNull();
-    if (box == null) return null;
-    return _activeServerId(box);
-  }
-
-  static Box<dynamic>? _preferencesBoxOrNull() {
-    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) return null;
-    return Hive.box<dynamic>(HiveBoxNames.preferences);
-  }
-
-  static String? _activeServerId(Box<dynamic> box) {
-    final value = box.get(PreferenceKeys.activeServerId);
-    if (value is! String || value.isEmpty) return null;
+    if (!PreferencesStore.isReady) return null;
+    final value = PreferencesStore.getString(PreferenceKeys.activeServerId);
+    if (value == null || value.isEmpty) return null;
     return value;
   }
 
-  static Map<String, dynamic> _allFlags(Box<dynamic> box) {
-    final raw = box.get(PreferenceKeys.serverFeatureAvailability);
-    if (raw is! Map) return <String, dynamic>{};
-    return raw.map((key, value) => MapEntry(key.toString(), value));
+  static Map<String, dynamic> _allFlags() {
+    final raw = PreferencesStore.getString(
+      PreferenceKeys.serverFeatureAvailability,
+    );
+    if (raw == null || raw.isEmpty) {
+      _cachedRaw = raw;
+      _cachedMap = const <String, dynamic>{};
+      return <String, dynamic>{};
+    }
+    if (raw != _cachedRaw) {
+      try {
+        final decoded = jsonDecode(raw);
+        _cachedMap = decoded is Map
+            ? decoded.map((key, value) => MapEntry(key.toString(), value))
+            : const <String, dynamic>{};
+      } catch (_) {
+        _cachedMap = const <String, dynamic>{};
+      }
+      _cachedRaw = raw;
+    }
+    // Return a copy so callers can mutate without corrupting the cache.
+    return Map<String, dynamic>.from(_cachedMap);
   }
 
-  static Map<String, dynamic> _serverFlags(Box<dynamic> box, String serverId) {
-    final value = _allFlags(box)[serverId];
+  static Map<String, dynamic> _serverFlags(String serverId) {
+    final value = _allFlags()[serverId];
     if (value is! Map) return <String, dynamic>{};
     return value.map((key, value) => MapEntry(key.toString(), value));
   }
 
-  static bool? _readFeature(
-    Box<dynamic> box,
-    String cacheKey,
-    String featureKey,
-  ) {
-    final value = _serverFlags(box, cacheKey)[featureKey];
+  static bool? _readFeature(String cacheKey, String featureKey) {
+    final value = _serverFlags(cacheKey)[featureKey];
     return value is bool ? value : null;
   }
 
   static void _backfillFeature(
-    Box<dynamic> box,
     String cacheKey,
     String featureKey,
     bool enabled,
   ) {
-    final allFlags = _allFlags(box);
-    final serverFlags = _serverFlags(box, cacheKey);
+    final allFlags = _allFlags();
+    final serverFlags = _serverFlags(cacheKey);
     serverFlags[featureKey] = enabled;
     allFlags[cacheKey] = serverFlags;
-    _persistAllFlags(box, allFlags, featureKey: featureKey);
+    _persistAllFlags(allFlags, featureKey: featureKey);
   }
 
   static void _persistAllFlags(
-    Box<dynamic> box,
     Map<String, dynamic> allFlags, {
     required String featureKey,
   }) {
+    final encoded = jsonEncode(allFlags);
+    _cachedRaw = encoded;
+    _cachedMap = allFlags;
     unawaited(
-      box.put(PreferenceKeys.serverFeatureAvailability, allFlags).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
+      PreferencesStore.put(
+        PreferenceKeys.serverFeatureAvailability,
+        encoded,
+      ).catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'feature-cache-write-failed',
           scope: 'features/cache',

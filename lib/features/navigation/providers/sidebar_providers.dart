@@ -1,27 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:hive_ce/hive.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/persistence/hive_boxes.dart';
 import '../../../core/persistence/persistence_keys.dart';
+import '../../../core/persistence/preferences_store.dart';
 
 part 'sidebar_providers.g.dart';
 
 /// Index of the active sidebar tab (0=Chats, 1=Terminal, 2=Notes, 3=Channels).
-/// Persisted to Hive so reopening the sidebar remembers the last tab.
+/// Persisted to shared_preferences so reopening the sidebar remembers the last
+/// tab.
 @Riverpod(keepAlive: true)
 class SidebarActiveTab extends _$SidebarActiveTab {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   int build() {
-    return (_box.get(PreferenceKeys.sidebarActiveTab, defaultValue: 0) as int)
+    return (PreferencesStore.getInt(PreferenceKeys.sidebarActiveTab) ?? 0)
         .clamp(0, 3);
   }
 
   void set(int index) {
     state = index.clamp(0, 3);
-    _box.put(PreferenceKeys.sidebarActiveTab, state);
+    PreferencesStore.put(PreferenceKeys.sidebarActiveTab, state);
   }
 }
 

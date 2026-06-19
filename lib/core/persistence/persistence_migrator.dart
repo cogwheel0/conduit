@@ -41,7 +41,12 @@ class PersistenceMigrator {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      await _migratePreferences(prefs);
+      // NOTE: simple preferences are NO LONGER migrated SharedPreferences →
+      // Hive. As of the Hive-removal work, shared_preferences is the live store
+      // for preferences again, so a pre-Hive install's prefs already sit where
+      // they belong; HivePrefsMigrator only copies Hive-resident prefs forward.
+      // Only the caches / attachment / task-queue (still Hive-backed) migrate
+      // here.
       await _migrateCaches(prefs);
       await _migrateAttachmentQueue(prefs);
       await _migrateTaskQueue(prefs);
@@ -58,57 +63,6 @@ class PersistenceMigrator {
         error: error,
         stackTrace: stack,
       );
-    }
-  }
-
-  Future<void> _migratePreferences(SharedPreferences prefs) async {
-    final updates = <String, Object?>{};
-
-    void copyBool(String key) {
-      final value = prefs.getBool(key);
-      if (value != null) updates[key] = value;
-    }
-
-    void copyDouble(String key) {
-      final value = prefs.getDouble(key);
-      if (value != null) updates[key] = value;
-    }
-
-    void copyString(String key) {
-      final value = prefs.getString(key);
-      if (value != null && value.isNotEmpty) updates[key] = value;
-    }
-
-    void copyStringList(String key) {
-      final value = prefs.getStringList(key);
-      if (value != null && value.isNotEmpty) {
-        updates[key] = List<String>.from(value);
-      }
-    }
-
-    copyBool(PreferenceKeys.reduceMotion);
-    copyDouble(PreferenceKeys.animationSpeed);
-    copyBool(PreferenceKeys.hapticFeedback);
-    copyBool(PreferenceKeys.disableHapticsWhileStreaming);
-    copyBool(PreferenceKeys.highContrast);
-    copyBool(PreferenceKeys.darkMode);
-    copyString(PreferenceKeys.defaultModel);
-    copyString(PreferenceKeys.voiceLocaleId);
-    copyBool(PreferenceKeys.voiceHoldToTalk);
-    copyBool(PreferenceKeys.voiceAutoSendFinal);
-    copyString(PreferenceKeys.voiceSttPreference);
-    copyString(PreferenceKeys.voiceSttLanguageCode);
-    copyString(PreferenceKeys.socketTransportMode);
-    copyStringList(PreferenceKeys.quickPills);
-    copyBool(PreferenceKeys.sendOnEnterKey);
-    copyString(PreferenceKeys.activeServerId);
-    copyString(PreferenceKeys.themeMode);
-    copyString(PreferenceKeys.themePalette);
-    copyString(PreferenceKeys.localeCode);
-    copyBool(PreferenceKeys.reviewerMode);
-
-    if (updates.isNotEmpty) {
-      await _boxes.preferences.putAll(updates);
     }
   }
 
@@ -207,28 +161,12 @@ class PersistenceMigrator {
   }
 
   Future<void> _cleanupLegacyKeys(SharedPreferences prefs) async {
+    // Only the caches / queue keys that were copied INTO Hive are removed here.
+    // Preference keys are intentionally NOT removed — shared_preferences is the
+    // live store for preferences again (see migrateIfNeeded), so deleting them
+    // would lose a pre-Hive install's settings. `large_text` is a dead key.
     final keysToRemove = <String>[
-      PreferenceKeys.reduceMotion,
-      PreferenceKeys.animationSpeed,
-      PreferenceKeys.hapticFeedback,
-      PreferenceKeys.disableHapticsWhileStreaming,
-      PreferenceKeys.highContrast,
       'large_text',
-      PreferenceKeys.darkMode,
-      PreferenceKeys.defaultModel,
-      PreferenceKeys.voiceLocaleId,
-      PreferenceKeys.voiceHoldToTalk,
-      PreferenceKeys.voiceAutoSendFinal,
-      PreferenceKeys.voiceSttPreference,
-      PreferenceKeys.voiceSttLanguageCode,
-      PreferenceKeys.socketTransportMode,
-      PreferenceKeys.quickPills,
-      PreferenceKeys.sendOnEnterKey,
-      PreferenceKeys.activeServerId,
-      PreferenceKeys.themeMode,
-      PreferenceKeys.themePalette,
-      PreferenceKeys.localeCode,
-      PreferenceKeys.reviewerMode,
       HiveStoreKeys.localConversations,
       HiveStoreKeys.localFolders,
       HiveStoreKeys.attachmentQueueEntries,

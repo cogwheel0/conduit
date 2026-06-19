@@ -1,14 +1,14 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive_ce/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   const testUser = User(
@@ -47,25 +47,38 @@ void main() {
   });
 
   group('server feature availability cache', () {
-    late Directory tempDir;
-    late Box<dynamic> preferences;
+    Future<void> putActiveServer(String id) =>
+        PreferencesStore.put(PreferenceKeys.activeServerId, id);
+
+    Future<void> putFlags(Map<String, dynamic> flags) => PreferencesStore.put(
+      PreferenceKeys.serverFeatureAvailability,
+      jsonEncode(flags),
+    );
+
+    Map<String, dynamic>? readFlags() {
+      final raw = PreferencesStore.getString(
+        PreferenceKeys.serverFeatureAvailability,
+      );
+      return raw == null
+          ? null
+          : (jsonDecode(raw) as Map).cast<String, dynamic>();
+    }
 
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('feature-flags-test-');
-      Hive.init(tempDir.path);
-      preferences = await Hive.openBox<dynamic>(HiveBoxNames.preferences);
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugReset();
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
     });
 
-    tearDown(() async {
-      await Hive.close();
-      await tempDir.delete(recursive: true);
+    tearDown(() {
+      PreferencesStore.debugReset();
     });
 
     test(
       'notes feature reads a cached disabled value for active server',
       () async {
-        await preferences.put(PreferenceKeys.activeServerId, 'server-1');
-        await preferences.put(PreferenceKeys.serverFeatureAvailability, {
+        await putActiveServer('server-1');
+        await putFlags({
           'server-1::user-1': {'notes': false},
         });
 
@@ -81,7 +94,7 @@ void main() {
     test(
       'setEnabled persists the disabled value for the active server',
       () async {
-        await preferences.put(PreferenceKeys.activeServerId, 'server-1');
+        await putActiveServer('server-1');
 
         final container = ProviderContainer(
           overrides: [currentUserProvider2.overrideWithValue(testUser)],
@@ -93,10 +106,7 @@ void main() {
             .setEnabled(false);
         await Future<void>.delayed(Duration.zero);
 
-        final cached = preferences.get(
-          PreferenceKeys.serverFeatureAvailability,
-        );
-        expect(cached, {
+        expect(readFlags(), {
           'server-1::user-1': {'channels': false},
         });
       },
@@ -113,7 +123,7 @@ void main() {
         name: 'Server 2',
         url: 'https://two.example.com',
       );
-      await preferences.put(PreferenceKeys.serverFeatureAvailability, {
+      await putFlags({
         'server-1::user-1': {'notes': false},
         'server-2::user-1': {'notes': true},
       });
@@ -146,8 +156,8 @@ void main() {
           email: 'other@example.com',
           role: 'user',
         );
-        await preferences.put(PreferenceKeys.activeServerId, 'server-1');
-        await preferences.put(PreferenceKeys.serverFeatureAvailability, {
+        await putActiveServer('server-1');
+        await putFlags({
           'server-1::user-1': {'channels': false},
           'server-1::user-2': {'channels': true},
         });
@@ -173,7 +183,7 @@ void main() {
     test(
       'persists feature flags with a token fallback before user restore',
       () async {
-        await preferences.put(PreferenceKeys.activeServerId, 'server-1');
+        await putActiveServer('server-1');
 
         final currentUser = NotifierProvider<_UserNotifier, User?>(
           () => _UserNotifier(null),
@@ -196,13 +206,9 @@ void main() {
         expect(container.read(notesFeatureEnabledProvider), isFalse);
         await Future<void>.delayed(Duration.zero);
 
-        final cachedAfterUserRestore = preferences.get(
-          PreferenceKeys.serverFeatureAvailability,
-        );
+        final cachedAfterUserRestore = readFlags();
         expect(cachedAfterUserRestore, contains('server-1::user-1'));
-        expect((cachedAfterUserRestore as Map)['server-1::user-1'], {
-          'notes': false,
-        });
+        expect(cachedAfterUserRestore!['server-1::user-1'], {'notes': false});
 
         container.read(notesFeatureEnabledProvider.notifier).setEnabled(true);
         await Future<void>.delayed(Duration.zero);
