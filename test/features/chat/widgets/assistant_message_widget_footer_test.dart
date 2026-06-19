@@ -11,6 +11,7 @@ import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,7 @@ Widget _buildAssistantHarness(
   ChatMessage message, {
   bool showFollowUps = false,
   bool isStreaming = false,
+  bool? isChatStreaming,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
 }) {
@@ -59,6 +61,8 @@ Widget _buildAssistantHarness(
       textToSpeechControllerProvider.overrideWith(
         _TestTextToSpeechController.new,
       ),
+      if (isChatStreaming != null)
+        isChatStreamingProvider.overrideWithValue(isChatStreaming),
     ],
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
@@ -321,8 +325,10 @@ void main() {
   });
 
   testWidgets(
-    'response-done metadata shows footer actions while keeping follow-ups busy',
+    'response-done metadata shows enabled footer actions immediately',
     (tester) async {
+      var copyTapCount = 0;
+      var regenerateTapCount = 0;
       final message = ChatMessage(
         id: 'assistant-response-done',
         role: 'assistant',
@@ -334,10 +340,18 @@ void main() {
       );
 
       await tester.pumpWidget(
-        _buildAssistantHarness(message, isStreaming: true, showFollowUps: true),
+        _buildAssistantHarness(
+          message,
+          isStreaming: true,
+          isChatStreaming: true,
+          showFollowUps: true,
+          onCopy: () => copyTapCount += 1,
+          onRegenerate: () => regenerateTapCount += 1,
+        ),
       );
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const ValueKey('actions')), findsOneWidget);
       expect(find.byIcon(Icons.content_copy), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsOneWidget);
       expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
@@ -346,41 +360,79 @@ void main() {
         tester
             .widget<FollowUpSuggestionBar>(find.byType(FollowUpSuggestionBar))
             .isBusy,
-        isTrue,
+        isFalse,
       );
-    },
-  );
-
-  testWidgets(
-    'response-done metadata keeps copy disabled until streaming fully settles',
-    (tester) async {
-      var copyTapCount = 0;
-      final message = ChatMessage(
-        id: 'assistant-response-done-copy',
-        role: 'assistant',
-        content: 'Visible response body',
-        timestamp: DateTime(2024, 1, 1),
-        isStreaming: true,
-        metadata: const {'responseDone': true},
-      );
-
-      await tester.pumpWidget(
-        _buildAssistantHarness(
-          message,
-          isStreaming: true,
-          onCopy: () => copyTapCount += 1,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byIcon(Icons.content_copy), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.content_copy));
       await tester.pump();
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
 
-      expect(copyTapCount, 0);
+      expect(copyTapCount, 1);
+      expect(regenerateTapCount, 1);
     },
   );
+
+  testWidgets('starting a new stream clears stale footer actions immediately', (
+    tester,
+  ) async {
+    final completed = ChatMessage(
+      id: 'assistant-reused-for-streaming',
+      role: 'assistant',
+      content: 'Finished answer',
+      timestamp: DateTime(2024, 1, 1),
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(completed));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+
+    final streaming = completed.copyWith(content: '', isStreaming: true);
+    await tester.pumpWidget(
+      _buildAssistantHarness(streaming, isStreaming: true),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('actions')), findsNothing);
+    expect(find.byKey(const ValueKey('typing')), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.byKey(const ValueKey('actions')), findsNothing);
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  testWidgets('response-done metadata enables copy immediately', (
+    tester,
+  ) async {
+    var copyTapCount = 0;
+    final message = ChatMessage(
+      id: 'assistant-response-done-copy',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+      metadata: const {'responseDone': true},
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        isStreaming: true,
+        isChatStreaming: true,
+        onCopy: () => copyTapCount += 1,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.content_copy));
+    await tester.pump();
+
+    expect(copyTapCount, 1);
+  });
 
   testWidgets(
     'response-done metadata renders long plain content with final body mode',
@@ -456,55 +508,53 @@ void main() {
     },
   );
 
-  testWidgets(
-    'response-done metadata keeps tts disabled until streaming fully settles',
-    (tester) async {
-      var ttsToggleCount = 0;
-      final message = ChatMessage(
-        id: 'assistant-response-done-tts',
-        role: 'assistant',
-        content: 'Visible response body',
-        timestamp: DateTime(2024, 1, 1),
-        isStreaming: true,
-        metadata: const {'responseDone': true},
-      );
+  testWidgets('response-done metadata enables tts immediately', (tester) async {
+    final message = ChatMessage(
+      id: 'assistant-response-done-tts',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+      metadata: const {'responseDone': true},
+    );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            textToSpeechControllerProvider.overrideWith(
-              () => _RecordingTextToSpeechController(() => ttsToggleCount += 1),
-            ),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: Scaffold(
-              body: AssistantMessageWidget(
-                message: message,
-                isStreaming: true,
-                showFollowUps: false,
-                animateOnMount: false,
-                modelName: message.model,
-                onCopy: () {},
-                onRegenerate: () {},
-                onDelete: () {},
-              ),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            () => _RecordingTextToSpeechController(() {}),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
             ),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.volume_up), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.volume_up));
-      await tester.pump();
-
-      expect(ttsToggleCount, 0);
-    },
-  );
+    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    final ttsButton = tester.widget<ChatActionButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.volume_up),
+        matching: find.byType(ChatActionButton),
+      ),
+    );
+    expect(ttsButton.onTap, isNotNull);
+  });
 
   testWidgets('response-done metadata re-enables attachment animations', (
     tester,
@@ -531,56 +581,55 @@ void main() {
     );
   });
 
-  testWidgets(
-    'response-done metadata keeps regenerate disabled until streaming fully settles',
-    (tester) async {
-      var regenerateTapCount = 0;
-      final message = ChatMessage(
-        id: 'assistant-response-done-regenerate',
-        role: 'assistant',
-        content: 'Visible response body',
-        timestamp: DateTime(2024, 1, 1),
-        isStreaming: true,
-        metadata: const {'responseDone': true},
-      );
+  testWidgets('response-done metadata enables regenerate immediately', (
+    tester,
+  ) async {
+    var regenerateTapCount = 0;
+    final message = ChatMessage(
+      id: 'assistant-response-done-regenerate',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+      metadata: const {'responseDone': true},
+    );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            textToSpeechControllerProvider.overrideWith(
-              _TestTextToSpeechController.new,
-            ),
-            isChatStreamingProvider.overrideWith((ref) => true),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light(TweakcnThemes.t3Chat),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: Scaffold(
-              body: AssistantMessageWidget(
-                message: message,
-                isStreaming: true,
-                showFollowUps: false,
-                animateOnMount: false,
-                modelName: message.model,
-                onCopy: () {},
-                onRegenerate: () => regenerateTapCount += 1,
-                onDelete: () {},
-              ),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          isChatStreamingProvider.overrideWithValue(true),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () => regenerateTapCount += 1,
+              onDelete: () {},
             ),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.refresh));
-      await tester.pump();
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pump();
 
-      expect(regenerateTapCount, 0);
-    },
-  );
+    expect(regenerateTapCount, 1);
+  });
 
   testWidgets('queued offline placeholder shows retry and cancel actions', (
     tester,

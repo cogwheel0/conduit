@@ -150,11 +150,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Timer? _typingGateTimer;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row replaces the
-  // typing indicator, so a transient `isStreaming:false` blip can never flash
-  // the row mid-stream. Settled on the streaming-end transition (the same
-  // authoritative signal the completion haptic uses) or a confirmed
-  // `responseDone`. History messages never set `_hasStreamedThisMessage` and
-  // show their action row immediately.
+  // typing indicator, so a transient in-progress state can never flash the row
+  // mid-stream. Settled on `responseDone` or on the streaming-end transition.
+  // History messages never set `_hasStreamedThisMessage` and show their action
+  // row immediately.
   bool _hasStreamedThisMessage = false;
   bool _actionRowSettled = false;
   String _ttsPlainText = '';
@@ -194,7 +193,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Future<void> _handleFollowUpTap(String suggestion) async {
     final trimmed = suggestion.trim();
-    if (trimmed.isEmpty || widget.isStreaming || !_responseCompleted) {
+    if (trimmed.isEmpty || _uiTreatsAsStreaming || !_responseCompleted) {
       return;
     }
     try {
@@ -430,23 +429,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
-  /// Drives the action-row hysteresis. While streaming, the row stays
-  /// suppressed and `_actionRowSettled` is reset so a later resume can't show
-  /// a stale row. A confirmed `responseDone` settles it; the genuine
-  /// streaming-end transition (see [didUpdateWidget]) settles it for paths that
-  /// don't write `responseDone`.
+  /// Drives the action-row hysteresis. While the UI still treats the message as
+  /// streaming, the row stays suppressed and `_actionRowSettled` is reset so a
+  /// later resume can't show a stale row. `responseDone` is a settled UI state:
+  /// it can show the final action row even before the transport flag flips.
   void _updateActionRowSettle() {
     if (_uiTreatsAsStreaming) {
       _hasStreamedThisMessage = true;
       _actionRowSettled = false;
       return;
     }
+    if (widget.message.metadata?['responseDone'] == true) {
+      _hasStreamedThisMessage = true;
+      _actionRowSettled = true;
+      return;
+    }
     if (!_hasStreamedThisMessage) {
       // History message: action row shows immediately, no settle needed.
       return;
-    }
-    if (widget.message.metadata?['responseDone'] == true) {
-      _actionRowSettled = true;
     }
   }
 
@@ -463,8 +463,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (!_hasStreamedThisMessage) {
       return true;
     }
-    return widget.message.metadata?['responseDone'] == true ||
-        _actionRowSettled;
+    return _actionRowSettled;
   }
 
   String get _messageId {
@@ -1006,6 +1005,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? queuedCompletionAsync.value
         : null;
     final hasQueuedCompletion = queuedCompletion != null;
+    final footerSwitchDuration = widget.isStreaming
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
     final showQueuedAsEmptyState =
         queuedCompletion != null &&
         _isAssistantResponseEmpty &&
@@ -1109,9 +1111,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           // action row exactly once, when generation completes.
           if (!hasQueuedCompletion)
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
+              duration: footerSwitchDuration,
+              reverseDuration: footerSwitchDuration,
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) {
+                final children = <Widget>[
+                  if (!widget.isStreaming) ...previousChildren,
+                  ?currentChild,
+                ];
+                if (children.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return Stack(
+                  alignment: AlignmentDirectional.topStart,
+                  children: children,
+                );
+              },
               transitionBuilder: (child, anim) {
                 return FadeTransition(
                   opacity: CurvedAnimation(
@@ -1941,7 +1957,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         (ttsState.status == TtsPlaybackStatus.loading ||
             ttsState.status == TtsPlaybackStatus.initializing);
     final bool contentActionsBlockedByStreaming =
-        widget.isStreaming && !isActiveMessage;
+        _uiTreatsAsStreaming && !isActiveMessage;
     final bool ttsAvailable = !ttsState.initialized || ttsState.available;
     final bool showStopState =
         isActiveMessage && (isSpeaking || isPaused || isBusy);
@@ -1956,7 +1972,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         !contentActionsBlockedByStreaming &&
         ttsAvailable &&
         !showPreparingTtsState;
-    final bool canRegenerate = widget.onRegenerate != null && !isChatStreaming;
+    final bool currentStreamingMessageCompleted =
+        widget.isStreaming && _responseCompleted;
+    final bool canRegenerate =
+        widget.onRegenerate != null &&
+        (!isChatStreaming || currentStreamingMessageCompleted);
     final bool hasVersions = widget.message.versions.isNotEmpty;
     final bool canGoToPreviousVersion =
         hasVersions && (_activeVersionIndex < 0 || _activeVersionIndex > 0);
@@ -1986,7 +2006,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ? CupertinoIcons.doc_on_clipboard
             : Icons.content_copy,
         label: l10n.copy,
-        onTap: widget.isStreaming ? null : widget.onCopy,
+        onTap: _responseCompleted ? widget.onCopy : null,
         sfSymbol: 'doc.on.clipboard',
       ),
       if (shouldShowTtsButton)
@@ -2163,7 +2183,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               child: FollowUpSuggestionBar(
                 suggestions: suggestions,
                 onSelected: _handleFollowUpTap,
-                isBusy: widget.isStreaming,
+                isBusy: _uiTreatsAsStreaming,
               ),
             )
           : const SizedBox.shrink(key: ValueKey('follow-ups-empty')),
