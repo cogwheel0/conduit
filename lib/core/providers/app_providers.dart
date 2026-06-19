@@ -3084,6 +3084,11 @@ final class _FeatureAvailabilityCache {
   // read per-feature per-build, so keep the decoded map cached and only re-parse
   // when the underlying string actually changes (e.g. a write here, or an
   // external clear). Keyed by the raw string so a clearAll invalidates it.
+  //
+  // INVARIANT: [_cachedMap] is treated as READ-ONLY. Reads return it directly
+  // (no copy); writes build a fresh deep copy, mutate that, then replace the
+  // cache — so a reader can never observe (or corrupt) a half-mutated map and
+  // there is no shared-nested-map hazard.
   static String? _cachedRaw;
   static Map<String, dynamic> _cachedMap = const <String, dynamic>{};
 
@@ -3092,14 +3097,16 @@ final class _FeatureAvailabilityCache {
     final resolvedScope = scope;
     if (resolvedScope == null) return null;
 
-    final value = _readFeature(resolvedScope.cacheKey, featureKey);
+    final flags = _flags();
+    final value = _readFeature(flags, resolvedScope.cacheKey, featureKey);
     if (value != null) return value;
 
     final fallbackCacheKey = resolvedScope.fallbackCacheKey;
     if (fallbackCacheKey == null) return null;
-    final fallbackValue = _readFeature(fallbackCacheKey, featureKey);
+    final fallbackValue = _readFeature(flags, fallbackCacheKey, featureKey);
     if (fallbackValue == null) return null;
-    _backfillFeature(resolvedScope.cacheKey, featureKey, fallbackValue);
+    // Backfill the primary scope so the next read hits directly.
+    _writeFeature({resolvedScope.cacheKey}, featureKey, fallbackValue);
     return fallbackValue;
   }
 
@@ -3111,16 +3118,11 @@ final class _FeatureAvailabilityCache {
     if (!PreferencesStore.isReady) return;
     final resolvedScope = scope;
     if (resolvedScope == null) return;
-
-    final allFlags = _allFlags();
-    final cacheKeys = {resolvedScope.cacheKey, ?resolvedScope.fallbackCacheKey};
-    for (final cacheKey in cacheKeys) {
-      final serverFlags = _serverFlags(cacheKey);
-      serverFlags[featureKey] = enabled;
-      allFlags[cacheKey] = serverFlags;
-    }
-
-    _persistAllFlags(allFlags, featureKey: featureKey);
+    _writeFeature(
+      {resolvedScope.cacheKey, ?resolvedScope.fallbackCacheKey},
+      featureKey,
+      enabled,
+    );
   }
 
   static String? activeServerId() {
@@ -3130,14 +3132,16 @@ final class _FeatureAvailabilityCache {
     return value;
   }
 
-  static Map<String, dynamic> _allFlags() {
+  /// Read-only decoded flag map (cached by raw string). Callers MUST NOT mutate
+  /// the returned map or its nested maps.
+  static Map<String, dynamic> _flags() {
     final raw = PreferencesStore.getString(
       PreferenceKeys.serverFeatureAvailability,
     );
     if (raw == null || raw.isEmpty) {
       _cachedRaw = raw;
       _cachedMap = const <String, dynamic>{};
-      return <String, dynamic>{};
+      return _cachedMap;
     }
     if (raw != _cachedRaw) {
       try {
@@ -3150,40 +3154,41 @@ final class _FeatureAvailabilityCache {
       }
       _cachedRaw = raw;
     }
-    // Return a copy so callers can mutate without corrupting the cache.
-    return Map<String, dynamic>.from(_cachedMap);
+    return _cachedMap;
   }
 
-  static Map<String, dynamic> _serverFlags(String serverId) {
-    final value = _allFlags()[serverId];
-    if (value is! Map) return <String, dynamic>{};
-    return value.map((key, value) => MapEntry(key.toString(), value));
-  }
-
-  static bool? _readFeature(String cacheKey, String featureKey) {
-    final value = _serverFlags(cacheKey)[featureKey];
+  static bool? _readFeature(
+    Map<String, dynamic> flags,
+    String cacheKey,
+    String featureKey,
+  ) {
+    final server = flags[cacheKey];
+    if (server is! Map) return null;
+    final value = server[featureKey];
     return value is bool ? value : null;
   }
 
-  static void _backfillFeature(
-    String cacheKey,
+  /// Sets [featureKey] = [enabled] for each of [cacheKeys] and persists. Builds
+  /// ONE deep copy of the cached map, mutates it, then replaces the cache — no
+  /// redundant per-key reads and no shared-nested-map aliasing.
+  static void _writeFeature(
+    Set<String> cacheKeys,
     String featureKey,
     bool enabled,
   ) {
-    final allFlags = _allFlags();
-    final serverFlags = _serverFlags(cacheKey);
-    serverFlags[featureKey] = enabled;
-    allFlags[cacheKey] = serverFlags;
-    _persistAllFlags(allFlags, featureKey: featureKey);
-  }
+    final flags = _deepCopyFlags(_flags());
+    for (final cacheKey in cacheKeys) {
+      final existing = flags[cacheKey];
+      final serverFlags = existing is Map
+          ? Map<String, dynamic>.from(existing)
+          : <String, dynamic>{};
+      serverFlags[featureKey] = enabled;
+      flags[cacheKey] = serverFlags;
+    }
 
-  static void _persistAllFlags(
-    Map<String, dynamic> allFlags, {
-    required String featureKey,
-  }) {
-    final encoded = jsonEncode(allFlags);
+    final encoded = jsonEncode(flags);
     _cachedRaw = encoded;
-    _cachedMap = allFlags;
+    _cachedMap = flags;
     unawaited(
       PreferencesStore.put(
         PreferenceKeys.serverFeatureAvailability,
@@ -3197,6 +3202,15 @@ final class _FeatureAvailabilityCache {
           data: {'feature': featureKey},
         );
       }),
+    );
+  }
+
+  static Map<String, dynamic> _deepCopyFlags(Map<String, dynamic> source) {
+    return source.map(
+      (key, value) => MapEntry(
+        key,
+        value is Map ? Map<String, dynamic>.from(value) : value,
+      ),
     );
   }
 }
