@@ -122,7 +122,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   void _onContentFocusChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // When the editor loses focus (e.g. the user taps away or starts
+    // navigating elsewhere), flush any pending edit immediately instead of
+    // waiting out the debounce, so a quick format-then-leave isn't dropped.
+    if (!_contentFocusNode.hasFocus && _hasChanges) {
+      _saveDebounce?.cancel();
+      unawaited(_autoSave());
+    }
+    setState(() {});
   }
 
   @override
@@ -249,6 +257,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void _debounceSave() {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 800), _autoSave);
+  }
+
+  /// Handles a back-navigation attempt. Reached only when [canPop] was false,
+  /// i.e. there is a pending edit: flush it while still mounted (so the durable
+  /// write doesn't race teardown), then pop programmatically.
+  Future<void> _onEditorPopInvoked(bool didPop, Object? result) async {
+    if (didPop) return;
+    _saveDebounce?.cancel();
+    await _autoSave();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(result);
+    }
   }
 
   Future<void> _autoSave() async {
@@ -576,7 +596,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final selection = controller?.selection;
       final docEnd = controller == null
           ? 0
-          : (controller.document.length - 1).clamp(0, controller.document.length);
+          : (controller.document.length - 1).clamp(
+              0,
+              controller.document.length,
+            );
       _dictationAnchor =
           (selection != null && selection.isValid && !selection.isCollapsed)
           ? selection.start
@@ -935,50 +958,63 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveRouteShell(body: SizedBox.shrink());
     }
 
-    return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        extendBodyBehindAppBar: true,
-        appBar: _buildAdaptiveNoteEditorAppBar(context),
-        body: Stack(
-          children: [
-            Positioned.fill(child: _buildMainContent(context)),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: ConduitChromeGradientFade.top(
-                contentHeight:
-                    MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
-              ),
-            ),
-            if (!_isLoading && _note != null)
+    return PopScope(
+      // Allow the back gesture/animation to proceed normally when there is
+      // nothing to save. When an edit is still pending (within the auto-save
+      // debounce), intercept the pop, flush the save while the widget is still
+      // mounted (so the durable write completes without racing teardown), then
+      // pop programmatically.
+      canPop: !_hasChanges,
+      onPopInvokedWithResult: _onEditorPopInvoked,
+      child: ErrorBoundary(
+        child: AdaptiveRouteShell(
+          backgroundColor: context.conduitTheme.surfaceBackground,
+          extendBodyBehindAppBar: true,
+          appBar: _buildAdaptiveNoteEditorAppBar(context),
+          body: Stack(
+            children: [
+              Positioned.fill(child: _buildMainContent(context)),
               Positioned(
-                top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
                 left: 0,
                 right: 0,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: Spacing.xs),
-                  child: Center(child: _buildFloatingMetadataBar(context)),
+                top: 0,
+                child: ConduitChromeGradientFade.top(
+                  contentHeight:
+                      MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
                 ),
               ),
-            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
-              Positioned(
-                left: Spacing.md,
-                right: Spacing.md,
-                bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
-                child: _buildFloatingActionsRow(context),
-              ),
-            // Formatting toolbar — shown above the keyboard while the content
-            // editor is focused (in place of the floating actions row).
-            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: MediaQuery.viewInsetsOf(context).bottom,
-                child: _buildFormattingToolbar(context),
-              ),
-          ],
+              if (!_isLoading && _note != null)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                  left: 0,
+                  right: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: Spacing.xs),
+                    child: Center(child: _buildFloatingMetadataBar(context)),
+                  ),
+                ),
+              if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
+                Positioned(
+                  left: Spacing.md,
+                  right: Spacing.md,
+                  bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
+                  child: _buildFloatingActionsRow(context),
+                ),
+              // Formatting toolbar — shown above the keyboard while the content
+              // editor is focused (in place of the floating actions row). The
+              // scaffold uses resizeToAvoidBottomInset, so the body is already
+              // laid out above the keyboard; anchoring at bottom: 0 sits the
+              // toolbar directly on top of it (anchoring at viewInsets.bottom
+              // would double-count the inset and push it up to the stats row).
+              if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildFormattingToolbar(context),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1000,13 +1036,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           ),
           child: FleatherTheme(
             data: _fleatherTheme ??= _buildFleatherTheme(context),
-            // Hide formatting that markdown cannot round-trip (underline and
-            // colours), since markdown stays the canonical stored format.
+            // Markdown is the canonical stored format, so hide every control
+            // whose result markdown can't represent — otherwise the user
+            // applies formatting that silently vanishes on save/reopen.
+            // Dropped: underline, text/background colour, alignment,
+            // indentation, and text direction. Kept: bold, italic,
+            // strikethrough, inline code, headings, lists (incl. checkboxes),
+            // code blocks, quotes, links, and horizontal rules.
             child: FleatherToolbar.basic(
               controller: controller,
               hideUnderLineButton: true,
               hideBackgroundColor: true,
               hideForegroundColor: true,
+              hideAlignment: true,
+              hideIndentation: true,
+              hideDirection: true,
             ),
           ),
         ),
