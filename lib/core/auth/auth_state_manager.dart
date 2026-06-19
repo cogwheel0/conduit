@@ -88,6 +88,41 @@ enum AuthStatus {
   credentialError, // Invalid credentials - need re-login
 }
 
+/// Whether the bootstrap silent-login path should fall back to
+/// [AuthStatus.unauthenticated] after the background login resolves.
+///
+/// `_bootstrapSilentLogin` and `_performSilentLoginInBackground` deliberately
+/// SHARE the pre-existing auth-attempt revision — neither calls
+/// `_beginAuthAttempt()` up-front. A successful background login bumps the
+/// revision lazily through its `claimCommit()`. So the fallback must fire ONLY
+/// when the background login committed nothing ([committed] is false) AND no
+/// newer auth attempt has started since bootstrap captured
+/// [capturedRevision] (i.e. [currentRevision] is unchanged), while the app
+/// still sits in the bootstrap [AuthStatus.loading] state with no token.
+///
+/// Any of the following must SUPPRESS the fallback so a stale bootstrap task
+/// can't clobber newer state:
+/// - a successful commit (its `claimCommit()` bumped the revision → unequal),
+/// - a newer attempt (login / logout / token-invalidation bumped the revision),
+/// - a session already published (status moved off `loading`),
+/// - a token already restored ([hasValidToken]).
+///
+/// Extracted as a pure function so the revision-sharing contract has a dedicated
+/// test; the private bootstrap path is otherwise driven by an internal,
+/// network-bound `ApiService` that can't be exercised in a unit test.
+bool bootstrapShouldFallbackToUnauthenticated({
+  required bool committed,
+  required int capturedRevision,
+  required int currentRevision,
+  required AuthStatus status,
+  required bool hasValidToken,
+}) {
+  return !committed &&
+      currentRevision == capturedRevision &&
+      status == AuthStatus.loading &&
+      !hasValidToken;
+}
+
 /// Unified auth state manager - single source of truth for all auth operations
 @Riverpod(keepAlive: true)
 class AuthStateManager extends _$AuthStateManager {
@@ -1272,10 +1307,13 @@ class AuthStateManager extends _$AuthStateManager {
     final bootstrapRevision = _authAttemptRevision;
     final committed = await _performSilentLoginInBackground();
     if (!ref.mounted) return;
-    if (!committed &&
-        _authAttemptRevision == bootstrapRevision &&
-        _current.status == AuthStatus.loading &&
-        !_current.hasValidToken) {
+    if (bootstrapShouldFallbackToUnauthenticated(
+      committed: committed,
+      capturedRevision: bootstrapRevision,
+      currentRevision: _authAttemptRevision,
+      status: _current.status,
+      hasValidToken: _current.hasValidToken,
+    )) {
       DebugLogger.auth(
         'bootstrap-silent-login-unresolved-needs-login',
         scope: 'auth/state',
