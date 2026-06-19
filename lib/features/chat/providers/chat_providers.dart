@@ -363,7 +363,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         if (previous?.id == next?.id ||
             isActiveConversationInPlaceRemap(ref, previous?.id, next?.id)) {
           final serverMessages = next?.messages ?? const [];
-          if (_shouldAdoptServerMessages(serverMessages)) {
+          // While resuming a reopened, server-active chat the progressive poll
+          // owns content; don't let a same-id server snapshot (isStreaming:false)
+          // clobber the streaming state and end it prematurely.
+          if (!_isResumeStreamingActive &&
+              _shouldAdoptServerMessages(serverMessages)) {
             _adoptServerMessages(
               serverMessages,
               source: 'active conversation update',
@@ -385,6 +389,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           if (_hasStreamingAssistant) {
             _ensureRemoteTaskMonitor();
+          } else {
+            // The opened chat may still be generating on the server; the server
+            // never sends `isStreaming`, so detect it from the task registry and
+            // re-engage the indicator + monitor.
+            unawaited(_detectActiveOnOpen(next));
           }
         } else {
           state = [];
@@ -935,7 +944,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     required String source,
   }) async {
     if (_passiveConversationRefreshInFlight ||
-        _shouldProtectLocalStreamingState) {
+        _shouldProtectLocalStreamingState ||
+        _isResumeStreamingActive) {
       return;
     }
 
@@ -1229,6 +1239,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _taskStatusCheckInFlight;
   }
 
+  /// True while streaming was re-engaged for a reopened, server-active chat
+  /// (typing indicator + 1s poll) with no genuine local transport. The
+  /// progressive poll owns content updates during this window; passive server
+  /// refreshes must not clobber the streaming state and end it prematurely.
+  bool get _isResumeStreamingActive =>
+      _taskStatusTimer != null &&
+      _hasStreamingAssistant &&
+      !_shouldProtectLocalStreamingState;
+
   void _dropStreamingTransportState({
     required String source,
     String? messageId,
@@ -1265,6 +1284,66 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       source: 'obsolete stream retirement',
       messageId: messageId,
     );
+  }
+
+  /// When a chat is opened that is still generating on the server, mark its
+  /// last assistant message as streaming so the typing indicator + remote-task
+  /// monitor engage. The server never sends `isStreaming`, so a reopened
+  /// in-flight chat would otherwise render as an empty/partial response.
+  Future<void> _detectActiveOnOpen(Conversation conversation) async {
+    final chatId = conversation.id;
+    if (_disposed || isTemporaryChat(chatId)) {
+      return;
+    }
+    // A genuine local stream, or an already-streaming message, owns this chat.
+    if (_shouldProtectLocalStreamingState || _hasStreamingAssistant) {
+      return;
+    }
+    if (state.isEmpty || state.last.role != 'assistant') {
+      return;
+    }
+
+    // Fast path: the active-chats set (populated by ActiveChatsSync) may already
+    // know. Otherwise ask the server's task registry directly.
+    var isActive = ref.read(activeChatIdsProvider).contains(chatId);
+    if (!isActive) {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        return;
+      }
+      try {
+        final taskIds = await api.getTaskIdsByChat(chatId);
+        isActive = taskIds.isNotEmpty;
+      } catch (_) {
+        // Offline / unreachable: leave the response as-is (static).
+        return;
+      }
+    }
+    if (!isActive || _disposed) {
+      return;
+    }
+
+    // The active chat may have changed, or a real stream may have started,
+    // while we awaited the probe.
+    if (ref.read(activeConversationProvider)?.id != chatId) {
+      return;
+    }
+    if (_shouldProtectLocalStreamingState || _hasStreamingAssistant) {
+      return;
+    }
+    if (state.isEmpty || state.last.role != 'assistant') {
+      return;
+    }
+
+    final last = state.last;
+    state = [
+      ...state.sublist(0, state.length - 1),
+      last.copyWith(isStreaming: true),
+    ];
+    // Pre-seed so the monitor's tasksDone finalization resolves once the server
+    // task disappears (otherwise tasksDone could never become true).
+    _observedRemoteTask = true;
+    _ensureRemoteTaskMonitor();
   }
 
   void _ensureRemoteTaskMonitor() {
@@ -1318,6 +1397,54 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       // When no active tasks and we previously observed tasks, streaming should be done.
       final tasksDone = _observedRemoteTask && !hasActiveTasks;
+
+      // Resume case: while the server task is still running and no genuine local
+      // stream owns this chat (i.e. we re-engaged streaming on reopen), adopt the
+      // growing server content so a reopened in-flight chat streams in instead of
+      // showing an empty/partial response. A real local send delivers its own
+      // socket/HTTP deltas, so it is excluded via _shouldProtectLocalStreamingState.
+      if (_hasStreamingAssistant &&
+          hasActiveTasks &&
+          !_shouldProtectLocalStreamingState) {
+        try {
+          final refreshed = await pullChatOrFetch(ref, activeConversation.id);
+          // Bail if we switched chats or a real stream started during the await.
+          if (refreshed == null ||
+              _disposed ||
+              ref.read(activeConversationProvider)?.id !=
+                  activeConversation.id ||
+              !_hasStreamingAssistant ||
+              _shouldProtectLocalStreamingState) {
+            return;
+          }
+          if (state.isNotEmpty) {
+            final localLast = state.last;
+            if (localLast.role == 'assistant' && localLast.isStreaming) {
+              final snapshot = _readStreamingMessageComparisonSnapshot(
+                localLast.id,
+              );
+              final serverVersion = refreshed.messages
+                  .where((m) => m.id == localLast.id)
+                  .firstOrNull;
+              final serverContent = serverVersion?.content ?? '';
+              // Monotonic growth guard: only adopt when the server has strictly
+              // more content than we already show (prevents flicker/duplicates).
+              if (serverVersion != null &&
+                  serverContent.length > snapshot.comparisonContent.length) {
+                state = [
+                  ...state.sublist(0, state.length - 1),
+                  serverVersion.copyWith(isStreaming: true),
+                ];
+              }
+            }
+          }
+        } catch (e) {
+          DebugLogger.log(
+            'Progressive resume fetch failed: $e',
+            scope: 'chat/providers',
+          );
+        }
+      }
 
       // Secondary check: fetch conversation from server and compare message state.
       // This catches cases where the done signal was missed AND syncs any missed
