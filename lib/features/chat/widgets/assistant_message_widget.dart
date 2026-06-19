@@ -4,7 +4,6 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -41,6 +40,7 @@ import '../utils/file_utils.dart';
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
+import 'five_rotating_dots.dart';
 
 // Wrap only standalone base64 image lines so <details> attributes stay intact.
 final _standaloneBase64ImagePattern = RegExp(
@@ -1833,74 +1833,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final theme = context.conduitTheme;
     final dotColor = theme.textSecondary.withValues(alpha: 0.75);
 
-    const double dotSize = 8.0;
-    const double dotSpacing = 6.0;
-    const int numberOfDots = 3;
-    Widget buildDot() {
-      return Container(
-        width: dotSize,
-        height: dotSize,
-        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-      );
-    }
-
-    if (_disableAnimations) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(width: dotSize * 0.2),
-            for (int i = 0; i < numberOfDots; i++) ...[
-              buildDot(),
-              if (i < numberOfDots - 1) const SizedBox(width: dotSpacing),
-            ],
-            const SizedBox(width: dotSize * 0.2),
-          ],
-        ),
-      );
-    }
-
-    // Create three dots with staggered animations
-    final dots = List.generate(numberOfDots, (index) {
-      final delay = Duration(milliseconds: 150 * index);
-
-      return buildDot()
-          .animate(onPlay: (controller) => controller.repeat())
-          .then(delay: delay)
-          .fadeIn(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          )
-          .scale(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeInOut,
-            begin: const Offset(0.4, 0.4),
-            end: const Offset(1, 1),
-          )
-          .then()
-          .scale(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeInOut,
-            begin: const Offset(1.2, 1.2),
-            end: const Offset(0.5, 0.5),
-          );
-    });
-
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Add left padding to prevent clipping when dots scale up
-          const SizedBox(width: dotSize * 0.2),
-          for (int i = 0; i < numberOfDots; i++) ...[
-            dots[i],
-            if (i < numberOfDots - 1) const SizedBox(width: dotSpacing),
-          ],
-          // Add right padding to prevent clipping when dots scale up
-          const SizedBox(width: dotSize * 0.2),
-        ],
+      padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+      child: RepaintBoundary(
+        child: FiveRotatingDots(
+          size: 28,
+          color: dotColor,
+          animate: !_disableAnimations,
+        ),
       ),
     );
   }
