@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +31,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
+import '../utils/note_document_codec.dart';
 import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
 import '../widgets/note_file_attachment.dart';
@@ -46,7 +48,7 @@ class NoteEditorPage extends ConsumerStatefulWidget {
 
 class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _contentController = TextEditingController();
+  FleatherController? _contentController;
   final FocusNode _titleFocusNode = FocusNode(debugLabel: 'note_title');
   final FocusNode _contentFocusNode = FocusNode(debugLabel: 'note_content');
   final ScrollController _scrollController = ScrollController();
@@ -64,32 +66,74 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // Voice input
   VoiceInputService? _voiceService;
   StreamSubscription<String>? _voiceSub;
-  String _voiceBaseText = '';
+  // Index in the document where the in-progress dictation run is inserted, and
+  // the length of that run, so each (cumulative) transcript update replaces the
+  // previous one without disturbing the rest of the document.
+  int? _dictationAnchor;
+  int _dictationLength = 0;
+
+  // Markdown snapshot of the last saved/loaded document, used to detect real
+  // edits. Compared against the re-encoded current document so opening a note
+  // never registers as a spurious change from non-semantic markdown
+  // normalisation.
+  String _savedMarkdown = '';
 
   static final _whitespacePattern = RegExp(r'\s+');
-  static final _boldPattern = RegExp(r'\*\*(.+?)\*\*');
-  static final _italicPattern = RegExp(r'\*(.+?)\*');
   int _cachedWordCount = 0;
 
+  /// Plain text of the current document (empty when no note is loaded).
+  String get _contentPlainText =>
+      _contentController?.document.toPlainText().trimRight() ?? '';
+
+  /// Markdown encoding of the current document.
+  String get _contentMarkdown {
+    final controller = _contentController;
+    return controller == null ? '' : markdownFromDocument(controller.document);
+  }
+
   void _updateWordCount() {
-    final text = _contentController.text.trim();
+    final text = _contentPlainText.trim();
     _cachedWordCount = text.isEmpty ? 0 : text.split(_whitespacePattern).length;
   }
 
-  int get _charCount => _contentController.text.length;
+  int get _charCount => _contentPlainText.length;
 
   @override
   void initState() {
     super.initState();
     _loadNote();
     _titleController.addListener(_onContentChanged);
-    _contentController.addListener(_onContentChanged);
+    // The content controller is created once the note is loaded; its listener
+    // is wired up in [_installContentDocument].
     // Rebuild when title focus changes to show/hide the generate title button
     _titleFocusNode.addListener(_onTitleFocusChanged);
+    // Rebuild to show/hide the formatting toolbar as the editor gains/loses
+    // focus.
+    _contentFocusNode.addListener(_onContentFocusChanged);
   }
 
   void _onTitleFocusChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onContentFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Replaces the content editor's controller with one backed by [document],
+  /// disposing the previous controller. Used on initial load and whenever the
+  /// whole document is swapped (e.g. AI enhancement).
+  ///
+  /// Does not touch [_savedMarkdown]: callers that load already-persisted
+  /// content reset the baseline themselves, while callers that introduce new
+  /// content (enhancement) leave it so the change is detected and auto-saved.
+  void _installContentDocument(ParchmentDocument document) {
+    final previous = _contentController;
+    final controller = FleatherController(document: document);
+    controller.addListener(_onContentChanged);
+    _contentController = controller;
+    previous?.removeListener(_onContentChanged);
+    previous?.dispose();
   }
 
   @override
@@ -98,9 +142,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _voiceSub?.cancel();
     _voiceService?.stopListening();
     _titleController.dispose();
-    _contentController.dispose();
+    _contentController?.dispose();
     _titleFocusNode.removeListener(_onTitleFocusChanged);
     _titleFocusNode.dispose();
+    _contentFocusNode.removeListener(_onContentFocusChanged);
     _contentFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -126,7 +171,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() {
           _note = note;
           _titleController.text = note.title;
-          _contentController.text = note.markdownContent;
+          _installContentDocument(documentFromMarkdown(note.markdownContent));
+          _savedMarkdown = _contentMarkdown;
           _updateWordCount();
           _isLoading = false;
           _hasChanges = false;
@@ -178,10 +224,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void _onContentChanged() {
     if (!mounted || _isLoading) return;
 
-    // Check if content actually changed from the saved note
+    // Check if content actually changed from the saved note. Compare the
+    // re-encoded markdown against the snapshot taken on load/save so that
+    // markdown normalisation on open never registers as an edit.
     final titleChanged = _note != null && _titleController.text != _note!.title;
-    final contentChanged =
-        _note != null && _contentController.text != _note!.markdownContent;
+    final contentChanged = _note != null && _contentMarkdown != _savedMarkdown;
     final hasRealChanges = titleChanged || contentChanged;
 
     if (hasRealChanges != _hasChanges) {
@@ -212,15 +259,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// entries while the editor was open — spreading the editor's stale copy here
   /// would revert them on the next save).
   Map<String, dynamic> _composeUpdatedNoteData({
-    required String markdown,
     List<Map<String, dynamic>>? files,
   }) {
+    final document = _contentController?.document;
+    final markdown = document != null ? markdownFromDocument(document) : '';
+    final html = document != null ? htmlFromDocument(document) : '';
+    // `json` (TipTap) is intentionally left null: markdown stays the canonical
+    // interchange format so notes remain editable on the Open WebUI web client.
     final data = <String, dynamic>{
-      'content': <String, dynamic>{
-        'json': null,
-        'html': _markdownToHtml(markdown),
-        'md': markdown,
-      },
+      'content': <String, dynamic>{'json': null, 'html': html, 'md': markdown},
     };
     if (files != null) {
       data['files'] = files;
@@ -279,11 +326,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     try {
       final title = _titleController.text.trim();
-      final content = _contentController.text;
 
       // Preserve existing note data (versions, attached files) — only the
       // content changes here.
-      final data = _composeUpdatedNoteData(markdown: content);
+      final savedMarkdown = _contentMarkdown;
+      final data = _composeUpdatedNoteData();
 
       final resolvedTitle = title.isEmpty
           ? AppLocalizations.of(context)!.untitled
@@ -304,6 +351,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
+            _savedMarkdown = savedMarkdown;
             _isSaving = false;
             _hasChanges = false;
           });
@@ -321,46 +369,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _showError(e.toString());
       }
     }
-  }
-
-  String _markdownToHtml(String markdown) {
-    final paragraphs = markdown.split('\n\n');
-    final html = paragraphs
-        .map((p) {
-          if (p.trim().isEmpty) return '';
-          if (p.startsWith('# ')) {
-            return '<h1>${_escapeHtml(p.substring(2))}</h1>';
-          }
-          if (p.startsWith('## ')) {
-            return '<h2>${_escapeHtml(p.substring(3))}</h2>';
-          }
-          if (p.startsWith('### ')) {
-            return '<h3>${_escapeHtml(p.substring(4))}</h3>';
-          }
-          // Escape entire paragraph first to prevent XSS, then apply
-          // markdown formatting replacements on the escaped text.
-          var text = _escapeHtml(p);
-          text = text.replaceAllMapped(
-            _boldPattern,
-            (m) => '<strong>${m.group(1)!}</strong>',
-          );
-          text = text.replaceAllMapped(
-            _italicPattern,
-            (m) => '<em>${m.group(1)!}</em>',
-          );
-          return '<p>$text</p>';
-        })
-        .join('\n');
-    return html;
-  }
-
-  String _escapeHtml(String text) {
-    return text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
   }
 
   void _showError(String message) {
@@ -423,7 +431,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // AI title generation
   Future<void> _generateTitle() async {
     if (_note == null || _isGeneratingTitle) return;
-    final content = _contentController.text.trim();
+    final content = _contentMarkdown.trim();
     if (content.isEmpty) {
       _showError(AppLocalizations.of(context)!.noContentToGenerateTitle);
       return;
@@ -467,7 +475,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // AI content enhancement
   Future<void> _enhanceContent() async {
     if (_note == null || _isEnhancing) return;
-    final content = _contentController.text.trim();
+    final content = _contentMarkdown.trim();
     if (content.isEmpty) {
       _showError(AppLocalizations.of(context)!.noContentToEnhance);
       return;
@@ -494,7 +502,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         modelId: modelId,
       );
       if (mounted && enhancedContent != null && enhancedContent.isNotEmpty) {
-        _contentController.text = enhancedContent;
+        setState(() {
+          _installContentDocument(documentFromMarkdown(enhancedContent));
+        });
+        // Installing a fresh document resets the saved-markdown snapshot, so
+        // re-run change detection to flag the enhancement for auto-save.
+        _onContentChanged();
         ConduitHaptics.mediumImpact();
         AdaptiveSnackBar.show(
           context,
@@ -537,9 +550,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final stream = await _voiceService!.beginListening();
       if (!mounted) return;
 
+      // Anchor the dictation run at the current selection, or the end of the
+      // document when there is no selection. The trailing line-break of a
+      // Parchment document is not editable, so clamp before it.
+      final controller = _contentController;
+      final selection = controller?.selection;
+      final docEnd = controller == null
+          ? 0
+          : (controller.document.length - 1).clamp(0, controller.document.length);
+      _dictationAnchor =
+          (selection != null && selection.isValid && !selection.isCollapsed)
+          ? selection.start
+          : (selection != null && selection.isValid
+                ? selection.baseOffset.clamp(0, docEnd)
+                : docEnd);
+      _dictationLength = 0;
+
       setState(() {
         _isRecording = true;
-        _voiceBaseText = _contentController.text;
       });
 
       ConduitHaptics.lightImpact();
@@ -548,13 +576,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       _voiceSub = stream.listen(
         (text) {
           if (!mounted) return;
-          final updated = _voiceBaseText.isEmpty
-              ? text
-              : '${_voiceBaseText.trimRight()} $text';
-          _contentController.value = TextEditingValue(
-            text: updated,
-            selection: TextSelection.collapsed(offset: updated.length),
-          );
+          _applyDictationText(text);
         },
         onDone: () {
           if (!mounted) return;
@@ -576,10 +598,36 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   Future<void> _stopDictation() async {
     await _voiceService?.stopListening();
     _voiceSub?.cancel();
+    _dictationAnchor = null;
+    _dictationLength = 0;
     if (mounted) {
       setState(() => _isRecording = false);
       ConduitHaptics.selectionClick();
     }
+  }
+
+  /// Applies the latest (cumulative) dictation [transcript] by replacing the
+  /// previously inserted run at [_dictationAnchor] with the new text, leaving
+  /// the rest of the document — and its formatting — untouched.
+  void _applyDictationText(String transcript) {
+    final controller = _contentController;
+    final anchor = _dictationAnchor;
+    if (controller == null || anchor == null) return;
+
+    final plain = controller.document.toPlainText();
+    final needsLeadingSpace =
+        anchor > 0 &&
+        anchor <= plain.length &&
+        !_whitespacePattern.hasMatch(plain[anchor - 1]);
+    final insert = needsLeadingSpace ? ' $transcript' : transcript;
+
+    controller.replaceText(
+      anchor,
+      _dictationLength,
+      insert,
+      selection: TextSelection.collapsed(offset: anchor + insert.length),
+    );
+    _dictationLength = insert.length;
   }
 
   /// Shows a bottom sheet to choose between dictation and audio recording.
@@ -784,10 +832,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ];
 
       // Update note with the file attachment
-      final data = _composeUpdatedNoteData(
-        markdown: _contentController.text,
-        files: updatedFiles,
-      );
+      final data = _composeUpdatedNoteData(files: updatedFiles);
 
       final resolvedTitle = _titleController.text.isEmpty
           ? l10n.untitled
@@ -842,7 +887,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _copyToClipboard() {
     final l10n = AppLocalizations.of(context)!;
-    final content = _contentController.text;
+    final content = _contentMarkdown;
     Clipboard.setData(ClipboardData(text: content));
     ConduitHaptics.selectionClick();
     AdaptiveSnackBar.show(
@@ -895,14 +940,53 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: Center(child: _buildFloatingMetadataBar(context)),
                 ),
               ),
-            if (!_isLoading && _note != null)
+            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
               Positioned(
                 left: Spacing.md,
                 right: Spacing.md,
                 bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
                 child: _buildFloatingActionsRow(context),
               ),
+            // Formatting toolbar — shown above the keyboard while the content
+            // editor is focused (in place of the floating actions row).
+            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+                child: _buildFormattingToolbar(context),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormattingToolbar(BuildContext context) {
+    final theme = context.conduitTheme;
+    final controller = _contentController;
+    if (controller == null) return const SizedBox.shrink();
+    return Material(
+      color: theme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
+            ),
+          ),
+          child: FleatherTheme(
+            data: _buildFleatherTheme(context),
+            // Hide formatting that markdown cannot round-trip (underline and
+            // colours), since markdown stays the canonical stored format.
+            child: FleatherToolbar.basic(
+              controller: controller,
+              hideUnderLineButton: true,
+              hideBackgroundColor: true,
+              hideForegroundColor: true,
+            ),
+          ),
         ),
       ),
     );
@@ -1270,8 +1354,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildEditor(BuildContext context) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
     final topPadding = MediaQuery.of(context).padding.top;
     // App bar height: kTextTabBarHeight + metadata bar (~40)
     final appBarHeight = kTextTabBarHeight + 40;
@@ -1303,32 +1385,80 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               const SizedBox(height: Spacing.lg),
             ],
             // Content editor
-            AdaptiveTextField(
-              controller: _contentController,
-              focusNode: _contentFocusNode,
-              style: AppTypography.bodyLargeStyle.copyWith(
-                color: theme.textPrimary,
-                height: 1.8,
-              ),
-              placeholder: l10n.writeNote,
-              maxLines: null,
-              minLines: 20,
-              textCapitalization: TextCapitalization.sentences,
-              keyboardType: TextInputType.multiline,
-              padding: EdgeInsets.zero,
-              cupertinoDecoration: const BoxDecoration(),
-              decoration: context.conduitInputStyles
-                  .borderless(hint: l10n.writeNote)
-                  .copyWith(
-                    hintStyle: AppTypography.bodyLargeStyle.copyWith(
-                      color: theme.textSecondary.withValues(alpha: 0.35),
-                      height: 1.8,
-                    ),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-            ),
+            _buildContentEditor(context),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildContentEditor(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final controller = _contentController;
+    if (controller == null) {
+      return const SizedBox.shrink();
+    }
+
+    final editor = FleatherEditor(
+      controller: controller,
+      focusNode: _contentFocusNode,
+      // Lives inside the page's SingleChildScrollView; the editor must not
+      // scroll independently so the whole note grows with the content.
+      scrollable: false,
+      expands: false,
+      padding: EdgeInsets.zero,
+      minHeight: 20 * 1.8 * AppTypography.bodyLarge,
+      textCapitalization: TextCapitalization.sentences,
+    );
+
+    // Fleather has no built-in placeholder, so overlay a hint while the
+    // document is empty.
+    final showPlaceholder = _contentPlainText.isEmpty;
+    return FleatherTheme(
+      data: _buildFleatherTheme(context),
+      child: Stack(
+        children: [
+          if (showPlaceholder)
+            Positioned(
+              left: 0,
+              top: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Text(
+                  l10n.writeNote,
+                  style: AppTypography.bodyLargeStyle.copyWith(
+                    color: theme.textSecondary.withValues(alpha: 0.35),
+                    height: 1.8,
+                  ),
+                ),
+              ),
+            ),
+          editor,
+        ],
+      ),
+    );
+  }
+
+  /// Builds a Fleather theme derived from the app's typography and colours so
+  /// the rich-text editor matches the rest of the note UI.
+  FleatherThemeData _buildFleatherTheme(BuildContext context) {
+    final theme = context.conduitTheme;
+    final base = AppTypography.bodyLargeStyle.copyWith(
+      color: theme.textPrimary,
+      height: 1.8,
+    );
+    final fallback = FleatherThemeData.fallback(context);
+    return fallback.copyWith(
+      paragraph: TextBlockTheme(
+        style: base,
+        spacing: const VerticalSpacing(top: 0, bottom: 6),
+      ),
+      bold: const TextStyle(fontWeight: FontWeight.bold),
+      italic: const TextStyle(fontStyle: FontStyle.italic),
+      link: TextStyle(
+        color: theme.buttonPrimary,
+        decoration: TextDecoration.underline,
       ),
     );
   }
@@ -1379,10 +1509,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .where((f) => f['id']?.toString() != fileId)
           .toList();
 
-      final data = _composeUpdatedNoteData(
-        markdown: _contentController.text,
-        files: updatedFiles,
-      );
+      final data = _composeUpdatedNoteData(files: updatedFiles);
 
       final resolvedTitle = _titleController.text.isEmpty
           ? l10n.untitled
