@@ -20,6 +20,7 @@ import 'deletion_reconcile.dart';
 import 'id_remapper.dart';
 import 'note_adapter.dart';
 import 'note_deletion_reconcile.dart';
+import 'hive_cache_migrator.dart';
 import 'note_sync.dart';
 import 'outbox_drainer.dart';
 import 'outbox_task_queue_migrator.dart';
@@ -465,6 +466,20 @@ class SyncEngine extends _$SyncEngine {
     );
   }
 
+  /// Engine-internal: the one-time per-server Hive caches → Drift `app_cache`
+  /// migration (PR-2 of the Hive removal). Built lazily so it sees the current
+  /// active DB; internally idempotent + per-server flag-gated.
+  HiveCacheMigrator? _buildCacheMigrator() {
+    final db = _boundDb;
+    if (db == null) return null;
+    return HiveCacheMigrator(
+      db: db,
+      hiveBoxes: ref.read(hiveBoxesProvider),
+      resolveActiveServerId: () =>
+          ref.read(optimizedStorageServiceProvider).getActiveServerId(),
+    );
+  }
+
   /// §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
   /// ONCE per process, BEFORE any drain entry point can consume the outbox.
   Future<void> _migrateLegacyTaskQueueIfNeeded() {
@@ -487,6 +502,7 @@ class SyncEngine extends _$SyncEngine {
   Future<void> _runLegacyTaskQueueMigration(int migrationEpoch) async {
     try {
       await _buildMigrator()?.migrateIfNeeded();
+      await _buildCacheMigrator()?.migrateIfNeeded();
       if (migrationEpoch == _sessionEpoch) {
         _migrated = true;
       }

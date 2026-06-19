@@ -10,6 +10,8 @@ import '../models/server_config.dart';
 import '../models/user.dart';
 import '../models/tool.dart';
 import '../models/socket_transport_availability.dart';
+import '../database/app_database.dart';
+import '../database/daos/app_cache_dao.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
@@ -26,13 +28,36 @@ class OptimizedStorageService {
     required FlutterSecureStorage secureStorage,
     required HiveBoxes boxes,
     required WorkerManager workerManager,
+    AppDatabase? Function()? database,
   }) : _cachesBox = boxes.caches,
        _attachmentQueueBox = boxes.attachmentQueue,
        _metadataBox = boxes.metadata,
+       _database = database,
        _secureCredentialStorage = SecureCredentialStorage(
          instance: secureStorage,
        ),
        _workerManager = workerManager;
+
+  /// Resolves the active server's Drift database (PR-2: structured caches live
+  /// in the per-server DB, not the Hive caches box). Null in reviewer mode / no
+  /// active server / tests without a DB — callers fall back to defaults.
+  final AppDatabase? Function()? _database;
+
+  AppCacheDao? get _appCacheDao => _database?.call()?.appCacheDao;
+
+  Future<String?> _readCacheValue(String key) async =>
+      await _appCacheDao?.getValue(key);
+
+  Future<void> _writeCacheValue(String key, String value) async {
+    await _appCacheDao?.setValue(
+      key,
+      value,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> _deleteCacheValue(String key) async =>
+      await _appCacheDao?.deleteKey(key);
 
   final Box<dynamic> _cachesBox;
   final Box<dynamic> _attachmentQueueBox;
@@ -67,6 +92,17 @@ class OptimizedStorageService {
   static const String _localModelsKey = HiveStoreKeys.localModels;
   static const String _localFoldersKey = HiveStoreKeys.localFolders;
   static const String _reviewerModeKey = PreferenceKeys.reviewerMode;
+
+  /// The Drift app-cache keys (everything moved off the Hive `caches` box in
+  /// PR-2 except transport options, which live in shared_preferences).
+  static const List<String> _allCacheKeys = [
+    _localUserKey,
+    _localUserAvatarKey,
+    _localBackendConfigKey,
+    _localToolsKey,
+    _localDefaultModelKey,
+    _localModelsKey,
+  ];
   // Longer TTLs to reduce secure storage churn for OpenWebUI sessions.
   static const Duration _authTokenTtl = Duration(hours: 12);
   static const Duration _serverIdTtl = Duration(days: 7);
@@ -524,7 +560,7 @@ class OptimizedStorageService {
     return _readNullableSafely(
       errorMessage: 'Failed to retrieve local user',
       read: () async {
-        final stored = _cachesBox.get(_localUserKey);
+        final stored = await _readCacheValue(_localUserKey);
         if (stored == null) return null;
         return _decodeJsonObject(stored, User.fromJson);
       },
@@ -536,12 +572,11 @@ class OptimizedStorageService {
       errorMessage: 'Failed to save local user',
       write: () async {
         if (user == null) {
-          await _cachesBox.delete(_localUserKey);
-          await _cachesBox.delete(_localUserAvatarKey);
+          await _deleteCacheValue(_localUserKey);
+          await _deleteCacheValue(_localUserAvatarKey);
           return;
         }
-        final serialized = jsonEncode(user.toJson());
-        await _cachesBox.put(_localUserKey, serialized);
+        await _writeCacheValue(_localUserKey, jsonEncode(user.toJson()));
       },
     );
   }
@@ -550,8 +585,8 @@ class OptimizedStorageService {
     return _readNullableSafely(
       errorMessage: 'Failed to retrieve local user avatar',
       read: () async {
-        final stored = _cachesBox.get(_localUserAvatarKey);
-        if (stored is String && stored.isNotEmpty) {
+        final stored = await _readCacheValue(_localUserAvatarKey);
+        if (stored != null && stored.isNotEmpty) {
           return stored;
         }
         return null;
@@ -564,10 +599,10 @@ class OptimizedStorageService {
       errorMessage: 'Failed to save local user avatar',
       write: () async {
         if (avatarUrl == null || avatarUrl.isEmpty) {
-          await _cachesBox.delete(_localUserAvatarKey);
+          await _deleteCacheValue(_localUserAvatarKey);
           return;
         }
-        await _cachesBox.put(_localUserAvatarKey, avatarUrl);
+        await _writeCacheValue(_localUserAvatarKey, avatarUrl);
       },
     );
   }
@@ -575,10 +610,11 @@ class OptimizedStorageService {
   Future<BackendConfig?> getLocalBackendConfig() {
     return _readNullableSafely(
       errorMessage: 'Failed to retrieve local backend config',
-      read: () => _readServerScopedJsonObject(
-        key: _localBackendConfigKey,
-        fromJson: BackendConfig.fromJson,
-      ),
+      read: () async {
+        final stored = await _readCacheValue(_localBackendConfigKey);
+        if (stored == null) return null;
+        return _decodeJsonObject(stored, BackendConfig.fromJson);
+      },
     );
   }
 
@@ -587,13 +623,12 @@ class OptimizedStorageService {
       errorMessage: 'Failed to save local backend config',
       write: () async {
         if (config == null) {
-          await _cachesBox.delete(_localBackendConfigKey);
+          await _deleteCacheValue(_localBackendConfigKey);
           return;
         }
-        await _saveServerScopedJsonObject(
+        await _writeCacheValue(
           _localBackendConfigKey,
-          config,
-          toJson: (value) => value.toJson(),
+          jsonEncode(normalizeJsonLikeValue(config.toJson())),
         );
       },
     );
@@ -651,26 +686,55 @@ class OptimizedStorageService {
     return _readTransportOptionsForActiveServer();
   }
 
+  /// Decodes a stored JSON-list cache value off the UI isolate (lists can be
+  /// large, e.g. models). Empty when [stored] is null.
+  Future<List<Map<String, dynamic>>> _decodeCacheJsonList(
+    String? stored, {
+    required String debugLabel,
+  }) async {
+    if (stored == null || stored.isEmpty) {
+      return const <Map<String, dynamic>>[];
+    }
+    return _workerManager
+        .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
+          _decodeStoredJsonListWorker,
+          {'stored': stored},
+          debugLabel: debugLabel,
+        );
+  }
+
+  Future<void> _writeCacheJsonList<T>(
+    String key,
+    Iterable<T> items, {
+    required Map<String, dynamic> Function(T item) toJson,
+  }) async {
+    final normalized = items
+        .map((item) => normalizeJsonLikeMap(toJson(item)))
+        .toList(growable: false);
+    await _writeCacheValue(key, jsonEncode(normalized));
+  }
+
   Future<List<Model>> getLocalModels() {
     return _readSafely(
       errorMessage: 'Failed to retrieve local models',
       fallback: List<Model>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localModelsKey,
-        decodeDebugLabel: 'decode_local_models',
-        fromJson: Model.fromJson,
-      ),
+      read: () async {
+        final parsed = await _decodeCacheJsonList(
+          await _readCacheValue(_localModelsKey),
+          debugLabel: 'decode_local_models',
+        );
+        return parsed.map(Model.fromJson).toList(growable: false);
+      },
     );
   }
 
   Future<void> saveLocalModels(List<Model> models) {
     return _writeSafely(
       errorMessage: 'Failed to save local models',
-      write: () => _saveServerScopedJsonList(
+      write: () => _writeCacheJsonList(
         _localModelsKey,
-        items: models,
+        models,
         toJson: (model) => model.toJson(),
-        encodeDebugLabel: 'encode_local_models',
       ),
     );
   }
@@ -679,22 +743,23 @@ class OptimizedStorageService {
     return _readSafely(
       errorMessage: 'Failed to retrieve local tools',
       fallback: List<Tool>.empty(growable: false),
-      read: () => _readServerScopedJsonList(
-        key: _localToolsKey,
-        decodeDebugLabel: 'decode_local_tools',
-        fromJson: Tool.fromJson,
-      ),
+      read: () async {
+        final parsed = await _decodeCacheJsonList(
+          await _readCacheValue(_localToolsKey),
+          debugLabel: 'decode_local_tools',
+        );
+        return parsed.map(Tool.fromJson).toList(growable: false);
+      },
     );
   }
 
   Future<void> saveLocalTools(List<Tool> tools) {
     return _writeSafely(
       errorMessage: 'Failed to save local tools',
-      write: () => _saveServerScopedJsonList(
+      write: () => _writeCacheJsonList(
         _localToolsKey,
-        items: tools,
+        tools,
         toJson: (tool) => tool.toJson(),
-        encodeDebugLabel: 'encode_local_tools',
       ),
     );
   }
@@ -703,13 +768,11 @@ class OptimizedStorageService {
     return _readNullableSafely(
       errorMessage: 'Failed to retrieve local default model',
       read: () async {
-        final parsed = await _readServerScopedJsonObject(
-          key: _localDefaultModelKey,
-          fromJson: Model.fromJson,
-        );
-        if (parsed == null) return null;
+        final stored = await _readCacheValue(_localDefaultModelKey);
+        if (stored == null) return null;
+        final parsedModel = _decodeJsonObject(stored, Model.fromJson);
+        if (parsedModel == null) return null;
 
-        final parsedModel = parsed;
         final cachedModels = await getLocalModels();
         final hasMatch = cachedModels.any(
           (model) =>
@@ -729,13 +792,12 @@ class OptimizedStorageService {
       errorMessage: 'Failed to save local default model',
       write: () async {
         if (model == null) {
-          await _cachesBox.delete(_localDefaultModelKey);
+          await _deleteCacheValue(_localDefaultModelKey);
           return;
         }
-        await _saveServerScopedJsonObject(
+        await _writeCacheValue(
           _localDefaultModelKey,
-          model,
-          toJson: (value) => value.toJson(),
+          jsonEncode(normalizeJsonLikeValue(model.toJson())),
         );
       },
     );
@@ -744,8 +806,26 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Batch operations
   // ---------------------------------------------------------------------------
-  Future<void> _clearUserScopedCacheEntries() {
-    return Future.wait([
+  Future<void> _clearUserScopedCacheEntries() async {
+    // Active store: the per-server Drift app cache.
+    final dao = _appCacheDao;
+    if (dao != null) {
+      await dao.deleteKeys(<String>[
+        _localUserKey,
+        _localUserAvatarKey,
+        _localBackendConfigKey,
+        _localToolsKey,
+        _localDefaultModelKey,
+        _localModelsKey,
+      ]);
+    }
+    // Transport options moved to shared_preferences (PR-1).
+    final activeServerId = _rawStoredActiveServerId();
+    if (activeServerId != null && activeServerId.isNotEmpty) {
+      await PreferencesStore.remove(_transportOptionsKey(activeServerId));
+    }
+    // Legacy Hive caches-box cleanup for installs that predate the Drift cache.
+    await Future.wait([
       _cachesBox.delete(_localUserKey),
       _cachesBox.delete(_localUserAvatarKey),
       _cachesBox.delete(_localBackendConfigKey),
@@ -797,6 +877,7 @@ class OptimizedStorageService {
 
   Future<void> clearAll() async {
     try {
+      final db = _database?.call();
       await Future.wait([
         _secureCredentialStorage.clearAll(),
         // Preserve the migration gate so a wipe doesn't re-import stale Hive
@@ -804,6 +885,9 @@ class OptimizedStorageService {
         PreferencesStore.clear(
           preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
         ),
+        // Active stores (Drift, per active server) + legacy Hive boxes.
+        if (db != null) db.appCacheDao.deleteKeys(_allCacheKeys),
+        if (db != null) db.attachmentQueueDao.clearAll(),
         _cachesBox.clear(),
         _attachmentQueueBox.clear(),
       ]);
@@ -832,120 +916,6 @@ class OptimizedStorageService {
 
   Future<bool> isSecureStorageAvailable() async {
     return _secureCredentialStorage.isSecureStorageAvailable();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Server scoping helpers
-  // ---------------------------------------------------------------------------
-  bool _isServerScopedPayload(Object? stored) =>
-      stored is Map && stored.containsKey('data');
-
-  (Object?, String?) _unwrapServerScoped(Object? stored) {
-    if (_isServerScopedPayload(stored)) {
-      final scoped = stored as Map<Object?, Object?>;
-      final serverId = scoped['serverId'];
-      return (scoped['data'], serverId is String ? serverId : null);
-    }
-    return (stored, null);
-  }
-
-  Future<Map<String, Object?>> _wrapServerScoped(Object? data) async {
-    return _wrapServerScopedForServerId(data, await getActiveServerId());
-  }
-
-  Map<String, Object?> _wrapServerScopedForServerId(
-    Object? data,
-    String? serverId,
-  ) {
-    return {'data': data, 'serverId': _normalizeServerId(serverId)};
-  }
-
-  Object? _resolveServerScopedPayload(
-    Object? stored, {
-    required String? activeServerId,
-  }) {
-    if (stored == null) {
-      return null;
-    }
-
-    final (payload, ownerServerId) = _unwrapServerScoped(stored);
-    if (!_matchesActiveServer(activeServerId, ownerServerId)) {
-      return null;
-    }
-    return payload;
-  }
-
-  Future<Object?> _getServerScopedPayload({required String key}) async {
-    final stored = _cachesBox.get(key);
-    final activeServerId = await getActiveServerId();
-    return _resolveServerScopedPayload(stored, activeServerId: activeServerId);
-  }
-
-  Future<List<T>> _readServerScopedJsonList<T>({
-    required String key,
-    required String decodeDebugLabel,
-    required T Function(Map<String, dynamic> json) fromJson,
-  }) async {
-    final payload = await _getServerScopedPayload(key: key);
-    if (payload == null) {
-      return List<T>.empty(growable: false);
-    }
-
-    final parsed = await _workerManager
-        .schedule<Map<String, dynamic>, List<Map<String, dynamic>>>(
-          _decodeStoredJsonListWorker,
-          {'stored': payload},
-          debugLabel: decodeDebugLabel,
-        );
-    return parsed.map(fromJson).toList(growable: false);
-  }
-
-  Future<void> _saveServerScopedJsonList<T>(
-    String key, {
-    required Iterable<T> items,
-    required Map<String, dynamic> Function(T item) toJson,
-    required String encodeDebugLabel,
-  }) async {
-    final _ = encodeDebugLabel;
-    final normalizedItems = items
-        .map((item) => normalizeJsonLikeMap(toJson(item)))
-        .toList(growable: false);
-    await _putServerScopedCacheValue(key, normalizedItems);
-  }
-
-  Future<void> _putServerScopedCacheValue(String key, Object? value) async {
-    await _cachesBox.put(key, await _wrapServerScoped(value));
-  }
-
-  Future<void> _saveServerScopedJsonObject<T>(
-    String key,
-    T value, {
-    required Object? Function(T value) toJson,
-  }) async {
-    await _putServerScopedCacheValue(
-      key,
-      normalizeJsonLikeValue(toJson(value)),
-    );
-  }
-
-  Future<T?> _readServerScopedJsonObject<T>({
-    required String key,
-    required T? Function(Map<String, dynamic> json) fromJson,
-  }) async {
-    final payload = await _getServerScopedPayload(key: key);
-    if (payload == null) {
-      return null;
-    }
-    return _decodeJsonObject(payload, fromJson);
-  }
-
-  bool _matchesActiveServer(String? activeServerId, String? ownerServerId) {
-    final normalizedActive = _normalizeServerId(activeServerId);
-    final normalizedOwner = _normalizeServerId(ownerServerId);
-    if (normalizedOwner == null) {
-      return normalizedActive == null;
-    }
-    return normalizedActive == normalizedOwner;
   }
 
   String? _normalizeServerId(String? serverId) {

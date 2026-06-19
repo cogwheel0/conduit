@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../database/database_provider.dart';
 import '../persistence/persistence_providers.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/worker_manager.dart';
@@ -33,5 +34,8 @@ final optimizedStorageServiceProvider = Provider<OptimizedStorageService>((
     secureStorage: ref.watch(secureStorageProvider),
     boxes: ref.watch(hiveBoxesProvider),
     workerManager: ref.watch(workerManagerProvider),
+    // Lazy read (NOT watch) so structured caches resolve the active server's
+    // Drift DB at call time without creating a build-time dependency cycle.
+    database: () => ref.read(appDatabaseProvider),
   );
 });

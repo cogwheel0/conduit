@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'daos/app_cache_dao.dart';
+import 'daos/attachment_queue_dao.dart';
 import 'daos/chats_dao.dart';
 import 'daos/folders_dao.dart';
 import 'daos/messages_dao.dart';
@@ -10,6 +12,8 @@ import 'daos/outbox_dao.dart';
 import 'daos/search_dao.dart';
 import 'daos/sync_meta_dao.dart';
 import 'fts/fts_ddl.dart';
+import 'tables/app_cache.dart';
+import 'tables/attachment_queue.dart';
 import 'tables/chats.dart';
 import 'tables/folders.dart';
 import 'tables/messages.dart';
@@ -21,13 +25,23 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Current schema version 5 includes sync metadata, chats, messages, folders,
-/// outbox operations, notes, and the shared chat/note FTS substrate.
+/// Current schema version 6 includes sync metadata, chats, messages, folders,
+/// outbox operations, notes, the shared chat/note FTS substrate, and (v6) the
+/// per-server app cache + attachment upload queue.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
 /// on server switch or removal) is owned by [DatabaseManager].
 @DriftDatabase(
-  tables: [SyncMeta, Chats, Messages, Folders, OutboxOps, Notes],
+  tables: [
+    SyncMeta,
+    Chats,
+    Messages,
+    Folders,
+    OutboxOps,
+    Notes,
+    AppCache,
+    AttachmentQueue,
+  ],
   daos: [
     ChatsDao,
     MessagesDao,
@@ -36,6 +50,8 @@ part 'app_database.g.dart';
     OutboxDao,
     SearchDao,
     NotesDao,
+    AppCacheDao,
+    AttachmentQueueDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -57,7 +73,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -106,6 +122,11 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(notes);
         await _createNoteIndexes();
         await _ensureNotesFts(backfill: true);
+      }
+      if (from < 6) {
+        // Hive removal PR-2: per-server app cache + attachment queue tables.
+        await m.createTable(appCache);
+        await m.createTable(attachmentQueue);
       }
     },
     beforeOpen: (details) async {
