@@ -11,8 +11,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
 import 'core/persistence/hive_bootstrap.dart';
+import 'core/persistence/hive_prefs_migrator.dart';
 import 'core/persistence/persistence_migrator.dart';
 import 'core/persistence/persistence_providers.dart';
+import 'core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
@@ -162,9 +164,18 @@ void main() {
       final hiveBoxes = await HiveBootstrap.instance.ensureInitialized();
       _startupTimeline?.instant('hive_ready');
 
-      // Run migration check (now fast-pathed after first run)
+      // Preload shared_preferences so synchronous preference reads (theme,
+      // locale, settings, drawer/sidebar state) are available before the first
+      // build. MUST complete before the ProviderContainer is created.
+      await PreferencesStore.ensureInitialized();
+      _startupTimeline?.instant('prefs_ready');
+
+      // Run migration checks (fast-pathed after first run).
       final migrator = PersistenceMigrator(hiveBoxes: hiveBoxes);
       await migrator.migrateIfNeeded();
+      // Copy Hive-resident preferences into shared_preferences (PR-1 of the
+      // Hive removal). Runs once; gated + crash-safe.
+      await HivePrefsMigrator(hiveBoxes: hiveBoxes).migrateIfNeeded();
       _startupTimeline?.instant('migration_complete');
 
       // Finish timeline after first frame paints

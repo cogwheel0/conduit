@@ -12,6 +12,7 @@ import '../models/tool.dart';
 import '../models/socket_transport_availability.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
 import '../utils/debug_logger.dart';
 import '../utils/json_normalization.dart';
 import 'cache_manager.dart';
@@ -25,8 +26,7 @@ class OptimizedStorageService {
     required FlutterSecureStorage secureStorage,
     required HiveBoxes boxes,
     required WorkerManager workerManager,
-  }) : _preferencesBox = boxes.preferences,
-       _cachesBox = boxes.caches,
+  }) : _cachesBox = boxes.caches,
        _attachmentQueueBox = boxes.attachmentQueue,
        _metadataBox = boxes.metadata,
        _secureCredentialStorage = SecureCredentialStorage(
@@ -34,7 +34,6 @@ class OptimizedStorageService {
        ),
        _workerManager = workerManager;
 
-  final Box<dynamic> _preferencesBox;
   final Box<dynamic> _cachesBox;
   final Box<dynamic> _attachmentQueueBox;
   final Box<dynamic> _metadataBox;
@@ -330,9 +329,9 @@ class OptimizedStorageService {
 
   Future<void> _setActiveServerIdUnlocked(String? serverId) async {
     if (serverId != null) {
-      await _preferencesBox.put(_activeServerIdKey, serverId);
+      await PreferencesStore.put(_activeServerIdKey, serverId);
     } else {
-      await _preferencesBox.delete(_activeServerIdKey);
+      await PreferencesStore.remove(_activeServerIdKey);
     }
     _cacheActiveServerId(serverId);
     await _syncActiveServerConfigFlags(serverId);
@@ -365,7 +364,7 @@ class OptimizedStorageService {
   /// the referenced server is deleted). Compare-and-clear/restore use this so a
   /// dangling preference for a removed server is still detected and cleared.
   String? _rawStoredActiveServerId() =>
-      _preferencesBox.get(_activeServerIdKey) as String?;
+      PreferencesStore.getString(_activeServerIdKey);
 
   /// Atomically undoes a stale silent-login's persistence: under
   /// [_authStateLock], restores the auth token and active server to their
@@ -424,39 +423,39 @@ class OptimizedStorageService {
   }
 
   String? getThemeMode() {
-    return _preferencesBox.get(_themeModeKey) as String?;
+    return PreferencesStore.getString(_themeModeKey);
   }
 
   Future<void> setThemeMode(String mode) async {
-    await _preferencesBox.put(_themeModeKey, mode);
+    await PreferencesStore.put(_themeModeKey, mode);
   }
 
   String? getThemePaletteId() {
-    return _preferencesBox.get(_themePaletteKey) as String?;
+    return PreferencesStore.getString(_themePaletteKey);
   }
 
   Future<void> setThemePaletteId(String paletteId) async {
-    await _preferencesBox.put(_themePaletteKey, paletteId);
+    await PreferencesStore.put(_themePaletteKey, paletteId);
   }
 
   String? getLocaleCode() {
-    return _preferencesBox.get(_localeCodeKey) as String?;
+    return PreferencesStore.getString(_localeCodeKey);
   }
 
   Future<void> setLocaleCode(String? code) async {
     if (code == null || code.isEmpty) {
-      await _preferencesBox.delete(_localeCodeKey);
+      await PreferencesStore.remove(_localeCodeKey);
     } else {
-      await _preferencesBox.put(_localeCodeKey, code);
+      await PreferencesStore.put(_localeCodeKey, code);
     }
   }
 
   Future<bool> getReviewerMode() async {
-    return (_preferencesBox.get(_reviewerModeKey) as bool?) ?? false;
+    return PreferencesStore.getBool(_reviewerModeKey) ?? false;
   }
 
   Future<void> setReviewerMode(bool enabled) async {
-    await _preferencesBox.put(_reviewerModeKey, enabled);
+    await PreferencesStore.put(_reviewerModeKey, enabled);
   }
 
   Future<T> _readSafely<T>({
@@ -478,18 +477,6 @@ class OptimizedStorageService {
   }) async {
     try {
       return await read();
-    } catch (error, stackTrace) {
-      _logStorageError(errorMessage, error, stackTrace);
-      return null;
-    }
-  }
-
-  T? _readNullableSafelySync<T>({
-    required String errorMessage,
-    required T? Function() read,
-  }) {
-    try {
-      return read();
     } catch (error, stackTrace) {
       _logStorageError(errorMessage, error, stackTrace);
       return null;
@@ -612,45 +599,56 @@ class OptimizedStorageService {
     );
   }
 
+  // Transport options live in shared_preferences (not the Hive caches box) under
+  // a per-server key, because they need a SYNCHRONOUS read at socket init and
+  // must not churn the socket on cold start. The serverId is base64-encoded so
+  // arbitrary characters can't break the key.
+  static String _transportOptionsKey(String serverId) =>
+      '${PreferenceKeys.transportOptionsPrefix}:'
+      '${base64Url.encode(utf8.encode(serverId))}';
+
+  SocketTransportAvailability? _readTransportOptionsForActiveServer() {
+    final serverId = _rawStoredActiveServerId();
+    if (serverId == null || serverId.isEmpty) return null;
+    final raw = PreferencesStore.getString(_transportOptionsKey(serverId));
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return _transportFromJson(Map<String, dynamic>.from(decoded));
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<SocketTransportAvailability?> getLocalTransportOptions() {
-    return _readNullableSafely(
-      errorMessage: 'Failed to retrieve local transport options',
-      read: () => _readServerScopedJsonObject(
-        key: _localTransportOptionsKey,
-        fromJson: _transportFromJson,
-      ),
-    );
+    return Future.value(_readTransportOptionsForActiveServer());
   }
 
   Future<void> saveLocalTransportOptions(SocketTransportAvailability? options) {
     return _writeSafely(
       errorMessage: 'Failed to save local transport options',
       write: () async {
+        final serverId = _rawStoredActiveServerId();
+        if (serverId == null || serverId.isEmpty) return;
+        final key = _transportOptionsKey(serverId);
         if (options == null) {
-          await _cachesBox.delete(_localTransportOptionsKey);
+          await PreferencesStore.remove(key);
           return;
         }
-        final json = {
-          'allowPolling': options.allowPolling,
-          'allowWebsocketOnly': options.allowWebsocketOnly,
-        };
-        await _saveServerScopedJsonObject(
-          _localTransportOptionsKey,
-          json,
-          toJson: (value) => value,
+        await PreferencesStore.put(
+          key,
+          jsonEncode({
+            'allowPolling': options.allowPolling,
+            'allowWebsocketOnly': options.allowWebsocketOnly,
+          }),
         );
       },
     );
   }
 
   SocketTransportAvailability? getLocalTransportOptionsSync() {
-    return _readNullableSafelySync(
-      errorMessage: 'Failed to retrieve local transport options sync',
-      read: () => _readValidatedServerScopedJsonObjectSync(
-        _localTransportOptionsKey,
-        fromJson: _transportFromJson,
-      ),
-    );
+    return _readTransportOptionsForActiveServer();
   }
 
   Future<List<Model>> getLocalModels() {
@@ -801,7 +799,11 @@ class OptimizedStorageService {
     try {
       await Future.wait([
         _secureCredentialStorage.clearAll(),
-        _preferencesBox.clear(),
+        // Preserve the migration gate so a wipe doesn't re-import stale Hive
+        // preferences on the next launch.
+        PreferencesStore.clear(
+          preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
+        ),
         _cachesBox.clear(),
         _attachmentQueueBox.clear(),
       ]);
@@ -961,7 +963,7 @@ class OptimizedStorageService {
       hasCachedId: hasCachedId,
       rawServerId: hasCachedId
           ? cachedId
-          : _preferencesBox.get(_activeServerIdKey) as String?,
+          : PreferencesStore.getString(_activeServerIdKey),
     );
   }
 
@@ -1022,41 +1024,6 @@ class OptimizedStorageService {
       validation: validation,
       cacheWhenUnchanged: cacheWhenUnchanged,
     );
-  }
-
-  /// Validates the active server id using only synchronously available cache.
-  ///
-  /// If the server config cache has not been hydrated yet, return `null` so
-  /// sync consumers fall back to safe defaults instead of trusting stale
-  /// server-scoped cache entries from a removed server.
-  String? _readValidatedActiveServerIdSync() {
-    final activeServerIdState = _readActiveServerIdState();
-    final validation = _validateServerIdAgainstConfigs(
-      activeServerIdState.rawServerId,
-      _readCachedServerConfigs(),
-    );
-    return _finalizeValidatedActiveServerId(
-      rawServerId: activeServerIdState.rawServerId,
-      validation: validation,
-    );
-  }
-
-  Object? _getValidatedServerScopedPayloadSync(String key) {
-    return _resolveServerScopedPayload(
-      _cachesBox.get(key),
-      activeServerId: _readValidatedActiveServerIdSync(),
-    );
-  }
-
-  T? _readValidatedServerScopedJsonObjectSync<T>(
-    String key, {
-    required T? Function(Map<String, dynamic> json) fromJson,
-  }) {
-    final payload = _getValidatedServerScopedPayloadSync(key);
-    if (payload == null) {
-      return null;
-    }
-    return _decodeJsonObject(payload, fromJson);
   }
 
   T? _decodeJsonObject<T>(

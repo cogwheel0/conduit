@@ -1,10 +1,9 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
-import 'package:hive_ce/hive.dart';
 
-import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 AppLocalizations currentAppLocalizations() {
@@ -24,12 +23,8 @@ AppLocalizations currentAppLocalizations() {
 
 Locale? _configuredAppLocale() {
   try {
-    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) return null;
-    final code =
-        Hive.box<dynamic>(
-              HiveBoxNames.preferences,
-            ).get(PreferenceKeys.localeCode)
-            as String?;
+    if (!PreferencesStore.isReady) return null;
+    final code = PreferencesStore.getString(PreferenceKeys.localeCode);
     if (code == null || code.isEmpty) return null;
     return _parseLocaleTag(code);
   } catch (_) {

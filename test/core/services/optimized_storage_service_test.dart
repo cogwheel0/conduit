@@ -4,12 +4,14 @@ import 'dart:io';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/socket_transport_availability.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -83,6 +85,9 @@ void main() {
     secureStorageValues.clear();
     secureStorageReadCounts.clear();
     secureStorageReadErrors.clear();
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugReset();
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
     tempDir = await Directory.systemTemp.createTemp(
       'optimized-storage-service-test',
     );
@@ -108,6 +113,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureStorageChannel, null);
     workerManager.dispose();
+    PreferencesStore.debugReset();
     await Hive.close();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
@@ -174,25 +180,31 @@ void main() {
     },
   );
 
-  test('transport options are stored as structured scoped objects', () async {
-    await saveServerConfigs(['server-a']);
-    await storage.setActiveServerId('server-a');
+  test(
+    'transport options round-trip through shared_preferences (sync read)',
+    () async {
+      await saveServerConfigs(['server-a']);
+      await storage.setActiveServerId('server-a');
 
-    await storage.saveLocalTransportOptions(
-      const SocketTransportAvailability(
-        allowPolling: false,
-        allowWebsocketOnly: true,
-      ),
-    );
+      await storage.saveLocalTransportOptions(
+        const SocketTransportAvailability(
+          allowPolling: false,
+          allowWebsocketOnly: true,
+        ),
+      );
 
-    final stored = caches.get(HiveStoreKeys.localTransportOptions) as Map;
-    expect(stored['serverId'], 'server-a');
-    expect(stored['data'], {'allowPolling': false, 'allowWebsocketOnly': true});
+      // Stored in shared_preferences (not the Hive caches box).
+      expect(caches.containsKey(HiveStoreKeys.localTransportOptions), isFalse);
 
-    final options = storage.getLocalTransportOptionsSync();
-    expect(options?.allowPolling, isFalse);
-    expect(options?.allowWebsocketOnly, isTrue);
-  });
+      final options = storage.getLocalTransportOptionsSync();
+      expect(options?.allowPolling, isFalse);
+      expect(options?.allowWebsocketOnly, isTrue);
+
+      final asyncOptions = await storage.getLocalTransportOptions();
+      expect(asyncOptions?.allowPolling, isFalse);
+      expect(asyncOptions?.allowWebsocketOnly, isTrue);
+    },
+  );
 
   test(
     'user-scoped auth cleanup preserves token and saved credentials',
@@ -245,18 +257,30 @@ void main() {
     },
   );
 
-  test('sync transport cache ignores stale active server ids', () async {
-    await saveServerConfigs(['server-a']);
-    await storage.setActiveServerId('removed-server');
-    await caches.put(HiveStoreKeys.localTransportOptions, {
-      'data': jsonEncode({'allowPolling': false, 'allowWebsocketOnly': true}),
-      'serverId': 'removed-server',
-    });
+  test(
+    'transport options are per-server: another server is not read back',
+    () async {
+      await saveServerConfigs(['server-a', 'server-b']);
+      await storage.setActiveServerId('server-a');
+      await storage.saveLocalTransportOptions(
+        const SocketTransportAvailability(
+          allowPolling: false,
+          allowWebsocketOnly: true,
+        ),
+      );
 
-    final options = storage.getLocalTransportOptionsSync();
+      // Switching to a server with no cached transport options reads nothing
+      // (the per-server prefs key isolates each server).
+      await storage.setActiveServerId('server-b');
+      expect(storage.getLocalTransportOptionsSync(), isNull);
 
-    expect(options, isNull);
-  });
+      // Switching back returns the original options.
+      await storage.setActiveServerId('server-a');
+      final restored = storage.getLocalTransportOptionsSync();
+      expect(restored?.allowPolling, isFalse);
+      expect(restored?.allowWebsocketOnly, isTrue);
+    },
+  );
 }
 
 Map<String, dynamic> _conversationJson(String id) {

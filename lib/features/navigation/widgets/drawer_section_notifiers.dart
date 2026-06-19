@@ -1,8 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_ce/hive.dart';
 
-import '../../../core/persistence/hive_boxes.dart';
 import '../../../core/persistence/persistence_keys.dart';
+import '../../../core/persistence/preferences_store.dart';
 
 /// Provider for the archived section visibility state.
 final showArchivedProvider = NotifierProvider<ShowArchivedNotifier, bool>(
@@ -55,90 +54,75 @@ class ShowArchivedNotifier extends Notifier<bool> {
 
 /// Manages the collapsed/expanded state of the pinned section.
 ///
-/// Persists state to Hive preferences.
+/// Persists state to shared_preferences.
 class ShowPinnedNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   bool build() {
-    return _box.get(PreferenceKeys.drawerShowPinned, defaultValue: true)
-        as bool;
+    return PreferencesStore.getBool(PreferenceKeys.drawerShowPinned) ?? true;
   }
 
   /// Toggles the visibility state and persists it.
   void toggle() {
     state = !state;
-    _box.put(PreferenceKeys.drawerShowPinned, state);
+    PreferencesStore.put(PreferenceKeys.drawerShowPinned, state);
   }
 }
 
 /// Manages the collapsed/expanded state of the folders section.
 ///
-/// Persists state to Hive preferences.
+/// Persists state to shared_preferences.
 class ShowFoldersNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   bool build() {
-    return _box.get(PreferenceKeys.drawerShowFolders, defaultValue: true)
-        as bool;
+    return PreferencesStore.getBool(PreferenceKeys.drawerShowFolders) ?? true;
   }
 
   /// Toggles the visibility state and persists it.
   void toggle() {
     state = !state;
-    _box.put(PreferenceKeys.drawerShowFolders, state);
+    PreferencesStore.put(PreferenceKeys.drawerShowFolders, state);
   }
 }
 
 /// Manages the collapsed/expanded state of the recent section.
 ///
-/// Persists state to Hive preferences.
+/// Persists state to shared_preferences.
 class ShowRecentNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   bool build() {
-    return _box.get(PreferenceKeys.drawerShowRecent, defaultValue: true)
-        as bool;
+    return PreferencesStore.getBool(PreferenceKeys.drawerShowRecent) ?? true;
   }
 
   /// Toggles the visibility state and persists it.
   void toggle() {
     state = !state;
-    _box.put(PreferenceKeys.drawerShowRecent, state);
+    PreferencesStore.put(PreferenceKeys.drawerShowRecent, state);
   }
 }
 
-/// Pinned section for the Notes list tab (Hive-backed).
+/// Pinned section for the Notes list tab (shared_preferences-backed).
 class NotesShowPinnedNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   bool build() {
-    return _box.get(PreferenceKeys.notesListShowPinned, defaultValue: true)
-        as bool;
+    return PreferencesStore.getBool(PreferenceKeys.notesListShowPinned) ?? true;
   }
 
   void toggle() {
     state = !state;
-    _box.put(PreferenceKeys.notesListShowPinned, state);
+    PreferencesStore.put(PreferenceKeys.notesListShowPinned, state);
   }
 }
 
-/// Recent section for the Notes list tab (Hive-backed).
+/// Recent section for the Notes list tab (shared_preferences-backed).
 class NotesShowRecentNotifier extends Notifier<bool> {
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxNames.preferences);
-
   @override
   bool build() {
-    return _box.get(PreferenceKeys.notesListShowRecent, defaultValue: true)
-        as bool;
+    return PreferencesStore.getBool(PreferenceKeys.notesListShowRecent) ?? true;
   }
 
   void toggle() {
     state = !state;
-    _box.put(PreferenceKeys.notesListShowRecent, state);
+    PreferencesStore.put(PreferenceKeys.notesListShowRecent, state);
   }
 }
 

@@ -50,6 +50,15 @@ final class PreferenceKeys {
   static const String sidebarActiveTab = 'sidebar_active_tab';
   static const String serverFeatureAvailability =
       'server_feature_availability_v1';
+
+  /// One-time gate for the Hive `preferences_v1` → shared_preferences migration
+  /// (PR-1 of the Hive removal). Set last, after every key is copied.
+  static const String hiveToPrefsMigrationV1 = 'hive_to_prefs_migration_v1';
+
+  /// Prefix for the per-server transport-options cache moved out of the Hive
+  /// `caches` box (it needs a synchronous read). Combined with a safe-encoded
+  /// server id: `transport_options:<safeServerId>`.
+  static const String transportOptionsPrefix = 'transport_options';
 }
 
 final class LegacyPreferenceKeys {

@@ -3,11 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:hive_ce/hive.dart';
-import '../persistence/hive_bootstrap.dart';
-import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
 import 'animation_service.dart';
 
 part 'settings_service.g.dart';
@@ -71,23 +68,11 @@ class SettingsService {
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
   static const String _pinnedModelsKey = PreferenceKeys.pinnedModels;
-  static Box<dynamic>? _preferencesBox() {
-    if (!Hive.isBoxOpen(HiveBoxNames.preferences)) {
-      return null;
-    }
-    return Hive.box<dynamic>(HiveBoxNames.preferences);
-  }
 
-  static T? _getPreference<T>(String key) {
-    final value = _preferencesBox()?.get(key);
-    return value is T ? value : null;
-  }
+  static T? _getPreference<T>(String key) => PreferencesStore.get<T>(key);
 
-  static Future<void> _putPreference(String key, Object? value) {
-    final box = _preferencesBox();
-    if (box == null) return Future.value();
-    return box.put(key, value);
-  }
+  static Future<void> _putPreference(String key, Object? value) =>
+      PreferencesStore.put(key, value);
 
   /// Get reduced motion preference
   static Future<bool> getReduceMotion() {
@@ -164,25 +149,22 @@ class SettingsService {
 
   /// Set default model preference
   static Future<void> setDefaultModel(String? modelId) {
-    final box = _preferencesBox();
     if (modelId != null) {
-      return box?.put(_defaultModelKey, modelId) ?? Future.value();
+      return PreferencesStore.put(_defaultModelKey, modelId);
     }
-    return box?.delete(_defaultModelKey) ?? Future.value();
+    return PreferencesStore.remove(_defaultModelKey);
   }
 
   /// Load all settings
   static Future<AppSettings> loadSettings() {
-    final box = _preferencesBox();
     return Future.value(
-      box == null ? const AppSettings() : _loadSettingsSync(box),
+      PreferencesStore.isReady ? _loadSettingsSync() : const AppSettings(),
     );
   }
 
   /// Save all settings
   static Future<void> saveSettings(AppSettings settings) async {
-    final box = _preferencesBox();
-    if (box == null) return;
+    if (!PreferencesStore.isReady) return;
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
@@ -201,72 +183,54 @@ class SettingsService {
       PreferenceKeys.ttsEngine: settings.ttsEngine.name,
       PreferenceKeys.voiceSttPreference: settings.sttPreference.name,
       _voiceSilenceDurationKey: settings.voiceSilenceDuration,
+      // Lands in shared_preferences as `flutter.android_assistant_trigger`,
+      // which the native Android voice-interaction session reads directly.
       _androidAssistantTriggerKey:
           settings.androidAssistantTrigger.storageValue,
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
       _pinnedModelsKey: settings.pinnedModels.toList(),
     };
 
-    await box.putAll(updates);
+    await PreferencesStore.putAll(updates);
 
-    if (settings.chatWebSearchEnabled != null) {
-      await box.put(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
-    } else {
-      await box.delete(_chatWebSearchEnabledKey);
-    }
+    await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
+    await _putOrRemove(
+      _chatImageGenerationEnabledKey,
+      settings.chatImageGenerationEnabled,
+    );
+    await _putOrRemove(_defaultModelKey, settings.defaultModel);
+    await _putOrRemove(
+      _voiceLocaleKey,
+      (settings.voiceLocaleId?.isNotEmpty ?? false)
+          ? settings.voiceLocaleId
+          : null,
+    );
+    await _putOrRemove(
+      _voiceSttLanguageCodeKey,
+      normalizeSttLanguageCode(settings.sttLanguageCode),
+    );
+    await _putOrRemove(
+      PreferenceKeys.ttsVoice,
+      (settings.ttsVoice?.isNotEmpty ?? false) ? settings.ttsVoice : null,
+    );
+    await _putOrRemove(
+      PreferenceKeys.ttsServerVoiceId,
+      (settings.ttsServerVoiceId?.isNotEmpty ?? false)
+          ? settings.ttsServerVoiceId
+          : null,
+    );
+    await _putOrRemove(
+      PreferenceKeys.ttsServerVoiceName,
+      (settings.ttsServerVoiceName?.isNotEmpty ?? false)
+          ? settings.ttsServerVoiceName
+          : null,
+    );
+  }
 
-    if (settings.chatImageGenerationEnabled != null) {
-      await box.put(
-        _chatImageGenerationEnabledKey,
-        settings.chatImageGenerationEnabled,
-      );
-    } else {
-      await box.delete(_chatImageGenerationEnabledKey);
-    }
-
-    if (settings.defaultModel != null) {
-      await box.put(_defaultModelKey, settings.defaultModel);
-    } else {
-      await box.delete(_defaultModelKey);
-    }
-
-    if (settings.voiceLocaleId != null && settings.voiceLocaleId!.isNotEmpty) {
-      await box.put(_voiceLocaleKey, settings.voiceLocaleId);
-    } else {
-      await box.delete(_voiceLocaleKey);
-    }
-
-    final sttLanguageCode = normalizeSttLanguageCode(settings.sttLanguageCode);
-    if (sttLanguageCode != null) {
-      await box.put(_voiceSttLanguageCodeKey, sttLanguageCode);
-    } else {
-      await box.delete(_voiceSttLanguageCodeKey);
-    }
-
-    if (settings.ttsVoice != null && settings.ttsVoice!.isNotEmpty) {
-      await box.put(PreferenceKeys.ttsVoice, settings.ttsVoice);
-    } else {
-      await box.delete(PreferenceKeys.ttsVoice);
-    }
-
-    // Server-specific voice id and friendly name
-    if (settings.ttsServerVoiceId != null &&
-        settings.ttsServerVoiceId!.isNotEmpty) {
-      await box.put(PreferenceKeys.ttsServerVoiceId, settings.ttsServerVoiceId);
-    } else {
-      await box.delete(PreferenceKeys.ttsServerVoiceId);
-    }
-    if (settings.ttsServerVoiceName != null &&
-        settings.ttsServerVoiceName!.isNotEmpty) {
-      await box.put(
-        PreferenceKeys.ttsServerVoiceName,
-        settings.ttsServerVoiceName,
-      );
-    } else {
-      await box.delete(PreferenceKeys.ttsServerVoiceName);
-    }
-
-    await _writeAssistantTriggerToSharedPrefs(settings.androidAssistantTrigger);
+  static Future<void> _putOrRemove(String key, Object? value) {
+    return value == null
+        ? PreferencesStore.remove(key)
+        : PreferencesStore.put(key, value);
   }
 
   static TtsEngine _parseTtsEngine(String? raw) {
@@ -339,11 +303,10 @@ class SettingsService {
   }
 
   static Future<void> setVoiceLocaleId(String? localeId) {
-    final box = _preferencesBox();
-    if (localeId == null || localeId.isEmpty) {
-      return box?.delete(_voiceLocaleKey) ?? Future.value();
-    }
-    return box?.put(_voiceLocaleKey, localeId) ?? Future.value();
+    return _putOrRemove(
+      _voiceLocaleKey,
+      (localeId?.isNotEmpty ?? false) ? localeId : null,
+    );
   }
 
   static Future<String?> getSttLanguageCode() {
@@ -352,12 +315,10 @@ class SettingsService {
   }
 
   static Future<void> setSttLanguageCode(String? languageCode) {
-    final box = _preferencesBox();
-    final normalized = normalizeSttLanguageCode(languageCode);
-    if (normalized == null) {
-      return box?.delete(_voiceSttLanguageCodeKey) ?? Future.value();
-    }
-    return box?.put(_voiceSttLanguageCodeKey, normalized) ?? Future.value();
+    return _putOrRemove(
+      _voiceSttLanguageCodeKey,
+      normalizeSttLanguageCode(languageCode),
+    );
   }
 
   static Future<bool> getVoiceHoldToTalk() {
@@ -417,29 +378,21 @@ class SettingsService {
   }
 
   static Future<bool?> getChatWebSearchEnabled() {
-    final value = _preferencesBox()?.get(_chatWebSearchEnabledKey);
-    return Future.value(value is bool ? value : null);
+    return Future.value(PreferencesStore.getBool(_chatWebSearchEnabledKey));
   }
 
   static Future<void> setChatWebSearchEnabled(bool? value) {
-    final box = _preferencesBox();
-    if (value == null) {
-      return box?.delete(_chatWebSearchEnabledKey) ?? Future.value();
-    }
-    return box?.put(_chatWebSearchEnabledKey, value) ?? Future.value();
+    return _putOrRemove(_chatWebSearchEnabledKey, value);
   }
 
   static Future<bool?> getChatImageGenerationEnabled() {
-    final value = _preferencesBox()?.get(_chatImageGenerationEnabledKey);
-    return Future.value(value is bool ? value : null);
+    return Future.value(
+      PreferencesStore.getBool(_chatImageGenerationEnabledKey),
+    );
   }
 
   static Future<void> setChatImageGenerationEnabled(bool? value) {
-    final box = _preferencesBox();
-    if (value == null) {
-      return box?.delete(_chatImageGenerationEnabledKey) ?? Future.value();
-    }
-    return box?.put(_chatImageGenerationEnabledKey, value) ?? Future.value();
+    return _putOrRemove(_chatImageGenerationEnabledKey, value);
   }
 
   // Chat input behavior
@@ -475,11 +428,11 @@ class SettingsService {
   }
 
   static Future<List<String>> getPinnedModels() {
-    final raw = _preferencesBox()?.get(_pinnedModelsKey);
-    if (raw is! List) {
+    final raw = PreferencesStore.getStringList(_pinnedModelsKey);
+    if (raw == null) {
       return Future.value(const []);
     }
-    return Future.value(sanitizePinnedModels(raw.whereType<String>()));
+    return Future.value(sanitizePinnedModels(raw));
   }
 
   static Future<void> setPinnedModels(List<String> modelIds) {
@@ -507,22 +460,10 @@ class SettingsService {
   static Future<void> setAndroidAssistantTrigger(
     AndroidAssistantTrigger trigger,
   ) async {
+    // Stored in shared_preferences as `flutter.android_assistant_trigger`; the
+    // native Android voice-interaction session (ConduitVoiceInteractionSession)
+    // reads that key directly, so no separate native dual-write is needed.
     await _putPreference(_androidAssistantTriggerKey, trigger.storageValue);
-    await _writeAssistantTriggerToSharedPrefs(trigger);
-  }
-
-  static Future<void> _writeAssistantTriggerToSharedPrefs(
-    AndroidAssistantTrigger trigger,
-  ) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        PreferenceKeys.androidAssistantTrigger,
-        trigger.storageValue,
-      );
-    } catch (_) {
-      // SharedPreferences writes are best-effort for Android assistant access
-    }
   }
 
   /// Get effective animation duration considering all settings
@@ -542,54 +483,64 @@ class SettingsService {
     return Duration(milliseconds: adjustedMs.clamp(50, 1000));
   }
 
-  static AppSettings _loadSettingsSync(Box<dynamic> box) {
+  static AppSettings _loadSettingsSync() {
     return AppSettings(
-      reduceMotion: (box.get(_reduceMotionKey) as bool?) ?? false,
-      animationSpeed: (box.get(_animationSpeedKey) as num?)?.toDouble() ?? 1.0,
-      hapticFeedback: (box.get(_hapticFeedbackKey) as bool?) ?? true,
+      reduceMotion: PreferencesStore.get<bool>(_reduceMotionKey) ?? false,
+      animationSpeed:
+          PreferencesStore.get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
+      hapticFeedback: PreferencesStore.get<bool>(_hapticFeedbackKey) ?? true,
       disableHapticsWhileStreaming:
-          (box.get(_disableHapticsWhileStreamingKey) as bool?) ?? false,
-      highContrast: (box.get(_highContrastKey) as bool?) ?? false,
-      darkMode: (box.get(_darkModeKey) as bool?) ?? true,
-      defaultModel: box.get(_defaultModelKey) as String?,
-      voiceLocaleId: box.get(_voiceLocaleKey) as String?,
-      voiceHoldToTalk: (box.get(_voiceHoldToTalkKey) as bool?) ?? false,
-      voiceAutoSendFinal: (box.get(_voiceAutoSendKey) as bool?) ?? false,
+          PreferencesStore.get<bool>(_disableHapticsWhileStreamingKey) ?? false,
+      highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
+      darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
+      defaultModel: PreferencesStore.get<String>(_defaultModelKey),
+      voiceLocaleId: PreferencesStore.get<String>(_voiceLocaleKey),
+      voiceHoldToTalk: PreferencesStore.get<bool>(_voiceHoldToTalkKey) ?? false,
+      voiceAutoSendFinal:
+          PreferencesStore.get<bool>(_voiceAutoSendKey) ?? false,
       socketTransportMode:
-          box.get(_socketTransportModeKey, defaultValue: 'ws') as String,
-      quickPills: List<String>.from(
-        (box.get(_quickPillsKey) as List<dynamic>?) ?? const <String>[],
+          PreferencesStore.get<String>(_socketTransportModeKey) ?? 'ws',
+      quickPills: PreferencesStore.getStringList(_quickPillsKey) ?? const [],
+      chatWebSearchEnabled: PreferencesStore.get<bool>(_chatWebSearchEnabledKey),
+      chatImageGenerationEnabled: PreferencesStore.get<bool>(
+        _chatImageGenerationEnabledKey,
       ),
-      chatWebSearchEnabled: box.get(_chatWebSearchEnabledKey) as bool?,
-      chatImageGenerationEnabled:
-          box.get(_chatImageGenerationEnabledKey) as bool?,
-      sendOnEnter: (box.get(_sendOnEnterKey) as bool?) ?? false,
-      ttsVoice: box.get(PreferenceKeys.ttsVoice) as String?,
+      sendOnEnter: PreferencesStore.get<bool>(_sendOnEnterKey) ?? false,
+      ttsVoice: PreferencesStore.get<String>(PreferenceKeys.ttsVoice),
       ttsSpeechRate:
-          (box.get(PreferenceKeys.ttsSpeechRate) as num?)?.toDouble() ?? 0.5,
-      ttsPitch: (box.get(PreferenceKeys.ttsPitch) as num?)?.toDouble() ?? 1.0,
-      ttsVolume: (box.get(PreferenceKeys.ttsVolume) as num?)?.toDouble() ?? 1.0,
-      ttsEngine: _parseTtsEngine(box.get(PreferenceKeys.ttsEngine) as String?),
-      ttsServerVoiceId: box.get(PreferenceKeys.ttsServerVoiceId) as String?,
-      ttsServerVoiceName: box.get(PreferenceKeys.ttsServerVoiceName) as String?,
+          PreferencesStore.get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble() ??
+          0.5,
+      ttsPitch:
+          PreferencesStore.get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
+      ttsVolume:
+          PreferencesStore.get<num>(PreferenceKeys.ttsVolume)?.toDouble() ?? 1.0,
+      ttsEngine: _parseTtsEngine(
+        PreferencesStore.get<String>(PreferenceKeys.ttsEngine),
+      ),
+      ttsServerVoiceId: PreferencesStore.get<String>(
+        PreferenceKeys.ttsServerVoiceId,
+      ),
+      ttsServerVoiceName: PreferencesStore.get<String>(
+        PreferenceKeys.ttsServerVoiceName,
+      ),
       sttPreference: _parseSttPreference(
-        box.get(PreferenceKeys.voiceSttPreference) as String?,
+        PreferencesStore.get<String>(PreferenceKeys.voiceSttPreference),
       ),
       sttLanguageCode: normalizeSttLanguageCode(
-        box.get(_voiceSttLanguageCodeKey) as String?,
+        PreferencesStore.get<String>(_voiceSttLanguageCodeKey),
       ),
       androidAssistantTrigger: _parseAndroidAssistantTrigger(
-        box.get(_androidAssistantTriggerKey) as String?,
+        PreferencesStore.get<String>(_androidAssistantTriggerKey),
       ),
       voiceSilenceDuration:
-          (box.get(_voiceSilenceDurationKey) as int? ??
+          (PreferencesStore.get<int>(_voiceSilenceDurationKey) ??
                   defaultVoiceSilenceDurationMs)
               .clamp(minVoiceSilenceDurationMs, maxVoiceSilenceDurationMs),
       temporaryChatByDefault:
-          (box.get(PreferenceKeys.temporaryChatByDefault) as bool?) ?? false,
+          PreferencesStore.get<bool>(PreferenceKeys.temporaryChatByDefault) ??
+          false,
       pinnedModels: sanitizePinnedModels(
-        ((box.get(_pinnedModelsKey) as List<dynamic>?) ?? const <dynamic>[])
-            .whereType<String>(),
+        PreferencesStore.getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
     );
   }
@@ -821,21 +772,19 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   @override
   AppSettings build() {
-    if (Hive.isBoxOpen(HiveBoxNames.preferences)) {
-      final box = Hive.box<dynamic>(HiveBoxNames.preferences);
-      return SettingsService._loadSettingsSync(box);
+    if (PreferencesStore.isReady) {
+      return SettingsService._loadSettingsSync();
     }
 
-    _pendingLoad ??= _hydrateFromHive();
+    _pendingLoad ??= _hydrateFromPrefs();
     return const AppSettings();
   }
 
-  Future<void> _hydrateFromHive() async {
+  Future<void> _hydrateFromPrefs() async {
     try {
-      await HiveBootstrap.instance.ensureInitialized();
+      await PreferencesStore.ensureInitialized();
       if (!ref.mounted) return;
-      final box = Hive.box<dynamic>(HiveBoxNames.preferences);
-      state = SettingsService._loadSettingsSync(box);
+      state = SettingsService._loadSettingsSync();
     } catch (error, stackTrace) {
       developer.log(
         'Failed to hydrate settings',
