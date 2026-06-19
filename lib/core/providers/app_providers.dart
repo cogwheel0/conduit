@@ -3899,6 +3899,12 @@ class ActiveChatsSync extends _$ActiveChatsSync {
       return;
     }
 
+    // A new socket means a (re)connection or a fresh session (e.g. after
+    // logout/login). Re-arm the one-shot cold-open fetch so the conversations
+    // listener bulk-fetches active chats again for the new session instead of
+    // skipping it because the flag stayed true from the previous one.
+    _initialFetchDone = false;
+
     // All selectors null => `_shouldDeliver` treats this as a wildcard handler.
     // requireFocus:false so background generations on other chats still update
     // the badge.
