@@ -17,6 +17,7 @@ import '../../../core/database/database_provider.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
+import '../../../core/sync/sync_engine.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -329,23 +330,36 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required Map<String, dynamic> data,
   }) async {
     if (!_isCurrentNoteSession(api: api, db: db)) return null;
+    Note? note;
     if (db != null) {
-      return durableUpdateNote(
+      note = await durableUpdateNote(
         ref,
         db,
         id: widget.noteId,
         title: title,
         data: data,
       );
+    } else {
+      // Session confirmed current, so the live API equals the captured one.
+      final currentApi = ref.read(apiServiceProvider);
+      if (currentApi == null) return null;
+      note = Note.fromJson(
+        await currentApi.updateNote(widget.noteId, title: title, data: data),
+      );
+      if (mounted && _isCurrentNoteSession(api: api, db: db)) {
+        ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
+      }
     }
-    // Session confirmed current, so the live API equals the captured one.
-    final currentApi = ref.read(apiServiceProvider);
-    if (currentApi == null) return null;
-    final note = Note.fromJson(
-      await currentApi.updateNote(widget.noteId, title: title, data: data),
-    );
-    if (mounted && _isCurrentNoteSession(api: api, db: db)) {
-      ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
+    // `noteByIdProvider` is keepAlive, so without this it keeps serving the
+    // note as it was when first opened (e.g. empty for a freshly created note)
+    // and reopening the note in the same app session shows stale/empty content
+    // until a full restart. Invalidate so the next open re-reads what we just
+    // saved. Cover the remapped server id too, in case a `local:` id resolved.
+    if (note != null) {
+      ref.invalidate(noteByIdProvider(widget.noteId));
+      if (note.id != widget.noteId) {
+        ref.invalidate(noteByIdProvider(note.id));
+      }
     }
     return note;
   }
@@ -1430,32 +1444,92 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return GestureDetector(
       onTap: () => _contentFocusNode.requestFocus(),
       behavior: HitTestBehavior.opaque,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        padding: EdgeInsets.fromLTRB(
-          Spacing.inputPadding,
-          topPadding + appBarHeight + Spacing.sm, // Space for floating app bar
-          Spacing.inputPadding,
-          120, // Extra padding for floating buttons
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // File attachments section (if any)
-            if (files.isNotEmpty) ...[
-              NoteFilesSection(
-                files: files,
-                onPlayFile: _playAudioFile,
-                onDeleteFile: _removeFile,
-              ),
-              const SizedBox(height: Spacing.lg),
+      child: RefreshIndicator.adaptive(
+        onRefresh: _refreshNote,
+        edgeOffset: topPadding + appBarHeight + Spacing.sm,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          // Always scrollable so pull-to-refresh works even when the note is
+          // short enough to fit on screen.
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.inputPadding,
+            topPadding +
+                appBarHeight +
+                Spacing.sm, // Space for floating app bar
+            Spacing.inputPadding,
+            120, // Extra padding for floating buttons
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // File attachments section (if any)
+              if (files.isNotEmpty) ...[
+                NoteFilesSection(
+                  files: files,
+                  onPlayFile: _playAudioFile,
+                  onDeleteFile: _removeFile,
+                ),
+                const SizedBox(height: Spacing.lg),
+              ],
+              // Content editor
+              _buildContentEditor(context),
             ],
-            // Content editor
-            _buildContentEditor(context),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Pull-to-refresh handler: syncs the note with the server, then reloads it
+  /// into the editor.
+  ///
+  /// Order matters. We first flush any pending local edit, then run a full sync
+  /// cycle (push the outbox + pull the server) before re-reading. Re-reading
+  /// without syncing would let the detail fetch return a server copy that is
+  /// behind a not-yet-synced local edit and clobber it with stale/empty content.
+  Future<void> _refreshNote() async {
+    if (_hasChanges) {
+      _saveDebounce?.cancel();
+      await _autoSave();
+    }
+    if (!mounted) return;
+
+    // Push local changes and pull remote ones so the local row reflects both
+    // sides. Mirrors the notes-list pull-to-refresh.
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    try {
+      await ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'note-editor-refresh');
+    } catch (_) {
+      // Best-effort; still reload from the (at least locally-current) row below.
+    }
+    if (!mounted) return;
+
+    // Re-read from the reconciled LOCAL row, not a fresh server fetch: the pull
+    // has already merged remote edits into it, and reading the row avoids a
+    // server copy that's behind a not-yet-pushed local edit clobbering it.
+    try {
+      // The note is already open in the current session, so an id-scoped read is
+      // safe here (avoids pulling auth providers into the editor just for the
+      // user id).
+      final note = await readLocalNote(db, widget.noteId);
+      // Keep the detail cache consistent with what we just loaded.
+      ref.invalidate(noteByIdProvider(widget.noteId));
+      if (!mounted || note == null) return;
+      setState(() {
+        _note = note;
+        _titleController.text = note.title;
+        _installContentDocument(documentFromMarkdown(note.markdownContent));
+        _savedMarkdown = _contentMarkdown;
+        _hasChanges = false;
+        _updateWordCount();
+      });
+    } catch (e) {
+      if (mounted) _showError(e.toString());
+    }
   }
 
   Widget _buildContentEditor(BuildContext context) {
