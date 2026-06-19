@@ -1004,6 +1004,7 @@ Tail keeps growing
             container: container,
             message: message,
             isStreaming: true,
+            disableAnimations: true,
           ),
         );
 
@@ -1016,6 +1017,7 @@ Tail keeps growing
             container: container,
             message: message.copyWith(content: 'Hello'),
             isStreaming: false,
+            disableAnimations: true,
           ),
         );
         await tester.pump();
@@ -1065,6 +1067,7 @@ Tail keeps growing
             container: container,
             message: message,
             isStreaming: true,
+            disableAnimations: true,
           ),
         );
 
@@ -1077,6 +1080,7 @@ Tail keeps growing
             container: container,
             message: message.copyWith(content: 'Hello'),
             isStreaming: false,
+            disableAnimations: true,
           ),
         );
         await tester.pump();
@@ -1924,6 +1928,103 @@ Tail keeps growing
 
         await tester.pump(const Duration(milliseconds: 1));
         expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'typing indicator holds the footer slot while content streams, then swaps '
+    'to the action row on completion',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final streaming = ChatMessage(
+        id: 'footer-slot-message',
+        role: 'assistant',
+        content: 'Partial answer',
+        timestamp: DateTime(2026),
+      );
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: streaming,
+            isStreaming: true,
+            disableAnimations: true,
+          ),
+        );
+
+        // Before the 150ms gate, neither the indicator nor the action row shows.
+        await tester.pump();
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+        expect(find.byKey(const ValueKey('actions')), findsNothing);
+
+        // After the gate the typing indicator occupies the footer (action-row)
+        // slot even though content is already streaming in above it.
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+        expect(find.byKey(const ValueKey('actions')), findsNothing);
+
+        // Completion swaps the indicator for the action row.
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: streaming.copyWith(content: 'Full answer'),
+            isStreaming: false,
+            disableAnimations: true,
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+        expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+      } finally {
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'action row shows immediately for a completed message that never streamed',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(disableHapticsWhileStreaming: true),
+          ),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final completed = ChatMessage(
+        id: 'history-message',
+        role: 'assistant',
+        content: 'A finished answer',
+        timestamp: DateTime(2026),
+      );
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: completed,
+            isStreaming: false,
+            disableAnimations: true,
+          ),
+        );
+        await tester.pump();
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
+        expect(find.byKey(const ValueKey('actions')), findsOneWidget);
       } finally {
         container.dispose();
       }

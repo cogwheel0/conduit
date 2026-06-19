@@ -148,6 +148,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   String? _cachedAvatarIconUrl;
   bool _allowTypingIndicator = false;
   Timer? _typingGateTimer;
+  // Hysteresis for the action row: a message that has streamed in this widget's
+  // lifetime must reach a settled completion before the action row replaces the
+  // typing indicator, so a transient `isStreaming:false` blip can never flash
+  // the row mid-stream. Settled on the streaming-end transition (the same
+  // authoritative signal the completion haptic uses) or a confirmed
+  // `responseDone`. History messages never set `_hasStreamedThisMessage` and
+  // show their action row immediately.
+  bool _hasStreamedThisMessage = false;
+  bool _actionRowSettled = false;
   String _ttsPlainText = '';
   String? _lastAppliedTtsPlainTextSource;
   int _ttsPlainTextRequestId = 0;
@@ -226,6 +235,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
     _updateTypingIndicatorGate();
+    _updateActionRowSettle();
     _syncStreamingContentSubscription();
   }
 
@@ -276,6 +286,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _hasTriggeredContentHaptic = false;
       // Haptic: streaming finished
       _streamingHaptic(HapticType.medium);
+      // Genuine streaming end: allow the action row to replace the indicator.
+      _hasStreamedThisMessage = true;
+      _actionRowSettled = true;
     }
 
     // Refresh rendered content when the active message changes.
@@ -288,6 +301,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.message.metadata?['responseDone'] !=
             widget.message.metadata?['responseDone']) {
       _updateTypingIndicatorGate();
+      _updateActionRowSettle();
     }
 
     // Rebuild cached avatar if model name or icon changes
@@ -391,12 +405,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   void _updateTypingIndicatorGate() {
     _typingGateTimer?.cancel();
-    if (_shouldShowTypingIndicator) {
+    if (_shouldShowStreamingIndicator) {
       if (_allowTypingIndicator) {
         return;
       }
       _typingGateTimer = Timer(const Duration(milliseconds: 150), () {
-        if (!mounted || !_shouldShowTypingIndicator) {
+        if (!mounted || !_shouldShowStreamingIndicator) {
           return;
         }
         setState(() {
@@ -414,6 +428,43 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _allowTypingIndicator = false;
       }
     }
+  }
+
+  /// Drives the action-row hysteresis. While streaming, the row stays
+  /// suppressed and `_actionRowSettled` is reset so a later resume can't show
+  /// a stale row. A confirmed `responseDone` settles it; the genuine
+  /// streaming-end transition (see [didUpdateWidget]) settles it for paths that
+  /// don't write `responseDone`.
+  void _updateActionRowSettle() {
+    if (_uiTreatsAsStreaming) {
+      _hasStreamedThisMessage = true;
+      _actionRowSettled = false;
+      return;
+    }
+    if (!_hasStreamedThisMessage) {
+      // History message: action row shows immediately, no settle needed.
+      return;
+    }
+    if (widget.message.metadata?['responseDone'] == true) {
+      _actionRowSettled = true;
+    }
+  }
+
+  /// Whether the streaming/typing indicator should currently occupy the footer
+  /// slot. Gated by the 150ms anti-flash window.
+  bool get _showStreamingIndicatorNow =>
+      _allowTypingIndicator && _shouldShowStreamingIndicator;
+
+  /// Whether the action row may replace the streaming indicator in the footer.
+  bool get _showActionRowNow {
+    if (_uiTreatsAsStreaming || !_responseCompleted) {
+      return false;
+    }
+    if (!_hasStreamedThisMessage) {
+      return true;
+    }
+    return widget.message.metadata?['responseDone'] == true ||
+        _actionRowSettled;
   }
 
   String get _messageId {
@@ -608,8 +659,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  bool get _shouldShowTypingIndicator =>
-      _uiTreatsAsStreaming && _isAssistantResponseEmpty;
+  bool get _hasPendingVisibleStatus => widget.message.statusHistory
+      .where((status) => status.hidden != true)
+      .any((status) => status.done != true);
+
+  /// The streaming indicator lives in the footer slot and persists for the
+  /// whole generation (text/tool-calls/status stream in above it), then is
+  /// swapped for the action row once streaming completes. A pending visible
+  /// status already renders its own shimmer, so suppress the indicator then
+  /// (matches the behaviour the widget test asserts).
+  bool get _shouldShowStreamingIndicator =>
+      _uiTreatsAsStreaming && !_hasPendingVisibleStatus;
 
   bool get _isAssistantResponseEmpty {
     final content = _displayedContent.trim();
@@ -999,19 +1059,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   _buildQueuedCompletionBanner(queuedCompletion)
                 else if (suppressEmptyQueuedContent)
                   const SizedBox.shrink()
-                else if (_allowTypingIndicator && _shouldShowTypingIndicator)
-                  // Render the typing indicator directly rather than inside the
-                  // content AnimatedSwitcher. Crossfading it in reserved its
-                  // full height while it faded up from zero opacity, which read
-                  // as an empty "blocked" block for a beat before the dots
-                  // appeared. Showing it directly fills the slot immediately.
-                  KeyedSubtree(
-                    key: const ValueKey('typing'),
-                    child: _buildTypingIndicator(),
-                  )
                 else
-                  // Smoothly crossfade content in (e.g. when the first tokens
-                  // replace the typing indicator).
+                  // Content streams in here; the typing indicator now lives in
+                  // the footer slot below (and persists while text streams in
+                  // above it). Empty content renders as SizedBox.shrink.
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: Curves.easeOutCubic,
@@ -1053,20 +1104,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ),
           ),
 
-          // Action buttons below the message content (only after streaming completes)
-          if (_responseCompleted && !hasQueuedCompletion) ...[
-            if (footer != null)
-              Padding(
-                padding: EdgeInsets.only(
-                  top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
-                ),
-                child: footer,
+          // Footer slot: the typing indicator occupies the action-row position
+          // while streaming (content streams above it) and crossfades to the
+          // action row exactly once, when generation completes.
+          if (!hasQueuedCompletion)
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, anim) {
+                return FadeTransition(
+                  opacity: CurvedAnimation(
+                    parent: anim,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  ),
+                  child: child,
+                );
+              },
+              child: _buildFooterSlot(
+                footer: footer,
+                hasFollowUps: hasFollowUps,
+                activeFollowUps: activeFollowUps,
               ),
-            if (hasFollowUps) ...[
-              const SizedBox(height: Spacing.md),
-              _buildFollowUpSuggestions(activeFollowUps),
-            ],
-          ],
+            ),
         ],
       ),
     );
@@ -1091,6 +1152,56 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         child: content,
       ),
     );
+  }
+
+  /// Builds the keyed child for the footer [AnimatedSwitcher]: the typing
+  /// indicator while streaming, the action row + follow-ups once completed,
+  /// or an empty slot during the gate / transient window.
+  Widget _buildFooterSlot({
+    required Widget? footer,
+    required bool hasFollowUps,
+    required List<String> activeFollowUps,
+  }) {
+    if (_showStreamingIndicatorNow) {
+      return KeyedSubtree(
+        key: const ValueKey('typing'),
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+          ),
+          child: _buildTypingIndicator(),
+        ),
+      );
+    }
+
+    if (_showActionRowNow) {
+      final children = <Widget>[];
+      if (footer != null) {
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(
+              top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+            ),
+            child: footer,
+          ),
+        );
+      }
+      if (hasFollowUps) {
+        children.add(const SizedBox(height: Spacing.md));
+        children.add(_buildFollowUpSuggestions(activeFollowUps));
+      }
+      if (children.isNotEmpty) {
+        return KeyedSubtree(
+          key: const ValueKey('actions'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        );
+      }
+    }
+
+    return const SizedBox.shrink(key: ValueKey('footer-empty'));
   }
 
   Widget _buildQueuedCompletionBanner(QueuedCompletionInfo info) {
