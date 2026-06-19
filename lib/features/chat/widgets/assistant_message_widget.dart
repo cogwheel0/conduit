@@ -997,8 +997,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
                 if (showQueuedAsEmptyState)
                   _buildQueuedCompletionBanner(queuedCompletion)
+                else if (suppressEmptyQueuedContent)
+                  const SizedBox.shrink()
+                else if (_allowTypingIndicator && _shouldShowTypingIndicator)
+                  // Render the typing indicator directly rather than inside the
+                  // content AnimatedSwitcher. Crossfading it in reserved its
+                  // full height while it faded up from zero opacity, which read
+                  // as an empty "blocked" block for a beat before the dots
+                  // appeared. Showing it directly fills the slot immediately.
+                  KeyedSubtree(
+                    key: const ValueKey('typing'),
+                    child: _buildTypingIndicator(),
+                  )
                 else
-                  // Smoothly crossfade between typing indicator and content
+                  // Smoothly crossfade content in (e.g. when the first tokens
+                  // replace the typing indicator).
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: Curves.easeOutCubic,
@@ -1013,20 +1026,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                         child: child,
                       );
                     },
-                    child: suppressEmptyQueuedContent
-                        ? const KeyedSubtree(
-                            key: ValueKey('queued-empty'),
-                            child: SizedBox.shrink(),
-                          )
-                        : (_allowTypingIndicator && _shouldShowTypingIndicator)
-                        ? KeyedSubtree(
-                            key: const ValueKey('typing'),
-                            child: _buildTypingIndicator(),
-                          )
-                        : KeyedSubtree(
-                            key: const ValueKey('content'),
-                            child: _buildMessageContent(),
-                          ),
+                    child: KeyedSubtree(
+                      key: const ValueKey('content'),
+                      child: _buildMessageContent(),
+                    ),
                   ),
 
                 if (showQueuedRecoveryBanner) ...[
