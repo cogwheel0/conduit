@@ -1516,15 +1516,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // safe here (avoids pulling auth providers into the editor just for the
       // user id).
       final note = await readLocalNote(db, widget.noteId);
+      if (!mounted || note == null) return;
+      // If the user typed while the sync/read was in flight, do NOT overwrite
+      // their in-progress edits: those keystroke(s) re-set `_hasChanges` and
+      // queued a fresh debounce. Bail out and leave the editor as-is so that
+      // debounce saves them — overwriting here would discard them silently.
+      // (No await between this check and the setState below, so nothing can
+      // sneak in.)
+      if (_hasChanges) return;
       // Keep the detail cache consistent with what we just loaded.
       ref.invalidate(noteByIdProvider(widget.noteId));
-      if (!mounted || note == null) return;
       setState(() {
         _note = note;
         _titleController.text = note.title;
         _installContentDocument(documentFromMarkdown(note.markdownContent));
         _savedMarkdown = _contentMarkdown;
-        _hasChanges = false;
         _updateWordCount();
       });
     } catch (e) {
