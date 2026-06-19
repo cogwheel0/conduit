@@ -40,6 +40,20 @@ List<Note> _sortNotes(Iterable<Note> notes) {
 
 Note _noteFromRow(NoteRow row) => Note.fromJson(noteRowToServer(row));
 
+/// Reads a note straight from the local Drift row, with no server fetch.
+///
+/// Use this after a sync ([SyncEngine.requestPull]) when you need the
+/// reconciled local state and must NOT let a stale/behind server copy clobber
+/// not-yet-pushed local content (e.g. the note editor's pull-to-refresh).
+/// Returns null when the row is missing or tombstoned.
+Future<Note?> readLocalNote(AppDatabase db, String id, {String? userId}) async {
+  final row = userId == null || userId.isEmpty
+      ? await db.notesDao.getNote(id)
+      : await db.notesDao.getNoteForUser(id, userId: userId);
+  if (row == null || row.deleted) return null;
+  return _noteFromRow(row);
+}
+
 Note _noteFromListEntry(NoteListEntry entry) {
   final meta = entry.previewMarkdown.isEmpty
       ? null

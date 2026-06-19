@@ -99,7 +99,10 @@ dependencies:
       ref: 7a897c8ef022966758ac1f7a8d96c0a14b260c9c
   drift: ^2.34.0
   drift_flutter: ^0.3.0
-  
+  fleather: ^1.27.0
+  # Document model + markdown/HTML codecs backing the Fleather note editor.
+  parchment: ^1.27.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
