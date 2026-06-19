@@ -469,6 +469,12 @@ Future<Note?> noteById(Ref ref, String id) async {
     return note;
   } catch (error) {
     if (cachedNote != null && _canUseCachedNoteAfterDetailError(error)) {
+      // `cachedNote` was read before the await; if the session switched during
+      // the failed detail fetch, don't leak a note from the previous account
+      // into the new session.
+      if (!ref.mounted || !_isCurrentNoteSession(ref, api: api, db: db)) {
+        return null;
+      }
       DebugLogger.warning(
         'detail-refresh-failed-using-cache',
         scope: 'notes',
