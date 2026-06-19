@@ -81,6 +81,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   static final _whitespacePattern = RegExp(r'\s+');
   int _cachedWordCount = 0;
 
+  // Cached Fleather theme. Derived from the app theme via the inherited
+  // context, so it is (re)computed in didChangeDependencies rather than on
+  // every build — the editor and toolbar both consume it each frame.
+  FleatherThemeData? _fleatherTheme;
+
   /// Plain text of the current document (empty when no note is loaded).
   String get _contentPlainText =>
       _contentController?.document.toPlainText().trimRight() ?? '';
@@ -118,6 +123,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   void _onContentFocusChanged() {
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _fleatherTheme = _buildFleatherTheme(context);
   }
 
   /// Replaces the content editor's controller with one backed by [document],
@@ -222,22 +233,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   void _onContentChanged() {
-    if (!mounted || _isLoading) return;
+    if (!mounted || _isLoading || _note == null) return;
 
-    // Check if content actually changed from the saved note. Compare the
-    // re-encoded markdown against the snapshot taken on load/save so that
-    // markdown normalisation on open never registers as an edit.
-    final titleChanged = _note != null && _titleController.text != _note!.title;
-    final contentChanged = _note != null && _contentMarkdown != _savedMarkdown;
-    final hasRealChanges = titleChanged || contentChanged;
-
-    if (hasRealChanges != _hasChanges) {
-      setState(() => _hasChanges = hasRealChanges);
+    // Optimistically flag the note dirty so the unsaved indicator reacts
+    // immediately. The authoritative comparison — which re-encodes the document
+    // to markdown — is deferred to the debounced auto-save so we never run a
+    // full delta->markdown traversal on every keystroke.
+    if (!_hasChanges) {
+      setState(() => _hasChanges = true);
     }
-
-    if (hasRealChanges) {
-      _debounceSave();
-    }
+    _debounceSave();
     _updateWordCount();
   }
 
@@ -247,7 +252,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _autoSave() async {
-    if (_note == null || !_hasChanges) return;
+    final note = _note;
+    if (note == null) return;
+
+    // Authoritative dirty check: compare the re-encoded markdown against the
+    // snapshot taken on load/save so markdown normalisation on open never
+    // registers as an edit, and a no-op edit never hits the server.
+    final titleChanged = _titleController.text != note.title;
+    final contentChanged = _contentMarkdown != _savedMarkdown;
+    if (!titleChanged && !contentChanged) {
+      if (mounted && _hasChanges) {
+        setState(() => _hasChanges = false);
+      }
+      return;
+    }
     await _saveNote(showFeedback: false);
   }
 
@@ -505,8 +523,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() {
           _installContentDocument(documentFromMarkdown(enhancedContent));
         });
-        // Installing a fresh document resets the saved-markdown snapshot, so
-        // re-run change detection to flag the enhancement for auto-save.
+        // _installContentDocument deliberately leaves _savedMarkdown untouched,
+        // so the enhanced content now differs from the saved baseline; re-run
+        // change detection to flag the enhancement for auto-save.
         _onContentChanged();
         ConduitHaptics.mediumImpact();
         AdaptiveSnackBar.show(
@@ -831,7 +850,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         },
       ];
 
-      // Update note with the file attachment
+      // Update note with the file attachment. Snapshot the markdown that gets
+      // persisted so the dirty baseline stays in sync with what was saved.
+      final savedMarkdown = _contentMarkdown;
       final data = _composeUpdatedNoteData(files: updatedFiles);
 
       final resolvedTitle = _titleController.text.isEmpty
@@ -853,6 +874,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
+            _savedMarkdown = savedMarkdown;
             _isUploadingAudio = false;
             _hasChanges = false;
           });
@@ -977,7 +999,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ),
           ),
           child: FleatherTheme(
-            data: _buildFleatherTheme(context),
+            data: _fleatherTheme ??= _buildFleatherTheme(context),
             // Hide formatting that markdown cannot round-trip (underline and
             // colours), since markdown stays the canonical stored format.
             child: FleatherToolbar.basic(
@@ -1416,7 +1438,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // document is empty.
     final showPlaceholder = _contentPlainText.isEmpty;
     return FleatherTheme(
-      data: _buildFleatherTheme(context),
+      data: _fleatherTheme ??= _buildFleatherTheme(context),
       child: Stack(
         children: [
           if (showPlaceholder)
@@ -1509,6 +1531,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .where((f) => f['id']?.toString() != fileId)
           .toList();
 
+      // Snapshot the markdown that gets persisted so the dirty baseline stays
+      // in sync with what was saved.
+      final savedMarkdown = _contentMarkdown;
       final data = _composeUpdatedNoteData(files: updatedFiles);
 
       final resolvedTitle = _titleController.text.isEmpty
@@ -1530,6 +1555,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
+            _savedMarkdown = savedMarkdown;
             _isSaving = false;
             _hasChanges = false;
           });
