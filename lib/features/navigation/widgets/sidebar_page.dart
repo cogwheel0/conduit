@@ -471,14 +471,18 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
+    // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final hermesEnabled = ref.watch(hermesEnabledProvider);
-    final notesEnabled = ref.watch(notesFeatureEnabledProvider);
-    final channelsEnabled = ref.watch(channelsFeatureEnabledProvider);
+    final notesEnabled = !hermesOnly && ref.watch(notesFeatureEnabledProvider);
+    final channelsEnabled =
+        !hermesOnly && ref.watch(channelsFeatureEnabledProvider);
     // Live when the server list resolves; cached last-known value when offline
     // (so a terminal-disabled server doesn't surface the tab offline).
-    final showTerminalTab = ref.watch(terminalTabVisibleProvider);
+    final showTerminalTab =
+        !hermesOnly && ref.watch(terminalTabVisibleProvider);
     final visibleTabIds = <_SidebarTabId>[
-      _SidebarTabId.chats,
+      if (!hermesOnly) _SidebarTabId.chats,
       if (hermesEnabled) _SidebarTabId.hermes,
       if (notesEnabled) _SidebarTabId.notes,
       if (showTerminalTab) _SidebarTabId.terminal,
@@ -492,11 +496,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final isTerminalTabSelected =
         visibleTabIds[activeIndex] == _SidebarTabId.terminal;
     final tabDefinitions = <_SidebarTabDefinition>[
-      _SidebarTabDefinition(
-        id: _SidebarTabId.chats,
-        label: localizations.sidebarChatsTab,
-        body: const ChatsDrawer(),
-      ),
+      if (!hermesOnly)
+        _SidebarTabDefinition(
+          id: _SidebarTabId.chats,
+          label: localizations.sidebarChatsTab,
+          body: const ChatsDrawer(),
+        ),
       if (hermesEnabled)
         const _SidebarTabDefinition(
           id: _SidebarTabId.hermes,

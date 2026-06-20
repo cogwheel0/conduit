@@ -121,6 +121,7 @@ class Routes {
   static const String chat = '/chat';
   static const String folder = '/folder/:id';
   static const String login = '/login';
+  static const String backendChooser = '/backend-chooser';
   static const String serverConnection = '/server-connection';
   static const String connectionIssue = '/connection-issue';
   static const String authentication = '/authentication';
@@ -148,6 +149,7 @@ class RouteNames {
   static const String chat = 'chat';
   static const String folder = 'folder';
   static const String login = 'login';
+  static const String backendChooser = 'backend-chooser';
   static const String serverConnection = 'server-connection';
   static const String connectionIssue = 'connection-issue';
   static const String authentication = 'authentication';

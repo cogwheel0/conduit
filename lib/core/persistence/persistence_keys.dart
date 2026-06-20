@@ -55,6 +55,10 @@ final class PreferenceKeys {
   static const String hermesBaseUrl = 'hermes_base_url_v1';
   static const String hermesShowJobs = 'hermes_show_jobs_v1';
 
+  /// Which backend onboarding completed against ('owui' | 'hermes' | unset).
+  /// Read synchronously by the router for boot-deterministic routing.
+  static const String preferredBackend = 'preferred_backend_v1';
+
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';
