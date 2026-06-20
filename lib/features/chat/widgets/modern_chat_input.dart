@@ -24,6 +24,8 @@ import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
+import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -676,12 +678,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!wasShowing && shouldShow) {
       // Trigger data fetch lazily when overlay first appears.
       if (_currentPromptCommand.startsWith('/')) {
-        ref.read(promptsListProvider.future);
+        if (_hermesCommandsActive) {
+          ref.read(hermesSkillPromptsProvider.future);
+        } else {
+          ref.read(promptsListProvider.future);
+        }
       } else if (_currentPromptCommand.startsWith('@')) {
         ref.read(modelsProvider.future);
       }
     }
   }
+
+  /// Whether the active model routes `/` commands to Hermes skills instead of
+  /// OpenWebUI prompts. Requires the server to advertise the skills capability
+  /// (optimistic default while capabilities load).
+  bool get _hermesCommandsActive {
+    final model = ref.read(selectedModelProvider);
+    if (model == null || !isHermesModel(model)) return false;
+    final caps = ref.read(hermesCapabilitiesProvider).asData?.value;
+    return caps?.skills ?? true;
+  }
+
+  /// The current base prompt list for the `/` overlay, from the source matching
+  /// the active model (Hermes skills or OpenWebUI prompts).
+  List<Prompt>? get _activePromptListValue => _hermesCommandsActive
+      ? ref.read(hermesSkillPromptsProvider).value
+      : ref.read(promptsListProvider).value;
 
   PromptCommandMatch? _resolvePromptCommand(
     String text,
@@ -1097,7 +1119,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (models == null || models.isEmpty) return;
       filteredLength = _filterModels(models).length;
     } else {
-      final List<Prompt>? prompts = ref.read(promptsListProvider).value;
+      final List<Prompt>? prompts = _activePromptListValue;
       if (prompts == null || prompts.isEmpty) return;
       filteredLength = _filterPrompts(prompts).length;
     }
@@ -1141,8 +1163,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
 
-    final AsyncValue<List<Prompt>> promptsAsync = ref.read(promptsListProvider);
-    final List<Prompt>? prompts = promptsAsync.value;
+    final List<Prompt>? prompts = _activePromptListValue;
     if (prompts == null || prompts.isEmpty) return;
 
     final List<Prompt> filtered = _filterPrompts(prompts);
@@ -1527,6 +1548,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
     return PromptSuggestionOverlay(
+      useHermesSkills: _hermesCommandsActive,
       filteredPrompts: _filterPrompts,
       selectionIndex: _promptSelectionIndex,
       onPromptSelected: _applyPrompt,

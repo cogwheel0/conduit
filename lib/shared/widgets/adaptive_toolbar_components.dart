@@ -323,6 +323,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     required this.onPressed,
     this.isLoading = false,
     this.textStyle,
+    this.showChevron = true,
   });
 
   /// Text shown inside the selector.
@@ -342,6 +343,11 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 
   /// Optional text style override for the selector label.
   final TextStyle? textStyle;
+
+  /// Whether to show the dropdown chevron and allow tapping to change models.
+  /// Hidden for single-agent backends (e.g. the Hermes agent) where there is
+  /// nothing to pick.
+  final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
@@ -393,14 +399,16 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: Spacing.xs),
-                      Icon(
-                        Platform.isIOS
-                            ? CupertinoIcons.chevron_down
-                            : Icons.keyboard_arrow_down,
-                        color: context.conduitTheme.iconSecondary,
-                        size: chevronSize,
-                      ),
+                      if (showChevron) ...[
+                        const SizedBox(width: Spacing.xs),
+                        Icon(
+                          Platform.isIOS
+                              ? CupertinoIcons.chevron_down
+                              : Icons.keyboard_arrow_down,
+                          color: context.conduitTheme.iconSecondary,
+                          size: chevronSize,
+                        ),
+                      ],
                     ],
                   ),
           ),
@@ -410,14 +418,14 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 
     if (conduitUsesOpaqueGlassFallback()) {
       return FloatingAppBarButton(
-        onTap: isLoading ? null : onPressed,
+        onTap: (isLoading || !showChevron) ? null : onPressed,
         semanticLabel: label,
         child: child,
       );
     }
 
     return AdaptiveButton.child(
-      onPressed: isLoading ? () {} : onPressed,
+      onPressed: (isLoading || !showChevron) ? () {} : onPressed,
       style: AdaptiveButtonStyle.glass,
       size: AdaptiveButtonSize.large,
       padding: EdgeInsets.zero,

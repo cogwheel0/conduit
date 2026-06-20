@@ -17,6 +17,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/user_display_name.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -38,6 +39,7 @@ dynamic resolveSidebarUser(WidgetRef ref) {
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   final tabIndex = ref.watch(sidebarActiveTabProvider);
+  final hermesOn = ref.watch(hermesEnabledProvider);
   final notesOn = ref.watch(notesFeatureEnabledProvider);
   final terminalOn = ref
       .watch(terminalAvailableServersProvider)
@@ -51,6 +53,10 @@ String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   var i = 0;
   if (tabIndex == i) return l10n.searchConversations;
   i++;
+  if (hermesOn) {
+    if (tabIndex == i) return l10n.searchConversations;
+    i++;
+  }
   if (notesOn) {
     if (tabIndex == i) return l10n.searchNotes;
     i++;
@@ -248,6 +254,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               title: dataConnectionTitle,
               sfSymbol: 'network',
             ),
+            const NativeSheetItemConfig(
+              id: NativeSheetRoutes.hermes,
+              title: 'Hermes Agent',
+              sfSymbol: 'sparkles',
+            ),
           ],
         ),
         NativeSheetSectionConfig(
@@ -383,6 +394,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           l10n: l10n,
           id: NativeSheetRoutes.dataConnection,
           title: dataConnectionTitle,
+          subtitle: l10n.loadingShort,
+        ),
+        buildNativeLoadingDetail(
+          l10n: l10n,
+          id: NativeSheetRoutes.hermes,
+          title: 'Hermes Agent',
           subtitle: l10n.loadingShort,
         ),
         buildNativeLoadingDetail(

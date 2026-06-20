@@ -8,6 +8,8 @@ import '../../shared/theme/tweakcn_themes.dart';
 import '../models/model.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
 import '../utils/debug_logger.dart';
 import '../utils/model_icon_utils.dart';
 import '../utils/model_sort_utils.dart';
@@ -61,9 +63,11 @@ class NativeSheetHydrationService {
     final pinnedModelIds = allowsPinning
         ? _ref.read(effectivePinnedModelIdsProvider)
         : const <String>[];
+    // The Hermes agent has its own dedicated tab; never list it in the picker.
+    final pickerModels = models.where((m) => !isHermesModel(m)).toList();
     final orderedModels = allowsPinning
-        ? sortModelsWithPinnedOrder(models, pinnedModelIds)
-        : List<Model>.of(models, growable: false);
+        ? sortModelsWithPinnedOrder(pickerModels, pinnedModelIds)
+        : List<Model>.of(pickerModels, growable: false);
     final canTogglePinnedModels =
         allowsPinning && _ref.read(canTogglePinnedModelsProvider);
 
@@ -125,6 +129,9 @@ class NativeSheetHydrationService {
         return;
       case NativeSheetRoutes.aiMemory:
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
+        return;
+      case NativeSheetRoutes.hermes:
+        await _hydrateNativeHermesDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.voice:
         await _hydrateNativeVoiceDetail(l10n);
@@ -551,6 +558,111 @@ class NativeSheetHydrationService {
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.notificationSettings,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+    }
+  }
+
+  Future<void> _hydrateNativeHermesDetail(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    try {
+      final config = _ref.read(hermesConfigProvider);
+      final hasApiKey = config.apiKey?.isNotEmpty ?? false;
+      final hasSessionKey = config.sessionKey?.isNotEmpty ?? false;
+
+      final items = <NativeSheetItemConfig>[
+        NativeSheetItemConfig(
+          id: 'hermes-enabled',
+          title: 'Enable Hermes Agent',
+          subtitle:
+              'Use your self-hosted Hermes agent as a model in the picker.',
+          sfSymbol: 'sparkles',
+          kind: NativeSheetItemKind.toggle,
+          value: config.enabled,
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-base-url',
+          title: 'Server URL',
+          sfSymbol: 'link',
+          kind: NativeSheetItemKind.textField,
+          value: config.baseUrl,
+          placeholder: 'http://192.168.1.10:8642',
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-api-key',
+          title: 'API key',
+          sfSymbol: 'key',
+          kind: NativeSheetItemKind.secureTextField,
+          value: '',
+          placeholder: hasApiKey
+              ? 'Configured — enter to replace'
+              : 'Enter API_SERVER_KEY',
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-session-key',
+          title: 'Memory key (optional)',
+          sfSymbol: 'brain',
+          kind: NativeSheetItemKind.secureTextField,
+          value: '',
+          placeholder: hasSessionKey
+              ? 'Configured — enter to replace'
+              : 'Auto-generated if left blank',
+        ),
+      ];
+
+      // Best-effort capabilities summary once the server is reachable.
+      if (config.isUsable) {
+        try {
+          final caps = await _ref.read(hermesCapabilitiesProvider.future);
+          if (!context.mounted) return;
+          final supported = <String>[
+            if (caps.runApproval) 'Approval',
+            if (caps.skills) 'Skills',
+            if (caps.toolsets) 'Toolsets',
+            if (caps.jobs) 'Jobs',
+            if (caps.sessions) 'Sessions',
+          ];
+          items.add(
+            NativeSheetItemConfig(
+              id: 'hermes-capabilities-info',
+              title: 'Capabilities',
+              subtitle: supported.isEmpty ? '—' : supported.join(' · '),
+              sfSymbol: 'checkmark.seal',
+              kind: NativeSheetItemKind.info,
+            ),
+          );
+        } catch (_) {}
+      }
+
+      items.add(
+        const NativeSheetItemConfig(
+          id: 'hermes-tab-info',
+          title: 'Conversations & Scheduled Agents',
+          subtitle: 'Available in the Hermes tab once enabled.',
+          sfSymbol: 'sidebar.left',
+          kind: NativeSheetItemKind.info,
+        ),
+      );
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.hermes,
+          title: 'Hermes Agent',
+          subtitle: 'Connect directly to a self-hosted Hermes agent.',
+          items: items,
+        ),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-hermes-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.hermes,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
