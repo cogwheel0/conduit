@@ -711,6 +711,50 @@ void main() {
       check(log.appendedChunks).deepEquals(['He', 'llo']);
       check(log.messages.last.content).equals('Hello');
     });
+
+    test('resume APPEND deltas concatenate onto already-visible partial '
+        'content (seed, no prefix loss or duplication)', () async {
+      // The real resume scenario: the chat was opened already showing a partial
+      // assistant response, and the live socket continues it with incremental
+      // deltas. The rendered buffer must seed from the visible partial so the
+      // first delta appends onto it rather than replacing or duplicating it.
+      final log = _CallbackLog(
+        initialMessages: _fakeStreamingMessages(
+          id: 'local-msg-1',
+          content: 'Par',
+        ),
+      );
+      final registrar = FakeSocketInjector();
+      final socket = _MockSocketService(registrar);
+
+      _attach(
+        session: ChatCompletionSession.resumeSocket(
+          messageId: 'local-msg-1',
+          conversationId: 'conv-1',
+        ),
+        log: log,
+        assistantMessageId: 'local-msg-1',
+        sessionId: '',
+        activeConversationId: 'conv-1',
+        socketService: socket,
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'choices': [
+          {
+            'delta': {'content': 'tial'},
+          },
+        ],
+      }, conversationId: 'conv-1', messageId: 'server-msg-1');
+      await pumpMicrotasks();
+
+      // Only the new delta is appended; the already-visible 'Par' prefix is
+      // preserved (not re-sent, not dropped).
+      check(log.appendedChunks).deepEquals(['tial']);
+      check(log.messages.last.content).equals('Partial');
+    });
   });
 
   group('Sidebar indicator — optimistic START gating', () {

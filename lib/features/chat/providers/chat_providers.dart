@@ -890,6 +890,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           );
       final shouldPreserveFollowUps =
           localMessage != null &&
+          localMessage.followUps.isNotEmpty &&
           serverMessage.role == 'assistant' &&
           serverMessage.followUps.isEmpty &&
           (sameResponseContent || preserveContent);
