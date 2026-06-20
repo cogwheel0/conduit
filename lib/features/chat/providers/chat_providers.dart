@@ -3911,6 +3911,24 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
   }).toList();
 }
 
+/// Whether a send/regenerate should be blocked given the current backend state.
+///
+/// A send needs one of: an OpenWebUI [api], reviewer mode, or a Hermes model
+/// (which routes to the direct Hermes transport and doesn't use [api]). A null
+/// [selectedModel] always blocks. Extracted so the Hermes-only relaxation is
+/// unit-testable independent of the large send pipelines.
+@visibleForTesting
+bool isSendBlocked({
+  required bool reviewerMode,
+  required Object? api,
+  required Model? selectedModel,
+}) {
+  if (selectedModel == null) return true;
+  if (reviewerMode) return false;
+  if (api != null) return false;
+  return !isHermesModel(selectedModel);
+}
+
 // Regenerate message function that doesn't duplicate user message
 Future<void> regenerateMessage(
   dynamic ref,
@@ -3924,10 +3942,11 @@ Future<void> regenerateMessage(
 
   // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
   // the Hermes transport and don't need it.
-  if ((!reviewerMode &&
-          api == null &&
-          !(selectedModel != null && isHermesModel(selectedModel))) ||
-      selectedModel == null) {
+  if (isSendBlocked(
+    reviewerMode: reviewerMode,
+    api: api,
+    selectedModel: selectedModel,
+  )) {
     throw Exception('No API service or model selected');
   }
 
@@ -5342,10 +5361,11 @@ Future<void> _sendMessageInternal(
 
   // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
   // the Hermes transport and don't need it.
-  if ((!reviewerMode &&
-          api == null &&
-          !(selectedModel != null && isHermesModel(selectedModel))) ||
-      selectedModel == null) {
+  if (isSendBlocked(
+    reviewerMode: reviewerMode,
+    api: api,
+    selectedModel: selectedModel,
+  )) {
     throw Exception('No API service or model selected');
   }
 

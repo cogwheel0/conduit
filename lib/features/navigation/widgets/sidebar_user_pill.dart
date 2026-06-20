@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -25,6 +26,19 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../providers/sidebar_providers.dart';
+
+/// Cached bytes of the Hermes agent icon, used as the native profile-sheet
+/// avatar in Hermes-only mode (loaded once, then reused).
+Uint8List? _hermesAvatarBytesCache;
+Future<Uint8List?> _loadHermesAvatarBytes() async {
+  if (_hermesAvatarBytesCache != null) return _hermesAvatarBytesCache;
+  try {
+    final data = await rootBundle.load('assets/icons/hermes_agent.png');
+    return _hermesAvatarBytesCache = data.buffer.asUint8List();
+  } catch (_) {
+    return null;
+  }
+}
 
 /// Resolves the best available current user for sidebar UI.
 dynamic resolveSidebarUser(WidgetRef ref) {
@@ -109,6 +123,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           if (!context.mounted) return;
 
           if (Platform.isIOS) {
+            // Pre-load the Hermes avatar bytes (the config builder is sync, and
+            // avatarBytes must be supplied up front).
+            final hermesAvatarBytes = ref.read(hermesOnlyModeProvider)
+                ? await _loadHermesAvatarBytes()
+                : null;
+            if (!context.mounted) return;
             final config = _buildNativeProfileSheetConfig(
               context: context,
               ref: ref,
@@ -116,6 +136,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               api: api,
               displayName: displayName,
               initials: initial,
+              hermesAvatarBytes: hermesAvatarBytes,
             );
             final presented = await NativeSheetBridge.instance
                 .presentProfileMenu(config);
@@ -151,6 +172,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required dynamic api,
     required String displayName,
     required String initials,
+    Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
     // In Hermes-only mode there's no Open WebUI account, so hide the OWUI
@@ -177,18 +199,25 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
     return NativeProfileSheetConfig(
       profileMenuTitle: settingsTitle,
-      profile: NativeProfileSheetUser(
-        displayName: displayName,
-        email: email,
-        initials: initials,
-        avatarUrl: avatarBytes == null ? avatarUrl : null,
-        avatarBytes: avatarBytes,
-        avatarHeaders: buildImageHeadersFromWidgetRef(ref) ?? const {},
-        bio: accountProfile?.bio,
-        gender: accountProfile?.gender,
-        dateOfBirth: accountProfile?.dateOfBirth,
-        profileImageUrl: accountProfile?.profileImageUrl,
-      ),
+      profile: hermesOnly
+          ? NativeProfileSheetUser(
+              displayName: 'Hermes Agent',
+              email: _hermesHostLabel(ref),
+              initials: 'HA',
+              avatarBytes: hermesAvatarBytes,
+            )
+          : NativeProfileSheetUser(
+              displayName: displayName,
+              email: email,
+              initials: initials,
+              avatarUrl: avatarBytes == null ? avatarUrl : null,
+              avatarBytes: avatarBytes,
+              avatarHeaders: buildImageHeadersFromWidgetRef(ref) ?? const {},
+              bio: accountProfile?.bio,
+              gender: accountProfile?.gender,
+              dateOfBirth: accountProfile?.dateOfBirth,
+              profileImageUrl: accountProfile?.profileImageUrl,
+            ),
       editProfileLabel: l10n.edit,
       editProfileSheet: NativeEditProfileSheetConfig(
         title: l10n.profileDetails,
@@ -431,6 +460,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// Header subtitle for the Hermes-only profile sheet: the configured agent's
+  /// host, falling back to a generic label.
+  String _hermesHostLabel(WidgetRef ref) {
+    final baseUrl = ref.read(hermesConfigProvider).baseUrl;
+    final host = Uri.tryParse(baseUrl)?.host;
+    return host != null && host.isNotEmpty ? host : 'Self-hosted agent';
   }
 
   Uint8List? _decodeDataImage(String? dataUrl) {
