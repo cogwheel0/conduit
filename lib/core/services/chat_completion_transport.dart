@@ -53,6 +53,31 @@ final class ChatCompletionSession {
     abort: abort,
   );
 
+  /// Socket-only resume of an in-flight chat that is still generating on the
+  /// server (mirrors Open WebUI reopening a streaming chat).
+  ///
+  /// A named, intent-revealing alias for the socket-only [taskSocket] shape:
+  /// [byteStream] is `null` (no HTTP body to forward — the existing taskSocket
+  /// dispatch closes the HTTP side immediately and waits for the socket `done`)
+  /// and [abort] is `null` (resume does not own an HTTP request to cancel;
+  /// cancellation goes through the task registry via `taskId`).
+  ///
+  /// [sessionId] is intentionally `null` so the streaming helper's session
+  /// matching stays permissive and binds the server's (possibly foreign)
+  /// `message_id` to the local [messageId] on the first `chat:completion`.
+  factory ChatCompletionSession.resumeSocket({
+    required String messageId,
+    String? sessionId,
+    String? conversationId,
+    String? taskId,
+  }) => ChatCompletionSession._(
+    transport: ChatCompletionTransport.taskSocket,
+    messageId: messageId,
+    sessionId: sessionId,
+    conversationId: conversationId,
+    taskId: taskId,
+  );
+
   /// Direct JSON completion (non-streamed).
   factory ChatCompletionSession.jsonCompletion({
     required String messageId,

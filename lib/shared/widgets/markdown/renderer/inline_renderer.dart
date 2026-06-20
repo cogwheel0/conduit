@@ -23,6 +23,52 @@ class InlineTextFadeSpec {
   final double opacity;
 }
 
+/// Records the document-coordinate range covered by a single emitted leaf span.
+///
+/// Captured during the [InlineRenderer.renderWithRanges] walk so the streaming
+/// suffix fade can be reapplied later (via [InlineRenderer.applyFadeOpacity])
+/// without re-walking the document or recreating gesture recognizers.
+@immutable
+class FadableSpanRange {
+  const FadableSpanRange({
+    required this.start,
+    required this.end,
+    required this.isWidgetSpan,
+  });
+
+  /// Inclusive start offset in document-wide `textContent` coordinates.
+  final int start;
+
+  /// Exclusive end offset in document-wide `textContent` coordinates.
+  final int end;
+
+  /// Whether the emitted leaf is a [WidgetSpan] (faded via [Opacity]) rather
+  /// than a [TextSpan] (faded via color alpha).
+  final bool isWidgetSpan;
+}
+
+/// The result of a fade-agnostic inline render: the opacity-1 base span tree
+/// plus the per-leaf document-coordinate ranges recorded during the walk.
+///
+/// The base tree is built once per content change. [InlineRenderer.applyFadeOpacity]
+/// reapplies the streaming suffix alpha to only the in-range leaves of this
+/// cached tree, so fade frames never rebuild the span tree or its recognizers.
+///
+/// [ranges] is keyed by emitted leaf-span identity rather than position so that
+/// non-fadable leaves interleaved in the tree (e.g. hard line breaks, table or
+/// heading spans built outside the fadable path) are simply absent from the map
+/// and reused by reference during a fade.
+@immutable
+class RenderedInlineSpans {
+  const RenderedInlineSpans({required this.span, required this.ranges});
+
+  /// The opacity-1 base span tree (with link recognizers attached).
+  final InlineSpan span;
+
+  /// Recorded ranges keyed by the identity of the emitted leaf span.
+  final Map<InlineSpan, FadableSpanRange> ranges;
+}
+
 /// Converts markdown AST inline nodes into a Flutter
 /// [InlineSpan] tree suitable for use with [Text.rich].
 ///
@@ -44,7 +90,6 @@ class InlineRenderer {
     this.onSourceTap,
     this.latexStartupFuture,
     this.renderPdfPreviews = true,
-    this.textFade,
   ]);
 
   /// The style configuration for rendering.
@@ -68,8 +113,13 @@ class InlineRenderer {
   /// Whether PDF links should hydrate preview cards instead of plain links.
   final bool renderPdfPreviews;
 
-  /// Optional visible text suffix fade for streaming updates.
-  final InlineTextFadeSpec? textFade;
+  /// Per-leaf document-coordinate ranges recorded during the current walk,
+  /// keyed by emitted leaf-span identity.
+  ///
+  /// Populated only while [renderWithRanges] is running so the streaming suffix
+  /// fade can be reapplied to the cached base tree without re-walking. Reset at
+  /// the start of every render entry point.
+  Map<InlineSpan, FadableSpanRange>? _recordedRanges;
 
   /// Gesture recognizers created during rendering.
   ///
@@ -115,6 +165,10 @@ class InlineRenderer {
     List<CompiledMarkdownNode> nodes, {
     TextStyle? parentStyle,
   }) {
+    // Non-fadable call sites (tables, headings, cells) only need the base tree.
+    // Skip range recording entirely; the [_visibleTextOffset] cursor still
+    // advances as before so cross-block coordinates stay aligned.
+    _recordedRanges = null;
     final base = parentStyle ?? style.body;
     final spans = <InlineSpan>[];
     for (final node in nodes) {
@@ -122,6 +176,32 @@ class InlineRenderer {
     }
     if (spans.length == 1) return spans.first;
     return TextSpan(children: spans);
+  }
+
+  /// Renders [nodes] into the opacity-1 base span tree while recording, during
+  /// the same [_visibleTextOffset] walk, the document-coordinate range of every
+  /// emitted leaf span.
+  ///
+  /// The returned [RenderedInlineSpans] can be cached per content change and
+  /// re-faded via [applyFadeOpacity] without re-walking the document or
+  /// recreating gesture recognizers.
+  RenderedInlineSpans renderWithRanges(
+    List<CompiledMarkdownNode> nodes, {
+    TextStyle? parentStyle,
+  }) {
+    final ranges = <InlineSpan, FadableSpanRange>{};
+    _recordedRanges = ranges;
+    try {
+      final base = parentStyle ?? style.body;
+      final spans = <InlineSpan>[];
+      for (final node in nodes) {
+        spans.addAll(_renderNode(node, base));
+      }
+      final span = spans.length == 1 ? spans.first : TextSpan(children: spans);
+      return RenderedInlineSpans(span: span, ranges: ranges);
+    } finally {
+      _recordedRanges = null;
+    }
   }
 
   List<InlineSpan> _renderNode(
@@ -428,7 +508,7 @@ class InlineRenderer {
 
   InlineSpan _attachRecognizer(InlineSpan span, GestureRecognizer recognizer) {
     if (span is TextSpan) {
-      return TextSpan(
+      final copy = TextSpan(
         text: span.text,
         children: span.children
             ?.map((child) => _attachRecognizer(child, recognizer))
@@ -442,6 +522,16 @@ class InlineRenderer {
         locale: span.locale,
         spellOut: span.spellOut,
       );
+      // The fadable range was recorded against the pre-copy span identity; move
+      // it to the recognizer-bearing copy so the streaming fade still finds it.
+      final ranges = _recordedRanges;
+      if (ranges != null) {
+        final range = ranges.remove(span);
+        if (range != null) {
+          ranges[copy] = range;
+        }
+      }
+      return copy;
     }
     return span;
   }
@@ -488,25 +578,20 @@ class InlineRenderer {
       return const <InlineSpan>[];
     }
 
-    final fade = textFade;
+    // Always emit a single opacity-1 base span. The streaming fade is reapplied
+    // later by [applyFadeOpacity] using the recorded range, so the offset walk
+    // here stays decoupled from any opacity decision while remaining
+    // byte-identical in how it advances [_visibleTextOffset].
     final startOffset = _visibleTextOffset;
     final endOffset = startOffset + text.length;
     _visibleTextOffset = endOffset;
-
-    if (fade == null || fade.opacity >= 1 || endOffset <= fade.startOffset) {
-      return [TextSpan(text: text, style: currentStyle)];
-    }
-
-    final fadeStyle = _styleWithFadeOpacity(currentStyle, fade.opacity);
-    if (startOffset >= fade.startOffset) {
-      return [TextSpan(text: text, style: fadeStyle)];
-    }
-
-    final splitIndex = fade.startOffset - startOffset;
-    return [
-      TextSpan(text: text.substring(0, splitIndex), style: currentStyle),
-      TextSpan(text: text.substring(splitIndex), style: fadeStyle),
-    ];
+    final span = TextSpan(text: text, style: currentStyle);
+    _recordedRanges?[span] = FadableSpanRange(
+      start: startOffset,
+      end: endOffset,
+      isWidgetSpan: false,
+    );
+    return [span];
   }
 
   WidgetSpan _buildFadableWidgetSpan({
@@ -514,35 +599,233 @@ class InlineRenderer {
     required int textLength,
     PlaceholderAlignment alignment = PlaceholderAlignment.middle,
   }) {
-    final opacity = _opacityForFadableRange(textLength);
-    final effectiveChild = opacity >= 1
-        ? child
-        : Opacity(opacity: opacity, child: child);
-    return WidgetSpan(alignment: alignment, child: effectiveChild);
+    final span = WidgetSpan(alignment: alignment, child: child);
+    _recordFadableWidgetRange(span, textLength);
+    return span;
   }
 
-  double _opacityForFadableRange(int textLength) {
+  void _recordFadableWidgetRange(WidgetSpan span, int textLength) {
     if (textLength <= 0) {
-      return 1;
+      // Mirror the prior accounting: zero-length widget spans never advanced
+      // [_visibleTextOffset] and recorded no fadable range.
+      return;
     }
-    final fade = textFade;
     final startOffset = _visibleTextOffset;
     final endOffset = startOffset + textLength;
     _visibleTextOffset = endOffset;
-    if (fade == null || fade.opacity >= 1 || endOffset <= fade.startOffset) {
-      return 1;
-    }
-    return fade.opacity.clamp(0.0, 1.0).toDouble();
+    _recordedRanges?[span] = FadableSpanRange(
+      start: startOffset,
+      end: endOffset,
+      isWidgetSpan: true,
+    );
   }
 
-  TextStyle _styleWithFadeOpacity(TextStyle currentStyle, double opacity) {
-    final baseColor = currentStyle.color ?? style.body.color;
+  /// Reapplies the streaming suffix [fade] to only the in-range leaves of a
+  /// cached [base] render, returning a new span tree.
+  ///
+  /// This is a cheap, pure copy: leaves with no recorded range, or whose range
+  /// is entirely before [InlineTextFadeSpec.startOffset], are reused by
+  /// reference (recognizers included); leaves at/after the fade boundary have
+  /// their color alpha (text) or [Opacity] (widget) reapplied; the single leaf
+  /// straddling the boundary is split with the same `substring` logic as the
+  /// original walk. No document node walk, recognizer creation, or LaTeX
+  /// re-resolution occurs.
+  static InlineSpan applyFadeOpacity(
+    RenderedInlineSpans base,
+    InlineTextFadeSpec? fade, {
+    required ConduitMarkdownStyle style,
+  }) {
+    if (fade == null || fade.opacity >= 1) {
+      return base.span;
+    }
+    return _applyFadeToSpan(base.span, base.ranges, fade, style);
+  }
+
+  static InlineSpan _applyFadeToSpan(
+    InlineSpan span,
+    Map<InlineSpan, FadableSpanRange> ranges,
+    InlineTextFadeSpec fade,
+    ConduitMarkdownStyle style,
+  ) {
+    if (span is TextSpan) {
+      final children = span.children;
+      if (children != null && children.isNotEmpty) {
+        // Interior node: copy and recurse into children in order.
+        final newChildren = children
+            .map((child) => _applyFadeToSpan(child, ranges, fade, style))
+            .toList(growable: false);
+        return TextSpan(
+          text: span.text,
+          children: newChildren,
+          style: span.style,
+          recognizer: span.recognizer,
+          mouseCursor: span.mouseCursor,
+          onEnter: span.onEnter,
+          onExit: span.onExit,
+          semanticsLabel: span.semanticsLabel,
+          locale: span.locale,
+          spellOut: span.spellOut,
+        );
+      }
+      return _fadeTextLeaf(span, ranges[span], fade, style);
+    }
+    if (span is WidgetSpan) {
+      return _fadeWidgetLeaf(span, ranges[span], fade);
+    }
+    return span;
+  }
+
+  static InlineSpan _fadeTextLeaf(
+    TextSpan span,
+    FadableSpanRange? range,
+    InlineTextFadeSpec fade,
+    ConduitMarkdownStyle style,
+  ) {
+    final text = span.text;
+    if (range == null || text == null || range.end <= fade.startOffset) {
+      return span;
+    }
+
+    final fadeStyle = _styleWithFadeOpacityStatic(
+      span.style,
+      fade.opacity,
+      style,
+    );
+    if (range.start >= fade.startOffset) {
+      return TextSpan(
+        text: text,
+        style: fadeStyle,
+        recognizer: span.recognizer,
+        mouseCursor: span.mouseCursor,
+        onEnter: span.onEnter,
+        onExit: span.onExit,
+        semanticsLabel: span.semanticsLabel,
+        locale: span.locale,
+        spellOut: span.spellOut,
+      );
+    }
+
+    // Straddling leaf: split at the fade boundary using the same offset math as
+    // the original walk. [fade.startOffset] is already surrogate-snapped.
+    //
+    // Mirror the original walk, which emitted two sibling spans and attached the
+    // link recognizer to EACH of them: a TextSpan's recognizer only applies to
+    // its own `text`, so the recognizer is carried onto both child halves (and
+    // their per-span metadata) rather than a text-less parent wrapper.
+    final splitIndex = fade.startOffset - range.start;
+    return TextSpan(
+      children: [
+        TextSpan(
+          text: text.substring(0, splitIndex),
+          style: span.style,
+          recognizer: span.recognizer,
+          mouseCursor: span.mouseCursor,
+          onEnter: span.onEnter,
+          onExit: span.onExit,
+          semanticsLabel: span.semanticsLabel,
+          locale: span.locale,
+          spellOut: span.spellOut,
+        ),
+        TextSpan(
+          text: text.substring(splitIndex),
+          style: fadeStyle,
+          recognizer: span.recognizer,
+          mouseCursor: span.mouseCursor,
+          onEnter: span.onEnter,
+          onExit: span.onExit,
+          semanticsLabel: span.semanticsLabel,
+          locale: span.locale,
+          spellOut: span.spellOut,
+        ),
+      ],
+    );
+  }
+
+  static InlineSpan _fadeWidgetLeaf(
+    WidgetSpan span,
+    FadableSpanRange? range,
+    InlineTextFadeSpec fade,
+  ) {
+    if (range == null || range.end <= fade.startOffset) {
+      return span;
+    }
+    final opacity = fade.opacity.clamp(0.0, 1.0).toDouble();
+    return WidgetSpan(
+      alignment: span.alignment,
+      baseline: span.baseline,
+      style: span.style,
+      child: Opacity(opacity: opacity, child: span.child),
+    );
+  }
+
+  static TextStyle _styleWithFadeOpacityStatic(
+    TextStyle? currentStyle,
+    double opacity,
+    ConduitMarkdownStyle style,
+  ) {
+    final base = currentStyle ?? style.body;
+    final baseColor = base.color ?? style.body.color;
     if (baseColor == null) {
-      return currentStyle;
+      return base;
     }
     final clampedOpacity = opacity.clamp(0.0, 1.0).toDouble();
-    return currentStyle.copyWith(
+    return base.copyWith(
       color: baseColor.withValues(alpha: baseColor.a * clampedOpacity),
+    );
+  }
+}
+
+/// Read-only source of the current streaming suffix fade.
+///
+/// Exposes a [Listenable] (the fade animation) and the current
+/// [InlineTextFadeSpec] so [FadableRichText] widgets can repaint their own
+/// suffix opacity without forcing the whole markdown subtree to rebuild.
+abstract class MarkdownStreamingFade {
+  /// Drives per-frame repaints while the suffix fades.
+  Listenable get listenable;
+
+  /// The current fade spec, or `null` when nothing is fading.
+  InlineTextFadeSpec? get spec;
+}
+
+/// Renders a cached [RenderedInlineSpans] base tree, reapplying the streaming
+/// suffix fade per frame via [InlineRenderer.applyFadeOpacity] without
+/// rebuilding the span tree or its recognizers.
+///
+/// When [fade] is `null` the base tree is rendered directly with no listener.
+class FadableRichText extends StatelessWidget {
+  const FadableRichText({
+    required this.rendered,
+    required this.style,
+    this.fade,
+    super.key,
+  });
+
+  /// The cached opacity-1 base span tree plus recorded leaf ranges.
+  final RenderedInlineSpans rendered;
+
+  /// Style used to resolve fade base colors.
+  final ConduitMarkdownStyle style;
+
+  /// Optional streaming fade source. When `null`, no fade is applied.
+  final MarkdownStreamingFade? fade;
+
+  @override
+  Widget build(BuildContext context) {
+    final fadeSource = fade;
+    if (fadeSource == null) {
+      return Text.rich(rendered.span);
+    }
+    return AnimatedBuilder(
+      animation: fadeSource.listenable,
+      builder: (context, _) {
+        final span = InlineRenderer.applyFadeOpacity(
+          rendered,
+          fadeSource.spec,
+          style: style,
+        );
+        return Text.rich(span);
+      },
     );
   }
 }

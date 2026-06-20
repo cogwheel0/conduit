@@ -3921,6 +3921,12 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     _reconnectSub?.cancel();
     _reconnectSub = null;
     if (socket == null) {
+      // Logout / session teardown: the socket the spinners were derived from is
+      // gone. Drop the whole set so a stale `generating` indicator cannot
+      // survive into the next session (the new socket re-arms the cold-open
+      // fetch below to repopulate authoritative state).
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      _initialFetchDone = false;
       return;
     }
 

@@ -335,6 +335,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
+  // Feature C: number of consecutive polls that saw `tasksDone` while a socket
+  // resume stream still held protection. The poll's force-adoption is deferred
+  // for a short grace window so the socket's own `done` finalize wins and we
+  // never double-finalize. Reset whenever tasks are active again.
+  int _tasksDoneGracePolls = 0;
+  // Polls to wait after `tasksDone` before the poll force-adopts server state
+  // over a still-protected socket resume stream (~2s at the 1s cadence).
+  static const int _tasksDoneSocketGracePolls = 2;
   bool _passiveConversationRefreshInFlight = false;
   bool _queuedPassiveConversationRefresh = false;
   String? _passiveConversationId;
@@ -1356,6 +1364,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _taskStatusCheckInFlight;
   }
 
+  /// Test-only view of [_shouldProtectLocalStreamingState] so resume regression
+  /// tests can assert protection holds ONLY for the matching streaming message
+  /// id (Feature C de-risking) without coupling to private members.
+  @visibleForTesting
+  bool get debugShouldProtectLocalStreamingState =>
+      _shouldProtectLocalStreamingState;
+
+  /// Test-only view of the socket-resume grace-poll counter so the
+  /// double-finalize race guard (Feature C: "socket done wins / poll defers")
+  /// can be asserted across poll iterations without coupling to private state.
+  @visibleForTesting
+  int get debugTasksDoneGracePolls => _tasksDoneGracePolls;
+
+  /// Test-only entry point that drives a single remote-task poll iteration,
+  /// mirroring exactly one tick of the 1s monitor. Lets grace-window regression
+  /// tests exercise [_syncRemoteTaskStatus] deterministically.
+  @visibleForTesting
+  Future<void> debugSyncRemoteTaskStatus() => _syncRemoteTaskStatus();
+
+  /// Test-only hook that cancels just the periodic 1s poll timer without
+  /// clearing observed-task / grace state, so a test can drive poll iterations
+  /// manually via [debugSyncRemoteTaskStatus] without the timer racing them.
+  @visibleForTesting
+  void debugCancelRemoteTaskMonitorTimer() {
+    _taskStatusTimer?.cancel();
+    _taskStatusTimer = null;
+  }
+
+  /// Test-only view of the poll re-entry guard so a test can confirm no
+  /// background poll is mid-flight before driving deterministic manual polls.
+  @visibleForTesting
+  bool get debugTaskStatusCheckInFlight => _taskStatusCheckInFlight;
+
   /// True while streaming was re-engaged for a reopened, server-active chat
   /// (typing indicator + 1s poll) with no genuine local transport. The
   /// progressive poll owns content updates during this window; passive server
@@ -1460,7 +1501,91 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Pre-seed so the monitor's tasksDone finalization resolves once the server
     // task disappears (otherwise tasksDone could never become true).
     _observedRemoteTask = true;
+    // Attach a socket resume stream so deltas render token-by-token (mirroring
+    // Open WebUI) instead of waiting on the 1s poll. The poll stays armed as a
+    // safety-net fallback below. When no connected socket is available the
+    // attach is a no-op and behaviour is identical to today's poll-only resume.
+    _attachResumeSocketStream(conversation, state.last);
     _ensureRemoteTaskMonitor();
+  }
+
+  /// Feature C: subscribe the reopened, server-active chat to the shared
+  /// Socket.IO `events` stream so token deltas render in real time, reusing the
+  /// full `dispatchChatTransport` callback wiring via `isResume: true`.
+  ///
+  /// This is best-effort: it only attaches when a connected socket is present.
+  /// Offline / disconnected opens fall through to the 1s task poll unchanged.
+  /// Registering the socket subscriptions makes [_shouldProtectLocalStreamingState]
+  /// true for the resumed message, which demotes the poll's content-adoption to
+  /// a pure fallback (the socket owns content).
+  void _attachResumeSocketStream(Conversation conversation, ChatMessage last) {
+    if (_disposed || isTemporaryChat(conversation.id)) {
+      return;
+    }
+    // A genuine local stream already owns this chat — never overwrite it.
+    if (_shouldProtectLocalStreamingState) {
+      return;
+    }
+    if (last.role != 'assistant') {
+      return;
+    }
+
+    final socketService = ref.read(socketServiceProvider);
+    if (socketService == null || !socketService.isConnected) {
+      // No live socket — rely on the poll fallback (today's behaviour).
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+
+    // Resolve a model item for watchdog timing / logging only — resume content
+    // arrives over the socket, so the exact model item is non-critical.
+    final selectedModel = ref.read(selectedModelProvider);
+    final resolvedModelId = (last.model != null && last.model!.isNotEmpty)
+        ? last.model!
+        : (conversation.model ?? selectedModel?.id ?? '');
+    final modelItem =
+        (selectedModel != null && selectedModel.id == resolvedModelId)
+        ? _buildLocalModelItem(selectedModel)
+        : <String, dynamic>{
+            'id': resolvedModelId,
+            'name': resolvedModelId,
+          };
+
+    DebugLogger.log(
+      'Attaching socket resume stream for in-flight chat',
+      scope: 'chat/resume',
+      data: {'chatId': conversation.id, 'messageId': last.id},
+    );
+
+    final session = ChatCompletionSession.resumeSocket(
+      messageId: last.id,
+      conversationId: conversation.id,
+    );
+
+    unawaited(
+      dispatchChatTransport(
+        ref: ref,
+        session: session,
+        assistantMessageId: last.id,
+        modelId: resolvedModelId,
+        modelItem: modelItem,
+        activeConversationId: conversation.id,
+        api: api,
+        socketService: socketService,
+        workerManager: ref.read(workerManagerProvider),
+        webSearchEnabled: false,
+        imageGenerationEnabled: false,
+        isBackgroundFlow: false,
+        modelUsesReasoning: _modelUsesReasoning(resolvedModelId),
+        toolsEnabled: false,
+        isTemporary: false,
+        isResume: true,
+      ),
+    );
   }
 
   void _ensureRemoteTaskMonitor() {
@@ -1484,6 +1609,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _taskStatusTimer = null;
     _taskStatusCheckInFlight = false;
     _observedRemoteTask = false;
+    _tasksDoneGracePolls = 0;
   }
 
   Future<void> _syncRemoteTaskStatus() async {
@@ -1514,6 +1640,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
       // When no active tasks and we previously observed tasks, streaming should be done.
       final tasksDone = _observedRemoteTask && !hasActiveTasks;
+
+      // Feature C race guard: when a socket resume stream still owns this chat
+      // (protection holds), let its own `done` finalize win. Defer the poll's
+      // force-adoption for a short grace window so we never double-finalize the
+      // same message. The window starts the first poll that sees `tasksDone`
+      // while protected; once it elapses (or protection drops) the poll resumes
+      // as the authoritative recovery finalizer below.
+      if (tasksDone && _shouldProtectLocalStreamingState) {
+        _tasksDoneGracePolls++;
+      } else {
+        _tasksDoneGracePolls = 0;
+      }
+      final socketResumeGraceActive =
+          _shouldProtectLocalStreamingState &&
+          _tasksDoneGracePolls > 0 &&
+          _tasksDoneGracePolls <= _tasksDoneSocketGracePolls;
 
       // Resume case: while the server task is still running and no genuine local
       // stream owns this chat (i.e. we re-engaged streaming on reopen), adopt the
@@ -1571,7 +1713,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // like web search, which can take a long time to start on the server.
       // Note: If a socket connection silently fails before tasks complete, the
       // user can cancel via the stop button or navigate away to recover.
-      if (_hasStreamingAssistant && tasksDone) {
+      //
+      // Feature C: while the socket resume grace window is active, skip the
+      // force-adoption so the socket's own `done` finalize wins (avoids a
+      // double-finalize / content flicker race). After the window elapses (or
+      // if the socket silently died and dropped protection) the poll resumes as
+      // the authoritative recovery finalizer.
+      if (_hasStreamingAssistant && tasksDone && !socketResumeGraceActive) {
         try {
           final serverConversation = await api.getConversation(
             activeConversation.id,

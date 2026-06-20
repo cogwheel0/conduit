@@ -9,6 +9,7 @@ import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
 import '../markdown_document_controller.dart';
 import '../markdown_loading_skeleton.dart';
+import '../../../theme/theme_extensions.dart';
 import 'block_renderer.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
@@ -68,6 +69,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.debugTreatAsWidgetTest,
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
+    this.debugOnBaseRender,
     super.key,
   }) : assert(
          data != null || compiledDocument != null,
@@ -113,6 +115,9 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
 
   @visibleForTesting
   final VoidCallback? debugOnCompiledViewDisposed;
+
+  @visibleForTesting
+  final VoidCallback? debugOnBaseRender;
 
   @override
   ConsumerState<ConduitMarkdownWidget> createState() =>
@@ -173,6 +178,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       heavyBlockPolicy: widget.heavyBlockPolicy,
       debugOnMounted: widget.debugOnCompiledViewMounted,
       debugOnDisposed: widget.debugOnCompiledViewDisposed,
+      debugOnBaseRender: widget.debugOnBaseRender,
     );
   }
 
@@ -228,6 +234,7 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.debugOnMounted,
     this.debugOnDisposed,
+    this.debugOnBaseRender,
   });
 
   final CompiledMarkdownDocument document;
@@ -240,13 +247,15 @@ class _CompiledMarkdownView extends StatefulWidget {
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
   final VoidCallback? debugOnMounted;
   final VoidCallback? debugOnDisposed;
+  final VoidCallback? debugOnBaseRender;
 
   @override
   State<_CompiledMarkdownView> createState() => _CompiledMarkdownViewState();
 }
 
 class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin
+    implements MarkdownStreamingFade {
   InlineRenderer? _inlineRenderer;
   LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
   late final AnimationController _streamingTextFadeController;
@@ -255,6 +264,35 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   Timer? _latexStartupRetryTimer;
   int _latexStartupRetryCount = 0;
   int? _streamingTextFadeStartOffset;
+
+  /// Cached base render, rebuilt only when the document identity (or a render
+  /// input such as the resolved style / LaTeX startup future) changes — never
+  /// per fade frame. Recognizer churn happens here, not in [build].
+  CompiledMarkdownDocument? _renderedDocument;
+  // Identity-stable theme inputs the derived style depends on. The style object
+  // itself is freshly derived every build, so caching on it would never reuse;
+  // these inputs only change when the theme/scaling actually changes.
+  Object? _renderedThemeKey;
+  TextScaler? _renderedTextScaler;
+  Future<void>? _renderedLatexStartupFuture;
+  MarkdownRenderTier? _renderedTier;
+  // Widget-config inputs forwarded to the renderers. Any change must rebuild
+  // the base tree (e.g. heavy-block policy flips defer->eager when streaming
+  // ends and must re-hydrate previews).
+  MarkdownHeavyBlockPolicy? _renderedHeavyBlockPolicy;
+  bool? _renderedEnableStreamingTextFade;
+  LinkTapCallback? _renderedOnLinkTap;
+  List<ChatSourceReference>? _renderedSources;
+  void Function(int sourceIndex)? _renderedOnSourceTap;
+  ImageBuilder? _renderedImageBuilder;
+  String? _renderedStateScopeId;
+  Widget? _cachedView;
+
+  @override
+  Listenable get listenable => _streamingTextFade;
+
+  @override
+  InlineTextFadeSpec? get spec => _buildStreamingTextFadeSpec();
 
   @override
   void initState() {
@@ -315,37 +353,8 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
 
     try {
       final style = ConduitMarkdownStyle.fromTheme(context);
-      _inlineRenderer?.disposeRecognizers();
-      _inlineRenderer = InlineRenderer(
-        style,
-        _latexPreprocessor,
-        widget.onLinkTap,
-        widget.sources,
-        widget.onSourceTap,
-        _latexStartupFuture,
-        widget.heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager,
-        _buildStreamingTextFadeSpec(),
-      );
-
-      final blockRenderer = BlockRenderer(
-        context,
-        style,
-        _inlineRenderer!,
-        _latexPreprocessor,
-        widget.onLinkTap,
-        widget.imageBuilder,
-        widget.stateScopeId,
-        null,
-        widget.heavyBlockPolicy,
-      );
-
-      return switch (widget.document.renderTier) {
-        MarkdownRenderTier.plainText => _buildPlainText(),
-        MarkdownRenderTier.richText => _buildRichText(style),
-        MarkdownRenderTier.blocks => blockRenderer.renderCompiledBlocks(
-          widget.document.blocks,
-        ),
-      };
+      _ensureBaseRender(style);
+      return _cachedView!;
     } finally {
       PerformanceProfiler.instance.finishTask(
         taskKey,
@@ -368,6 +377,103 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       return null;
     }
     return InlineTextFadeSpec(startOffset: startOffset, opacity: opacity);
+  }
+
+  /// The streaming fade source for this view, or `null` when fading is disabled.
+  ///
+  /// When disabled the cached base render is shown directly with no animation
+  /// listener, preserving the plain non-streaming render.
+  MarkdownStreamingFade? _fadeSourceOrNull() {
+    return widget.enableStreamingTextFade ? this : null;
+  }
+
+  /// Builds (or reuses) the opacity-1 base render for the current document.
+  ///
+  /// The span tree and gesture recognizers are produced once per content change
+  /// (or when a render input such as the resolved [style] or LaTeX startup
+  /// future changes). Fade frames reuse this cache, so they never rebuild the
+  /// span tree or recreate [TapGestureRecognizer]s.
+  void _ensureBaseRender(ConduitMarkdownStyle style) {
+    final themeKey = context.conduitTheme;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final reuse =
+        _cachedView != null &&
+        identical(_renderedDocument, widget.document) &&
+        identical(_renderedThemeKey, themeKey) &&
+        _renderedTextScaler == textScaler &&
+        identical(_renderedLatexStartupFuture, _latexStartupFuture) &&
+        _renderedTier == widget.document.renderTier &&
+        _renderedHeavyBlockPolicy == widget.heavyBlockPolicy &&
+        _renderedEnableStreamingTextFade == widget.enableStreamingTextFade &&
+        identical(_renderedOnLinkTap, widget.onLinkTap) &&
+        identical(_renderedSources, widget.sources) &&
+        identical(_renderedOnSourceTap, widget.onSourceTap) &&
+        identical(_renderedImageBuilder, widget.imageBuilder) &&
+        _renderedStateScopeId == widget.stateScopeId;
+    if (reuse) {
+      return;
+    }
+
+    widget.debugOnBaseRender?.call();
+
+    // Recognizer churn happens here — once per content change — not per frame.
+    _inlineRenderer?.disposeRecognizers();
+    final inlineRenderer = InlineRenderer(
+      style,
+      _latexPreprocessor,
+      widget.onLinkTap,
+      widget.sources,
+      widget.onSourceTap,
+      _latexStartupFuture,
+      widget.heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager,
+    );
+    _inlineRenderer = inlineRenderer;
+
+    _cachedView = switch (widget.document.renderTier) {
+      MarkdownRenderTier.plainText => _buildPlainText(inlineRenderer, style),
+      MarkdownRenderTier.richText => _buildRichText(inlineRenderer, style),
+      MarkdownRenderTier.blocks => BlockRenderer(
+        context,
+        style,
+        inlineRenderer,
+        _latexPreprocessor,
+        widget.onLinkTap,
+        widget.imageBuilder,
+        widget.stateScopeId,
+        null,
+        widget.heavyBlockPolicy,
+        _fadeSourceOrNull(),
+      ).renderCompiledBlocks(widget.document.blocks),
+    };
+
+    _renderedDocument = widget.document;
+    _renderedThemeKey = themeKey;
+    _renderedTextScaler = textScaler;
+    _renderedLatexStartupFuture = _latexStartupFuture;
+    _renderedTier = widget.document.renderTier;
+    _renderedHeavyBlockPolicy = widget.heavyBlockPolicy;
+    _renderedEnableStreamingTextFade = widget.enableStreamingTextFade;
+    _renderedOnLinkTap = widget.onLinkTap;
+    _renderedSources = widget.sources;
+    _renderedOnSourceTap = widget.onSourceTap;
+    _renderedImageBuilder = widget.imageBuilder;
+    _renderedStateScopeId = widget.stateScopeId;
+  }
+
+  void _invalidateBaseRender() {
+    _renderedDocument = null;
+    _renderedThemeKey = null;
+    _renderedTextScaler = null;
+    _renderedLatexStartupFuture = null;
+    _renderedTier = null;
+    _renderedHeavyBlockPolicy = null;
+    _renderedEnableStreamingTextFade = null;
+    _renderedOnLinkTap = null;
+    _renderedSources = null;
+    _renderedOnSourceTap = null;
+    _renderedImageBuilder = null;
+    _renderedStateScopeId = null;
+    _cachedView = null;
   }
 
   void _primeStreamingTextFade(
@@ -413,17 +519,24 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   }
 
   void _handleStreamingTextFadeTick() {
-    if (!mounted || _streamingTextFadeStartOffset == null) {
+    // Intermediate frames repaint via the [FadableRichText] AnimatedBuilders
+    // that listen to [_streamingTextFade] directly, so the document subtree is
+    // never rebuilt per frame. This listener only needs to settle the terminal
+    // state: once the suffix reaches full opacity, drop the start offset so the
+    // fade spec returns null and a later unrelated rebuild shows no stale fade.
+    if (_streamingTextFadeStartOffset == null) {
       return;
     }
-    setState(() {
-      if (_streamingTextFade.value >= 1) {
-        _streamingTextFadeStartOffset = null;
-      }
-    });
+    if (_streamingTextFade.value >= 1) {
+      _streamingTextFadeStartOffset = null;
+    }
   }
 
   void _hydrateDocument(CompiledMarkdownDocument document) {
+    // The document changed: the cached base span tree / block widgets and their
+    // recognizers no longer match. Invalidate so the next build rebuilds them
+    // once (recognizer churn happens here, not per fade frame).
+    _invalidateBaseRender();
     _cancelLatexStartupRetry();
     _latexStartupRetryCount = 0;
     _latexPreprocessor = document.buildLatexPreprocessor();
@@ -496,20 +609,38 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     return Duration(milliseconds: 200 * (1 << clampedRetryCount));
   }
 
-  Widget _buildPlainText() {
+  Widget _buildPlainText(
+    InlineRenderer inlineRenderer,
+    ConduitMarkdownStyle style,
+  ) {
     final text = _plainTextContent(widget.document);
     if (text.trim().isEmpty) {
       return const SizedBox.shrink();
     }
-    return Text.rich(_inlineRenderer!.render([CompiledMarkdownText(text)]));
+    final rendered = inlineRenderer.renderWithRanges([
+      CompiledMarkdownText(text),
+    ]);
+    return FadableRichText(
+      rendered: rendered,
+      style: style,
+      fade: _fadeSourceOrNull(),
+    );
   }
 
-  Widget _buildRichText(ConduitMarkdownStyle style) {
+  Widget _buildRichText(
+    InlineRenderer inlineRenderer,
+    ConduitMarkdownStyle style,
+  ) {
     final inlineNodes = _richInlineNodes(widget.document);
     if (inlineNodes.isEmpty) {
-      return _buildPlainText();
+      return _buildPlainText(inlineRenderer, style);
     }
-    return Text.rich(_inlineRenderer!.render(inlineNodes));
+    final rendered = inlineRenderer.renderWithRanges(inlineNodes);
+    return FadableRichText(
+      rendered: rendered,
+      style: style,
+      fade: _fadeSourceOrNull(),
+    );
   }
 }
 

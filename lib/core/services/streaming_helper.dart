@@ -2360,6 +2360,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
     }
 
+    // Paired removal so the sidebar `generating` spinner clears on a normal
+    // success finalize even if the backend's `chat:active{false}` is dropped or
+    // late (it only fires when the LAST task for the chat finishes). Keeps the
+    // success path symmetric with the cancel + error branches and mirrors the
+    // optimistic START at the completion-POST dispatch site.
+    if (activeConversationId != null && activeConversationId.isNotEmpty) {
+      onChatActiveChanged?.call(activeConversationId, false);
+    }
+
     wrappedFinishStreaming();
   }
 
@@ -2675,6 +2684,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             isStreaming: false,
           ),
         );
+        // Paired removal so the sidebar `generating` spinner clears on a
+        // stop/cancel even if the backend's `chat:active{false}` is dropped
+        // (it only fires when the LAST task for the chat finishes). Mirrors the
+        // optimistic START at the completion-POST dispatch site.
+        if (activeConversationId != null && activeConversationId.isNotEmpty) {
+          onChatActiveChanged?.call(activeConversationId, false);
+        }
         disposeSocketSubscriptions();
         wrappedFinishStreaming();
       } else if (type == 'chat:message:follow_ups' && payload != null) {
@@ -2887,6 +2903,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             );
           });
         } catch (_) {}
+        // Paired removal: a terminal error means no `chat:active{false}` may
+        // arrive for this chat, so clear the sidebar spinner directly instead
+        // of stranding it (mirrors the cancel branch + the optimistic START).
+        if (activeConversationId != null && activeConversationId.isNotEmpty) {
+          onChatActiveChanged?.call(activeConversationId, false);
+        }
         // Ensure UI exits streaming state
         wrappedFinishStreaming();
       } else if ((type == 'chat:message:delta' || type == 'message') &&

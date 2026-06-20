@@ -67,6 +67,7 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
     this.debugOnStreamingRefreshFrame,
+    this.debugOnBaseRender,
   });
 
   final String content;
@@ -107,6 +108,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
 
   @visibleForTesting
   final VoidCallback? debugOnStreamingRefreshFrame;
+
+  /// Invoked each time the compiled view rebuilds its cached base span tree
+  /// (once per content change, never per fade frame).
+  @visibleForTesting
+  final VoidCallback? debugOnBaseRender;
 
   @override
   ConsumerState<StreamingMarkdownWidget> createState() =>
@@ -454,6 +460,7 @@ class _StreamingMarkdownWidgetState
           : MarkdownHeavyBlockPolicy.eager,
       debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
       debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
+      debugOnBaseRender: widget.debugOnBaseRender,
     );
   }
 

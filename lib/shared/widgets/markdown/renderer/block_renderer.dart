@@ -55,6 +55,7 @@ class BlockRenderer {
     this.stateScopeId,
     this.nodePathPrefix,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+    this.streamingFade,
   ]);
 
   /// The active build context.
@@ -83,6 +84,32 @@ class BlockRenderer {
 
   /// Controls how expensive block previews should behave.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+
+  /// Optional streaming suffix fade source. When non-null, paragraph/text/flow
+  /// inline runs that can fall in the streaming tail are rendered via
+  /// [FadableRichText] so the trailing block fades per frame without rebuilding
+  /// the span tree or its recognizers.
+  final MarkdownStreamingFade? streamingFade;
+
+  /// Builds a rich-text widget for an inline [nodes] run.
+  ///
+  /// When a [streamingFade] source is present the run is rendered through
+  /// [FadableRichText] (recording per-leaf ranges so the suffix can re-fade per
+  /// frame); otherwise it falls back to a plain [Text.rich] of the base tree.
+  Widget _buildInlineRichText(
+    List<CompiledMarkdownNode> nodes, {
+    TextStyle? parentStyle,
+  }) {
+    final fade = streamingFade;
+    if (fade == null) {
+      return Text.rich(inlineRenderer.render(nodes, parentStyle: parentStyle));
+    }
+    final rendered = inlineRenderer.renderWithRanges(
+      nodes,
+      parentStyle: parentStyle,
+    );
+    return FadableRichText(rendered: rendered, style: style, fade: fade);
+  }
 
   /// Renders a list of block [nodes] as a [Column].
   Widget renderBlocks(List<CompiledMarkdownNode> nodes) =>
@@ -224,7 +251,7 @@ class BlockRenderer {
   Widget? _renderTextNode(CompiledMarkdownText node) {
     final text = node.text.trim();
     if (text.isEmpty) return null;
-    return Text.rich(inlineRenderer.render([node]));
+    return _buildInlineRichText([node]);
   }
 
   Widget? _renderCompiledNodeBlock(CompiledMarkdownNodeBlock block) {
@@ -329,7 +356,7 @@ class BlockRenderer {
 
     return Padding(
       padding: EdgeInsets.only(bottom: style.paragraphSpacing),
-      child: Text.rich(inlineRenderer.render(children)),
+      child: _buildInlineRichText(children),
     );
   }
 
@@ -397,7 +424,7 @@ class BlockRenderer {
         return;
       }
 
-      flowWidgets.add(Text.rich(inlineRenderer.render(renderRun)));
+      flowWidgets.add(_buildInlineRichText(renderRun));
     }
 
     for (var index = 0; index < children.length; index += 1) {
@@ -766,6 +793,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      streamingFade,
     );
 
     return Padding(
@@ -868,7 +896,7 @@ class BlockRenderer {
 
     Widget content;
     if (inlineNodes.isNotEmpty && blockNodes.isEmpty) {
-      content = Text.rich(inlineRenderer.render(inlineNodes));
+      content = _buildInlineRichText(inlineNodes);
     } else if (blockNodes.isNotEmpty) {
       final inner = BlockRenderer(
         context,
@@ -880,6 +908,7 @@ class BlockRenderer {
         stateScopeId,
         nodePath,
         heavyBlockPolicy,
+        streamingFade,
       );
       final blockContent = inner.renderBlocks(blockNodes);
 
@@ -889,7 +918,7 @@ class BlockRenderer {
         content = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text.rich(inlineRenderer.render(inlineNodes)),
+            _buildInlineRichText(inlineNodes),
             const SizedBox(height: Spacing.xs),
             blockContent,
           ],
@@ -1154,6 +1183,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      streamingFade,
     );
 
     return Padding(
@@ -1305,6 +1335,7 @@ class BlockRenderer {
       stateScopeId,
       nodePath,
       heavyBlockPolicy,
+      streamingFade,
     );
     return inner.renderBlocks(children);
   }

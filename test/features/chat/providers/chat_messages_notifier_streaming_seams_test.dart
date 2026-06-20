@@ -387,4 +387,85 @@ void main() {
       },
     );
   });
+
+  group('Feature C — local streaming protection invariants', () {
+    // De-risk #1: a NORMAL send's protection behaviour must be byte-unchanged.
+    // Registering a stream/subscription for the *current* streaming message id
+    // makes protection hold; this is the exact seam dispatchChatTransport uses
+    // for both normal sends and resume, so it pins the shared behaviour.
+    test('registering subscriptions for the streaming tail enables '
+        'protection (normal-send behaviour, unchanged)', () {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(id: 'assistant-1', content: '', isStreaming: true),
+      ]);
+
+      // No transport registered yet -> not protected.
+      check(notifier.debugShouldProtectLocalStreamingState).isFalse();
+
+      notifier.setSocketSubscriptions('assistant-1', [() {}]);
+
+      // Matching id + active subscription -> protected.
+      check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+
+      // Release streaming bookkeeping before the container disposes.
+      notifier.cancelSocketSubscriptions();
+      notifier.clearMessages();
+    });
+
+    // De-risk #2: resume must set protection true ONLY for the matching message
+    // id. A subscription bound to a *different* message id than the streaming
+    // tail must NOT protect (otherwise a stale resume would suppress adoption of
+    // the genuine current message).
+    test('subscriptions bound to a non-matching message id do NOT '
+        'protect the streaming tail', () {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(id: 'assistant-1', content: '', isStreaming: true),
+      ]);
+
+      // Register against a foreign id (simulating a stale/other-message resume).
+      notifier.setSocketSubscriptions('other-message', [() {}]);
+
+      check(notifier.debugShouldProtectLocalStreamingState).isFalse();
+
+      notifier.cancelSocketSubscriptions();
+      notifier.clearMessages();
+    });
+
+    // De-risk #5 (offline branch): with no socket, _detectActiveOnOpen's resume
+    // attach is a no-op, so opening a conversation registers no socket
+    // subscriptions and protection stays false (identical to today's poll-only
+    // behaviour). socketServiceProvider is overridden to null in _buildContainer.
+    test('opening a conversation with no socket registers no resume '
+        'subscriptions (offline poll-only fallback)', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      // Materialize the notifier so it listens to conversation changes.
+      container.read(chatMessagesProvider.notifier);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-1', [
+              _assistantMessage(id: 'assistant-1', content: 'Partial'),
+            ]),
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      // No socket -> no resume subscriptions -> not protected. (The 1s poll
+      // fallback is gated on an API service, also null here, so it is inert.)
+      check(
+        container.read(chatMessagesProvider.notifier)
+            .debugShouldProtectLocalStreamingState,
+      ).isFalse();
+    });
+  });
 }
