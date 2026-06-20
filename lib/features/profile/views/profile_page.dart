@@ -15,6 +15,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
@@ -326,6 +327,9 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
+    // In Hermes-only mode there's no Open WebUI account to sign out of; instead
+    // surface a "Connect to Open WebUI" entry so the user can add a server.
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final items = [
       _buildAccountOption(
         context,
@@ -387,18 +391,32 @@ class ProfilePage extends ConsumerWidget {
           context.pushNamed(RouteNames.hermesSettings);
         },
       ),
-      _buildAboutTile(context),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.square_arrow_left,
-          android: Icons.logout,
+      if (hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.add_circled,
+            android: Icons.add_circle_outline,
+          ),
+          title: 'Connect to Open WebUI',
+          subtitle: 'Add a self-hosted Open WebUI server',
+          onTap: () {
+            context.goNamed(RouteNames.serverConnection);
+          },
         ),
-        title: AppLocalizations.of(context)!.signOut,
-        subtitle: AppLocalizations.of(context)!.endYourSession,
-        onTap: () => _signOut(context, ref),
-        showChevron: false,
-      ),
+      _buildAboutTile(context),
+      if (!hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.square_arrow_left,
+            android: Icons.logout,
+          ),
+          title: AppLocalizations.of(context)!.signOut,
+          subtitle: AppLocalizations.of(context)!.endYourSession,
+          onTap: () => _signOut(context, ref),
+          showChevron: false,
+        ),
     ];
 
     return Column(

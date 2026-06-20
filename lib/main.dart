@@ -18,6 +18,7 @@ import 'core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
+import 'core/services/navigation_service.dart';
 import 'core/services/performance_profiler.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
@@ -332,6 +333,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   ) async {
     final value = event.value;
     try {
+      // Hermes-only: "Connect to Open WebUI" switch entry. Dismiss the native
+      // sheet and route into the OWUI connect flow (the router allows the
+      // serverConnection route for Hermes-only users).
+      if (event.id == 'add-owui-server') {
+        await NativeSheetBridge.instance.dismiss();
+        await NavigationService.navigateTo(Routes.serverConnection);
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;

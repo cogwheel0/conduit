@@ -59,6 +59,19 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     super.dispose();
   }
 
+  /// Toggle the Hermes backend. When disabling a Hermes-only backend (no OWUI
+  /// server, so the preference is still 'hermes'), reset the preference to
+  /// 'unset' so the backend chooser is shown rather than leaving a stale value.
+  Future<void> _setHermesEnabled(bool value) async {
+    await ref.read(hermesConfigProvider.notifier).setEnabled(value);
+    if (!value &&
+        ref.read(preferredBackendProvider) == PreferredBackend.hermes) {
+      await ref
+          .read(preferredBackendProvider.notifier)
+          .set(PreferredBackend.unset);
+    }
+  }
+
   Future<void> _testConnection() async {
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
@@ -113,10 +126,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                 'as a model in the picker.',
             trailing: AdaptiveSwitch(
               value: config.enabled,
-              onChanged: (value) => notifier.setEnabled(value),
+              onChanged: (value) => _setHermesEnabled(value),
             ),
             showChevron: false,
-            onTap: () => notifier.setEnabled(!config.enabled),
+            onTap: () => _setHermesEnabled(!config.enabled),
           ),
           if (config.enabled && _capabilities.jobs) ...[
             const SizedBox(height: Spacing.sm),

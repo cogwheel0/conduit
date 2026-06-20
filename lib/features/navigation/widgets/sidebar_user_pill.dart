@@ -153,6 +153,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required String initials,
   }) {
     final l10n = AppLocalizations.of(context)!;
+    // In Hermes-only mode there's no Open WebUI account, so hide the OWUI
+    // account-specific sections (profile, memory, data connection, password,
+    // sign-out) and instead surface a "Connect to Open WebUI" switch entry.
+    final hermesOnly = ref.read(hermesOnlyModeProvider);
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
     final avatarBytes = _decodeDataImage(avatarUrl);
     final email = _extractEmail(user) ?? l10n.noEmailLabel;
@@ -214,16 +218,17 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       ),
       menuItems: const [],
       sections: [
-        NativeSheetSectionConfig(
-          items: [
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.profile,
-              title: displayName,
-              subtitle: email,
-              sfSymbol: 'person.crop.circle',
-            ),
-          ],
-        ),
+        if (!hermesOnly)
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.profile,
+                title: displayName,
+                subtitle: email,
+                sfSymbol: 'person.crop.circle',
+              ),
+            ],
+          ),
         NativeSheetSectionConfig(
           items: [
             NativeSheetItemConfig(
@@ -241,26 +246,37 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               title: l10n.voice,
               sfSymbol: 'waveform',
             ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.aiMemory,
-              title: aiMemoryTitle,
-              sfSymbol: 'wand.and.stars',
-            ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.notificationSettings,
-              title: l10n.notificationsTitle,
-              sfSymbol: 'bell',
-            ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.dataConnection,
-              title: dataConnectionTitle,
-              sfSymbol: 'network',
-            ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.aiMemory,
+                title: aiMemoryTitle,
+                sfSymbol: 'wand.and.stars',
+              ),
+            // Notifications are OWUI-socket-derived, so hide them in Hermes-only.
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.notificationSettings,
+                title: l10n.notificationsTitle,
+                sfSymbol: 'bell',
+              ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.dataConnection,
+                title: dataConnectionTitle,
+                sfSymbol: 'network',
+              ),
             const NativeSheetItemConfig(
               id: NativeSheetRoutes.hermes,
               title: 'Hermes Agent',
               sfSymbol: 'sparkles',
             ),
+            if (hermesOnly)
+              const NativeSheetItemConfig(
+                id: 'add-owui-server',
+                title: 'Connect to Open WebUI',
+                subtitle: 'Add a self-hosted Open WebUI server',
+                sfSymbol: 'plus.circle',
+              ),
           ],
         ),
         NativeSheetSectionConfig(
@@ -292,75 +308,78 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ),
           ],
         ),
-        NativeSheetSectionConfig(
-          items: [
-            NativeSheetItemConfig(
-              id: 'sign-out',
-              title: l10n.signOut,
-              subtitle: l10n.endYourSession,
-              sfSymbol: 'rectangle.portrait.and.arrow.right',
-              destructive: true,
-            ),
-          ],
-        ),
+        if (!hermesOnly)
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: 'sign-out',
+                title: l10n.signOut,
+                subtitle: l10n.endYourSession,
+                sfSymbol: 'rectangle.portrait.and.arrow.right',
+                destructive: true,
+              ),
+            ],
+          ),
       ],
       detailSheets: [
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.profile,
-          title: profileTitle,
-          sections: [
-            NativeSheetSectionConfig(
-              footer: l10n.accountSettingsSubtitle,
-              items: [
-                NativeSheetItemConfig(
-                  id: 'profile-photo',
-                  title: l10n.editPhoto,
-                  sfSymbol: 'person.crop.circle',
-                ),
-              ],
-            ),
-            NativeSheetSectionConfig(
-              items: [
-                NativeSheetItemConfig(
-                  id: 'profile-name',
-                  title: l10n.name,
-                  subtitle: profileSummary,
-                  sfSymbol: 'person.text.rectangle',
-                ),
-                NativeSheetItemConfig(
-                  id: 'profile-about',
-                  title: l10n.bioLabel,
-                  subtitle: accountProfile?.bio?.trim().isNotEmpty == true
-                      ? accountProfile!.bio!.trim()
-                      : l10n.notSet,
-                  sfSymbol: 'text.bubble',
-                ),
-                NativeSheetItemConfig(
-                  id: 'profile-details',
-                  title: l10n.profileDetails,
-                  subtitle: l10n.genderLabel,
-                  sfSymbol: 'person.crop.circle',
-                ),
-              ],
-            ),
-            NativeSheetSectionConfig(
-              title: l10n.accountSettingsTitle,
-              items: [
-                NativeSheetItemConfig(
-                  id: 'password',
-                  title: l10n.changePasswordTitle,
-                  subtitle: l10n.passwordChangesLabel,
-                  sfSymbol: 'lock',
-                ),
-              ],
-            ),
-          ],
-        ),
-        buildNativePasswordDetail(
-          l10n,
-          passwordChangeEnabled: true,
-          subtitle: l10n.passwordFieldsRequired,
-        ),
+        if (!hermesOnly)
+          NativeSheetDetailConfig(
+            id: NativeSheetRoutes.profile,
+            title: profileTitle,
+            sections: [
+              NativeSheetSectionConfig(
+                footer: l10n.accountSettingsSubtitle,
+                items: [
+                  NativeSheetItemConfig(
+                    id: 'profile-photo',
+                    title: l10n.editPhoto,
+                    sfSymbol: 'person.crop.circle',
+                  ),
+                ],
+              ),
+              NativeSheetSectionConfig(
+                items: [
+                  NativeSheetItemConfig(
+                    id: 'profile-name',
+                    title: l10n.name,
+                    subtitle: profileSummary,
+                    sfSymbol: 'person.text.rectangle',
+                  ),
+                  NativeSheetItemConfig(
+                    id: 'profile-about',
+                    title: l10n.bioLabel,
+                    subtitle: accountProfile?.bio?.trim().isNotEmpty == true
+                        ? accountProfile!.bio!.trim()
+                        : l10n.notSet,
+                    sfSymbol: 'text.bubble',
+                  ),
+                  NativeSheetItemConfig(
+                    id: 'profile-details',
+                    title: l10n.profileDetails,
+                    subtitle: l10n.genderLabel,
+                    sfSymbol: 'person.crop.circle',
+                  ),
+                ],
+              ),
+              NativeSheetSectionConfig(
+                title: l10n.accountSettingsTitle,
+                items: [
+                  NativeSheetItemConfig(
+                    id: 'password',
+                    title: l10n.changePasswordTitle,
+                    subtitle: l10n.passwordChangesLabel,
+                    sfSymbol: 'lock',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        if (!hermesOnly)
+          buildNativePasswordDetail(
+            l10n,
+            passwordChangeEnabled: true,
+            subtitle: l10n.passwordFieldsRequired,
+          ),
         buildNativeLoadingDetail(
           l10n: l10n,
           id: NativeSheetRoutes.appearance,

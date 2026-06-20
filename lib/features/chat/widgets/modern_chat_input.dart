@@ -1792,6 +1792,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
+    // Hermes is a single-agent backend with no OWUI tools/web-search/attachments;
+    // suppress the OWUI keyboard-accessory actions for it.
+    final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null && isHermesModel(selectedModel)) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
+
     return buildComposerOverflowItems(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
@@ -2035,6 +2042,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectedModelProvider.select(modelSupportsTerminal),
     );
     final terminalActive = selectedTerminalId != null && terminalModelSupported;
+    // Hermes is a single-agent backend with no OWUI tools/web-search/image-gen/
+    // attachments; it uses its own `/` skills. Hide the OWUI composer affordances
+    // (the "+" overflow button and the quick pills) when a Hermes model is active.
+    final bool isHermesComposer = ref.watch(
+      selectedModelProvider.select((m) => m != null && isHermesModel(m)),
+    );
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -2071,6 +2084,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
+      if (isHermesComposer) break; // Hermes has no OWUI quick pills.
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2267,17 +2281,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
           child: Row(
             children: [
-              _buildOverflowButton(
-                tooltip: l10n.more,
-                webSearchActive: webSearchEnabled,
-                imageGenerationActive: imageGenEnabled,
-                toolsActive: selectedToolIds.isNotEmpty,
-                terminalActive: terminalActive,
-                filtersActive: selectedFilterIds.isNotEmpty,
-                dense: true,
-                nativeActions: nativeAttachmentActions,
-              ),
-              const SizedBox(width: Spacing.xs),
+              if (!isHermesComposer) ...[
+                _buildOverflowButton(
+                  tooltip: l10n.more,
+                  webSearchActive: webSearchEnabled,
+                  imageGenerationActive: imageGenEnabled,
+                  toolsActive: selectedToolIds.isNotEmpty,
+                  terminalActive: terminalActive,
+                  filtersActive: selectedFilterIds.isNotEmpty,
+                  dense: true,
+                  nativeActions: nativeAttachmentActions,
+                ),
+                const SizedBox(width: Spacing.xs),
+              ],
               Expanded(
                 child: ClipRect(
                   child: SingleChildScrollView(
@@ -2427,16 +2443,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                _buildOverflowButton(
-                  tooltip: l10n.more,
-                  webSearchActive: webSearchEnabled,
-                  imageGenerationActive: imageGenEnabled,
-                  toolsActive: selectedToolIds.isNotEmpty,
-                  terminalActive: terminalActive,
-                  filtersActive: selectedFilterIds.isNotEmpty,
-                  nativeActions: nativeAttachmentActions,
-                ),
-                const SizedBox(width: Spacing.sm),
+                if (!isHermesComposer) ...[
+                  _buildOverflowButton(
+                    tooltip: l10n.more,
+                    webSearchActive: webSearchEnabled,
+                    imageGenerationActive: imageGenEnabled,
+                    toolsActive: selectedToolIds.isNotEmpty,
+                    terminalActive: terminalActive,
+                    filtersActive: selectedFilterIds.isNotEmpty,
+                    nativeActions: nativeAttachmentActions,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                ],
                 Expanded(
                   child: _wrapIosSurfaceShadow(
                     textFieldShell,

@@ -181,10 +181,13 @@ class NativeSheetHydrationService {
     String detailId = NativeSheetRoutes.about,
   }) async {
     try {
-      final packageInfoFuture = _ref.read(packageInfoProvider.future);
-      final aboutFuture = _ref.read(serverAboutInfoProvider.future);
-      final packageInfo = await packageInfoFuture;
-      final about = await aboutFuture;
+      // Hermes-only has no Open WebUI server, so skip the server lookup and omit
+      // the server name/version rows entirely.
+      final hermesOnly = _ref.read(hermesOnlyModeProvider);
+      final packageInfo = await _ref.read(packageInfoProvider.future);
+      final about = hermesOnly
+          ? null
+          : await _ref.read(serverAboutInfoProvider.future);
       if (!context.mounted) return;
 
       final appVersionLabel = packageInfo.buildNumber.isEmpty
@@ -211,20 +214,22 @@ class NativeSheetHydrationService {
               sfSymbol: 'app.badge',
               kind: NativeSheetItemKind.info,
             ),
-            NativeSheetItemConfig(
-              id: 'server-name',
-              title: l10n.serverNameLabel,
-              subtitle: serverName,
-              sfSymbol: 'server.rack',
-              kind: NativeSheetItemKind.info,
-            ),
-            NativeSheetItemConfig(
-              id: 'server-version',
-              title: l10n.serverVersionLabel,
-              subtitle: serverVersion,
-              sfSymbol: 'number',
-              kind: NativeSheetItemKind.info,
-            ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: 'server-name',
+                title: l10n.serverNameLabel,
+                subtitle: serverName,
+                sfSymbol: 'server.rack',
+                kind: NativeSheetItemKind.info,
+              ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: 'server-version',
+                title: l10n.serverVersionLabel,
+                subtitle: serverVersion,
+                sfSymbol: 'number',
+                kind: NativeSheetItemKind.info,
+              ),
             NativeSheetItemConfig(
               id: 'github',
               title: l10n.githubRepository,
