@@ -375,6 +375,18 @@ class ProfilePage extends ConsumerWidget {
           context.pushNamed(RouteNames.notificationSettings);
         },
       ),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.bolt_horizontal_circle,
+          android: Icons.smart_toy_outlined,
+        ),
+        title: 'Hermes Agent',
+        subtitle: 'Connect a self-hosted Hermes agent',
+        onTap: () {
+          context.pushNamed(RouteNames.hermesSettings);
+        },
+      ),
       _buildAboutTile(context),
       _buildAccountOption(
         context,

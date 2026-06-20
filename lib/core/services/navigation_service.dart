@@ -132,6 +132,8 @@ class Routes {
   static const String accountSettings = '/profile/account';
   static const String notificationSettings = '/profile/notifications';
   static const String appCustomization = '/profile/customization';
+  static const String hermesSettings = '/profile/hermes';
+  static const String hermesJobs = '/profile/hermes/jobs';
   static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
@@ -157,6 +159,8 @@ class RouteNames {
   static const String accountSettings = 'account-settings';
   static const String notificationSettings = 'notification-settings';
   static const String appCustomization = 'app-customization';
+  static const String hermesSettings = 'hermes-settings';
+  static const String hermesJobs = 'hermes-jobs';
   static const String about = 'about';
   static const String notes = 'notes';
   static const String noteEditor = 'note-editor';

@@ -30,6 +30,8 @@ import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/hermes/views/hermes_settings_page.dart';
+import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -362,6 +364,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         state: state,
         child: const NotificationSettingsPage(),
       ),
+    ),
+    GoRoute(
+      path: Routes.hermesSettings,
+      name: RouteNames.hermesSettings,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const HermesSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.hermesJobs,
+      name: RouteNames.hermesJobs,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const HermesJobsPage()),
     ),
     GoRoute(
       path: Routes.about,

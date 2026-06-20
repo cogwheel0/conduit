@@ -39,6 +39,9 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
+import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_run_transport.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -3643,6 +3646,9 @@ void startNewChat(dynamic ref) {
   // Clear messages
   ref.read(chatMessagesProvider.notifier).clearMessages();
 
+  // Unbind any Hermes session so the next Hermes turn starts a fresh one.
+  ref.read(hermesActiveSessionProvider.notifier).set(null);
+
   // Clear context attachments (web pages, YouTube, knowledge base docs)
   ref.read(contextAttachmentsProvider.notifier).clear();
 
@@ -3656,6 +3662,39 @@ void startNewChat(dynamic ref) {
   ref
       .read(temporaryChatEnabledProvider.notifier)
       .set(settings.temporaryChatByDefault);
+}
+
+/// Starts a new chat pinned to the Hermes agent model. Unlike [startNewChat],
+/// this does NOT reset to the default model (which would race past and clobber
+/// the Hermes selection); it resolves and selects the Hermes model explicitly.
+Future<void> startNewHermesChat(dynamic ref) async {
+  // Resolve the Hermes model first so the picker lands on it.
+  Model? hermesModel;
+  try {
+    final models = await ref.read(modelsProvider.future);
+    for (final model in models) {
+      if (isHermesModel(model)) {
+        hermesModel = model;
+        break;
+      }
+    }
+  } catch (_) {}
+
+  ref.read(activeConversationProvider.notifier).clear();
+  ref.read(chatMessagesProvider.notifier).clearMessages();
+  ref.read(contextAttachmentsProvider.notifier).clear();
+  ref.read(pendingFolderIdProvider.notifier).clear();
+  ref.read(hermesActiveSessionProvider.notifier).set(null);
+
+  final settings = ref.read(appSettingsProvider);
+  ref
+      .read(temporaryChatEnabledProvider.notifier)
+      .set(settings.temporaryChatByDefault);
+
+  if (hermesModel != null) {
+    ref.read(isManualModelSelectionProvider.notifier).set(true);
+    ref.read(selectedModelProvider.notifier).set(hermesModel);
+  }
 }
 
 /// Restores the selected model to the user's configured default model.
@@ -4848,6 +4887,20 @@ Future<void> durableSend(
   final selectedModel = ref.read(selectedModelProvider);
   final temporary = ref.read(temporaryChatEnabledProvider);
 
+  // Hermes agent chats never touch the OpenWebUI outbox/sync engine — route
+  // them through the inline path, which dispatches to the Hermes runs transport.
+  if (selectedModel != null && isHermesModel(selectedModel)) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
   // No durable backend (reviewer mode, no active server) OR a temporary chat
   // (never persisted): fall back to the legacy inline send path unchanged.
   if (db == null || reviewerMode || selectedModel == null || temporary) {
@@ -5306,6 +5359,94 @@ Future<void> sendMessageWithContainer(
 }
 
 // Internal send message implementation
+/// Bridges the chat send pipeline to the direct Hermes runs transport, wiring
+/// the chat notifier callbacks and resolving multi-turn / memory continuity.
+/// Derives a short session title from the first user message.
+String _deriveHermesSessionTitle(String input) {
+  final trimmed = input.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (trimmed.isEmpty) return 'New Hermes chat';
+  return trimmed.length <= 60 ? trimmed : '${trimmed.substring(0, 60)}…';
+}
+
+Future<void> _dispatchHermesRunFromChat(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+}) async {
+  final ChatMessagesNotifier notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+
+  // Ensure a stable long-term memory key before reading the service (mutating
+  // the key rebuilds hermesApiServiceProvider, so read it afterwards).
+  await ref.read(hermesConfigProvider.notifier).ensureSessionKey();
+  final service = ref.read(hermesApiServiceProvider);
+  if (service == null) {
+    notifier.updateMessageById(
+      assistantMessageId,
+      (m) => m.copyWith(
+        error: ChatMessageError(
+          content:
+              'Hermes is not configured. Add the server URL and API key in '
+              'Settings → Hermes Agent.',
+        ),
+      ),
+    );
+    notifier.finishStreaming();
+    return;
+  }
+
+  // Bind a server-side Hermes session so the transcript persists and is
+  // reloadable from the sessions browser. If the active conversation is an
+  // OpenWebUI chat, drop any stale Hermes session so we start a fresh one.
+  final activeConv = ref.read(activeConversationProvider);
+  final activeIsHermes = activeConv?.metadata['backend'] == 'hermes';
+  if (activeConv != null && !activeIsHermes) {
+    ref.read(hermesActiveSessionProvider.notifier).set(null);
+  }
+  var sessionId = ref.read(hermesActiveSessionProvider);
+  if (sessionId == null || sessionId.isEmpty) {
+    try {
+      // Title the session from the first user message when this is turn one.
+      final title = existingMessages.isEmpty
+          ? _deriveHermesSessionTitle(input)
+          : null;
+      sessionId = await service.createSession(title: title);
+      ref.read(hermesActiveSessionProvider.notifier).set(sessionId);
+    } catch (_) {
+      // Session creation failed (older server / disabled): fall back to an
+      // ephemeral run with no persistence rather than failing the turn.
+      sessionId = null;
+    }
+  }
+
+  // Chain to the previous Hermes turn for server-side multi-turn continuity.
+  String? previousResponseId;
+  for (final m in existingMessages.reversed) {
+    if (m.role != 'assistant') continue;
+    final rid = m.metadata?['hermesRunId'];
+    if (rid is String && rid.isNotEmpty) {
+      previousResponseId = rid;
+      break;
+    }
+  }
+
+  await dispatchHermesRun(
+    service: service,
+    registry: ref.read(hermesRunRegistryProvider),
+    assistantMessageId: assistantMessageId,
+    input: input,
+    sessionId: sessionId,
+    previousResponseId: previousResponseId,
+    appendContent: notifier.appendToLastMessage,
+    appendStatus: (u) => notifier.appendStatusUpdate(assistantMessageId, u),
+    updateMessage: (updater) =>
+        notifier.updateMessageById(assistantMessageId, updater),
+    finishStreaming: notifier.finishStreaming,
+    completeStreamingUi: notifier.completeStreamingUi,
+  );
+}
+
 Future<void> _sendMessageInternal(
   dynamic ref,
   String message,
@@ -5400,6 +5541,22 @@ Future<void> _sendMessageInternal(
     userMessage,
     assistantPlaceholder,
   ]);
+
+  // Hermes agent: route to the direct Hermes runs transport instead of the
+  // OpenWebUI chat-completions pipeline. Hermes chats are local/ephemeral in
+  // v1 (no OpenWebUI chat resource); durable memory is handled server-side.
+  if (isHermesModel(selectedModel)) {
+    await _dispatchHermesRunFromChat(
+      ref,
+      assistantMessageId: assistantMessageId,
+      input: message,
+      existingMessages: existingMessages,
+    );
+    try {
+      ref.read(contextAttachmentsProvider.notifier).clear();
+    } catch (_) {}
+    return;
+  }
 
   // Now do async work in parallel: user settings + server file info
   String? userSystemPrompt;
@@ -6282,12 +6439,23 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
       if (messages.isNotEmpty &&
           messages.last.role == 'assistant' &&
           messages.last.isStreaming) {
-        final api = ref.read(apiServiceProvider);
+        final last = messages.last;
 
-        // Use transport-aware stop which inspects message metadata to
-        // choose the right cancellation path (abort handle, task stop, or
-        // both).
-        stopActiveTransport(messages.last, api);
+        if (last.metadata?['transport'] == kHermesTransport) {
+          // Hermes run: cancel the event subscription and POST /stop.
+          final runId = ref.read(hermesRunRegistryProvider).cancel(last.id);
+          final hermes = ref.read(hermesApiServiceProvider);
+          if (runId != null && hermes != null) {
+            unawaited(hermes.stopRun(runId));
+          }
+        } else {
+          final api = ref.read(apiServiceProvider);
+
+          // Use transport-aware stop which inspects message metadata to
+          // choose the right cancellation path (abort handle, task stop, or
+          // both).
+          stopActiveTransport(last, api);
+        }
 
         // Cancel local stream subscription to stop propagating further chunks
         ref

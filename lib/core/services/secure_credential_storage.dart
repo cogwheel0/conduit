@@ -21,6 +21,8 @@ class SecureCredentialStorage {
   static const String _credentialsKey = 'user_credentials_v2';
   static const String _serverConfigsKey = 'server_configs_v2';
   static const String _authTokenKey = 'auth_token_v2';
+  static const String _hermesApiKeyKey = 'hermes_api_key_v1';
+  static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
 
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
@@ -211,6 +213,66 @@ class SecureCredentialStorage {
         scope: 'credentials/token',
         error: e,
       );
+      rethrow;
+    }
+  }
+
+  /// Save the Hermes Agent API key (bearer token for the direct Hermes backend).
+  Future<void> saveHermesApiKey(String apiKey) async {
+    try {
+      await _secureStorage.write(key: _hermesApiKeyKey, value: apiKey);
+    } catch (e) {
+      DebugLogger.error('save-failed', scope: 'hermes/api-key', error: e);
+      rethrow;
+    }
+  }
+
+  /// Get the Hermes Agent API key, or null when none is stored.
+  Future<String?> getHermesApiKey() async {
+    try {
+      return await _secureStorage.read(key: _hermesApiKeyKey);
+    } catch (e) {
+      DebugLogger.error('read-failed', scope: 'hermes/api-key', error: e);
+      return null;
+    }
+  }
+
+  /// Delete the Hermes Agent API key.
+  Future<void> deleteHermesApiKey() async {
+    try {
+      await _secureStorage.delete(key: _hermesApiKeyKey);
+    } catch (e) {
+      DebugLogger.error('delete-failed', scope: 'hermes/api-key', error: e);
+      rethrow;
+    }
+  }
+
+  /// Save the Hermes long-term memory session key (`X-Hermes-Session-Key`).
+  Future<void> saveHermesSessionKey(String sessionKey) async {
+    try {
+      await _secureStorage.write(key: _hermesSessionKeyKey, value: sessionKey);
+    } catch (e) {
+      DebugLogger.error('save-failed', scope: 'hermes/session-key', error: e);
+      rethrow;
+    }
+  }
+
+  /// Get the Hermes long-term memory session key, or null when none is stored.
+  Future<String?> getHermesSessionKey() async {
+    try {
+      return await _secureStorage.read(key: _hermesSessionKeyKey);
+    } catch (e) {
+      DebugLogger.error('read-failed', scope: 'hermes/session-key', error: e);
+      return null;
+    }
+  }
+
+  /// Delete the Hermes long-term memory session key.
+  Future<void> deleteHermesSessionKey() async {
+    try {
+      await _secureStorage.delete(key: _hermesSessionKeyKey);
+    } catch (e) {
+      DebugLogger.error('delete-failed', scope: 'hermes/session-key', error: e);
       rethrow;
     }
   }

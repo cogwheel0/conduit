@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/prompt.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../prompts/providers/prompts_providers.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 /// Autocomplete overlay that appears when the user types `/` commands.
@@ -17,6 +18,7 @@ class PromptSuggestionOverlay extends ConsumerWidget {
     required this.filteredPrompts,
     required this.selectionIndex,
     required this.onPromptSelected,
+    this.useHermesSkills = false,
     super.key,
   });
 
@@ -24,6 +26,10 @@ class PromptSuggestionOverlay extends ConsumerWidget {
   ///
   /// When `null`, the prompt list is still loading from the provider.
   final List<Prompt> Function(List<Prompt>)? filteredPrompts;
+
+  /// When true, the base list is the Hermes agent's skills instead of the
+  /// OpenWebUI prompts (the active model routes `/` commands to Hermes).
+  final bool useHermesSkills;
 
   /// Index of the currently highlighted prompt in the filtered list.
   final int selectionIndex;
@@ -39,9 +45,9 @@ class PromptSuggestionOverlay extends ConsumerWidget {
       alpha: brightness == Brightness.dark ? 0.6 : 0.4,
     );
 
-    final AsyncValue<List<Prompt>> promptsAsync = ref.watch(
-      promptsListProvider,
-    );
+    final AsyncValue<List<Prompt>> promptsAsync = useHermesSkills
+        ? ref.watch(hermesSkillPromptsProvider)
+        : ref.watch(promptsListProvider);
 
     return Container(
       decoration: BoxDecoration(
