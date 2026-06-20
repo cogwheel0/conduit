@@ -127,6 +127,10 @@ class RouterNotifier extends ChangeNotifier {
     // Hermes-only mode: onboarded to Hermes with no OWUI server → straight to
     // chat, bypassing OWUI server/auth entirely (mirrors reviewer mode).
     if (prefersHermes && !hasActiveServer) {
+      // Let a Hermes-only user reach the OWUI connect/auth flow so they can add
+      // an Open WebUI server (bidirectional switching). Once connected,
+      // preferredBackend flips to owui and this branch no longer applies.
+      if (_isAuthLocation(location)) return null;
       if (hermesUsable) {
         return location == Routes.chat ? null : Routes.chat;
       }

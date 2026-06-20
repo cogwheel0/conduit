@@ -1798,6 +1798,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
+    // Hermes is a single-agent backend with no OWUI tools/web-search/attachments;
+    // suppress the OWUI keyboard-accessory actions for it.
+    final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null && isHermesModel(selectedModel)) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
+
     return buildComposerOverflowItems(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
@@ -2036,6 +2043,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         (model) => model?.filters ?? const <ToggleFilter>[],
       ),
     );
+    // Hermes is a single-agent backend with no OWUI tools/web-search/image-gen/
+    // attachments; it uses its own `/` skills. Hide the OWUI composer affordances
+    // (the "+" overflow button and the quick pills) when a Hermes model is active.
+    final bool isHermesComposer = ref.watch(
+      selectedModelProvider.select((m) => m != null && isHermesModel(m)),
+    );
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -2072,6 +2085,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
+      if (isHermesComposer) break; // Hermes has no OWUI quick pills.
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2270,15 +2284,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
           child: Row(
             children: [
-              if (_isRecording)
-                _buildDictationStopButton(size: 36.0)
-              else
+              if (_isRecording) ...[
+                _buildDictationStopButton(size: 36.0),
+                const SizedBox(width: Spacing.xs),
+              ] else if (!isHermesComposer) ...[
                 _buildOverflowButton(
                   tooltip: l10n.more,
                   dense: true,
                   nativeActions: nativeAttachmentActions,
                 ),
-              const SizedBox(width: Spacing.xs),
+                const SizedBox(width: Spacing.xs),
+              ],
               Expanded(
                 child: ClipRect(
                   child: SingleChildScrollView(
@@ -2439,14 +2455,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.center,
               children: [
-                if (_isRecording)
-                  _buildDictationStopButton()
-                else
+                if (_isRecording) ...[
+                  _buildDictationStopButton(),
+                  const SizedBox(width: Spacing.sm),
+                ] else if (!isHermesComposer) ...[
                   _buildOverflowButton(
                     tooltip: l10n.more,
                     nativeActions: nativeAttachmentActions,
                   ),
-                const SizedBox(width: Spacing.sm),
+                  const SizedBox(width: Spacing.sm),
+                ],
                 Expanded(
                   child: _wrapIosSurfaceShadow(
                     textFieldShell,
