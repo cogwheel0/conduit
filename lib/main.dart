@@ -23,6 +23,7 @@ import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
+import 'features/hermes/providers/hermes_providers.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -445,6 +446,22 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(personalizationSettingsProvider.notifier)
                 .setMemoryEnabled(value);
+          }
+        case 'hermes-enabled':
+          if (value is bool) {
+            await ref.read(hermesConfigProvider.notifier).setEnabled(value);
+          }
+        case 'hermes-base-url':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setBaseUrl(value);
+          }
+        case 'hermes-api-key':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setApiKey(value);
+          }
+        case 'hermes-session-key':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setSessionKey(value);
           }
         case 'system-prompt':
           if (value is String) {

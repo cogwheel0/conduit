@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'sse_frame_scanner.dart';
+
 /// Base class for all stream update types emitted by the OpenWebUI SSE parser.
 sealed class OpenWebUIStreamUpdate {
   const OpenWebUIStreamUpdate();
@@ -99,27 +101,27 @@ final class OpenWebUIStreamDone extends OpenWebUIStreamUpdate {
 Stream<OpenWebUIStreamUpdate> parseOpenWebUIStream(
   Stream<List<int>> chunks,
 ) async* {
-  final scanner = _OpenWebUISseScanner();
+  final scanner = SseFrameScanner();
   final textChunks = chunks.transform(utf8.decoder);
 
   await for (final chunk in textChunks) {
-    for (final data in scanner.addChunk(chunk)) {
-      if (data == '[DONE]') {
+    for (final frame in scanner.addChunk(chunk)) {
+      if (frame.data == '[DONE]') {
         yield const OpenWebUIStreamDone();
         return;
       }
-      for (final update in parseOpenWebUIDataPayload(data)) {
+      for (final update in parseOpenWebUIDataPayload(frame.data)) {
         yield update;
       }
     }
   }
 
-  for (final data in scanner.close()) {
-    if (data == '[DONE]') {
+  for (final frame in scanner.close()) {
+    if (frame.data == '[DONE]') {
       yield const OpenWebUIStreamDone();
       return;
     }
-    for (final update in parseOpenWebUIDataPayload(data)) {
+    for (final update in parseOpenWebUIDataPayload(frame.data)) {
       yield update;
     }
   }
@@ -203,97 +205,6 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     yield OpenWebUIContentDelta(content);
   }
 }
-
-/// Incrementally scans decoded SSE text and emits complete `data:` payloads.
-final class _OpenWebUISseScanner {
-  final StringBuffer _lineBuffer = StringBuffer();
-  final StringBuffer _dataBuffer = StringBuffer();
-  bool _frameHasDataLine = false;
-  bool _skipLeadingLineFeed = false;
-
-  Iterable<String> addChunk(String chunk) sync* {
-    for (var index = 0; index < chunk.length; index++) {
-      final codeUnit = chunk.codeUnitAt(index);
-      if (_skipLeadingLineFeed) {
-        _skipLeadingLineFeed = false;
-        if (codeUnit == _lineFeed) {
-          continue;
-        }
-      }
-
-      if (codeUnit == _lineFeed) {
-        final payload = _finishLine();
-        if (payload != null) {
-          yield payload;
-        }
-        continue;
-      }
-
-      if (codeUnit == _carriageReturn) {
-        final payload = _finishLine();
-        _skipLeadingLineFeed = true;
-        if (payload != null) {
-          yield payload;
-        }
-        continue;
-      }
-
-      _lineBuffer.writeCharCode(codeUnit);
-    }
-  }
-
-  Iterable<String> close() sync* {
-    _skipLeadingLineFeed = false;
-    if (_lineBuffer.length > 0) {
-      _consumeLine(_lineBuffer.toString());
-      _lineBuffer.clear();
-    }
-
-    final payload = _finishFrame();
-    if (payload != null) {
-      yield payload;
-    }
-  }
-
-  String? _finishLine() {
-    if (_lineBuffer.length == 0) {
-      return _finishFrame();
-    }
-
-    _consumeLine(_lineBuffer.toString());
-    _lineBuffer.clear();
-    return null;
-  }
-
-  void _consumeLine(String line) {
-    if (!line.startsWith('data:')) {
-      return;
-    }
-
-    if (_frameHasDataLine) {
-      _dataBuffer.write('\n');
-    }
-    _dataBuffer.write(line.substring(5).trimLeft());
-    _frameHasDataLine = true;
-  }
-
-  String? _finishFrame() {
-    if (!_frameHasDataLine) {
-      return null;
-    }
-
-    final payload = _dataBuffer.toString();
-    _dataBuffer.clear();
-    _frameHasDataLine = false;
-    if (payload.isEmpty) {
-      return null;
-    }
-    return payload;
-  }
-}
-
-const int _lineFeed = 0x0A;
-const int _carriageReturn = 0x0D;
 
 OpenWebUIEventUpdate? _eventUpdateFromMap(Map<dynamic, dynamic> raw) {
   final type = raw['type']?.toString();

@@ -48,6 +48,12 @@ final class PreferenceKeys {
   static const String notificationChannelEnabled =
       'notification_channel_enabled';
 
+  // Hermes Agent (direct second backend) — non-secret config. The API key and
+  // long-term memory session key are secrets and live in SecureCredentialStorage.
+  static const String hermesEnabled = 'hermes_enabled_v1';
+  static const String hermesBaseUrl = 'hermes_base_url_v1';
+  static const String hermesShowJobs = 'hermes_show_jobs_v1';
+
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';
