@@ -652,6 +652,11 @@ class Models extends _$Models {
     }
 
     if (!ref.watch(isAuthenticatedProvider2)) {
+      // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
+      // just the synthetic Hermes model so the picker/composer work.
+      if (ref.watch(hermesConfigProvider).isUsable) {
+        return _withHermes(const <Model>[]);
+      }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
       return const [];
@@ -1859,6 +1864,21 @@ Future<Model?> defaultModel(Ref ref) async {
 
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
+    // Hermes-only mode: auto-select the synthetic Hermes agent model.
+    if (ref.read(hermesConfigProvider).isUsable) {
+      final models = await ref.read(modelsProvider.future);
+      Model? hermes;
+      for (final model in models) {
+        if (isHermesModel(model)) {
+          hermes = model;
+          break;
+        }
+      }
+      if (hermes != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(hermes);
+      }
+      return hermes;
+    }
     DebugLogger.warning('no-api', scope: 'models/default');
     return null;
   }

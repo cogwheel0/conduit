@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 import '../../../core/models/prompt.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
+import '../../../core/providers/app_providers.dart'
+    show activeServerProvider, reviewerModeProvider;
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../models/hermes_capabilities.dart';
@@ -115,6 +117,16 @@ final hermesConfigProvider =
 final hermesEnabledProvider = Provider<bool>(
   (ref) => ref.watch(hermesConfigProvider).enabled,
 );
+
+/// True when the app is running as a Hermes-only client: Hermes is fully
+/// configured AND there is no OpenWebUI server. Drives UI gating (hide OWUI
+/// tabs/affordances, make Hermes home). Reviewer mode takes precedence.
+final hermesOnlyModeProvider = Provider<bool>((ref) {
+  if (ref.watch(reviewerModeProvider)) return false;
+  if (!ref.watch(hermesConfigProvider).isUsable) return false;
+  final activeServer = ref.watch(activeServerProvider).asData?.value;
+  return activeServer == null;
+});
 
 /// The Hermes client, or null when Hermes is disabled / not fully configured.
 final hermesApiServiceProvider = Provider<HermesApiService?>((ref) {
@@ -281,7 +293,11 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     ref.invalidateSelf();
   }
 
-  Future<void> edit(String id, {String? prompt, String? schedule}) async {
+  Future<void> edit(
+    String id, {
+    String? prompt,
+    String? schedule,
+  }) async {
     final service = _service;
     if (service == null) return;
     await service.updateJob(id, prompt: prompt, schedule: schedule);

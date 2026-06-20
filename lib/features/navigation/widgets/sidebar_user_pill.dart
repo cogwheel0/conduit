@@ -38,6 +38,8 @@ dynamic resolveSidebarUser(WidgetRef ref) {
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
+  // Hermes-only: the Hermes tab is the only tab.
+  if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
   final tabIndex = ref.watch(sidebarActiveTabProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
   final notesOn = ref.watch(notesFeatureEnabledProvider);
