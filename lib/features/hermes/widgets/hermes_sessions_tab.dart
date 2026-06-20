@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/widgets/conduit_loading.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../models/hermes_job.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
@@ -24,9 +26,12 @@ class HermesSessionsTab extends ConsumerWidget {
 
     // The sidebar tab host has no Material ancestor; provide a transparent one
     // so InkWell / IconButton / CustomizationTile work inside this tab.
+    // Top/bottom insets + the refresh edge offset mirror the Chats tab so the
+    // content clears the native sidebar chrome and bottom tab bar.
     return Material(
       type: MaterialType.transparency,
-      child: RefreshIndicator(
+      child: ConduitRefreshIndicator(
+        edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
         onRefresh: () async {
           if (showJobs) ref.invalidate(hermesJobsProvider);
           ref.invalidate(hermesSessionsProvider);
@@ -35,9 +40,14 @@ class HermesSessionsTab extends ConsumerWidget {
         child: CustomScrollView(
           physics: platformAlwaysScrollablePhysics(context),
           slivers: [
-            if (showJobs)
-              const SliverToBoxAdapter(child: _JobsSection()),
+            SliverToBoxAdapter(
+              child: SizedBox(height: sidebarTabContentTopPadding(context)),
+            ),
+            if (showJobs) const SliverToBoxAdapter(child: _JobsSection()),
             ..._sessionSlivers(context, sessionsAsync),
+            SliverToBoxAdapter(
+              child: SizedBox(height: sidebarTabContentBottomPadding(context)),
+            ),
           ],
         ),
       ),
