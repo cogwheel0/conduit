@@ -6,8 +6,10 @@ import '../../../core/models/conversation.dart';
 import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../chat/providers/chat_providers.dart' show isChatStreamingProvider;
@@ -102,13 +104,12 @@ class HermesSessionTile extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) {
-    final controller = ref.read(hermesSessionsProvider.notifier);
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.arrow_branch,
         materialIcon: Icons.call_split,
         label: 'Fork',
-        onSelected: () => controller.fork(session.id),
+        onSelected: () => _fork(context, ref),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
@@ -126,6 +127,35 @@ class HermesSessionTile extends ConsumerWidget {
     ];
   }
 
+  /// Runs a session mutation, surfacing failures instead of silently dropping
+  /// the future (these context-menu callbacks are fire-and-forget).
+  Future<void> _runSessionAction(
+    BuildContext context,
+    String failureMessage,
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } catch (error) {
+      DebugLogger.error(
+        'session-action-failed',
+        scope: 'hermes/sessions',
+        error: error,
+      );
+      if (context.mounted) {
+        UiUtils.showMessage(context, failureMessage, isError: true);
+      }
+    }
+  }
+
+  Future<void> _fork(BuildContext context, WidgetRef ref) {
+    return _runSessionAction(
+      context,
+      'Could not fork conversation.',
+      () => ref.read(hermesSessionsProvider.notifier).fork(session.id),
+    );
+  }
+
   Future<void> _rename(BuildContext context, WidgetRef ref) async {
     final name = await ThemedDialogs.promptTextInput(
       context,
@@ -134,7 +164,14 @@ class HermesSessionTile extends ConsumerWidget {
       initialValue: session.title,
     );
     if (name == null || name.trim().isEmpty) return;
-    await ref.read(hermesSessionsProvider.notifier).rename(session.id, name.trim());
+    if (!context.mounted) return;
+    await _runSessionAction(
+      context,
+      'Could not rename conversation.',
+      () => ref
+          .read(hermesSessionsProvider.notifier)
+          .rename(session.id, name.trim()),
+    );
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
@@ -145,9 +182,12 @@ class HermesSessionTile extends ConsumerWidget {
       confirmText: 'Delete',
       isDestructive: true,
     );
-    if (confirmed) {
-      await ref.read(hermesSessionsProvider.notifier).delete(session.id);
-    }
+    if (!confirmed || !context.mounted) return;
+    await _runSessionAction(
+      context,
+      'Could not delete conversation.',
+      () => ref.read(hermesSessionsProvider.notifier).delete(session.id),
+    );
   }
 }
 
@@ -186,6 +226,10 @@ Future<void> openHermesSession(
 
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
   if (hermesModel != null) {
+    // Mark as a manual selection (same as startNewHermesChat) so the default-
+    // model restoration that fires on conversation-open can't race past this
+    // and overwrite the Hermes model with the user's OWUI default.
+    ref.read(isManualModelSelectionProvider.notifier).set(true);
     ref.read(selectedModelProvider.notifier).set(hermesModel);
   }
 
