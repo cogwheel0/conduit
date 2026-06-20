@@ -18,6 +18,7 @@ import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
@@ -443,6 +444,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveServerConfigs([config]);
     await storage.setActiveServerId(config.id);
+    await ref
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.owui);
     ref.invalidate(serverConfigsProvider);
     ref.invalidate(activeServerProvider);
 

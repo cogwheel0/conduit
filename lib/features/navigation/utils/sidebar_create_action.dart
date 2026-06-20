@@ -29,6 +29,7 @@ class SidebarCreateActionSpec {
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.watch(sidebarActiveTabProvider),
+    hermesOnly: ref.watch(hermesOnlyModeProvider),
     hermesOn: ref.watch(hermesEnabledProvider),
     notesOn: ref.watch(notesFeatureEnabledProvider),
     terminalOn: _watchTerminalTabVisible(ref),
@@ -57,6 +58,7 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.read(sidebarActiveTabProvider),
+    hermesOnly: ref.read(hermesOnlyModeProvider),
     hermesOn: ref.read(hermesEnabledProvider),
     notesOn: ref.read(notesFeatureEnabledProvider),
     terminalOn: _readTerminalTabVisible(ref),
@@ -82,11 +84,18 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
 
 _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
   required int tabIndex,
+  required bool hermesOnly,
   required bool hermesOn,
   required bool notesOn,
   required bool terminalOn,
   required bool channelsOn,
 }) {
+  // Hermes-only: the Hermes tab is the only tab, so "+" always starts a new
+  // Hermes chat.
+  if (hermesOnly) {
+    return _SidebarCreateActionKind.hermesChat;
+  }
+
   var currentIndex = 0;
   if (tabIndex == currentIndex) {
     return _SidebarCreateActionKind.chat;

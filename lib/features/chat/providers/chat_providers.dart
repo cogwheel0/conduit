@@ -4046,7 +4046,12 @@ Future<void> regenerateMessage(
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
 
-  if ((!reviewerMode && api == null) || selectedModel == null) {
+  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
+  // the Hermes transport and don't need it.
+  if ((!reviewerMode &&
+          api == null &&
+          !(selectedModel != null && isHermesModel(selectedModel))) ||
+      selectedModel == null) {
     throw Exception('No API service or model selected');
   }
 
@@ -5459,7 +5464,12 @@ Future<void> _sendMessageInternal(
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
 
-  if ((!reviewerMode && api == null) || selectedModel == null) {
+  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
+  // the Hermes transport and don't need it.
+  if ((!reviewerMode &&
+          api == null &&
+          !(selectedModel != null && isHermesModel(selectedModel))) ||
+      selectedModel == null) {
     throw Exception('No API service or model selected');
   }
 

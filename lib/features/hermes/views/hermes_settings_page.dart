@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -14,7 +15,11 @@ import '../providers/hermes_providers.dart';
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
 /// URL, API key, long-term memory key, and a connection test.
 class HermesSettingsPage extends ConsumerStatefulWidget {
-  const HermesSettingsPage({super.key});
+  const HermesSettingsPage({super.key, this.isOnboarding = false});
+
+  /// When true, the page is shown as a first-run setup step: the enable toggle
+  /// is implicit, and a "Finish setup" button completes onboarding into the app.
+  final bool isOnboarding;
 
   @override
   ConsumerState<HermesSettingsPage> createState() => _HermesSettingsPageState();
@@ -31,6 +36,21 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     super.initState();
     final config = ref.read(hermesConfigProvider);
     _urlController = TextEditingController(text: config.baseUrl);
+    if (widget.isOnboarding) {
+      // Onboarding implies enabling; the toggle is hidden in this mode.
+      ref.read(hermesConfigProvider.notifier).setEnabled(true);
+    }
+  }
+
+  Future<void> _finishOnboarding() async {
+    final notifier = ref.read(hermesConfigProvider.notifier);
+    await notifier.setEnabled(true);
+    await notifier.ensureSessionKey();
+    await ref
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.hermes);
+    if (!mounted) return;
+    context.go(Routes.chat);
   }
 
   @override
@@ -72,29 +92,43 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     return SettingsPageScaffold(
       title: 'Hermes Agent',
       children: [
-        CustomizationTile(
-          leading: _badge(context, Icons.smart_toy_outlined),
-          title: 'Enable Hermes Agent',
-          subtitle:
-              'Connect directly to your self-hosted Hermes agent and use it '
-              'as a model in the picker.',
-          trailing: AdaptiveSwitch(
-            value: config.enabled,
-            onChanged: (value) => notifier.setEnabled(value),
-          ),
-          showChevron: false,
-          onTap: () => notifier.setEnabled(!config.enabled),
-        ),
-        if (config.enabled && _capabilities.jobs) ...[
-          const SizedBox(height: Spacing.sm),
+        if (widget.isOnboarding)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Spacing.lg),
+            child: Text(
+              'Enter your self-hosted Hermes agent\'s address and API key to '
+              'start using it. You can add an Open WebUI server later in '
+              'settings.',
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          )
+        else ...[
           CustomizationTile(
-            leading: _badge(context, Icons.schedule),
-            title: 'Scheduled Agents',
-            subtitle: 'Run prompts on a cron schedule.',
-            onTap: () => context.pushNamed(RouteNames.hermesJobs),
+            leading: _badge(context, Icons.smart_toy_outlined),
+            title: 'Enable Hermes Agent',
+            subtitle:
+                'Connect directly to your self-hosted Hermes agent and use it '
+                'as a model in the picker.',
+            trailing: AdaptiveSwitch(
+              value: config.enabled,
+              onChanged: (value) => notifier.setEnabled(value),
+            ),
+            showChevron: false,
+            onTap: () => notifier.setEnabled(!config.enabled),
           ),
+          if (config.enabled && _capabilities.jobs) ...[
+            const SizedBox(height: Spacing.sm),
+            CustomizationTile(
+              leading: _badge(context, Icons.schedule),
+              title: 'Scheduled Agents',
+              subtitle: 'Run prompts on a cron schedule.',
+              onTap: () => context.pushNamed(RouteNames.hermesJobs),
+            ),
+          ],
+          const SizedBox(height: Spacing.lg),
         ],
-        const SizedBox(height: Spacing.lg),
         ConduitInput(
           label: 'Server URL',
           hint: 'http://192.168.1.10:8642',
@@ -158,6 +192,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               ),
           ],
         ),
+        if (widget.isOnboarding) ...[
+          const SizedBox(height: Spacing.lg),
+          ConduitButton(
+            text: 'Finish setup',
+            icon: Icons.check,
+            isFullWidth: true,
+            onPressed: config.isUsable ? _finishOnboarding : null,
+          ),
+        ],
         if (config.isUsable) ...[
           const SizedBox(height: Spacing.xl),
           _capabilitiesSection(),
