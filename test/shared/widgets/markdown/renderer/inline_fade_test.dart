@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -66,7 +67,7 @@ void main() {
       final baseLeaves = _leaves(base.span).toList();
       final docsLeaf = baseLeaves.singleWhere((leaf) => leaf.text == 'docs');
       final docsRecognizer = docsLeaf.recognizer;
-      expect(docsRecognizer, isA<TapGestureRecognizer>());
+      check(docsRecognizer).isA<TapGestureRecognizer>();
 
       // Fade the suffix beginning after 'See docs' (offset 8).
       const fade = InlineTextFadeSpec(startOffset: 8, opacity: 0.4);
@@ -74,25 +75,24 @@ void main() {
       final fadedLeaves = _leaves(faded).toList();
 
       // Same visible text, byte for byte.
-      expect(
+      check(
         fadedLeaves.map((leaf) => leaf.text ?? '').join(),
-        'See docs and more',
-      );
+      ).equals('See docs and more');
 
       // Prefix ('See ', 'docs') stays opaque; suffix fades.
       for (final leaf in fadedLeaves) {
         final text = leaf.text ?? '';
         final alpha = leaf.style?.color?.a ?? 1;
         if (text == 'See ' || text == 'docs') {
-          expect(alpha, 1, reason: 'prefix opaque: "$text"');
+          check(alpha, because: 'prefix opaque: "$text"').equals(1);
         } else if (text.trim().isNotEmpty) {
-          expect(alpha, lessThan(1), reason: 'suffix fades: "$text"');
+          check(alpha, because: 'suffix fades: "$text"').isLessThan(1);
         }
       }
 
       // The link recognizer is reused by reference (not recreated).
       final fadedDocs = fadedLeaves.singleWhere((leaf) => leaf.text == 'docs');
-      expect(identical(fadedDocs.recognizer, docsRecognizer), isTrue);
+      check(identical(fadedDocs.recognizer, docsRecognizer)).isTrue();
 
       // Sweeping opacity never changes the base tree, only the suffix alpha.
       double? suffixAlphaAt(double opacity) {
@@ -109,7 +109,7 @@ void main() {
 
       final lowAlpha = suffixAlphaAt(0.2)!;
       final highAlpha = suffixAlphaAt(0.8)!;
-      expect(lowAlpha, lessThan(highAlpha));
+      check(lowAlpha).isLessThan(highAlpha);
 
       // At opacity >= 1 the cached base tree is returned unchanged (identity).
       final settled = InlineRenderer.applyFadeOpacity(
@@ -117,7 +117,7 @@ void main() {
         const InlineTextFadeSpec(startOffset: 8, opacity: 1),
         style: style,
       );
-      expect(identical(settled, base.span), isTrue);
+      check(identical(settled, base.span)).isTrue();
 
       // A fade boundary that straddles the link text ('See do' | 'cs ...') must
       // keep the link recognizer attached to BOTH split halves so the link
@@ -131,9 +131,9 @@ void main() {
       final docHalves = straddleLeaves
           .where((leaf) => (leaf.text ?? '').isNotEmpty && 'docs'.contains(leaf.text!))
           .toList();
-      expect(docHalves.map((leaf) => leaf.text).join(), 'docs');
+      check(docHalves.map((leaf) => leaf.text).join()).equals('docs');
       for (final half in docHalves) {
-        expect(identical(half.recognizer, docsRecognizer), isTrue);
+        check(identical(half.recognizer, docsRecognizer)).isTrue();
       }
 
       renderer.disposeRecognizers();
@@ -164,7 +164,7 @@ void main() {
       // placeholder token. The renderer advances the offset by the placeholder
       // token length without emitting fadable text.
       final fullText = preprocessor.extract(r'a $x^2$ b tail');
-      expect(preprocessor.containsPlaceholder(fullText), isTrue);
+      check(preprocessor.containsPlaceholder(fullText)).isTrue();
       final renderer = InlineRenderer(style, preprocessor);
 
       final nodes = <CompiledMarkdownNode>[
@@ -189,13 +189,12 @@ void main() {
         final text = leaf.text ?? '';
         final alpha = leaf.style?.color?.a ?? 1;
         if (text == 'tail') {
-          expect(alpha, lessThan(1), reason: 'appended tail fades');
+          check(alpha, because: 'appended tail fades').isLessThan(1);
         } else if (text.trim().isNotEmpty) {
-          expect(
+          check(
             alpha,
-            1,
-            reason: 'text before the placeholder stays opaque: "$text"',
-          );
+            because: 'text before the placeholder stays opaque: "$text"',
+          ).equals(1);
         }
       }
 

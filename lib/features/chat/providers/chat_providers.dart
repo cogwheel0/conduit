@@ -94,12 +94,9 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         // Include the displayed model-name fallback so the structure signature
         // changes whenever the label changes, keeping the list-shell rebuild
-        // trigger in agreement with chat_page's layout signature.
-        ..write(
-          message.metadata?['modelName'] ??
-              message.metadata?['model_name'] ??
-              '',
-        )
+        // trigger in agreement with chat_page's layout signature. Use the
+        // normalized extractor so trim/empty handling matches the displayed name.
+        ..write(_messageModelName(message) ?? '')
         ..write('\u0000')
         ..write(message.versions.length);
       for (final version in message.versions) {

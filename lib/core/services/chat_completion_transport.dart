@@ -67,13 +67,14 @@ final class ChatCompletionSession {
   /// `message_id` to the local [messageId] on the first `chat:completion`.
   factory ChatCompletionSession.resumeSocket({
     required String messageId,
-    String? sessionId,
     String? conversationId,
     String? taskId,
   }) => ChatCompletionSession._(
     transport: ChatCompletionTransport.taskSocket,
     messageId: messageId,
-    sessionId: sessionId,
+    // Always null: resume must keep session matching permissive so a foreign
+    // server-assigned message_id can still bind. No caller may override it.
+    sessionId: null,
     conversationId: conversationId,
     taskId: taskId,
   );

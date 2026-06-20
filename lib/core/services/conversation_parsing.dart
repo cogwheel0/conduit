@@ -434,13 +434,20 @@ String? _extractOpenWebUiModelName(
   Map<String, dynamic> msgData,
   Map<String, dynamic>? historyMsg,
 ) {
-  final raw =
-      historyMsg?['modelName'] ??
-      historyMsg?['model_name'] ??
-      msgData['modelName'] ??
-      msgData['model_name'];
-  final value = raw?.toString().trim();
-  return value == null || value.isEmpty ? null : value;
+  // Walk candidates in priority order, skipping null AND empty/whitespace
+  // values so an empty `modelName` does not shadow a populated `model_name`.
+  for (final candidate in [
+    historyMsg?['modelName'],
+    historyMsg?['model_name'],
+    msgData['modelName'],
+    msgData['model_name'],
+  ]) {
+    final value = candidate?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
 }
 
 Map<String, dynamic> _parseOpenWebUIMessageToJson(
