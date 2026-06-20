@@ -900,7 +900,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
 
       changed = true;
-      final metadata = <String, dynamic>{...?serverMessage.metadata};
+      // Merge local + server metadata so local-only fields (e.g. `modelName`)
+      // survive a server snapshot captured before the durable payload was
+      // finalized. Server values take precedence; local fills only the gaps.
+      final metadata = <String, dynamic>{
+        ...?localMessage.metadata,
+        ...?serverMessage.metadata,
+      };
       if (shouldPreserveFollowUps) {
         metadata.putIfAbsent(
           'followUps',

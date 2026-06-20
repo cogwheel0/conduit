@@ -386,6 +386,54 @@ void main() {
         ).deepEquals(['Ask again']);
       },
     );
+
+    test(
+      'content-preserving snapshot keeps local-only metadata (modelName) '
+      'when the server snapshot lacks it',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        // Locally-streamed assistant carries the modelName chip this PR writes
+        // to every placeholder, and is fresher than the server snapshot.
+        final localAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer that streamed completely',
+          // Locally streamed: carries provenance (transport) plus the modelName
+          // chip. The bug erased modelName when content was preserved.
+          metadata: const {'transport': 'httpStream', 'modelName': 'GPT-4o'},
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, localAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Server snapshot captured before the durable payload was finalized:
+        // shorter content and no modelName.
+        final laggingServerAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer that',
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('chat-1', [userMessage, laggingServerAssistant]),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        final adopted = container.read(chatMessagesProvider).last;
+        check(adopted.content).equals('Answer that streamed completely');
+        check(adopted.metadata?['modelName']).equals('GPT-4o');
+      },
+    );
   });
 
   group('Feature C — local streaming protection invariants', () {
