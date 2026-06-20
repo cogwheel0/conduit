@@ -1,4 +1,5 @@
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
@@ -73,6 +74,7 @@ Widget _buildAssistantHarness(
       textToSpeechControllerProvider.overrideWith(
         _TestTextToSpeechController.new,
       ),
+      streamingHapticsEnabledProvider.overrideWithValue(false),
       if (isChatStreaming != null)
         isChatStreamingProvider.overrideWithValue(isChatStreaming),
     ],
@@ -94,6 +96,16 @@ Widget _buildAssistantHarness(
       ),
     ),
   );
+}
+
+bool _hasInProgressFadeAncestor(WidgetTester tester, Finder childFinder) {
+  final fadeFinder = find.ancestor(
+    of: childFinder,
+    matching: find.byType(FadeTransition),
+  );
+  return tester
+      .widgetList<FadeTransition>(fadeFinder)
+      .any((fade) => fade.opacity.value < 1);
 }
 
 Future<void> _tapVersionControl(
@@ -336,6 +348,49 @@ void main() {
     expect(find.text('Try another angle'), findsOneWidget);
   });
 
+  testWidgets('follow-ups stay visible through transient empty snapshots', (
+    tester,
+  ) async {
+    final baseline = ChatMessage(
+      id: 'assistant-follow-ups',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        baseline.copyWith(followUps: const ['Ask again']),
+        showFollowUps: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
+    expect(find.text('Ask again'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(baseline, showFollowUps: true),
+    );
+    await tester.pump();
+
+    expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
+    expect(find.text('Ask again'), findsOneWidget);
+    expect(find.byType(SizeTransition), findsNothing);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        baseline.copyWith(followUps: const ['Try another angle']),
+        showFollowUps: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
+    expect(find.text('Ask again'), findsNothing);
+    expect(find.text('Try another angle'), findsOneWidget);
+  });
+
   testWidgets(
     'response-done metadata shows enabled footer actions immediately',
     (tester) async {
@@ -454,6 +509,129 @@ void main() {
 
     expect(find.byKey(const ValueKey('typing')), findsOneWidget);
     expect(ttsBuilds, 0);
+  });
+
+  testWidgets('streaming footer fades typing in and crossfades to actions', (
+    tester,
+  ) async {
+    final streaming = ChatMessage(
+      id: 'assistant-streaming-footer-fade',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(streaming, isStreaming: true),
+    );
+    await tester.pump();
+
+    final typingFinder = find.byKey(const ValueKey('typing'));
+    expect(typingFinder, findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(typingFinder, findsOneWidget);
+    expect(_hasInProgressFadeAncestor(tester, typingFinder), isTrue);
+
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(_hasInProgressFadeAncestor(tester, typingFinder), isFalse);
+
+    final done = streaming.copyWith(
+      content: 'Done',
+      metadata: const {'responseDone': true},
+    );
+    await tester.pumpWidget(_buildAssistantHarness(done, isStreaming: true));
+    await tester.pump();
+
+    final actionsFinder = find.byKey(const ValueKey('actions'));
+    expect(typingFinder, findsOneWidget);
+    expect(actionsFinder, findsOneWidget);
+    expect(_hasInProgressFadeAncestor(tester, actionsFinder), isTrue);
+
+    await tester.pump(const Duration(milliseconds: 220));
+
+    expect(typingFinder, findsNothing);
+    expect(actionsFinder, findsOneWidget);
+    expect(_hasInProgressFadeAncestor(tester, actionsFinder), isFalse);
+  });
+
+  testWidgets('streaming body fades in once when first content arrives', (
+    tester,
+  ) async {
+    ChatMessage streamingMessage(String content) => ChatMessage(
+      id: 'assistant-streaming-fade',
+      role: 'assistant',
+      content: content,
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(streamingMessage(''), isStreaming: true),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('assistant-streaming-content-fade')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(streamingMessage('Hello'), isStreaming: true),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final fadeFinder = find.byKey(
+      const ValueKey('assistant-streaming-content-fade'),
+    );
+    expect(fadeFinder, findsOneWidget);
+    expect(
+      tester.widget<FadeTransition>(fadeFinder).opacity.value,
+      lessThan(1),
+    );
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        streamingMessage('Hello again'),
+        isStreaming: true,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
+  });
+
+  testWidgets('streaming body fades when first content is present on mount', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-streaming-initial-fade',
+      role: 'assistant',
+      content: 'Already streaming',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message, isStreaming: true));
+    await tester.pump();
+
+    final fadeFinder = find.byKey(
+      const ValueKey('assistant-streaming-content-fade'),
+    );
+    expect(fadeFinder, findsOneWidget);
+    expect(
+      tester.widget<FadeTransition>(fadeFinder).opacity.value,
+      lessThan(1),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
   });
 
   testWidgets('response-done metadata enables copy immediately', (

@@ -870,6 +870,51 @@ void main() {
       },
     );
 
+    test(
+      'httpStream snapshot refresh preserves already visible follow-ups',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              followUps: const ['Ask again'],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Answer')],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        for (var i = 0; i < 3; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.followUps).deepEquals(['Ask again']);
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
     // -----------------------------------------------------------------------

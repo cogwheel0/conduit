@@ -72,10 +72,6 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         ..write(message.model ?? '')
         ..write('\u0000')
-        ..write(message.isStreaming ? 1 : 0)
-        ..write('\u0000')
-        ..write(message.isStreaming ? -1 : message.content.trim().length)
-        ..write('\u0000')
         ..write(message.attachmentIds?.length ?? 0)
         ..write('\u0000')
         ..write(message.files?.length ?? 0)
@@ -793,7 +789,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (_hasTrackedStreamingTransport) {
       _dropStreamingTransportState(source: 'server adoption from $source');
     }
-    state = serverMessages;
+    state = _preserveFreshLocalAssistantState(serverMessages);
     _syncStreamingProfileWithState();
 
     if (needsCleanup) {
@@ -843,6 +839,112 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
       },
     );
+  }
+
+  List<ChatMessage> _preserveFreshLocalAssistantState(
+    List<ChatMessage> serverMessages,
+  ) {
+    if (state.isEmpty || serverMessages.isEmpty) {
+      return serverMessages;
+    }
+
+    final localById = <String, ChatMessage>{
+      for (final message in state)
+        if (message.role == 'assistant' &&
+            (message.content.trim().isNotEmpty || message.followUps.isNotEmpty))
+          message.id: message,
+    };
+    if (localById.isEmpty) {
+      return serverMessages;
+    }
+
+    var changed = false;
+    final merged = <ChatMessage>[];
+    for (final serverMessage in serverMessages) {
+      final localMessage = localById[serverMessage.id];
+      final preserveContent =
+          localMessage != null &&
+          _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
+      final sameResponseContent =
+          localMessage != null &&
+          _sameAssistantResponseText(
+            localMessage.content,
+            serverMessage.content,
+          );
+      final shouldPreserveFollowUps =
+          localMessage != null &&
+          serverMessage.role == 'assistant' &&
+          serverMessage.followUps.isEmpty &&
+          (sameResponseContent || preserveContent);
+      if (!preserveContent && !shouldPreserveFollowUps) {
+        merged.add(serverMessage);
+        continue;
+      }
+
+      changed = true;
+      final metadata = <String, dynamic>{...?serverMessage.metadata};
+      if (shouldPreserveFollowUps) {
+        metadata.putIfAbsent(
+          'followUps',
+          () => List<String>.from(localMessage.followUps),
+        );
+      }
+      merged.add(
+        serverMessage.copyWith(
+          content: preserveContent
+              ? localMessage.content
+              : serverMessage.content,
+          followUps: shouldPreserveFollowUps
+              ? List<String>.from(localMessage.followUps)
+              : serverMessage.followUps,
+          metadata: metadata.isEmpty ? null : metadata,
+        ),
+      );
+    }
+
+    return changed ? List<ChatMessage>.unmodifiable(merged) : serverMessages;
+  }
+
+  bool _shouldPreserveLocalAssistantContent(
+    ChatMessage localMessage,
+    ChatMessage serverMessage,
+  ) {
+    if (serverMessage.role != 'assistant') {
+      return false;
+    }
+    if (!_hasLocalStreamingProvenance(localMessage)) {
+      return false;
+    }
+    final localContent = localMessage.content;
+    final serverContent = serverMessage.content;
+    if (localContent.trim().isEmpty) {
+      return false;
+    }
+    if (serverContent.trim().isEmpty) {
+      return true;
+    }
+    if (localContent.length <= serverContent.length) {
+      return false;
+    }
+    return _sameAssistantResponsePrefix(localContent, serverContent);
+  }
+
+  bool _hasLocalStreamingProvenance(ChatMessage message) {
+    final metadata = message.metadata;
+    return message.isStreaming ||
+        metadata?['responseDone'] == true ||
+        metadata?['transport'] != null ||
+        metadata?['taskId'] != null ||
+        metadata?['hasActiveAbortHandle'] == true;
+  }
+
+  bool _sameAssistantResponseText(String left, String right) {
+    return left == right || left.trim() == right.trim();
+  }
+
+  bool _sameAssistantResponsePrefix(String longer, String shorter) {
+    return longer.startsWith(shorter) ||
+        longer.trimLeft().startsWith(shorter.trimLeft());
   }
 
   void _teardownPassiveConversationSync() {

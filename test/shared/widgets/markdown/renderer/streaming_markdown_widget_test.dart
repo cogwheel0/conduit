@@ -37,6 +37,20 @@ Iterable<_RecordedPlatformCall> _mediumImpactCalls(
       call.arguments == 'HapticFeedbackType.mediumImpact',
 );
 
+Iterable<TextSpan> _textSpanLeaves(InlineSpan span) sync* {
+  if (span is! TextSpan) {
+    return;
+  }
+  final children = span.children;
+  if (children == null || children.isEmpty) {
+    yield span;
+    return;
+  }
+  for (final child in children) {
+    yield* _textSpanLeaves(child);
+  }
+}
+
 class _TestTextToSpeechController extends TextToSpeechController {
   @override
   TextToSpeechState build() => const TextToSpeechState();
@@ -498,6 +512,75 @@ graph TD
       greaterThan(0),
     );
     expect((paragraphPaddings.last.padding as EdgeInsets).bottom, 0);
+  });
+
+  testWidgets('streaming markdown fades newly appended rendered text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(buildHarness('Hello **world**', isStreaming: true));
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              widget.textSpan?.toPlainText() == 'Hello world';
+        }),
+      );
+    }
+
+    final fadingLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final fadingWorld = fadingLeaves.singleWhere(
+      (span) => span.text == 'world',
+    );
+    expect(fadingWorld.style?.fontWeight, FontWeight.bold);
+    expect(fadingWorld.style?.color?.a, lessThan(1));
+
+    await tester.pump(const Duration(milliseconds: 360));
+
+    final settledLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final settledWorld = settledLeaves.singleWhere(
+      (span) => span.text == 'world',
+    );
+    expect(settledWorld.style?.fontWeight, FontWeight.bold);
+    expect(settledWorld.style?.color?.a ?? 1, 1);
+  });
+
+  testWidgets('streaming markdown fades newly appended plain text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(buildHarness('Hello world', isStreaming: true));
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              widget.textSpan?.toPlainText() == 'Hello world';
+        }),
+      );
+    }
+
+    final fadingLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final fadingSuffix = fadingLeaves.singleWhere(
+      (span) => span.text == ' world',
+    );
+    expect(fadingSuffix.style?.color?.a, lessThan(1));
+
+    await tester.pump(const Duration(milliseconds: 360));
+
+    final settledLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    expect(settledLeaves.map((span) => span.text).join(), 'Hello world');
+    expect(
+      settledLeaves.every((span) => (span.style?.color?.a ?? 1) == 1),
+      isTrue,
+    );
   });
 
   testWidgets('renders OpenWebUI mentions without placeholder leakage', (
@@ -1145,7 +1228,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant streams long plain content through the cheap text path',
+    'assistant streams long plain content through markdown rendering',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -1177,9 +1260,9 @@ Tail keeps growing
 
         expect(
           find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
+          findsNothing,
         );
-        expect(find.byType(StreamingMarkdownWidget), findsNothing);
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('Plain streaming sentence.'),
           findsOneWidget,
@@ -1191,7 +1274,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant cheap streaming text path strips markdown reference definitions',
+    'assistant streaming markdown renderer omits reference definitions',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -1226,8 +1309,9 @@ Tail keeps growing
 
         expect(
           find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
+          findsNothing,
         );
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('[docs]: https://example.com'),
           findsNothing,
@@ -1734,9 +1818,9 @@ Tail keeps growing
 
         expect(
           find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
+          findsNothing,
         );
-        expect(find.byType(StreamingMarkdownWidget), findsNothing);
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
 
         await tester.pumpWidget(
           buildAssistantHarness(

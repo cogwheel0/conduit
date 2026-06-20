@@ -15,6 +15,8 @@ ChatMessage _assistantMessage({
   String id = 'assistant-1',
   String content = 'Visible response body',
   bool isStreaming = false,
+  List<String> followUps = const <String>[],
+  Map<String, dynamic>? metadata,
 }) {
   return ChatMessage(
     id: id,
@@ -22,6 +24,8 @@ ChatMessage _assistantMessage({
     content: content,
     timestamp: DateTime(2024, 1, 1),
     isStreaming: isStreaming,
+    followUps: followUps,
+    metadata: metadata,
   );
 }
 
@@ -258,6 +262,128 @@ void main() {
         check(notifications).equals(0);
 
         notifier.clearMessages();
+      },
+    );
+
+    test('streaming completion keeps the structure signature stable', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(content: 'Final response', isStreaming: true),
+      ]);
+      final initialSignature = container.read(
+        chatMessageStructureSignatureProvider,
+      );
+      var notifications = 0;
+      final subscription = container.listen<String>(
+        chatMessageStructureSignatureProvider,
+        (_, _) => notifications += 1,
+        fireImmediately: false,
+      );
+      addTearDown(subscription.close);
+
+      notifier.updateMessageById(
+        'assistant-1',
+        (current) => current.copyWith(isStreaming: false),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        container.read(chatMessageStructureSignatureProvider),
+      ).equals(initialSignature);
+      check(notifications).equals(0);
+
+      notifier.clearMessages();
+    });
+
+    test(
+      'server snapshots do not clear already-visible follow-ups for same response',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer',
+          followUps: const ['Ask again'],
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, localAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        final serverAssistantWithoutFollowUps = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer',
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('chat-1', [
+                userMessage,
+                serverAssistantWithoutFollowUps,
+              ]),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        check(
+          container.read(chatMessagesProvider).last.followUps,
+        ).deepEquals(['Ask again']);
+      },
+    );
+
+    test(
+      'server snapshots do not clear already-visible response content',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer that streamed completely',
+          followUps: const ['Ask again'],
+          metadata: const {'transport': 'httpStream'},
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, localAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        final laggingServerAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('chat-1', [userMessage, laggingServerAssistant]),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Answer that streamed completely');
+        check(
+          container.read(chatMessagesProvider).last.followUps,
+        ).deepEquals(['Ask again']);
       },
     );
   });

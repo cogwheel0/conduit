@@ -1570,7 +1570,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           // Preserve existing usage if server doesn't have it yet (issue #274)
           // Usage is captured from streaming but may not be persisted on server
           final effectiveUsage = assistant.usage ?? current.usage;
-          final nextFollowUps = List<String>.from(assistant.followUps);
+          final nextFollowUps = assistant.followUps.isNotEmpty
+              ? List<String>.from(assistant.followUps)
+              : current.followUps;
           final nextStatusHistory = assistant.statusHistory.isNotEmpty
               ? assistant.statusHistory
               : current.isStreaming

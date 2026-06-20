@@ -15,6 +15,14 @@ import 'pdf_inline_view.dart';
 /// Callback invoked when a user taps a markdown link.
 typedef LinkTapCallback = void Function(String url, String title);
 
+@immutable
+class InlineTextFadeSpec {
+  const InlineTextFadeSpec({required this.startOffset, required this.opacity});
+
+  final int startOffset;
+  final double opacity;
+}
+
 /// Converts markdown AST inline nodes into a Flutter
 /// [InlineSpan] tree suitable for use with [Text.rich].
 ///
@@ -36,6 +44,7 @@ class InlineRenderer {
     this.onSourceTap,
     this.latexStartupFuture,
     this.renderPdfPreviews = true,
+    this.textFade,
   ]);
 
   /// The style configuration for rendering.
@@ -59,6 +68,9 @@ class InlineRenderer {
   /// Whether PDF links should hydrate preview cards instead of plain links.
   final bool renderPdfPreviews;
 
+  /// Optional visible text suffix fade for streaming updates.
+  final InlineTextFadeSpec? textFade;
+
   /// Gesture recognizers created during rendering.
   ///
   /// Callers should dispose these when the widget is
@@ -67,6 +79,8 @@ class InlineRenderer {
 
   /// All gesture recognizers created by this renderer.
   List<GestureRecognizer> get recognizers => List.unmodifiable(_recognizers);
+
+  int _visibleTextOffset = 0;
 
   /// Disposes all gesture recognizers created during
   /// rendering and clears the internal list.
@@ -105,7 +119,7 @@ class InlineRenderer {
     if (node is CompiledMarkdownElement) {
       return _renderElement(node, currentStyle);
     }
-    return [TextSpan(text: node.textContent)];
+    return _renderFadableText(node.textContent, currentStyle);
   }
 
   List<InlineSpan> _renderText(
@@ -162,19 +176,19 @@ class InlineRenderer {
     for (final segment in segments) {
       if (segment is CompiledMarkdownTextSegment) {
         if (segment.text.isNotEmpty) {
-          spans.add(TextSpan(text: segment.text, style: currentStyle));
+          spans.addAll(_renderFadableText(segment.text, currentStyle));
         }
         continue;
       }
       if (segment is CompiledMarkdownCitationSegment) {
         if (!_canRenderCitationBadge(segment.sourceIds)) {
-          spans.add(TextSpan(text: segment.rawText, style: currentStyle));
+          spans.addAll(_renderFadableText(segment.rawText, currentStyle));
           continue;
         }
         spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
+          _buildFadableWidgetSpan(
             child: _buildCitationBadge(segment.sourceIds),
+            textLength: segment.rawText.length,
           ),
         );
         continue;
@@ -202,10 +216,10 @@ class InlineRenderer {
     required bool containsCitations,
   }) {
     if (sources == null || sources!.isEmpty || !containsCitations) {
-      return [TextSpan(text: text, style: currentStyle)];
+      return _renderFadableText(text, currentStyle);
     }
     return _renderCitations(text, currentStyle) ??
-        [TextSpan(text: text, style: currentStyle)];
+        _renderFadableText(text, currentStyle);
   }
 
   List<InlineSpan>? _renderCitations(String text, TextStyle currentStyle) {
@@ -217,17 +231,17 @@ class InlineRenderer {
     final spans = <InlineSpan>[];
     for (final segment in segments) {
       if (segment.isText && segment.text != null) {
-        spans.add(TextSpan(text: segment.text, style: currentStyle));
+        spans.addAll(_renderFadableText(segment.text!, currentStyle));
       } else if (segment.isCitation && segment.citation != null) {
         final citation = segment.citation!;
         if (!_canRenderCitationBadge(citation.sourceIds)) {
-          spans.add(TextSpan(text: citation.raw, style: currentStyle));
+          spans.addAll(_renderFadableText(citation.raw, currentStyle));
           continue;
         }
         spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
+          _buildFadableWidgetSpan(
             child: _buildCitationBadge(citation.sourceIds),
+            textLength: citation.raw.length,
           ),
         );
       }
@@ -302,15 +316,13 @@ class InlineRenderer {
     CompiledMarkdownElement element,
     TextStyle currentStyle,
   ) {
-    return [
-      TextSpan(
-        text: element.textContent,
-        style: currentStyle.copyWith(
-          color: style.linkColor,
-          fontWeight: FontWeight.w600,
-        ),
+    return _renderFadableText(
+      element.textContent,
+      currentStyle.copyWith(
+        color: style.linkColor,
+        fontWeight: FontWeight.w600,
       ),
-    ];
+    );
   }
 
   List<InlineSpan> _renderStyled(
@@ -319,7 +331,7 @@ class InlineRenderer {
   ) {
     final children = element.children;
     if (children.isEmpty) {
-      return [TextSpan(text: element.textContent, style: styledText)];
+      return _renderFadableText(element.textContent, styledText);
     }
     final spans = <InlineSpan>[];
     for (final child in children) {
@@ -329,7 +341,8 @@ class InlineRenderer {
   }
 
   WidgetSpan _buildInlineCode(String code) {
-    return WidgetSpan(
+    return _buildFadableWidgetSpan(
+      textLength: code.length,
       alignment: PlaceholderAlignment.middle,
       child: _InlineCodeWidget(code: code, style: style),
     );
@@ -344,8 +357,8 @@ class InlineRenderer {
 
     if (renderPdfPreviews && PdfInlineView.isPdfLink(href)) {
       return [
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
+        _buildFadableWidgetSpan(
+          textLength: element.textContent.length,
           child: PdfInlineView(url: href, label: element.textContent),
         ),
       ];
@@ -366,13 +379,10 @@ class InlineRenderer {
 
     final children = element.children;
     if (children.isEmpty) {
-      return [
-        TextSpan(
-          text: element.textContent,
-          style: linkStyle,
-          recognizer: recognizer,
-        ),
-      ];
+      return _withRecognizer(
+        _renderFadableText(element.textContent, linkStyle),
+        recognizer,
+      );
     }
 
     final spans = <InlineSpan>[];
@@ -419,7 +429,7 @@ class InlineRenderer {
   ) {
     final alt = element.attributes['alt'] ?? '';
     if (alt.isEmpty) return [];
-    return [TextSpan(text: alt, style: currentStyle)];
+    return _renderFadableText(alt, currentStyle);
   }
 
   List<InlineSpan> _renderChildren(
@@ -448,6 +458,69 @@ class InlineRenderer {
       spans.addAll(_renderNode(child, currentStyle));
     }
     return spans;
+  }
+
+  List<InlineSpan> _renderFadableText(String text, TextStyle currentStyle) {
+    if (text.isEmpty) {
+      return const <InlineSpan>[];
+    }
+
+    final fade = textFade;
+    final startOffset = _visibleTextOffset;
+    final endOffset = startOffset + text.length;
+    _visibleTextOffset = endOffset;
+
+    if (fade == null || fade.opacity >= 1 || endOffset <= fade.startOffset) {
+      return [TextSpan(text: text, style: currentStyle)];
+    }
+
+    final fadeStyle = _styleWithFadeOpacity(currentStyle, fade.opacity);
+    if (startOffset >= fade.startOffset) {
+      return [TextSpan(text: text, style: fadeStyle)];
+    }
+
+    final splitIndex = fade.startOffset - startOffset;
+    return [
+      TextSpan(text: text.substring(0, splitIndex), style: currentStyle),
+      TextSpan(text: text.substring(splitIndex), style: fadeStyle),
+    ];
+  }
+
+  WidgetSpan _buildFadableWidgetSpan({
+    required Widget child,
+    required int textLength,
+    PlaceholderAlignment alignment = PlaceholderAlignment.middle,
+  }) {
+    final opacity = _opacityForFadableRange(textLength);
+    final effectiveChild = opacity >= 1
+        ? child
+        : Opacity(opacity: opacity, child: child);
+    return WidgetSpan(alignment: alignment, child: effectiveChild);
+  }
+
+  double _opacityForFadableRange(int textLength) {
+    if (textLength <= 0) {
+      return 1;
+    }
+    final fade = textFade;
+    final startOffset = _visibleTextOffset;
+    final endOffset = startOffset + textLength;
+    _visibleTextOffset = endOffset;
+    if (fade == null || fade.opacity >= 1 || endOffset <= fade.startOffset) {
+      return 1;
+    }
+    return fade.opacity.clamp(0.0, 1.0).toDouble();
+  }
+
+  TextStyle _styleWithFadeOpacity(TextStyle currentStyle, double opacity) {
+    final baseColor = currentStyle.color ?? style.body.color;
+    if (baseColor == null) {
+      return currentStyle;
+    }
+    final clampedOpacity = opacity.clamp(0.0, 1.0).toDouble();
+    return currentStyle.copyWith(
+      color: baseColor.withValues(alpha: baseColor.a * clampedOpacity),
+    );
   }
 }
 

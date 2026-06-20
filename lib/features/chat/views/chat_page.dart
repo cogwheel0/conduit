@@ -118,12 +118,6 @@ class _PinToTopState {
       streamingMessageId: streamingMessageId,
     );
   }
-
-  _PinToTopState clearTracking() => _PinToTopState._(
-    isActive: isActive,
-    userMessageId: null,
-    streamingMessageId: null,
-  );
 }
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -175,6 +169,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int _extentCacheInvalidationGeneration = 0;
   final Set<String> _pendingRowExtentInvalidationMessageIds = <String>{};
   bool _rowExtentInvalidationScheduled = false;
+  bool _pinToTopCompletionDismissScheduled = false;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -272,6 +267,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinToTopState = const _PinToTopState.inactive();
     _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
+    _pinToTopCompletionDismissScheduled = false;
     _isAnchoredToBottom = true;
 
     // Reset temporary chat state based on user preference
@@ -1345,6 +1341,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _pinToTopState = const _PinToTopState.inactive();
       _invalidateChatListStableLayoutMetadata();
       _endPinToTopInFlight = false;
+      _pinToTopCompletionDismissScheduled = false;
     }
     if (conversationId == null) {
       _pendingScrollAction = const _PendingChatScrollAction.none();
@@ -1624,6 +1621,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _endPinToTopInFlight = false;
 
+  void _scheduleEndPinToTopAfterStreamingCompletion() {
+    if (_pinToTopCompletionDismissScheduled) {
+      return;
+    }
+    _pinToTopCompletionDismissScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pinToTopCompletionDismissScheduled = false;
+      if (!mounted || !_wantsPinToTop) {
+        return;
+      }
+      if (_hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
+        return;
+      }
+      _endPinToTop(instant: true);
+    });
+  }
+
   void _dismissPinToTop({bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted) {
       return;
@@ -1637,9 +1651,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Transitions out of pin-to-top mode.
   ///
-  /// When [instant] is true (e.g. during streaming), uses jumpTo to
-  /// avoid competing with per-chunk scroll updates. When false (e.g.
-  /// streaming just completed), animates smoothly.
+  /// When [instant] is true, uses jumpTo to avoid competing with streaming
+  /// row-size corrections.
   void _endPinToTop({bool instant = false, bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
     if (_isUserInteractingWithScroll) {
@@ -1728,6 +1741,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildMessagesList(ThemeData theme, WidgetRef watchRef) {
     watchRef.watch(chatMessageStructureSignatureProvider);
+    // Rebuild the list shell only when streaming starts or ends so pin-to-top
+    // cleanup runs on completion without rebuilding on every streamed chunk.
+    watchRef.watch(isChatStreamingProvider);
     final messages = watchRef.read(chatMessagesProvider);
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
     final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
@@ -1860,7 +1876,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _scheduleExtentCacheInvalidation();
     }
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
-    final hasStreamingMessage = layoutMetadata.hasStreamingMessage;
+    final hasStreamingMessage = _hasActiveStreamingAssistant(messages);
 
     // Pin-to-top: detect new streaming response and scroll user message to top
     if (hasStreamingMessage && messages.length >= 2) {
@@ -1878,13 +1894,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollToUserMessage();
       }
     }
-    // Don't end pin-to-top when streaming completes. Keep the phantom sliver so
-    // the user message remains near the top; it dismisses on user scroll, new
-    // message, manual scroll-to-bottom, or conversation switch.
-    //
-    // Clear the pinned ID so the next message can activate pin-to-top.
-    if (!hasStreamingMessage && _pinnedStreamingId != null) {
-      _pinToTopState = _pinToTopState.clearTracking();
+    if (!hasStreamingMessage) {
+      if (_wantsPinToTop) {
+        _scheduleEndPinToTopAfterStreamingCompletion();
+      } else if (_pinnedStreamingId != null) {
+        _pinToTopState = const _PinToTopState.inactive();
+      }
     }
 
     final pinnedUserMessageIndex =
@@ -3164,13 +3179,11 @@ class _ChatListStableLayoutMetadata {
     required this.rows,
     required this.indexByMessageId,
     required this.indexByMessageKey,
-    required this.hasStreamingMessage,
   });
 
   final List<_ChatRowLayoutMetadata> rows;
   final Map<String, int> indexByMessageId;
   final Map<String, int> indexByMessageKey;
-  final bool hasStreamingMessage;
 
   double estimatedOffsetBefore(int targetIndex) {
     if (targetIndex <= 0 || targetIndex >= rows.length) {
@@ -3193,10 +3206,6 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
       ..write(message.model ?? '')
       ..write('\u0000')
       ..write(_messageModelNameFallback(message) ?? '')
-      ..write('\u0000')
-      ..write(message.isStreaming ? 1 : 0)
-      ..write('\u0000')
-      ..write(message.isStreaming ? -1 : message.content.trim().length)
       ..write('\u0000')
       ..write(message.attachmentIds?.length ?? 0)
       ..write('\u0000')
@@ -3243,12 +3252,10 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   final indexByMessageId = <String, int>{};
   final indexByMessageKey = <String, int>{};
   var leadingOffset = 0.0;
-  var hasStreamingMessage = false;
 
   for (var index = 0; index < messages.length; index++) {
     final message = messages[index];
     final isUser = message.role == 'user';
-    hasStreamingMessage = hasStreamingMessage || message.isStreaming;
     indexByMessageId[message.id] = index;
     indexByMessageKey['message-${message.id}'] = index;
 
@@ -3313,7 +3320,6 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
     rows: List<_ChatRowLayoutMetadata>.unmodifiable(rows),
     indexByMessageId: Map<String, int>.unmodifiable(indexByMessageId),
     indexByMessageKey: Map<String, int>.unmodifiable(indexByMessageKey),
-    hasStreamingMessage: hasStreamingMessage,
   );
 }
 
@@ -3523,25 +3529,6 @@ List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
   );
 }
 
-@visibleForTesting
-({bool isActive, String? userMessageId, String? streamingMessageId})
-debugClearPinToTopTrackingForTesting({
-  required bool isActive,
-  String? userMessageId,
-  String? streamingMessageId,
-}) {
-  final state = _PinToTopState._(
-    isActive: isActive,
-    userMessageId: userMessageId,
-    streamingMessageId: streamingMessageId,
-  ).clearTracking();
-  return (
-    isActive: state.isActive,
-    userMessageId: state.userMessageId,
-    streamingMessageId: state.streamingMessageId,
-  );
-}
-
 List<int> _selectMarkdownPrewarmCandidateIndices({
   required List<ChatMessage> messages,
   required _ChatListStableLayoutMetadata layoutMetadata,
@@ -3674,9 +3661,6 @@ double _estimateChatMessageExtent(
   var estimate = message.role == 'user' ? 84.0 : 132.0;
   estimate += estimatedLineCount * 22.0;
 
-  if (message.isStreaming) {
-    estimate += 56.0;
-  }
   if (message.error != null) {
     estimate += 64.0;
   }

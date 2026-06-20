@@ -63,6 +63,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.sources,
     this.onSourceTap,
     this.stateScopeId,
+    this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.debugTreatAsWidgetTest,
     this.debugOnCompiledViewMounted,
@@ -97,6 +98,9 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
 
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
+
+  /// Whether newly appended visible text should fade while streaming.
+  final bool enableStreamingTextFade;
 
   /// Controls how expensive preview-backed blocks should behave.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
@@ -165,6 +169,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
+      enableStreamingTextFade: widget.enableStreamingTextFade,
       heavyBlockPolicy: widget.heavyBlockPolicy,
       debugOnMounted: widget.debugOnCompiledViewMounted,
       debugOnDisposed: widget.debugOnCompiledViewDisposed,
@@ -219,6 +224,7 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.sources,
     this.onSourceTap,
     this.stateScopeId,
+    this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.debugOnMounted,
     this.debugOnDisposed,
@@ -230,6 +236,7 @@ class _CompiledMarkdownView extends StatefulWidget {
   final List<ChatSourceReference>? sources;
   final void Function(int sourceIndex)? onSourceTap;
   final String? stateScopeId;
+  final bool enableStreamingTextFade;
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
   final VoidCallback? debugOnMounted;
   final VoidCallback? debugOnDisposed;
@@ -238,17 +245,30 @@ class _CompiledMarkdownView extends StatefulWidget {
   State<_CompiledMarkdownView> createState() => _CompiledMarkdownViewState();
 }
 
-class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
+class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
+    with SingleTickerProviderStateMixin {
   InlineRenderer? _inlineRenderer;
   LatexPreprocessor _latexPreprocessor = LatexPreprocessor();
+  late final AnimationController _streamingTextFadeController;
+  late final CurvedAnimation _streamingTextFade;
   Future<void>? _latexStartupFuture;
   Timer? _latexStartupRetryTimer;
   int _latexStartupRetryCount = 0;
+  int? _streamingTextFadeStartOffset;
 
   @override
   void initState() {
     super.initState();
     widget.debugOnMounted?.call();
+    _streamingTextFadeController = AnimationController(
+      duration: const Duration(milliseconds: 320),
+      vsync: this,
+      value: 1,
+    )..addListener(_handleStreamingTextFadeTick);
+    _streamingTextFade = CurvedAnimation(
+      parent: _streamingTextFadeController,
+      curve: Curves.easeOutCubic,
+    );
     _hydrateDocument(widget.document);
   }
 
@@ -256,7 +276,11 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
   void didUpdateWidget(covariant _CompiledMarkdownView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.document != widget.document) {
+      _primeStreamingTextFade(oldWidget.document, widget.document);
       _hydrateDocument(widget.document);
+    } else if (!widget.enableStreamingTextFade &&
+        oldWidget.enableStreamingTextFade) {
+      _clearStreamingTextFade();
     }
   }
 
@@ -265,6 +289,8 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
     _cancelLatexStartupRetry();
     widget.debugOnDisposed?.call();
     _inlineRenderer?.disposeRecognizers();
+    _streamingTextFade.dispose();
+    _streamingTextFadeController.dispose();
     super.dispose();
   }
 
@@ -298,6 +324,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
         widget.onSourceTap,
         _latexStartupFuture,
         widget.heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager,
+        _buildStreamingTextFadeSpec(),
       );
 
       final blockRenderer = BlockRenderer(
@@ -313,7 +340,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
       );
 
       return switch (widget.document.renderTier) {
-        MarkdownRenderTier.plainText => _buildPlainText(style),
+        MarkdownRenderTier.plainText => _buildPlainText(),
         MarkdownRenderTier.richText => _buildRichText(style),
         MarkdownRenderTier.blocks => blockRenderer.renderCompiledBlocks(
           widget.document.blocks,
@@ -329,6 +356,61 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
         },
       );
     }
+  }
+
+  InlineTextFadeSpec? _buildStreamingTextFadeSpec() {
+    final startOffset = _streamingTextFadeStartOffset;
+    if (!widget.enableStreamingTextFade || startOffset == null) {
+      return null;
+    }
+    final opacity = _streamingTextFade.value;
+    if (opacity >= 1) {
+      return null;
+    }
+    return InlineTextFadeSpec(startOffset: startOffset, opacity: opacity);
+  }
+
+  void _primeStreamingTextFade(
+    CompiledMarkdownDocument previous,
+    CompiledMarkdownDocument next,
+  ) {
+    if (!widget.enableStreamingTextFade) {
+      _clearStreamingTextFade();
+      return;
+    }
+
+    final previousText = _visibleTextContent(previous);
+    final nextText = _visibleTextContent(next);
+    if (previousText.isEmpty || nextText.length <= previousText.length) {
+      _clearStreamingTextFade();
+      return;
+    }
+
+    final commonPrefixLength = _commonPrefixLength(previousText, nextText);
+    if (commonPrefixLength >= nextText.length) {
+      _clearStreamingTextFade();
+      return;
+    }
+
+    _streamingTextFadeStartOffset = commonPrefixLength;
+    _streamingTextFadeController.value = 0;
+    _streamingTextFadeController.forward();
+  }
+
+  void _clearStreamingTextFade() {
+    _streamingTextFadeStartOffset = null;
+    _streamingTextFadeController.value = 1;
+  }
+
+  void _handleStreamingTextFadeTick() {
+    if (!mounted || _streamingTextFadeStartOffset == null) {
+      return;
+    }
+    setState(() {
+      if (_streamingTextFade.value >= 1) {
+        _streamingTextFadeStartOffset = null;
+      }
+    });
   }
 
   void _hydrateDocument(CompiledMarkdownDocument document) {
@@ -404,18 +486,18 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView> {
     return Duration(milliseconds: 200 * (1 << clampedRetryCount));
   }
 
-  Widget _buildPlainText(ConduitMarkdownStyle style) {
+  Widget _buildPlainText() {
     final text = _plainTextContent(widget.document);
     if (text.trim().isEmpty) {
       return const SizedBox.shrink();
     }
-    return Text(text, style: style.body);
+    return Text.rich(_inlineRenderer!.render([CompiledMarkdownText(text)]));
   }
 
   Widget _buildRichText(ConduitMarkdownStyle style) {
     final inlineNodes = _richInlineNodes(widget.document);
     if (inlineNodes.isEmpty) {
-      return _buildPlainText(style);
+      return _buildPlainText();
     }
     return Text.rich(_inlineRenderer!.render(inlineNodes));
   }
@@ -449,4 +531,23 @@ List<CompiledMarkdownNode> _richInlineNodes(CompiledMarkdownDocument document) {
     return node.children;
   }
   return <CompiledMarkdownNode>[node];
+}
+
+String _visibleTextContent(CompiledMarkdownDocument document) {
+  if (document.nodes.isEmpty) {
+    return '';
+  }
+  return document.nodes.map((node) => node.textContent).join();
+}
+
+int _commonPrefixLength(String previous, String next) {
+  final maxLength = previous.length < next.length
+      ? previous.length
+      : next.length;
+  var index = 0;
+  while (index < maxLength &&
+      previous.codeUnitAt(index) == next.codeUnitAt(index)) {
+    index += 1;
+  }
+  return index;
 }

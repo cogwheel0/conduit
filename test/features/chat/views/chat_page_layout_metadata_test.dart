@@ -111,6 +111,48 @@ void main() {
     expect(updatedSignature, initialSignature);
   });
 
+  test('layout signature ignores streaming completion-only changes', () {
+    final streamingMessage = ChatMessage(
+      id: 'assistant-streaming',
+      role: 'assistant',
+      content: 'Final response',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      isStreaming: true,
+      attachmentIds: const ['attachment-1'],
+      statusHistory: const [ChatStatusUpdate(description: 'Done')],
+    );
+    final completedMessage = streamingMessage.copyWith(isStreaming: false);
+
+    final streamingSignature =
+        debugBuildChatListStableLayoutSignatureForTesting([streamingMessage]);
+    final completedSignature =
+        debugBuildChatListStableLayoutSignatureForTesting([completedMessage]);
+
+    expect(completedSignature, streamingSignature);
+  });
+
+  test('layout estimates stay stable when streaming completes', () {
+    final streamingMessage = ChatMessage(
+      id: 'assistant-streaming',
+      role: 'assistant',
+      content: 'Final response with enough text to get a real height estimate.',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      isStreaming: true,
+    );
+    final completedMessage = streamingMessage.copyWith(isStreaming: false);
+
+    final streamingExtent = debugEstimateMessageListExtentForTesting([
+      streamingMessage,
+    ], index: 0);
+    final completedExtent = debugEstimateMessageListExtentForTesting([
+      completedMessage,
+    ], index: 0);
+
+    expect(completedExtent, streamingExtent);
+  });
+
   test('layout signature changes for structural layout inputs', () {
     final baseMessage = ChatMessage(
       id: 'assistant-1',
@@ -509,17 +551,5 @@ void main() {
 
     expect(whilePinnedToTop, isFalse);
     expect(whileUserScrolling, isFalse);
-  });
-
-  test('clearing pin-to-top tracking preserves the active phantom sliver', () {
-    final cleared = debugClearPinToTopTrackingForTesting(
-      isActive: true,
-      userMessageId: 'user-1',
-      streamingMessageId: 'assistant-1',
-    );
-
-    expect(cleared.isActive, isTrue);
-    expect(cleared.userMessageId, isNull);
-    expect(cleared.streamingMessageId, isNull);
   });
 }
