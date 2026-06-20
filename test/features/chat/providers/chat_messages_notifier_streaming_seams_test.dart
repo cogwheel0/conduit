@@ -388,6 +388,52 @@ void main() {
     );
 
     test(
+      'preserved follow-ups also overwrite a stale empty followUps key in '
+      'server metadata',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer',
+          followUps: const ['Ask again'],
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, localAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Server snapshot drops the follow-ups AND carries an explicit empty
+        // followUps in its metadata map.
+        final serverAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer',
+          metadata: const {'followUps': <String>[]},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, serverAssistant]));
+        await Future<void>.delayed(Duration.zero);
+
+        final adopted = container.read(chatMessagesProvider).last;
+        check(adopted.followUps).deepEquals(['Ask again']);
+        // The metadata mirror must match the typed field, not stay stale [].
+        check(
+          (adopted.metadata?['followUps'] as List).cast<String>(),
+        ).deepEquals(['Ask again']);
+      },
+    );
+
+    test(
       'content-preserving snapshot keeps local-only metadata (modelName) '
       'when the server snapshot lacks it',
       () async {

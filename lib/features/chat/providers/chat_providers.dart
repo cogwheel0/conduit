@@ -908,10 +908,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ...?serverMessage.metadata,
       };
       if (shouldPreserveFollowUps) {
-        metadata.putIfAbsent(
-          'followUps',
-          () => List<String>.from(localMessage.followUps),
-        );
+        // Overwrite (not putIfAbsent): the merged map may carry a stale
+        // `followUps` from the server snapshot (e.g. an explicit empty list),
+        // which must mirror the preserved typed `.followUps` field below.
+        metadata['followUps'] = List<String>.from(localMessage.followUps);
       }
       merged.add(
         serverMessage.copyWith(
