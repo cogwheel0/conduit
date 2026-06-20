@@ -239,7 +239,6 @@ void main() {
               'timestamp': 1700000000,
               'model': 'openai/gpt-4o',
               'modelName': 'GPT-4o',
-              'modelIdx': 0,
             },
           ],
         });
@@ -248,7 +247,6 @@ void main() {
         final metadata = messages.first['metadata'] as Map<String, dynamic>;
         check(messages.first['model']).equals('openai/gpt-4o');
         check(metadata['modelName']).equals('GPT-4o');
-        check(metadata['modelIdx']).equals(0);
       });
     });
 

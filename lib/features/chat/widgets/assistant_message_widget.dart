@@ -608,14 +608,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Widget _buildStreamingContentBody() {
     final body = _buildMessageContent();
-    if (_disableAnimations ||
-        !_uiTreatsAsStreaming ||
-        _displayedContent.trim().isEmpty) {
-      return body;
-    }
+    // Always wrap in a FadeTransition with a stable key/type so the widget at
+    // this slot does not change runtimeType when streaming starts/completes.
+    // Toggling between FadeTransition and the bare body would defeat element
+    // reconciliation and tear down the markdown subtree at the streaming
+    // boundary. When not actively fading we feed a fully-opaque constant
+    // animation, which is visually identical to returning the bare body.
+    final fade = _canFadeStreamingContent(_displayedContent)
+        ? _streamingContentFade
+        : const AlwaysStoppedAnimation<double>(1.0);
     return FadeTransition(
       key: const ValueKey('assistant-streaming-content-fade'),
-      opacity: _streamingContentFade,
+      opacity: fade,
       child: body,
     );
   }

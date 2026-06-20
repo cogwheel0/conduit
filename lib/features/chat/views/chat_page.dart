@@ -3057,11 +3057,16 @@ String _formatChatModelDisplayName(String name) {
 }) {
   final trimmedModel = rawModel?.trim();
   final trimmedFallback = fallbackModelName?.trim();
+  final fallback = trimmedFallback == null || trimmedFallback.isEmpty
+      ? null
+      : trimmedFallback;
   if (trimmedModel == null || trimmedModel.isEmpty) {
-    final fallback = trimmedFallback == null || trimmedFallback.isEmpty
-        ? null
-        : _formatChatModelDisplayName(trimmedFallback);
-    return (displayName: fallback, matchedModel: null);
+    return (
+      displayName: fallback == null
+          ? null
+          : _formatChatModelDisplayName(fallback),
+      matchedModel: null,
+    );
   }
 
   final matched = modelLookup?[trimmedModel];
@@ -3084,11 +3089,7 @@ String _formatChatModelDisplayName(String name) {
   }
 
   return (
-    displayName: _formatChatModelDisplayName(
-      trimmedFallback == null || trimmedFallback.isEmpty
-          ? trimmedModel
-          : trimmedFallback,
-    ),
+    displayName: _formatChatModelDisplayName(fallback ?? trimmedModel),
     matchedModel: null,
   );
 }

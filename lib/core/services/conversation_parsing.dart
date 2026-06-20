@@ -427,11 +427,6 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     metadata['modelName'] = modelName;
   }
 
-  final modelIdx = _extractOpenWebUiModelIdx(msgData, historyMsg);
-  if (modelIdx != null) {
-    metadata['modelIdx'] = modelIdx;
-  }
-
   return metadata.isEmpty ? null : metadata;
 }
 
@@ -446,20 +441,6 @@ String? _extractOpenWebUiModelName(
       msgData['model_name'];
   final value = raw?.toString().trim();
   return value == null || value.isEmpty ? null : value;
-}
-
-int? _extractOpenWebUiModelIdx(
-  Map<String, dynamic> msgData,
-  Map<String, dynamic>? historyMsg,
-) {
-  final raw =
-      historyMsg?['modelIdx'] ??
-      historyMsg?['model_idx'] ??
-      msgData['modelIdx'] ??
-      msgData['model_idx'];
-  if (raw is int) return raw;
-  if (raw is num) return raw.toInt();
-  return int.tryParse(raw?.toString() ?? '');
 }
 
 Map<String, dynamic> _parseOpenWebUIMessageToJson(

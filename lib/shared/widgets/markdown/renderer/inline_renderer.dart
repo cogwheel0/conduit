@@ -82,6 +82,21 @@ class InlineRenderer {
 
   int _visibleTextOffset = 0;
 
+  /// Advances the streaming-fade text offset by [length] without emitting any
+  /// fadable span.
+  ///
+  /// The streaming-fade [startOffset] is computed against the document-wide
+  /// `textContent` coordinate space. Block paths that emit text without routing
+  /// it through [_renderFadableText] (e.g. code-block bodies in the `blocks`
+  /// render tier) would otherwise leave [_visibleTextOffset] short of that
+  /// coordinate space, mis-sizing the faded tail for any streaming text that
+  /// follows. Callers advance the offset by the bypassed text length to keep
+  /// it aligned with `document.nodes` textContent.
+  void advanceVisibleTextOffset(int length) {
+    if (length <= 0) return;
+    _visibleTextOffset += length;
+  }
+
   /// Disposes all gesture recognizers created during
   /// rendering and clears the internal list.
   void disposeRecognizers() {
@@ -153,6 +168,11 @@ class InlineRenderer {
         }
         continue;
       }
+      // Keep the streaming-fade offset aligned with the document-wide
+      // textContent coordinate space, which still contains the placeholder
+      // token. The LaTeX WidgetSpan itself does not fade, so advance the
+      // offset by the consumed placeholder token length.
+      _visibleTextOffset += segment.placeholderLength;
       spans.add(
         WidgetSpan(
           alignment: PlaceholderAlignment.middle,
@@ -194,6 +214,9 @@ class InlineRenderer {
         continue;
       }
       if (segment is CompiledMarkdownLatexSegment) {
+        // Advance the streaming-fade offset by the placeholder token length so
+        // it stays aligned with the document-wide textContent coordinate space.
+        _visibleTextOffset += segment.placeholderLength;
         spans.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,

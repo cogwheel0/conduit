@@ -1258,10 +1258,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('Plain streaming sentence.'),
@@ -1307,10 +1303,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('[docs]: https://example.com'),
@@ -1361,10 +1353,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1406,10 +1394,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1451,10 +1435,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1496,10 +1476,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1541,10 +1517,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1586,10 +1558,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1633,10 +1601,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1679,10 +1643,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1726,10 +1686,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1771,10 +1727,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1816,10 +1768,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
 
         await tester.pumpWidget(
@@ -1831,10 +1779,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();

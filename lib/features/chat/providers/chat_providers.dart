@@ -92,6 +92,15 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
         ..write('\u0000')
+        // Include the displayed model-name fallback so the structure signature
+        // changes whenever the label changes, keeping the list-shell rebuild
+        // trigger in agreement with chat_page's layout signature.
+        ..write(
+          message.metadata?['modelName'] ??
+              message.metadata?['model_name'] ??
+              '',
+        )
+        ..write('\u0000')
         ..write(message.versions.length);
       for (final version in message.versions) {
         buffer
@@ -1805,9 +1814,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void failLastStreamingAssistant(Object error) {
-    if (state.isEmpty) return;
+    if (state.isEmpty) {
+      // No placeholder to mark failed, but still release any dangling
+      // streaming/transport bookkeeping so a generic recovery catch cannot
+      // leave streaming state hung.
+      finishStreaming();
+      return;
+    }
     final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
+      // The last message is no longer a streaming assistant (e.g. completed,
+      // or reshaped by a concurrent server adoption). There is no placeholder
+      // to attach the error to, but finishStreaming() is idempotent and
+      // releases transport/profile state, matching the prior unconditional
+      // cleanup this helper replaced.
+      finishStreaming();
+      return;
+    }
 
     final chatError = ChatMessageError(
       content: chatErrorContentForException(error),
@@ -2590,6 +2613,12 @@ Future<String> _preseedAssistantAndPersist(
       ? existingAssistantId
       : const Uuid().v4();
 
+  final trimmedModelName = modelName?.trim();
+  final modelNameMetadata = <String, dynamic>{
+    if (trimmedModelName != null && trimmedModelName.isNotEmpty)
+      'modelName': trimmedModelName,
+  };
+
   // If the message with this id doesn't exist locally, add a placeholder
   final msgs = ref.read(chatMessagesProvider);
   final exists = msgs.any((m) => m.id == assistantMessageId);
@@ -2601,10 +2630,7 @@ Future<String> _preseedAssistantAndPersist(
       timestamp: DateTime.now(),
       model: modelId,
       isStreaming: true,
-      metadata: {
-        if (modelName != null && modelName.trim().isNotEmpty)
-          'modelName': modelName.trim(),
-      },
+      metadata: modelNameMetadata,
     );
     ref.read(chatMessagesProvider.notifier).addMessage(placeholder);
   } else {
@@ -2622,8 +2648,7 @@ Future<String> _preseedAssistantAndPersist(
             isStreaming: true,
             metadata: {
               ...?notifier._metadataWithoutResponseDone(m.metadata),
-              if (modelName != null && modelName.trim().isNotEmpty)
-                'modelName': modelName.trim(),
+              ...modelNameMetadata,
             },
           ),
         );
@@ -4511,7 +4536,8 @@ Future<void> durableSend(
     metadata: {
       'parentId': userMessageId,
       'childrenIds': const <String>[],
-      'modelName': selectedModel.name,
+      if (selectedModel.name.trim().isNotEmpty)
+        'modelName': selectedModel.name.trim(),
     },
   );
   ref.read(chatMessagesProvider.notifier).addMessages([
@@ -4991,7 +5017,8 @@ Future<void> _sendMessageInternal(
     metadata: {
       'parentId': userMessageId,
       'childrenIds': const <String>[],
-      'modelName': selectedModel.name,
+      if (selectedModel.name.trim().isNotEmpty)
+        'modelName': selectedModel.name.trim(),
     },
   );
   ref.read(chatMessagesProvider.notifier).addMessages([
@@ -5494,13 +5521,10 @@ Future<void> _sendMessageInternal(
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+    notifier.failLastStreamingAssistant(e);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
-      // Still convert the placeholder so the UI is consistent.
-      notifier.failLastStreamingAssistant(e);
       ref.invalidate(authStateManagerProvider);
-    } else {
-      notifier.failLastStreamingAssistant(e);
     }
   }
 }

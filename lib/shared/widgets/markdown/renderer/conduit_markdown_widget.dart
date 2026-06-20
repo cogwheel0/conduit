@@ -392,6 +392,16 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       return;
     }
 
+    // Only fade when `next` is a true append of `previous`. Streaming markdown
+    // is not strictly append-only: as content grows the compiler can
+    // re-segment earlier text (e.g. a lone `*` becoming part of `**bold**`).
+    // If the common prefix diverges before the end of `previousText`, fading
+    // from that point would re-fade already-visible, stable text and flicker.
+    if (commonPrefixLength < previousText.length) {
+      _clearStreamingTextFade();
+      return;
+    }
+
     _streamingTextFadeStartOffset = commonPrefixLength;
     _streamingTextFadeController.value = 0;
     _streamingTextFadeController.forward();
@@ -534,9 +544,6 @@ List<CompiledMarkdownNode> _richInlineNodes(CompiledMarkdownDocument document) {
 }
 
 String _visibleTextContent(CompiledMarkdownDocument document) {
-  if (document.nodes.isEmpty) {
-    return '';
-  }
   return document.nodes.map((node) => node.textContent).join();
 }
 
@@ -548,6 +555,20 @@ int _commonPrefixLength(String previous, String next) {
   while (index < maxLength &&
       previous.codeUnitAt(index) == next.codeUnitAt(index)) {
     index += 1;
+  }
+  // The split offset is later used to slice TextSpans. Snap it off any
+  // surrogate-pair boundary so the fade never splits a non-BMP character
+  // (e.g. emoji) into lone surrogate halves, which would render as tofu/
+  // replacement glyphs during the fade animation.
+  if (index > 0 && index < next.length) {
+    final highSurrogate = next.codeUnitAt(index - 1);
+    final lowSurrogate = next.codeUnitAt(index);
+    if (highSurrogate >= 0xD800 &&
+        highSurrogate <= 0xDBFF &&
+        lowSurrogate >= 0xDC00 &&
+        lowSurrogate <= 0xDFFF) {
+      index -= 1;
+    }
   }
   return index;
 }

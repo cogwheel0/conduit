@@ -904,9 +904,13 @@ void main() {
           activeConversationId: 'conv-1',
         );
 
-        await pumpMicrotasks();
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        for (var i = 0; i < 3; i++) {
+        // The post-completion snapshot refresh is an unawaited Future chain
+        // (ensureChatCompletedSynced -> refreshConversationSnapshot) with no
+        // production Timer of its own; against the fake API it settles on the
+        // event queue. Pump microtasks repeatedly to let it complete instead of
+        // waiting on a magic wall-clock delay that could silently fall out of
+        // sync with production timing.
+        for (var i = 0; i < 20; i++) {
           await pumpMicrotasks();
         }
 

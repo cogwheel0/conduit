@@ -573,10 +573,14 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('assistant-streaming-content-fade')),
-      findsNothing,
+    // The fade wrapper is always present (its type stays stable to avoid
+    // tearing down the markdown subtree at streaming boundaries), but it is
+    // fully opaque while there is no content to fade in.
+    final initialFadeFinder = find.byKey(
+      const ValueKey('assistant-streaming-content-fade'),
     );
+    expect(initialFadeFinder, findsOneWidget);
+    expect(tester.widget<FadeTransition>(initialFadeFinder).opacity.value, 1);
 
     await tester.pumpWidget(
       _buildAssistantHarness(streamingMessage('Hello'), isStreaming: true),
@@ -682,10 +686,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey('assistant-streaming-plain-text')),
-        findsNothing,
-      );
       expect(find.byType(SelectionArea), findsOneWidget);
     },
   );

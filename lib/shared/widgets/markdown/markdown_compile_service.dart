@@ -700,6 +700,7 @@ List<CompiledMarkdownInlineSegment> _compileInlineSegments(
         CompiledMarkdownLatexSegment(
           tex: latexSegment.content,
           isBlock: latexSegment.isBlock,
+          placeholderLength: latexSegment.placeholderLength,
         ),
       );
       continue;
