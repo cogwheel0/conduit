@@ -381,7 +381,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
 
         if (next != null) {
-          state = next.messages;
+          final nextMessages = next.messages;
+          final currentMessagesAlreadyVisible =
+              state.isNotEmpty &&
+              !_messagesDifferByStreamingSignatures(nextMessages, state);
+          if (!currentMessagesAlreadyVisible) {
+            state = nextMessages;
+          }
           _syncStreamingProfileWithState();
 
           // Update selected model if conversation has a different model

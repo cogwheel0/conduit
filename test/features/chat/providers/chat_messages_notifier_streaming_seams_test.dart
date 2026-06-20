@@ -142,6 +142,49 @@ void main() {
       },
     );
 
+    test(
+      'first conversation activation preserves optimistic stream row',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final assistantMessage = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: true,
+        );
+        notifier.addMessages([userMessage, assistantMessage]);
+        final optimisticMessages = container.read(chatMessagesProvider);
+
+        var notifications = 0;
+        final subscription = container.listen<List<ChatMessage>>(
+          chatMessagesProvider,
+          (_, _) => notifications += 1,
+          fireImmediately: false,
+        );
+        addTearDown(subscription.close);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('local:first', [userMessage, assistantMessage]));
+        await Future<void>.delayed(Duration.zero);
+
+        check(notifications).equals(0);
+        check(
+          identical(container.read(chatMessagesProvider), optimisticMessages),
+        ).isTrue();
+
+        notifier.clearMessages();
+      },
+    );
+
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
       addTearDown(container.dispose);
