@@ -86,8 +86,10 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // `run.stopped`). `run.completed` carries the full `output` as a fallback.
   if (eventType != null && eventType.startsWith('run.')) {
     final status = eventType.substring('run.'.length);
-    if (status == 'completed' || status == 'failed' ||
-        status == 'cancelled' || status == 'stopped') {
+    if (status == 'completed' ||
+        status == 'failed' ||
+        status == 'cancelled' ||
+        status == 'stopped') {
       if (status == 'failed') {
         yield HermesRunError(_str(data['error']) ?? 'Hermes run failed.');
       } else {
@@ -272,10 +274,16 @@ bool _isTerminal(String status) =>
 bool _isTruthyError(dynamic error) {
   if (error == null) return false;
   if (error is bool) return error;
+  // Python servers often send `error: 0` (int) as a non-error marker.
+  if (error is num) return error != 0;
   if (error is Map) return error.isNotEmpty;
   if (error is String) {
     final v = error.trim().toLowerCase();
-    return v.isNotEmpty && v != 'false' && v != 'none' && v != 'null' && v != '0';
+    return v.isNotEmpty &&
+        v != 'false' &&
+        v != 'none' &&
+        v != 'null' &&
+        v != '0';
   }
   return true;
 }

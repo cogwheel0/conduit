@@ -1061,13 +1061,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
     }
 
+    // If Hermes was disabled/invalidated between display and tap, the service is
+    // null and `?.resolveApproval` would silently no-op while the UI claimed
+    // success — leaving the server-side run blocked. Keep the gate decidable.
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) {
+      DebugLogger.warning('approval-no-service', scope: 'chat/hermes_approval');
+      setApprovalState('pending');
+      return;
+    }
+
     setApprovalState('resolving');
     try {
-      await ref
-          .read(hermesApiServiceProvider)
-          ?.resolveApproval(runId, approvalId: approvalId, approved: approved);
-    } catch (_) {
+      await service.resolveApproval(
+        runId,
+        approvalId: approvalId,
+        approved: approved,
+      );
+    } catch (error) {
       // Surface failure by returning the gate to a decidable state.
+      DebugLogger.error(
+        'approval-resolve-failed',
+        scope: 'chat/hermes_approval',
+        error: error,
+      );
       setApprovalState('pending');
       return;
     }
