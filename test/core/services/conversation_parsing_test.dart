@@ -227,6 +227,29 @@ void main() {
         check(messages).length.equals(1);
         check(messages.first['content']).equals('Hi there');
       });
+
+      test('preserves Open WebUI modelName as display metadata', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+              'model': 'openai/gpt-4o',
+              'modelName': 'GPT-4o',
+              'modelIdx': 0,
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.first['metadata'] as Map<String, dynamic>;
+        check(messages.first['model']).equals('openai/gpt-4o');
+        check(metadata['modelName']).equals('GPT-4o');
+        check(metadata['modelIdx']).equals(0);
+      });
     });
 
     group('extracts messages from history', () {

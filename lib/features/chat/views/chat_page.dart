@@ -842,10 +842,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               }),
         );
       } catch (e) {
-        DebugLogger.log(
-          'Pasted upload prep failed: $e',
-          scope: 'chat/page',
-        );
+        DebugLogger.log('Pasted upload prep failed: $e', scope: 'chat/page');
       }
     }
 
@@ -3039,12 +3036,17 @@ String _formatChatModelDisplayName(String name) {
 
 ({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
   required String? rawModel,
+  String? fallbackModelName,
   required List<Model>? models,
   Map<String, Model>? modelLookup,
 }) {
   final trimmedModel = rawModel?.trim();
+  final trimmedFallback = fallbackModelName?.trim();
   if (trimmedModel == null || trimmedModel.isEmpty) {
-    return (displayName: null, matchedModel: null);
+    final fallback = trimmedFallback == null || trimmedFallback.isEmpty
+        ? null
+        : _formatChatModelDisplayName(trimmedFallback);
+    return (displayName: fallback, matchedModel: null);
   }
 
   final matched = modelLookup?[trimmedModel];
@@ -3067,9 +3069,19 @@ String _formatChatModelDisplayName(String name) {
   }
 
   return (
-    displayName: _formatChatModelDisplayName(trimmedModel),
+    displayName: _formatChatModelDisplayName(
+      trimmedFallback == null || trimmedFallback.isEmpty
+          ? trimmedModel
+          : trimmedFallback,
+    ),
     matchedModel: null,
   );
+}
+
+String? _messageModelNameFallback(ChatMessage message) {
+  final raw = message.metadata?['modelName'] ?? message.metadata?['model_name'];
+  final value = raw?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
 }
 
 Map<String, Model>? _buildChatModelLookup(List<Model>? models) {
@@ -3180,6 +3192,8 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
       ..write('\u0000')
       ..write(message.model ?? '')
       ..write('\u0000')
+      ..write(_messageModelNameFallback(message) ?? '')
+      ..write('\u0000')
       ..write(message.isStreaming ? 1 : 0)
       ..write('\u0000')
       ..write(message.isStreaming ? -1 : message.content.trim().length)
@@ -3208,7 +3222,9 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
     for (final version in message.versions) {
       buffer
         ..write('\u0000')
-        ..write(version.model ?? '');
+        ..write(version.model ?? '')
+        ..write('\u0000')
+        ..write(version.modelName ?? '');
     }
     buffer.writeln();
   }
@@ -3238,6 +3254,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
 
     final modelPresentation = _resolveChatModelPresentation(
       rawModel: message.model,
+      fallbackModelName: _messageModelNameFallback(message),
       models: models,
       modelLookup: modelLookup,
     );
@@ -3246,6 +3263,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
     for (final version in message.versions) {
       final versionPresentation = _resolveChatModelPresentation(
         rawModel: version.model,
+        fallbackModelName: version.modelName,
         models: models,
         modelLookup: modelLookup,
       );
@@ -3386,6 +3404,7 @@ List<
     double estimatedExtent,
     bool isArchivedVariant,
     bool showFollowUps,
+    String? displayModelName,
   })
 >
 debugBuildChatListLayoutSummaryForTesting(
@@ -3405,6 +3424,7 @@ debugBuildChatListLayoutSummaryForTesting(
           estimatedExtent: row.estimatedExtent,
           isArchivedVariant: row.isArchivedVariant,
           showFollowUps: row.showFollowUps,
+          displayModelName: row.displayModelName,
         ),
       )
       .toList(growable: false);

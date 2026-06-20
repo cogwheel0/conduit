@@ -1672,6 +1672,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  void addMessages(List<ChatMessage> messages) {
+    if (messages.isEmpty) return;
+    state = [...state, ...messages];
+    for (final message in messages.reversed) {
+      if (message.role == 'assistant' && message.isStreaming) {
+        _beginStreamingProfile(message);
+        _touchStreamingActivity();
+        break;
+      }
+    }
+  }
+
   void removeLastMessage() {
     if (state.isNotEmpty) {
       state = state.sublist(0, state.length - 1);
@@ -2410,6 +2422,7 @@ ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
     content: message.content,
     timestamp: message.timestamp,
     model: message.model,
+    modelName: _messageModelName(message),
     files: message.files == null
         ? null
         : List<Map<String, dynamic>>.from(message.files!),
@@ -2429,6 +2442,12 @@ ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
   );
 }
 
+String? _messageModelName(ChatMessage message) {
+  final raw = message.metadata?['modelName'] ?? message.metadata?['model_name'];
+  final value = raw?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
 List<ChatMessageVersion> _buildReplayVersions(ChatMessage message) {
   return [...message.versions, _buildAssistantVersionSnapshot(message)];
 }
@@ -2441,6 +2460,7 @@ Future<String> _preseedAssistantAndPersist(
   dynamic ref, {
   String? existingAssistantId,
   required String modelId,
+  String? modelName,
 }) async {
   // Choose id: reuse existing if provided, else create new
   final String assistantMessageId =
@@ -2459,6 +2479,10 @@ Future<String> _preseedAssistantAndPersist(
       timestamp: DateTime.now(),
       model: modelId,
       isStreaming: true,
+      metadata: {
+        if (modelName != null && modelName.trim().isNotEmpty)
+          'modelName': modelName.trim(),
+      },
     );
     ref.read(chatMessagesProvider.notifier).addMessage(placeholder);
   } else {
@@ -2474,7 +2498,11 @@ Future<String> _preseedAssistantAndPersist(
         notifier.updateLastMessageWithFunction(
           (ChatMessage m) => m.copyWith(
             isStreaming: true,
-            metadata: notifier._metadataWithoutResponseDone(m.metadata),
+            metadata: {
+              ...?notifier._metadataWithoutResponseDone(m.metadata),
+              if (modelName != null && modelName.trim().isNotEmpty)
+                'modelName': modelName.trim(),
+            },
           ),
         );
       }
@@ -3475,6 +3503,7 @@ Future<void> regenerateMessage(
       timestamp: DateTime.now(),
       model: selectedModel.id,
       isStreaming: true,
+      metadata: {'modelName': selectedModel.name},
     );
     ref.read(chatMessagesProvider.notifier).addMessage(assistantMessage);
 
@@ -3603,6 +3632,7 @@ Future<void> regenerateMessage(
       ref,
       existingAssistantId: null,
       modelId: selectedModel.id,
+      modelName: selectedModel.name,
     );
 
     // Attach previous assistant as a version snapshot to the new assistant
@@ -3816,6 +3846,9 @@ Future<void> runQueuedCompletion(
   // Empty model => fall back to the selected default model (mirrors the
   // migrator's empty-model contract). A still-empty model is a hard error.
   final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
+  final effectiveModelName = selectedModel?.id == effectiveModelId
+      ? selectedModel?.name
+      : null;
   if (effectiveModelId.isEmpty) {
     throw StateError('runQueuedCompletion has no model to send');
   }
@@ -3857,6 +3890,7 @@ Future<void> runQueuedCompletion(
     ref,
     existingAssistantId: assistantMessageId,
     modelId: effectiveModelId,
+    modelName: effectiveModelName,
   );
 
   final Map<String, dynamic> modelItem =
@@ -4345,7 +4379,6 @@ Future<void> durableSend(
       'models': <String>[selectedModel.id],
     },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
@@ -4353,9 +4386,16 @@ Future<void> durableSend(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     isStreaming: true,
-    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+    metadata: {
+      'parentId': userMessageId,
+      'childrenIds': const <String>[],
+      'modelName': selectedModel.name,
+    },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  ref.read(chatMessagesProvider.notifier).addMessages([
+    userMessage,
+    assistantPlaceholder,
+  ]);
 
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];
@@ -4783,9 +4823,6 @@ Future<void> _sendMessageInternal(
     },
   );
 
-  // Add user message to UI immediately for instant feedback
-  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
-
   // Add assistant placeholder immediately to show typing indicator right away
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
@@ -4794,9 +4831,16 @@ Future<void> _sendMessageInternal(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     isStreaming: true,
-    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+    metadata: {
+      'parentId': userMessageId,
+      'childrenIds': const <String>[],
+      'modelName': selectedModel.name,
+    },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  ref.read(chatMessagesProvider.notifier).addMessages([
+    userMessage,
+    assistantPlaceholder,
+  ]);
 
   // Now do async work in parallel: user settings + server file info
   String? userSystemPrompt;

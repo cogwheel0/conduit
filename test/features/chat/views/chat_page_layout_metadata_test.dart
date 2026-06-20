@@ -65,6 +65,26 @@ void main() {
     },
   );
 
+  test(
+    'layout metadata uses Open WebUI modelName before model lookup loads',
+    () {
+      final messages = <ChatMessage>[
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Visible response',
+          timestamp: DateTime(2026),
+          model: 'openai/gpt-4o',
+          metadata: const {'modelName': 'GPT-4o'},
+        ),
+      ];
+
+      final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+
+      expect(summary.single.displayModelName, 'GPT-4o');
+    },
+  );
+
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
       id: 'assistant-streaming',

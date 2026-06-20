@@ -147,6 +147,7 @@ abstract class ChatMessageVersion with _$ChatMessageVersion {
     required String content,
     required DateTime timestamp,
     String? model,
+    String? modelName,
     List<Map<String, dynamic>>? files,
     List<Map<String, dynamic>>? output,
     List<Map<String, dynamic>>? embeds,

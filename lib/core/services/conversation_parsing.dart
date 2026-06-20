@@ -316,12 +316,14 @@ Map<String, dynamic>? _parseSiblingAsVersion(
       : msgData['codeExecutions'] ?? msgData['code_executions'];
   final rawUsage = _coerceJsonMap(historyMsg?['usage'] ?? msgData['usage']);
   final errorData = _extractErrorData(msgData, historyMsg);
+  final modelName = _extractOpenWebUiModelName(msgData, historyMsg);
 
   return <String, dynamic>{
     'id': (msgData['id'] ?? _uuid.v4()).toString(),
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
     if (msgData['model'] != null) 'model': msgData['model'].toString(),
+    'modelName': ?modelName,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
     'sources': _parseSourcesField(sourcesRaw),
@@ -420,7 +422,44 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     }
   }
 
+  final modelName = _extractOpenWebUiModelName(msgData, historyMsg);
+  if (modelName != null) {
+    metadata['modelName'] = modelName;
+  }
+
+  final modelIdx = _extractOpenWebUiModelIdx(msgData, historyMsg);
+  if (modelIdx != null) {
+    metadata['modelIdx'] = modelIdx;
+  }
+
   return metadata.isEmpty ? null : metadata;
+}
+
+String? _extractOpenWebUiModelName(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final raw =
+      historyMsg?['modelName'] ??
+      historyMsg?['model_name'] ??
+      msgData['modelName'] ??
+      msgData['model_name'];
+  final value = raw?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
+int? _extractOpenWebUiModelIdx(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final raw =
+      historyMsg?['modelIdx'] ??
+      historyMsg?['model_idx'] ??
+      msgData['modelIdx'] ??
+      msgData['model_idx'];
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return int.tryParse(raw?.toString() ?? '');
 }
 
 Map<String, dynamic> _parseOpenWebUIMessageToJson(

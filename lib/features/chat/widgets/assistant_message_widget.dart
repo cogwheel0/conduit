@@ -781,6 +781,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     if (_activeVersionIndex >= 0 &&
         _activeVersionIndex < widget.message.versions.length) {
+      final rawVersionModelName = widget
+          .message
+          .versions[_activeVersionIndex]
+          .modelName
+          ?.trim();
+      if (rawVersionModelName != null && rawVersionModelName.isNotEmpty) {
+        return rawVersionModelName;
+      }
       final rawVersionModel = widget.message.versions[_activeVersionIndex].model
           ?.trim();
       if (rawVersionModel != null && rawVersionModel.isNotEmpty) {
@@ -966,7 +974,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
     for (var index = 0; index < oldVersions.length; index += 1) {
       if (oldVersions[index].id != newVersions[index].id ||
-          oldVersions[index].model != newVersions[index].model) {
+          oldVersions[index].model != newVersions[index].model ||
+          oldVersions[index].modelName != newVersions[index].modelName) {
         return true;
       }
     }

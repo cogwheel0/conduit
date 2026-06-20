@@ -107,6 +107,42 @@ void main() {
     });
 
     test(
+      'batched optimistic turn exposes user and assistant together',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        var notifications = 0;
+        final subscription = container.listen<List<ChatMessage>>(
+          chatMessagesProvider,
+          (_, _) => notifications += 1,
+          fireImmediately: false,
+        );
+        addTearDown(subscription.close);
+
+        notifier.addMessages([
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'Hello',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+          _assistantMessage(id: 'assistant-1', content: '', isStreaming: true),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        final messages = container.read(chatMessagesProvider);
+        check(notifications).equals(1);
+        check(messages).length.equals(2);
+        check(messages.last.id).equals('assistant-1');
+        check(messages.last.isStreaming).isTrue();
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
       'streaming content-only changes keep the structure signature stable',
       () async {
         final container = _buildContainer();
