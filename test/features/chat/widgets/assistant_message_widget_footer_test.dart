@@ -39,6 +39,18 @@ class _RecordingTextToSpeechController extends TextToSpeechController {
   }
 }
 
+class _CountingTextToSpeechController extends TextToSpeechController {
+  _CountingTextToSpeechController(this.onBuild);
+
+  final VoidCallback onBuild;
+
+  @override
+  TextToSpeechState build() {
+    onBuild();
+    return const TextToSpeechState();
+  }
+}
+
 Widget _buildHarness(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
@@ -401,6 +413,47 @@ void main() {
 
     expect(find.byKey(const ValueKey('actions')), findsNothing);
     expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  testWidgets('streaming footer skips hidden action provider work', (
+    tester,
+  ) async {
+    var ttsBuilds = 0;
+    final message = ChatMessage(
+      id: 'assistant-streaming-footer',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            () => _CountingTextToSpeechController(() => ttsBuilds += 1),
+          ),
+          isChatStreamingProvider.overrideWithValue(true),
+        ],
+        child: _buildHarness(
+          AssistantMessageWidget(
+            message: message,
+            isStreaming: true,
+            animateOnMount: false,
+            modelName: message.model,
+            onCopy: () {},
+            onRegenerate: () {},
+            onDelete: () {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+    expect(ttsBuilds, 0);
   });
 
   testWidgets('response-done metadata enables copy immediately', (

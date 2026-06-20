@@ -588,7 +588,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         error: e,
         stackTrace: stackTrace,
       );
-      ref.read(chatMessagesProvider.notifier).finishStreaming();
+      ref.read(chatMessagesProvider.notifier).failLastStreamingAssistant(e);
     }
   }
 

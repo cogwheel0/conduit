@@ -995,18 +995,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final hasStatusTimeline = displayStatusHistory.isNotEmpty;
     final activeCodeExecutions = _resolveActiveCodeExecutions();
     final hasCodeExecutions = activeCodeExecutions.isNotEmpty;
-    final activeFollowUps = _resolveActiveFollowUps();
-    final hasFollowUps =
-        widget.showFollowUps &&
-        activeFollowUps.isNotEmpty &&
-        _responseCompleted;
     final bool showingVersion = _activeVersionIndex >= 0;
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
     final activeEmbeds = _resolveActiveEmbeds();
-    final activeSources = _resolveActiveSources();
-    final footer = _buildFooterBar(activeSources: activeSources);
     final queuedCompletionAsync = ref.watch(
       queuedCompletionInfoForMessageProvider(_messageId),
     );
@@ -1025,6 +1018,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         queuedCompletion != null && _isAssistantResponseEmpty;
     final showQueuedRecoveryBanner =
         queuedCompletion != null && !showQueuedAsEmptyState;
+    final shouldBuildActionFooter = _showActionRowNow && !hasQueuedCompletion;
+    final activeFollowUps = shouldBuildActionFooter
+        ? _resolveActiveFollowUps()
+        : const <String>[];
+    final hasFollowUps =
+        shouldBuildActionFooter &&
+        widget.showFollowUps &&
+        activeFollowUps.isNotEmpty &&
+        _responseCompleted;
+    final activeSources = shouldBuildActionFooter
+        ? _resolveActiveSources()
+        : const <ChatSourceReference>[];
+    final footer = shouldBuildActionFooter
+        ? _buildFooterBar(activeSources: activeSources)
+        : null;
 
     final content = Container(
       width: double.infinity,

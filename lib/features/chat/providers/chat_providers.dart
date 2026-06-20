@@ -1696,6 +1696,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _finishStreamingProfile(reason: 'cleared');
   }
 
+  void failLastStreamingAssistant(Object error) {
+    if (state.isEmpty) return;
+    final lastMessage = state.last;
+    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) return;
+
+    final chatError = ChatMessageError(
+      content: chatErrorContentForException(error),
+    );
+    updateLastMessageWithFunction(
+      (message) => message.copyWith(error: chatError),
+    );
+    finishStreaming();
+  }
+
   void setMessages(List<ChatMessage> messages) {
     state = messages;
     _syncStreamingProfileWithState();
@@ -2172,8 +2186,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
 
-    // Skip server cache refresh for temporary chats
-    if (!isTemporaryChat(ref.read(activeConversationProvider)?.id)) {
+    // Skip server cache refresh for temporary or no-active-conversation chats.
+    if (activeConversation != null && !isTemporaryChat(activeConversation.id)) {
       try {
         refreshConversationsCache(ref);
       } catch (_) {}
@@ -4435,6 +4449,7 @@ Future<void> durableSend(
       text: message,
       files: durableFiles,
       modelId: selectedModel.id,
+      modelName: selectedModel.name,
       now: now,
     );
     final rows = ChatBlobMapper.blobToRows(
@@ -4501,15 +4516,13 @@ Future<void> durableSend(
       model: selectedModel.id,
       createdAt: now,
       orderIndex: 1,
-      payload: <String, dynamic>{
-        'id': assistantMessageId,
-        'parentId': userMessageId,
-        'childrenIds': <String>[],
-        'role': 'assistant',
-        'content': '',
-        'model': selectedModel.id,
-        'timestamp': now,
-      },
+      payload: _durableAssistantPayload(
+        id: assistantMessageId,
+        parentId: userMessageId,
+        modelId: selectedModel.id,
+        modelName: selectedModel.name,
+        timestamp: now,
+      ),
     );
 
     await chatLocks.runExclusive(chatId, () async {
@@ -4541,6 +4554,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required String text,
   required List<Map<String, dynamic>> files,
   required String modelId,
+  required String modelName,
   required int now,
 }) {
   return <String, dynamic>{
@@ -4559,18 +4573,53 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           'models': <String>[modelId],
           'timestamp': now,
         },
-        asstId: <String, dynamic>{
-          'id': asstId,
-          'parentId': userMsgId,
-          'childrenIds': <String>[],
-          'role': 'assistant',
-          'content': '',
-          'model': modelId,
-          'timestamp': now,
-        },
+        asstId: _durableAssistantPayload(
+          id: asstId,
+          parentId: userMsgId,
+          modelId: modelId,
+          modelName: modelName,
+          timestamp: now,
+        ),
       },
     },
   };
+}
+
+Map<String, dynamic> _durableAssistantPayload({
+  required String id,
+  required String parentId,
+  required String modelId,
+  required String modelName,
+  required int timestamp,
+}) {
+  final trimmedModelName = modelName.trim();
+  return <String, dynamic>{
+    'id': id,
+    'parentId': parentId,
+    'childrenIds': <String>[],
+    'role': 'assistant',
+    'content': '',
+    'model': modelId,
+    if (trimmedModelName.isNotEmpty) 'modelName': trimmedModelName,
+    'timestamp': timestamp,
+  };
+}
+
+@visibleForTesting
+Map<String, dynamic> debugBuildDurableAssistantPayloadForTesting({
+  required String id,
+  required String parentId,
+  required String modelId,
+  required String modelName,
+  required int timestamp,
+}) {
+  return _durableAssistantPayload(
+    id: id,
+    parentId: parentId,
+    modelId: modelId,
+    modelName: modelName,
+    timestamp: timestamp,
+  );
 }
 
 typedef _AttachmentTypeMap = Map<String, String>;
@@ -5333,32 +5382,23 @@ Future<void> _sendMessageInternal(
     // message. This preserves the placeholder's ID and any files that
     // may have arrived before the error, matching OpenWebUI's same-slot
     // failure semantics.
-    final errorContent = _errorContentForException(e);
-
     // Explicit ChatMessage type on closures is required because `ref` is
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    final chatError = ChatMessageError(content: errorContent);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       // Still convert the placeholder so the UI is consistent.
-      notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
-      );
-      notifier.finishStreaming();
+      notifier.failLastStreamingAssistant(e);
       ref.invalidate(authStateManagerProvider);
     } else {
-      notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
-      );
-      notifier.finishStreaming();
+      notifier.failLastStreamingAssistant(e);
     }
   }
 }
 
 /// Returns a user-friendly error description based on the exception.
-String _errorContentForException(Object e) {
+String chatErrorContentForException(Object e) {
   final msg = e.toString();
   if (msg.contains('400')) {
     return 'There was an issue with the message format. This might be '

@@ -142,6 +142,46 @@ void main() {
       },
     );
 
+    test('send failure converts active placeholder to an error row', () {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        ),
+        _assistantMessage(id: 'assistant-1', content: '', isStreaming: true),
+      ]);
+
+      notifier.failLastStreamingAssistant(Exception('500'));
+
+      final messages = container.read(chatMessagesProvider);
+      check(messages).length.equals(2);
+      check(messages.last.id).equals('assistant-1');
+      check(messages.last.isStreaming).isFalse();
+      check(messages.last.error).isNotNull();
+      check(
+        messages.last.error!.content ?? '',
+      ).contains('server returned an error');
+    });
+
+    test('durable assistant payload preserves display modelName', () {
+      final payload = debugBuildDurableAssistantPayloadForTesting(
+        id: 'assistant-1',
+        parentId: 'user-1',
+        modelId: 'openai/gpt-4o',
+        modelName: 'GPT-4o',
+        timestamp: 1700000000,
+      );
+
+      check(payload['model']).equals('openai/gpt-4o');
+      check(payload['modelName']).equals('GPT-4o');
+    });
+
     test(
       'streaming content-only changes keep the structure signature stable',
       () async {
