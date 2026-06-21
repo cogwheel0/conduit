@@ -75,8 +75,15 @@ class NotificationRouter {
       return NotificationSurface.suppressed;
     }
 
-    // 4. Don't alert for content the user is already looking at.
-    if (_isViewingTarget(notification)) return NotificationSurface.suppressed;
+    final foreground = _isAppForeground();
+
+    // 4. Don't alert for content the user is actively looking at — but only in
+    // the foreground. Backgrounded, the user can't see any view, so a
+    // completion in the chat they just left (the "active" chat) must still
+    // notify. Mirrors Open WebUI's `(notViewingChat) || isInBackground` gate.
+    if (foreground && _isViewingTarget(notification)) {
+      return NotificationSurface.suppressed;
+    }
 
     // 5. Side effects for everything that passed gating.
     if (settings.notificationSound && settings.notificationSoundAlways) {
@@ -90,7 +97,7 @@ class NotificationRouter {
     // web client (which can show an in-app toast AND a browser Notification at
     // once), a foregrounded mobile app only needs the in-app banner; the OS
     // notification is the background affordance.
-    if (_isAppForeground()) {
+    if (foreground) {
       if (settings.notificationInAppBanner) {
         _showInAppBanner(notification);
         return NotificationSurface.banner;

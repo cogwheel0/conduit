@@ -125,6 +125,18 @@ void main() {
         await router.route(_channel(id: 'chan-1')),
       ).equals(NotificationSurface.suppressed);
     });
+
+    test('backgrounded, the active chat still notifies (not suppressed)', () async {
+      // Start a chat (it is the active view), then background the app: the
+      // completion must still fire an OS notification.
+      final router = build(
+        foreground: false,
+        view: const ActiveView(chatId: 'chat-1'),
+      );
+      check(
+        await router.route(_chat(id: 'chat-1')),
+      ).equals(NotificationSurface.system);
+    });
   });
 
   group('surface selection', () {
