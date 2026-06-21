@@ -23,7 +23,17 @@ final openWebUINotificationSyncProvider = Provider<void>((ref) {
   Future<void>? channelSetup;
 
   Future<void> ensureChannels() {
-    return channelSetup ??= _ensureNotificationChannels(localNotifications);
+    final setup = channelSetup;
+    if (setup != null) {
+      return setup;
+    }
+    final nextSetup = _ensureNotificationChannels(localNotifications)
+        .catchError((Object error, StackTrace stackTrace) {
+          channelSetup = null;
+          Error.throwWithStackTrace(error, stackTrace);
+        });
+    channelSetup = nextSetup;
+    return nextSetup;
   }
 
   void showNotification(
