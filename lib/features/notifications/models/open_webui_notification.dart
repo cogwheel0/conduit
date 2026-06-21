@@ -50,10 +50,8 @@ OpenWebUINotification? parseChatCompletionNotification(
 
   final body = sanitizeNotificationText(
     _stringFrom(data['content'] ?? data['message'] ?? data['text']),
+    fallback: 'Assistant response ready',
   );
-  if (body.isEmpty) {
-    return null;
-  }
 
   final displayTitle = sanitizeNotificationText(
     _stringFrom(data['title']),

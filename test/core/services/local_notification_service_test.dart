@@ -55,6 +55,24 @@ void main() {
     check(deliveredPayloads).deepEquals(['first', 'second']);
   });
 
+  test('keeps concurrent background taps on startup', () async {
+    final calls = <String>[];
+    _setNotificationChannelHandler(channel, calls);
+    await Future.wait([
+      localNotificationTapBackground(_response('first')),
+      localNotificationTapBackground(_response('second')),
+    ]);
+    final service = LocalNotificationService.testing(isIOS: true);
+    final deliveredPayloads = <String>[];
+    service.addResponseHandler('test', (response) {
+      deliveredPayloads.add(response.payload ?? '');
+    });
+
+    await service.initialize();
+
+    check(deliveredPayloads..sort()).deepEquals(['first', 'second']);
+  });
+
   test('does not replay a drained tap when a handler re-registers', () async {
     final calls = <String>[];
     _setNotificationChannelHandler(channel, calls);
@@ -72,6 +90,28 @@ void main() {
 
     check(deliveredPayloads).deepEquals(['queued']);
   });
+
+  test(
+    'routes a repeated queued tap after the first delivery drains',
+    () async {
+      final calls = <String>[];
+      _setNotificationChannelHandler(channel, calls);
+      final service = LocalNotificationService.testing(isIOS: true);
+      await service.initialize();
+      final deliveredPayloads = <String>[];
+      void handler(NotificationResponse response) {
+        deliveredPayloads.add(response.payload ?? '');
+      }
+
+      service.handleNotificationResponseForTesting(_response('repeat'));
+      service.addResponseHandler('test', handler);
+      service.removeResponseHandler('test');
+      service.handleNotificationResponseForTesting(_response('repeat'));
+      service.addResponseHandler('test', handler);
+
+      check(deliveredPayloads).deepEquals(['repeat', 'repeat']);
+    },
+  );
 }
 
 void _setNotificationChannelHandler(MethodChannel channel, List<String> calls) {

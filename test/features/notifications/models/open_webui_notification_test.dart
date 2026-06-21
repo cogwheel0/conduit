@@ -55,6 +55,20 @@ void main() {
       check(notification).isNull();
     });
 
+    test('keeps done completions without final content', () {
+      final notification = parseChatCompletionNotification({
+        'chat_id': 'chat-1',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'done': true, 'title': 'Planning'},
+        },
+      });
+
+      check(notification).isNotNull();
+      check(notification!.title).equals('Planning - Open WebUI');
+      check(notification.body).equals('Assistant response ready');
+    });
+
     test('ignores temporary chats unless explicitly allowed', () {
       final event = {
         'chat_id': 'local:socket-1',

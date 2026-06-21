@@ -14,6 +14,10 @@ typedef LocalNotificationResponseHandler =
     FutureOr<void> Function(NotificationResponse response);
 
 const _backgroundResponseKey = 'local_notification_pending_response_v1';
+const _backgroundResponseKeyPrefix = 'local_notification_pending_response_v1.';
+const _maxStoredBackgroundResponses = 20;
+
+int _backgroundResponseSequence = 0;
 
 final localNotificationServiceProvider = Provider<LocalNotificationService>(
   (ref) => LocalNotificationService.instance,
@@ -95,6 +99,11 @@ class LocalNotificationService {
 
   void removeResponseHandler(String id) {
     _responseHandlers.remove(id);
+  }
+
+  @visibleForTesting
+  void handleNotificationResponseForTesting(NotificationResponse response) {
+    _handleNotificationResponse(response);
   }
 
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async {
@@ -242,13 +251,26 @@ class LocalNotificationService {
     if (_responseHandlers.isEmpty) {
       return;
     }
+    final droppedResponseKeys = <String>[];
     _pendingResponses.removeWhere((response) {
       final responseKey = _responseKey(response);
-      return _responseHandlers.keys.every((id) {
+      final delivered = _responseHandlers.keys.every((id) {
         return _deliveredPendingResponseKeys[id]?.contains(responseKey) ??
             false;
       });
+      if (delivered) {
+        droppedResponseKeys.add(responseKey);
+      }
+      return delivered;
     });
+    for (final responseKey in droppedResponseKeys) {
+      for (final deliveredKeys in _deliveredPendingResponseKeys.values) {
+        deliveredKeys.remove(responseKey);
+      }
+    }
+    _deliveredPendingResponseKeys.removeWhere(
+      (id, keys) => keys.isEmpty && !_responseHandlers.containsKey(id),
+    );
   }
 
   void _dispatchResponseTo(
@@ -300,12 +322,18 @@ class LocalNotificationService {
   ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_backgroundResponseKey);
-      if (raw == null || raw.isEmpty) {
-        return;
+      final responses = <NotificationResponse>[];
+      final legacyRaw = prefs.getString(_backgroundResponseKey);
+      if (legacyRaw != null && legacyRaw.isNotEmpty) {
+        await prefs.remove(_backgroundResponseKey);
+        responses.addAll(_notificationResponsesFromJson(legacyRaw));
       }
-      await prefs.remove(_backgroundResponseKey);
-      for (final response in _notificationResponsesFromJson(raw)) {
+      final keys = _backgroundResponseKeys(prefs)..sort();
+      for (final key in keys) {
+        responses.addAll(_notificationResponsesFromJson(prefs.getString(key)));
+      }
+      await Future.wait(keys.map(prefs.remove));
+      for (final response in responses) {
         _handleStartupNotificationResponse(response, startupResponseKeys);
       }
     } catch (error, stackTrace) {
@@ -365,18 +393,41 @@ Future<void> _storeBackgroundNotificationResponse(
 ) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final stored = _notificationResponsesFromJson(
-      prefs.getString(_backgroundResponseKey),
-    );
-    stored.add(response);
-    if (stored.length > 20) {
-      stored.removeRange(0, stored.length - 20);
-    }
     await prefs.setString(
-      _backgroundResponseKey,
-      jsonEncode(stored.map(_notificationResponseToJson).toList()),
+      _backgroundResponseStorageKey(response),
+      jsonEncode(_notificationResponseToJson(response)),
     );
+    final keys = _backgroundResponseKeys(prefs)..sort();
+    if (keys.length > _maxStoredBackgroundResponses) {
+      await Future.wait(
+        keys
+            .take(keys.length - _maxStoredBackgroundResponses)
+            .map(prefs.remove),
+      );
+    }
   } catch (_) {}
+}
+
+List<String> _backgroundResponseKeys(SharedPreferences prefs) {
+  return prefs
+      .getKeys()
+      .where((key) => key.startsWith(_backgroundResponseKeyPrefix))
+      .toList(growable: false);
+}
+
+String _backgroundResponseStorageKey(NotificationResponse response) {
+  final timestamp = DateTime.now()
+      .toUtc()
+      .microsecondsSinceEpoch
+      .toString()
+      .padLeft(20, '0');
+  final sequence = (_backgroundResponseSequence++ & 0xffff)
+      .toRadixString(16)
+      .padLeft(4, '0');
+  final fingerprint = _responseKey(
+    response,
+  ).hashCode.toUnsigned(32).toRadixString(16).padLeft(8, '0');
+  return '$_backgroundResponseKeyPrefix$timestamp-$sequence-$fingerprint';
 }
 
 Map<String, dynamic> _notificationResponseToJson(
