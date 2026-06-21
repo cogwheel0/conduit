@@ -56,7 +56,7 @@ void main() {
     sound = _MockSound();
     banners = [];
     unreads = [];
-    when(() => local.show(any())).thenAnswer((_) async {});
+    when(() => local.show(any(), playSound: any(named: 'playSound'))).thenAnswer((_) async {});
     when(() => sound.play()).thenAnswer((_) async {});
   });
 
@@ -82,7 +82,7 @@ void main() {
       final surface = await router.route(_chat());
       check(surface).equals(NotificationSurface.suppressed);
       check(banners).isEmpty();
-      verifyNever(() => local.show(any()));
+      verifyNever(() => local.show(any(), playSound: any(named: 'playSound')));
       verifyNever(() => sound.play());
     });
 
@@ -132,7 +132,7 @@ void main() {
       final router = build(foreground: true);
       check(await router.route(_chat())).equals(NotificationSurface.banner);
       check(banners).length.equals(1);
-      verifyNever(() => local.show(any()));
+      verifyNever(() => local.show(any(), playSound: any(named: 'playSound')));
     });
 
     test('foreground with banners off is silent', () async {
@@ -148,7 +148,21 @@ void main() {
       final router = build(foreground: false);
       check(await router.route(_chat())).equals(NotificationSurface.system);
       check(banners).isEmpty();
-      verify(() => local.show(any())).called(1);
+      verify(() => local.show(any(), playSound: any(named: 'playSound'))).called(1);
+    });
+
+    test('system notification sound follows the notificationSound pref', () async {
+      final router = build(
+        foreground: false,
+        settings: allOn.copyWith(notificationSound: false),
+      );
+      await router.route(_chat());
+      final played =
+          verify(
+                () => local.show(any(), playSound: captureAny(named: 'playSound')),
+              ).captured.single
+              as bool;
+      check(played).isFalse();
     });
 
     test('background with system off is silent', () async {
@@ -157,7 +171,7 @@ void main() {
         settings: allOn.copyWith(notificationSystem: false),
       );
       check(await router.route(_chat())).equals(NotificationSurface.silent);
-      verifyNever(() => local.show(any()));
+      verifyNever(() => local.show(any(), playSound: any(named: 'playSound')));
     });
   });
 

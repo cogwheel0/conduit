@@ -59,6 +59,13 @@ class LocalNotificationService {
 
   bool _initialized = false;
 
+  /// Monotonic OS-notification id. Using a counter (rather than a hash of the
+  /// dedup key) avoids 31-bit hash collisions silently replacing a notification
+  /// in the drawer. De-duplication is handled upstream by the router.
+  int _idCounter = 0;
+
+  int _nextNotificationId() => _idCounter = (_idCounter + 1) & 0x7fffffff;
+
   final StreamController<NotificationTap> _taps =
       StreamController<NotificationTap>.broadcast();
 
@@ -102,6 +109,15 @@ class LocalNotificationService {
       }
 
       _initialized = true;
+    } catch (e, st) {
+      // Contain init failures here so they can't bubble into notification
+      // routing. _initialized stays false so a later call can retry.
+      DebugLogger.error(
+        'failed to initialize local notifications',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/system',
+      );
     } finally {
       _initializing = null;
     }
@@ -166,7 +182,14 @@ class LocalNotificationService {
 
   /// Posts an OS notification for [notification]. No-ops on unsupported
   /// platforms. Safe to call before [initialize] (it self-initializes).
-  Future<void> show(AppNotification notification) async {
+  ///
+  /// [playSound] honors the user's notification-sound preference. Note Android
+  /// 8+ governs sound at the channel level, so the per-notification flag is
+  /// best-effort there; it is authoritative on iOS.
+  Future<void> show(
+    AppNotification notification, {
+    required bool playSound,
+  }) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();
 
@@ -182,16 +205,17 @@ class LocalNotificationService {
       importance: Importance.high,
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',
+      playSound: playSound,
     );
-    const iosDetails = DarwinNotificationDetails(
+    final iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
-      presentSound: true,
+      presentSound: playSound,
     );
 
     try {
       await _plugin.show(
-        id: notification.dedupKey.hashCode & 0x7fffffff,
+        id: _nextNotificationId(),
         title: title,
         body: notification.body,
         notificationDetails: NotificationDetails(

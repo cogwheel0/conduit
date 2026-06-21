@@ -98,7 +98,10 @@ class NotificationRouter {
       return NotificationSurface.silent;
     } else {
       if (settings.notificationSystem) {
-        await _localNotifications.show(notification);
+        await _localNotifications.show(
+          notification,
+          playSound: settings.notificationSound,
+        );
         return NotificationSurface.system;
       }
       return NotificationSurface.silent;
