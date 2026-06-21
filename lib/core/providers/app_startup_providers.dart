@@ -104,7 +104,19 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
     ref.invalidate(socketServiceManagerProvider);
     // Clear posted notifications and drop the listener's dedup memory so a
     // notification can't deep-link into the previous session/server.
-    unawaited(ref.read(localNotificationServiceProvider).cancelAll());
+    unawaited(
+      ref.read(localNotificationServiceProvider).cancelAll().catchError((
+        Object e,
+        StackTrace st,
+      ) {
+        DebugLogger.error(
+          'failed to clear notifications on sign-out',
+          scope: 'notifications/system',
+          error: e,
+          stackTrace: st,
+        );
+      }),
+    );
     ref.invalidate(notificationRouterProvider);
     ref.invalidate(notificationSocketListenerProvider);
   } catch (error, stackTrace) {

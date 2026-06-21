@@ -72,10 +72,12 @@ class NotificationEventClassifier {
     final data = _asMap(envelope['data']);
     if (data == null) return null;
 
-    // Never notify for the user's own messages (upstream filters by author id).
+    // Require a valid author. Missing author metadata is malformed (and also
+    // covers system/non-user messages we don't notify for). Never notify for
+    // the user's own messages (upstream filters by author id).
     final author = _asMap(data['user']);
     final authorId = _asString(author?['id']);
-    if (authorId.isNotEmpty && authorId == currentUserId) return null;
+    if (authorId.isEmpty || authorId == currentUserId) return null;
 
     final channelId = _asNonEmptyString(event['channel_id']);
     if (channelId == null) return null;

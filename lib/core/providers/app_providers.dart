@@ -2345,6 +2345,10 @@ class PersonalizationSettings extends _$PersonalizationSettings {
   int _pinnedModelsWriteGeneration = 0;
   String? _settingsServerId;
   ServerUserSettings? _settingsSnapshot;
+  // Server is mirrored into local notification prefs once per server (on first
+  // load / server switch). Re-applying on every settings reload could clobber a
+  // just-made local toggle whose write-through hasn't reached the server yet.
+  String? _notificationPrefsAppliedServerId;
 
   @override
   Future<ServerUserSettings> build() async {
@@ -2502,15 +2506,20 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     }
     // Server is authoritative for the Open WebUI-aligned notification prefs;
     // mirror them into local settings for cross-device parity (no-ops nulls).
-    unawaited(
-      ref
-          .read(appSettingsProvider.notifier)
-          .applyServerNotificationPrefs(
-            enabled: settings.notificationEnabled,
-            sound: settings.notificationSound,
-            soundAlways: settings.notificationSoundAlways,
-          ),
-    );
+    // Only once per server so a fresh local toggle isn't overwritten by a
+    // settings reload that raced the write-through.
+    if (_notificationPrefsAppliedServerId != serverId) {
+      _notificationPrefsAppliedServerId = serverId;
+      unawaited(
+        ref
+            .read(appSettingsProvider.notifier)
+            .applyServerNotificationPrefs(
+              enabled: settings.notificationEnabled,
+              sound: settings.notificationSound,
+              soundAlways: settings.notificationSoundAlways,
+            ),
+      );
+    }
     if (readGeneration != _pinnedModelsWriteGeneration) {
       final merged = _settingsWithCurrentPinnedModels(settings, serverId);
       _settingsServerId = serverId;

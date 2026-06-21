@@ -185,6 +185,16 @@ void main() {
       check(result).isNull();
     });
 
+    test('message with missing/empty author is ignored as malformed', () {
+      final result = classifier.classifyChannelEvent(
+        channelEvent(
+          inner: const {'id': 'msg-3', 'content': 'no author'},
+        ),
+        currentUserId: currentUserId,
+      );
+      check(result).isNull();
+    });
+
     test('non-message channel types are ignored', () {
       for (final type in const [
         'message:reply',

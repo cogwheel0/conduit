@@ -79,17 +79,28 @@ void _bumpChannelUnread(Ref ref, AppNotification notification) {
 }
 
 Future<void> _handleTap(Ref ref, NotificationTap tap) async {
-  switch (tap.kind) {
-    case NotificationKind.channelMessage:
-      NavigationService.navigateToChannel(tap.sourceId);
-    case NotificationKind.chatCompletion:
-      // DB-first open, mirroring the conversation-list selection flow.
-      await NavigationService.navigateToChat();
-      final local = await loadLocalConversation(ref, tap.sourceId);
-      if (local != null) {
-        ref.read(activeConversationProvider.notifier).set(local);
-      }
-      schedulePullChatNow(ref, tap.sourceId);
+  // Fire-and-forget from tap streams / cold launch — never let a navigation
+  // failure surface as an uncaught async error.
+  try {
+    switch (tap.kind) {
+      case NotificationKind.channelMessage:
+        NavigationService.navigateToChannel(tap.sourceId);
+      case NotificationKind.chatCompletion:
+        // DB-first open, mirroring the conversation-list selection flow.
+        await NavigationService.navigateToChat();
+        final local = await loadLocalConversation(ref, tap.sourceId);
+        if (local != null) {
+          ref.read(activeConversationProvider.notifier).set(local);
+        }
+        schedulePullChatNow(ref, tap.sourceId);
+    }
+  } catch (e, st) {
+    DebugLogger.error(
+      'notification deep-link failed',
+      error: e,
+      stackTrace: st,
+      scope: 'notifications/center',
+    );
   }
 }
 
