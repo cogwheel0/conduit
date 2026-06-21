@@ -872,12 +872,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return serverMessages;
     }
 
+    // Content preservation only protects the streaming tail — the one message
+    // that may be mid-finalization when a lagging snapshot arrives. Older,
+    // already-completed assistant messages must defer to the server so an
+    // authoritative refresh can correct or truncate them.
+    final localTailId = state.last.role == 'assistant' ? state.last.id : null;
+
     var changed = false;
     final merged = <ChatMessage>[];
     for (final serverMessage in serverMessages) {
       final localMessage = localById[serverMessage.id];
       final preserveContent =
           localMessage != null &&
+          serverMessage.id == localTailId &&
           _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
       final sameResponseContent =
           localMessage != null &&
@@ -1466,19 +1473,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     // Fast path: the active-chats set (populated by ActiveChatsSync) may already
-    // know. Otherwise ask the server's task registry directly.
+    // know. Otherwise ask the server's task registry directly. Either way we
+    // try to capture an active task id so the resumed message carries stoppable
+    // task metadata (stop/delete can then cancel the server task, not just the
+    // local subscription).
+    final api = ref.read(apiServiceProvider);
+    String? resumeTaskId;
     var isActive = ref.read(activeChatIdsProvider).contains(chatId);
     if (!isActive) {
-      final api = ref.read(apiServiceProvider);
       if (api == null) {
         return;
       }
       try {
         final taskIds = await api.getTaskIdsByChat(chatId);
         isActive = taskIds.isNotEmpty;
+        resumeTaskId = taskIds.isNotEmpty ? taskIds.first : null;
       } catch (_) {
         // Offline / unreachable: leave the response as-is (static).
         return;
+      }
+    } else if (api != null) {
+      // Already known-active; best-effort task-id fetch for stoppable metadata.
+      try {
+        final taskIds = await api.getTaskIdsByChat(chatId);
+        resumeTaskId = taskIds.isNotEmpty ? taskIds.first : null;
+      } catch (_) {
+        // Best-effort only; resume still proceeds without a task id.
       }
     }
     if (!isActive || _disposed) {
@@ -1509,7 +1529,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Open WebUI) instead of waiting on the 1s poll. The poll stays armed as a
     // safety-net fallback below. When no connected socket is available the
     // attach is a no-op and behaviour is identical to today's poll-only resume.
-    _attachResumeSocketStream(conversation, state.last);
+    _attachResumeSocketStream(conversation, state.last, taskId: resumeTaskId);
     _ensureRemoteTaskMonitor();
   }
 
@@ -1522,7 +1542,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Registering the socket subscriptions makes [_shouldProtectLocalStreamingState]
   /// true for the resumed message, which demotes the poll's content-adoption to
   /// a pure fallback (the socket owns content).
-  void _attachResumeSocketStream(Conversation conversation, ChatMessage last) {
+  void _attachResumeSocketStream(
+    Conversation conversation,
+    ChatMessage last, {
+    String? taskId,
+  }) {
     if (_disposed || isTemporaryChat(conversation.id)) {
       return;
     }
@@ -1568,6 +1592,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final session = ChatCompletionSession.resumeSocket(
       messageId: last.id,
       conversationId: conversation.id,
+      // Carry the discovered task id so dispatchChatTransport writes stoppable
+      // task metadata onto the resumed message (stop/delete can cancel the
+      // server task, not just the local socket subscription).
+      taskId: taskId,
     );
 
     unawaited(

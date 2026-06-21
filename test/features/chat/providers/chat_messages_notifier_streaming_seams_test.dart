@@ -480,6 +480,72 @@ void main() {
         check(adopted.metadata?['modelName']).equals('GPT-4o');
       },
     );
+
+    test(
+      'an older completed message defers to a corrected server snapshot; only '
+      'the streaming tail is content-preserved',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final user1 = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Q1',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final user2 = ChatMessage(
+          id: 'user-2',
+          role: 'user',
+          content: 'Q2',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        // Older, already-completed assistant whose local body is longer than
+        // the server's with a matching prefix — must NOT block a correction.
+        final olderLocal = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer one local-extra',
+          metadata: const {'responseDone': true},
+        );
+        // Streaming tail: its longer local body is still preserved.
+        final tailLocal = _assistantMessage(
+          id: 'assistant-2',
+          content: 'Answer two streamed completely',
+          metadata: const {'transport': 'httpStream'},
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [user1, olderLocal, user2, tailLocal]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Authoritative server snapshot: the older message is corrected
+        // (shorter, same prefix); the tail still lags.
+        final olderServer = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Answer one',
+        );
+        final tailServer = _assistantMessage(
+          id: 'assistant-2',
+          content: 'Answer two',
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('chat-1', [user1, olderServer, user2, tailServer]),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        final messages = container.read(chatMessagesProvider);
+        final older = messages.firstWhere((m) => m.id == 'assistant-1');
+        final tail = messages.firstWhere((m) => m.id == 'assistant-2');
+        // Older completed message defers to the server correction.
+        check(older.content).equals('Answer one');
+        // Streaming tail keeps its longer local body.
+        check(tail.content).equals('Answer two streamed completely');
+      },
+    );
   });
 
   group('Feature C — local streaming protection invariants', () {

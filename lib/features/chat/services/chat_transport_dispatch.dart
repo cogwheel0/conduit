@@ -353,11 +353,32 @@ Future<void> dispatchChatTransport({
     },
     onChatActiveChanged: (chatId, active) {
       if (chatId == null || chatId.isEmpty) return;
+      final notifier = ref.read(activeChatIdsProvider.notifier);
       if (active) {
-        ref.read(activeChatIdsProvider.notifier).setActive(chatId);
-      } else {
-        ref.read(activeChatIdsProvider.notifier).setInactive(chatId);
+        notifier.setActive(chatId);
+        return;
       }
+      // The backend `chat:active(false)` only fires when the LAST task for the
+      // chat finishes. This optimistic safety-net removal must be last-task
+      // aware too, or an overlapping multi-model / branched generation would
+      // drop the sidebar spinner while another stream is still running. Only
+      // clear once the task registry reports no remaining tasks for the chat.
+      final apiRef = ref.read(apiServiceProvider);
+      if (apiRef == null) {
+        notifier.setInactive(chatId);
+        return;
+      }
+      unawaited(() async {
+        try {
+          final ids = await apiRef.getTaskIdsByChat(chatId);
+          if (ids.isEmpty) {
+            notifier.setInactive(chatId);
+          }
+        } catch (_) {
+          // Unreachable registry: clear anyway so a spinner can't strand.
+          notifier.setInactive(chatId);
+        }
+      }());
     },
     completeStreamingUi: () =>
         ref.read(chatMessagesProvider.notifier).completeStreamingUi(),

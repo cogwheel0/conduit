@@ -37,6 +37,20 @@ void main() {
       check(session.sessionId).isNull();
     });
 
+    test('resumeSocket carries the discovered task id for stoppable metadata', () {
+      final session = ChatCompletionSession.resumeSocket(
+        messageId: 'assistant-1',
+        conversationId: 'chat-1',
+        taskId: 'task-42',
+      );
+
+      // The task id must survive so dispatchChatTransport writes stoppable
+      // metadata onto the resumed message (stop/delete can cancel the server
+      // task, not just the local socket subscription).
+      check(session.taskId).equals('task-42');
+      check(session.sessionId).isNull();
+    });
+
     test('httpStream session stores byte stream and abort handle', () {
       final session = ChatCompletionSession.httpStream(
         messageId: 'assistant-2',

@@ -169,7 +169,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int _extentCacheInvalidationGeneration = 0;
   final Set<String> _pendingRowExtentInvalidationMessageIds = <String>{};
   bool _rowExtentInvalidationScheduled = false;
-  bool _pinToTopCompletionDismissScheduled = false;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -267,7 +266,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinToTopState = const _PinToTopState.inactive();
     _invalidateChatListStableLayoutMetadata();
     _endPinToTopInFlight = false;
-    _pinToTopCompletionDismissScheduled = false;
     _isAnchoredToBottom = true;
 
     // Reset temporary chat state based on user preference
@@ -1341,7 +1339,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _pinToTopState = const _PinToTopState.inactive();
       _invalidateChatListStableLayoutMetadata();
       _endPinToTopInFlight = false;
-      _pinToTopCompletionDismissScheduled = false;
     }
     if (conversationId == null) {
       _pendingScrollAction = const _PendingChatScrollAction.none();
@@ -1621,23 +1618,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _endPinToTopInFlight = false;
 
-  void _scheduleEndPinToTopAfterStreamingCompletion() {
-    if (_pinToTopCompletionDismissScheduled) {
-      return;
-    }
-    _pinToTopCompletionDismissScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pinToTopCompletionDismissScheduled = false;
-      if (!mounted || !_wantsPinToTop) {
-        return;
-      }
-      if (_hasActiveStreamingAssistant(ref.read(chatMessagesProvider))) {
-        return;
-      }
-      _endPinToTop(instant: true);
-    });
-  }
-
   void _dismissPinToTop({bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted) {
       return;
@@ -1894,12 +1874,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollToUserMessage();
       }
     }
-    if (!hasStreamingMessage) {
-      if (_wantsPinToTop) {
-        _scheduleEndPinToTopAfterStreamingCompletion();
-      } else if (_pinnedStreamingId != null) {
-        _pinToTopState = const _PinToTopState.inactive();
-      }
+    if (!hasStreamingMessage && !_wantsPinToTop && _pinnedStreamingId != null) {
+      // Streaming finished but pin-to-top is no longer active: clear the stale
+      // pinned streaming id. When pin-to-top IS still active we deliberately
+      // keep the phantom spacer so the prompt stays near the top until the user
+      // scrolls, sends, or switches chats — avoids a viewport jump mid-read.
+      _pinToTopState = const _PinToTopState.inactive();
     }
 
     final pinnedUserMessageIndex =
