@@ -72,10 +72,6 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         ..write(message.model ?? '')
         ..write('\u0000')
-        ..write(message.isStreaming ? 1 : 0)
-        ..write('\u0000')
-        ..write(message.isStreaming ? -1 : message.content.trim().length)
-        ..write('\u0000')
         ..write(message.attachmentIds?.length ?? 0)
         ..write('\u0000')
         ..write(message.files?.length ?? 0)
@@ -95,6 +91,12 @@ class _ChatMessageListStructure {
         ..write(message.error == null ? 0 : 1)
         ..write('\u0000')
         ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
+        ..write('\u0000')
+        // Include the displayed model-name fallback so the structure signature
+        // changes whenever the label changes, keeping the list-shell rebuild
+        // trigger in agreement with chat_page's layout signature. Use the
+        // normalized extractor so trim/empty handling matches the displayed name.
+        ..write(_messageModelName(message) ?? '')
         ..write('\u0000')
         ..write(message.versions.length);
       for (final version in message.versions) {
@@ -330,10 +332,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Timer? _passiveConversationRefreshTimer;
   bool _taskStatusCheckInFlight = false;
   bool _observedRemoteTask = false;
+  // Feature C: number of consecutive polls that saw `tasksDone` while a socket
+  // resume stream still held protection. The poll's force-adoption is deferred
+  // for a short grace window so the socket's own `done` finalize wins and we
+  // never double-finalize. Reset whenever tasks are active again.
+  int _tasksDoneGracePolls = 0;
+  // Polls to wait after `tasksDone` before the poll force-adopts server state
+  // over a still-protected socket resume stream (~2s at the 1s cadence).
+  static const int _tasksDoneSocketGracePolls = 2;
   bool _passiveConversationRefreshInFlight = false;
   bool _queuedPassiveConversationRefresh = false;
   String? _passiveConversationId;
   String? _activeStreamingTransportMessageId;
+  // Foreign server-assigned message id bound to the streaming tail (socket
+  // resume). Lets the poll fallback resolve server messages by this id if the
+  // socket dies after binding but before delivering `done`.
+  String? _boundRemoteMessageId;
   String? _streamingProfileTaskKey;
   String? _streamingProfileMessageId;
   DateTime? _streamingProfileStartedAt;
@@ -381,7 +395,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
 
         if (next != null) {
-          state = next.messages;
+          final nextMessages = next.messages;
+          final currentMessagesAlreadyVisible =
+              state.isNotEmpty &&
+              !_messagesDifferByStreamingSignatures(nextMessages, state);
+          if (!currentMessagesAlreadyVisible) {
+            state = nextMessages;
+          }
           _syncStreamingProfileWithState();
 
           // Update selected model if conversation has a different model
@@ -787,7 +807,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (_hasTrackedStreamingTransport) {
       _dropStreamingTransportState(source: 'server adoption from $source');
     }
-    state = serverMessages;
+    state = _preserveFreshLocalAssistantState(serverMessages);
     _syncStreamingProfileWithState();
 
     if (needsCleanup) {
@@ -837,6 +857,158 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
       },
     );
+  }
+
+  List<ChatMessage> _preserveFreshLocalAssistantState(
+    List<ChatMessage> serverMessages,
+  ) {
+    if (state.isEmpty || serverMessages.isEmpty) {
+      return serverMessages;
+    }
+
+    final localById = <String, ChatMessage>{
+      for (final message in state)
+        // Also index empty placeholders that still carry a local-only
+        // `modelName`, so a stale pre-first-token snapshot can't drop the model
+        // label before the metadata merge runs.
+        if (message.role == 'assistant' &&
+            (message.content.trim().isNotEmpty ||
+                message.followUps.isNotEmpty ||
+                _messageModelName(message) != null))
+          message.id: message,
+    };
+    if (localById.isEmpty) {
+      return serverMessages;
+    }
+
+    // Content preservation only protects the streaming tail — the one message
+    // that may be mid-finalization when a lagging snapshot arrives. Older,
+    // already-completed assistant messages must defer to the server so an
+    // authoritative refresh can correct or truncate them.
+    final localTailId = state.last.role == 'assistant' ? state.last.id : null;
+
+    var changed = false;
+    final merged = <ChatMessage>[];
+    for (final serverMessage in serverMessages) {
+      // A socket resume binds a foreign server message_id to the local tail; a
+      // lagging snapshot may carry that remote id instead of the local
+      // placeholder id, so resolve it back to the tail.
+      final boundToTail =
+          _boundRemoteMessageId != null &&
+          serverMessage.id == _boundRemoteMessageId &&
+          localTailId != null;
+      final localMessage =
+          localById[serverMessage.id] ??
+          (boundToTail ? localById[localTailId] : null);
+      final isStreamingTail =
+          localMessage != null &&
+          (serverMessage.id == localTailId || boundToTail);
+      final preserveContent =
+          localMessage != null &&
+          isStreamingTail &&
+          _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
+      final sameResponseContent =
+          localMessage != null &&
+          _sameAssistantResponseText(
+            localMessage.content,
+            serverMessage.content,
+          );
+      final shouldPreserveFollowUps =
+          localMessage != null &&
+          localMessage.followUps.isNotEmpty &&
+          serverMessage.role == 'assistant' &&
+          serverMessage.followUps.isEmpty &&
+          (sameResponseContent || preserveContent);
+      // Preserve a local-only modelName the server snapshot hasn't caught up to
+      // (notably an empty placeholder whose first token hasn't landed).
+      final shouldPreserveModelName =
+          localMessage != null &&
+          serverMessage.role == 'assistant' &&
+          _messageModelName(localMessage) != null &&
+          _messageModelName(serverMessage) == null;
+      if (!preserveContent &&
+          !shouldPreserveFollowUps &&
+          !shouldPreserveModelName) {
+        merged.add(serverMessage);
+        continue;
+      }
+
+      changed = true;
+      // Merge local + server metadata so local-only fields (e.g. `modelName`)
+      // survive a server snapshot captured before the durable payload was
+      // finalized. Server values take precedence; local fills only the gaps.
+      final metadata = <String, dynamic>{
+        ...?localMessage.metadata,
+        ...?serverMessage.metadata,
+      };
+      if (shouldPreserveFollowUps) {
+        // Overwrite (not putIfAbsent): the merged map may carry a stale
+        // `followUps` from the server snapshot (e.g. an explicit empty list),
+        // which must mirror the preserved typed `.followUps` field below.
+        metadata['followUps'] = List<String>.from(localMessage.followUps);
+      }
+      if (shouldPreserveModelName) {
+        // The raw server map may carry an empty/whitespace `modelName` that the
+        // union spread on top of the local one; restore the normalized local
+        // value so an empty server field can't blank the displayed model name.
+        metadata['modelName'] = _messageModelName(localMessage);
+      }
+      merged.add(
+        serverMessage.copyWith(
+          content: preserveContent
+              ? localMessage.content
+              : serverMessage.content,
+          followUps: shouldPreserveFollowUps
+              ? List<String>.from(localMessage.followUps)
+              : serverMessage.followUps,
+          metadata: metadata.isEmpty ? null : metadata,
+        ),
+      );
+    }
+
+    return changed ? List<ChatMessage>.unmodifiable(merged) : serverMessages;
+  }
+
+  bool _shouldPreserveLocalAssistantContent(
+    ChatMessage localMessage,
+    ChatMessage serverMessage,
+  ) {
+    if (serverMessage.role != 'assistant') {
+      return false;
+    }
+    if (!_hasLocalStreamingProvenance(localMessage)) {
+      return false;
+    }
+    final localContent = localMessage.content;
+    final serverContent = serverMessage.content;
+    if (localContent.trim().isEmpty) {
+      return false;
+    }
+    if (serverContent.trim().isEmpty) {
+      return true;
+    }
+    if (localContent.length <= serverContent.length) {
+      return false;
+    }
+    return _sameAssistantResponsePrefix(localContent, serverContent);
+  }
+
+  bool _hasLocalStreamingProvenance(ChatMessage message) {
+    final metadata = message.metadata;
+    return message.isStreaming ||
+        metadata?['responseDone'] == true ||
+        metadata?['transport'] != null ||
+        metadata?['taskId'] != null ||
+        metadata?['hasActiveAbortHandle'] == true;
+  }
+
+  bool _sameAssistantResponseText(String left, String right) {
+    return left == right || left.trim() == right.trim();
+  }
+
+  bool _sameAssistantResponsePrefix(String longer, String shorter) {
+    return longer.startsWith(shorter) ||
+        longer.trimLeft().startsWith(shorter.trimLeft());
   }
 
   void _teardownPassiveConversationSync() {
@@ -1149,10 +1321,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _lastFlushedStreamingBufferVersion = -1;
   }
 
+  /// Records the foreign server message id the streaming helper bound to the
+  /// local assistant tail (socket resume), so [_syncRemoteTaskStatus] can match
+  /// the server's growing/final message even when its id differs from the local
+  /// placeholder id. Scoped to the current streaming tail.
+  void recordResumeBoundRemoteMessageId(
+    String localMessageId,
+    String remoteMessageId,
+  ) {
+    if (remoteMessageId.isEmpty || state.isEmpty) {
+      return;
+    }
+    if (state.last.id != localMessageId) {
+      return;
+    }
+    _boundRemoteMessageId = remoteMessageId;
+  }
+
   void _cancelMessageStream({bool clearStreamingContent = true}) {
     final controller = _messageStream;
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
+    _boundRemoteMessageId = null;
     if (controller != null && controller.isActive) {
       unawaited(controller.cancel());
     }
@@ -1239,6 +1429,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _taskStatusCheckInFlight;
   }
 
+  /// Test-only view of [_shouldProtectLocalStreamingState] so resume regression
+  /// tests can assert protection holds ONLY for the matching streaming message
+  /// id (Feature C de-risking) without coupling to private members.
+  @visibleForTesting
+  bool get debugShouldProtectLocalStreamingState =>
+      _shouldProtectLocalStreamingState;
+
+  /// Test-only view of the socket-resume grace-poll counter so the
+  /// double-finalize race guard (Feature C: "socket done wins / poll defers")
+  /// can be asserted across poll iterations without coupling to private state.
+  @visibleForTesting
+  int get debugTasksDoneGracePolls => _tasksDoneGracePolls;
+
+  /// Test-only entry point that drives a single remote-task poll iteration,
+  /// mirroring exactly one tick of the 1s monitor. Lets grace-window regression
+  /// tests exercise [_syncRemoteTaskStatus] deterministically.
+  @visibleForTesting
+  Future<void> debugSyncRemoteTaskStatus() => _syncRemoteTaskStatus();
+
+  /// Test-only hook that cancels just the periodic 1s poll timer without
+  /// clearing observed-task / grace state, so a test can drive poll iterations
+  /// manually via [debugSyncRemoteTaskStatus] without the timer racing them.
+  @visibleForTesting
+  void debugCancelRemoteTaskMonitorTimer() {
+    _taskStatusTimer?.cancel();
+    _taskStatusTimer = null;
+  }
+
+  /// Test-only view of the poll re-entry guard so a test can confirm no
+  /// background poll is mid-flight before driving deterministic manual polls.
+  @visibleForTesting
+  bool get debugTaskStatusCheckInFlight => _taskStatusCheckInFlight;
+
   /// True while streaming was re-engaged for a reopened, server-active chat
   /// (typing indicator + 1s poll) with no genuine local transport. The
   /// progressive poll owns content updates during this window; passive server
@@ -1269,6 +1492,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
+    _boundRemoteMessageId = null;
     cancelSocketSubscriptions();
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
@@ -1304,19 +1528,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     // Fast path: the active-chats set (populated by ActiveChatsSync) may already
-    // know. Otherwise ask the server's task registry directly.
+    // know. Otherwise ask the server's task registry directly. Either way we
+    // try to capture an active task id so the resumed message carries stoppable
+    // task metadata (stop/delete can then cancel the server task, not just the
+    // local subscription).
+    final api = ref.read(apiServiceProvider);
+    String? resumeTaskId;
     var isActive = ref.read(activeChatIdsProvider).contains(chatId);
     if (!isActive) {
-      final api = ref.read(apiServiceProvider);
       if (api == null) {
         return;
       }
       try {
         final taskIds = await api.getTaskIdsByChat(chatId);
         isActive = taskIds.isNotEmpty;
+        resumeTaskId = taskIds.isNotEmpty ? taskIds.first : null;
       } catch (_) {
         // Offline / unreachable: leave the response as-is (static).
         return;
+      }
+    } else if (api != null) {
+      // Already known-active; best-effort task-id fetch for stoppable metadata.
+      try {
+        final taskIds = await api.getTaskIdsByChat(chatId);
+        resumeTaskId = taskIds.isNotEmpty ? taskIds.first : null;
+      } catch (_) {
+        // Best-effort only; resume still proceeds without a task id.
       }
     }
     if (!isActive || _disposed) {
@@ -1343,7 +1580,99 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Pre-seed so the monitor's tasksDone finalization resolves once the server
     // task disappears (otherwise tasksDone could never become true).
     _observedRemoteTask = true;
+    // Attach a socket resume stream so deltas render token-by-token (mirroring
+    // Open WebUI) instead of waiting on the 1s poll. The poll stays armed as a
+    // safety-net fallback below. When no connected socket is available the
+    // attach is a no-op and behaviour is identical to today's poll-only resume.
+    _attachResumeSocketStream(conversation, state.last, taskId: resumeTaskId);
     _ensureRemoteTaskMonitor();
+  }
+
+  /// Feature C: subscribe the reopened, server-active chat to the shared
+  /// Socket.IO `events` stream so token deltas render in real time, reusing the
+  /// full `dispatchChatTransport` callback wiring via `isResume: true`.
+  ///
+  /// This is best-effort: it only attaches when a connected socket is present.
+  /// Offline / disconnected opens fall through to the 1s task poll unchanged.
+  /// Registering the socket subscriptions makes [_shouldProtectLocalStreamingState]
+  /// true for the resumed message, which demotes the poll's content-adoption to
+  /// a pure fallback (the socket owns content).
+  void _attachResumeSocketStream(
+    Conversation conversation,
+    ChatMessage last, {
+    String? taskId,
+  }) {
+    if (_disposed || isTemporaryChat(conversation.id)) {
+      return;
+    }
+    // A genuine local stream already owns this chat — never overwrite it.
+    if (_shouldProtectLocalStreamingState) {
+      return;
+    }
+    if (last.role != 'assistant') {
+      return;
+    }
+
+    final socketService = ref.read(socketServiceProvider);
+    if (socketService == null || !socketService.isConnected) {
+      // No live socket — rely on the poll fallback (today's behaviour).
+      return;
+    }
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return;
+    }
+
+    // Resolve a model item for watchdog timing / logging only — resume content
+    // arrives over the socket, so the exact model item is non-critical.
+    final selectedModel = ref.read(selectedModelProvider);
+    final resolvedModelId = (last.model != null && last.model!.isNotEmpty)
+        ? last.model!
+        : (conversation.model ?? selectedModel?.id ?? '');
+    final modelItem =
+        (selectedModel != null && selectedModel.id == resolvedModelId)
+        ? _buildLocalModelItem(selectedModel)
+        : <String, dynamic>{
+            'id': resolvedModelId,
+            'name': resolvedModelId,
+          };
+
+    DebugLogger.log(
+      'Attaching socket resume stream for in-flight chat',
+      scope: 'chat/resume',
+      data: {'chatId': conversation.id, 'messageId': last.id},
+    );
+
+    final session = ChatCompletionSession.resumeSocket(
+      messageId: last.id,
+      conversationId: conversation.id,
+      // Carry the discovered task id so dispatchChatTransport writes stoppable
+      // task metadata onto the resumed message (stop/delete can cancel the
+      // server task, not just the local socket subscription).
+      taskId: taskId,
+    );
+
+    unawaited(
+      dispatchChatTransport(
+        ref: ref,
+        session: session,
+        assistantMessageId: last.id,
+        modelId: resolvedModelId,
+        modelItem: modelItem,
+        activeConversationId: conversation.id,
+        api: api,
+        socketService: socketService,
+        workerManager: ref.read(workerManagerProvider),
+        webSearchEnabled: false,
+        imageGenerationEnabled: false,
+        isBackgroundFlow: false,
+        modelUsesReasoning: _modelUsesReasoning(resolvedModelId),
+        toolsEnabled: false,
+        isTemporary: false,
+        isResume: true,
+      ),
+    );
   }
 
   void _ensureRemoteTaskMonitor() {
@@ -1367,6 +1696,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _taskStatusTimer = null;
     _taskStatusCheckInFlight = false;
     _observedRemoteTask = false;
+    _tasksDoneGracePolls = 0;
+    _boundRemoteMessageId = null;
   }
 
   Future<void> _syncRemoteTaskStatus() async {
@@ -1398,6 +1729,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // When no active tasks and we previously observed tasks, streaming should be done.
       final tasksDone = _observedRemoteTask && !hasActiveTasks;
 
+      // Feature C race guard: when a socket resume stream still owns this chat
+      // (protection holds), let its own `done` finalize win. Defer the poll's
+      // force-adoption for a short grace window so we never double-finalize the
+      // same message. The window starts the first poll that sees `tasksDone`
+      // while protected; once it elapses (or protection drops) the poll resumes
+      // as the authoritative recovery finalizer below.
+      if (tasksDone && _shouldProtectLocalStreamingState) {
+        _tasksDoneGracePolls++;
+      } else {
+        _tasksDoneGracePolls = 0;
+      }
+      final socketResumeGraceActive =
+          _shouldProtectLocalStreamingState &&
+          _tasksDoneGracePolls > 0 &&
+          _tasksDoneGracePolls <= _tasksDoneSocketGracePolls;
+
       // Resume case: while the server task is still running and no genuine local
       // stream owns this chat (i.e. we re-engaged streaming on reopen), adopt the
       // growing server content so a reopened in-flight chat streams in instead of
@@ -1424,7 +1771,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                 localLast.id,
               );
               final serverVersion = refreshed.messages
-                  .where((m) => m.id == localLast.id)
+                  .where(
+                    (m) =>
+                        m.id == localLast.id || m.id == _boundRemoteMessageId,
+                  )
                   .firstOrNull;
               final serverContent = serverVersion?.content ?? '';
               // Monotonic growth guard: only adopt when the server has strictly
@@ -1454,7 +1804,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // like web search, which can take a long time to start on the server.
       // Note: If a socket connection silently fails before tasks complete, the
       // user can cancel via the stop button or navigate away to recover.
-      if (_hasStreamingAssistant && tasksDone) {
+      //
+      // Feature C: while the socket resume grace window is active, skip the
+      // force-adoption so the socket's own `done` finalize wins (avoids a
+      // double-finalize / content flicker race). After the window elapses (or
+      // if the socket silently died and dropped protection) the poll resumes as
+      // the authoritative recovery finalizer.
+      if (_hasStreamingAssistant && tasksDone && !socketResumeGraceActive) {
         try {
           final serverConversation = await api.getConversation(
             activeConversation.id,
@@ -1482,7 +1838,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               final comparisonSnapshot =
                   _readStreamingMessageComparisonSnapshot(localLast.id);
               final serverVersion = serverMessages
-                  .where((m) => m.id == localLast.id)
+                  .where(
+                    (m) =>
+                        m.id == localLast.id || m.id == _boundRemoteMessageId,
+                  )
                   .firstOrNull;
 
               if (serverVersion != null) {
@@ -1672,6 +2031,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  void addMessages(List<ChatMessage> messages) {
+    if (messages.isEmpty) return;
+    state = [...state, ...messages];
+    for (final message in messages.reversed) {
+      if (message.role == 'assistant' && message.isStreaming) {
+        _beginStreamingProfile(message);
+        _touchStreamingActivity();
+        break;
+      }
+    }
+  }
+
   void removeLastMessage() {
     if (state.isNotEmpty) {
       state = state.sublist(0, state.length - 1);
@@ -1682,6 +2053,44 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void clearMessages() {
     state = [];
     _finishStreamingProfile(reason: 'cleared');
+  }
+
+  void failLastStreamingAssistant(Object error, {String? assistantMessageId}) {
+    if (state.isEmpty) {
+      // No placeholder to mark failed, but still release any dangling
+      // streaming/transport bookkeeping so a generic recovery catch cannot
+      // leave streaming state hung.
+      finishStreaming();
+      return;
+    }
+    // Resolve the target by the captured assistant id so a list reshape between
+    // placeholder insertion and this failure (e.g. a concurrent server
+    // adoption appending messages) can't attach the error to — or finalize —
+    // the wrong tail. Fall back to the last message when no id was captured.
+    final target = assistantMessageId != null
+        ? state.where((m) => m.id == assistantMessageId).firstOrNull
+        : state.last;
+    if (target == null || target.role != 'assistant' || !target.isStreaming) {
+      // The captured assistant is gone or no longer streaming (e.g. completed,
+      // or reshaped). There is no placeholder to attach the error to, but
+      // finishStreaming() is idempotent and releases transport/profile state,
+      // matching the prior unconditional cleanup this helper replaced.
+      finishStreaming();
+      return;
+    }
+
+    final chatError = ChatMessageError(
+      content: chatErrorContentForException(error),
+    );
+    // Update by id so the error lands on the captured message even if it is no
+    // longer the list tail, and clear its streaming flag directly: finishStreaming()
+    // only completes state.last, so a non-tail failed message would otherwise stay
+    // stuck in isStreaming: true.
+    updateMessageById(
+      target.id,
+      (message) => message.copyWith(error: chatError, isStreaming: false),
+    );
+    finishStreaming();
   }
 
   void setMessages(List<ChatMessage> messages) {
@@ -2160,8 +2569,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
 
-    // Skip server cache refresh for temporary chats
-    if (!isTemporaryChat(ref.read(activeConversationProvider)?.id)) {
+    // Skip server cache refresh for temporary or no-active-conversation chats.
+    if (activeConversation != null && !isTemporaryChat(activeConversation.id)) {
       try {
         refreshConversationsCache(ref);
       } catch (_) {}
@@ -2410,6 +2819,7 @@ ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
     content: message.content,
     timestamp: message.timestamp,
     model: message.model,
+    modelName: _messageModelName(message),
     files: message.files == null
         ? null
         : List<Map<String, dynamic>>.from(message.files!),
@@ -2429,6 +2839,12 @@ ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
   );
 }
 
+String? _messageModelName(ChatMessage message) {
+  final raw = message.metadata?['modelName'] ?? message.metadata?['model_name'];
+  final value = raw?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
 List<ChatMessageVersion> _buildReplayVersions(ChatMessage message) {
   return [...message.versions, _buildAssistantVersionSnapshot(message)];
 }
@@ -2441,12 +2857,19 @@ Future<String> _preseedAssistantAndPersist(
   dynamic ref, {
   String? existingAssistantId,
   required String modelId,
+  String? modelName,
 }) async {
   // Choose id: reuse existing if provided, else create new
   final String assistantMessageId =
       (existingAssistantId != null && existingAssistantId.isNotEmpty)
       ? existingAssistantId
       : const Uuid().v4();
+
+  final trimmedModelName = modelName?.trim();
+  final modelNameMetadata = <String, dynamic>{
+    if (trimmedModelName != null && trimmedModelName.isNotEmpty)
+      'modelName': trimmedModelName,
+  };
 
   // If the message with this id doesn't exist locally, add a placeholder
   final msgs = ref.read(chatMessagesProvider);
@@ -2459,6 +2882,7 @@ Future<String> _preseedAssistantAndPersist(
       timestamp: DateTime.now(),
       model: modelId,
       isStreaming: true,
+      metadata: modelNameMetadata,
     );
     ref.read(chatMessagesProvider.notifier).addMessage(placeholder);
   } else {
@@ -2474,7 +2898,10 @@ Future<String> _preseedAssistantAndPersist(
         notifier.updateLastMessageWithFunction(
           (ChatMessage m) => m.copyWith(
             isStreaming: true,
-            metadata: notifier._metadataWithoutResponseDone(m.metadata),
+            metadata: {
+              ...?notifier._metadataWithoutResponseDone(m.metadata),
+              ...modelNameMetadata,
+            },
           ),
         );
       }
@@ -3475,6 +3902,7 @@ Future<void> regenerateMessage(
       timestamp: DateTime.now(),
       model: selectedModel.id,
       isStreaming: true,
+      metadata: {'modelName': selectedModel.name},
     );
     ref.read(chatMessagesProvider.notifier).addMessage(assistantMessage);
 
@@ -3603,6 +4031,7 @@ Future<void> regenerateMessage(
       ref,
       existingAssistantId: null,
       modelId: selectedModel.id,
+      modelName: selectedModel.name,
     );
 
     // Attach previous assistant as a version snapshot to the new assistant
@@ -3816,6 +4245,9 @@ Future<void> runQueuedCompletion(
   // Empty model => fall back to the selected default model (mirrors the
   // migrator's empty-model contract). A still-empty model is a hard error.
   final effectiveModelId = model.isNotEmpty ? model : (selectedModel?.id ?? '');
+  final effectiveModelName = selectedModel?.id == effectiveModelId
+      ? selectedModel?.name
+      : null;
   if (effectiveModelId.isEmpty) {
     throw StateError('runQueuedCompletion has no model to send');
   }
@@ -3857,6 +4289,7 @@ Future<void> runQueuedCompletion(
     ref,
     existingAssistantId: assistantMessageId,
     modelId: effectiveModelId,
+    modelName: effectiveModelName,
   );
 
   final Map<String, dynamic> modelItem =
@@ -4345,7 +4778,6 @@ Future<void> durableSend(
       'models': <String>[selectedModel.id],
     },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
@@ -4353,9 +4785,17 @@ Future<void> durableSend(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     isStreaming: true,
-    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+    metadata: {
+      'parentId': userMessageId,
+      'childrenIds': const <String>[],
+      if (selectedModel.name.trim().isNotEmpty)
+        'modelName': selectedModel.name.trim(),
+    },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  ref.read(chatMessagesProvider.notifier).addMessages([
+    userMessage,
+    assistantPlaceholder,
+  ]);
 
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];
@@ -4395,6 +4835,7 @@ Future<void> durableSend(
       text: message,
       files: durableFiles,
       modelId: selectedModel.id,
+      modelName: selectedModel.name,
       now: now,
     );
     final rows = ChatBlobMapper.blobToRows(
@@ -4461,15 +4902,13 @@ Future<void> durableSend(
       model: selectedModel.id,
       createdAt: now,
       orderIndex: 1,
-      payload: <String, dynamic>{
-        'id': assistantMessageId,
-        'parentId': userMessageId,
-        'childrenIds': <String>[],
-        'role': 'assistant',
-        'content': '',
-        'model': selectedModel.id,
-        'timestamp': now,
-      },
+      payload: _durableAssistantPayload(
+        id: assistantMessageId,
+        parentId: userMessageId,
+        modelId: selectedModel.id,
+        modelName: selectedModel.name,
+        timestamp: now,
+      ),
     );
 
     await chatLocks.runExclusive(chatId, () async {
@@ -4501,6 +4940,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required String text,
   required List<Map<String, dynamic>> files,
   required String modelId,
+  required String modelName,
   required int now,
 }) {
   return <String, dynamic>{
@@ -4519,18 +4959,53 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           'models': <String>[modelId],
           'timestamp': now,
         },
-        asstId: <String, dynamic>{
-          'id': asstId,
-          'parentId': userMsgId,
-          'childrenIds': <String>[],
-          'role': 'assistant',
-          'content': '',
-          'model': modelId,
-          'timestamp': now,
-        },
+        asstId: _durableAssistantPayload(
+          id: asstId,
+          parentId: userMsgId,
+          modelId: modelId,
+          modelName: modelName,
+          timestamp: now,
+        ),
       },
     },
   };
+}
+
+Map<String, dynamic> _durableAssistantPayload({
+  required String id,
+  required String parentId,
+  required String modelId,
+  required String modelName,
+  required int timestamp,
+}) {
+  final trimmedModelName = modelName.trim();
+  return <String, dynamic>{
+    'id': id,
+    'parentId': parentId,
+    'childrenIds': <String>[],
+    'role': 'assistant',
+    'content': '',
+    'model': modelId,
+    if (trimmedModelName.isNotEmpty) 'modelName': trimmedModelName,
+    'timestamp': timestamp,
+  };
+}
+
+@visibleForTesting
+Map<String, dynamic> debugBuildDurableAssistantPayloadForTesting({
+  required String id,
+  required String parentId,
+  required String modelId,
+  required String modelName,
+  required int timestamp,
+}) {
+  return _durableAssistantPayload(
+    id: id,
+    parentId: parentId,
+    modelId: modelId,
+    modelName: modelName,
+    timestamp: timestamp,
+  );
 }
 
 typedef _AttachmentTypeMap = Map<String, String>;
@@ -4783,9 +5258,6 @@ Future<void> _sendMessageInternal(
     },
   );
 
-  // Add user message to UI immediately for instant feedback
-  ref.read(chatMessagesProvider.notifier).addMessage(userMessage);
-
   // Add assistant placeholder immediately to show typing indicator right away
   final assistantPlaceholder = ChatMessage(
     id: assistantMessageId,
@@ -4794,9 +5266,17 @@ Future<void> _sendMessageInternal(
     timestamp: DateTime.now(),
     model: selectedModel.id,
     isStreaming: true,
-    metadata: {'parentId': userMessageId, 'childrenIds': const <String>[]},
+    metadata: {
+      'parentId': userMessageId,
+      'childrenIds': const <String>[],
+      if (selectedModel.name.trim().isNotEmpty)
+        'modelName': selectedModel.name.trim(),
+    },
   );
-  ref.read(chatMessagesProvider.notifier).addMessage(assistantPlaceholder);
+  ref.read(chatMessagesProvider.notifier).addMessages([
+    userMessage,
+    assistantPlaceholder,
+  ]);
 
   // Now do async work in parallel: user settings + server file info
   String? userSystemPrompt;
@@ -5289,32 +5769,20 @@ Future<void> _sendMessageInternal(
     // message. This preserves the placeholder's ID and any files that
     // may have arrived before the error, matching OpenWebUI's same-slot
     // failure semantics.
-    final errorContent = _errorContentForException(e);
-
     // Explicit ChatMessage type on closures is required because `ref` is
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    final chatError = ChatMessageError(content: errorContent);
+    notifier.failLastStreamingAssistant(e, assistantMessageId: assistantMessageId);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
-      // Still convert the placeholder so the UI is consistent.
-      notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
-      );
-      notifier.finishStreaming();
       ref.invalidate(authStateManagerProvider);
-    } else {
-      notifier.updateLastMessageWithFunction(
-        (ChatMessage m) => m.copyWith(error: chatError),
-      );
-      notifier.finishStreaming();
     }
   }
 }
 
 /// Returns a user-friendly error description based on the exception.
-String _errorContentForException(Object e) {
+String chatErrorContentForException(Object e) {
   final msg = e.toString();
   if (msg.contains('400')) {
     return 'There was an issue with the message format. This might be '

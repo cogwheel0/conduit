@@ -118,12 +118,6 @@ class _PinToTopState {
       streamingMessageId: streamingMessageId,
     );
   }
-
-  _PinToTopState clearTracking() => _PinToTopState._(
-    isActive: isActive,
-    userMessageId: null,
-    streamingMessageId: null,
-  );
 }
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -588,7 +582,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         error: e,
         stackTrace: stackTrace,
       );
-      ref.read(chatMessagesProvider.notifier).finishStreaming();
+      ref.read(chatMessagesProvider.notifier).failLastStreamingAssistant(e);
     }
   }
 
@@ -842,10 +836,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               }),
         );
       } catch (e) {
-        DebugLogger.log(
-          'Pasted upload prep failed: $e',
-          scope: 'chat/page',
-        );
+        DebugLogger.log('Pasted upload prep failed: $e', scope: 'chat/page');
       }
     }
 
@@ -1640,9 +1631,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Transitions out of pin-to-top mode.
   ///
-  /// When [instant] is true (e.g. during streaming), uses jumpTo to
-  /// avoid competing with per-chunk scroll updates. When false (e.g.
-  /// streaming just completed), animates smoothly.
+  /// When [instant] is true, uses jumpTo to avoid competing with streaming
+  /// row-size corrections.
   void _endPinToTop({bool instant = false, bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
     if (_isUserInteractingWithScroll) {
@@ -1731,6 +1721,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildMessagesList(ThemeData theme, WidgetRef watchRef) {
     watchRef.watch(chatMessageStructureSignatureProvider);
+    // Rebuild the list shell only when streaming starts or ends so pin-to-top
+    // cleanup runs on completion without rebuilding on every streamed chunk.
+    watchRef.watch(isChatStreamingProvider);
     final messages = watchRef.read(chatMessagesProvider);
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
     final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
@@ -1863,7 +1856,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _scheduleExtentCacheInvalidation();
     }
     _scheduleMarkdownPrewarm(messages, layoutMetadata: layoutMetadata);
-    final hasStreamingMessage = layoutMetadata.hasStreamingMessage;
+    final hasStreamingMessage = _hasActiveStreamingAssistant(messages);
 
     // Pin-to-top: detect new streaming response and scroll user message to top
     if (hasStreamingMessage && messages.length >= 2) {
@@ -1881,13 +1874,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _scrollToUserMessage();
       }
     }
-    // Don't end pin-to-top when streaming completes. Keep the phantom sliver so
-    // the user message remains near the top; it dismisses on user scroll, new
-    // message, manual scroll-to-bottom, or conversation switch.
-    //
-    // Clear the pinned ID so the next message can activate pin-to-top.
-    if (!hasStreamingMessage && _pinnedStreamingId != null) {
-      _pinToTopState = _pinToTopState.clearTracking();
+    if (!hasStreamingMessage && !_wantsPinToTop && _pinnedStreamingId != null) {
+      // Streaming finished but pin-to-top is no longer active: clear the stale
+      // pinned streaming id. When pin-to-top IS still active we deliberately
+      // keep the phantom spacer so the prompt stays near the top until the user
+      // scrolls, sends, or switches chats — avoids a viewport jump mid-read.
+      _pinToTopState = const _PinToTopState.inactive();
     }
 
     final pinnedUserMessageIndex =
@@ -3039,12 +3031,22 @@ String _formatChatModelDisplayName(String name) {
 
 ({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
   required String? rawModel,
+  String? fallbackModelName,
   required List<Model>? models,
   Map<String, Model>? modelLookup,
 }) {
   final trimmedModel = rawModel?.trim();
+  final trimmedFallback = fallbackModelName?.trim();
+  final fallback = trimmedFallback == null || trimmedFallback.isEmpty
+      ? null
+      : trimmedFallback;
   if (trimmedModel == null || trimmedModel.isEmpty) {
-    return (displayName: null, matchedModel: null);
+    return (
+      displayName: fallback == null
+          ? null
+          : _formatChatModelDisplayName(fallback),
+      matchedModel: null,
+    );
   }
 
   final matched = modelLookup?[trimmedModel];
@@ -3067,9 +3069,15 @@ String _formatChatModelDisplayName(String name) {
   }
 
   return (
-    displayName: _formatChatModelDisplayName(trimmedModel),
+    displayName: _formatChatModelDisplayName(fallback ?? trimmedModel),
     matchedModel: null,
   );
+}
+
+String? _messageModelNameFallback(ChatMessage message) {
+  final raw = message.metadata?['modelName'] ?? message.metadata?['model_name'];
+  final value = raw?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
 }
 
 Map<String, Model>? _buildChatModelLookup(List<Model>? models) {
@@ -3152,13 +3160,11 @@ class _ChatListStableLayoutMetadata {
     required this.rows,
     required this.indexByMessageId,
     required this.indexByMessageKey,
-    required this.hasStreamingMessage,
   });
 
   final List<_ChatRowLayoutMetadata> rows;
   final Map<String, int> indexByMessageId;
   final Map<String, int> indexByMessageKey;
-  final bool hasStreamingMessage;
 
   double estimatedOffsetBefore(int targetIndex) {
     if (targetIndex <= 0 || targetIndex >= rows.length) {
@@ -3180,9 +3186,7 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
       ..write('\u0000')
       ..write(message.model ?? '')
       ..write('\u0000')
-      ..write(message.isStreaming ? 1 : 0)
-      ..write('\u0000')
-      ..write(message.isStreaming ? -1 : message.content.trim().length)
+      ..write(_messageModelNameFallback(message) ?? '')
       ..write('\u0000')
       ..write(message.attachmentIds?.length ?? 0)
       ..write('\u0000')
@@ -3208,7 +3212,9 @@ _ChatListStableLayoutSignature _buildChatListStableLayoutSignature(
     for (final version in message.versions) {
       buffer
         ..write('\u0000')
-        ..write(version.model ?? '');
+        ..write(version.model ?? '')
+        ..write('\u0000')
+        ..write(version.modelName ?? '');
     }
     buffer.writeln();
   }
@@ -3227,17 +3233,16 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   final indexByMessageId = <String, int>{};
   final indexByMessageKey = <String, int>{};
   var leadingOffset = 0.0;
-  var hasStreamingMessage = false;
 
   for (var index = 0; index < messages.length; index++) {
     final message = messages[index];
     final isUser = message.role == 'user';
-    hasStreamingMessage = hasStreamingMessage || message.isStreaming;
     indexByMessageId[message.id] = index;
     indexByMessageKey['message-${message.id}'] = index;
 
     final modelPresentation = _resolveChatModelPresentation(
       rawModel: message.model,
+      fallbackModelName: _messageModelNameFallback(message),
       models: models,
       modelLookup: modelLookup,
     );
@@ -3246,6 +3251,7 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
     for (final version in message.versions) {
       final versionPresentation = _resolveChatModelPresentation(
         rawModel: version.model,
+        fallbackModelName: version.modelName,
         models: models,
         modelLookup: modelLookup,
       );
@@ -3295,7 +3301,6 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
     rows: List<_ChatRowLayoutMetadata>.unmodifiable(rows),
     indexByMessageId: Map<String, int>.unmodifiable(indexByMessageId),
     indexByMessageKey: Map<String, int>.unmodifiable(indexByMessageKey),
-    hasStreamingMessage: hasStreamingMessage,
   );
 }
 
@@ -3386,6 +3391,7 @@ List<
     double estimatedExtent,
     bool isArchivedVariant,
     bool showFollowUps,
+    String? displayModelName,
   })
 >
 debugBuildChatListLayoutSummaryForTesting(
@@ -3405,6 +3411,7 @@ debugBuildChatListLayoutSummaryForTesting(
           estimatedExtent: row.estimatedExtent,
           isArchivedVariant: row.isArchivedVariant,
           showFollowUps: row.showFollowUps,
+          displayModelName: row.displayModelName,
         ),
       )
       .toList(growable: false);
@@ -3500,25 +3507,6 @@ List<int> debugSelectMarkdownPrewarmCandidateIndicesForTesting(
     viewportTop: viewportTop,
     viewportHeight: viewportHeight,
     maxCount: maxCount,
-  );
-}
-
-@visibleForTesting
-({bool isActive, String? userMessageId, String? streamingMessageId})
-debugClearPinToTopTrackingForTesting({
-  required bool isActive,
-  String? userMessageId,
-  String? streamingMessageId,
-}) {
-  final state = _PinToTopState._(
-    isActive: isActive,
-    userMessageId: userMessageId,
-    streamingMessageId: streamingMessageId,
-  ).clearTracking();
-  return (
-    isActive: state.isActive,
-    userMessageId: state.userMessageId,
-    streamingMessageId: state.streamingMessageId,
   );
 }
 
@@ -3654,9 +3642,6 @@ double _estimateChatMessageExtent(
   var estimate = message.role == 'user' ? 84.0 : 132.0;
   estimate += estimatedLineCount * 22.0;
 
-  if (message.isStreaming) {
-    estimate += 56.0;
-  }
   if (message.error != null) {
     estimate += 64.0;
   }

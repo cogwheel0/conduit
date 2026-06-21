@@ -79,11 +79,17 @@ Future<void> bindTaskSocketIfNeeded({
   required ChatCompletionSession session,
   required SocketService? socketService,
   Duration timeout = const Duration(seconds: 10),
+  bool isResume = false,
 }) async {
   if (session.transport != ChatCompletionTransport.taskSocket) return;
   if (socketService == null) return;
 
-  setAwaitingSocketBinding(ref: ref, value: true);
+  // Resume reuses the live socket subscription; there is no "awaiting binding"
+  // window to surface on the message (no fresh HTTP request was issued), so we
+  // skip that metadata churn but still ensure the socket is connected.
+  if (!isResume) {
+    setAwaitingSocketBinding(ref: ref, value: true);
+  }
 
   try {
     if (!socketService.isConnected) {
@@ -91,13 +97,15 @@ Future<void> bindTaskSocketIfNeeded({
       if (!connected) {
         DebugLogger.log(
           'Socket not available for taskSocket binding — will rely on poll recovery',
-          scope: 'transport/dispatch',
+          scope: isResume ? 'transport/resume' : 'transport/dispatch',
         );
         return;
       }
     }
   } finally {
-    setAwaitingSocketBinding(ref: ref, value: false);
+    if (!isResume) {
+      setAwaitingSocketBinding(ref: ref, value: false);
+    }
   }
 }
 
@@ -155,6 +163,25 @@ void stopActiveTransport(ChatMessage message, ApiService? api) {
 // Dispatch entry point
 // ---------------------------------------------------------------------------
 
+/// Whether the just-dispatched [session] should optimistically light the
+/// sidebar `generating` indicator for [conversationId].
+///
+/// A taskSocket session with a non-empty task ID is produced precisely when the
+/// completion POST returned a non-empty `task_ids`, which upstream OpenWebUI
+/// treats as the synchronous generation-START signal (alongside the async
+/// `chat:active{true}` push). Temporary chats are never tracked in the sidebar.
+bool shouldOptimisticallyMarkChatActive({
+  required ChatCompletionSession session,
+  required String? conversationId,
+}) {
+  return session.transport == ChatCompletionTransport.taskSocket &&
+      session.taskId != null &&
+      session.taskId!.isNotEmpty &&
+      conversationId != null &&
+      conversationId.isNotEmpty &&
+      !isTemporaryChat(conversationId);
+}
+
 /// Shared transport dispatch glue used by both `regenerateMessage()` and
 /// `_sendMessageInternal()`.
 ///
@@ -181,6 +208,15 @@ Future<void> dispatchChatTransport({
   required bool toolsEnabled,
   required bool isTemporary,
   List<String>? filterIds,
+
+  /// Whether this dispatch resumes an in-flight chat that is still generating
+  /// on the server (Feature C), rather than a fresh local send.
+  ///
+  /// When true the resume reuses the live socket subscription instead of an
+  /// HTTP request: the awaiting-binding metadata is skipped, no abort handle is
+  /// written, and the socket session ID is forced to `null` so the streaming
+  /// helper binds the server's (possibly foreign) `message_id` by `chat_id`.
+  bool isResume = false,
 }) async {
   // 1. Write transport + flow metadata onto assistant message
   writeTransportMetadata(ref: ref, session: session);
@@ -204,15 +240,41 @@ Future<void> dispatchChatTransport({
     ref: ref,
     session: session,
     socketService: socketService,
+    isResume: isResume,
   );
 
   // 3. Configure remote task monitoring
   configureRemoteTaskMonitoring(ref: ref, session: session);
 
+  // 3b. Optimistic generation-START for the sidebar indicator.
+  //
+  // Upstream OpenWebUI learns active state from two signals: the synchronous
+  // completion-POST response (`{status, task_ids, chat_id}`) AND the async
+  // `chat:active{active:true}` socket push. A taskSocket session is produced
+  // exactly when that POST returned a non-empty `task_ids`, so light the
+  // spinner immediately here instead of waiting for the socket event to land.
+  // The authoritative `chat:active{false}` (or the paired cancel/error/finalize
+  // `setInactive`) clears it, so no spinner is stranded.
+  if (shouldOptimisticallyMarkChatActive(
+    session: session,
+    conversationId: activeConversationId,
+  )) {
+    ref.read(activeChatIdsProvider.notifier).setActive(activeConversationId!);
+  }
+
   // 4. Build the effective session ID for socket event matching.
   // Prefer the live socket session ID over the one stored in the session
   // (the latter may be null when the socket was disconnected at send time).
-  final effectiveSessionId = socketService?.sessionId ?? session.sessionId;
+  //
+  // Resume forces a null session ID: upstream `chat:completion` envelopes for
+  // an in-flight chat carry no `session_id`, and the server's `message_id` may
+  // differ from the local placeholder id. A null session keeps
+  // `matchesCurrentStreamSession` permissive so the helper binds the foreign
+  // `message_id` by `chat_id` (`allowBindingForeignMessage`). Leaking the live
+  // socket session id here would reject those foreign-session events.
+  final effectiveSessionId = isResume
+      ? null
+      : (socketService?.sessionId ?? session.sessionId);
 
   // 5. Attach streaming
   final activeStream = attachUnifiedChunkedStreaming(
@@ -289,13 +351,45 @@ Future<void> dispatchChatTransport({
         });
       }
     },
+    onRemoteMessageBound: (remoteMessageId) {
+      // Record the foreign server id bound to this assistant so the poll
+      // fallback can still resolve server content if the socket later dies.
+      ref
+          .read(chatMessagesProvider.notifier)
+          .recordResumeBoundRemoteMessageId(assistantMessageId, remoteMessageId);
+    },
     onChatActiveChanged: (chatId, active) {
       if (chatId == null || chatId.isEmpty) return;
+      final notifier = ref.read(activeChatIdsProvider.notifier);
       if (active) {
-        ref.read(activeChatIdsProvider.notifier).setActive(chatId);
-      } else {
-        ref.read(activeChatIdsProvider.notifier).setInactive(chatId);
+        notifier.setActive(chatId);
+        return;
       }
+      // The backend `chat:active(false)` only fires when the LAST task for the
+      // chat finishes. This optimistic safety-net removal must be last-task
+      // aware too, or an overlapping multi-model / branched generation would
+      // drop the sidebar spinner while another stream is still running. Only
+      // clear once the task registry reports no remaining tasks for the chat.
+      final apiRef = ref.read(apiServiceProvider);
+      if (apiRef == null) {
+        notifier.setInactive(chatId);
+        return;
+      }
+      // Capture the activation token now so a stream that starts for this chat
+      // during the async lookup is not clobbered by this stale clear.
+      final token = notifier.activationToken(chatId);
+      unawaited(() async {
+        try {
+          final ids = await apiRef.getTaskIdsByChat(chatId);
+          if (ids.isEmpty) {
+            notifier.setInactiveIfUnchanged(chatId, token);
+          }
+        } catch (_) {
+          // Unreachable registry: clear anyway so a spinner can't strand,
+          // still guarded against a racing re-activation.
+          notifier.setInactiveIfUnchanged(chatId, token);
+        }
+      }());
     },
     completeStreamingUi: () =>
         ref.read(chatMessagesProvider.notifier).completeStreamingUi(),

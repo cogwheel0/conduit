@@ -316,12 +316,15 @@ Map<String, dynamic>? _parseSiblingAsVersion(
       : msgData['codeExecutions'] ?? msgData['code_executions'];
   final rawUsage = _coerceJsonMap(historyMsg?['usage'] ?? msgData['usage']);
   final errorData = _extractErrorData(msgData, historyMsg);
+  final modelName = _extractOpenWebUiModelName(msgData, historyMsg);
 
   return <String, dynamic>{
     'id': (msgData['id'] ?? _uuid.v4()).toString(),
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
-    if (msgData['model'] != null) 'model': msgData['model'].toString(),
+    if ((msgData['model'] ?? historyMsg?['model']) != null)
+      'model': (msgData['model'] ?? historyMsg?['model']).toString(),
+    'modelName': ?modelName,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
     'sources': _parseSourcesField(sourcesRaw),
@@ -420,7 +423,32 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     }
   }
 
+  final modelName = _extractOpenWebUiModelName(msgData, historyMsg);
+  if (modelName != null) {
+    metadata['modelName'] = modelName;
+  }
+
   return metadata.isEmpty ? null : metadata;
+}
+
+String? _extractOpenWebUiModelName(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  // Walk candidates in priority order, skipping null AND empty/whitespace
+  // values so an empty `modelName` does not shadow a populated `model_name`.
+  for (final candidate in [
+    historyMsg?['modelName'],
+    historyMsg?['model_name'],
+    msgData['modelName'],
+    msgData['model_name'],
+  ]) {
+    final value = candidate?.toString().trim();
+    if (value != null && value.isNotEmpty) {
+      return value;
+    }
+  }
+  return null;
 }
 
 Map<String, dynamic> _parseOpenWebUIMessageToJson(
@@ -568,7 +596,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'role': role,
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
-    'model': msgData['model']?.toString(),
+    'model': (msgData['model'] ?? historyMsg?['model'])?.toString(),
     'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
     'attachmentIds': ?attachmentIds,
     'files': ?files,

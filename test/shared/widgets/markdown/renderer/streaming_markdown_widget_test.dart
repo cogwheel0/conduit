@@ -14,6 +14,7 @@ import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart'
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/foundation.dart';
@@ -36,6 +37,44 @@ Iterable<_RecordedPlatformCall> _mediumImpactCalls(
       call.method == 'HapticFeedback.vibrate' &&
       call.arguments == 'HapticFeedbackType.mediumImpact',
 );
+
+/// Returns `true` if [text] contains any unpaired UTF-16 surrogate, which would
+/// render as a tofu/replacement glyph (the regression the fade-split snap
+/// guards against).
+bool _hasLoneSurrogate(String text) {
+  for (var index = 0; index < text.length; index += 1) {
+    final unit = text.codeUnitAt(index);
+    final isHigh = unit >= 0xD800 && unit <= 0xDBFF;
+    final isLow = unit >= 0xDC00 && unit <= 0xDFFF;
+    if (isHigh) {
+      final hasLowFollower =
+          index + 1 < text.length &&
+          text.codeUnitAt(index + 1) >= 0xDC00 &&
+          text.codeUnitAt(index + 1) <= 0xDFFF;
+      if (!hasLowFollower) {
+        return true;
+      }
+      index += 1;
+    } else if (isLow) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Iterable<TextSpan> _textSpanLeaves(InlineSpan span) sync* {
+  if (span is! TextSpan) {
+    return;
+  }
+  final children = span.children;
+  if (children == null || children.isEmpty) {
+    yield span;
+    return;
+  }
+  for (final child in children) {
+    yield* _textSpanLeaves(child);
+  }
+}
 
 class _TestTextToSpeechController extends TextToSpeechController {
   @override
@@ -214,6 +253,8 @@ void main() {
     VoidCallback? onCompiledViewMounted,
     VoidCallback? onCompiledViewDisposed,
     VoidCallback? onStreamingRefreshFrame,
+    VoidCallback? onBaseRender,
+    MarkdownLinkTapCallback? onTapLink,
   }) {
     return ProviderScope(
       child: MaterialApp(
@@ -228,10 +269,12 @@ void main() {
               isStreaming: isStreaming,
               stateScopeId: stateScopeId,
               sources: sources,
+              onTapLink: onTapLink,
               debugRenderInterval: debugRenderInterval,
               debugOnCompiledViewMounted: onCompiledViewMounted,
               debugOnCompiledViewDisposed: onCompiledViewDisposed,
               debugOnStreamingRefreshFrame: onStreamingRefreshFrame,
+              debugOnBaseRender: onBaseRender,
             ),
           ),
         ),
@@ -430,11 +473,20 @@ graph TD
       await tester.pumpWidget(buildHarness(content, isStreaming: true));
       await tester.pumpAndSettle();
 
-      final row = tester.widget<Row>(
-        find.ancestor(of: find.text('•'), matching: find.byType(Row)),
+      // While streaming, the loose list-item inline run is rendered through a
+      // FadableRichText (so its suffix can fade), which builds a Text.rich
+      // internally. Locate that rendered Text regardless of the wrapper.
+      final textWidget = tester.widget<Text>(
+        find.descendant(
+          of: find.byType(FadableRichText),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Text &&
+                widget.textSpan?.toPlainText() ==
+                    '$firstParagraph $secondParagraph',
+          ),
+        ),
       );
-      final expanded = row.children.last as Expanded;
-      final textWidget = expanded.child as Text;
 
       expect(
         textWidget.textSpan?.toPlainText(),
@@ -498,6 +550,324 @@ graph TD
       greaterThan(0),
     );
     expect((paragraphPaddings.last.padding as EdgeInsets).bottom, 0);
+  });
+
+  testWidgets('streaming markdown fades newly appended rendered text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(buildHarness('Hello **world**', isStreaming: true));
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              widget.textSpan?.toPlainText() == 'Hello world';
+        }),
+      );
+    }
+
+    final fadingLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final fadingWorld = fadingLeaves.singleWhere(
+      (span) => span.text == 'world',
+    );
+    expect(fadingWorld.style?.fontWeight, FontWeight.bold);
+    expect(fadingWorld.style?.color?.a, lessThan(1));
+
+    await tester.pump(const Duration(milliseconds: 360));
+
+    final settledLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final settledWorld = settledLeaves.singleWhere(
+      (span) => span.text == 'world',
+    );
+    expect(settledWorld.style?.fontWeight, FontWeight.bold);
+    expect(settledWorld.style?.color?.a ?? 1, 1);
+  });
+
+  testWidgets('streaming markdown fades newly appended plain text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(buildHarness('Hello world', isStreaming: true));
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              widget.textSpan?.toPlainText() == 'Hello world';
+        }),
+      );
+    }
+
+    final fadingLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    final fadingSuffix = fadingLeaves.singleWhere(
+      (span) => span.text == ' world',
+    );
+    expect(fadingSuffix.style?.color?.a, lessThan(1));
+
+    await tester.pump(const Duration(milliseconds: 360));
+
+    final settledLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    expect(settledLeaves.map((span) => span.text).join(), 'Hello world');
+    expect(
+      settledLeaves.every((span) => (span.style?.color?.a ?? 1) == 1),
+      isTrue,
+    );
+  });
+
+  testWidgets(
+    'fade reuses the cached base span tree instead of rebuilding per frame',
+    (tester) async {
+      var baseRenders = 0;
+      Widget harness(String content) => buildHarness(
+        content,
+        isStreaming: true,
+        onBaseRender: () => baseRenders += 1,
+      );
+
+      await tester.pumpWidget(harness('Hello'));
+      await tester.pump();
+      expect(baseRenders, 1, reason: 'base render once for the first content');
+
+      await tester.pumpWidget(harness('Hello **world**'));
+      await tester.pump();
+      final beforeFade = baseRenders;
+      expect(
+        beforeFade,
+        greaterThanOrEqualTo(2),
+        reason: 'at least one additional base render for the new content',
+      );
+
+      // Sweep the 320ms fade across ~20 frames. The base span tree is produced
+      // once per content change and the fade reuses that cache, so a pure fade
+      // (unchanged document) must add at most ONE base render (the settle pass)
+      // and never one-per-frame. A small constant bound — independent of the
+      // frame count — catches partial (every-other-frame) regressions that the
+      // old `frames ~/ 2` bound tolerated.
+      var frames = 0;
+      for (var elapsed = 0; elapsed < 320; elapsed += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        frames += 1;
+      }
+      expect(
+        baseRenders - beforeFade,
+        lessThanOrEqualTo(1),
+        reason:
+            'base render is not driven per fade frame ($frames frames swept)',
+      );
+
+      final afterFade = baseRenders;
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        baseRenders,
+        afterFade,
+        reason: 'settling adds no base render',
+      );
+    },
+  );
+
+  testWidgets('only the faded suffix changes alpha and recognizers are stable', (
+    tester,
+  ) async {
+    void onTap(String url, String title) {}
+    var baseRenders = 0;
+    await tester.pumpWidget(
+      buildHarness(
+        'See [docs](https://a.test)',
+        isStreaming: true,
+        onTapLink: onTap,
+        onBaseRender: () => baseRenders += 1,
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      buildHarness(
+        'See [docs](https://a.test) and **more**',
+        isStreaming: true,
+        onTapLink: onTap,
+        onBaseRender: () => baseRenders += 1,
+      ),
+    );
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              (widget.textSpan?.toPlainText() ?? '') == 'See docs and more';
+        }),
+      );
+    }
+
+    final fadingLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    // The link prefix recognizer is captured to assert identity stability.
+    final docsLeaf = fadingLeaves.singleWhere((span) => span.text == 'docs');
+    final docsRecognizer = docsLeaf.recognizer;
+    expect(docsRecognizer, isNotNull);
+
+    // The stable prefix is the common 'See docs' text. Everything appended after
+    // it (' and ' + 'more') is the streaming suffix and fades together; the
+    // prefix stays fully opaque.
+    const suffixTexts = {' and ', 'more'};
+    var sawFadedSuffix = false;
+    for (final leaf in fadingLeaves) {
+      final alpha = leaf.style?.color?.a ?? 1;
+      if (suffixTexts.contains(leaf.text)) {
+        expect(alpha, lessThan(1), reason: 'suffix fades in: "${leaf.text}"');
+        sawFadedSuffix = true;
+      } else {
+        expect(alpha, 1, reason: 'prefix stays opaque: "${leaf.text}"');
+      }
+    }
+    expect(sawFadedSuffix, isTrue);
+
+    // Step the fade frame-by-frame and assert recognizer identity is stable
+    // across consecutive reuse frames (frames that do NOT re-resolve the base
+    // span tree). applyFadeOpacity must never recreate the recognizer, so a
+    // reuse frame's recognizer must be identical to the previous reuse frame's.
+    // We require at least one such cross-frame comparison so the assertion can
+    // never be silently skipped: a regression that rebuilds the span tree on
+    // every fade frame would leave `reuseFrameComparisons` zero and fail the
+    // test — the failure mode the old single-frame `if` guard let pass green.
+    Object? previousReuseRecognizer = docsRecognizer;
+    var reuseFrameComparisons = 0;
+    for (var i = 0; i < 12; i++) {
+      final rendersBeforeFrame = baseRenders;
+      await tester.pump(const Duration(milliseconds: 16));
+      final frameLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+      final frameDocs = frameLeaves.singleWhere((span) => span.text == 'docs');
+      if (baseRenders != rendersBeforeFrame) {
+        // This frame re-resolved the document, so a fresh recognizer is
+        // expected; reset the baseline and only compare across reuse frames.
+        previousReuseRecognizer = frameDocs.recognizer;
+        continue;
+      }
+      reuseFrameComparisons++;
+      expect(
+        identical(frameDocs.recognizer, previousReuseRecognizer),
+        isTrue,
+        reason: 'link recognizer identity is stable across fade frames',
+      );
+      previousReuseRecognizer = frameDocs.recognizer;
+    }
+    expect(
+      reuseFrameComparisons,
+      greaterThan(0),
+      reason:
+          'at least one fade frame must reuse the cached span tree (otherwise '
+          'the recognizer-stability assertion is silently skipped)',
+    );
+
+    await tester.pump(const Duration(milliseconds: 360));
+    final settledLeaves = _textSpanLeaves(renderedText().textSpan!).toList();
+    expect(
+      settledLeaves.every((span) => (span.style?.color?.a ?? 1) == 1),
+      isTrue,
+      reason: 'every span settles to full opacity',
+    );
+    final settledDocs = settledLeaves.singleWhere((span) => span.text == 'docs');
+    expect(
+      settledDocs.recognizer,
+      isNotNull,
+      reason: 'the link recognizer survives the fade',
+    );
+  });
+
+  testWidgets('faded suffix begins after a fenced code block prefix', (
+    tester,
+  ) async {
+    const prefix = 'Intro\n\n```\ncode body\n```\n\nTail';
+    await tester.pumpWidget(buildHarness(prefix, isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      buildHarness('$prefix appended', isStreaming: true),
+    );
+    await tester.pump();
+
+    Text tailText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              (widget.textSpan?.toPlainText() ?? '') == 'Tail appended';
+        }),
+      );
+    }
+
+    final leaves = _textSpanLeaves(tailText().textSpan!).toList();
+    // The code body precedes the tail in document coordinates; the fade offset
+    // must still land exactly on the appended ' appended' suffix, so the stable
+    // 'Tail' text never re-fades.
+    final stable = leaves.where((span) => span.text == 'Tail');
+    final faded = leaves.where((span) => (span.style?.color?.a ?? 1) < 1);
+    expect(stable.every((span) => (span.style?.color?.a ?? 1) == 1), isTrue);
+    expect(faded.map((span) => span.text).join(), contains('appended'));
+
+    await tester.pump(const Duration(milliseconds: 360));
+    final settled = _textSpanLeaves(tailText().textSpan!).toList();
+    expect(
+      settled.every((span) => (span.style?.color?.a ?? 1) == 1),
+      isTrue,
+    );
+  });
+
+  testWidgets('surrogate-pair boundary never splits mid-emoji while fading', (
+    tester,
+  ) async {
+    // Append text right after a non-BMP emoji; the fade split must snap off the
+    // surrogate pair so no lone-surrogate/replacement glyph appears.
+    await tester.pumpWidget(buildHarness('Hi \u{1F600}', isStreaming: true));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      buildHarness('Hi \u{1F600} there', isStreaming: true),
+    );
+    await tester.pump();
+
+    Text renderedText() {
+      return tester.widget<Text>(
+        find.byWidgetPredicate((widget) {
+          return widget is Text &&
+              (widget.textSpan?.toPlainText() ?? '') == 'Hi \u{1F600} there';
+        }),
+      );
+    }
+
+    for (var elapsed = 0; elapsed < 320; elapsed += 40) {
+      final leaves = _textSpanLeaves(renderedText().textSpan!).toList();
+      final joined = leaves.map((span) => span.text ?? '').join();
+      // The emoji round-trips intact (no replacement char, no lone surrogate).
+      expect(joined, 'Hi \u{1F600} there');
+      expect(joined.contains('�'), isFalse);
+      for (final leaf in leaves) {
+        final text = leaf.text;
+        if (text == null || text.isEmpty) continue;
+        expect(
+          _hasLoneSurrogate(text),
+          isFalse,
+          reason: 'leaf "$text" must not split the emoji surrogate pair',
+        );
+      }
+      await tester.pump(const Duration(milliseconds: 40));
+    }
+
+    await tester.pump(const Duration(milliseconds: 360));
+    final settled = _textSpanLeaves(renderedText().textSpan!).toList();
+    expect(
+      settled.map((span) => span.text ?? '').join(),
+      'Hi \u{1F600} there',
+    );
+    expect(
+      settled.every((span) => (span.style?.color?.a ?? 1) == 1),
+      isTrue,
+    );
   });
 
   testWidgets('renders OpenWebUI mentions without placeholder leakage', (
@@ -1145,7 +1515,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant streams long plain content through the cheap text path',
+    'assistant streams long plain content through markdown rendering',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -1175,11 +1545,7 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
-        );
-        expect(find.byType(StreamingMarkdownWidget), findsNothing);
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('Plain streaming sentence.'),
           findsOneWidget,
@@ -1191,7 +1557,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant cheap streaming text path strips markdown reference definitions',
+    'assistant streaming markdown renderer omits reference definitions',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -1224,10 +1590,7 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
-        );
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
         expect(
           find.textContaining('[docs]: https://example.com'),
           findsNothing,
@@ -1277,10 +1640,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1322,10 +1681,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1367,10 +1722,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1412,10 +1763,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1457,10 +1804,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1502,10 +1845,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1549,10 +1888,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1595,10 +1930,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1642,10 +1973,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1687,10 +2014,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();
@@ -1732,11 +2055,7 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsOneWidget,
-        );
-        expect(find.byType(StreamingMarkdownWidget), findsNothing);
+        expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
 
         await tester.pumpWidget(
           buildAssistantHarness(
@@ -1747,10 +2066,6 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(
-          find.byKey(const ValueKey('assistant-streaming-plain-text')),
-          findsNothing,
-        );
         expect(find.byType(StreamingMarkdownWidget), findsOneWidget);
       } finally {
         container.dispose();

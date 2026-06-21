@@ -426,6 +426,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
   void Function(String? chatId, bool active)? onChatActiveChanged,
+  // Fired when a foreign server-assigned message_id is bound to the local
+  // assistant (notably during socket resume). Lets the caller's poll fallback
+  // resolve server messages by the bound id if the socket later dies.
+  void Function(String remoteMessageId)? onRemoteMessageBound,
   required void Function() completeStreamingUi,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
@@ -543,6 +547,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     boundRemoteMessageId = candidateId;
+    onRemoteMessageBound?.call(candidateId);
     DebugLogger.log(
       'Binding $source server message $candidateId '
       'to local assistant $assistantMessageId',
@@ -589,6 +594,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     return candidate;
   }
+
+  /// Extracts an id that [SocketService] may deliver at the envelope level OR
+  /// nested under `data` / `data.data`. Mirrors the session-id walk above so
+  /// chat/message scoping cannot be bypassed by a nested-id event.
+  String? extractNestedEventId(
+    Map<String, dynamic> event,
+    String snakeKey,
+    String camelKey,
+  ) {
+    String? candidate =
+        event[snakeKey]?.toString() ?? event[camelKey]?.toString();
+    final data = event['data'];
+    if (candidate == null && data is Map) {
+      candidate = data[snakeKey]?.toString() ?? data[camelKey]?.toString();
+      final inner = data['data'];
+      if (candidate == null && inner is Map) {
+        candidate = inner[snakeKey]?.toString() ?? inner[camelKey]?.toString();
+      }
+    }
+    return candidate;
+  }
+
+  String? extractEventMessageId(Map<String, dynamic> event) =>
+      extractNestedEventId(event, 'message_id', 'messageId');
+
+  String? extractEventChatId(Map<String, dynamic> event) =>
+      extractNestedEventId(event, 'chat_id', 'chatId');
 
   bool streamHasBeenSuperseded() {
     final currentTargetId = currentAssistantTargetId();
@@ -642,6 +674,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     if (boundRemoteMessageId == null) {
       boundRemoteMessageId = incomingMessageId;
+      onRemoteMessageBound?.call(incomingMessageId);
       DebugLogger.log(
         'Binding $eventType server message $incomingMessageId '
         'to local assistant $assistantMessageId',
@@ -1570,7 +1603,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           // Preserve existing usage if server doesn't have it yet (issue #274)
           // Usage is captured from streaming but may not be persisted on server
           final effectiveUsage = assistant.usage ?? current.usage;
-          final nextFollowUps = List<String>.from(assistant.followUps);
+          final nextFollowUps = assistant.followUps.isNotEmpty
+              ? List<String>.from(assistant.followUps)
+              : current.followUps;
           final nextStatusHistory = assistant.statusHistory.isNotEmpty
               ? assistant.statusHistory
               : current.isStreaming
@@ -2281,6 +2316,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (finishAfterRecovery &&
             !isObsoleteStream &&
             currentAssistantTargetId() == assistantMessageId) {
+          // Paired sidebar-spinner removal, mirroring the synchronous done
+          // path: this branch finalizes via wrappedFinishStreaming() after the
+          // early return at the top of handleCompletionDone, so without this
+          // the `generating` indicator would strand on the delayed-recovery
+          // path.
+          if (activeConversationId != null && activeConversationId.isNotEmpty) {
+            onChatActiveChanged?.call(activeConversationId, false);
+          }
           wrappedFinishStreaming();
         }
       }
@@ -2356,6 +2399,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         }
       }
+    }
+
+    // Paired removal so the sidebar `generating` spinner clears on a normal
+    // success finalize even if the backend's `chat:active{false}` is dropped or
+    // late (it only fires when the LAST task for the chat finishes). Keeps the
+    // success path symmetric with the cancel + error branches and mirrors the
+    // optimistic START at the completion-POST dispatch site.
+    if (activeConversationId != null && activeConversationId.isNotEmpty) {
+      onChatActiveChanged?.call(activeConversationId, false);
     }
 
     wrappedFinishStreaming();
@@ -2462,8 +2514,24 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final type = data['type'];
 
       final payload = data['data'];
-      final messageId = ev['message_id']?.toString();
+      // Read ids the same way SocketService delivers them — envelope level OR
+      // nested under data / data.data — so a nested message_id still binds and
+      // a nested chat_id can't bypass the chat-scope guard below.
+      final messageId = extractEventMessageId(ev);
       final incomingSessionId = extractEventSessionId(ev);
+
+      // Chat-scope guard: on the shared user socket, an event for a different
+      // chat must never bind to or write this stream's message (critical for
+      // resume, where session matching is permissive and a foreign message_id
+      // may bind). Events with no chat_id fall through to message-level checks.
+      final eventChatId = extractEventChatId(ev);
+      if (eventChatId != null &&
+          eventChatId.isNotEmpty &&
+          activeConversationId != null &&
+          activeConversationId.isNotEmpty &&
+          eventChatId != activeConversationId) {
+        return;
+      }
 
       if (isObsoleteStream) {
         return;
@@ -2673,6 +2741,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             isStreaming: false,
           ),
         );
+        // Paired removal so the sidebar `generating` spinner clears on a
+        // stop/cancel even if the backend's `chat:active{false}` is dropped
+        // (it only fires when the LAST task for the chat finishes). Mirrors the
+        // optimistic START at the completion-POST dispatch site.
+        if (activeConversationId != null && activeConversationId.isNotEmpty) {
+          onChatActiveChanged?.call(activeConversationId, false);
+        }
         disposeSocketSubscriptions();
         wrappedFinishStreaming();
       } else if (type == 'chat:message:follow_ups' && payload != null) {
@@ -2885,6 +2960,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             );
           });
         } catch (_) {}
+        // Paired removal: a terminal error means no `chat:active{false}` may
+        // arrive for this chat, so clear the sidebar spinner directly instead
+        // of stranding it (mirrors the cancel branch + the optimistic START).
+        if (activeConversationId != null && activeConversationId.isNotEmpty) {
+          onChatActiveChanged?.call(activeConversationId, false);
+        }
         // Ensure UI exits streaming state
         wrappedFinishStreaming();
       } else if ((type == 'chat:message:delta' || type == 'message') &&

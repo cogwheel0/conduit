@@ -30,7 +30,6 @@ import '../../../shared/utils/external_link_launcher.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
-import '../../../core/utils/citation_parser.dart';
 import '../../../core/utils/embed_utils.dart';
 import 'sources/openwebui_sources.dart';
 import '../providers/assistant_response_builder_provider.dart';
@@ -51,53 +50,6 @@ final _ttsDetailsPattern = RegExp(
   r'<details[^>]*>[\s\S]*?<\/details>',
   caseSensitive: false,
 );
-const int _cheapStreamingTextThreshold = 900;
-const int _cheapStreamingTextLineThreshold = 12;
-final _markdownBlockSyntaxPattern = RegExp(
-  r'(^|\n)[ \t]{0,3}(?:#{1,6}\s|>\s|[-*+]\s|\d+[.)]\s|```|~~~)',
-  multiLine: true,
-);
-final _markdownLinkOrImagePattern = RegExp(
-  r'!\[[^\]]*]\([^)]+\)|\[[^\]]+]\([^)]+\)',
-);
-final _markdownReferenceLinkPattern = RegExp(
-  r'!\[[^\]]*]\[[^\]]*]|'
-  r'\[[^\]]+]\[[^\]]*]',
-);
-final _markdownInlineSyntaxPattern = RegExp(
-  r'`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~',
-);
-final _markdownSingleEmphasisPattern = RegExp(
-  r'(?:^|[\s(])\*[^*\s][^*\n]*?[^*\s]\*(?=$|[\s).,!?:;])|'
-  r'(?:^|[\s(])_[^_\s][^_\n]*?[^_\s]_(?=$|[\s).,!?:;])',
-);
-final _markdownTablePattern = RegExp(
-  r'^\s*\|?.+\|.+\s*$\n^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$',
-  multiLine: true,
-);
-final _markdownHorizontalRulePattern = RegExp(
-  r'(^|\n)[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,})(?:\n|$)',
-  multiLine: true,
-);
-final _markdownHtmlPattern = RegExp(
-  r'<(?:a|img|br|details|summary|table|tr|td|th|blockquote|pre|code)\b',
-  caseSensitive: false,
-);
-final _markdownAutolinkPattern = RegExp(r'<[A-Za-z][A-Za-z0-9+.\-]*:[^<>\s]+>');
-final _markdownBareAutolinkPattern = RegExp(
-  r'(?:(?:https?|ftp):\/\/|www\.)[^\s<]+|'
-  r"(?:^|[\s(])[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+(?=$|[\s).,!?:;])",
-  caseSensitive: false,
-);
-final _markdownIndentedCodeBlockPattern = RegExp(
-  r'(^|\n)(?: {4}|\t)\S',
-  multiLine: true,
-);
-final _markdownBlockLatexPattern = RegExp(
-  r'(^|\n)[ \t]{0,3}\$\$[\s\S]+?\$\$[ \t]*(?=\n|$)',
-  multiLine: true,
-);
-final _markdownInlineLatexPattern = RegExp(r'\$[^$\n]+\$');
 // Handle both URL formats: /api/v1/files/{id} and /api/v1/files/{id}/content
 final _fileIdPattern = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
@@ -141,7 +93,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _fadeController;
-  late AnimationController _slideController;
+  late AnimationController _streamingContentFadeController;
+  late CurvedAnimation _streamingContentFade;
   String _displayedContent = '';
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
@@ -169,6 +122,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _hasAnimated = false;
   bool _isAppForeground = true;
   bool _isRouteVisible = true;
+  String? _visibleFollowUpScopeId;
+  List<String> _visibleFollowUps = const <String>[];
 
   /// Guards the triple-haptic so it fires only once per streaming session.
   bool _hasTriggeredContentHaptic = false;
@@ -226,13 +181,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       vsync: this,
       value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+    _streamingContentFadeController = AnimationController(
+      duration: const Duration(milliseconds: 260),
       vsync: this,
-      value: shouldAnimateOnMount ? 0.0 : 1.0,
+      value: 1.0,
+    );
+    _streamingContentFade = CurvedAnimation(
+      parent: _streamingContentFadeController,
+      curve: Curves.easeOutCubic,
     );
     _hasAnimated = !shouldAnimateOnMount;
     _displayedContent = _resolvedMessageContent();
+    _primeInitialStreamingContentFade();
     _updateTypingIndicatorGate();
     _updateActionRowSettle();
     _syncStreamingContentSubscription();
@@ -246,8 +206,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _updateRouteVisibility();
     if (!_shouldAnimateOnMount && !_hasAnimated) {
       _fadeController.value = 1.0;
-      _slideController.value = 1.0;
       _hasAnimated = true;
+    }
+    if (_disableAnimations && !_streamingContentFadeController.isCompleted) {
+      _streamingContentFadeController.value = 1.0;
     }
     // Build cached avatar when theme context is available
     _buildCachedAvatar();
@@ -266,11 +228,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
+      _clearVisibleFollowUps();
       _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
       _hasTriggeredContentHaptic = false;
       _fadeController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
-      _slideController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
+      _streamingContentFadeController.value = 1.0;
+    }
+
+    if (!oldWidget.isStreaming && widget.isStreaming) {
+      _clearVisibleFollowUps();
     }
 
     // Re-sync subscription when streaming state changes
@@ -367,16 +334,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _applyDisplayedContent(String raw) {
+    final shouldFadeStreamingContent = _shouldFadeInStreamingContent(raw);
     final previousLength = _displayedContent.length;
     final contentChanged = raw != _displayedContent;
 
     if (contentChanged) {
+      if (shouldFadeStreamingContent) {
+        _streamingContentFadeController.value = 0.0;
+      }
       if (mounted) {
         setState(() {
           _displayedContent = raw;
         });
       } else {
         _displayedContent = raw;
+      }
+      if (shouldFadeStreamingContent) {
+        _streamingContentFadeController.forward();
       }
       if (widget.isStreaming) {
         _onStreamingChunk(previousLength, raw.length);
@@ -389,6 +363,31 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _resetTtsPlainTextState();
     }
     _updateTypingIndicatorGate();
+  }
+
+  void _primeInitialStreamingContentFade() {
+    if (!_canFadeStreamingContent(_displayedContent)) {
+      return;
+    }
+    _streamingContentFadeController.value = 0.0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disableAnimations || !_uiTreatsAsStreaming) {
+        return;
+      }
+      _streamingContentFadeController.forward();
+    });
+  }
+
+  bool _shouldFadeInStreamingContent(String nextRaw) {
+    return _canFadeStreamingContent(nextRaw) &&
+        _displayedContent.trim().isEmpty;
+  }
+
+  bool _canFadeStreamingContent(String nextRaw) {
+    if (_disableAnimations || !_uiTreatsAsStreaming) {
+      return false;
+    }
+    return nextRaw.trim().isNotEmpty;
   }
 
   void _setActiveVersionIndex(int nextIndex) {
@@ -607,6 +606,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  Widget _buildStreamingContentBody() {
+    final body = _buildMessageContent();
+    // Always wrap in a FadeTransition with a stable key/type so the widget at
+    // this slot does not change runtimeType when streaming starts/completes.
+    // Toggling between FadeTransition and the bare body would defeat element
+    // reconciliation and tear down the markdown subtree at the streaming
+    // boundary. When not actively fading we feed a fully-opaque constant
+    // animation, which is visually identical to returning the bare body.
+    final fade = _canFadeStreamingContent(_displayedContent)
+        ? _streamingContentFade
+        : const AlwaysStoppedAnimation<double>(1.0);
+    return FadeTransition(
+      key: const ValueKey('assistant-streaming-content-fade'),
+      opacity: fade,
+      child: body,
+    );
+  }
+
   Widget _buildKaraokeBar(TextToSpeechState ttsState) {
     final theme = context.conduitTheme;
     final idx = ttsState.activeSentenceIndex;
@@ -781,6 +798,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     if (_activeVersionIndex >= 0 &&
         _activeVersionIndex < widget.message.versions.length) {
+      final rawVersionModelName = widget
+          .message
+          .versions[_activeVersionIndex]
+          .modelName
+          ?.trim();
+      if (rawVersionModelName != null && rawVersionModelName.isNotEmpty) {
+        return rawVersionModelName;
+      }
       final rawVersionModel = widget.message.versions[_activeVersionIndex].model
           ?.trim();
       if (rawVersionModel != null && rawVersionModel.isNotEmpty) {
@@ -885,7 +910,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _typingGateTimer?.cancel();
     _resetTtsPlainTextState();
     _fadeController.dispose();
-    _slideController.dispose();
+    _streamingContentFade.dispose();
+    _streamingContentFadeController.dispose();
     super.dispose();
   }
 
@@ -958,6 +984,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   int _collectionLength(Iterable<dynamic>? values) => values?.length ?? 0;
 
+  void _clearVisibleFollowUps() {
+    _visibleFollowUpScopeId = null;
+    _visibleFollowUps = const <String>[];
+  }
+
   bool _didVersionMetadataChange(AssistantMessageWidget oldWidget) {
     final oldVersions = oldWidget.message.versions;
     final newVersions = widget.message.versions;
@@ -966,7 +997,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
     for (var index = 0; index < oldVersions.length; index += 1) {
       if (oldVersions[index].id != newVersions[index].id ||
-          oldVersions[index].model != newVersions[index].model) {
+          oldVersions[index].model != newVersions[index].model ||
+          oldVersions[index].modelName != newVersions[index].modelName) {
         return true;
       }
     }
@@ -986,18 +1018,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final hasStatusTimeline = displayStatusHistory.isNotEmpty;
     final activeCodeExecutions = _resolveActiveCodeExecutions();
     final hasCodeExecutions = activeCodeExecutions.isNotEmpty;
-    final activeFollowUps = _resolveActiveFollowUps();
-    final hasFollowUps =
-        widget.showFollowUps &&
-        activeFollowUps.isNotEmpty &&
-        _responseCompleted;
     final bool showingVersion = _activeVersionIndex >= 0;
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
     final activeEmbeds = _resolveActiveEmbeds();
-    final activeSources = _resolveActiveSources();
-    final footer = _buildFooterBar(activeSources: activeSources);
     final queuedCompletionAsync = ref.watch(
       queuedCompletionInfoForMessageProvider(_messageId),
     );
@@ -1005,9 +1030,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? queuedCompletionAsync.value
         : null;
     final hasQueuedCompletion = queuedCompletion != null;
-    final footerSwitchDuration = widget.isStreaming
-        ? Duration.zero
-        : const Duration(milliseconds: 220);
+    final footerSwitchDuration =
+        (_showStreamingIndicatorNow || _showActionRowNow)
+        ? const Duration(milliseconds: 180)
+        : Duration.zero;
     final showQueuedAsEmptyState =
         queuedCompletion != null &&
         _isAssistantResponseEmpty &&
@@ -1016,6 +1042,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         queuedCompletion != null && _isAssistantResponseEmpty;
     final showQueuedRecoveryBanner =
         queuedCompletion != null && !showQueuedAsEmptyState;
+    final shouldBuildActionFooter = _showActionRowNow && !hasQueuedCompletion;
+    final activeFollowUps = shouldBuildActionFooter
+        ? _resolveVisibleFollowUps()
+        : const <String>[];
+    final hasFollowUps =
+        shouldBuildActionFooter &&
+        widget.showFollowUps &&
+        activeFollowUps.isNotEmpty &&
+        _responseCompleted;
+    final activeSources = shouldBuildActionFooter
+        ? _resolveActiveSources()
+        : const <ChatSourceReference>[];
+    final footer = shouldBuildActionFooter
+        ? _buildFooterBar(activeSources: activeSources)
+        : null;
 
     final content = Container(
       width: double.infinity,
@@ -1081,7 +1122,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                     },
                     child: KeyedSubtree(
                       key: const ValueKey('content'),
-                      child: _buildMessageContent(),
+                      child: _buildStreamingContentBody(),
                     ),
                   ),
 
@@ -1117,7 +1158,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               switchOutCurve: Curves.easeInCubic,
               layoutBuilder: (currentChild, previousChildren) {
                 final children = <Widget>[
-                  if (!widget.isStreaming) ...previousChildren,
+                  if (!_uiTreatsAsStreaming) ...previousChildren,
                   ?currentChild,
                 ];
                 if (children.isEmpty) {
@@ -1152,22 +1193,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (!_hasAnimated) {
       _hasAnimated = true;
       _fadeController.forward();
-      _slideController.forward();
     }
 
-    return FadeTransition(
-      opacity: _fadeController,
-      child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
-            .animate(
-              CurvedAnimation(
-                parent: _slideController,
-                curve: Curves.easeOutCubic,
-              ),
-            ),
-        child: content,
-      ),
-    );
+    return FadeTransition(opacity: _fadeController, child: content);
   }
 
   /// Builds the keyed child for the footer [AnimatedSwitcher]: the typing
@@ -1424,16 +1452,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bodyTreatsAsStreaming = _uiTreatsAsStreaming;
 
     Widget buildDefault(BuildContext context) {
-      final cheapStreamingTextContent = _cheapStreamingTextContent(
-        processedContent,
-      );
-      if (_shouldUseCheapStreamingText(cheapStreamingTextContent)) {
-        return _buildCheapStreamingText(cheapStreamingTextContent);
-      }
-
       return StreamingMarkdownWidget(
         content: processedContent,
         isStreaming: bodyTreatsAsStreaming,
+        enableStreamingTextFade: bodyTreatsAsStreaming && !_disableAnimations,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
         onTapLink: (url, _) => launchExternalLink(url, scope: 'chat/assistant'),
@@ -1465,73 +1487,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     return buildDefault(context);
-  }
-
-  String _cheapStreamingTextContent(String content) {
-    if (!_uiTreatsAsStreaming || !content.contains(']:')) {
-      return content;
-    }
-    return ConduitMarkdownPreprocessor.stripLinkReferenceDefinitions(content);
-  }
-
-  bool _shouldUseCheapStreamingText(String content) {
-    if (!_uiTreatsAsStreaming) {
-      return false;
-    }
-
-    final trimmedContent = content.trim();
-    if (trimmedContent.isEmpty) {
-      return false;
-    }
-
-    final newlineCount = '\n'.allMatches(trimmedContent).length;
-    final isLongPlainCandidate =
-        trimmedContent.length >= _cheapStreamingTextThreshold ||
-        newlineCount >= _cheapStreamingTextLineThreshold;
-    if (!isLongPlainCandidate) {
-      return false;
-    }
-
-    return !_contentHasClearMarkdown(trimmedContent);
-  }
-
-  bool _contentHasClearMarkdown(String content) {
-    if (content.isEmpty) {
-      return false;
-    }
-
-    if (content.contains('```') ||
-        content.contains('~~~') ||
-        content.contains('data:image/') ||
-        content.contains(r'\(') ||
-        content.contains(r'\[')) {
-      return true;
-    }
-
-    return _markdownBlockSyntaxPattern.hasMatch(content) ||
-        _markdownLinkOrImagePattern.hasMatch(content) ||
-        _markdownReferenceLinkPattern.hasMatch(content) ||
-        _markdownAutolinkPattern.hasMatch(content) ||
-        _markdownBareAutolinkPattern.hasMatch(content) ||
-        _markdownIndentedCodeBlockPattern.hasMatch(content) ||
-        _markdownInlineSyntaxPattern.hasMatch(content) ||
-        _markdownSingleEmphasisPattern.hasMatch(content) ||
-        _markdownTablePattern.hasMatch(content) ||
-        _markdownHorizontalRulePattern.hasMatch(content) ||
-        _markdownHtmlPattern.hasMatch(content) ||
-        _markdownBlockLatexPattern.hasMatch(content) ||
-        _markdownInlineLatexPattern.hasMatch(content) ||
-        CitationParser.hasCitations(content);
-  }
-
-  Widget _buildCheapStreamingText(String content) {
-    final style = ConduitMarkdownStyle.fromTheme(context);
-    return Text(
-      content,
-      key: const ValueKey('assistant-streaming-plain-text'),
-      style: style.body,
-      softWrap: true,
-    );
   }
 
   String _markdownStateScopeId() {
@@ -1581,6 +1536,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return widget.message.versions[_activeVersionIndex].followUps;
     }
     return widget.message.followUps;
+  }
+
+  List<String> _resolveVisibleFollowUps() {
+    final rawFollowUps = _resolveActiveFollowUps();
+    if (!widget.showFollowUps || _uiTreatsAsStreaming || !_responseCompleted) {
+      return rawFollowUps;
+    }
+
+    final scopeId = _followUpStateScopeId();
+    if (rawFollowUps.isNotEmpty) {
+      _visibleFollowUpScopeId = scopeId;
+      _visibleFollowUps = List<String>.unmodifiable(rawFollowUps);
+      return rawFollowUps;
+    }
+
+    if (_visibleFollowUpScopeId == scopeId && _visibleFollowUps.isNotEmpty) {
+      return _visibleFollowUps;
+    }
+
+    return rawFollowUps;
   }
 
   List<ChatCodeExecution> _resolveActiveCodeExecutions() {

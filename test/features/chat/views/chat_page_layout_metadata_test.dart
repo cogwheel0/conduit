@@ -65,6 +65,26 @@ void main() {
     },
   );
 
+  test(
+    'layout metadata uses Open WebUI modelName before model lookup loads',
+    () {
+      final messages = <ChatMessage>[
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Visible response',
+          timestamp: DateTime(2026),
+          model: 'openai/gpt-4o',
+          metadata: const {'modelName': 'GPT-4o'},
+        ),
+      ];
+
+      final summary = debugBuildChatListLayoutSummaryForTesting(messages);
+
+      expect(summary.single.displayModelName, 'GPT-4o');
+    },
+  );
+
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
       id: 'assistant-streaming',
@@ -90,6 +110,73 @@ void main() {
 
     expect(updatedSignature, initialSignature);
   });
+
+  test('layout signature ignores streaming completion-only changes', () {
+    final streamingMessage = ChatMessage(
+      id: 'assistant-streaming',
+      role: 'assistant',
+      content: 'Final response',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      isStreaming: true,
+      attachmentIds: const ['attachment-1'],
+      statusHistory: const [ChatStatusUpdate(description: 'Done')],
+    );
+    final completedMessage = streamingMessage.copyWith(isStreaming: false);
+
+    final streamingSignature =
+        debugBuildChatListStableLayoutSignatureForTesting([streamingMessage]);
+    final completedSignature =
+        debugBuildChatListStableLayoutSignatureForTesting([completedMessage]);
+
+    expect(completedSignature, streamingSignature);
+  });
+
+  test(
+    'layout estimate ignores the streaming flag but reacts to completion '
+    'content growth',
+    () {
+      final streamingMessage = ChatMessage(
+        id: 'assistant-streaming',
+        role: 'assistant',
+        content:
+            'Final response with enough text to get a real height estimate.',
+        timestamp: DateTime(2026),
+        model: 'model-a',
+        isStreaming: true,
+      );
+      // Flipping only the streaming flag must not change the estimate: the
+      // estimator intentionally does not read message.isStreaming.
+      final completedMessage = streamingMessage.copyWith(isStreaming: false);
+
+      final streamingExtent = debugEstimateMessageListExtentForTesting([
+        streamingMessage,
+      ], index: 0);
+      final completedExtent = debugEstimateMessageListExtentForTesting([
+        completedMessage,
+      ], index: 0);
+
+      expect(completedExtent, streamingExtent);
+
+      // Positive control: the real completion-driven layout shift is content
+      // growing from a short stream to a full response. The estimator consumes
+      // content length, so a longer completed body must produce a larger
+      // extent. This proves the estimator is not inert and guards against the
+      // stability assertion above passing vacuously.
+      final grownMessage = completedMessage.copyWith(
+        content:
+            '${completedMessage.content}\n\n'
+            'A substantially longer follow-up paragraph that adds several more '
+            'lines of content so the estimated height must increase relative to '
+            'the shorter streaming body above.',
+      );
+      final grownExtent = debugEstimateMessageListExtentForTesting([
+        grownMessage,
+      ], index: 0);
+
+      expect(grownExtent, greaterThan(completedExtent));
+    },
+  );
 
   test('layout signature changes for structural layout inputs', () {
     final baseMessage = ChatMessage(
@@ -489,17 +576,5 @@ void main() {
 
     expect(whilePinnedToTop, isFalse);
     expect(whileUserScrolling, isFalse);
-  });
-
-  test('clearing pin-to-top tracking preserves the active phantom sliver', () {
-    final cleared = debugClearPinToTopTrackingForTesting(
-      isActive: true,
-      userMessageId: 'user-1',
-      streamingMessageId: 'assistant-1',
-    );
-
-    expect(cleared.isActive, isTrue);
-    expect(cleared.userMessageId, isNull);
-    expect(cleared.streamingMessageId, isNull);
   });
 }

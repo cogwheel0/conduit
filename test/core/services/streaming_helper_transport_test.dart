@@ -870,6 +870,55 @@ void main() {
       },
     );
 
+    test(
+      'httpStream snapshot refresh preserves already visible follow-ups',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+              followUps: const ['Ask again'],
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Answer')],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+        );
+
+        // The post-completion snapshot refresh is an unawaited Future chain
+        // (ensureChatCompletedSynced -> refreshConversationSnapshot) with no
+        // production Timer of its own; against the fake API it settles on the
+        // event queue. Pump microtasks repeatedly to let it complete instead of
+        // waiting on a magic wall-clock delay that could silently fall out of
+        // sync with production timing.
+        for (var i = 0; i < 20; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(log.finishCount).equals(1);
+        check(log.messages.last.followUps).deepEquals(['Ask again']);
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
     // -----------------------------------------------------------------------

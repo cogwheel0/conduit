@@ -181,7 +181,13 @@ class LatexPreprocessor {
       }
       final key = match.group(0)!;
       final expr = allPlaceholders[key]!;
-      segments.add(LatexSegment.latex(expr.tex, isBlock: expr.isBlock));
+      segments.add(
+        LatexSegment.latex(
+          expr.tex,
+          isBlock: expr.isBlock,
+          placeholderLength: key.length,
+        ),
+      );
       lastEnd = match.end;
     }
 
@@ -292,10 +298,26 @@ class LatexSegment {
   /// Always `false` for plain text segments.
   final bool isBlock;
 
+  /// The length of the placeholder token consumed from the source text for
+  /// this segment.
+  ///
+  /// For plain-text segments this is the length of [content]. For LaTeX
+  /// segments [content] holds the recovered TeX, which is unrelated to the
+  /// placeholder token's length, so this records the token length instead.
+  /// Streaming-fade offset accounting must advance by the placeholder token
+  /// length to stay in the document-wide `textContent` coordinate space.
+  final int placeholderLength;
+
   /// Creates a plain-text segment.
-  const LatexSegment.text(this.content) : isLatex = false, isBlock = false;
+  const LatexSegment.text(this.content)
+    : isLatex = false,
+      isBlock = false,
+      placeholderLength = content.length;
 
   /// Creates a LaTeX expression segment.
-  const LatexSegment.latex(this.content, {required this.isBlock})
-    : isLatex = true;
+  const LatexSegment.latex(
+    this.content, {
+    required this.isBlock,
+    required this.placeholderLength,
+  }) : isLatex = true;
 }

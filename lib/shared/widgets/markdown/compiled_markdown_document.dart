@@ -578,10 +578,19 @@ class CompiledMarkdownLatexSegment extends CompiledMarkdownInlineSegment {
   const CompiledMarkdownLatexSegment({
     required this.tex,
     required this.isBlock,
+    this.placeholderLength = 0,
   });
 
   final String tex;
   final bool isBlock;
+
+  /// The length of the placeholder token this segment was recovered from in
+  /// the node's `textContent`.
+  ///
+  /// Streaming-fade offset accounting advances by this length so the visible
+  /// text offset stays aligned with the document-wide `textContent`
+  /// coordinate space (which still contains the placeholder tokens).
+  final int placeholderLength;
 
   @override
   int get weight => tex.length + (isBlock ? 1 : 0);
@@ -591,22 +600,25 @@ class CompiledMarkdownLatexSegment extends CompiledMarkdownInlineSegment {
     'kind': 'latex',
     'tex': tex,
     'isBlock': isBlock,
+    'placeholderLength': placeholderLength,
   };
 
   factory CompiledMarkdownLatexSegment.fromMap(Map<String, Object?> map) =>
       CompiledMarkdownLatexSegment(
         tex: (map['tex'] ?? '') as String,
         isBlock: (map['isBlock'] ?? false) as bool,
+        placeholderLength: (map['placeholderLength'] as num?)?.toInt() ?? 0,
       );
 
   @override
   bool operator ==(Object other) =>
       other is CompiledMarkdownLatexSegment &&
       other.tex == tex &&
-      other.isBlock == isBlock;
+      other.isBlock == isBlock &&
+      other.placeholderLength == placeholderLength;
 
   @override
-  int get hashCode => Object.hash(tex, isBlock);
+  int get hashCode => Object.hash(tex, isBlock, placeholderLength);
 }
 
 @immutable

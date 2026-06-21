@@ -227,6 +227,48 @@ void main() {
         check(messages).length.equals(1);
         check(messages.first['content']).equals('Hi there');
       });
+
+      test('preserves Open WebUI modelName as display metadata', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+              'model': 'openai/gpt-4o',
+              'modelName': 'GPT-4o',
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.first['metadata'] as Map<String, dynamic>;
+        check(messages.first['model']).equals('openai/gpt-4o');
+        check(metadata['modelName']).equals('GPT-4o');
+      });
+
+      test('empty modelName falls back to a populated model_name', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+              // Empty primary key must not shadow the populated fallback.
+              'modelName': '   ',
+              'model_name': 'GPT-4o',
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.first['metadata'] as Map<String, dynamic>;
+        check(metadata['modelName']).equals('GPT-4o');
+      });
     });
 
     group('extracts messages from history', () {

@@ -3852,19 +3852,44 @@ class ActiveChatIds extends _$ActiveChatIds {
   @override
   Set<String> build() => const <String>{};
 
+  // Monotonic activation tokens so a delayed, conditional clear can detect that
+  // a chat was (re)activated after the clear was scheduled and skip itself.
+  int _seq = 0;
+  final Map<String, int> _activationToken = {};
+
   /// Mark a chat as active (background task running).
   void setActive(String chatId) {
+    _activationToken[chatId] = ++_seq;
+    if (state.contains(chatId)) return;
     state = {...state, chatId};
   }
 
   /// Mark a chat as inactive (background task completed).
   void setInactive(String chatId) {
-    final next = {...state}..remove(chatId);
-    state = next;
+    _activationToken.remove(chatId);
+    if (!state.contains(chatId)) return;
+    state = {...state}..remove(chatId);
+  }
+
+  /// The current activation token for [chatId], or null if not active. Capture
+  /// this before an async task-registry check, then pass it to
+  /// [setInactiveIfUnchanged] so a racing [setActive] cannot be clobbered.
+  int? activationToken(String chatId) => _activationToken[chatId];
+
+  /// Clear [chatId] only if it has not been (re)activated since [token] was
+  /// captured — guards an async optimistic clear against a racing setActive
+  /// (e.g. a new stream starting for the same chat before the lookup resolves).
+  void setInactiveIfUnchanged(String chatId, int? token) {
+    if (_activationToken[chatId] != token) return;
+    setInactive(chatId);
   }
 
   /// Bulk-initialize from a server response.
   void setAll(Set<String> chatIds) {
+    _seq++;
+    _activationToken
+      ..clear()
+      ..addEntries([for (final id in chatIds) MapEntry(id, _seq)]);
     state = chatIds;
   }
 }
@@ -3921,6 +3946,12 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     _reconnectSub?.cancel();
     _reconnectSub = null;
     if (socket == null) {
+      // Logout / session teardown: the socket the spinners were derived from is
+      // gone. Drop the whole set so a stale `generating` indicator cannot
+      // survive into the next session (the new socket re-arms the cold-open
+      // fetch below to repopulate authoritative state).
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      _initialFetchDone = false;
       return;
     }
 

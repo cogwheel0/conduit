@@ -61,11 +61,13 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.onSourceTap,
     this.askConduitComposerTargetId,
     this.stateScopeId,
+    this.enableStreamingTextFade = true,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
     this.debugOnStreamingRefreshFrame,
+    this.debugOnBaseRender,
   });
 
   final String content;
@@ -89,6 +91,9 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
 
+  /// Fades newly appended visible text while streaming without moving layout.
+  final bool enableStreamingTextFade;
+
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
 
@@ -103,6 +108,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
 
   @visibleForTesting
   final VoidCallback? debugOnStreamingRefreshFrame;
+
+  /// Invoked each time the compiled view rebuilds its cached base span tree
+  /// (once per content change, never per fade frame).
+  @visibleForTesting
+  final VoidCallback? debugOnBaseRender;
 
   @override
   ConsumerState<StreamingMarkdownWidget> createState() =>
@@ -443,11 +453,14 @@ class _StreamingMarkdownWidgetState
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
+      enableStreamingTextFade:
+          widget.isStreaming && widget.enableStreamingTextFade,
       heavyBlockPolicy: widget.isStreaming
           ? MarkdownHeavyBlockPolicy.defer
           : MarkdownHeavyBlockPolicy.eager,
       debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
       debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
+      debugOnBaseRender: widget.debugOnBaseRender,
     );
   }
 
