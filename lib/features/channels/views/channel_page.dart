@@ -158,6 +158,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       ref
           .read(channelSocketHandlerProvider.notifier)
           .emitLastReadAt(widget.channelId);
+      // Reset-on-visit: clear the local unread badge to match the server-side
+      // read we just emitted.
+      ref.read(channelsListProvider.notifier).markRead(widget.channelId);
     } catch (e, s) {
       developer.log(
         'Failed to load channel details',

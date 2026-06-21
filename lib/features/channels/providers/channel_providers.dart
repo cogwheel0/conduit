@@ -51,6 +51,24 @@ class ChannelsList extends _$ChannelsList {
       current.map((c) => c.id == updated.id ? updated : c).toList(),
     );
   }
+
+  /// Clears the unread badge for [channelId] when the user opens it
+  /// (reset-on-visit), pairing with the server-side `emitLastReadAt`. No-ops if
+  /// the channel is unknown or already read so it never triggers a rebuild
+  /// without a real change.
+  void markRead(String channelId) {
+    final current = state.value;
+    if (current == null) return;
+    var changed = false;
+    final updated = current.map((c) {
+      if (c.id == channelId && c.unreadCount != 0) {
+        changed = true;
+        return c.copyWith(unreadCount: 0);
+      }
+      return c;
+    }).toList();
+    if (changed) state = AsyncValue.data(updated);
+  }
 }
 
 /// Tracks the currently active/viewed channel.
