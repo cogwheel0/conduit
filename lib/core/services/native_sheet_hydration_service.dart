@@ -144,6 +144,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.personalization:
         await _hydrateNativePersonalizationDetail(ctx, l10n);
         return;
+      case NativeSheetRoutes.notificationSettings:
+        await _hydrateNativeNotificationsDetail(l10n);
+        return;
       case 'advanced-prompt-overrides':
         await _hydrateNativeAdvancedPromptDetail(ctx, l10n);
         return;
@@ -466,6 +469,89 @@ class NativeSheetHydrationService {
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
+  }
+
+  Future<void> _hydrateNativeNotificationsDetail(AppLocalizations l10n) async {
+    final s = _ref.read(appSettingsProvider);
+    await _applyNativeDetail(
+      NativeSheetDetailConfig(
+        id: NativeSheetRoutes.notificationSettings,
+        title: l10n.notificationsTitle,
+        subtitle: l10n.notificationsSubtitle,
+        sections: [
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: 'notifications-enabled',
+                title: l10n.notificationsEnabledTitle,
+                subtitle: l10n.notificationsEnabledDescription,
+                sfSymbol: 'bell.fill',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationsEnabled,
+              ),
+            ],
+          ),
+          NativeSheetSectionConfig(
+            title: l10n.notificationSystemTitle,
+            items: [
+              NativeSheetItemConfig(
+                id: 'notification-in-app-banner',
+                title: l10n.notificationInAppBannerTitle,
+                subtitle: l10n.notificationInAppBannerDescription,
+                sfSymbol: 'rectangle.topthird.inset.filled',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationInAppBanner,
+              ),
+              NativeSheetItemConfig(
+                id: 'notification-system',
+                title: l10n.notificationSystemTitle,
+                subtitle: l10n.notificationSystemDescription,
+                sfSymbol: 'bell.badge',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationSystem,
+              ),
+              NativeSheetItemConfig(
+                id: 'notification-sound',
+                title: l10n.notificationSoundTitle,
+                subtitle: l10n.notificationSoundDescription,
+                sfSymbol: 'speaker.wave.2.fill',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationSound,
+              ),
+              NativeSheetItemConfig(
+                id: 'notification-sound-always',
+                title: l10n.notificationSoundAlwaysTitle,
+                subtitle: l10n.notificationSoundAlwaysDescription,
+                sfSymbol: 'speaker.wave.3.fill',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationSoundAlways,
+              ),
+            ],
+          ),
+          NativeSheetSectionConfig(
+            title: l10n.notificationsTitle,
+            items: [
+              NativeSheetItemConfig(
+                id: 'notification-chat',
+                title: l10n.notificationChatTitle,
+                subtitle: l10n.notificationChatDescription,
+                sfSymbol: 'bubble.left.and.bubble.right.fill',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationChatEnabled,
+              ),
+              NativeSheetItemConfig(
+                id: 'notification-channel',
+                title: l10n.notificationChannelTitle,
+                subtitle: l10n.notificationChannelDescription,
+                sfSymbol: 'number',
+                kind: NativeSheetItemKind.toggle,
+                value: s.notificationChannelEnabled,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {

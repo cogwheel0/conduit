@@ -34,6 +34,7 @@ import 'core/models/tool.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
+import 'features/notifications/services/local_notification_service.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -294,6 +295,37 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     }
   }
 
+  /// Mirrors the three Open WebUI-aligned notification prefs to the server when
+  /// toggled from the iOS native sheet. Fire-and-forget: local persistence has
+  /// already succeeded, so a failed sync only loses cross-device parity.
+  void _syncNotificationPrefsToServer({
+    bool? enabled,
+    bool? sound,
+    bool? soundAlways,
+  }) {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    unawaited(
+      api
+          .updateUserNotificationSettings(
+            notificationEnabled: enabled,
+            notificationSound: sound,
+            notificationSoundAlways: soundAlways,
+          )
+          .then(
+            (_) {},
+            onError: (Object e, StackTrace st) {
+              DebugLogger.error(
+                'failed to sync notification prefs to server',
+                error: e,
+                stackTrace: st,
+                scope: 'notifications/settings',
+              );
+            },
+          ),
+    );
+  }
+
   Future<void> _handleNativeSheetControlChanged(
     NativeSheetControlChanged event,
   ) async {
@@ -501,6 +533,57 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setDisableHapticsWhileStreaming(value);
+          }
+        case 'notifications-enabled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationsEnabled(value);
+            _syncNotificationPrefsToServer(enabled: value);
+            if (value) {
+              // Best-effort OS permission on opt-in; OS governs delivery.
+              await ref
+                  .read(localNotificationServiceProvider)
+                  .requestPermissions();
+            }
+          }
+        case 'notification-in-app-banner':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationInAppBanner(value);
+          }
+        case 'notification-system':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationSystem(value);
+          }
+        case 'notification-sound':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationSound(value);
+            _syncNotificationPrefsToServer(sound: value);
+          }
+        case 'notification-sound-always':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationSoundAlways(value);
+            _syncNotificationPrefsToServer(soundAlways: value);
+          }
+        case 'notification-chat':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationChatEnabled(value);
+          }
+        case 'notification-channel':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationChannelEnabled(value);
           }
         case 'transport-auto':
           await ref

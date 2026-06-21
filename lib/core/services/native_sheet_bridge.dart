@@ -38,6 +38,7 @@ class NativeSheetRoutes {
   static const dataConnection = 'data-connection';
   static const helpAbout = 'help-about';
   static const about = 'about';
+  static const notificationSettings = 'notification-settings';
 }
 
 class NativeSheetBridge implements NativeSheetFlutterApi {
