@@ -2500,6 +2500,17 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     if (!_isCurrentServer(serverId)) {
       return _currentSettingsForActiveServerOrDefault();
     }
+    // Server is authoritative for the Open WebUI-aligned notification prefs;
+    // mirror them into local settings for cross-device parity (no-ops nulls).
+    unawaited(
+      ref
+          .read(appSettingsProvider.notifier)
+          .applyServerNotificationPrefs(
+            enabled: settings.notificationEnabled,
+            sound: settings.notificationSound,
+            soundAlways: settings.notificationSoundAlways,
+          ),
+    );
     if (readGeneration != _pinnedModelsWriteGeneration) {
       final merged = _settingsWithCurrentPinnedModels(settings, serverId);
       _settingsServerId = serverId;

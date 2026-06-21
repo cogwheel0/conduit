@@ -37,6 +37,17 @@ final class PreferenceKeys {
   static const String temporaryChatByDefault = 'temporary_chat_by_default';
   static const String pinnedModels = 'pinned_models';
 
+  // Notifications. The first three mirror Open WebUI's user-settings fields and
+  // are synced to the server; the rest are Conduit-only client preferences.
+  static const String notificationsEnabled = 'notifications_enabled';
+  static const String notificationSound = 'notification_sound';
+  static const String notificationSoundAlways = 'notification_sound_always';
+  static const String notificationInAppBanner = 'notification_in_app_banner';
+  static const String notificationSystem = 'notification_system';
+  static const String notificationChatEnabled = 'notification_chat_enabled';
+  static const String notificationChannelEnabled =
+      'notification_channel_enabled';
+
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';

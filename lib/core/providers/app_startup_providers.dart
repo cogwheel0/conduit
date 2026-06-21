@@ -26,6 +26,8 @@ import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/remap_route_sync_provider.dart';
+import '../../features/notifications/providers/notification_socket_listener.dart';
+import '../../features/notifications/services/local_notification_service.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -100,6 +102,11 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
     ref.invalidate(defaultModelProvider);
     ref.invalidate(backendConfigProvider);
     ref.invalidate(socketServiceManagerProvider);
+    // Clear posted notifications and drop the listener's dedup memory so a
+    // notification can't deep-link into the previous session/server.
+    unawaited(ref.read(localNotificationServiceProvider).cancelAll());
+    ref.invalidate(notificationRouterProvider);
+    ref.invalidate(notificationSocketListenerProvider);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'user-scoped-provider-cleanup-failed',
@@ -953,6 +960,13 @@ class AppStartupFlow extends _$AppStartupFlow {
     // fetch) so the sidebar generating spinner is correct app-wide, including
     // for generations started by other sessions. keepAlive keeps it running.
     ref.read(activeChatsSyncProvider);
+    // Activate the notification listener (global chat/channel handlers feeding
+    // the NotificationRouter). The router gates on the master toggle, so this is
+    // safe to run unconditionally. Then drain any cold-launch notification tap.
+    ref.read(notificationSocketListenerProvider);
+    unawaited(
+      ref.read(notificationSocketListenerProvider.notifier).handleLaunchTap(),
+    );
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );

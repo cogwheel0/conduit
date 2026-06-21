@@ -8,12 +8,22 @@ class ServerUserSettings {
     this.memoryEnabled = false,
     this.defaultModelIds = const <String>[],
     this.pinnedModelIds = const <String>[],
+    this.notificationEnabled,
+    this.notificationSound,
+    this.notificationSoundAlways,
   });
 
   final String? systemPrompt;
   final bool memoryEnabled;
   final List<String> defaultModelIds;
   final List<String> pinnedModelIds;
+
+  /// Open WebUI notification preferences. Stored at the top level of the user
+  /// settings object (not nested under `ui`). Null means the server has no
+  /// stored value yet, so the client default applies.
+  final bool? notificationEnabled;
+  final bool? notificationSound;
+  final bool? notificationSoundAlways;
 
   /// The user's preferred default model, if one is configured.
   String? get defaultModelId =>
@@ -29,6 +39,9 @@ class ServerUserSettings {
       memoryEnabled: _coerceBool(ui?['memory']) ?? false,
       defaultModelIds: _coerceStringList(ui?['models']),
       pinnedModelIds: _coerceUniqueStringList(ui?['pinnedModels']),
+      notificationEnabled: _coerceBool(json['notificationEnabled']),
+      notificationSound: _coerceBool(json['notificationSound']),
+      notificationSoundAlways: _coerceBool(json['notificationSoundAlways']),
     );
   }
 
@@ -37,6 +50,9 @@ class ServerUserSettings {
     bool? memoryEnabled,
     List<String>? defaultModelIds,
     List<String>? pinnedModelIds,
+    bool? notificationEnabled,
+    bool? notificationSound,
+    bool? notificationSoundAlways,
   }) {
     return ServerUserSettings(
       systemPrompt: systemPrompt == _serverUserSettingsUnset
@@ -45,6 +61,10 @@ class ServerUserSettings {
       memoryEnabled: memoryEnabled ?? this.memoryEnabled,
       defaultModelIds: defaultModelIds ?? this.defaultModelIds,
       pinnedModelIds: pinnedModelIds ?? this.pinnedModelIds,
+      notificationEnabled: notificationEnabled ?? this.notificationEnabled,
+      notificationSound: notificationSound ?? this.notificationSound,
+      notificationSoundAlways:
+          notificationSoundAlways ?? this.notificationSoundAlways,
     );
   }
 }

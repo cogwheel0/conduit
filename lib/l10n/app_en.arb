@@ -3501,5 +3501,89 @@
   "securityCertificateError": "Security certificate error. Unable to verify the server identity.",
   "@securityCertificateError": {
     "description": "Error shown when the server TLS certificate cannot be trusted or verified."
+  },
+  "notificationsTitle": "Notifications",
+  "@notificationsTitle": {
+    "description": "Title of the notification settings page and the profile row that opens it."
+  },
+  "notificationsSubtitle": "Alerts for replies, messages, and finished responses",
+  "@notificationsSubtitle": {
+    "description": "Subtitle for the Notifications row in the profile/settings list."
+  },
+  "notificationsEnabledTitle": "Enable notifications",
+  "@notificationsEnabledTitle": {
+    "description": "Master toggle title for all notifications."
+  },
+  "notificationsEnabledDescription": "Receive alerts when the app is in the background and inside the app.",
+  "@notificationsEnabledDescription": {
+    "description": "Master toggle description."
+  },
+  "notificationSoundTitle": "Sound",
+  "@notificationSoundTitle": {
+    "description": "Toggle title for the notification sound/haptic cue."
+  },
+  "notificationSoundDescription": "Play a cue when a notification arrives.",
+  "@notificationSoundDescription": {
+    "description": "Toggle description for the notification sound."
+  },
+  "notificationSoundAlwaysTitle": "Always play sound",
+  "@notificationSoundAlwaysTitle": {
+    "description": "Toggle title mirroring Open WebUI's notificationSoundAlways setting."
+  },
+  "notificationSoundAlwaysDescription": "Play the cue even when the app is open and focused.",
+  "@notificationSoundAlwaysDescription": {
+    "description": "Toggle description for always playing the notification cue."
+  },
+  "notificationInAppBannerTitle": "In-app banners",
+  "@notificationInAppBannerTitle": {
+    "description": "Toggle title for in-app banner notifications shown while the app is open."
+  },
+  "notificationInAppBannerDescription": "Show a banner inside the app while it is open.",
+  "@notificationInAppBannerDescription": {
+    "description": "Toggle description for in-app banners."
+  },
+  "notificationSystemTitle": "System notifications",
+  "@notificationSystemTitle": {
+    "description": "Toggle title for OS-level notifications shown when the app is backgrounded."
+  },
+  "notificationSystemDescription": "Show notifications outside the app when it is in the background.",
+  "@notificationSystemDescription": {
+    "description": "Toggle description for system notifications."
+  },
+  "notificationChatTitle": "Chat responses",
+  "@notificationChatTitle": {
+    "description": "Toggle title for notifications when an assistant response finishes."
+  },
+  "notificationChatDescription": "Notify when a response finishes in a chat you are not viewing.",
+  "@notificationChatDescription": {
+    "description": "Toggle description for chat-response notifications."
+  },
+  "notificationChannelTitle": "Channel messages",
+  "@notificationChannelTitle": {
+    "description": "Toggle title for notifications when a new channel or DM message arrives."
+  },
+  "notificationChannelDescription": "Notify when someone sends a message in a channel or DM.",
+  "@notificationChannelDescription": {
+    "description": "Toggle description for channel-message notifications."
+  },
+  "notificationChannelMessagesName": "Messages",
+  "@notificationChannelMessagesName": {
+    "description": "Android notification channel name for chat and channel messages."
+  },
+  "notificationChannelMessagesDescription": "Replies, channel messages, and finished responses",
+  "@notificationChannelMessagesDescription": {
+    "description": "Android notification channel description for messages."
+  },
+  "notificationDefaultTitle": "New message",
+  "@notificationDefaultTitle": {
+    "description": "Fallback notification title when the source provides none."
+  },
+  "notificationViewAction": "View",
+  "@notificationViewAction": {
+    "description": "Action label on an in-app notification banner that opens the target."
+  },
+  "notificationsPermissionDenied": "Notifications are turned off in system settings.",
+  "@notificationsPermissionDenied": {
+    "description": "Shown when the user enables notifications but the OS permission was denied."
   }
 }
