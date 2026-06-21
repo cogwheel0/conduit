@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +24,14 @@ final localNotificationServiceProvider = Provider<LocalNotificationService>(
 /// The plugin only supports one response callback registration. Keeping that
 /// callback here prevents feature services from overwriting each other.
 class LocalNotificationService {
-  LocalNotificationService._();
+  LocalNotificationService._()
+    : _isAndroid = (() => Platform.isAndroid),
+      _isIOS = (() => Platform.isIOS);
+
+  @visibleForTesting
+  LocalNotificationService.testing({bool isAndroid = false, bool isIOS = false})
+    : _isAndroid = (() => isAndroid),
+      _isIOS = (() => isIOS);
 
   static final LocalNotificationService instance = LocalNotificationService._();
 
@@ -32,6 +40,8 @@ class LocalNotificationService {
   final Map<String, LocalNotificationResponseHandler> _responseHandlers = {};
   final List<NotificationResponse> _pendingResponses = [];
   final Map<String, Set<String>> _deliveredPendingResponseKeys = {};
+  final bool Function() _isAndroid;
+  final bool Function() _isIOS;
 
   Future<void>? _initializing;
   bool _initialized = false;
@@ -89,7 +99,7 @@ class LocalNotificationService {
   }
 
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid()) {
       return;
     }
     await initialize();
@@ -124,15 +134,29 @@ class LocalNotificationService {
 
   Future<bool> areNotificationsEnabled() async {
     await initialize();
-    if (Platform.isAndroid) {
-      final androidImpl = _notifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      return await androidImpl?.areNotificationsEnabled() ?? false;
-    }
-    if (Platform.isIOS) {
-      return _initialized;
+    try {
+      if (_isAndroid()) {
+        final androidImpl = _notifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        return await androidImpl?.areNotificationsEnabled() ?? false;
+      }
+      if (_isIOS()) {
+        final iosImpl = _notifications
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
+        final permissions = await iosImpl?.checkPermissions();
+        return permissions?.isEnabled ?? false;
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'notification-permission-check-failed',
+        scope: 'notifications/local',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
     return false;
   }
@@ -140,7 +164,7 @@ class LocalNotificationService {
   Future<bool> requestPermissions({bool sound = true}) async {
     await initialize();
     try {
-      if (Platform.isAndroid) {
+      if (_isAndroid()) {
         final androidImpl = _notifications
             .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin
@@ -148,7 +172,7 @@ class LocalNotificationService {
         final granted = await androidImpl?.requestNotificationsPermission();
         return granted ?? true;
       }
-      if (Platform.isIOS) {
+      if (_isIOS()) {
         final iosImpl = _notifications
             .resolvePlatformSpecificImplementation<
               IOSFlutterLocalNotificationsPlugin
