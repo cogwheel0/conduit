@@ -368,15 +368,19 @@ Future<void> dispatchChatTransport({
         notifier.setInactive(chatId);
         return;
       }
+      // Capture the activation token now so a stream that starts for this chat
+      // during the async lookup is not clobbered by this stale clear.
+      final token = notifier.activationToken(chatId);
       unawaited(() async {
         try {
           final ids = await apiRef.getTaskIdsByChat(chatId);
           if (ids.isEmpty) {
-            notifier.setInactive(chatId);
+            notifier.setInactiveIfUnchanged(chatId, token);
           }
         } catch (_) {
-          // Unreachable registry: clear anyway so a spinner can't strand.
-          notifier.setInactive(chatId);
+          // Unreachable registry: clear anyway so a spinner can't strand,
+          // still guarded against a racing re-activation.
+          notifier.setInactiveIfUnchanged(chatId, token);
         }
       }());
     },

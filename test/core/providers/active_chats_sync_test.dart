@@ -362,4 +362,41 @@ void main() {
       check(container.read(activeChatIdsProvider)).isEmpty();
     });
   });
+
+  group('ActiveChatIds — token-guarded conditional clear', () {
+    test('setInactiveIfUnchanged clears when not re-activated', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(activeChatIdsProvider.notifier);
+
+      notifier.setActive('c1');
+      final token = notifier.activationToken('c1');
+      notifier.setInactiveIfUnchanged('c1', token);
+
+      check(container.read(activeChatIdsProvider)).not((s) => s.contains('c1'));
+    });
+
+    test(
+      'setInactiveIfUnchanged is a no-op after a racing re-activation',
+      () {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(activeChatIdsProvider.notifier);
+
+        // Stream A activates the chat and finishes; its async clear captured
+        // the token now.
+        notifier.setActive('c1');
+        final tokenFromA = notifier.activationToken('c1');
+
+        // Stream B starts for the same chat before A's lookup resolves.
+        notifier.setActive('c1');
+
+        // A's stale clear resolves with an empty task list — must NOT clear,
+        // since B re-activated the chat (token changed).
+        notifier.setInactiveIfUnchanged('c1', tokenFromA);
+
+        check(container.read(activeChatIdsProvider)).contains('c1');
+      },
+    );
+  });
 }

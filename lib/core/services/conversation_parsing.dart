@@ -322,7 +322,8 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     'id': (msgData['id'] ?? _uuid.v4()).toString(),
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
-    if (msgData['model'] != null) 'model': msgData['model'].toString(),
+    if ((msgData['model'] ?? historyMsg?['model']) != null)
+      'model': (msgData['model'] ?? historyMsg?['model']).toString(),
     'modelName': ?modelName,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
@@ -595,7 +596,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'role': role,
     'content': contentString,
     'timestamp': _parseTimestamp(msgData['timestamp']).toIso8601String(),
-    'model': msgData['model']?.toString(),
+    'model': (msgData['model'] ?? historyMsg?['model'])?.toString(),
     'isStreaming': _safeBool(msgData['isStreaming']) ?? false,
     'attachmentIds': ?attachmentIds,
     'files': ?files,
