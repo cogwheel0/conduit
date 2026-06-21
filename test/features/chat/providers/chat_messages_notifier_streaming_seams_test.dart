@@ -482,6 +482,50 @@ void main() {
     );
 
     test(
+      'empty placeholder keeps its modelName when a pre-first-token server '
+      'snapshot lacks it',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        // Fresh placeholder: no content yet, but already carries the modelName
+        // chip written at send time.
+        final placeholder = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, placeholder]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Stale snapshot adopted before the first token: server content arrives
+        // but without modelName.
+        final serverFirstTokens = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Hel',
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, serverFirstTokens]));
+        await Future<void>.delayed(Duration.zero);
+
+        final adopted = container.read(chatMessagesProvider).last;
+        check(adopted.content).equals('Hel');
+        check(adopted.metadata?['modelName']).equals('GPT-4o');
+      },
+    );
+
+    test(
       'an older completed message defers to a corrected server snapshot; only '
       'the streaming tail is content-preserved',
       () async {

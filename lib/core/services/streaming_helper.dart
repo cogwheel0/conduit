@@ -2482,6 +2482,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final messageId = ev['message_id']?.toString();
       final incomingSessionId = extractEventSessionId(ev);
 
+      // Chat-scope guard: on the shared user socket, an event for a different
+      // chat must never bind to or write this stream's message (critical for
+      // resume, where session matching is permissive and a foreign message_id
+      // may bind). Events with no chat_id fall through to message-level checks.
+      final eventChatId = ev['chat_id']?.toString();
+      if (eventChatId != null &&
+          eventChatId.isNotEmpty &&
+          activeConversationId != null &&
+          activeConversationId.isNotEmpty &&
+          eventChatId != activeConversationId) {
+        return;
+      }
+
       if (isObsoleteStream) {
         return;
       }

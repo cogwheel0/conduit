@@ -868,8 +868,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final localById = <String, ChatMessage>{
       for (final message in state)
+        // Also index empty placeholders that still carry a local-only
+        // `modelName`, so a stale pre-first-token snapshot can't drop the model
+        // label before the metadata merge runs.
         if (message.role == 'assistant' &&
-            (message.content.trim().isNotEmpty || message.followUps.isNotEmpty))
+            (message.content.trim().isNotEmpty ||
+                message.followUps.isNotEmpty ||
+                _messageModelName(message) != null))
           message.id: message,
     };
     if (localById.isEmpty) {
@@ -885,10 +890,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     var changed = false;
     final merged = <ChatMessage>[];
     for (final serverMessage in serverMessages) {
-      final localMessage = localById[serverMessage.id];
+      // A socket resume binds a foreign server message_id to the local tail; a
+      // lagging snapshot may carry that remote id instead of the local
+      // placeholder id, so resolve it back to the tail.
+      final boundToTail =
+          _boundRemoteMessageId != null &&
+          serverMessage.id == _boundRemoteMessageId &&
+          localTailId != null;
+      final localMessage =
+          localById[serverMessage.id] ??
+          (boundToTail ? localById[localTailId] : null);
+      final isStreamingTail =
+          localMessage != null &&
+          (serverMessage.id == localTailId || boundToTail);
       final preserveContent =
           localMessage != null &&
-          serverMessage.id == localTailId &&
+          isStreamingTail &&
           _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
       final sameResponseContent =
           localMessage != null &&
@@ -902,7 +919,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           serverMessage.role == 'assistant' &&
           serverMessage.followUps.isEmpty &&
           (sameResponseContent || preserveContent);
-      if (!preserveContent && !shouldPreserveFollowUps) {
+      // Preserve a local-only modelName the server snapshot hasn't caught up to
+      // (notably an empty placeholder whose first token hasn't landed).
+      final shouldPreserveModelName =
+          localMessage != null &&
+          serverMessage.role == 'assistant' &&
+          _messageModelName(localMessage) != null &&
+          _messageModelName(serverMessage) == null;
+      if (!preserveContent &&
+          !shouldPreserveFollowUps &&
+          !shouldPreserveModelName) {
         merged.add(serverMessage);
         continue;
       }
@@ -2023,7 +2049,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _finishStreamingProfile(reason: 'cleared');
   }
 
-  void failLastStreamingAssistant(Object error) {
+  void failLastStreamingAssistant(Object error, {String? assistantMessageId}) {
     if (state.isEmpty) {
       // No placeholder to mark failed, but still release any dangling
       // streaming/transport bookkeeping so a generic recovery catch cannot
@@ -2031,13 +2057,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       finishStreaming();
       return;
     }
-    final lastMessage = state.last;
-    if (lastMessage.role != 'assistant' || !lastMessage.isStreaming) {
-      // The last message is no longer a streaming assistant (e.g. completed,
-      // or reshaped by a concurrent server adoption). There is no placeholder
-      // to attach the error to, but finishStreaming() is idempotent and
-      // releases transport/profile state, matching the prior unconditional
-      // cleanup this helper replaced.
+    // Resolve the target by the captured assistant id so a list reshape between
+    // placeholder insertion and this failure (e.g. a concurrent server
+    // adoption appending messages) can't attach the error to — or finalize —
+    // the wrong tail. Fall back to the last message when no id was captured.
+    final target = assistantMessageId != null
+        ? state.where((m) => m.id == assistantMessageId).firstOrNull
+        : state.last;
+    if (target == null || target.role != 'assistant' || !target.isStreaming) {
+      // The captured assistant is gone or no longer streaming (e.g. completed,
+      // or reshaped). There is no placeholder to attach the error to, but
+      // finishStreaming() is idempotent and releases transport/profile state,
+      // matching the prior unconditional cleanup this helper replaced.
       finishStreaming();
       return;
     }
@@ -2045,7 +2076,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final chatError = ChatMessageError(
       content: chatErrorContentForException(error),
     );
-    updateLastMessageWithFunction(
+    // Update by id so the error lands on the captured message even if it is no
+    // longer the list tail.
+    updateMessageById(
+      target.id,
       (message) => message.copyWith(error: chatError),
     );
     finishStreaming();
@@ -5731,7 +5765,7 @@ Future<void> _sendMessageInternal(
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    notifier.failLastStreamingAssistant(e);
+    notifier.failLastStreamingAssistant(e, assistantMessageId: assistantMessageId);
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       ref.invalidate(authStateManagerProvider);

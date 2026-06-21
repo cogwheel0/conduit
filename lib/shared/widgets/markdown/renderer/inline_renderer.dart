@@ -746,7 +746,11 @@ class InlineRenderer {
     FadableSpanRange? range,
     InlineTextFadeSpec fade,
   ) {
-    if (range == null || range.end <= fade.startOffset) {
+    // A widget span can't be split, so only fade it when it lies ENTIRELY in
+    // the new suffix. A widget that straddles the boundary (already partly
+    // visible) must stay opaque, or extending an adjacent span would flicker
+    // already-shown content (e.g. inline code `abc` -> `abcd`, citations/PDFs).
+    if (range == null || range.start < fade.startOffset) {
       return span;
     }
     final opacity = fade.opacity.clamp(0.0, 1.0).toDouble();
