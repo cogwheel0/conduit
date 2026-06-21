@@ -38,6 +38,11 @@ class OpenWebUINotificationRouter {
     }
 
     try {
+      if (isTemporaryChat(chatId)) {
+        _openActiveTemporaryChat(chatId);
+        return;
+      }
+
       final selectedReadAt = DateTime.now();
       final previousId = ref.read(activeConversationProvider)?.id;
       if (previousId != chatId) {
@@ -106,6 +111,23 @@ class OpenWebUINotificationRouter {
         ref.read(chat.isLoadingConversationProvider.notifier).set(false);
       } catch (_) {}
     }
+  }
+
+  void _openActiveTemporaryChat(String chatId) {
+    final active = ref.read(activeConversationProvider);
+    if (active?.id != chatId) {
+      DebugLogger.info(
+        'notification-temporary-chat-unavailable',
+        scope: 'notifications/openwebui',
+        data: {'chatId': chatId},
+      );
+      return;
+    }
+
+    ref.read(temporaryChatEnabledProvider.notifier).set(true);
+    ref.read(pendingFolderIdProvider.notifier).clear();
+    ref.read(chat.chatMessagesProvider.notifier).setMessages(active!.messages);
+    NavigationService.router.go(Routes.chat);
   }
 
   void _activateConversation(
