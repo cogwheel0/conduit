@@ -541,6 +541,73 @@ void main() {
       check(last.isStreaming).isTrue();
     });
 
+    test(
+      'resume poll adopts server content matched by the bound foreign '
+      'message id (socket bound a server id then died)',
+      () async {
+        final timestamp = DateTime.now();
+        final opened = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('assistant-local', 'Partial', timestamp),
+        ];
+        // The server persists the message under its OWN (foreign) id, not the
+        // local placeholder id.
+        final grown = [
+          _userMessage('user-1', 'Hi', timestamp),
+          _assistantMessage('server-foreign', 'Partial answer that grew', timestamp),
+        ];
+        final api = _FakeApiService(_conversation('chat-1', grown, timestamp))
+          ..taskIds = ['task-1'];
+
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Construct the notifier (so its conversation-change listener is live)
+        // before setting the conversation, so active-on-open fires.
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
+
+        // Active-on-open re-engages streaming and arms the monitor. The first
+        // poll cannot match yet (server id differs, no bound id), so content
+        // stays 'Partial'.
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+        check(container.read(chatMessagesProvider).last.content).equals('Partial');
+
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        while (notifier.debugTaskStatusCheckInFlight) {
+          await pumpMicrotasks();
+        }
+
+        // The streaming helper binds the foreign server id to the local tail.
+        notifier.recordResumeBoundRemoteMessageId(
+          'assistant-local',
+          'server-foreign',
+        );
+
+        // Next poll resolves the server message by the bound foreign id and
+        // adopts its grown content (instead of leaving the chat stuck).
+        await notifier.debugSyncRemoteTaskStatus();
+        await pumpMicrotasks();
+
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('Partial answer that grew');
+      },
+    );
+
     test('temporary chats are never probed for active tasks', () async {
       final timestamp = DateTime.now();
       final messages = [

@@ -351,6 +351,13 @@ Future<void> dispatchChatTransport({
         });
       }
     },
+    onRemoteMessageBound: (remoteMessageId) {
+      // Record the foreign server id bound to this assistant so the poll
+      // fallback can still resolve server content if the socket later dies.
+      ref
+          .read(chatMessagesProvider.notifier)
+          .recordResumeBoundRemoteMessageId(assistantMessageId, remoteMessageId);
+    },
     onChatActiveChanged: (chatId, active) {
       if (chatId == null || chatId.isEmpty) return;
       final notifier = ref.read(activeChatIdsProvider.notifier);

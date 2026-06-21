@@ -426,6 +426,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Called when a `chat:active` event is received, indicating a background
   /// task has started (active=true) or completed (active=false).
   void Function(String? chatId, bool active)? onChatActiveChanged,
+  // Fired when a foreign server-assigned message_id is bound to the local
+  // assistant (notably during socket resume). Lets the caller's poll fallback
+  // resolve server messages by the bound id if the socket later dies.
+  void Function(String remoteMessageId)? onRemoteMessageBound,
   required void Function() completeStreamingUi,
   required void Function() finishStreaming,
   required List<ChatMessage> Function() getMessages,
@@ -543,6 +547,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     boundRemoteMessageId = candidateId;
+    onRemoteMessageBound?.call(candidateId);
     DebugLogger.log(
       'Binding $source server message $candidateId '
       'to local assistant $assistantMessageId',
@@ -642,6 +647,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     if (boundRemoteMessageId == null) {
       boundRemoteMessageId = incomingMessageId;
+      onRemoteMessageBound?.call(incomingMessageId);
       DebugLogger.log(
         'Binding $eventType server message $incomingMessageId '
         'to local assistant $assistantMessageId',

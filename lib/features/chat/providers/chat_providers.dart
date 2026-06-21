@@ -344,6 +344,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _queuedPassiveConversationRefresh = false;
   String? _passiveConversationId;
   String? _activeStreamingTransportMessageId;
+  // Foreign server-assigned message id bound to the streaming tail (socket
+  // resume). Lets the poll fallback resolve server messages by this id if the
+  // socket dies after binding but before delivering `done`.
+  String? _boundRemoteMessageId;
   String? _streamingProfileTaskKey;
   String? _streamingProfileMessageId;
   DateTime? _streamingProfileStartedAt;
@@ -1285,10 +1289,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _lastFlushedStreamingBufferVersion = -1;
   }
 
+  /// Records the foreign server message id the streaming helper bound to the
+  /// local assistant tail (socket resume), so [_syncRemoteTaskStatus] can match
+  /// the server's growing/final message even when its id differs from the local
+  /// placeholder id. Scoped to the current streaming tail.
+  void recordResumeBoundRemoteMessageId(
+    String localMessageId,
+    String remoteMessageId,
+  ) {
+    if (remoteMessageId.isEmpty || state.isEmpty) {
+      return;
+    }
+    if (state.last.id != localMessageId) {
+      return;
+    }
+    _boundRemoteMessageId = remoteMessageId;
+  }
+
   void _cancelMessageStream({bool clearStreamingContent = true}) {
     final controller = _messageStream;
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
+    _boundRemoteMessageId = null;
     if (controller != null && controller.isActive) {
       unawaited(controller.cancel());
     }
@@ -1438,6 +1460,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
+    _boundRemoteMessageId = null;
     cancelSocketSubscriptions();
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
@@ -1642,6 +1665,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _taskStatusCheckInFlight = false;
     _observedRemoteTask = false;
     _tasksDoneGracePolls = 0;
+    _boundRemoteMessageId = null;
   }
 
   Future<void> _syncRemoteTaskStatus() async {
@@ -1715,7 +1739,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                 localLast.id,
               );
               final serverVersion = refreshed.messages
-                  .where((m) => m.id == localLast.id)
+                  .where(
+                    (m) =>
+                        m.id == localLast.id || m.id == _boundRemoteMessageId,
+                  )
                   .firstOrNull;
               final serverContent = serverVersion?.content ?? '';
               // Monotonic growth guard: only adopt when the server has strictly
@@ -1779,7 +1806,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               final comparisonSnapshot =
                   _readStreamingMessageComparisonSnapshot(localLast.id);
               final serverVersion = serverMessages
-                  .where((m) => m.id == localLast.id)
+                  .where(
+                    (m) =>
+                        m.id == localLast.id || m.id == _boundRemoteMessageId,
+                  )
                   .firstOrNull;
 
               if (serverVersion != null) {
