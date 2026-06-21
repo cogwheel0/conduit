@@ -30,6 +30,19 @@ void main() {
       check(payload.id).equals('chat-1');
     });
 
+    test('reads nested chat ids from socket data', () {
+      final notification = parseChatCompletionNotification({
+        'data': {
+          'type': 'chat:completion',
+          'chat_id': 'chat-nested',
+          'data': {'done': true, 'content': 'Nested answer.'},
+        },
+      });
+
+      check(notification).isNotNull();
+      check(notification!.id).equals('chat-nested');
+    });
+
     test('ignores non-final completion chunks', () {
       final notification = parseChatCompletionNotification({
         'chat_id': 'chat-1',
@@ -78,6 +91,21 @@ void main() {
       check(notification.id).equals('channel-1');
       check(notification.title).equals('Avery (#ops) - Open WebUI');
       check(notification.body).equals('Can you check this?');
+    });
+
+    test('reads nested channel ids from socket data', () {
+      final notification = parseChannelMessageNotification({
+        'user': {'id': 'user-2', 'name': 'Avery'},
+        'channel': {'type': 'group', 'name': 'ops'},
+        'data': {
+          'type': 'message',
+          'channel_id': 'channel-nested',
+          'data': {'content': 'Nested message.'},
+        },
+      }, currentUserId: 'user-1');
+
+      check(notification).isNotNull();
+      check(notification!.id).equals('channel-nested');
     });
 
     test('omits channel suffix for direct messages', () {

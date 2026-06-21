@@ -45,6 +45,7 @@ class OpenWebUINotificationRouter {
       }
       markConversationRead(ref, chatId, readAt: selectedReadAt);
 
+      ref.read(temporaryChatEnabledProvider.notifier).set(false);
       ref.read(chat.isLoadingConversationProvider.notifier).set(true);
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();
@@ -54,21 +55,44 @@ class OpenWebUINotificationRouter {
 
       final local = await loadLocalConversation(ref, chatId);
       if (local != null) {
-        ref
-            .read(activeConversationProvider.notifier)
-            .set(_withOptimisticReadAt(local, selectedReadAt));
+        _activateConversation(local, selectedReadAt);
         schedulePullChatNow(ref, chatId);
         return;
       }
 
+      Future<void> useCachedConversation() async {
+        final conversations = await ref.read(conversationsProvider.future);
+        Conversation? fallback;
+        for (final conversation in conversations) {
+          if (conversation.id == chatId) {
+            fallback = conversation;
+            break;
+          }
+        }
+        if (fallback != null) {
+          _activateConversation(fallback, selectedReadAt);
+        }
+      }
+
       final api = ref.read(apiServiceProvider);
       if (api != null) {
-        final remote = await api.getConversation(chatId);
-        ref
-            .read(activeConversationProvider.notifier)
-            .set(_withOptimisticReadAt(remote, selectedReadAt));
-        schedulePullChatNow(ref, chatId);
+        try {
+          final remote = await api.getConversation(chatId);
+          _activateConversation(remote, selectedReadAt);
+          schedulePullChatNow(ref, chatId);
+          return;
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'notification-open-chat-fetch-failed',
+            scope: 'notifications/openwebui',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'chatId': chatId},
+          );
+        }
       }
+
+      await useCachedConversation();
     } catch (error, stackTrace) {
       DebugLogger.error(
         'notification-open-chat-failed',
@@ -82,6 +106,17 @@ class OpenWebUINotificationRouter {
         ref.read(chat.isLoadingConversationProvider.notifier).set(false);
       } catch (_) {}
     }
+  }
+
+  void _activateConversation(
+    Conversation conversation,
+    DateTime selectedReadAt,
+  ) {
+    final activated = _withOptimisticReadAt(conversation, selectedReadAt);
+    ref.read(activeConversationProvider.notifier).set(activated);
+    ref
+        .read(chat.chatMessagesProvider.notifier)
+        .setMessages(activated.messages);
   }
 
   Conversation _withOptimisticReadAt(

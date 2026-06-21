@@ -201,21 +201,21 @@ NotificationDetails _notificationDetails({required bool playSound}) {
 }
 
 int _notificationId(OpenWebUINotification notification) {
-  final hash = '${notification.kind.name}:${notification.id}'.hashCode;
-  return 3000 + (hash & 0x3fffffff);
+  var hash = 0x811c9dc5;
+  final input = '${notification.kind.name}:${notification.id}';
+  for (final codeUnit in input.codeUnits) {
+    hash ^= codeUnit;
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return 3000 + (hash % 0x3fffffff);
 }
 
 String? _chatIdFromEvent(Map<String, dynamic> event) {
-  final raw = event['chat_id'] ?? event['chatId'];
-  final id = raw?.toString().trim();
-  return id == null || id.isEmpty ? null : id;
+  return extractOpenWebUIChatId(event);
 }
 
 String? _channelIdFromEvent(Map<String, dynamic> event) {
-  final raw =
-      event['channel_id'] ?? event['channelId'] ?? event['conversation_id'];
-  final id = raw?.toString().trim();
-  return id == null || id.isEmpty ? null : id;
+  return extractOpenWebUIChannelId(event);
 }
 
 bool _isCurrentChat(String? activeChatId, String chatId) {

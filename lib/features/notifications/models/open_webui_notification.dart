@@ -30,7 +30,7 @@ OpenWebUINotification? parseChatCompletionNotification(
   String fallbackTitle = 'New Chat',
   bool allowTemporary = false,
 }) {
-  final chatId = _stringFrom(event['chat_id'] ?? event['chatId']);
+  final chatId = extractOpenWebUIChatId(event);
   if (chatId == null || chatId.isEmpty) {
     return null;
   }
@@ -78,9 +78,7 @@ OpenWebUINotification? parseChannelMessageNotification(
   Map<String, dynamic> event, {
   String? currentUserId,
 }) {
-  final channelId = _stringFrom(
-    event['channel_id'] ?? event['channelId'] ?? event['conversation_id'],
-  );
+  final channelId = extractOpenWebUIChannelId(event);
   if (channelId == null || channelId.isEmpty) {
     return null;
   }
@@ -143,6 +141,18 @@ OpenWebUINotification? parseChannelMessageNotification(
       ),
     ),
   );
+}
+
+String? extractOpenWebUIChatId(Map<String, dynamic> event) {
+  return _nestedStringFrom(event, const ['chat_id', 'chatId']);
+}
+
+String? extractOpenWebUIChannelId(Map<String, dynamic> event) {
+  return _nestedStringFrom(event, const [
+    'channel_id',
+    'channelId',
+    'conversation_id',
+  ]);
 }
 
 String encodeOpenWebUINotificationPayload(
@@ -236,4 +246,36 @@ String? _stringFrom(Object? value) {
   }
   final string = value.toString().trim();
   return string.isEmpty ? null : string;
+}
+
+String? _nestedStringFrom(Map<String, dynamic> map, List<String> keys) {
+  String? readAtLevel(Map<String, dynamic> candidate) {
+    for (final key in keys) {
+      final value = _stringFrom(candidate[key]);
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  final direct = readAtLevel(map);
+  if (direct != null) {
+    return direct;
+  }
+
+  final data = _mapFrom(map['data']);
+  if (data == null) {
+    return null;
+  }
+  final fromData = readAtLevel(data);
+  if (fromData != null) {
+    return fromData;
+  }
+
+  final nestedData = _mapFrom(data['data']);
+  if (nestedData == null) {
+    return null;
+  }
+  return readAtLevel(nestedData);
 }

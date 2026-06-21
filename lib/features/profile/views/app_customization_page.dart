@@ -503,16 +503,20 @@ class AppCustomizationPage extends ConsumerWidget {
             subtitle: l10n.notificationSoundDescription,
             trailing: AdaptiveSwitch(
               value: settings.notificationSoundEnabled,
-              onChanged: (value) => ref
-                  .read(appSettingsProvider.notifier)
-                  .setNotificationSoundEnabled(value),
+              onChanged: (value) {
+                unawaited(_setNotificationSoundEnabled(context, ref, value));
+              },
             ),
             showChevron: false,
-            onTap: () => ref
-                .read(appSettingsProvider.notifier)
-                .setNotificationSoundEnabled(
+            onTap: () {
+              unawaited(
+                _setNotificationSoundEnabled(
+                  context,
+                  ref,
                   !settings.notificationSoundEnabled,
                 ),
+              );
+            },
           ),
           if (settings.notificationSoundEnabled) ...[
             const SizedBox(height: Spacing.sm),
@@ -608,6 +612,34 @@ class AppCustomizationPage extends ConsumerWidget {
       return;
     }
     await notifier.setResponseNotificationsEnabled(true);
+  }
+
+  Future<void> _setNotificationSoundEnabled(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+  ) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (!enabled) {
+      await notifier.setNotificationSoundEnabled(false);
+      return;
+    }
+
+    final granted = await LocalNotificationService.instance.requestPermissions(
+      sound: true,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (!granted) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.notificationPermissionDenied,
+        type: AdaptiveSnackBarType.warning,
+      );
+      return;
+    }
+    await notifier.setNotificationSoundEnabled(true);
   }
 
   Widget _buildSystemPromptsSection(BuildContext context, WidgetRef ref) {
