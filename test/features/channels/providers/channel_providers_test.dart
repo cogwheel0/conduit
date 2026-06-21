@@ -70,6 +70,50 @@ void main() {
       },
     );
   });
+
+  group('ChannelsList.markRead (reset-on-visit)', () {
+    Future<ProviderContainer> loadWith(
+      List<Map<String, dynamic>> rawChannels,
+    ) async {
+      final api = _FakeChannelApiService(rawChannels: rawChannels);
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          authTokenProvider3.overrideWith((ref) => 'token'),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(channelsListProvider.future);
+      return container;
+    }
+
+    test('clears the unread badge for the opened channel', () async {
+      final container = await loadWith([
+        {'id': 'c1', 'name': 'One', 'unread_count': 3, 'updated_at': 2},
+        {'id': 'c2', 'name': 'Two', 'unread_count': 5, 'updated_at': 1},
+      ]);
+
+      container.read(channelsListProvider.notifier).markRead('c1');
+
+      final channels = container.read(channelsListProvider).value!;
+      expect(channels.firstWhere((c) => c.id == 'c1').unreadCount, 0);
+      // Other channels are untouched.
+      expect(channels.firstWhere((c) => c.id == 'c2').unreadCount, 5);
+    });
+
+    test('is a no-op for an unknown or already-read channel', () async {
+      final container = await loadWith([
+        {'id': 'c1', 'name': 'One', 'unread_count': 0, 'updated_at': 1},
+      ]);
+      final before = container.read(channelsListProvider).value;
+
+      container.read(channelsListProvider.notifier).markRead('c1');
+      container.read(channelsListProvider.notifier).markRead('missing');
+
+      // No rebuild: same list instance is retained when nothing changed.
+      expect(identical(container.read(channelsListProvider).value, before), isTrue);
+    });
+  });
 }
 
 class _FakeChannelApiService extends ApiService {

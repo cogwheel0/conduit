@@ -2386,6 +2386,34 @@ class ApiService {
     return ServerUserSettings.fromJson(data);
   }
 
+  /// Persists the notification preferences that Open WebUI stores server-side.
+  /// These live at the top level of the user settings object (not under `ui`).
+  /// Only non-null values are written so callers can update a subset.
+  Future<ServerUserSettings> updateUserNotificationSettings({
+    bool? notificationEnabled,
+    bool? notificationSound,
+    bool? notificationSoundAlways,
+  }) async {
+    final settings = _deepCloneJsonMap(await getUserSettings());
+    if (notificationEnabled != null) {
+      settings['notificationEnabled'] = notificationEnabled;
+    }
+    if (notificationSound != null) {
+      settings['notificationSound'] = notificationSound;
+    }
+    if (notificationSoundAlways != null) {
+      settings['notificationSoundAlways'] = notificationSoundAlways;
+    }
+
+    _traceApi('Updating user notification settings');
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
+  }
+
   Future<ServerUserSettings> updateUserPinnedModels(
     List<String> modelIds,
   ) async {

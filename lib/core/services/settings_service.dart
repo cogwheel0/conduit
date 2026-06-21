@@ -68,6 +68,19 @@ class SettingsService {
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
   static const String _pinnedModelsKey = PreferenceKeys.pinnedModels;
+  // Notifications
+  static const String _notificationsEnabledKey =
+      PreferenceKeys.notificationsEnabled;
+  static const String _notificationSoundKey = PreferenceKeys.notificationSound;
+  static const String _notificationSoundAlwaysKey =
+      PreferenceKeys.notificationSoundAlways;
+  static const String _notificationInAppBannerKey =
+      PreferenceKeys.notificationInAppBanner;
+  static const String _notificationSystemKey = PreferenceKeys.notificationSystem;
+  static const String _notificationChatEnabledKey =
+      PreferenceKeys.notificationChatEnabled;
+  static const String _notificationChannelEnabledKey =
+      PreferenceKeys.notificationChannelEnabled;
 
   static T? _getPreference<T>(String key) => PreferencesStore.get<T>(key);
 
@@ -117,6 +130,76 @@ class SettingsService {
   /// Set streaming haptics suppression preference.
   static Future<void> setDisableHapticsWhileStreaming(bool value) {
     return _putPreference(_disableHapticsWhileStreamingKey, value);
+  }
+
+  // -- Notifications --------------------------------------------------------
+
+  /// Master notifications toggle. Defaults to `false`: notifications stay off
+  /// until the user opts in (which is also when permission is requested).
+  static Future<bool> getNotificationsEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationsEnabledKey) ?? false,
+    );
+  }
+
+  static Future<void> setNotificationsEnabled(bool value) {
+    return _putPreference(_notificationsEnabledKey, value);
+  }
+
+  static Future<bool> getNotificationSound() {
+    return Future.value(_getPreference<bool>(_notificationSoundKey) ?? true);
+  }
+
+  static Future<void> setNotificationSound(bool value) {
+    return _putPreference(_notificationSoundKey, value);
+  }
+
+  static Future<bool> getNotificationSoundAlways() {
+    return Future.value(
+      _getPreference<bool>(_notificationSoundAlwaysKey) ?? false,
+    );
+  }
+
+  static Future<void> setNotificationSoundAlways(bool value) {
+    return _putPreference(_notificationSoundAlwaysKey, value);
+  }
+
+  static Future<bool> getNotificationInAppBanner() {
+    return Future.value(
+      _getPreference<bool>(_notificationInAppBannerKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationInAppBanner(bool value) {
+    return _putPreference(_notificationInAppBannerKey, value);
+  }
+
+  static Future<bool> getNotificationSystem() {
+    return Future.value(_getPreference<bool>(_notificationSystemKey) ?? true);
+  }
+
+  static Future<void> setNotificationSystem(bool value) {
+    return _putPreference(_notificationSystemKey, value);
+  }
+
+  static Future<bool> getNotificationChatEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationChatEnabledKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationChatEnabled(bool value) {
+    return _putPreference(_notificationChatEnabledKey, value);
+  }
+
+  static Future<bool> getNotificationChannelEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationChannelEnabledKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationChannelEnabled(bool value) {
+    return _putPreference(_notificationChannelEnabledKey, value);
   }
 
   /// Get high contrast preference
@@ -189,6 +272,13 @@ class SettingsService {
           settings.androidAssistantTrigger.storageValue,
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
       _pinnedModelsKey: settings.pinnedModels.toList(),
+      _notificationsEnabledKey: settings.notificationsEnabled,
+      _notificationSoundKey: settings.notificationSound,
+      _notificationSoundAlwaysKey: settings.notificationSoundAlways,
+      _notificationInAppBannerKey: settings.notificationInAppBanner,
+      _notificationSystemKey: settings.notificationSystem,
+      _notificationChatEnabledKey: settings.notificationChatEnabled,
+      _notificationChannelEnabledKey: settings.notificationChannelEnabled,
     };
 
     await PreferencesStore.putAll(updates);
@@ -542,6 +632,20 @@ class SettingsService {
       pinnedModels: sanitizePinnedModels(
         PreferencesStore.getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
+      notificationsEnabled:
+          PreferencesStore.get<bool>(_notificationsEnabledKey) ?? false,
+      notificationSound:
+          PreferencesStore.get<bool>(_notificationSoundKey) ?? true,
+      notificationSoundAlways:
+          PreferencesStore.get<bool>(_notificationSoundAlwaysKey) ?? false,
+      notificationInAppBanner:
+          PreferencesStore.get<bool>(_notificationInAppBannerKey) ?? true,
+      notificationSystem:
+          PreferencesStore.get<bool>(_notificationSystemKey) ?? true,
+      notificationChatEnabled:
+          PreferencesStore.get<bool>(_notificationChatEnabledKey) ?? true,
+      notificationChannelEnabled:
+          PreferencesStore.get<bool>(_notificationChannelEnabledKey) ?? true,
     );
   }
 }
@@ -581,6 +685,14 @@ class AppSettings {
   final int voiceSilenceDuration;
   final bool temporaryChatByDefault;
   final List<String> pinnedModels;
+  // Notifications (see PreferenceKeys for which are server-synced).
+  final bool notificationsEnabled;
+  final bool notificationSound;
+  final bool notificationSoundAlways;
+  final bool notificationInAppBanner;
+  final bool notificationSystem;
+  final bool notificationChatEnabled;
+  final bool notificationChannelEnabled;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -610,6 +722,13 @@ class AppSettings {
     this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
     this.pinnedModels = const [],
+    this.notificationsEnabled = false,
+    this.notificationSound = true,
+    this.notificationSoundAlways = false,
+    this.notificationInAppBanner = true,
+    this.notificationSystem = true,
+    this.notificationChatEnabled = true,
+    this.notificationChannelEnabled = true,
   });
 
   AppSettings copyWith({
@@ -641,6 +760,13 @@ class AppSettings {
     AndroidAssistantTrigger? androidAssistantTrigger,
     bool? temporaryChatByDefault,
     List<String>? pinnedModels,
+    bool? notificationsEnabled,
+    bool? notificationSound,
+    bool? notificationSoundAlways,
+    bool? notificationInAppBanner,
+    bool? notificationSystem,
+    bool? notificationChatEnabled,
+    bool? notificationChannelEnabled,
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -685,6 +811,17 @@ class AppSettings {
       temporaryChatByDefault:
           temporaryChatByDefault ?? this.temporaryChatByDefault,
       pinnedModels: pinnedModels ?? this.pinnedModels,
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      notificationSound: notificationSound ?? this.notificationSound,
+      notificationSoundAlways:
+          notificationSoundAlways ?? this.notificationSoundAlways,
+      notificationInAppBanner:
+          notificationInAppBanner ?? this.notificationInAppBanner,
+      notificationSystem: notificationSystem ?? this.notificationSystem,
+      notificationChatEnabled:
+          notificationChatEnabled ?? this.notificationChatEnabled,
+      notificationChannelEnabled:
+          notificationChannelEnabled ?? this.notificationChannelEnabled,
     );
   }
 
@@ -717,6 +854,13 @@ class AppSettings {
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         other.temporaryChatByDefault == temporaryChatByDefault &&
+        other.notificationsEnabled == notificationsEnabled &&
+        other.notificationSound == notificationSound &&
+        other.notificationSoundAlways == notificationSoundAlways &&
+        other.notificationInAppBanner == notificationInAppBanner &&
+        other.notificationSystem == notificationSystem &&
+        other.notificationChatEnabled == notificationChatEnabled &&
+        other.notificationChannelEnabled == notificationChannelEnabled &&
         _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -750,6 +894,13 @@ class AppSettings {
       androidAssistantTrigger,
       voiceSilenceDuration,
       temporaryChatByDefault,
+      notificationsEnabled,
+      notificationSound,
+      notificationSoundAlways,
+      notificationInAppBanner,
+      notificationSystem,
+      notificationChatEnabled,
+      notificationChannelEnabled,
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
@@ -816,6 +967,64 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setDisableHapticsWhileStreaming(bool value) async {
     state = state.copyWith(disableHapticsWhileStreaming: value);
     await SettingsService.setDisableHapticsWhileStreaming(value);
+  }
+
+  Future<void> setNotificationsEnabled(bool value) async {
+    state = state.copyWith(notificationsEnabled: value);
+    await SettingsService.setNotificationsEnabled(value);
+  }
+
+  Future<void> setNotificationSound(bool value) async {
+    state = state.copyWith(notificationSound: value);
+    await SettingsService.setNotificationSound(value);
+  }
+
+  Future<void> setNotificationSoundAlways(bool value) async {
+    state = state.copyWith(notificationSoundAlways: value);
+    await SettingsService.setNotificationSoundAlways(value);
+  }
+
+  Future<void> setNotificationInAppBanner(bool value) async {
+    state = state.copyWith(notificationInAppBanner: value);
+    await SettingsService.setNotificationInAppBanner(value);
+  }
+
+  Future<void> setNotificationSystem(bool value) async {
+    state = state.copyWith(notificationSystem: value);
+    await SettingsService.setNotificationSystem(value);
+  }
+
+  Future<void> setNotificationChatEnabled(bool value) async {
+    state = state.copyWith(notificationChatEnabled: value);
+    await SettingsService.setNotificationChatEnabled(value);
+  }
+
+  Future<void> setNotificationChannelEnabled(bool value) async {
+    state = state.copyWith(notificationChannelEnabled: value);
+    await SettingsService.setNotificationChannelEnabled(value);
+  }
+
+  /// Applies the three server-synced notification prefs fetched from Open WebUI
+  /// without echoing them back to the server. Used at bootstrap so the server
+  /// stays authoritative for cross-device parity. Only writes when a value
+  /// actually changed to avoid spurious rebuilds.
+  Future<void> applyServerNotificationPrefs({
+    bool? enabled,
+    bool? sound,
+    bool? soundAlways,
+  }) async {
+    final next = state.copyWith(
+      notificationsEnabled: enabled,
+      notificationSound: sound,
+      notificationSoundAlways: soundAlways,
+    );
+    if (next == state) return;
+    state = next;
+    if (enabled != null) await SettingsService.setNotificationsEnabled(enabled);
+    if (sound != null) await SettingsService.setNotificationSound(sound);
+    if (soundAlways != null) {
+      await SettingsService.setNotificationSoundAlways(soundAlways);
+    }
   }
 
   Future<void> setHighContrast(bool value) async {

@@ -52,6 +52,26 @@ void main() {
       check(updated.defaultModelIds).deepEquals(['gpt-4.1']);
       check(updated.pinnedModelIds).deepEquals(['new-model']);
     });
+
+    test('parses top-level notification preferences', () {
+      final settings = ServerUserSettings.fromJson({
+        'notificationEnabled': true,
+        'notificationSound': false,
+        'notificationSoundAlways': true,
+      });
+
+      check(settings.notificationEnabled).equals(true);
+      check(settings.notificationSound).equals(false);
+      check(settings.notificationSoundAlways).equals(true);
+    });
+
+    test('leaves notification preferences null when the server omits them', () {
+      final settings = ServerUserSettings.fromJson({'ui': {}});
+
+      check(settings.notificationEnabled).isNull();
+      check(settings.notificationSound).isNull();
+      check(settings.notificationSoundAlways).isNull();
+    });
   });
 
   group('AccountMetadata.fromJson', () {

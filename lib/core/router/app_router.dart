@@ -31,6 +31,7 @@ import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
+import '../../features/notifications/views/notification_settings_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
@@ -352,6 +353,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.appCustomization,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AppCustomizationPage()),
+    ),
+    GoRoute(
+      path: Routes.notificationSettings,
+      name: RouteNames.notificationSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const NotificationSettingsPage(),
+      ),
     ),
     GoRoute(
       path: Routes.about,

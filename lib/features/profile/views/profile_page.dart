@@ -363,6 +363,18 @@ class ProfilePage extends ConsumerWidget {
           context.pushNamed(RouteNames.appCustomization);
         },
       ),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.bell,
+          android: Icons.notifications_outlined,
+        ),
+        title: AppLocalizations.of(context)!.notificationsTitle,
+        subtitle: AppLocalizations.of(context)!.notificationsSubtitle,
+        onTap: () {
+          context.pushNamed(RouteNames.notificationSettings);
+        },
+      ),
       _buildAboutTile(context),
       _buildAccountOption(
         context,
