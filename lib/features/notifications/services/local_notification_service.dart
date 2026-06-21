@@ -65,32 +65,46 @@ class LocalNotificationService {
   /// Emits when the user taps a message notification while the app is running.
   Stream<NotificationTap> get taps => _taps.stream;
 
-  Future<void> initialize() async {
-    if (_initialized) return;
-    if (!Platform.isAndroid && !Platform.isIOS) return;
+  Future<void>? _initializing;
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    // No permission requests at init — see class doc.
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-    const settings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
+  /// Initializes the plugin exactly once. Concurrent callers (e.g. several
+  /// `show()`s racing before setup completes) share the same in-flight future
+  /// instead of each running `_plugin.initialize()` in parallel.
+  Future<void> initialize() {
+    if (_initialized) return Future<void>.value();
+    if (!Platform.isAndroid && !Platform.isIOS) return Future<void>.value();
+    return _initializing ??= _doInitialize();
+  }
 
-    await _plugin.initialize(
-      settings: settings,
-      onDidReceiveNotificationResponse: _onResponse,
-    );
+  Future<void> _doInitialize() async {
+    try {
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      // No permission requests at init — see class doc.
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      );
+      const settings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
 
-    if (Platform.isAndroid) {
-      await _createAndroidChannel();
+      await _plugin.initialize(
+        settings: settings,
+        onDidReceiveNotificationResponse: _onResponse,
+      );
+
+      if (Platform.isAndroid) {
+        await _createAndroidChannel();
+      }
+
+      _initialized = true;
+    } finally {
+      _initializing = null;
     }
-
-    _initialized = true;
   }
 
   Future<void> _createAndroidChannel() async {
@@ -109,6 +123,9 @@ class LocalNotificationService {
   }
 
   void _onResponse(NotificationResponse response) {
+    // The plugin singleton keeps this callback registered after dispose(), so a
+    // late tap could otherwise add to a closed controller and throw.
+    if (_taps.isClosed) return;
     final tap = NotificationTap.tryDecode(response.payload);
     if (tap != null) {
       _taps.add(tap);
@@ -145,17 +162,6 @@ class LocalNotificationService {
           false;
     }
     return false;
-  }
-
-  Future<bool> areEnabled() async {
-    if (Platform.isAndroid) {
-      final android = _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      return await android?.areNotificationsEnabled() ?? false;
-    }
-    return _initialized;
   }
 
   /// Posts an OS notification for [notification]. No-ops on unsupported
