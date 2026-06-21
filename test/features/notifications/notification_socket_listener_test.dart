@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/channel.dart';
+import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/services/socket_service.dart';
@@ -141,6 +142,14 @@ void main() {
         socketServiceProvider.overrideWithValue(socket),
         notificationRouterProvider.overrideWithValue(captureRouter),
         channelsListProvider.overrideWith(_FakeChannelsList.new),
+        currentUserProvider.overrideWith(
+          (ref) async => const User(
+            id: 'me',
+            username: 'me',
+            email: 'me@example.com',
+            role: 'user',
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -202,12 +211,27 @@ void main() {
     addTearDown(socket.disposeController);
     final container = makeContainer(socket);
     container.read(notificationSocketListenerProvider);
+    await container.read(currentUserProvider.future); // resolve self id
 
     socket.channel.single.handler(_channelMessage(), null);
     await Future<void>.delayed(Duration.zero);
 
     check(routed).length.equals(1);
     check(routed.single.kind).equals(NotificationKind.channelMessage);
+  });
+
+  test('skips channel classification until the current user resolves', () async {
+    final socket = _MockSocketService();
+    addTearDown(socket.disposeController);
+    final container = makeContainer(socket);
+    container.read(notificationSocketListenerProvider);
+
+    // Do NOT await currentUserProvider: id is still unresolved, so a channel
+    // message must be skipped rather than risk self-notifying.
+    socket.channel.single.handler(_channelMessage(), null);
+    await Future<void>.delayed(Duration.zero);
+
+    check(routed).isEmpty();
   });
 
   test('reconnect reconciles channel unread via refresh', () async {
@@ -242,6 +266,14 @@ void main() {
         container.read(notificationRouterProvider),
       ),
       channelsListProvider.overrideWith(_FakeChannelsList.new),
+      currentUserProvider.overrideWith(
+        (ref) async => const User(
+          id: 'me',
+          username: 'me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      ),
     ]);
 
     // Old subscriptions disposed, fresh ones registered on the new socket.

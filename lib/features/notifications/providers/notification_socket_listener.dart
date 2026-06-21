@@ -198,9 +198,13 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   }
 
   void _onChannelEvent(Map<String, dynamic> event) {
+    final userId = _currentUserId;
+    // Until the current user resolves we can't run the self-author filter, so
+    // skip rather than risk notifying the user for their own messages.
+    if (userId.isEmpty) return;
     final notification = _classifier.classifyChannelEvent(
       event,
-      currentUserId: _currentUserId,
+      currentUserId: userId,
     );
     if (notification != null) _route(notification);
   }
