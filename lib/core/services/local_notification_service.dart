@@ -95,7 +95,6 @@ class LocalNotificationService {
 
   void removeResponseHandler(String id) {
     _responseHandlers.remove(id);
-    _deliveredPendingResponseKeys.remove(id);
   }
 
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async {
@@ -143,12 +142,7 @@ class LocalNotificationService {
         return await androidImpl?.areNotificationsEnabled() ?? false;
       }
       if (_isIOS()) {
-        final iosImpl = _notifications
-            .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin
-            >();
-        final permissions = await iosImpl?.checkPermissions();
-        return permissions?.isEnabled ?? false;
+        return await _areIOSNotificationsEnabled();
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -159,6 +153,20 @@ class LocalNotificationService {
       );
     }
     return false;
+  }
+
+  Future<bool> _areIOSNotificationsEnabled() async {
+    final iosImpl = _notifications
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    if (iosImpl == null) {
+      return false;
+    }
+    final permissions =
+        await (iosImpl as dynamic).checkPermissions()
+            as NotificationsEnabledOptions?;
+    return permissions?.isEnabled ?? false;
   }
 
   Future<bool> requestPermissions({bool sound = true}) async {
@@ -227,6 +235,20 @@ class LocalNotificationService {
       }
       _dispatchResponseTo(id, handler, response);
     }
+    _dropDeliveredPendingResponses();
+  }
+
+  void _dropDeliveredPendingResponses() {
+    if (_responseHandlers.isEmpty) {
+      return;
+    }
+    _pendingResponses.removeWhere((response) {
+      final responseKey = _responseKey(response);
+      return _responseHandlers.keys.every((id) {
+        return _deliveredPendingResponseKeys[id]?.contains(responseKey) ??
+            false;
+      });
+    });
   }
 
   void _dispatchResponseTo(
@@ -283,8 +305,7 @@ class LocalNotificationService {
         return;
       }
       await prefs.remove(_backgroundResponseKey);
-      final response = _notificationResponseFromJson(raw);
-      if (response != null) {
+      for (final response in _notificationResponsesFromJson(raw)) {
         _handleStartupNotificationResponse(response, startupResponseKeys);
       }
     } catch (error, stackTrace) {
@@ -332,9 +353,11 @@ class LocalNotificationService {
 }
 
 @pragma('vm:entry-point')
-void localNotificationTapBackground(NotificationResponse response) {
+Future<void> localNotificationTapBackground(
+  NotificationResponse response,
+) async {
   DartPluginRegistrant.ensureInitialized();
-  unawaited(_storeBackgroundNotificationResponse(response));
+  await _storeBackgroundNotificationResponse(response);
 }
 
 Future<void> _storeBackgroundNotificationResponse(
@@ -342,9 +365,16 @@ Future<void> _storeBackgroundNotificationResponse(
 ) async {
   try {
     final prefs = await SharedPreferences.getInstance();
+    final stored = _notificationResponsesFromJson(
+      prefs.getString(_backgroundResponseKey),
+    );
+    stored.add(response);
+    if (stored.length > 20) {
+      stored.removeRange(0, stored.length - 20);
+    }
     await prefs.setString(
       _backgroundResponseKey,
-      jsonEncode(_notificationResponseToJson(response)),
+      jsonEncode(stored.map(_notificationResponseToJson).toList()),
     );
   } catch (_) {}
 }
@@ -362,33 +392,47 @@ Map<String, dynamic> _notificationResponseToJson(
   };
 }
 
-NotificationResponse? _notificationResponseFromJson(String raw) {
+List<NotificationResponse> _notificationResponsesFromJson(String? raw) {
+  if (raw == null || raw.isEmpty) {
+    return <NotificationResponse>[];
+  }
   try {
     final decoded = jsonDecode(raw);
-    if (decoded is! Map) {
-      return null;
+    if (decoded is List) {
+      return decoded
+          .map(_notificationResponseFromDecoded)
+          .nonNulls
+          .toList(growable: true);
     }
-    final typeName = decoded['notificationResponseType']?.toString();
-    final responseType = switch (typeName) {
-      'selectedNotificationAction' =>
-        NotificationResponseType.selectedNotificationAction,
-      'selectedNotification' => NotificationResponseType.selectedNotification,
-      _ => null,
-    };
-    if (responseType == null) {
-      return null;
-    }
-    return NotificationResponse(
-      notificationResponseType: responseType,
-      id: decoded['id'] is int ? decoded['id'] as int : null,
-      actionId: decoded['actionId']?.toString(),
-      input: decoded['input']?.toString(),
-      payload: decoded['payload']?.toString(),
-      data: _stringKeyedMap(decoded['data']),
-    );
+    final response = _notificationResponseFromDecoded(decoded);
+    return response == null ? <NotificationResponse>[] : [response];
   } catch (_) {
+    return <NotificationResponse>[];
+  }
+}
+
+NotificationResponse? _notificationResponseFromDecoded(Object? decoded) {
+  if (decoded is! Map) {
     return null;
   }
+  final typeName = decoded['notificationResponseType']?.toString();
+  final responseType = switch (typeName) {
+    'selectedNotificationAction' =>
+      NotificationResponseType.selectedNotificationAction,
+    'selectedNotification' => NotificationResponseType.selectedNotification,
+    _ => null,
+  };
+  if (responseType == null) {
+    return null;
+  }
+  return NotificationResponse(
+    notificationResponseType: responseType,
+    id: decoded['id'] is int ? decoded['id'] as int : null,
+    actionId: decoded['actionId']?.toString(),
+    input: decoded['input']?.toString(),
+    payload: decoded['payload']?.toString(),
+    data: _stringKeyedMap(decoded['data']),
+  );
 }
 
 Map<String, dynamic> _stringKeyedMap(Object? value) {
