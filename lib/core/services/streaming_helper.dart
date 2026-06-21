@@ -2316,6 +2316,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (finishAfterRecovery &&
             !isObsoleteStream &&
             currentAssistantTargetId() == assistantMessageId) {
+          // Paired sidebar-spinner removal, mirroring the synchronous done
+          // path: this branch finalizes via wrappedFinishStreaming() after the
+          // early return at the top of handleCompletionDone, so without this
+          // the `generating` indicator would strand on the delayed-recovery
+          // path.
+          if (activeConversationId != null && activeConversationId.isNotEmpty) {
+            onChatActiveChanged?.call(activeConversationId, false);
+          }
           wrappedFinishStreaming();
         }
       }
