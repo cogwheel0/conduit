@@ -595,6 +595,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return candidate;
   }
 
+  /// Extracts an id that [SocketService] may deliver at the envelope level OR
+  /// nested under `data` / `data.data`. Mirrors the session-id walk above so
+  /// chat/message scoping cannot be bypassed by a nested-id event.
+  String? extractNestedEventId(
+    Map<String, dynamic> event,
+    String snakeKey,
+    String camelKey,
+  ) {
+    String? candidate =
+        event[snakeKey]?.toString() ?? event[camelKey]?.toString();
+    final data = event['data'];
+    if (candidate == null && data is Map) {
+      candidate = data[snakeKey]?.toString() ?? data[camelKey]?.toString();
+      final inner = data['data'];
+      if (candidate == null && inner is Map) {
+        candidate = inner[snakeKey]?.toString() ?? inner[camelKey]?.toString();
+      }
+    }
+    return candidate;
+  }
+
+  String? extractEventMessageId(Map<String, dynamic> event) =>
+      extractNestedEventId(event, 'message_id', 'messageId');
+
+  String? extractEventChatId(Map<String, dynamic> event) =>
+      extractNestedEventId(event, 'chat_id', 'chatId');
+
   bool streamHasBeenSuperseded() {
     final currentTargetId = currentAssistantTargetId();
     return currentTargetId != null && currentTargetId != assistantMessageId;
@@ -2479,14 +2506,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final type = data['type'];
 
       final payload = data['data'];
-      final messageId = ev['message_id']?.toString();
+      // Read ids the same way SocketService delivers them — envelope level OR
+      // nested under data / data.data — so a nested message_id still binds and
+      // a nested chat_id can't bypass the chat-scope guard below.
+      final messageId = extractEventMessageId(ev);
       final incomingSessionId = extractEventSessionId(ev);
 
       // Chat-scope guard: on the shared user socket, an event for a different
       // chat must never bind to or write this stream's message (critical for
       // resume, where session matching is permissive and a foreign message_id
       // may bind). Events with no chat_id fall through to message-level checks.
-      final eventChatId = ev['chat_id']?.toString();
+      final eventChatId = extractEventChatId(ev);
       if (eventChatId != null &&
           eventChatId.isNotEmpty &&
           activeConversationId != null &&

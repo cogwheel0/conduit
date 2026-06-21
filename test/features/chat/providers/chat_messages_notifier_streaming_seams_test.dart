@@ -526,6 +526,47 @@ void main() {
     );
 
     test(
+      'an explicit empty server modelName does not blank the preserved local '
+      'model name',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider.notifier);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final placeholder = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, placeholder]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Server snapshot carries an explicit empty modelName.
+        final serverWithBlankModel = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Hel',
+          metadata: const {'modelName': '   '},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', [userMessage, serverWithBlankModel]));
+        await Future<void>.delayed(Duration.zero);
+
+        final adopted = container.read(chatMessagesProvider).last;
+        check(adopted.metadata?['modelName']).equals('GPT-4o');
+      },
+    );
+
+    test(
       'an older completed message defers to a corrected server snapshot; only '
       'the streaming tail is content-preserved',
       () async {

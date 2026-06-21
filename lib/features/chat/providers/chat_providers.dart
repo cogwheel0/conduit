@@ -947,6 +947,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         // which must mirror the preserved typed `.followUps` field below.
         metadata['followUps'] = List<String>.from(localMessage.followUps);
       }
+      if (shouldPreserveModelName) {
+        // The raw server map may carry an empty/whitespace `modelName` that the
+        // union spread on top of the local one; restore the normalized local
+        // value so an empty server field can't blank the displayed model name.
+        metadata['modelName'] = _messageModelName(localMessage);
+      }
       merged.add(
         serverMessage.copyWith(
           content: preserveContent
@@ -2077,10 +2083,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       content: chatErrorContentForException(error),
     );
     // Update by id so the error lands on the captured message even if it is no
-    // longer the list tail.
+    // longer the list tail, and clear its streaming flag directly: finishStreaming()
+    // only completes state.last, so a non-tail failed message would otherwise stay
+    // stuck in isStreaming: true.
     updateMessageById(
       target.id,
-      (message) => message.copyWith(error: chatError),
+      (message) => message.copyWith(error: chatError, isStreaming: false),
     );
     finishStreaming();
   }
