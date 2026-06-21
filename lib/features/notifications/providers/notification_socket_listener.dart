@@ -147,7 +147,13 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   /// Handles a notification that cold-launched the app from a killed state.
   /// Called once after the router is ready.
   Future<void> handleLaunchTap() async {
-    final tap = await ref.read(localNotificationServiceProvider).launchTap();
+    final local = ref.read(localNotificationServiceProvider);
+    // Ensure the plugin finished native init before querying the launch intent:
+    // on Android getNotificationAppLaunchDetails() returns null until then, so
+    // racing it would silently drop the deep link. initialize() is idempotent
+    // and shares the in-flight future started in build().
+    await local.initialize();
+    final tap = await local.launchTap();
     if (tap != null) {
       await _handleTap(ref, tap);
     }
