@@ -26,6 +26,7 @@ import '../models/server_config.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/remap_route_sync_provider.dart';
+import '../../features/notifications/providers/open_webui_notification_providers.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -828,6 +829,11 @@ class AppStartupFlow extends _$AppStartupFlow {
       const Duration(milliseconds: 96),
       socketPersistenceProvider,
       label: 'socket-persistence',
+    );
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 112),
+      openWebUINotificationSyncProvider,
+      label: 'openwebui-notifications',
     );
     _scheduleAfterDelay(
       const Duration(milliseconds: 64),

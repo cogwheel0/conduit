@@ -1377,6 +1377,13 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "responseNotifications": "Response notifications",
+  "responseNotificationsDescription": "Notify when responses finish or channel messages arrive outside the current view",
+  "notificationSound": "Notification sound",
+  "notificationSoundDescription": "Use the system alert sound for background notifications",
+  "notificationSoundAlways": "Sound while using app",
+  "notificationSoundAlwaysDescription": "Play a sound even when Conduit is open and you are viewing another chat or channel",
+  "notificationPermissionDenied": "Notifications are disabled in system settings.",
   "androidAssistantTitle": "Android デジタルアシスタント",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."

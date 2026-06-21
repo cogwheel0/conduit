@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
+import '../../../core/services/local_notification_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -463,6 +464,87 @@ class AppCustomizationPage extends ConsumerWidget {
         CustomizationTile(
           leading: _buildIconBadge(
             context,
+            Platform.isIOS ? CupertinoIcons.bell : Icons.notifications_outlined,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.responseNotifications,
+          subtitle: l10n.responseNotificationsDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.responseNotificationsEnabled,
+            onChanged: (value) {
+              unawaited(
+                _setResponseNotificationsEnabled(context, ref, settings, value),
+              );
+            },
+          ),
+          showChevron: false,
+          onTap: () {
+            unawaited(
+              _setResponseNotificationsEnabled(
+                context,
+                ref,
+                settings,
+                !settings.responseNotificationsEnabled,
+              ),
+            );
+          },
+        ),
+        if (settings.responseNotificationsEnabled) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: _buildIconBadge(
+              context,
+              Platform.isIOS
+                  ? CupertinoIcons.speaker_2
+                  : Icons.volume_up_outlined,
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.notificationSound,
+            subtitle: l10n.notificationSoundDescription,
+            trailing: AdaptiveSwitch(
+              value: settings.notificationSoundEnabled,
+              onChanged: (value) => ref
+                  .read(appSettingsProvider.notifier)
+                  .setNotificationSoundEnabled(value),
+            ),
+            showChevron: false,
+            onTap: () => ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationSoundEnabled(
+                  !settings.notificationSoundEnabled,
+                ),
+          ),
+          if (settings.notificationSoundEnabled) ...[
+            const SizedBox(height: Spacing.sm),
+            CustomizationTile(
+              leading: _buildIconBadge(
+                context,
+                Platform.isIOS
+                    ? CupertinoIcons.speaker_3
+                    : Icons.notifications_active_outlined,
+                color: theme.buttonPrimary,
+              ),
+              title: l10n.notificationSoundAlways,
+              subtitle: l10n.notificationSoundAlwaysDescription,
+              trailing: AdaptiveSwitch(
+                value: settings.notificationSoundAlways,
+                onChanged: (value) => ref
+                    .read(appSettingsProvider.notifier)
+                    .setNotificationSoundAlways(value),
+              ),
+              showChevron: false,
+              onTap: () => ref
+                  .read(appSettingsProvider.notifier)
+                  .setNotificationSoundAlways(
+                    !settings.notificationSoundAlways,
+                  ),
+            ),
+          ],
+        ],
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
             Icons.vibration,
             color: theme.buttonPrimary,
           ),
@@ -497,6 +579,35 @@ class AppCustomizationPage extends ConsumerWidget {
         ],
       ],
     );
+  }
+
+  Future<void> _setResponseNotificationsEnabled(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+    bool enabled,
+  ) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (!enabled) {
+      await notifier.setResponseNotificationsEnabled(false);
+      return;
+    }
+
+    final granted = await LocalNotificationService.instance.requestPermissions(
+      sound: settings.notificationSoundEnabled,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (!granted) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.notificationPermissionDenied,
+        type: AdaptiveSnackBarType.warning,
+      );
+      return;
+    }
+    await notifier.setResponseNotificationsEnabled(true);
   }
 
   Widget _buildSystemPromptsSection(BuildContext context, WidgetRef ref) {

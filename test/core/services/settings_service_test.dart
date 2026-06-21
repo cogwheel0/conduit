@@ -113,6 +113,18 @@ void main() {
       test('temporaryChatByDefault defaults to false', () {
         check(settings.temporaryChatByDefault).equals(false);
       });
+
+      test('responseNotificationsEnabled defaults to false', () {
+        check(settings.responseNotificationsEnabled).equals(false);
+      });
+
+      test('notificationSoundEnabled defaults to true', () {
+        check(settings.notificationSoundEnabled).equals(true);
+      });
+
+      test('notificationSoundAlways defaults to false', () {
+        check(settings.notificationSoundAlways).equals(false);
+      });
     });
 
     group('copyWith', () {
@@ -145,6 +157,9 @@ void main() {
           androidAssistantTrigger: AndroidAssistantTrigger.newChat,
           voiceSilenceDuration: 1500,
           temporaryChatByDefault: true,
+          responseNotificationsEnabled: true,
+          notificationSoundEnabled: false,
+          notificationSoundAlways: true,
         );
 
         check(modified.reduceMotion).equals(true);
@@ -169,6 +184,9 @@ void main() {
         ).equals(AndroidAssistantTrigger.newChat);
         check(modified.voiceSilenceDuration).equals(1500);
         check(modified.temporaryChatByDefault).equals(true);
+        check(modified.responseNotificationsEnabled).equals(true);
+        check(modified.notificationSoundEnabled).equals(false);
+        check(modified.notificationSoundAlways).equals(true);
       });
 
       test('can set nullable fields to a value', () {
@@ -281,6 +299,15 @@ void main() {
 
       test('different sttLanguageCode yields inequality', () {
         final a = const AppSettings().copyWith(sttLanguageCode: 'pl');
+        const b = AppSettings();
+        check(a).not((it) => it.equals(b));
+      });
+
+      test('different notification settings yield inequality', () {
+        final a = const AppSettings().copyWith(
+          responseNotificationsEnabled: true,
+          notificationSoundAlways: true,
+        );
         const b = AppSettings();
         check(a).not((it) => it.equals(b));
       });

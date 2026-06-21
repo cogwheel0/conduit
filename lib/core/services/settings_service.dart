@@ -68,6 +68,12 @@ class SettingsService {
   static const String _androidAssistantTriggerKey =
       PreferenceKeys.androidAssistantTrigger;
   static const String _pinnedModelsKey = PreferenceKeys.pinnedModels;
+  static const String _responseNotificationsEnabledKey =
+      PreferenceKeys.responseNotificationsEnabled;
+  static const String _notificationSoundEnabledKey =
+      PreferenceKeys.notificationSoundEnabled;
+  static const String _notificationSoundAlwaysKey =
+      PreferenceKeys.notificationSoundAlways;
 
   static T? _getPreference<T>(String key) => PreferencesStore.get<T>(key);
 
@@ -189,6 +195,9 @@ class SettingsService {
           settings.androidAssistantTrigger.storageValue,
       PreferenceKeys.temporaryChatByDefault: settings.temporaryChatByDefault,
       _pinnedModelsKey: settings.pinnedModels.toList(),
+      _responseNotificationsEnabledKey: settings.responseNotificationsEnabled,
+      _notificationSoundEnabledKey: settings.notificationSoundEnabled,
+      _notificationSoundAlwaysKey: settings.notificationSoundAlways,
     };
 
     await PreferencesStore.putAll(updates);
@@ -439,6 +448,18 @@ class SettingsService {
     return _putPreference(_pinnedModelsKey, sanitizePinnedModels(modelIds));
   }
 
+  static Future<void> setResponseNotificationsEnabled(bool value) {
+    return _putPreference(_responseNotificationsEnabledKey, value);
+  }
+
+  static Future<void> setNotificationSoundEnabled(bool value) {
+    return _putPreference(_notificationSoundEnabledKey, value);
+  }
+
+  static Future<void> setNotificationSoundAlways(bool value) {
+    return _putPreference(_notificationSoundAlwaysKey, value);
+  }
+
   static Future<int> getVoiceSilenceDuration() {
     final value = _getPreference<int>(_voiceSilenceDurationKey);
     return Future.value(
@@ -501,7 +522,9 @@ class SettingsService {
       socketTransportMode:
           PreferencesStore.get<String>(_socketTransportModeKey) ?? 'ws',
       quickPills: PreferencesStore.getStringList(_quickPillsKey) ?? const [],
-      chatWebSearchEnabled: PreferencesStore.get<bool>(_chatWebSearchEnabledKey),
+      chatWebSearchEnabled: PreferencesStore.get<bool>(
+        _chatWebSearchEnabledKey,
+      ),
       chatImageGenerationEnabled: PreferencesStore.get<bool>(
         _chatImageGenerationEnabledKey,
       ),
@@ -513,7 +536,8 @@ class SettingsService {
       ttsPitch:
           PreferencesStore.get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
       ttsVolume:
-          PreferencesStore.get<num>(PreferenceKeys.ttsVolume)?.toDouble() ?? 1.0,
+          PreferencesStore.get<num>(PreferenceKeys.ttsVolume)?.toDouble() ??
+          1.0,
       ttsEngine: _parseTtsEngine(
         PreferencesStore.get<String>(PreferenceKeys.ttsEngine),
       ),
@@ -542,6 +566,12 @@ class SettingsService {
       pinnedModels: sanitizePinnedModels(
         PreferencesStore.getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
+      responseNotificationsEnabled:
+          PreferencesStore.get<bool>(_responseNotificationsEnabledKey) ?? false,
+      notificationSoundEnabled:
+          PreferencesStore.get<bool>(_notificationSoundEnabledKey) ?? true,
+      notificationSoundAlways:
+          PreferencesStore.get<bool>(_notificationSoundAlwaysKey) ?? false,
     );
   }
 }
@@ -581,6 +611,9 @@ class AppSettings {
   final int voiceSilenceDuration;
   final bool temporaryChatByDefault;
   final List<String> pinnedModels;
+  final bool responseNotificationsEnabled;
+  final bool notificationSoundEnabled;
+  final bool notificationSoundAlways;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -610,6 +643,9 @@ class AppSettings {
     this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
     this.pinnedModels = const [],
+    this.responseNotificationsEnabled = false,
+    this.notificationSoundEnabled = true,
+    this.notificationSoundAlways = false,
   });
 
   AppSettings copyWith({
@@ -641,6 +677,9 @@ class AppSettings {
     AndroidAssistantTrigger? androidAssistantTrigger,
     bool? temporaryChatByDefault,
     List<String>? pinnedModels,
+    bool? responseNotificationsEnabled,
+    bool? notificationSoundEnabled,
+    bool? notificationSoundAlways,
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -685,6 +724,12 @@ class AppSettings {
       temporaryChatByDefault:
           temporaryChatByDefault ?? this.temporaryChatByDefault,
       pinnedModels: pinnedModels ?? this.pinnedModels,
+      responseNotificationsEnabled:
+          responseNotificationsEnabled ?? this.responseNotificationsEnabled,
+      notificationSoundEnabled:
+          notificationSoundEnabled ?? this.notificationSoundEnabled,
+      notificationSoundAlways:
+          notificationSoundAlways ?? this.notificationSoundAlways,
     );
   }
 
@@ -717,6 +762,9 @@ class AppSettings {
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         other.temporaryChatByDefault == temporaryChatByDefault &&
+        other.responseNotificationsEnabled == responseNotificationsEnabled &&
+        other.notificationSoundEnabled == notificationSoundEnabled &&
+        other.notificationSoundAlways == notificationSoundAlways &&
         _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -750,6 +798,9 @@ class AppSettings {
       androidAssistantTrigger,
       voiceSilenceDuration,
       temporaryChatByDefault,
+      responseNotificationsEnabled,
+      notificationSoundEnabled,
+      notificationSoundAlways,
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
@@ -893,6 +944,27 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     final sanitized = SettingsService.sanitizePinnedModels(modelIds);
     state = state.copyWith(pinnedModels: sanitized);
     await SettingsService.setPinnedModels(sanitized);
+  }
+
+  Future<void> setResponseNotificationsEnabled(bool value) async {
+    state = state.copyWith(responseNotificationsEnabled: value);
+    await SettingsService.setResponseNotificationsEnabled(value);
+  }
+
+  Future<void> setNotificationSoundEnabled(bool value) async {
+    state = state.copyWith(
+      notificationSoundEnabled: value,
+      notificationSoundAlways: value ? null : false,
+    );
+    await SettingsService.setNotificationSoundEnabled(value);
+    if (!value) {
+      await SettingsService.setNotificationSoundAlways(false);
+    }
+  }
+
+  Future<void> setNotificationSoundAlways(bool value) async {
+    state = state.copyWith(notificationSoundAlways: value);
+    await SettingsService.setNotificationSoundAlways(value);
   }
 
   Future<void> togglePinnedModel(String modelId) async {

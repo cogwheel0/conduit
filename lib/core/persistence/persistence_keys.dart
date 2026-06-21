@@ -36,6 +36,10 @@ final class PreferenceKeys {
   static const String androidAssistantTrigger = 'android_assistant_trigger';
   static const String temporaryChatByDefault = 'temporary_chat_by_default';
   static const String pinnedModels = 'pinned_models';
+  static const String responseNotificationsEnabled =
+      'response_notifications_enabled';
+  static const String notificationSoundEnabled = 'notification_sound_enabled';
+  static const String notificationSoundAlways = 'notification_sound_always';
 
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';

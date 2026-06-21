@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../../core/services/local_notification_service.dart';
 
 /// Service to manage persistent notifications for voice calls
 class VoiceCallNotificationService {
@@ -11,8 +12,8 @@ class VoiceCallNotificationService {
   factory VoiceCallNotificationService() => _instance;
   VoiceCallNotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin _notifications =
-      FlutterLocalNotificationsPlugin();
+  final LocalNotificationService _notifications =
+      LocalNotificationService.instance;
 
   bool _initialized = false;
 
@@ -31,25 +32,10 @@ class VoiceCallNotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    const androidSettings = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
-    );
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-
-    const settings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-
-    await _notifications.initialize(
-      settings: settings,
-      onDidReceiveNotificationResponse: _handleNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse:
-          _handleBackgroundNotificationResponse,
+    await _notifications.initialize();
+    _notifications.addResponseHandler(
+      'voice-call',
+      _handleNotificationResponse,
     );
 
     // Create notification channel for Android
@@ -72,11 +58,7 @@ class VoiceCallNotificationService {
       showBadge: false,
     );
 
-    await _notifications
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(androidChannel);
+    await _notifications.createAndroidChannel(androidChannel);
   }
 
   void _handleNotificationResponse(NotificationResponse response) {
@@ -84,15 +66,6 @@ class VoiceCallNotificationService {
     if (action != null && onActionPressed != null) {
       onActionPressed!(action);
     }
-  }
-
-  @pragma('vm:entry-point')
-  static void _handleBackgroundNotificationResponse(
-    NotificationResponse response,
-  ) {
-    // Background action handling
-    // Note: This runs in an isolate, so we can't directly call instance methods
-    // Actions will be handled when app returns to foreground
   }
 
   /// Show ongoing voice call notification
@@ -197,45 +170,16 @@ class VoiceCallNotificationService {
 
   /// Cancel the voice call notification
   Future<void> cancelNotification() async {
-    await _notifications.cancel(id: _notificationId);
+    await _notifications.cancel(_notificationId);
   }
 
   /// Check if notifications are enabled
   Future<bool> areNotificationsEnabled() async {
-    if (Platform.isAndroid) {
-      final androidImpl = _notifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      return await androidImpl?.areNotificationsEnabled() ?? false;
-    } else if (Platform.isIOS) {
-      // iOS doesn't have a direct check, assume enabled if initialized
-      return _initialized;
-    }
-    return false;
+    return _notifications.areNotificationsEnabled();
   }
 
   /// Request notification permissions
   Future<bool> requestPermissions() async {
-    if (Platform.isAndroid) {
-      final androidImpl = _notifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >();
-      final granted = await androidImpl?.requestNotificationsPermission();
-      return granted ?? false;
-    } else if (Platform.isIOS) {
-      final iosImpl = _notifications
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >();
-      final granted = await iosImpl?.requestPermissions(
-        alert: true,
-        badge: false,
-        sound: false,
-      );
-      return granted ?? false;
-    }
-    return false;
+    return _notifications.requestPermissions(sound: false);
   }
 }

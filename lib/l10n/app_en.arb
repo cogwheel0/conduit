@@ -1377,6 +1377,34 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "responseNotifications": "Response notifications",
+  "@responseNotifications": {
+    "description": "Toggle title for Open WebUI response and channel notifications."
+  },
+  "responseNotificationsDescription": "Notify when responses finish or channel messages arrive outside the current view",
+  "@responseNotificationsDescription": {
+    "description": "Subtitle for the response notifications toggle."
+  },
+  "notificationSound": "Notification sound",
+  "@notificationSound": {
+    "description": "Toggle title for enabling notification sounds."
+  },
+  "notificationSoundDescription": "Use the system alert sound for background notifications",
+  "@notificationSoundDescription": {
+    "description": "Subtitle for the notification sound toggle."
+  },
+  "notificationSoundAlways": "Sound while using app",
+  "@notificationSoundAlways": {
+    "description": "Toggle title for playing notification sounds while the app is foregrounded."
+  },
+  "notificationSoundAlwaysDescription": "Play a sound even when Conduit is open and you are viewing another chat or channel",
+  "@notificationSoundAlwaysDescription": {
+    "description": "Subtitle for playing notification sounds while the app is foregrounded."
+  },
+  "notificationPermissionDenied": "Notifications are disabled in system settings.",
+  "@notificationPermissionDenied": {
+    "description": "Snackbar shown when notification permission is denied."
+  },
   "androidAssistantTitle": "Android digital assistant",
   "@androidAssistantTitle": {
     "description": "Tile title for configuring the Android digital assistant trigger."
