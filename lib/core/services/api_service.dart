@@ -249,6 +249,7 @@ class ApiService {
   final Dio _dio;
   final ServerConfig serverConfig;
   final WorkerManager _workerManager;
+  final DateTime Function() _now;
   late final ApiAuthInterceptor _authInterceptor;
   _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
   // Public getter for dio instance
@@ -267,6 +268,7 @@ class ApiService {
     required this.serverConfig,
     required WorkerManager workerManager,
     String? authToken,
+    DateTime Function()? now,
   }) : _dio = Dio(
          BaseOptions(
            baseUrl: serverConfig.url,
@@ -281,7 +283,8 @@ class ApiService {
                : null,
          ),
        ),
-       _workerManager = workerManager {
+       _workerManager = workerManager,
+       _now = now ?? DateTime.now {
     ServerTlsHttpClientFactory.configureDio(_dio, serverConfig);
 
     // Use API key from server config if provided and no explicit auth token
@@ -5595,22 +5598,30 @@ class ApiService {
   /// Set once the bulk active-chats endpoint returns 404 (older servers), so we
   /// stop probing it for the rest of the session.
   bool _activeChatsEndpointUnsupported = false;
+  DateTime? _activeChatsMethodRejectedRetryAfter;
+  static const _activeChatsMethodRejectedRetryDelay = Duration(minutes: 1);
 
-  /// POST `/api/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
+  /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
   /// Bulk query for which of [chatIds] currently have an active server task
   /// (mirrors OpenWebUI's `checkActiveChats`). Returns an empty set when
   /// [chatIds] is empty or the endpoint is missing on the server (cached after
-  /// the first 404 so we don't keep probing).
+  /// the first 404 so we don't keep probing). HTTP 405 is treated as a
+  /// retryable proxy/load-balancer rejection and only pauses probing briefly.
   Future<Set<String>> checkActiveChats(List<String> chatIds) async {
     if (chatIds.isEmpty || _activeChatsEndpointUnsupported) {
       return <String>{};
     }
+    final rejectedRetryAfter = _activeChatsMethodRejectedRetryAfter;
+    if (rejectedRetryAfter != null && _now().isBefore(rejectedRetryAfter)) {
+      return <String>{};
+    }
     try {
       final resp = await _dio.post(
-        '/api/tasks/active/chats',
+        '/api/v1/tasks/active/chats',
         data: {'chat_ids': chatIds},
       );
+      _activeChatsMethodRejectedRetryAfter = null;
       final data = resp.data;
       if (data is Map && data['active_chat_ids'] is List) {
         return (data['active_chat_ids'] as List)
@@ -5619,11 +5630,27 @@ class ApiService {
       }
       return <String>{};
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode == 404) {
         _activeChatsEndpointUnsupported = true;
         DebugLogger.log(
-          'active-chats endpoint unsupported (404); disabling bulk probe',
+          'active-chats endpoint unsupported; disabling bulk probe',
           scope: 'api/tasks',
+          data: {'status': statusCode},
+        );
+        return <String>{};
+      }
+      if (statusCode == 405) {
+        _activeChatsMethodRejectedRetryAfter = _now().add(
+          _activeChatsMethodRejectedRetryDelay,
+        );
+        DebugLogger.log(
+          'active-chats endpoint rejected; pausing bulk probe',
+          scope: 'api/tasks',
+          data: {
+            'status': statusCode,
+            'retryAfterMs': _activeChatsMethodRejectedRetryDelay.inMilliseconds,
+          },
         );
         return <String>{};
       }

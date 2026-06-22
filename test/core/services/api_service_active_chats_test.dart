@@ -22,8 +22,9 @@ void main() {
       final active = await api.checkActiveChats(['a', 'b', 'c']);
 
       check(active).deepEquals({'a', 'c'});
-      check(adapter.lastPath).equals('/api/tasks/active/chats');
-      final sentChatIds = (adapter.lastBody?['chat_ids'] as List).cast<String>();
+      check(adapter.lastPath).equals('/api/v1/tasks/active/chats');
+      final sentChatIds = (adapter.lastBody?['chat_ids'] as List)
+          .cast<String>();
       check(sentChatIds).deepEquals(['a', 'b', 'c']);
     });
 
@@ -48,6 +49,24 @@ void main() {
       check(second).isEmpty();
       // Only the first call hits the network; the 404 is cached.
       check(adapter.requestCount).equals(1);
+    });
+
+    test('405 degrades to empty and retries after a brief pause', () async {
+      var now = DateTime(2026);
+      final adapter = _ActiveChatsAdapter(statusCode: 405, body: const {});
+      final api = _buildApiService(adapter, now: () => now);
+
+      final first = await api.checkActiveChats(['a']);
+      final second = await api.checkActiveChats(['a', 'b']);
+      now = now.add(const Duration(minutes: 1, seconds: 1));
+      final third = await api.checkActiveChats(['a', 'b', 'c']);
+
+      check(first).isEmpty();
+      check(second).isEmpty();
+      check(third).isEmpty();
+      // The immediate retry is paused, but 405 does not disable the probe for
+      // the whole session.
+      check(adapter.requestCount).equals(2);
     });
   });
 }
@@ -90,7 +109,10 @@ class _ActiveChatsAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-ApiService _buildApiService(HttpClientAdapter adapter) {
+ApiService _buildApiService(
+  HttpClientAdapter adapter, {
+  DateTime Function()? now,
+}) {
   final service = ApiService(
     serverConfig: const ServerConfig(
       id: 'test',
@@ -98,6 +120,7 @@ ApiService _buildApiService(HttpClientAdapter adapter) {
       url: 'http://localhost:0',
     ),
     workerManager: WorkerManager(),
+    now: now,
   );
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();

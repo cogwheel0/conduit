@@ -1825,6 +1825,7 @@ Future<Model?> defaultModel(Ref ref) async {
 
     // Get demo models and select the first one
     final models = await ref.read(modelsProvider.future);
+    if (!ref.mounted) return null;
     if (models.isNotEmpty) {
       final defaultModel = models.first;
       if (!ref.read(isManualModelSelectionProvider)) {
@@ -1863,9 +1864,11 @@ Future<Model?> defaultModel(Ref ref) async {
     final storedDefaultId =
         settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
+    if (!ref.mounted) return null;
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
+      if (!ref.mounted) return null;
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(cachedMatch);
         unawaited(
@@ -1883,8 +1886,10 @@ Future<Model?> defaultModel(Ref ref) async {
     // 2) Fallback: cached resolved default model (offline/fast startup).
     try {
       final cached = await storage.getLocalDefaultModel();
+      if (!ref.mounted) return null;
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
         final cachedMatch = await selectCachedModel(storage, cached.id);
+        if (!ref.mounted) return null;
         if (cachedMatch == null) {
           await storage.saveLocalDefaultModel(null);
         } else {
@@ -1903,8 +1908,10 @@ Future<Model?> defaultModel(Ref ref) async {
     // preference exists.
     try {
       final serverDefault = await api.getDefaultModel();
+      if (!ref.mounted) return null;
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final models = await api.getModels();
+        if (!ref.mounted) return null;
         Model? resolved;
         try {
           resolved = models.firstWhere((m) => m.id == serverDefault);
@@ -1939,6 +1946,7 @@ Future<Model?> defaultModel(Ref ref) async {
     // 4) Fallback: fetch models and pick first available
     DebugLogger.log('fallback-path', scope: 'models/default');
     final models = await ref.read(modelsProvider.future);
+    if (!ref.mounted) return null;
     DebugLogger.log(
       'models-loaded',
       scope: 'models/default',
