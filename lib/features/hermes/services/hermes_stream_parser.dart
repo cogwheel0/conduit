@@ -91,7 +91,7 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
         status == 'cancelled' ||
         status == 'stopped') {
       if (status == 'failed') {
-        yield HermesRunError(_str(data['error']) ?? 'Hermes run failed.');
+        yield HermesRunError(_failureMessage(data['error']));
       } else {
         final output = _str(data['output']);
         if (output != null && output.isNotEmpty) {
@@ -124,7 +124,13 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // Generic lifecycle fallback (explicit status field / Responses-API events).
   final status = _lifecycleStatus(eventType, data);
   if (status != null) {
-    yield HermesLifecycle(status);
+    // A failed terminal lifecycle (e.g. `response.failed`) must surface an
+    // error; a bare HermesLifecycle is treated downstream as an advisory no-op.
+    if (status == 'failed') {
+      yield HermesRunError(_failureMessage(data['error']));
+    } else {
+      yield HermesLifecycle(status);
+    }
     if (_isTerminal(status)) {
       yield const HermesRunDone();
     }
@@ -163,11 +169,19 @@ HermesToolProgress? _maybeToolProgress(
   final statusStr = _str(data['status'])?.toLowerCase();
   final done =
       (eventType?.contains('completed') ?? false) ||
+      (eventType?.contains('failed') ?? false) ||
       (eventType?.endsWith('.done') ?? false) ||
       data['done'] == true ||
       statusStr == 'completed' ||
       statusStr == 'done' ||
-      statusStr == 'success';
+      statusStr == 'success' ||
+      // Failed/cancelled/stopped tool runs are terminal too — otherwise the
+      // tool row spins forever.
+      statusStr == 'failed' ||
+      statusStr == 'cancelled' ||
+      statusStr == 'canceled' ||
+      statusStr == 'stopped' ||
+      statusStr == 'error';
 
   return HermesToolProgress(
     toolName: toolName,
@@ -294,6 +308,12 @@ String _errorMessage(dynamic error) {
   }
   return error.toString();
 }
+
+/// Failure message for a terminal error event, falling back to a generic
+/// message when the `error` field is a falsy marker (`"False"` / `0` / null)
+/// rather than a real description.
+String _failureMessage(dynamic error) =>
+    _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.';
 
 String? _str(dynamic value) {
   if (value == null) return null;

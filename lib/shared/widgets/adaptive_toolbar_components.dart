@@ -368,7 +368,8 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
             maxWidth: safeMaxWidth,
             minWidth: 96,
             horizontalPadding: leadingPadding + Spacing.xs + 12,
-            trailingWidth: chevronSize + Spacing.xs,
+            // Only reserve chevron space when a chevron is actually rendered.
+            trailingWidth: showChevron ? chevronSize + Spacing.xs : 0,
           );
     final child = SizedBox(
       width: targetWidth,

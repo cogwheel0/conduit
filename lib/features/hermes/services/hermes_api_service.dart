@@ -19,8 +19,9 @@ class HermesApiService {
           Dio(
             BaseOptions(
               connectTimeout: const Duration(seconds: 20),
-              // Runs event streams are long-lived; no receive timeout.
-              receiveTimeout: null,
+              // Regular endpoints get a finite timeout so they can't hang
+              // forever; the long-lived SSE stream opts out per-request below.
+              receiveTimeout: const Duration(seconds: 60),
               headers: {
                 if ((config.apiKey ?? '').isNotEmpty)
                   'Authorization': 'Bearer ${config.apiKey}',
@@ -78,10 +79,7 @@ class HermesApiService {
     final data = resp.data;
     final list = data is Map ? data['data'] : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Lists the agent's skills (`GET /v1/skills`), the slash-commands invokable
@@ -91,10 +89,7 @@ class HermesApiService {
     final data = resp.data;
     final list = data is Map ? (data['skills'] ?? data['data']) : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Creates a run (`POST /v1/runs`) and returns its `run_id`.
@@ -136,6 +131,10 @@ class HermesApiService {
       cancelToken: cancelToken,
       options: Options(
         responseType: ResponseType.stream,
+        // Runs event streams are long-lived (the agent can pause between
+        // tokens); disable the receive timeout for this request only.
+        // Duration.zero means "no timeout" in Dio and overrides BaseOptions.
+        receiveTimeout: Duration.zero,
         headers: {
           'Accept': 'text/event-stream',
           ..._sessionHeaders(sessionId: sessionId),
@@ -194,10 +193,7 @@ class HermesApiService {
         ? (data['sessions'] ?? data['data'] ?? data['items'])
         : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Fetches a session's message history (`GET /api/sessions/{id}/messages`).
@@ -206,10 +202,7 @@ class HermesApiService {
     final data = resp.data;
     final list = data is Map ? (data['messages'] ?? data['data']) : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Renames a session (`PATCH /api/sessions/{id}`).
@@ -251,10 +244,7 @@ class HermesApiService {
     final data = resp.data;
     final list = data is Map ? (data['toolsets'] ?? data['data']) : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Extended health (`GET /health/detailed`): active sessions, running agents,
@@ -278,10 +268,7 @@ class HermesApiService {
     final data = resp.data;
     final list = data is Map ? (data['jobs'] ?? data['data']) : data;
     if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
+    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
   /// Creates a scheduled job. [schedule] is a cron expression.

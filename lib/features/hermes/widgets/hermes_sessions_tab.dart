@@ -76,7 +76,10 @@ class HermesSessionsTab extends ConsumerWidget {
         }
         return [
           SliverToBoxAdapter(
-            child: _SectionHeader(title: 'Conversations', count: sessions.length),
+            child: _SectionHeader(
+              title: 'Conversations',
+              count: sessions.length,
+            ),
           ),
           SliverPadding(
             padding: const EdgeInsets.symmetric(
@@ -186,7 +189,9 @@ class _JobsSection extends ConsumerWidget {
       ),
       child: Text(
         text,
-        style: AppTypography.bodySmallStyle.copyWith(color: theme.textSecondary),
+        style: AppTypography.bodySmallStyle.copyWith(
+          color: theme.textSecondary,
+        ),
       ),
     );
   }
@@ -308,7 +313,9 @@ class _SectionHeader extends StatelessWidget {
                 children: [
                   if (expanded != null) ...[
                     Icon(
-                      expanded! ? Icons.expand_more : Icons.chevron_right_rounded,
+                      expanded!
+                          ? Icons.expand_more
+                          : Icons.chevron_right_rounded,
                       color: theme.iconSecondary,
                       size: IconSize.listItem,
                     ),
@@ -324,7 +331,9 @@ class _SectionHeader extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: theme.buttonPrimary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+                        borderRadius: BorderRadius.circular(
+                          AppBorderRadius.pill,
+                        ),
                       ),
                       child: Text(
                         '$count',

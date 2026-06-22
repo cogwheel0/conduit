@@ -30,7 +30,8 @@ Future<void> dispatchHermesRun({
   String? previousResponseId,
   required void Function(String content) appendContent,
   required void Function(ChatStatusUpdate update) appendStatus,
-  required void Function(ChatMessage Function(ChatMessage) updater) updateMessage,
+  required void Function(ChatMessage Function(ChatMessage) updater)
+  updateMessage,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
@@ -68,14 +69,19 @@ Future<void> dispatchHermesRun({
   final completer = Completer<void>();
   var sawTerminal = false;
   var gotContent = false;
+  var streamedText = '';
   String? finalOutput;
   Object? streamError;
 
   late final StreamSubscription<HermesRunEvent> sub;
-  sub = service.runEvents(runId, sessionId: sessionId, cancelToken: cancelToken)
+  sub = service
+      .runEvents(runId, sessionId: sessionId, cancelToken: cancelToken)
       .listen(
         (event) {
-          if (event is HermesTokenDelta) gotContent = true;
+          if (event is HermesTokenDelta) {
+            gotContent = true;
+            streamedText += event.content;
+          }
           if (event is HermesFinalOutput) finalOutput = event.text;
           if (event is HermesRunDone || event is HermesRunError) {
             sawTerminal = true;
@@ -123,8 +129,15 @@ Future<void> dispatchHermesRun({
     if (!sawTerminal && !cancelToken.isCancelled) {
       final recovered = await _recoverRunOutput(service, runId);
       if (recovered != null) {
-        if (!gotContent && recovered.text.isNotEmpty) {
-          appendContent(recovered.text);
+        if (recovered.text.isNotEmpty) {
+          if (!gotContent) {
+            appendContent(recovered.text);
+          } else if (recovered.text.length > streamedText.length &&
+              recovered.text.startsWith(streamedText)) {
+            // Stream dropped mid-content: append the missing suffix from the
+            // authoritative recovered output instead of leaving it truncated.
+            appendContent(recovered.text.substring(streamedText.length));
+          }
         }
         if (recovered.failed) {
           updateMessage(

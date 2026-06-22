@@ -1093,6 +1093,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       setApprovalState('pending');
       return;
     }
+    if (!mounted) return;
     setApprovalState(approved ? 'approved' : 'denied');
   }
 

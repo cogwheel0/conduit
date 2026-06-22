@@ -205,8 +205,22 @@ Future<void> openHermesSession(
   List<Map<String, dynamic>> raw;
   try {
     raw = await service.getSessionMessages(session.id);
-  } catch (_) {
-    raw = const [];
+  } catch (error) {
+    // Don't silently open an existing session with an empty transcript — that
+    // reads as data loss. Surface the failure and abort the open.
+    DebugLogger.error(
+      'open-session-failed',
+      scope: 'hermes/sessions',
+      error: error,
+    );
+    if (context.mounted) {
+      UiUtils.showMessage(
+        context,
+        'Could not load this conversation. Check the connection and try again.',
+        isError: true,
+      );
+    }
+    return;
   }
 
   Model? hermesModel;
