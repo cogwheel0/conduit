@@ -49,7 +49,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       _testing = true;
       _testResult = null;
     });
-    final ok = await service.health();
+    bool ok;
+    try {
+      ok = await service.health();
+    } catch (_) {
+      // A thrown health check (network/Dio error) must still clear the spinner.
+      ok = false;
+    }
     if (!mounted) return;
     setState(() {
       _testing = false;
@@ -203,10 +209,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         children: [
           Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
           const SizedBox(width: Spacing.xs),
-          Text(
-            label,
-            style: AppTypography.captionStyle.copyWith(color: color),
-          ),
+          Text(label, style: AppTypography.captionStyle.copyWith(color: color)),
         ],
       ),
     );
@@ -267,7 +270,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       child: statusAsync.when(
         data: (status) {
           final entries = status.entries
-              .where((e) => e.value is num || e.value is String || e.value is bool)
+              .where(
+                (e) => e.value is num || e.value is String || e.value is bool,
+              )
               .toList();
           if (entries.isEmpty) {
             return Text(

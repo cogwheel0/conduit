@@ -78,7 +78,9 @@ class HermesJobsPage extends ConsumerWidget {
                 'Could not load scheduled jobs.\nCheck the connection in '
                 'Settings → Hermes Agent.',
                 textAlign: TextAlign.center,
-                style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.error,
+                ),
               ),
             ),
           ),
@@ -89,7 +91,7 @@ class HermesJobsPage extends ConsumerWidget {
 
   Future<void> _createJob(BuildContext context, WidgetRef ref) async {
     final result = await showHermesJobEditor(context);
-    if (result == null) return;
+    if (result == null || !context.mounted) return;
     await ref
         .read(hermesJobsProvider.notifier)
         .create(prompt: result.prompt, schedule: result.schedule);
@@ -155,7 +157,9 @@ class _JobCard extends ConsumerWidget {
                 const SizedBox(width: Spacing.sm),
                 Text(
                   'Paused',
-                  style: AppTypography.captionStyle.copyWith(color: theme.error),
+                  style: AppTypography.captionStyle.copyWith(
+                    color: theme.error,
+                  ),
                 ),
               ],
             ],
@@ -192,7 +196,7 @@ class _JobCard extends ConsumerWidget {
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
     );
-    if (result == null) return;
+    if (result == null || !context.mounted) return;
     await ref
         .read(hermesJobsProvider.notifier)
         .edit(job.id, prompt: result.prompt, schedule: result.schedule);
@@ -206,6 +210,8 @@ class _JobCard extends ConsumerWidget {
       confirmText: 'Delete',
       isDestructive: true,
     );
-    if (confirmed) await ref.read(hermesJobsProvider.notifier).delete(job.id);
+    if (confirmed && context.mounted) {
+      await ref.read(hermesJobsProvider.notifier).delete(job.id);
+    }
   }
 }

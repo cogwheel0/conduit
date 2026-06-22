@@ -1,3 +1,7 @@
+/// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
+/// explicit `null` (which clears a secret).
+const Object _unset = Object();
+
 /// Immutable configuration for the optional direct Hermes Agent backend.
 ///
 /// Non-secret fields ([enabled], [baseUrl]) persist in shared preferences;
@@ -32,14 +36,18 @@ class HermesConfig {
   HermesConfig copyWith({
     bool? enabled,
     String? baseUrl,
-    String? apiKey,
-    String? sessionKey,
+    // Sentinel-typed so secrets can be explicitly cleared: passing `null`
+    // clears, while omitting keeps the current value.
+    Object? apiKey = _unset,
+    Object? sessionKey = _unset,
   }) {
     return HermesConfig(
       enabled: enabled ?? this.enabled,
       baseUrl: baseUrl ?? this.baseUrl,
-      apiKey: apiKey ?? this.apiKey,
-      sessionKey: sessionKey ?? this.sessionKey,
+      apiKey: identical(apiKey, _unset) ? this.apiKey : apiKey as String?,
+      sessionKey: identical(sessionKey, _unset)
+          ? this.sessionKey
+          : sessionKey as String?,
     );
   }
 

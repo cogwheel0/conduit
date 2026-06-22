@@ -93,15 +93,20 @@ final class SseFrameScanner {
       if (_frameHasDataLine) {
         _dataBuffer.write('\n');
       }
-      _dataBuffer.write(line.substring(5).trimLeft());
+      // Per the SSE spec, strip only a single optional leading space after the
+      // colon — not all whitespace, which would corrupt indented payloads.
+      _dataBuffer.write(_stripOptionalLeadingSpace(line.substring(5)));
       _frameHasDataLine = true;
       return;
     }
 
     if (line.startsWith('event:')) {
-      _eventField = line.substring(6).trim();
+      _eventField = _stripOptionalLeadingSpace(line.substring(6));
     }
   }
+
+  static String _stripOptionalLeadingSpace(String value) =>
+      value.startsWith(' ') ? value.substring(1) : value;
 
   SseFrame? _finishFrame() {
     if (!_frameHasDataLine) {

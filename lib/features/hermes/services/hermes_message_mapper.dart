@@ -17,7 +17,9 @@ List<ChatMessage> hermesMessagesToChatMessages(
 
   for (var i = 0; i < raw.length; i++) {
     final item = raw[i];
-    final role = (item['role'] ?? item['author'] ?? '').toString().toLowerCase();
+    final role = (item['role'] ?? item['author'] ?? '')
+        .toString()
+        .toLowerCase();
     if (role != 'user' && role != 'assistant') continue;
 
     final content = _extractText(item['content'] ?? item['text']).trim();
