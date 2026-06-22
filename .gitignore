@@ -117,6 +117,9 @@ lib/l10n/app_localizations_*.dart
 google-services.json
 GoogleService-Info.plist
 
+# Local workspace metadata
+.paseo/
+
 # Keystore files
 *.keystore
 *.jks
