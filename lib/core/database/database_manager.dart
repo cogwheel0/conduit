@@ -31,9 +31,12 @@ class DatabaseManager {
   Future<void>? _pendingClose;
 
   /// Sync, lazy-open accessor for [server]'s database.
-  AppDatabase openFor(ServerConfig server) {
+  AppDatabase openFor(ServerConfig server) => openForServerId(server.id);
+
+  /// Sync, lazy-open accessor when only the stable server id is available.
+  AppDatabase openForServerId(String serverId) {
     final existing = _active;
-    if (existing != null && _activeServerId == server.id) {
+    if (existing != null && _activeServerId == serverId) {
       return existing;
     }
     if (existing != null) {
@@ -60,10 +63,10 @@ class DatabaseManager {
                 );
               });
     }
-    DebugLogger.log('open', scope: 'db/manager', data: {'serverId': server.id});
-    final db = _openDatabase(fileNameFor(server.id));
+    DebugLogger.log('open', scope: 'db/manager', data: {'serverId': serverId});
+    final db = _openDatabase(fileNameFor(serverId));
     _active = db;
-    _activeServerId = server.id;
+    _activeServerId = serverId;
     return db;
   }
 

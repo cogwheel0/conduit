@@ -3549,6 +3549,7 @@ Future<void> restoreDefaultModel(dynamic ref) async {
   if (settingsDefault == null || settingsDefault.isEmpty) {
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveLocalDefaultModel(null);
+    if (ref is Ref && !ref.mounted) return;
     DebugLogger.log('cleared-cached-default', scope: 'chat/model');
   }
 

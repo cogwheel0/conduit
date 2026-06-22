@@ -105,18 +105,20 @@ class PerformanceProfiler {
       final buildMs = timing.buildDuration.inMicroseconds / 1000.0;
       final rasterMs = timing.rasterDuration.inMicroseconds / 1000.0;
       final totalMs = timing.totalSpan.inMicroseconds / 1000.0;
+      final vsyncOverheadMs = timing.vsyncOverhead.inMicroseconds / 1000.0;
+      final workloadMs = totalMs - vsyncOverheadMs;
 
-      final isSlowFrame = totalMs > 16.7 || buildMs > 8.3 || rasterMs > 8.3;
+      final isSlowFrame = workloadMs > 16.7 || buildMs > 8.3 || rasterMs > 8.3;
       if (!isSlowFrame) {
         continue;
       }
 
       final data = <String, Object?>{
         'totalMs': totalMs.toStringAsFixed(2),
+        'workloadMs': workloadMs.toStringAsFixed(2),
         'buildMs': buildMs.toStringAsFixed(2),
         'rasterMs': rasterMs.toStringAsFixed(2),
-        'vsyncOverheadMs': (timing.vsyncOverhead.inMicroseconds / 1000.0)
-            .toStringAsFixed(2),
+        'vsyncOverheadMs': vsyncOverheadMs.toStringAsFixed(2),
       };
       developer.Timeline.instantSync(
         _eventName('frame', 'slow_frame'),

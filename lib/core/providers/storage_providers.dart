@@ -3,6 +3,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../database/database_provider.dart';
 import '../persistence/persistence_providers.dart';
+import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/worker_manager.dart';
 
@@ -30,12 +32,23 @@ final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
 final optimizedStorageServiceProvider = Provider<OptimizedStorageService>((
   ref,
 ) {
+  final databaseManager = ref.watch(databaseManagerProvider);
   return OptimizedStorageService(
     secureStorage: ref.watch(secureStorageProvider),
     boxes: ref.watch(hiveBoxesProvider),
     workerManager: ref.watch(workerManagerProvider),
-    // Lazy read (NOT watch) so structured caches resolve the active server's
-    // Drift DB at call time without creating a build-time dependency cycle.
-    database: () => ref.read(appDatabaseProvider),
+    // Resolve from the raw active-server preference instead of appDatabaseProvider.
+    // appDatabaseProvider depends on activeServerProvider, which itself reads this
+    // storage service; using it here re-enters Riverpod during active-server
+    // construction and trips CircularDependencyError on cold start.
+    database: () {
+      final serverId = PreferencesStore.getString(
+        PreferenceKeys.activeServerId,
+      );
+      if (serverId == null || serverId.isEmpty) {
+        return null;
+      }
+      return databaseManager.openForServerId(serverId);
+    },
   );
 });

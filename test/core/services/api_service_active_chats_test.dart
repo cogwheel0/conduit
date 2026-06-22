@@ -22,8 +22,9 @@ void main() {
       final active = await api.checkActiveChats(['a', 'b', 'c']);
 
       check(active).deepEquals({'a', 'c'});
-      check(adapter.lastPath).equals('/api/tasks/active/chats');
-      final sentChatIds = (adapter.lastBody?['chat_ids'] as List).cast<String>();
+      check(adapter.lastPath).equals('/api/v1/tasks/active/chats');
+      final sentChatIds = (adapter.lastBody?['chat_ids'] as List)
+          .cast<String>();
       check(sentChatIds).deepEquals(['a', 'b', 'c']);
     });
 
@@ -47,6 +48,19 @@ void main() {
       check(first).isEmpty();
       check(second).isEmpty();
       // Only the first call hits the network; the 404 is cached.
+      check(adapter.requestCount).equals(1);
+    });
+
+    test('405 degrades to empty and is cached (no re-probe)', () async {
+      final adapter = _ActiveChatsAdapter(statusCode: 405, body: const {});
+      final api = _buildApiService(adapter);
+
+      final first = await api.checkActiveChats(['a']);
+      final second = await api.checkActiveChats(['a', 'b']);
+
+      check(first).isEmpty();
+      check(second).isEmpty();
+      // Only the first call hits the network; the 405 is cached.
       check(adapter.requestCount).equals(1);
     });
   });
