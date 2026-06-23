@@ -55,7 +55,11 @@ class SyncTriggers extends _$SyncTriggers {
     ref.listen(isOnlineProvider, (previous, next) {
       if (previous == false && next) {
         _request('online');
-        unawaited(ref.read(syncEngineProvider.notifier).drainNow());
+        _runEngineOperation(
+          'drain-now',
+          reason: 'online',
+          run: (engine) => engine.drainNow(),
+        );
       }
     });
 
@@ -68,7 +72,11 @@ class SyncTriggers extends _$SyncTriggers {
       final id = next?.id;
       if (id == null || id.isEmpty || isTemporaryChat(id)) return;
       if (previous?.id == id) return;
-      unawaited(ref.read(syncEngineProvider.notifier).drainOutbox());
+      _runEngineOperation(
+        'drain-outbox',
+        reason: 'active-conversation',
+        run: (engine) => engine.drainOutbox(),
+      );
     });
 
     // Foreground/background lifecycle + periodic timer.
@@ -178,17 +186,39 @@ class SyncTriggers extends _$SyncTriggers {
       scope: 'sync/triggers',
       data: {'reason': reason},
     );
+    _runEngineOperation(
+      'request-pull',
+      reason: reason,
+      run: (engine) async {
+        await engine.requestPull(reason: reason);
+      },
+    );
+  }
+
+  void _runEngineOperation(
+    String operation, {
+    required String reason,
+    required Future<void> Function(SyncEngine engine) run,
+  }) {
     unawaited(
-      ref.read(syncEngineProvider.notifier).requestPull(reason: reason),
+      Future<void>.microtask(() async {
+        if (!ref.mounted) return;
+        await run(ref.read(syncEngineProvider.notifier));
+      }).catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'engine-operation-failed',
+          scope: 'sync/triggers/$operation',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'operation': operation, 'reason': reason},
+        );
+      }),
     );
   }
 }
 
 class _SyncLifecycleObserver with WidgetsBindingObserver {
-  _SyncLifecycleObserver({
-    required this.onResumed,
-    required this.onSuspended,
-  });
+  _SyncLifecycleObserver({required this.onResumed, required this.onSuspended});
 
   final void Function() onResumed;
   final void Function() onSuspended;

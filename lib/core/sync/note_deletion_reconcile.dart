@@ -25,7 +25,7 @@ class NoteDeletionReconcile {
   NoteDeletionReconcile({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks locks,
+    required NoteLocks locks,
     required SyncClock clock,
   }) : _client = client,
        _db = db,
@@ -34,7 +34,7 @@ class NoteDeletionReconcile {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _locks;
+  final NoteLocks _locks;
   final SyncClock _clock;
 
   Future<ReconcileResult> run(ReconcileReason reason) async {

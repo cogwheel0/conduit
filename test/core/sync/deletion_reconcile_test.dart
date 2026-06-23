@@ -113,7 +113,7 @@ void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
   late AppDatabase db;
-  late ChatLocks locks;
+  late ConversationLocks locks;
   late FakeSyncClock clock;
   late DeletionReconcile reconcile;
 
@@ -121,7 +121,7 @@ void main() {
     server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000);
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
-    locks = ChatLocks();
+    locks = ConversationLocks();
     clock = FakeSyncClock()..now = 1_000_000;
     reconcile = DeletionReconcile(
       client: client,

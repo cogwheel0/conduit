@@ -29,7 +29,7 @@ void main() {
   late Box<dynamic> attachmentQueue;
   late Box<dynamic> metadata;
   late AppDatabase db;
-  late ChatLocks chatLocks;
+  late ConversationLocks chatLocks;
 
   HiveBoxes boxes() => HiveBoxes(
     preferences: preferences,
@@ -56,7 +56,7 @@ void main() {
     attachmentQueue = await Hive.openBox<dynamic>('attachment_queue_v1');
     metadata = await Hive.openBox<dynamic>('metadata_v1');
     db = AppDatabase(NativeDatabase.memory());
-    chatLocks = ChatLocks();
+    chatLocks = ConversationLocks();
   });
 
   tearDown(() async {
@@ -378,41 +378,38 @@ void main() {
       },
     );
 
-    test(
-      'contentHash dedupe survives wall-clock advance across re-runs',
-      () async {
-        // Regression: the new-chat blob's per-message timestamps must NOT depend
-        // on the wall clock, or the contentHash drifts between a partial-failure
-        // run and a re-run on a LATER app launch -> dedupe misses -> duplicate
-        // chat POSTed. Use a shared advancing clock (7000 then 7050) across runs.
-        final clock = _FixedClock(7000);
-        OutboxTaskQueueMigrator migratorWith() => OutboxTaskQueueMigrator(
-          db: db,
-          hiveBoxes: boxes(),
-          chatLocks: chatLocks,
-          clock: clock,
-          resolveDefaultModel: () => 'default-model',
-        );
+    test('contentHash dedupe survives wall-clock advance across re-runs', () async {
+      // Regression: the new-chat blob's per-message timestamps must NOT depend
+      // on the wall clock, or the contentHash drifts between a partial-failure
+      // run and a re-run on a LATER app launch -> dedupe misses -> duplicate
+      // chat POSTed. Use a shared advancing clock (7000 then 7050) across runs.
+      final clock = _FixedClock(7000);
+      OutboxTaskQueueMigrator migratorWith() => OutboxTaskQueueMigrator(
+        db: db,
+        hiveBoxes: boxes(),
+        chatLocks: chatLocks,
+        clock: clock,
+        resolveDefaultModel: () => 'default-model',
+      );
 
-        final task = sendTextTask(id: 't1', text: 'dedupe me');
-        await caches.put('outbound_task_queue_v1', [task]);
+      final task = sendTextTask(id: 't1', text: 'dedupe me');
+      await caches.put('outbound_task_queue_v1', [task]);
 
-        await migratorWith().migrateIfNeeded();
-        await (db.delete(db.syncMeta)..where(
-              (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
-            ))
-            .go();
+      await migratorWith().migrateIfNeeded();
+      await (db.delete(db.syncMeta)..where(
+            (t) => t.key.equals(OutboxTaskQueueMigrator.migratedFlagKey),
+          ))
+          .go();
 
-        // Advance the wall clock before the re-run.
-        clock.now = 7050;
-        await caches.put('outbound_task_queue_v1', [task]);
-        final report = await migratorWith().migrateIfNeeded();
+      // Advance the wall clock before the re-run.
+      clock.now = 7050;
+      await caches.put('outbound_task_queue_v1', [task]);
+      final report = await migratorWith().migrateIfNeeded();
 
-        check(report.skippedDuplicate).equals(1);
-        check(report.converted).equals(0);
-        check((await db.select(db.chats).get()).length).equals(1);
-      },
-    );
+      check(report.skippedDuplicate).equals(1);
+      check(report.converted).equals(0);
+      check((await db.select(db.chats).get()).length).equals(1);
+    });
 
     test(
       'durable contentHash marker dedupes after the create op drained',

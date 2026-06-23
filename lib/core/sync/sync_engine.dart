@@ -108,9 +108,9 @@ class SyncEngine extends _$SyncEngine {
 
   AppDatabase? _boundDb;
   SyncApiClient? _boundClient;
-  ChatLocks? _boundChatLocks;
-  ChatLocks? _boundFolderLocks;
-  ChatLocks? _boundNoteLocks;
+  ConversationLocks? _boundChatLocks;
+  FolderLocks? _boundFolderLocks;
+  NoteLocks? _boundNoteLocks;
   SyncClock? _boundClock;
   Backoff? _boundBackoff;
   RequestCompletionRunner? _boundCompletionRunner;
@@ -133,19 +133,72 @@ class SyncEngine extends _$SyncEngine {
   /// lock/clock/backoff/completion bindings change so in-flight cycles can
   /// abort before crossing work into a different server/session.
   int _sessionEpoch = 0;
+  void Function()? _removeDisposeHook;
+  bool _drainerStaleAfterDrain = false;
 
   @override
   SyncStatus build() {
-    final db = ref.watch(appDatabaseProvider);
-    final client = ref.watch(syncApiClientProvider);
-    final authenticated = ref.watch(isAuthenticatedProvider2);
-    final chatLocks = ref.watch(chatLocksProvider);
-    final folderLocks = ref.watch(folderLocksProvider);
-    final noteLocks = ref.watch(noteLocksProvider);
-    final clock = ref.watch(syncClockProvider);
-    final backoff = ref.watch(backoffProvider);
-    final completionRunner = ref.watch(requestCompletionRunnerProvider);
+    _registerDisposeForBuild();
+    _bindDependencies(
+      db: ref.watch(appDatabaseProvider),
+      client: ref.watch(syncApiClientProvider),
+      authenticated: ref.watch(isAuthenticatedProvider2),
+      chatLocks: ref.watch(chatLocksProvider),
+      folderLocks: ref.watch(folderLocksProvider),
+      noteLocks: ref.watch(noteLocksProvider),
+      clock: ref.watch(syncClockProvider),
+      backoff: ref.watch(backoffProvider),
+      completionRunner: ref.watch(requestCompletionRunnerProvider),
+    );
+    return const SyncStatus();
+  }
 
+  void _registerDisposeForBuild() {
+    _removeDisposeHook?.call();
+    _removeDisposeHook = ref.onDispose(() {
+      _removeDisposeHook = null;
+      _resetSessionBoundState(
+        completeJoinable: false,
+        preserveDrainer: _drainer?.isDraining ?? false,
+      );
+      scheduleMicrotask(() {
+        if (ref.mounted) {
+          return;
+        }
+        _disposeSessionBoundState();
+      });
+    });
+  }
+
+  bool _refreshBoundDependencies() {
+    if (!ref.mounted) {
+      return false;
+    }
+    _bindDependencies(
+      db: ref.read(appDatabaseProvider),
+      client: ref.read(syncApiClientProvider),
+      authenticated: ref.read(isAuthenticatedProvider2),
+      chatLocks: ref.read(chatLocksProvider),
+      folderLocks: ref.read(folderLocksProvider),
+      noteLocks: ref.read(noteLocksProvider),
+      clock: ref.read(syncClockProvider),
+      backoff: ref.read(backoffProvider),
+      completionRunner: ref.read(requestCompletionRunnerProvider),
+    );
+    return true;
+  }
+
+  void _bindDependencies({
+    required AppDatabase? db,
+    required SyncApiClient? client,
+    required bool authenticated,
+    required ConversationLocks chatLocks,
+    required FolderLocks folderLocks,
+    required NoteLocks noteLocks,
+    required SyncClock clock,
+    required Backoff backoff,
+    required RequestCompletionRunner completionRunner,
+  }) {
     final dependenciesChanged =
         !identical(_boundDb, db) ||
         !identical(_boundClient, client) ||
@@ -156,42 +209,110 @@ class SyncEngine extends _$SyncEngine {
         !identical(_boundBackoff, backoff) ||
         !identical(_boundCompletionRunner, completionRunner) ||
         _boundAuthenticated != authenticated;
-    if (dependenciesChanged) {
-      _sessionEpoch++;
-      _resetSessionBoundState();
-      _boundDb = db;
-      _boundClient = client;
-      _boundChatLocks = chatLocks;
-      _boundFolderLocks = folderLocks;
-      _boundNoteLocks = noteLocks;
-      _boundClock = clock;
-      _boundBackoff = backoff;
-      _boundCompletionRunner = completionRunner;
-      _boundAuthenticated = authenticated;
+    if (!dependenciesChanged) {
+      // A reactive rebuild can follow an eager _refreshBoundDependencies() call
+      // that already updated the snapshot. onDispose cancels the debounce but
+      // keeps the joinable, so a no-op build must repair the armed waiter.
+      _reschedulePreservedJoinableIfNeeded();
+      return;
     }
-    ref.onDispose(_disposeSessionBoundState);
-    return const SyncStatus();
+
+    final sameServerBinding =
+        identical(_boundDb, db) && identical(_boundClient, client);
+    final preserveActiveDrainer =
+        sameServerBinding && (_drainer?.isDraining ?? false);
+    final preserveJoinable =
+        _joinable != null &&
+        !_joinable!.isCompleted &&
+        sameServerBinding &&
+        db != null &&
+        client != null &&
+        authenticated;
+
+    _sessionEpoch++;
+    _resetSessionBoundState(
+      completeJoinable: !preserveJoinable,
+      preserveDrainer: preserveActiveDrainer,
+    );
+    _boundDb = db;
+    _boundClient = client;
+    _boundChatLocks = chatLocks;
+    _boundFolderLocks = folderLocks;
+    _boundNoteLocks = noteLocks;
+    _boundClock = clock;
+    _boundBackoff = backoff;
+    _boundCompletionRunner = completionRunner;
+    _boundAuthenticated = authenticated;
+    if (preserveJoinable) {
+      _schedulePreservedJoinable();
+    }
   }
 
-  void _resetSessionBoundState() {
+  void _resetSessionBoundState({
+    bool completeJoinable = true,
+    bool preserveDrainer = false,
+  }) {
     _debounce?.cancel();
     _debounce = null;
-    unawaited(_remapForward?.cancel());
-    _remapForward = null;
-    unawaited(_remapper?.dispose());
-    _remapper = null;
-    _drainer = null;
+    if (preserveDrainer) {
+      _drainerStaleAfterDrain = true;
+    } else {
+      unawaited(_remapForward?.cancel());
+      _remapForward = null;
+      unawaited(_remapper?.dispose());
+      _remapper = null;
+      _drainer = null;
+      _drainerStaleAfterDrain = false;
+    }
     _migrated = false;
     _migrationInFlight = null;
     _ftsBuildInFlight = false;
-    final joinable = _joinable;
-    _joinable = null;
-    if (joinable != null && !joinable.isCompleted) {
-      joinable.complete(null);
+    if (completeJoinable) {
+      final joinable = _joinable;
+      _joinable = null;
+      if (joinable != null && !joinable.isCompleted) {
+        joinable.complete(null);
+      }
     }
     if (!_running) {
       _rerunRequested = false;
     }
+  }
+
+  void _schedulePreservedJoinable() {
+    if (_joinable == null) {
+      return;
+    }
+    if (_running) {
+      assert(
+        _joinable != null && !_joinable!.isCompleted,
+        'A queued rerun requires a live joinable.',
+      );
+      // The current cycle already captured its own completer in _startCycle.
+      // If the epoch change aborts that cycle, those callers receive null.
+      // This preserved _joinable belongs to callers that queued a rerun while
+      // the cycle was active; the finally block below will start their cycle.
+      // Until that finally block runs, future reset paths must not clear
+      // _joinable without also completing it or clearing _rerunRequested.
+      _rerunRequested = true;
+      return;
+    }
+    assert(_debounce == null);
+    if (_debounce != null) {
+      return;
+    }
+    _debounce = Timer(kSyncPullDebounce, _startCycle);
+  }
+
+  void _reschedulePreservedJoinableIfNeeded() {
+    final joinable = _joinable;
+    if (joinable == null ||
+        joinable.isCompleted ||
+        _debounce != null ||
+        _inert) {
+      return;
+    }
+    _schedulePreservedJoinable();
   }
 
   void _disposeSessionBoundState() {
@@ -249,9 +370,16 @@ class SyncEngine extends _$SyncEngine {
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
   Future<void> drainNow() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
-    await _ensureDrainer()?.onConnectivityRegained();
+    final drainer = _ensureDrainer();
+    if (drainer == null) return;
+    try {
+      await drainer.onConnectivityRegained();
+    } finally {
+      _clearStaleDrainerIfIdle(drainer);
+    }
   }
 
   /// Plain outbox drain (no backoff reset). Used by the active-conversation
@@ -259,9 +387,16 @@ class SyncEngine extends _$SyncEngine {
   /// (request_completion_runner Option B) runs promptly once the user opens its
   /// chat. Single-flight via the shared drainer's `_draining` guard.
   Future<void> drainOutbox() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
-    await _ensureDrainer()?.drain();
+    final drainer = _ensureDrainer();
+    if (drainer == null) return;
+    try {
+      await drainer.drain();
+    } finally {
+      _clearStaleDrainerIfIdle(drainer);
+    }
   }
 
   /// Single debounced entry point (RFC §7.6). 300 ms debounce; single-flight:
@@ -269,6 +404,9 @@ class SyncEngine extends _$SyncEngine {
   /// queued cycle). The returned future completes when the cycle the caller
   /// joined finishes — pull-to-refresh spinners await it.
   Future<PullResult?> requestPull({required String reason}) {
+    if (!_refreshBoundDependencies()) {
+      return Future.value(null);
+    }
     if (_inert) {
       DebugLogger.log('inert', scope: 'sync/engine', data: {'reason': reason});
       return Future.value(null);
@@ -288,6 +426,7 @@ class SyncEngine extends _$SyncEngine {
 
   /// Immediate, not debounced; serialization comes from [ChatLocks].
   Future<Conversation?> pullChatNow(String chatId) async {
+    if (!_refreshBoundDependencies()) return null;
     if (_inert) {
       DebugLogger.log(
         'inert',
@@ -422,7 +561,14 @@ class SyncEngine extends _$SyncEngine {
   /// Returns null (and does NOT cache) until db/client are ready.
   OutboxDrainer? _ensureDrainer() {
     final existing = _drainer;
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (_drainerStaleAfterDrain && !existing.isDraining) {
+        _drainer = null;
+        _drainerStaleAfterDrain = false;
+      } else {
+        return existing;
+      }
+    }
     final db = _boundDb;
     final clock = _boundClock;
     final backoff = _boundBackoff;
@@ -446,6 +592,16 @@ class SyncEngine extends _$SyncEngine {
       completion: completion,
       adapters: adapters,
     );
+  }
+
+  void _clearStaleDrainerIfIdle(OutboxDrainer drainer) {
+    if (!identical(_drainer, drainer) ||
+        !_drainerStaleAfterDrain ||
+        drainer.isDraining) {
+      return;
+    }
+    _drainer = null;
+    _drainerStaleAfterDrain = false;
   }
 
   /// Engine-internal: the one-time legacy Hive task-queue migrator. Built
@@ -559,6 +715,7 @@ class SyncEngine extends _$SyncEngine {
   /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle) for
   /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
   Future<void> reconcileNow() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     // Independent try/catch per entity: an unexpected error from the chat
     // reconcile must NOT skip the note reconcile (and vice versa).

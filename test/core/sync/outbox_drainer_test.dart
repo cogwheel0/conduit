@@ -235,8 +235,9 @@ void main() {
   late OutboxDao dao;
   late FakeOpenWebUiServer server;
   late RecordingSyncApiClient client;
-  late ChatLocks chatLocks;
-  late ChatLocks folderLocks;
+  late ConversationLocks chatLocks;
+  late FolderLocks folderLocks;
+  late NoteLocks noteLocks;
   late IdRemapper remapper;
   late PushSync push;
   late FakeSyncClock clock;
@@ -248,8 +249,9 @@ void main() {
     dao = db.outboxDao;
     server = FakeOpenWebUiServer();
     client = RecordingSyncApiClient(server);
-    chatLocks = ChatLocks();
-    folderLocks = ChatLocks();
+    chatLocks = ConversationLocks();
+    folderLocks = FolderLocks();
+    noteLocks = NoteLocks();
     clock = FakeSyncClock(1000);
     remapper = IdRemapper(db);
     push = PushSync(
@@ -298,13 +300,13 @@ void main() {
               pull: NotePullSync(
                 client: client,
                 db: db,
-                locks: chatLocks,
+                locks: noteLocks,
                 remapper: remapper,
               ),
               push: NotePushSync(
                 client: client,
                 db: db,
-                noteLocks: chatLocks,
+                noteLocks: noteLocks,
                 remapper: remapper,
               ),
             ),

@@ -33,7 +33,7 @@ class OutboxTaskQueueMigrator {
   OutboxTaskQueueMigrator({
     required AppDatabase db,
     required HiveBoxes hiveBoxes,
-    required ChatLocks chatLocks,
+    required ConversationLocks chatLocks,
     required SyncClock clock,
     String Function() resolveDefaultModel = _emptyModel,
     Uuid uuid = const Uuid(),
@@ -57,7 +57,7 @@ class OutboxTaskQueueMigrator {
 
   final AppDatabase _db;
   final HiveBoxes _boxes;
-  final ChatLocks _chatLocks;
+  final ConversationLocks _chatLocks;
   final SyncClock _clock;
   final String Function() _resolveDefaultModel;
   final Uuid _uuid;

@@ -72,21 +72,21 @@ void main() {
   });
 
   Map<String, dynamic> blobFor(String id, {String content = 'hello'}) => {
-        'title': 'Title $id',
-        'history': {
-          'messages': {
-            '$id-m1': {
-              'id': '$id-m1',
-              'parentId': null,
-              'childrenIds': <String>[],
-              'role': 'user',
-              'content': content,
-              'timestamp': 100,
-            },
-          },
-          'currentId': '$id-m1',
+    'title': 'Title $id',
+    'history': {
+      'messages': {
+        '$id-m1': {
+          'id': '$id-m1',
+          'parentId': null,
+          'childrenIds': <String>[],
+          'role': 'user',
+          'content': content,
+          'timestamp': 100,
         },
-      };
+      },
+      'currentId': '$id-m1',
+    },
+  };
 
   ProviderContainer makeContainer(SyncApiClient? client) {
     final container = ProviderContainer(
@@ -118,8 +118,7 @@ void main() {
     }
   }
 
-  test(
-      'acceptance (a): airplane-mode cold start renders list and chats from '
+  test('acceptance (a): airplane-mode cold start renders list and chats from '
       'the previously-synced database', () async {
     // 1. Online session: pull against the fake server.
     final server = FakeOpenWebUiServer();
@@ -135,7 +134,7 @@ void main() {
     final pull = PullSync(
       client: FakeSyncApiClient(server),
       db: db,
-      locks: ChatLocks(),
+      locks: ConversationLocks(),
     );
     check((await pull.run()).success).isTrue();
 
@@ -145,8 +144,9 @@ void main() {
     final container = makeContainer(offlineClient);
 
     final conversations = await container.read(conversationsProvider.future);
-    check(conversations.map((c) => c.id))
-        .deepEquals(['chat-3', 'chat-2', 'chat-1']);
+    check(
+      conversations.map((c) => c.id),
+    ).deepEquals(['chat-3', 'chat-2', 'chat-1']);
 
     final folders = await container.read(foldersProvider.future);
     check(folders.map((f) => f.id)).deepEquals(['folder-1']);
@@ -155,8 +155,7 @@ void main() {
     for (var i = 1; i <= 3; i++) {
       final conversation = await loadLocalConversation(container, 'chat-$i');
       check(conversation).isNotNull();
-      check(conversation!.messages.single.content)
-          .equals('message body $i');
+      check(conversation!.messages.single.content).equals('message body $i');
     }
 
     // Pulling while offline fails without corrupting the readable state.
@@ -169,8 +168,7 @@ void main() {
     check(after.map((c) => c.id)).deepEquals(['chat-3', 'chat-2', 'chat-1']);
   });
 
-  test(
-      'acceptance (c): edit-on-server then requestPull updates the list row '
+  test('acceptance (c): edit-on-server then requestPull updates the list row '
       'and the open chat body', () async {
     final server = FakeOpenWebUiServer();
     server.seedChat(
@@ -222,8 +220,7 @@ void main() {
     check(after!.messages.single.content).equals('edited body');
   });
 
-  test(
-      'acceptance (d): a 1,000-chat pull emits at most changedChats + 1 '
+  test('acceptance (d): a 1,000-chat pull emits at most changedChats + 1 '
       'narrow list emissions', () async {
     final server = FakeOpenWebUiServer();
     const chatCount = 1000;
@@ -246,7 +243,7 @@ void main() {
     final pull = PullSync(
       client: FakeSyncApiClient(server),
       db: db,
-      locks: ChatLocks(),
+      locks: ConversationLocks(),
     );
     final result = await pull.run();
 

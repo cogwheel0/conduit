@@ -172,7 +172,7 @@ Future<Note?> durableUpdateNote(
   // write, and read-back all key on the row the DAO actually mutates.
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
 
-  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  final noteLocks = ref.read(noteLocksProvider);
   await noteLocks.runExclusive(resolvedId, () async {
     // Merge a partial `data` patch onto the existing note data so an update that
     // only carries `content` doesn't silently drop `versions`/`files` (the patch
@@ -212,7 +212,7 @@ Future<Note?> durablePinNote(
   required bool desiredPinned,
 }) async {
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
-  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  final noteLocks = ref.read(noteLocksProvider);
   await noteLocks.runExclusive(resolvedId, () async {
     await db.notesDao.pinNoteWithOutbox(
       resolvedId,
@@ -229,7 +229,7 @@ Future<void> durableDeleteNote(
   required String id,
 }) async {
   final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
-  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  final noteLocks = ref.read(noteLocksProvider);
   await noteLocks.runExclusive(resolvedId, () async {
     await db.notesDao.tombstoneWithOutbox(resolvedId);
   });
@@ -259,7 +259,7 @@ Future<Note?> durableCreateNote(
     updatedAt: nowNs,
     rawExtra: Value(rawExtra),
   );
-  final noteLocks = ref.read(noteLocksProvider) as ChatLocks;
+  final noteLocks = ref.read(noteLocksProvider);
   await noteLocks.runExclusive(localId, () async {
     await db.notesDao.insertLocalNoteWithCreateOp(note: companion);
   });

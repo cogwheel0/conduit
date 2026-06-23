@@ -71,14 +71,14 @@ void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
   late AppDatabase db;
-  late ChatLocks locks;
+  late ConversationLocks locks;
   late PullSync pull;
 
   setUp(() {
     server = FakeOpenWebUiServer();
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
-    locks = ChatLocks();
+    locks = ConversationLocks();
     pull = PullSync(client: client, db: db, locks: locks);
   });
 

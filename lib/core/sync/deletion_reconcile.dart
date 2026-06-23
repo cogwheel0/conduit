@@ -80,7 +80,7 @@ class DeletionReconcile {
   DeletionReconcile({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks locks,
+    required ConversationLocks locks,
     required SyncClock clock,
   }) : _client = client,
        _db = db,
@@ -89,7 +89,7 @@ class DeletionReconcile {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _locks;
+  final ConversationLocks _locks;
   final SyncClock _clock;
 
   /// Runs the reconcile subject to the throttle. On a completed run (not

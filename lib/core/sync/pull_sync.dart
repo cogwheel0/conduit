@@ -78,7 +78,7 @@ class PullSync {
   PullSync({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks locks,
+    required ConversationLocks locks,
     IdRemapper? remapper,
   }) : _client = client,
        _db = db,
@@ -87,7 +87,7 @@ class PullSync {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _locks;
+  final ConversationLocks _locks;
   final IdRemapper? _remapper;
 
   /// Runs one pull cycle. The watermark advances only when every list page

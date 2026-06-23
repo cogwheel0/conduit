@@ -8,6 +8,7 @@ import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/persistence/persistence_providers.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
+import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -51,6 +52,15 @@ class _MutableValue<T> extends Notifier<T> {
   void set(T value) => state = value;
 }
 
+class _FixedClock implements SyncClock {
+  const _FixedClock(this.now);
+
+  final int now;
+
+  @override
+  int nowEpochSeconds() => now;
+}
+
 class _FailFinalPullWatermarkRead extends QueryInterceptor {
   int pullWatermarkReads = 0;
 
@@ -90,13 +100,18 @@ void main() {
   ProviderContainer makeContainer({
     bool authenticated = true,
     bool online = true,
+    bool Function(Ref ref)? authBuilder,
+    SyncClock Function(Ref ref)? clockBuilder,
     void Function()? onHiveBoxesRead,
   }) {
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => db),
         syncApiClientProvider.overrideWith((ref) => client),
-        isAuthenticatedProvider2.overrideWith((ref) => authenticated),
+        isAuthenticatedProvider2.overrideWith(
+          (ref) => authBuilder?.call(ref) ?? authenticated,
+        ),
+        if (clockBuilder != null) syncClockProvider.overrideWith(clockBuilder),
         isOnlineProvider.overrideWith((ref) => online),
         legacyConversationCachePurgerProvider.overrideWith(
           (ref) => () async {
@@ -277,6 +292,61 @@ void main() {
         check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
       },
     );
+
+    test(
+      'requestPull observes login and survives rebuild after being armed',
+      () async {
+        seedChat('chat-after-login', 100);
+        final authProvider = NotifierProvider<_MutableValue<bool>, bool>(
+          () => _MutableValue<bool>(false),
+        );
+        final container = makeContainer(
+          authBuilder: (ref) => ref.watch(authProvider),
+        );
+
+        final engine = container.read(syncEngineProvider.notifier);
+        check(await engine.requestPull(reason: 'before-login')).isNull();
+        check(client.chatListPageRequests).equals(0);
+
+        container.read(authProvider.notifier).set(true);
+
+        final resultFuture = engine.requestPull(reason: 'after-login');
+        // Force the reactive build after requestPull has armed its debounce.
+        // The same joined pull must still complete, not get reset to null.
+        container.read(syncEngineProvider);
+        final result = await resultFuture;
+
+        check(result).isNotNull();
+        check(result!.success).isTrue();
+        check(client.chatListPageRequests).equals(1);
+        check(await db.chatsDao.getChat('chat-after-login')).isNotNull();
+      },
+    );
+
+    test('armed requestPull survives a non-inert dependency rebind', () async {
+      seedChat('chat-after-rebind', 100);
+      final clockProvider =
+          NotifierProvider<_MutableValue<SyncClock>, SyncClock>(
+            () => _MutableValue<SyncClock>(const _FixedClock(1)),
+          );
+      final container = makeContainer(
+        clockBuilder: (ref) => ref.watch(clockProvider),
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final resultFuture = engine.requestPull(reason: 'before-clock-rebind');
+      container.read(clockProvider.notifier).set(const _FixedClock(2));
+      // Force the reactive rebuild while the debounce joinable is still armed.
+      // The waiter must be carried into the post-rebind cycle, not completed
+      // early with null.
+      container.read(syncEngineProvider);
+      final result = await resultFuture;
+
+      check(result).isNotNull();
+      check(result!.success).isTrue();
+      check(client.chatListPageRequests).equals(1);
+      check(await db.chatsDao.getChat('chat-after-rebind')).isNotNull();
+    });
 
     test('section 9.3 legacy-cache purge fires exactly once', () async {
       seedChat('chat-1', 100);
@@ -671,5 +741,38 @@ void main() {
       // The op was consumed (remapped + marked done), nothing left pending.
       check(await db.outboxDao.pendingForChat('local:c1')).isEmpty();
     });
+
+    test(
+      'dependency refresh during an active drain keeps the same drainer',
+      () async {
+        await seedLocalCreate('local:c2', contentHash: 'h2');
+        final clockProvider =
+            NotifierProvider<_MutableValue<SyncClock>, SyncClock>(
+              () => _MutableValue<SyncClock>(const _FixedClock(1)),
+            );
+        final container = makeContainer(
+          clockBuilder: (ref) => ref.watch(clockProvider),
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+
+        final firstDrain = engine.drainOutbox();
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+        check(client.createChatCalls).equals(1);
+
+        container.read(clockProvider.notifier).set(const _FixedClock(2));
+        final secondDrain = engine.drainNow();
+
+        gate.complete();
+        await firstDrain;
+        await secondDrain;
+        await engine.drainNow();
+
+        check(client.createChatCalls).equals(1);
+        check(await db.outboxDao.pendingForChat('local:c2')).isEmpty();
+      },
+    );
   });
 }

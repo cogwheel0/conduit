@@ -501,7 +501,8 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
   // there is no active server / reviewer mode / it was disposed.
   return asyncService.maybeWhen(
     data: (service) => service,
-    orElse: () => ref.read(socketServiceManagerProvider.notifier).currentService,
+    orElse: () =>
+        ref.read(socketServiceManagerProvider.notifier).currentService,
   );
 });
 
@@ -1430,19 +1431,21 @@ class Conversations extends _$Conversations {
       data: {'action': action},
     );
     unawaited(
-      ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'conversations-reconcile')
-          .catchError((Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'reconcile-pull-failed',
-              scope: 'conversations',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'action': action},
-            );
-            return null;
-          }),
+      Future<void>.microtask(() async {
+        if (!ref.mounted) return;
+        await ref
+            .read(syncEngineProvider.notifier)
+            .requestPull(reason: 'conversations-reconcile');
+      }).catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'reconcile-pull-failed',
+          scope: 'conversations',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'action': action},
+        );
+        return null;
+      }),
     );
   }
 
@@ -3434,19 +3437,21 @@ class Folders extends _$Folders {
       data: {'action': action},
     );
     unawaited(
-      ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'folders-reconcile')
-          .catchError((Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'reconcile-pull-failed',
-              scope: 'folders',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'action': action},
-            );
-            return null;
-          }),
+      Future<void>.microtask(() async {
+        if (!ref.mounted) return;
+        await ref
+            .read(syncEngineProvider.notifier)
+            .requestPull(reason: 'folders-reconcile');
+      }).catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'reconcile-pull-failed',
+          scope: 'folders',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'action': action},
+        );
+        return null;
+      }),
     );
   }
 

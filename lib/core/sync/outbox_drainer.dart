@@ -87,6 +87,8 @@ class OutboxDrainer {
   bool _draining = false;
   bool _rerun = false;
 
+  bool get isDraining => _draining;
+
   /// Stranded-`inFlight` recovery runs exactly once per process, before the
   /// first claim of the first drain (§7.2/§11 crash recovery). Guarded so a
   /// rerun mid-session never re-reclaims an op a live worker just flipped to
