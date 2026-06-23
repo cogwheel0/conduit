@@ -45,6 +45,7 @@ import '../database/database_provider.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/mappers/conversation_assembler.dart';
 import '../sync/chat_locks.dart';
+import '../sync/pull_sync.dart';
 import '../sync/sync_engine.dart';
 
 export 'storage_providers.dart';
@@ -1430,13 +1431,23 @@ class Conversations extends _$Conversations {
       scope: 'conversations',
       data: {'action': action},
     );
+    Future<PullResult?> pull;
+    try {
+      pull = ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'conversations-reconcile');
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'reconcile-pull-failed',
+        scope: 'conversations',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'action': action},
+      );
+      return;
+    }
     unawaited(
-      Future<void>.microtask(() async {
-        if (!ref.mounted) return;
-        await ref
-            .read(syncEngineProvider.notifier)
-            .requestPull(reason: 'conversations-reconcile');
-      }).catchError((Object error, StackTrace stackTrace) {
+      pull.catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'reconcile-pull-failed',
           scope: 'conversations',
@@ -3436,13 +3447,23 @@ class Folders extends _$Folders {
       scope: 'folders',
       data: {'action': action},
     );
+    Future<PullResult?> pull;
+    try {
+      pull = ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'folders-reconcile');
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'reconcile-pull-failed',
+        scope: 'folders',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'action': action},
+      );
+      return;
+    }
     unawaited(
-      Future<void>.microtask(() async {
-        if (!ref.mounted) return;
-        await ref
-            .read(syncEngineProvider.notifier)
-            .requestPull(reason: 'folders-reconcile');
-      }).catchError((Object error, StackTrace stackTrace) {
+      pull.catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'reconcile-pull-failed',
           scope: 'folders',

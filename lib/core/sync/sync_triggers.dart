@@ -8,6 +8,7 @@ import '../database/database_provider.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import 'pull_sync.dart';
 import 'sync_api_client.dart';
 import 'sync_engine.dart';
 
@@ -126,10 +127,11 @@ class SyncTriggers extends _$SyncTriggers {
         identical(client, _startClient)) {
       return;
     }
-    _startFired = true;
-    _startDatabase = db;
-    _startClient = client;
-    _request('start');
+    if (_request('start')) {
+      _startFired = true;
+      _startDatabase = db;
+      _startClient = client;
+    }
   }
 
   void _queueMaybeFireStart() {
@@ -180,19 +182,42 @@ class SyncTriggers extends _$SyncTriggers {
     _periodic = null;
   }
 
-  void _request(String reason) {
+  bool _request(String reason) {
     DebugLogger.log(
       'trigger',
       scope: 'sync/triggers',
       data: {'reason': reason},
     );
-    _runEngineOperation(
-      'request-pull',
-      reason: reason,
-      run: (engine) async {
-        await engine.requestPull(reason: reason);
-      },
+    return _requestPull(reason);
+  }
+
+  bool _requestPull(String reason) {
+    Future<PullResult?> pull;
+    try {
+      pull = ref.read(syncEngineProvider.notifier).requestPull(reason: reason);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'engine-operation-failed',
+        scope: 'sync/triggers/request-pull',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'operation': 'request-pull', 'reason': reason},
+      );
+      return false;
+    }
+    unawaited(
+      pull.catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'engine-operation-failed',
+          scope: 'sync/triggers/request-pull',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'operation': 'request-pull', 'reason': reason},
+        );
+        return null;
+      }),
     );
+    return true;
   }
 
   void _runEngineOperation(

@@ -96,7 +96,7 @@ void main() {
     container.listen(syncApiClientProvider, (_, _) {});
   }
 
-  ProviderContainer makeContainer() {
+  ProviderContainer makeContainer({bool autoDispose = true}) {
     final container = ProviderContainer(
       overrides: [
         isAuthenticatedProvider2.overrideWith(
@@ -108,7 +108,9 @@ void main() {
         syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
       ],
     );
-    addTearDown(container.dispose);
+    if (autoDispose) {
+      addTearDown(container.dispose);
+    }
     materializeReadiness(container);
     return container;
   }
@@ -170,11 +172,24 @@ void main() {
         container.read(_clientProvider.notifier).set(client);
 
         container.read(syncTriggersProvider);
+        check(countOf('start')).equals(1);
         await flushMicrotasks();
 
         check(countOf('start')).equals(1);
       },
     );
+
+    test('start pull is submitted before immediate disposal can skip it', () {
+      final container = makeContainer(autoDispose: false);
+      container.read(_authProvider.notifier).set(true);
+      container.read(_dbProvider.notifier).set(db);
+      container.read(_clientProvider.notifier).set(client);
+
+      container.read(syncTriggersProvider);
+      container.dispose();
+
+      check(countOf('start')).equals(1);
+    });
 
     test(
       'start fires again when the ready database/client pair changes',
