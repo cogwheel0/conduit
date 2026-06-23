@@ -12,6 +12,7 @@ import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/clock.dart';
+import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
 import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
 import 'package:conduit/core/sync/request_completion_runner_provider.dart';
@@ -907,6 +908,9 @@ void main() {
         completionRunner: completionRunner,
       );
       final engine = container.read(syncEngineProvider.notifier);
+      final remapEvents = <RemapEvent>[];
+      final remapSub = engine.remapEvents.listen(remapEvents.add);
+      addTearDown(remapSub.cancel);
 
       final gate = Completer<void>();
       client.createChatGate = gate.future;
@@ -925,6 +929,9 @@ void main() {
       gate.complete();
       await drain;
 
+      check(remapEvents).length.equals(1);
+      check(remapEvents.single.fromId).equals('local:auth-flip');
+      check(remapEvents.single.entityKind).equals('chat');
       container.read(authProvider.notifier).set(true);
       container.read(syncEngineProvider);
       final secondRemapper = engine.remapperForTesting;

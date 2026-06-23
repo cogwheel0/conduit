@@ -139,10 +139,13 @@ class SyncEngine extends _$SyncEngine {
   /// stays stable across non-auth dependency refreshes so preserved drainers can
   /// finish same-session work, but flips on login/logout boundaries.
   int _authEpoch = 0;
-  void Function()? _removeDisposeHook;
+  bool _disposeHookRegistered = false;
   bool _drainerStaleAfterDrain = false;
   final Map<OutboxDrainer, IdRemapper> _retiredDrainerRemappers =
       <OutboxDrainer, IdRemapper>{};
+  final Map<OutboxDrainer, StreamSubscription<RemapEvent>>
+  _retiredDrainerRemapForwards =
+      <OutboxDrainer, StreamSubscription<RemapEvent>>{};
 
   @override
   SyncStatus build() {
@@ -162,9 +165,12 @@ class SyncEngine extends _$SyncEngine {
   }
 
   void _registerDisposeForBuild() {
-    _removeDisposeHook?.call();
-    _removeDisposeHook = ref.onDispose(() {
-      _removeDisposeHook = null;
+    if (_disposeHookRegistered) {
+      return;
+    }
+    _disposeHookRegistered = true;
+    ref.onDispose(() {
+      _disposeHookRegistered = false;
       _resetSessionBoundState(
         completeJoinable: false,
         preserveDrainer: _drainer?.isDraining ?? false,
@@ -282,14 +288,7 @@ class SyncEngine extends _$SyncEngine {
       _drainerStaleAfterDrain = true;
     } else {
       if (retireActiveDrainerRemapper) {
-        final drainer = _drainer;
-        final remapper = _remapper;
-        if (drainer != null && remapper != null) {
-          _retiredDrainerRemappers[drainer] = remapper;
-        }
-        unawaited(_remapForward?.cancel());
-        _remapForward = null;
-        _remapper = null;
+        _retireActiveDrainerRemapperForCleanup();
       } else if (!preserveRemapper) {
         unawaited(_remapForward?.cancel());
         _remapForward = null;
@@ -646,12 +645,15 @@ class SyncEngine extends _$SyncEngine {
 
   void _clearStaleDrainerIfIdle(OutboxDrainer drainer) {
     final retiredRemapper = _retiredDrainerRemappers[drainer];
-    if (retiredRemapper != null) {
+    final retiredForward = _retiredDrainerRemapForwards[drainer];
+    if (retiredRemapper != null || retiredForward != null) {
       if (drainer.isDraining) {
         return;
       }
       _retiredDrainerRemappers.remove(drainer);
-      unawaited(retiredRemapper.dispose());
+      _retiredDrainerRemapForwards.remove(drainer);
+      unawaited(retiredForward?.cancel());
+      unawaited(retiredRemapper?.dispose());
       return;
     }
     if (!identical(_drainer, drainer) ||
@@ -663,12 +665,37 @@ class SyncEngine extends _$SyncEngine {
     _drainerStaleAfterDrain = false;
   }
 
+  void _retireActiveDrainerRemapperForCleanup() {
+    final drainer = _drainer;
+    final remapper = _remapper;
+    final forward = _remapForward;
+    if (drainer != null && remapper != null) {
+      _retiredDrainerRemappers[drainer] = remapper;
+      if (forward != null) {
+        _retiredDrainerRemapForwards[drainer] = forward;
+      }
+    } else {
+      unawaited(forward?.cancel());
+      unawaited(remapper?.dispose());
+    }
+    _remapForward = null;
+    _remapper = null;
+  }
+
   void _disposeRetiredDrainerRemappers() {
-    if (_retiredDrainerRemappers.isEmpty) {
+    if (_retiredDrainerRemappers.isEmpty &&
+        _retiredDrainerRemapForwards.isEmpty) {
       return;
     }
     final remappers = _retiredDrainerRemappers.values.toList(growable: false);
+    final forwards = _retiredDrainerRemapForwards.values.toList(
+      growable: false,
+    );
     _retiredDrainerRemappers.clear();
+    _retiredDrainerRemapForwards.clear();
+    for (final forward in forwards) {
+      unawaited(forward.cancel());
+    }
     for (final remapper in remappers) {
       unawaited(remapper.dispose());
     }
