@@ -872,6 +872,7 @@ class SyncEngine extends _$SyncEngine {
       );
     } finally {
       _running = false;
+      _clearCachedDrainerIfIdle();
       if (ref.mounted) {
         final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
         var watermark = previousStateWatermark;
@@ -1072,6 +1073,14 @@ class SyncEngine extends _$SyncEngine {
       await _scheduleFtsBuildIfNeeded(db, cycleEpoch);
     }
     return result;
+  }
+
+  void _clearCachedDrainerIfIdle() {
+    final drainer = _drainer;
+    if (drainer == null) {
+      return;
+    }
+    _clearStaleDrainerIfIdle(drainer);
   }
 
   Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db, int cycleEpoch) async {
