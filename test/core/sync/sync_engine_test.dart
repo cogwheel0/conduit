@@ -6,11 +6,14 @@ import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/fts/fts_ddl.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/persistence/hive_boxes.dart';
 import 'package:conduit/core/persistence/persistence_providers.dart';
+import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/clock.dart';
 import 'package:conduit/core/sync/outbox_drainer.dart';
+import 'package:conduit/core/sync/outbox_task_queue_migrator.dart';
 import 'package:conduit/core/sync/request_completion_runner_provider.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
@@ -19,6 +22,8 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce/hive.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
@@ -83,6 +88,28 @@ class _FailFinalPullWatermarkRead extends QueryInterceptor {
   }
 }
 
+class _GateTaskMigrationFlagRead extends QueryInterceptor {
+  int taskMigrationFlagReads = 0;
+  final firstReadStarted = Completer<void>();
+  final releaseFirstRead = Completer<void>();
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (args.contains(OutboxTaskQueueMigrator.migratedFlagKey)) {
+      taskMigrationFlagReads++;
+      if (taskMigrationFlagReads == 1) {
+        firstReadStarted.complete();
+        await releaseFirstRead.future;
+      }
+    }
+    return executor.runSelect(statement, args);
+  }
+}
+
 class _RecordingCompletionRunner implements RequestCompletionRunner {
   final calls = <String>[];
 
@@ -94,6 +121,11 @@ class _RecordingCompletionRunner implements RequestCompletionRunner {
     calls.add(chatId);
   }
 }
+
+class _MockHiveBox extends Mock implements Box<dynamic> {}
+
+class _MockOptimizedStorageService extends Mock
+    implements OptimizedStorageService {}
 
 void main() {
   late FakeOpenWebUiServer server;
@@ -118,6 +150,8 @@ void main() {
     bool Function(Ref ref)? authBuilder,
     SyncClock Function(Ref ref)? clockBuilder,
     RequestCompletionRunner? completionRunner,
+    HiveBoxes? hiveBoxes,
+    OptimizedStorageService? storageService,
     void Function()? onHiveBoxesRead,
   }) {
     final container = ProviderContainer(
@@ -132,15 +166,20 @@ void main() {
           requestCompletionRunnerProvider.overrideWith(
             (ref) => completionRunner,
           ),
+        if (storageService != null)
+          optimizedStorageServiceProvider.overrideWithValue(storageService),
         isOnlineProvider.overrideWith((ref) => online),
         legacyConversationCachePurgerProvider.overrideWith(
           (ref) => () async {
             purgeCalls++;
           },
         ),
-        if (onHiveBoxesRead != null)
+        if (hiveBoxes != null || onHiveBoxesRead != null)
           hiveBoxesProvider.overrideWith((ref) {
-            onHiveBoxesRead();
+            onHiveBoxesRead?.call();
+            if (hiveBoxes != null) {
+              return hiveBoxes;
+            }
             throw StateError('transient hive read');
           }),
       ],
@@ -238,6 +277,14 @@ void main() {
       createdAt: updatedAt,
       updatedAt: updatedAt,
     );
+  }
+
+  _MockHiveBox emptyHiveBox() {
+    final box = _MockHiveBox();
+    when(() => box.containsKey(any<dynamic>())).thenReturn(false);
+    when(() => box.get(any<dynamic>())).thenReturn(null);
+    when(() => box.delete(any<dynamic>())).thenAnswer((_) async {});
+    return box;
   }
 
   group('SyncEngine.requestPull', () {
@@ -523,6 +570,51 @@ void main() {
       check(migrationBuildAttempts).equals(2);
       check(client.createChatCalls).equals(2);
     });
+
+    test(
+      'same-db dependency rebind preserves task queue migration single-flight',
+      () async {
+        await db.close();
+        final migrationGate = _GateTaskMigrationFlagRead();
+        db = AppDatabase(NativeDatabase.memory().interceptWith(migrationGate));
+        final boxes = HiveBoxes(
+          preferences: emptyHiveBox(),
+          caches: emptyHiveBox(),
+          attachmentQueue: emptyHiveBox(),
+          metadata: emptyHiveBox(),
+        );
+        final storage = _MockOptimizedStorageService();
+        when(
+          () => storage.getActiveServerId(),
+        ).thenAnswer((_) async => 'server-1');
+        final clockProvider =
+            NotifierProvider<_MutableValue<SyncClock>, SyncClock>(
+              () => _MutableValue<SyncClock>(const _FixedClock(1)),
+            );
+        final container = makeContainer(
+          clockBuilder: (ref) => ref.watch(clockProvider),
+          hiveBoxes: boxes,
+          storageService: storage,
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final firstDrain = engine.drainOutbox();
+        await migrationGate.firstReadStarted.future;
+
+        container.read(clockProvider.notifier).set(const _FixedClock(2));
+        container.read(syncEngineProvider);
+        final secondDrain = engine.drainNow();
+        await Future<void>.delayed(Duration.zero);
+
+        check(migrationGate.taskMigrationFlagReads).equals(1);
+
+        migrationGate.releaseFirstRead.complete();
+        await firstDrain;
+        await secondDrain;
+
+        check(migrationGate.taskMigrationFlagReads).equals(1);
+      },
+    );
 
     test('folders 403 result flips foldersFeatureEnabledProvider', () async {
       seedChat('chat-1', 100);
@@ -821,15 +913,23 @@ void main() {
 
       final drain = engine.drainOutbox();
       await waitFor(() => client.createChatStarts.isNotEmpty);
+      final firstRemapper = engine.remapperForTesting;
+      check(firstRemapper).isNotNull();
       check(engine.hasCachedDrainerForTesting).isTrue();
 
       container.read(authProvider.notifier).set(false);
       container.read(syncEngineProvider);
 
       check(engine.hasCachedDrainerForTesting).isFalse();
+      check(engine.hasCachedRemapperForTesting).isFalse();
       gate.complete();
       await drain;
 
+      container.read(authProvider.notifier).set(true);
+      container.read(syncEngineProvider);
+      final secondRemapper = engine.remapperForTesting;
+      check(secondRemapper).isNotNull();
+      check(identical(firstRemapper, secondRemapper)).isFalse();
       check(client.createChatCalls).equals(1);
       check(completionRunner.calls).isEmpty();
     });

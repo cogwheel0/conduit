@@ -120,6 +120,7 @@ class SyncEngine extends _$SyncEngine {
   /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
   bool _migrated = false;
   Future<void>? _migrationInFlight;
+  AppDatabase? _migrationDb;
 
   /// Prevents overlapping fire-and-forget FTS backfills while the durable
   /// `fts_built` flag is still unset.
@@ -140,6 +141,8 @@ class SyncEngine extends _$SyncEngine {
   int _authEpoch = 0;
   void Function()? _removeDisposeHook;
   bool _drainerStaleAfterDrain = false;
+  final Map<OutboxDrainer, IdRemapper> _retiredDrainerRemappers =
+      <OutboxDrainer, IdRemapper>{};
 
   @override
   SyncStatus build() {
@@ -165,6 +168,7 @@ class SyncEngine extends _$SyncEngine {
       _resetSessionBoundState(
         completeJoinable: false,
         preserveDrainer: _drainer?.isDraining ?? false,
+        preserveMigration: _boundDb != null,
       );
       scheduleMicrotask(() {
         if (ref.mounted) {
@@ -223,19 +227,15 @@ class SyncEngine extends _$SyncEngine {
       return;
     }
 
-    final sameServerBinding =
-        identical(_boundDb, db) && identical(_boundClient, client);
+    final sameDbBinding = identical(_boundDb, db);
+    final sameServerBinding = sameDbBinding && identical(_boundClient, client);
     final authenticatedSameSession =
         _boundAuthenticated == true && authenticated;
     final activeDrainer = _drainer?.isDraining ?? false;
     final preserveActiveDrainer =
         sameServerBinding && authenticatedSameSession && activeDrainer;
-    // An auth-boundary rebind must drop the cached drainer, but an op that
-    // already started before the boundary can still return. Keep the DB-bound
-    // remapper alive so that result can settle without losing its local->server
-    // mapping; the drainer's captured auth epoch prevents it from claiming any
-    // further network work after logout/token invalidation.
-    final preserveRemapperForActiveDrainer = sameServerBinding && activeDrainer;
+    final retireActiveDrainerRemapper =
+        authChanged && sameServerBinding && activeDrainer;
     final preserveJoinable =
         _joinable != null &&
         !_joinable!.isCompleted &&
@@ -251,8 +251,9 @@ class SyncEngine extends _$SyncEngine {
     _resetSessionBoundState(
       completeJoinable: !preserveJoinable,
       preserveDrainer: preserveActiveDrainer,
-      preserveRemapper:
-          preserveActiveDrainer || preserveRemapperForActiveDrainer,
+      preserveRemapper: preserveActiveDrainer,
+      retireActiveDrainerRemapper: retireActiveDrainerRemapper,
+      preserveMigration: sameDbBinding && db != null,
     );
     _boundDb = db;
     _boundClient = client;
@@ -272,13 +273,24 @@ class SyncEngine extends _$SyncEngine {
     bool completeJoinable = true,
     bool preserveDrainer = false,
     bool preserveRemapper = false,
+    bool retireActiveDrainerRemapper = false,
+    bool preserveMigration = false,
   }) {
     _debounce?.cancel();
     _debounce = null;
     if (preserveDrainer) {
       _drainerStaleAfterDrain = true;
     } else {
-      if (!preserveRemapper) {
+      if (retireActiveDrainerRemapper) {
+        final drainer = _drainer;
+        final remapper = _remapper;
+        if (drainer != null && remapper != null) {
+          _retiredDrainerRemappers[drainer] = remapper;
+        }
+        unawaited(_remapForward?.cancel());
+        _remapForward = null;
+        _remapper = null;
+      } else if (!preserveRemapper) {
         unawaited(_remapForward?.cancel());
         _remapForward = null;
         unawaited(_remapper?.dispose());
@@ -287,8 +299,11 @@ class SyncEngine extends _$SyncEngine {
       _drainer = null;
       _drainerStaleAfterDrain = false;
     }
-    _migrated = false;
-    _migrationInFlight = null;
+    if (!preserveMigration) {
+      _migrated = false;
+      _migrationInFlight = null;
+      _migrationDb = null;
+    }
     _ftsBuildInFlight = false;
     if (completeJoinable) {
       final joinable = _joinable;
@@ -340,6 +355,7 @@ class SyncEngine extends _$SyncEngine {
 
   void _disposeSessionBoundState() {
     _resetSessionBoundState();
+    _disposeRetiredDrainerRemappers();
     _boundDb = null;
     _boundClient = null;
     _boundChatLocks = null;
@@ -392,6 +408,9 @@ class SyncEngine extends _$SyncEngine {
 
   @visibleForTesting
   bool get hasCachedDrainerForTesting => _drainer != null;
+
+  @visibleForTesting
+  bool get hasCachedRemapperForTesting => _remapper != null;
 
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
@@ -626,6 +645,15 @@ class SyncEngine extends _$SyncEngine {
   }
 
   void _clearStaleDrainerIfIdle(OutboxDrainer drainer) {
+    final retiredRemapper = _retiredDrainerRemappers[drainer];
+    if (retiredRemapper != null) {
+      if (drainer.isDraining) {
+        return;
+      }
+      _retiredDrainerRemappers.remove(drainer);
+      unawaited(retiredRemapper.dispose());
+      return;
+    }
     if (!identical(_drainer, drainer) ||
         !_drainerStaleAfterDrain ||
         drainer.isDraining) {
@@ -633,6 +661,17 @@ class SyncEngine extends _$SyncEngine {
     }
     _drainer = null;
     _drainerStaleAfterDrain = false;
+  }
+
+  void _disposeRetiredDrainerRemappers() {
+    if (_retiredDrainerRemappers.isEmpty) {
+      return;
+    }
+    final remappers = _retiredDrainerRemappers.values.toList(growable: false);
+    _retiredDrainerRemappers.clear();
+    for (final remapper in remappers) {
+      unawaited(remapper.dispose());
+    }
   }
 
   /// Engine-internal: the one-time legacy Hive task-queue migrator. Built
@@ -671,26 +710,32 @@ class SyncEngine extends _$SyncEngine {
   /// ONCE per process, BEFORE any drain entry point can consume the outbox.
   Future<void> _migrateLegacyTaskQueueIfNeeded() {
     if (_migrated) return Future<void>.value();
+    final db = _boundDb;
+    if (db == null) return Future<void>.value();
     final inFlight = _migrationInFlight;
-    if (inFlight != null) return inFlight;
+    if (inFlight != null && identical(_migrationDb, db)) return inFlight;
 
-    final migrationEpoch = _sessionEpoch;
     late final Future<void> migration;
-    migration = _runLegacyTaskQueueMigration(migrationEpoch).whenComplete(() {
-      if (migrationEpoch == _sessionEpoch &&
-          identical(_migrationInFlight, migration)) {
+    migration = _runLegacyTaskQueueMigration(migrationDb: db).whenComplete(() {
+      if (identical(_migrationInFlight, migration)) {
         _migrationInFlight = null;
+        _migrationDb = null;
       }
     });
     _migrationInFlight = migration;
+    _migrationDb = db;
     return migration;
   }
 
-  Future<void> _runLegacyTaskQueueMigration(int migrationEpoch) async {
+  Future<void> _runLegacyTaskQueueMigration({
+    required AppDatabase migrationDb,
+  }) async {
     try {
-      await _buildMigrator()?.migrateIfNeeded();
-      await _buildCacheMigrator()?.migrateIfNeeded();
-      if (migrationEpoch == _sessionEpoch) {
+      final taskQueueMigrator = _buildMigrator();
+      final cacheMigrator = _buildCacheMigrator();
+      await taskQueueMigrator?.migrateIfNeeded();
+      await cacheMigrator?.migrateIfNeeded();
+      if (identical(_boundDb, migrationDb)) {
         _migrated = true;
       }
     } catch (error, stackTrace) {
