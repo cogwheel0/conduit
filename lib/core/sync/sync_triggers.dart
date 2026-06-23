@@ -225,11 +225,21 @@ class SyncTriggers extends _$SyncTriggers {
     required String reason,
     required Future<void> Function(SyncEngine engine) run,
   }) {
+    Future<void> future;
+    try {
+      future = run(ref.read(syncEngineProvider.notifier));
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'engine-operation-failed',
+        scope: 'sync/triggers/$operation',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'operation': operation, 'reason': reason},
+      );
+      return;
+    }
     unawaited(
-      Future<void>.microtask(() async {
-        if (!ref.mounted) return;
-        await run(ref.read(syncEngineProvider.notifier));
-      }).catchError((Object error, StackTrace stackTrace) {
+      future.catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'engine-operation-failed',
           scope: 'sync/triggers/$operation',
