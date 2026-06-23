@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/fts/fts_ddl.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
@@ -9,6 +10,8 @@ import 'package:conduit/core/persistence/persistence_providers.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/clock.dart';
+import 'package:conduit/core/sync/outbox_drainer.dart';
+import 'package:conduit/core/sync/request_completion_runner_provider.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -80,6 +83,18 @@ class _FailFinalPullWatermarkRead extends QueryInterceptor {
   }
 }
 
+class _RecordingCompletionRunner implements RequestCompletionRunner {
+  final calls = <String>[];
+
+  @override
+  Future<void> run({
+    required String chatId,
+    required Map<String, dynamic> payload,
+  }) async {
+    calls.add(chatId);
+  }
+}
+
 void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
@@ -102,6 +117,7 @@ void main() {
     bool online = true,
     bool Function(Ref ref)? authBuilder,
     SyncClock Function(Ref ref)? clockBuilder,
+    RequestCompletionRunner? completionRunner,
     void Function()? onHiveBoxesRead,
   }) {
     final container = ProviderContainer(
@@ -112,6 +128,10 @@ void main() {
           (ref) => authBuilder?.call(ref) ?? authenticated,
         ),
         if (clockBuilder != null) syncClockProvider.overrideWith(clockBuilder),
+        if (completionRunner != null)
+          requestCompletionRunnerProvider.overrideWith(
+            (ref) => completionRunner,
+          ),
         isOnlineProvider.overrideWith((ref) => online),
         legacyConversationCachePurgerProvider.overrideWith(
           (ref) => () async {
@@ -136,6 +156,7 @@ void main() {
     String localId, {
     required String contentHash,
     AppDatabase? targetDb,
+    RequestCompletionPayload? completion,
   }) {
     final target = targetDb ?? db;
     final rows = ChatBlobMapper.blobToRows(
@@ -165,6 +186,7 @@ void main() {
       messages: rows.messages,
       blobRows: rows,
       contentHash: contentHash,
+      completion: completion,
     );
   }
 
@@ -772,6 +794,76 @@ void main() {
 
         check(client.createChatCalls).equals(1);
         check(await db.outboxDao.pendingForChat('local:c2')).isEmpty();
+      },
+    );
+
+    test('auth flip during an active drain drops the cached drainer', () async {
+      await seedLocalCreate(
+        'local:auth-flip',
+        contentHash: 'h-auth-flip',
+        completion: const RequestCompletionPayload(
+          assistantMessageId: 'assistant-1',
+          model: 'model-1',
+        ),
+      );
+      final authProvider = NotifierProvider<_MutableValue<bool>, bool>(
+        () => _MutableValue<bool>(true),
+      );
+      final completionRunner = _RecordingCompletionRunner();
+      final container = makeContainer(
+        authBuilder: (ref) => ref.watch(authProvider),
+        completionRunner: completionRunner,
+      );
+      final engine = container.read(syncEngineProvider.notifier);
+
+      final gate = Completer<void>();
+      client.createChatGate = gate.future;
+
+      final drain = engine.drainOutbox();
+      await waitFor(() => client.createChatStarts.isNotEmpty);
+      check(engine.hasCachedDrainerForTesting).isTrue();
+
+      container.read(authProvider.notifier).set(false);
+      container.read(syncEngineProvider);
+
+      check(engine.hasCachedDrainerForTesting).isFalse();
+      gate.complete();
+      await drain;
+
+      check(client.createChatCalls).equals(1);
+      check(completionRunner.calls).isEmpty();
+    });
+
+    test(
+      'pull-cycle drain clears a stale drainer after dependency refresh',
+      () async {
+        await seedLocalCreate('local:pull-stale', contentHash: 'h-pull-stale');
+        final clockProvider =
+            NotifierProvider<_MutableValue<SyncClock>, SyncClock>(
+              () => _MutableValue<SyncClock>(const _FixedClock(1)),
+            );
+        final container = makeContainer(
+          clockBuilder: (ref) => ref.watch(clockProvider),
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+
+        final pull = engine.requestPull(reason: 'pull-cycle-stale-drainer');
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+        check(engine.hasCachedDrainerForTesting).isTrue();
+
+        container.read(clockProvider.notifier).set(const _FixedClock(2));
+        container.read(syncEngineProvider);
+        check(engine.hasCachedDrainerForTesting).isTrue();
+
+        gate.complete();
+        final result = await pull;
+
+        check(result).isNull();
+        check(engine.hasCachedDrainerForTesting).isFalse();
+        check(client.createChatCalls).equals(1);
       },
     );
   });

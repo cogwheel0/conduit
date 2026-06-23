@@ -133,6 +133,11 @@ class SyncEngine extends _$SyncEngine {
   /// lock/clock/backoff/completion bindings change so in-flight cycles can
   /// abort before crossing work into a different server/session.
   int _sessionEpoch = 0;
+
+  /// Auth-only generation captured by drainers. Unlike [_sessionEpoch], this
+  /// stays stable across non-auth dependency refreshes so preserved drainers can
+  /// finish same-session work, but flips on login/logout boundaries.
+  int _authEpoch = 0;
   void Function()? _removeDisposeHook;
   bool _drainerStaleAfterDrain = false;
 
@@ -199,6 +204,7 @@ class SyncEngine extends _$SyncEngine {
     required Backoff backoff,
     required RequestCompletionRunner completionRunner,
   }) {
+    final authChanged = _boundAuthenticated != authenticated;
     final dependenciesChanged =
         !identical(_boundDb, db) ||
         !identical(_boundClient, client) ||
@@ -208,7 +214,7 @@ class SyncEngine extends _$SyncEngine {
         !identical(_boundClock, clock) ||
         !identical(_boundBackoff, backoff) ||
         !identical(_boundCompletionRunner, completionRunner) ||
-        _boundAuthenticated != authenticated;
+        authChanged;
     if (!dependenciesChanged) {
       // A reactive rebuild can follow an eager _refreshBoundDependencies() call
       // that already updated the snapshot. onDispose cancels the debounce but
@@ -219,8 +225,17 @@ class SyncEngine extends _$SyncEngine {
 
     final sameServerBinding =
         identical(_boundDb, db) && identical(_boundClient, client);
+    final authenticatedSameSession =
+        _boundAuthenticated == true && authenticated;
+    final activeDrainer = _drainer?.isDraining ?? false;
     final preserveActiveDrainer =
-        sameServerBinding && (_drainer?.isDraining ?? false);
+        sameServerBinding && authenticatedSameSession && activeDrainer;
+    // An auth-boundary rebind must drop the cached drainer, but an op that
+    // already started before the boundary can still return. Keep the DB-bound
+    // remapper alive so that result can settle without losing its local->server
+    // mapping; the drainer's captured auth epoch prevents it from claiming any
+    // further network work after logout/token invalidation.
+    final preserveRemapperForActiveDrainer = sameServerBinding && activeDrainer;
     final preserveJoinable =
         _joinable != null &&
         !_joinable!.isCompleted &&
@@ -230,9 +245,14 @@ class SyncEngine extends _$SyncEngine {
         authenticated;
 
     _sessionEpoch++;
+    if (authChanged) {
+      _authEpoch++;
+    }
     _resetSessionBoundState(
       completeJoinable: !preserveJoinable,
       preserveDrainer: preserveActiveDrainer,
+      preserveRemapper:
+          preserveActiveDrainer || preserveRemapperForActiveDrainer,
     );
     _boundDb = db;
     _boundClient = client;
@@ -251,16 +271,19 @@ class SyncEngine extends _$SyncEngine {
   void _resetSessionBoundState({
     bool completeJoinable = true,
     bool preserveDrainer = false,
+    bool preserveRemapper = false,
   }) {
     _debounce?.cancel();
     _debounce = null;
     if (preserveDrainer) {
       _drainerStaleAfterDrain = true;
     } else {
-      unawaited(_remapForward?.cancel());
-      _remapForward = null;
-      unawaited(_remapper?.dispose());
-      _remapper = null;
+      if (!preserveRemapper) {
+        unawaited(_remapForward?.cancel());
+        _remapForward = null;
+        unawaited(_remapper?.dispose());
+        _remapper = null;
+      }
       _drainer = null;
       _drainerStaleAfterDrain = false;
     }
@@ -366,6 +389,9 @@ class SyncEngine extends _$SyncEngine {
   /// remap and assert the [remapRouteSyncProvider] consumer reacts.
   @visibleForTesting
   IdRemapper? get remapperForTesting => _ensureRemapper();
+
+  @visibleForTesting
+  bool get hasCachedDrainerForTesting => _drainer != null;
 
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
@@ -584,11 +610,16 @@ class SyncEngine extends _$SyncEngine {
         adapters == null) {
       return null;
     }
+    final drainerAuthEpoch = _authEpoch;
     return _drainer = OutboxDrainer(
       db: db,
       clock: clock,
       backoff: backoff,
-      isOnline: () => ref.read(isOnlineProvider),
+      isOnline: () =>
+          ref.mounted &&
+          _boundAuthenticated == true &&
+          _authEpoch == drainerAuthEpoch &&
+          ref.read(isOnlineProvider),
       completion: completion,
       adapters: adapters,
     );
@@ -893,7 +924,14 @@ class SyncEngine extends _$SyncEngine {
 
     // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
     // caught + logged by the enclosing `_startCycle` try.
-    await _ensureDrainer()?.drain();
+    final drainer = _ensureDrainer();
+    if (drainer != null) {
+      try {
+        await drainer.drain();
+      } finally {
+        _clearStaleDrainerIfIdle(drainer);
+      }
+    }
     if (!_cycleStillBound(cycleEpoch, 'after-outbox-drain')) return null;
 
     // §7.5 deletion reconcile (background reason; its own 24h throttle gates
