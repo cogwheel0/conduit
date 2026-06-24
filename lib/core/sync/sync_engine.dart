@@ -141,11 +141,11 @@ class SyncEngine extends _$SyncEngine {
   int _authEpoch = 0;
   bool _disposeHookRegistered = false;
   bool _drainerStaleAfterDrain = false;
-  final Map<OutboxDrainer, IdRemapper> _retiredDrainerRemappers =
-      <OutboxDrainer, IdRemapper>{};
-  final Map<OutboxDrainer, StreamSubscription<RemapEvent>>
+  final Map<OutboxDrainer, List<IdRemapper>> _retiredDrainerRemappers =
+      <OutboxDrainer, List<IdRemapper>>{};
+  final Map<OutboxDrainer, List<StreamSubscription<RemapEvent>>>
   _retiredDrainerRemapForwards =
-      <OutboxDrainer, StreamSubscription<RemapEvent>>{};
+      <OutboxDrainer, List<StreamSubscription<RemapEvent>>>{};
 
   @override
   SyncStatus build() {
@@ -673,16 +673,15 @@ class SyncEngine extends _$SyncEngine {
   }
 
   void _clearStaleDrainerIfIdle(OutboxDrainer drainer) {
-    final retiredRemapper = _retiredDrainerRemappers[drainer];
-    final retiredForward = _retiredDrainerRemapForwards[drainer];
-    if (retiredRemapper != null || retiredForward != null) {
+    final hasRetiredRemappers =
+        _retiredDrainerRemappers[drainer]?.isNotEmpty ?? false;
+    final hasRetiredForwards =
+        _retiredDrainerRemapForwards[drainer]?.isNotEmpty ?? false;
+    if (hasRetiredRemappers || hasRetiredForwards) {
       if (drainer.isDraining) {
         return;
       }
-      _retiredDrainerRemappers.remove(drainer);
-      _retiredDrainerRemapForwards.remove(drainer);
-      unawaited(retiredForward?.cancel());
-      unawaited(retiredRemapper?.dispose());
+      _disposeRetiredDrainerRemappersFor(drainer);
     }
     if (!identical(_drainer, drainer) ||
         !_drainerStaleAfterDrain ||
@@ -698,9 +697,11 @@ class SyncEngine extends _$SyncEngine {
     final remapper = _remapper;
     final forward = _remapForward;
     if (drainer != null && remapper != null) {
-      _retiredDrainerRemappers[drainer] = remapper;
+      (_retiredDrainerRemappers[drainer] ??= <IdRemapper>[]).add(remapper);
       if (forward != null) {
-        _retiredDrainerRemapForwards[drainer] = forward;
+        (_retiredDrainerRemapForwards[drainer] ??=
+                <StreamSubscription<RemapEvent>>[])
+            .add(forward);
       }
     } else {
       unawaited(forward?.cancel());
@@ -715,12 +716,23 @@ class SyncEngine extends _$SyncEngine {
         _retiredDrainerRemapForwards.isEmpty) {
       return;
     }
-    final remappers = _retiredDrainerRemappers.values.toList(growable: false);
-    final forwards = _retiredDrainerRemapForwards.values.toList(
-      growable: false,
-    );
-    _retiredDrainerRemappers.clear();
-    _retiredDrainerRemapForwards.clear();
+    final drainers = <OutboxDrainer>{
+      ..._retiredDrainerRemappers.keys,
+      ..._retiredDrainerRemapForwards.keys,
+    };
+    for (final drainer in drainers) {
+      if (!drainer.isDraining) {
+        _disposeRetiredDrainerRemappersFor(drainer);
+      }
+    }
+  }
+
+  void _disposeRetiredDrainerRemappersFor(OutboxDrainer drainer) {
+    final remappers =
+        _retiredDrainerRemappers.remove(drainer) ?? const <IdRemapper>[];
+    final forwards =
+        _retiredDrainerRemapForwards.remove(drainer) ??
+        const <StreamSubscription<RemapEvent>>[];
     for (final forward in forwards) {
       unawaited(forward.cancel());
     }

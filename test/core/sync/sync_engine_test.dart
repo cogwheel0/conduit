@@ -1226,6 +1226,45 @@ void main() {
     );
 
     test(
+      'disposing after auth flip keeps retired remap forwarding until drain ends',
+      () async {
+        await seedLocalCreate(
+          'local:auth-dispose-remap',
+          contentHash: 'h-auth-dispose-remap',
+        );
+        final authProvider = NotifierProvider<_MutableValue<bool>, bool>(
+          () => _MutableValue<bool>(true),
+        );
+        final container = makeContainer(
+          authBuilder: (ref) => ref.watch(authProvider),
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+        final remapEvents = <RemapEvent>[];
+        final remapSub = engine.remapEvents.listen(remapEvents.add);
+        addTearDown(remapSub.cancel);
+
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+        final drain = engine.drainOutbox();
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+
+        container.read(authProvider.notifier).set(false);
+        container.read(syncEngineProvider);
+        check(engine.hasCachedDrainerForTesting).isFalse();
+        check(engine.hasCachedRemapperForTesting).isFalse();
+
+        container.dispose();
+        gate.complete();
+        await drain;
+
+        check(remapEvents).length.equals(1);
+        check(remapEvents.single.fromId).equals('local:auth-dispose-remap');
+        check(engine.hasCachedDrainerForTesting).isFalse();
+        check(engine.hasCachedRemapperForTesting).isFalse();
+      },
+    );
+
+    test(
       'pull-cycle drain clears a stale drainer after dependency refresh',
       () async {
         await seedLocalCreate('local:pull-stale', contentHash: 'h-pull-stale');
