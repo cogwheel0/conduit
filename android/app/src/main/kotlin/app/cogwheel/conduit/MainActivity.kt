@@ -24,6 +24,8 @@ import org.json.JSONObject
 
 class MainActivity : FlutterActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
+    private lateinit var nativeSttBridge: NativeSttBridge
+    private lateinit var nativeTtsBridge: NativeTtsBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         sanitizeLaunchIntent(intent)?.let { setIntent(it) }
@@ -68,6 +70,10 @@ class MainActivity : FlutterActivity() {
         // Initialize background streaming handler
         backgroundStreamingHandler = BackgroundStreamingHandler(this)
         backgroundStreamingHandler.setup(flutterEngine)
+        nativeSttBridge = NativeSttBridge(this)
+        nativeSttBridge.setup(flutterEngine)
+        nativeTtsBridge = NativeTtsBridge(this)
+        nativeTtsBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(
@@ -727,9 +733,15 @@ class MainActivity : FlutterActivity() {
     }
     
     override fun onDestroy() {
-        super.onDestroy()
+        if (::nativeSttBridge.isInitialized) {
+            nativeSttBridge.dispose()
+        }
+        if (::nativeTtsBridge.isInitialized) {
+            nativeTtsBridge.dispose()
+        }
         if (::backgroundStreamingHandler.isInitialized) {
             backgroundStreamingHandler.cleanup()
         }
+        super.onDestroy()
     }
 }

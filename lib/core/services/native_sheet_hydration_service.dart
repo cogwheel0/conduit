@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/tools/providers/tools_providers.dart';
+import '../../features/chat/providers/text_to_speech_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../models/model.dart';
@@ -557,7 +558,23 @@ class NativeSheetHydrationService {
 
   Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {
     final appSettings = _ref.read(appSettingsProvider);
-    final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
+    var ttsVoices = const <Map<String, dynamic>>[];
+    try {
+      final ttsService = _ref.read(textToSpeechServiceProvider);
+      await ttsService.updateSettings(engine: appSettings.ttsEngine);
+      ttsVoices = await ttsService.getAvailableVoices();
+    } catch (error, stackTrace) {
+      DebugLogger.warning(
+        'native-tts-voices-load-failed',
+        scope: 'native-sheet',
+        data: {'error': error, 'stackTrace': stackTrace},
+      );
+    }
+    final nativeAudio = buildNativeAudioSheetParts(
+      l10n,
+      appSettings,
+      ttsVoices: ttsVoices,
+    );
     await _applyNativeDetail(
       NativeSheetDetailConfig(
         id: NativeSheetRoutes.voice,

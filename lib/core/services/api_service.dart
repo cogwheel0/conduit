@@ -5582,6 +5582,15 @@ class ApiService {
     }
   }
 
+  Future<void> stopTasksByChat(String chatId) async {
+    try {
+      final encodedChatId = Uri.encodeComponent(chatId);
+      await _dio.post('/api/tasks/chat/$encodedChatId/stop');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<List<String>> getTaskIdsByChat(String chatId) async {
     try {
       final resp = await _dio.get('/api/tasks/chat/$chatId');

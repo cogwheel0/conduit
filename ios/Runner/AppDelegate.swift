@@ -14,13 +14,16 @@ private let conduitShareUserDefaultsKey = "SharingKey"
 private let conduitShareMessageKey = "SharingMessageKey"
 private let conduitShareImportStatusKey = "ShareImportStatusKey"
 private let conduitShareAppGroupIdKey = "AppGroupId"
+private let conduitVoiceAudioRouteChannelName = "app.cogwheel.conduit/voice_audio_route"
+private let nativeIosTtsMethodChannelName = "app.cogwheel.conduit/native_ios_tts"
+private let nativeIosTtsEventChannelName = "app.cogwheel.conduit/native_ios_tts/events"
 
 /// Manages AVAudioSession for voice calls in the background.
 ///
 /// IMPORTANT: This manager is ONLY used for server-side STT (speech-to-text).
-/// When using local STT via speech_to_text plugin, that plugin manages its own
-/// audio session. Do NOT activate this manager when local STT is in use to
-/// avoid audio session conflicts.
+/// When using local STT, the native recognizer path manages its own audio
+/// session. Do NOT activate this manager when local STT is in use to avoid
+/// audio session conflicts.
 ///
 /// The voice_call_service.dart checks `useServerMic` before calling
 /// startBackgroundExecution with requiresMicrophone:true.
@@ -30,13 +33,13 @@ final class VoiceBackgroundAudioManager {
     private var isActive = false
     private let lock = NSLock()
     
-    /// Flag indicating another component (e.g., speech_to_text plugin) owns the audio session.
+    /// Flag indicating another component owns the audio session.
     /// When true, this manager will skip activation to avoid conflicts.
     private var externalSessionOwner = false
 
     private init() {}
     
-    /// Mark that an external component (e.g., speech_to_text) is managing the audio session.
+    /// Mark that an external component is managing the audio session.
     /// Call this before starting local STT to prevent conflicts.
     func setExternalSessionOwner(_ isExternal: Bool) {
         lock.lock()
@@ -70,7 +73,7 @@ final class VoiceBackgroundAudioManager {
         let session = AVAudioSession.sharedInstance()
         do {
             // Check current category to avoid unnecessary reconfiguration
-            // This helps prevent conflicts if speech_to_text already configured the session
+            // This helps prevent conflicts if local STT already configured the session.
             let currentCategory = session.category
             let needsReconfiguration = currentCategory != .playAndRecord
             
@@ -121,6 +124,396 @@ final class VoiceBackgroundAudioManager {
         lock.lock()
         defer { lock.unlock() }
         return isActive
+    }
+}
+
+final class VoiceAudioRouteBridge {
+    static let shared = VoiceAudioRouteBridge()
+
+    private var methodChannel: FlutterMethodChannel?
+
+    private init() {}
+
+    deinit {}
+
+    func configure(messenger: FlutterBinaryMessenger) {
+        let channel = FlutterMethodChannel(
+            name: conduitVoiceAudioRouteChannelName,
+            binaryMessenger: messenger
+        )
+        methodChannel = channel
+        channel.setMethodCallHandler { [weak self] call, result in
+            guard let self else {
+                result(nil)
+                return
+            }
+
+            switch call.method {
+            case "preferBluetoothHfpInput":
+                result(self.preferBluetoothHfpInput())
+            case "clearPreferredInput":
+                result(self.clearPreferredInput())
+            case "currentRoute":
+                result(self.currentRoutePayload(operation: "currentRoute"))
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+    }
+
+    private func preferBluetoothHfpInput() -> [String: Any] {
+        let session = AVAudioSession.sharedInstance()
+        let availableInputs = session.availableInputs ?? []
+        guard let bluetoothInput = availableInputs.first(where: { $0.portType == .bluetoothHFP }) else {
+            var payload = currentRoutePayload(operation: "preferBluetoothHfpInput")
+            payload["selected"] = false
+            payload["reason"] = "bluetooth-hfp-input-unavailable"
+            payload["availableInputs"] = availableInputs.map { portPayload($0) }
+            return payload
+        }
+
+        do {
+            try session.setPreferredInput(bluetoothInput)
+            var payload = currentRoutePayload(
+                operation: "preferBluetoothHfpInput",
+                preferredInput: bluetoothInput
+            )
+            payload["selected"] = true
+            payload["availableInputs"] = availableInputs.map { portPayload($0) }
+            return payload
+        } catch {
+            var payload = currentRoutePayload(
+                operation: "preferBluetoothHfpInput",
+                preferredInput: bluetoothInput
+            )
+            payload["selected"] = false
+            payload["error"] = error.localizedDescription
+            payload["availableInputs"] = availableInputs.map { portPayload($0) }
+            return payload
+        }
+    }
+
+    private func clearPreferredInput() -> [String: Any] {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setPreferredInput(nil)
+            var payload = currentRoutePayload(operation: "clearPreferredInput")
+            payload["cleared"] = true
+            return payload
+        } catch {
+            var payload = currentRoutePayload(operation: "clearPreferredInput")
+            payload["cleared"] = false
+            payload["error"] = error.localizedDescription
+            return payload
+        }
+    }
+
+    private func currentRoutePayload(
+        operation: String,
+        preferredInput: AVAudioSessionPortDescription? = nil
+    ) -> [String: Any] {
+        let session = AVAudioSession.sharedInstance()
+        var payload: [String: Any] = [
+            "operation": operation,
+            "category": session.category.rawValue,
+            "mode": session.mode.rawValue,
+            "sampleRate": session.sampleRate,
+            "currentInputs": session.currentRoute.inputs.map { portPayload($0) },
+            "currentOutputs": session.currentRoute.outputs.map { portPayload($0) },
+        ]
+
+        if let preferredInput {
+            payload["preferredInput"] = portPayload(preferredInput)
+        } else if let preferredInput = session.preferredInput {
+            payload["preferredInput"] = portPayload(preferredInput)
+        }
+
+        return payload
+    }
+
+    private func portPayload(_ port: AVAudioSessionPortDescription) -> [String: Any] {
+        [
+            "type": port.portType.rawValue,
+            "uid": port.uid,
+        ]
+    }
+}
+
+final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesizerDelegate {
+    static let shared = NativeIosTtsBridge()
+
+    private let synthesizer = AVSpeechSynthesizer()
+    private var methodChannel: FlutterMethodChannel?
+    private var eventSink: FlutterEventSink?
+
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
+
+    deinit {}
+
+    func configure(messenger: FlutterBinaryMessenger) {
+        let methodChannel = FlutterMethodChannel(
+            name: nativeIosTtsMethodChannelName,
+            binaryMessenger: messenger
+        )
+        self.methodChannel = methodChannel
+        methodChannel.setMethodCallHandler { [weak self] call, result in
+            self?.handle(call: call, result: result)
+        }
+
+        FlutterEventChannel(
+            name: nativeIosTtsEventChannelName,
+            binaryMessenger: messenger
+        ).setStreamHandler(self)
+    }
+
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        eventSink = events
+        return nil
+    }
+
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        eventSink = nil
+        return nil
+    }
+
+    private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "isAvailable":
+            result(true)
+        case "getVoices":
+            loadVoicesForPicker(result: result)
+        case "speak":
+            guard let arguments = call.arguments as? [String: Any],
+                  let text = arguments["text"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                result(false)
+                return
+            }
+
+            if synthesizer.isSpeaking || synthesizer.isPaused {
+                synthesizer.stopSpeaking(at: .immediate)
+            }
+
+            let utterance = AVSpeechUtterance(string: text)
+            if let identifier = arguments["voiceIdentifier"] as? String,
+               !identifier.isEmpty,
+               let voice = resolveVoice(identifier) {
+                utterance.voice = voice
+            }
+            utterance.rate = Self.speechRate(from: arguments["rate"])
+            utterance.pitchMultiplier = Self.floatValue(
+                arguments["pitch"],
+                fallback: 1.0,
+                min: 0.5,
+                max: 2.0
+            )
+            utterance.volume = Self.floatValue(
+                arguments["volume"],
+                fallback: 1.0,
+                min: 0.0,
+                max: 1.0
+            )
+            synthesizer.speak(utterance)
+            result(true)
+        case "stop":
+            result(synthesizer.stopSpeaking(at: .immediate))
+        case "pause":
+            result(synthesizer.pauseSpeaking(at: .word))
+        case "resume":
+            result(synthesizer.continueSpeaking())
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+
+    private func loadVoicesForPicker(result: @escaping FlutterResult) {
+        if #available(iOS 17.0, *),
+           AVSpeechSynthesizer.personalVoiceAuthorizationStatus == .notDetermined {
+            AVSpeechSynthesizer.requestPersonalVoiceAuthorization { [weak self] _ in
+                DispatchQueue.main.async {
+                    result(self?.availableVoicePayloads() ?? [])
+                }
+            }
+            return
+        }
+
+        result(availableVoicePayloads())
+    }
+
+    private func availableVoicePayloads() -> [[String: Any]] {
+        AVSpeechSynthesisVoice.speechVoices()
+            .sorted { left, right in
+                let leftLanguage = left.language.localizedCaseInsensitiveCompare(right.language)
+                if leftLanguage != .orderedSame {
+                    return leftLanguage == .orderedAscending
+                }
+
+                let leftName = left.name.localizedCaseInsensitiveCompare(right.name)
+                if leftName != .orderedSame {
+                    return leftName == .orderedAscending
+                }
+
+                return left.identifier.localizedCaseInsensitiveCompare(right.identifier) == .orderedAscending
+            }
+            .map(voicePayload)
+    }
+
+    private func voicePayload(_ voice: AVSpeechSynthesisVoice) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": voice.identifier,
+            "identifier": voice.identifier,
+            "name": voice.name,
+            "displayName": displayName(for: voice),
+            "locale": voice.language,
+            "language": voice.language,
+            "languageName": Locale.current.localizedString(forIdentifier: voice.language) ?? voice.language,
+            "quality": voice.quality.rawValue,
+            "qualityName": qualityName(voice.quality),
+            "gender": voice.gender.rawValue,
+        ]
+
+        if #available(iOS 17.0, *) {
+            let traits = voice.voiceTraits
+            let isPersonalVoice = traits.contains(.isPersonalVoice)
+            let isNoveltyVoice = traits.contains(.isNoveltyVoice)
+            payload["isPersonalVoice"] = isPersonalVoice
+            payload["isNoveltyVoice"] = isNoveltyVoice
+            payload["traits"] = voiceTraitNames(
+                isPersonalVoice: isPersonalVoice,
+                isNoveltyVoice: isNoveltyVoice
+            )
+        }
+
+        return payload
+    }
+
+    private func displayName(for voice: AVSpeechSynthesisVoice) -> String {
+        if #available(iOS 17.0, *) {
+            if voice.voiceTraits.contains(.isPersonalVoice) {
+                return "\(voice.name) (Personal Voice)"
+            }
+            if voice.voiceTraits.contains(.isNoveltyVoice) {
+                return "\(voice.name) (Novelty)"
+            }
+        }
+
+        return voice.name
+    }
+
+    private func voiceTraitNames(isPersonalVoice: Bool, isNoveltyVoice: Bool) -> [String] {
+        var names: [String] = []
+        if isPersonalVoice {
+            names.append("personal")
+        }
+        if isNoveltyVoice {
+            names.append("novelty")
+        }
+        return names
+    }
+
+    private func resolveVoice(_ requested: String) -> AVSpeechSynthesisVoice? {
+        let trimmed = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let voice = AVSpeechSynthesisVoice(identifier: trimmed) {
+            return voice
+        }
+
+        let normalized = trimmed.lowercased()
+        if let exact = AVSpeechSynthesisVoice.speechVoices().first(where: { voice in
+            voice.identifier.lowercased() == normalized ||
+                voice.name.lowercased() == normalized ||
+                voice.language.lowercased() == normalized
+        }) {
+            return exact
+        }
+
+        return AVSpeechSynthesisVoice(language: trimmed)
+    }
+
+    private func qualityName(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
+        switch quality {
+        case .default:
+            return "Default"
+        case .enhanced:
+            return "Enhanced"
+        @unknown default:
+            if quality.rawValue == 3 {
+                return "Premium"
+            }
+            return "Unknown"
+        }
+    }
+
+    private static func speechRate(from raw: Any?) -> Float {
+        let requested = floatValue(
+            raw,
+            fallback: AVSpeechUtteranceDefaultSpeechRate,
+            min: AVSpeechUtteranceMinimumSpeechRate,
+            max: AVSpeechUtteranceMaximumSpeechRate
+        )
+        return requested
+    }
+
+    private static func floatValue(
+        _ raw: Any?,
+        fallback: Float,
+        min: Float,
+        max: Float
+    ) -> Float {
+        let value: Float
+        if let number = raw as? NSNumber {
+            value = number.floatValue
+        } else if let double = raw as? Double {
+            value = Float(double)
+        } else if let string = raw as? String, let parsed = Float(string) {
+            value = parsed
+        } else {
+            value = fallback
+        }
+        return Swift.min(Swift.max(value, min), max)
+    }
+
+    private func emit(_ event: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            self?.eventSink?(event)
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        emit(["type": "start"])
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        emit(["type": "complete"])
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        emit(["type": "cancel"])
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didPause utterance: AVSpeechUtterance) {
+        emit(["type": "pause"])
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didContinue utterance: AVSpeechUtterance) {
+        emit(["type": "continue"])
+    }
+
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance
+    ) {
+        emit([
+            "type": "progress",
+            "start": characterRange.location,
+            "end": characterRange.location + characterRange.length,
+        ])
     }
 }
 
@@ -1097,6 +1490,9 @@ struct AppShortcuts: AppShortcutsProvider {
     NativeKeyboardAttachmentBridge.shared.configure(messenger: messenger)
     NativeSheetBridge.shared.configure(messenger: messenger)
     NativeDropdownBridge.shared.configure(messenger: messenger)
+    NativeSttBridge.shared.configure(messenger: messenger)
+    VoiceAudioRouteBridge.shared.configure(messenger: messenger)
+    NativeIosTtsBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)
 
     let shareImportChannel = FlutterMethodChannel(

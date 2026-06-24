@@ -3,7 +3,6 @@ import 'dart:io' show Directory, File, Platform;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -12,6 +11,7 @@ import '../../../core/models/backend_config.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/background_streaming_handler.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+import 'native_tts_service.dart';
 
 // =============================================================================
 // TTS Events
@@ -165,7 +165,7 @@ class TtsConfig {
 
 /// Single global manager for all TTS operations.
 ///
-/// This manager owns the FlutterTts and AudioPlayer instances and ensures
+/// This manager owns native device TTS and AudioPlayer instances and ensures
 /// only one playback session is active at a time. Events are emitted via
 /// a stream that consumers can listen to.
 class TtsManager {
@@ -183,11 +183,11 @@ class TtsManager {
   TtsManager._();
   static final instance = TtsManager._();
 
-  // FlutterTts instance (lazy initialized)
-  FlutterTts? _tts;
   bool _ttsInitialized = false;
-  bool _handlersSet = false;
   Completer<void>? _initCompleter;
+  final NativeTtsService _nativeTts = NativeTtsService();
+  StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
+  bool _nativeTtsAvailable = false;
 
   // AudioPlayer for server TTS (using just_audio)
   final AudioPlayer _player = AudioPlayer();
@@ -263,16 +263,10 @@ class TtsManager {
 
   /// Updates the TTS configuration.
   Future<void> updateConfig(TtsConfig config) async {
+    final voiceChanged = config.voice != _config.voice;
     _config = config;
-
-    if (_tts != null && _ttsInitialized) {
-      await _tts!.setVolume(config.volume);
-      await _tts!.setSpeechRate(config.speechRate);
-      await _tts!.setPitch(config.pitch);
-
-      if (config.voice != null) {
-        await _setVoiceByName(config.voice);
-      }
+    if (voiceChanged) {
+      _voiceConfigured = false;
     }
 
     if (_playerConfigured) {
@@ -298,7 +292,7 @@ class TtsManager {
       _config = config;
     }
 
-    // Initialize FlutterTts
+    // Initialize native device TTS.
     await _ensureTtsInitialized();
 
     // Configure AudioPlayer for all platforms (using just_audio)
@@ -436,7 +430,7 @@ class TtsManager {
       await _player.stop();
       await _player.clearAudioSources();
     } else {
-      if (!_deviceEngineAvailable || _tts == null) {
+      if (!_deviceEngineAvailable) {
         throw StateError('Device TTS is not available');
       }
       if (!_voiceConfigured) {
@@ -502,7 +496,7 @@ class TtsManager {
       if (session.useServerTts) {
         await _player.pause();
       } else {
-        await _tts?.pause();
+        await _nativeTts.pause();
       }
     } catch (e) {
       _emitEvent(TtsError(e.toString()));
@@ -519,7 +513,7 @@ class TtsManager {
         await _player.play();
         _emitEvent(const TtsResumed());
       } else {
-        // Device TTS resume is handled by the native handler
+        await _nativeTts.resume();
       }
     } catch (e) {
       _emitEvent(TtsError(e.toString()));
@@ -537,7 +531,7 @@ class TtsManager {
       if (session.useServerTts) {
         await _player.stop();
       } else {
-        await _tts?.stop();
+        await _nativeTts.stop();
       }
       _resetPlaybackState();
       _emitEvent(const TtsCancelled());
@@ -571,6 +565,8 @@ class TtsManager {
   /// Disposes the manager and releases resources.
   Future<void> dispose() async {
     await stop();
+    await _nativeTtsSub?.cancel();
+    _nativeTtsSub = null;
     await _playerStateSub?.cancel();
     await _playerIndexSub?.cancel();
     await _player.dispose();
@@ -691,21 +687,37 @@ class TtsManager {
   /// Gets available voices from the device TTS engine.
   Future<List<Map<String, dynamic>>> getDeviceVoices() async {
     await _ensureTtsInitialized();
-    if (_tts == null) return [];
+    final voices = await _nativeTts.getVoices();
+    final engine = !kIsWeb && Platform.isIOS ? 'AVSpeech' : 'AndroidTTS';
+    return _mergeDeviceVoices([
+      voices.map((voice) => {...voice, 'engine': engine}).toList(),
+    ]);
+  }
 
-    try {
-      final voicesRaw = await _tts!.getVoices;
-      if (voicesRaw is! List) return [];
-
-      return voicesRaw
-          .whereType<Map>()
-          .map((e) => _normalizeVoiceEntry(e))
-          .where((e) => e.isNotEmpty)
-          .toList();
-    } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-      return [];
+  List<Map<String, dynamic>> _mergeDeviceVoices(
+    List<List<Map<String, dynamic>>> groups,
+  ) {
+    final merged = <String, Map<String, dynamic>>{};
+    for (final group in groups) {
+      for (final voice in group) {
+        final key = _voiceDedupeKey(voice);
+        if (key == null || merged.containsKey(key)) {
+          continue;
+        }
+        merged[key] = voice;
+      }
     }
+    return merged.values.toList(growable: false);
+  }
+
+  String? _voiceDedupeKey(Map<String, dynamic> voice) {
+    for (final key in const ['identifier', 'id', 'voiceIdentifier', 'name']) {
+      final value = voice[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value.toLowerCase();
+      }
+    }
+    return null;
   }
 
   String _normalizeSplitOn(String? splitOn) {
@@ -774,9 +786,10 @@ class TtsManager {
     if (_currentChunkIndex < 0) {
       _currentChunkIndex = 0;
       _emitEvent(const TtsChunkStarted(0));
-      final result = await _tts!.speak(chunk);
-      if (result is int && result != 1) {
-        _emitEvent(TtsError('TTS engine returned error code $result'));
+      try {
+        await _speakDeviceChunk(chunk);
+      } catch (error) {
+        _failDevicePlayback(session, error);
       }
       return;
     }
@@ -826,7 +839,6 @@ class TtsManager {
   Future<void> _ensureTtsInitialized() async {
     if (_ttsInitialized) return;
 
-    // Prevent concurrent initialization
     if (_initCompleter != null) {
       await _initCompleter!.future;
       return;
@@ -835,20 +847,6 @@ class TtsManager {
     _initCompleter = Completer<void>();
 
     try {
-      final tts = FlutterTts();
-      _tts = tts;
-
-      // Wait for native TTS to be fully initialized before setting handlers.
-      // The flutter_tts plugin has a bug where setting handlers during onInit
-      // causes ConcurrentModificationException.
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-
-      if (!_handlersSet) {
-        _setupTtsHandlers(tts);
-        _handlersSet = true;
-      }
-
-      // Configure device engine
       await _configureDeviceEngine();
 
       _ttsInitialized = true;
@@ -860,80 +858,50 @@ class TtsManager {
     }
   }
 
-  void _setupTtsHandlers(FlutterTts tts) {
-    tts.setStartHandler(() {
-      if (_activeSession != null && !_activeSession!.useServerTts) {
+  Future<void> _configureDeviceEngine() async {
+    _deviceEngineAvailable = false;
+    _nativeTtsAvailable = await _nativeTts.isAvailable();
+    if (_nativeTtsAvailable && _nativeTtsSub == null) {
+      _nativeTtsSub = _nativeTts.events.listen(
+        _handleNativeTtsEvent,
+        onError: (Object error) {
+          _emitEvent(TtsError(error.toString()));
+        },
+      );
+    }
+
+    _deviceEngineAvailable = _nativeTtsAvailable;
+  }
+
+  void _handleNativeTtsEvent(NativeTtsEvent event) {
+    final session = _activeSession;
+    if (session == null || session.useServerTts) {
+      return;
+    }
+
+    switch (event.type) {
+      case 'start':
         _emitEvent(const TtsStarted());
-      }
-    });
-
-    tts.setCompletionHandler(() {
-      _onDeviceChunkComplete();
-    });
-
-    tts.setCancelHandler(() {
-      if (_activeSession != null && !_activeSession!.useServerTts) {
+      case 'complete':
+        _onDeviceChunkComplete();
+      case 'cancel':
         _activeSession = null;
         _resetPlaybackState();
         _emitEvent(const TtsCancelled());
-      }
-    });
-
-    tts.setPauseHandler(() {
-      if (_activeSession != null && !_activeSession!.useServerTts) {
+      case 'pause':
         _emitEvent(const TtsPaused());
-      }
-    });
-
-    tts.setContinueHandler(() {
-      if (_activeSession != null && !_activeSession!.useServerTts) {
+      case 'continue':
         _emitEvent(const TtsResumed());
-      }
-    });
-
-    tts.setErrorHandler((msg) {
-      _emitEvent(TtsError(msg.toString()));
-    });
-
-    try {
-      tts.setProgressHandler((String text, int start, int end, String word) {
-        if (_activeSession != null && !_activeSession!.useServerTts) {
+      case 'progress':
+        final start = event.start;
+        final end = event.end;
+        if (start != null && end != null) {
           _emitEvent(TtsWordProgress(start, end));
         }
-      });
-    } catch (_) {
-      // Some platforms may not support progress handler
-    }
-  }
-
-  Future<void> _configureDeviceEngine() async {
-    if (_tts == null) return;
-
-    _deviceEngineAvailable = false;
-    try {
-      // Set default engine on Android
-      if (!kIsWeb && Platform.isAndroid) {
-        try {
-          final engine = await _tts!.getDefaultEngine;
-          if (engine is String && engine.isNotEmpty) {
-            await _tts!.setEngine(engine);
-          }
-        } catch (_) {}
-      }
-
-      await _tts!.awaitSpeakCompletion(true);
-      await _tts!.setVolume(_config.volume);
-      await _tts!.setSpeechRate(_config.speechRate);
-      await _tts!.setPitch(_config.pitch);
-
-      if (!kIsWeb && Platform.isIOS) {
-        await _tts!.setSharedInstance(true);
-      }
-
-      _deviceEngineAvailable = true;
-    } catch (e) {
-      _deviceEngineAvailable = false;
-      _emitEvent(TtsError(e.toString()));
+      case 'error':
+        _activeSession = null;
+        _resetPlaybackState();
+        _emitEvent(TtsError(event.message ?? 'Native TTS failed'));
     }
   }
 
@@ -942,7 +910,7 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _startDevicePlayback(TtsPlaybackSession session) async {
-    if (!_deviceEngineAvailable || _tts == null) {
+    if (!_deviceEngineAvailable) {
       throw StateError('Device TTS is not available');
     }
 
@@ -955,10 +923,7 @@ class TtsManager {
 
     // Speak first chunk
     _emitEvent(const TtsChunkStarted(0));
-    final result = await _tts!.speak(session.chunks.first);
-    if (result is int && result != 1) {
-      throw StateError('TTS engine returned error code $result');
-    }
+    await _speakDeviceChunk(session.chunks.first);
   }
 
   void _onDeviceChunkComplete() {
@@ -983,11 +948,30 @@ class TtsManager {
     _currentChunkIndex = nextIndex;
     _emitEvent(TtsChunkStarted(nextIndex));
 
-    _tts?.speak(session.chunks[nextIndex]).then((result) {
-      if (result is int && result != 1) {
-        _emitEvent(TtsError('TTS engine returned error code $result'));
-      }
+    _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
+      _failDevicePlayback(session, error);
     });
+  }
+
+  Future<void> _speakDeviceChunk(String chunk) async {
+    final started = await _nativeTts.speak(
+      text: chunk,
+      voiceIdentifier: _config.voice,
+      rate: _config.speechRate,
+      pitch: _config.pitch,
+      volume: _config.volume,
+    );
+    if (!started) {
+      throw StateError('Native TTS failed to start');
+    }
+  }
+
+  void _failDevicePlayback(TtsPlaybackSession session, Object error) {
+    if (_activeSession?.id == session.id) {
+      _activeSession = null;
+      _resetPlaybackState();
+    }
+    _emitEvent(TtsError(error.toString()));
   }
 
   // ===========================================================================
@@ -1462,78 +1446,9 @@ class TtsManager {
     }
   }
 
-  Future<void> _setVoiceByName(String? voiceName) async {
-    if (_tts == null || voiceName == null) return;
-    if (kIsWeb || (!Platform.isIOS && !Platform.isAndroid)) return;
-
-    try {
-      final voicesRaw = await _tts!.getVoices;
-      if (voicesRaw is! List) return;
-
-      for (final entry in voicesRaw) {
-        if (entry is Map) {
-          final normalized = _normalizeVoiceEntry(entry);
-          final name = normalized['name'] as String?;
-          if (name == voiceName) {
-            await _tts!.setVoice(_voiceCommandFrom(normalized));
-            _voiceConfigured = true;
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-    }
-  }
-
   Future<void> _configurePreferredVoice() async {
-    if (_voiceConfigured || _tts == null) return;
-    if (kIsWeb || (!Platform.isIOS && !Platform.isAndroid)) {
-      _voiceConfigured = true;
-      return;
-    }
-
-    try {
-      // Try to use configured voice
-      if (_config.voice != null) {
-        await _setVoiceByName(_config.voice);
-        if (_voiceConfigured) return;
-      }
-
-      // Fall back to system default
-      _voiceConfigured = true;
-    } catch (e) {
-      _emitEvent(TtsError(e.toString()));
-      _voiceConfigured = true;
-    }
-  }
-
-  Map<String, dynamic> _normalizeVoiceEntry(Map<dynamic, dynamic> entry) {
-    final normalized = <String, dynamic>{};
-    entry.forEach((key, value) {
-      if (key != null) {
-        normalized[key.toString()] = value;
-      }
-    });
-    return normalized;
-  }
-
-  Map<String, String> _voiceCommandFrom(Map<String, dynamic> voice) {
-    final command = <String, String>{};
-    for (final key in [
-      'name',
-      'locale',
-      'identifier',
-      'id',
-      'voiceIdentifier',
-      'engine',
-    ]) {
-      final value = voice[key];
-      if (value != null) {
-        command[key] = value.toString();
-      }
-    }
-    return command;
+    if (_voiceConfigured) return;
+    _voiceConfigured = true;
   }
 }
 

@@ -99,6 +99,8 @@
 		<string>Conduit needs access to your photo library so you can select existing images or videos to share in chats. For example, you can pick a screenshot to include in a conversation.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>
 		<string>Conduit uses on-device speech recognition so you can dictate messages hands‑free. Your speech is converted to text on your device when available.</string>
+		<key>NSPersonalVoiceUsageDescription</key>
+		<string>Conduit can use your Personal Voice for on-device text-to-speech when you choose it in audio settings.</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
 		<key>UIBackgroundModes</key>

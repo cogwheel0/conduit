@@ -79,6 +79,7 @@ class _StubAdapter implements HttpClientAdapter {
   final Map<String, dynamic>? pollResponse;
   final cancelledIds = <String>[];
   final stoppedTaskIds = <String>[];
+  final stoppedChatIds = <String>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -90,6 +91,25 @@ class _StubAdapter implements HttpClientAdapter {
     if (options.method == 'POST' && options.path.contains('/api/tasks/stop/')) {
       final taskId = options.path.split('/').last;
       stoppedTaskIds.add(taskId);
+      return ResponseBody(
+        Stream.value(utf8.encode('{"status": true}')),
+        200,
+        headers: {
+          'content-type': ['application/json'],
+        },
+      );
+    }
+
+    if (options.method == 'POST' &&
+        options.path.contains('/api/tasks/chat/') &&
+        options.path.endsWith('/stop')) {
+      const prefix = '/api/tasks/chat/';
+      const suffix = '/stop';
+      final start = options.path.indexOf(prefix) + prefix.length;
+      final end = options.path.length - suffix.length;
+      stoppedChatIds.add(
+        Uri.decodeComponent(options.path.substring(start, end)),
+      );
       return ResponseBody(
         Stream.value(utf8.encode('{"status": true}')),
         200,
@@ -691,21 +711,31 @@ void main() {
 
       await pumpMicrotasks();
 
-      registrar.emitChatEvent('chat:completion', {
-        'choices': [
-          {
-            'delta': {'content': 'He'},
-          },
-        ],
-      }, conversationId: 'conv-1', messageId: 'server-msg-1');
+      registrar.emitChatEvent(
+        'chat:completion',
+        {
+          'choices': [
+            {
+              'delta': {'content': 'He'},
+            },
+          ],
+        },
+        conversationId: 'conv-1',
+        messageId: 'server-msg-1',
+      );
       await pumpMicrotasks();
-      registrar.emitChatEvent('chat:completion', {
-        'choices': [
-          {
-            'delta': {'content': 'llo'},
-          },
-        ],
-      }, conversationId: 'conv-1', messageId: 'server-msg-1');
+      registrar.emitChatEvent(
+        'chat:completion',
+        {
+          'choices': [
+            {
+              'delta': {'content': 'llo'},
+            },
+          ],
+        },
+        conversationId: 'conv-1',
+        messageId: 'server-msg-1',
+      );
       await pumpMicrotasks();
 
       check(log.appendedChunks).deepEquals(['He', 'llo']);
@@ -741,13 +771,18 @@ void main() {
 
       await pumpMicrotasks();
 
-      registrar.emitChatEvent('chat:completion', {
-        'choices': [
-          {
-            'delta': {'content': 'tial'},
-          },
-        ],
-      }, conversationId: 'conv-1', messageId: 'server-msg-1');
+      registrar.emitChatEvent(
+        'chat:completion',
+        {
+          'choices': [
+            {
+              'delta': {'content': 'tial'},
+            },
+          ],
+        },
+        conversationId: 'conv-1',
+        messageId: 'server-msg-1',
+      );
       await pumpMicrotasks();
 
       // Only the new delta is appended; the already-visible 'Par' prefix is
@@ -1004,6 +1039,38 @@ void main() {
 
       check(adapter.stoppedTaskIds).deepEquals(['task-abc']);
     });
+
+    test(
+      'stop cancels taskSocket by chat when conversation metadata exists',
+      () async {
+        final api = _buildFakeApi();
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        final message = ChatMessage(
+          id: 'msg-task-chat',
+          role: 'assistant',
+          content: 'partial...',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+          metadata: const {
+            'transport': 'taskSocket',
+            'taskId': 'task-abc',
+            'taskConversationId': 'conv/with/slash',
+          },
+        );
+
+        stopActiveTransport(message, api);
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(adapter.stoppedChatIds).deepEquals(['conv/with/slash']);
+        check(adapter.stoppedTaskIds).isEmpty();
+      },
+    );
 
     // -------------------------------------------------------------------
     // 5. Stop cancels both abort handle and task id for mixed initiation

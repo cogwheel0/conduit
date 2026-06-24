@@ -10,6 +10,7 @@ import '../../../core/models/model.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/tts_voice_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -1177,12 +1178,9 @@ class AppCustomizationPage extends ConsumerWidget {
               const SizedBox(height: Spacing.sm),
               AdaptiveSegmentedSelector<TtsEngine>(
                 value: settings.ttsEngine,
-                onChanged: (engine) {
+                onChanged: (engine) async {
                   final notifier = ref.read(appSettingsProvider.notifier);
-                  if (engine == TtsEngine.server) {
-                    notifier.setTtsVoice(null);
-                  }
-                  notifier.setTtsEngine(engine);
+                  await notifier.setTtsEngineSelection(engine);
                 },
                 options: [
                   (
@@ -1323,13 +1321,14 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   String _ttsVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
-    final deviceName = _getDisplayVoiceName(
-      settings.ttsVoice,
-      l10n.ttsSystemDefault,
+    final deviceName = formatTtsVoiceDisplayName(
+      settings.ttsVoiceName ?? settings.ttsVoice ?? l10n.ttsSystemDefault,
     );
     final serverVoice =
-        (settings.ttsServerVoiceName ?? settings.ttsServerVoiceId) ?? '';
-    final serverName = _getDisplayVoiceName(serverVoice, l10n.ttsSystemDefault);
+        settings.ttsServerVoiceName ??
+        settings.ttsServerVoiceId ??
+        l10n.ttsSystemDefault;
+    final serverName = formatTtsVoiceDisplayName(serverVoice);
 
     switch (settings.ttsEngine) {
       case TtsEngine.device:
@@ -1458,32 +1457,24 @@ class AppCustomizationPage extends ConsumerWidget {
 
     // Combine: matching voices first, then others
     final voices = [...matchingVoices, ...otherVoices];
-    const systemDefaultId = '__system_default__';
+    final voiceOptions = buildTtsVoiceOptions(l10n, settings.ttsEngine, voices);
+    final selectedOptionId = selectedTtsVoiceOptionId(settings, voices);
     if (Platform.isIOS) {
       try {
         final selectedId = await NativeSheetBridge.instance
             .presentOptionsSelector(
               title: l10n.ttsSelectVoice,
-              selectedOptionId:
-                  ((settings.ttsEngine == TtsEngine.server
-                              ? settings.ttsServerVoiceId
-                              : settings.ttsVoice)
-                          ?.isNotEmpty ??
-                      false)
-                  ? settings.ttsEngine == TtsEngine.server
-                        ? settings.ttsServerVoiceId
-                        : settings.ttsVoice
-                  : systemDefaultId,
+              selectedOptionId: selectedOptionId,
               options: [
                 NativeSheetOptionConfig(
-                  id: systemDefaultId,
+                  id: ttsSystemDefaultVoiceId,
                   label: l10n.ttsSystemDefault,
                 ),
-                for (final voice in voices)
+                for (final option in voiceOptions)
                   NativeSheetOptionConfig(
-                    id: _getVoiceIdentifier(voice, settings.ttsEngine),
-                    label: _formatVoiceName(l10n, voice),
-                    subtitle: _getVoiceSubtitle(voice),
+                    id: option.id,
+                    label: option.label,
+                    subtitle: option.subtitle,
                   ),
               ],
               rethrowErrors: true,
@@ -1492,25 +1483,33 @@ class AppCustomizationPage extends ConsumerWidget {
           return;
         }
         final notifier = ref.read(appSettingsProvider.notifier);
-        if (selectedId == systemDefaultId) {
+        if (selectedId == ttsSystemDefaultVoiceId) {
           if (settings.ttsEngine == TtsEngine.server) {
-            notifier.setTtsServerVoiceId(null);
-            notifier.setTtsServerVoiceName(null);
+            await notifier.setTtsServerVoiceSelection(null, null);
           } else {
-            notifier.setTtsVoice(null);
+            await notifier.setTtsDeviceVoiceSelection(null, null);
           }
           return;
         }
-        final selectedVoice = voices.firstWhere(
-          (voice) =>
-              _getVoiceIdentifier(voice, settings.ttsEngine) == selectedId,
+        final selectedVoice = findTtsVoiceOption(
+          l10n,
+          settings.ttsEngine,
+          voices,
+          selectedId,
         );
-        final displayName = _formatVoiceName(l10n, selectedVoice);
+        if (selectedVoice == null) {
+          return;
+        }
         if (settings.ttsEngine == TtsEngine.server) {
-          notifier.setTtsServerVoiceId(selectedId);
-          notifier.setTtsServerVoiceName(displayName);
+          await notifier.setTtsServerVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         } else {
-          notifier.setTtsVoice(selectedId);
+          await notifier.setTtsDeviceVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         }
         return;
       } catch (_) {
@@ -1520,21 +1519,31 @@ class AppCustomizationPage extends ConsumerWidget {
       }
     }
 
-    final entries = <({String? section, Map<String, dynamic>? voice})>[
-      (section: null, voice: null),
+    final matchingOptions = buildTtsVoiceOptions(
+      l10n,
+      settings.ttsEngine,
+      matchingVoices,
+    );
+    final otherOptions = buildTtsVoiceOptions(
+      l10n,
+      settings.ttsEngine,
+      otherVoices,
+    );
+    final entries = <({String? section, TtsVoiceOptionData? option})>[
+      (section: null, option: null),
       if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
         (
           section: l10n.ttsVoicesForLanguage(appLanguageCode.toUpperCase()),
-          voice: null,
+          option: null,
         ),
       if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
-        for (final voice in matchingVoices) (section: null, voice: voice),
+        for (final option in matchingOptions) (section: null, option: option),
       if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
-        (section: l10n.ttsOtherVoices, voice: null),
+        (section: l10n.ttsOtherVoices, option: null),
       if (matchingVoices.isNotEmpty && otherVoices.isNotEmpty)
-        for (final voice in otherVoices) (section: null, voice: voice),
+        for (final option in otherOptions) (section: null, option: option),
       if (matchingVoices.isEmpty || otherVoices.isEmpty)
-        for (final voice in voices) (section: null, voice: voice),
+        for (final option in voiceOptions) (section: null, option: option),
     ];
 
     if (!context.mounted) {
@@ -1570,46 +1579,42 @@ class AppCustomizationPage extends ConsumerWidget {
               );
             }
 
-            final voice = entry.voice;
-            if (voice == null) {
-              final selected = settings.ttsEngine == TtsEngine.server
-                  ? settings.ttsServerVoiceId == null
-                  : settings.ttsVoice == null;
+            final option = entry.option;
+            if (option == null) {
               return SettingsSelectorTile(
                 title: l10n.ttsSystemDefault,
-                selected: selected,
-                onTap: () {
+                selected: selectedOptionId == ttsSystemDefaultVoiceId,
+                onTap: () async {
                   final notifier = ref.read(appSettingsProvider.notifier);
                   if (settings.ttsEngine == TtsEngine.server) {
-                    notifier.setTtsServerVoiceId(null);
-                    notifier.setTtsServerVoiceName(null);
+                    await notifier.setTtsServerVoiceSelection(null, null);
                   } else {
-                    notifier.setTtsVoice(null);
+                    await notifier.setTtsDeviceVoiceSelection(null, null);
                   }
+                  if (!sheetContext.mounted) return;
                   Navigator.of(sheetContext).pop();
                 },
               );
             }
 
-            final voiceId = _getVoiceIdentifier(voice, settings.ttsEngine);
-            final displayName = _formatVoiceName(l10n, voice);
-            final subtitle = _getVoiceSubtitle(voice);
-            final selected = settings.ttsEngine == TtsEngine.server
-                ? settings.ttsServerVoiceId == voiceId
-                : settings.ttsVoice == voiceId;
-
             return SettingsSelectorTile(
-              title: displayName,
-              subtitle: subtitle.isEmpty ? null : subtitle,
-              selected: selected,
-              onTap: () {
+              title: option.label,
+              subtitle: option.subtitle,
+              selected: option.id == selectedOptionId,
+              onTap: () async {
                 final notifier = ref.read(appSettingsProvider.notifier);
                 if (settings.ttsEngine == TtsEngine.server) {
-                  notifier.setTtsServerVoiceId(voiceId);
-                  notifier.setTtsServerVoiceName(displayName);
+                  await notifier.setTtsServerVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 } else {
-                  notifier.setTtsVoice(voiceId);
+                  await notifier.setTtsDeviceVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 }
+                if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
               },
             );
@@ -1653,169 +1658,6 @@ class AppCustomizationPage extends ConsumerWidget {
         type: AdaptiveSnackBarType.error,
       );
     }
-  }
-
-  String _getDisplayVoiceName(String? voiceName, String defaultLabel) {
-    if (voiceName == null || voiceName.isEmpty) {
-      return defaultLabel;
-    }
-
-    // Format Android-style voice names with # separator
-    if (voiceName.contains('#')) {
-      final parts = voiceName.split('#');
-      if (parts.length > 1) {
-        var friendlyName = parts[1]
-            .replaceAll('-local', '')
-            .replaceAll('-network', '')
-            .replaceAll('_', ' ')
-            .split(' ')
-            .map(
-              (word) =>
-                  word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1),
-            )
-            .join(' ');
-
-        final localeInfo = parts[0].toUpperCase().replaceAll('_', '-');
-        return '$localeInfo - $friendlyName';
-      }
-    }
-
-    // Handle Android-style voice IDs without # (e.g., "es-us-x-sfb-local")
-    if (voiceName.contains('-x-') ||
-        voiceName.endsWith('-local') ||
-        voiceName.endsWith('-network') ||
-        voiceName.endsWith('-language')) {
-      var localePart = '';
-      var qualityPart = '';
-
-      if (voiceName.contains('-x-')) {
-        final xParts = voiceName.split('-x-');
-        localePart = xParts[0];
-        qualityPart = xParts.length > 1 ? xParts[1] : '';
-      } else if (voiceName.contains('-language')) {
-        localePart = voiceName.replaceAll('-language', '');
-      } else {
-        final dashIndex = voiceName.indexOf('-', 3);
-        if (dashIndex > 0) {
-          localePart = voiceName.substring(0, dashIndex);
-        } else {
-          localePart = voiceName;
-        }
-      }
-
-      final formattedLocale = localePart.toUpperCase();
-
-      if (qualityPart.isNotEmpty) {
-        qualityPart = qualityPart
-            .replaceAll('-local', '')
-            .replaceAll('-network', '')
-            .toUpperCase();
-        return '$formattedLocale ($qualityPart)';
-      }
-
-      return formattedLocale;
-    }
-
-    // For iOS or other platforms with proper names, return as-is
-    return voiceName;
-  }
-
-  String _formatVoiceName(AppLocalizations l10n, Map<String, dynamic> voice) {
-    final name = voice['name'] as String? ?? l10n.unknownLabel;
-    final locale = voice['locale'] as String? ?? '';
-
-    // Handle Android-style voice IDs with # separator (e.g., "en-us-x-sfg#male_1-local")
-    if (name.contains('#')) {
-      final parts = name.split('#');
-      if (parts.length > 1) {
-        var friendlyName = parts[1]
-            .replaceAll('-local', '')
-            .replaceAll('-network', '')
-            .replaceAll('_', ' ')
-            .split(' ')
-            .map(
-              (word) =>
-                  word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1),
-            )
-            .join(' ');
-
-        if (locale.isNotEmpty) {
-          final localeUpper = locale.toUpperCase().replaceAll('_', '-');
-          return '$localeUpper - $friendlyName';
-        }
-        return friendlyName;
-      }
-    }
-
-    // Handle Android-style voice IDs without # (e.g., "es-us-x-sfb-local", "ja-jp-x-htm-network")
-    if (name.contains('-x-') ||
-        name.endsWith('-local') ||
-        name.endsWith('-network') ||
-        name.endsWith('-language')) {
-      // Extract the main locale part (first 2-5 chars before -x- or other markers)
-      var localePart = '';
-      var qualityPart = '';
-
-      if (name.contains('-x-')) {
-        final xParts = name.split('-x-');
-        localePart = xParts[0];
-        qualityPart = xParts.length > 1 ? xParts[1] : '';
-      } else if (name.contains('-language')) {
-        localePart = name.replaceAll('-language', '');
-      } else {
-        // Try to extract locale (first 5 chars like "es-us" or "ja-jp")
-        final dashIndex = name.indexOf('-', 3);
-        if (dashIndex > 0) {
-          localePart = name.substring(0, dashIndex);
-        } else {
-          localePart = name;
-        }
-      }
-
-      // Format the locale part
-      final formattedLocale = localePart.toUpperCase();
-
-      // Format quality indicators
-      if (qualityPart.isNotEmpty) {
-        qualityPart = qualityPart
-            .replaceAll('-local', '')
-            .replaceAll('-network', '')
-            .toUpperCase();
-        return '$formattedLocale ($qualityPart)';
-      }
-
-      return formattedLocale;
-    }
-
-    // For iOS or other platforms with proper names, return as-is
-    return name;
-  }
-
-  String _getVoiceIdentifier(Map<String, dynamic> voice, TtsEngine engine) {
-    final id = voice['id'] as String?;
-    final name = voice['name'] as String?;
-    final identifier = voice['identifier'] as String?;
-
-    return switch (engine) {
-      TtsEngine.server => id ?? name ?? identifier ?? 'unknown',
-      TtsEngine.device => name ?? identifier ?? id ?? 'unknown',
-    };
-  }
-
-  String _getVoiceSubtitle(Map<String, dynamic> voice) {
-    final locale = voice['locale'] as String? ?? '';
-    final name = voice['name'] as String? ?? '';
-
-    // If name contains technical info, show the locale part
-    if (name.contains('#')) {
-      final parts = name.split('#');
-      if (parts.isNotEmpty) {
-        final localeInfo = parts[0].toUpperCase().replaceAll('_', '-');
-        return localeInfo;
-      }
-    }
-
-    return locale.isNotEmpty ? locale : '';
   }
 
   String _resolveLanguageLabel(BuildContext context, String code) {

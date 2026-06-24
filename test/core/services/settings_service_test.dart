@@ -76,6 +76,10 @@ void main() {
         check(settings.ttsVoice).isNull();
       });
 
+      test('ttsVoiceName defaults to null', () {
+        check(settings.ttsVoiceName).isNull();
+      });
+
       test('ttsSpeechRate defaults to 0.5', () {
         check(settings.ttsSpeechRate).equals(0.5);
       });
@@ -178,6 +182,7 @@ void main() {
           voiceLocaleId: 'en_US',
           sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
+          ttsVoiceName: 'Voice One',
           ttsServerVoiceId: 'server-voice-1',
           ttsServerVoiceName: 'Server Voice',
         );
@@ -186,6 +191,7 @@ void main() {
         check(modified.voiceLocaleId).equals('en_US');
         check(modified.sttLanguageCode).equals('pl');
         check(modified.ttsVoice).equals('voice1');
+        check(modified.ttsVoiceName).equals('Voice One');
         check(modified.ttsServerVoiceId).equals('server-voice-1');
         check(modified.ttsServerVoiceName).equals('Server Voice');
       });
@@ -196,6 +202,7 @@ void main() {
           voiceLocaleId: 'en_US',
           sttLanguageCode: 'pl',
           ttsVoice: 'voice1',
+          ttsVoiceName: 'Voice One',
           ttsServerVoiceId: 'server-voice-1',
           ttsServerVoiceName: 'Server Voice',
         );
@@ -205,6 +212,7 @@ void main() {
           voiceLocaleId: null,
           sttLanguageCode: null,
           ttsVoice: null,
+          ttsVoiceName: null,
           ttsServerVoiceId: null,
           ttsServerVoiceName: null,
         );
@@ -213,6 +221,7 @@ void main() {
         check(cleared.voiceLocaleId).isNull();
         check(cleared.sttLanguageCode).isNull();
         check(cleared.ttsVoice).isNull();
+        check(cleared.ttsVoiceName).isNull();
         check(cleared.ttsServerVoiceId).isNull();
         check(cleared.ttsServerVoiceName).isNull();
       });
@@ -281,6 +290,12 @@ void main() {
 
       test('different sttLanguageCode yields inequality', () {
         final a = const AppSettings().copyWith(sttLanguageCode: 'pl');
+        const b = AppSettings();
+        check(a).not((it) => it.equals(b));
+      });
+
+      test('different ttsVoiceName yields inequality', () {
+        final a = const AppSettings().copyWith(ttsVoiceName: 'Voice One');
         const b = AppSettings();
         check(a).not((it) => it.equals(b));
       });

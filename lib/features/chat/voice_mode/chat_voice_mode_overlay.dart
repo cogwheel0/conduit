@@ -176,50 +176,55 @@ class _CollapsedVoicePill extends ConsumerWidget {
     return Align(
       key: const ValueKey('voice-overlay-collapsed'),
       alignment: Alignment.center,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.cardBackground.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: theme.cardBorder),
-          boxShadow: ConduitShadows.messageBubble(context),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _StatusDot(snapshot: snapshot, compact: true),
-              const SizedBox(width: Spacing.sm),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 180),
-                child: Text(
-                  _phaseLabel(l10n, snapshot),
-                  style: AppTypography.labelStyle.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w700,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.cardBackground.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: theme.cardBorder),
+            boxShadow: ConduitShadows.messageBubble(context),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _StatusDot(snapshot: snapshot, compact: true),
+                const SizedBox(width: Spacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: Text(
+                    _phaseLabel(l10n, snapshot),
+                    style: AppTypography.labelStyle.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              _AdaptiveVoiceAction(
-                tooltip: 'Expand',
-                onPressed: controller.expand,
-                icon: Platform.isIOS
-                    ? CupertinoIcons.chevron_up
-                    : Icons.keyboard_arrow_up_rounded,
-                compact: true,
-              ),
-              _AdaptiveVoiceAction(
-                tooltip: l10n.voiceCallEnd,
-                onPressed: controller.stop,
-                icon: Platform.isIOS
-                    ? CupertinoIcons.phone_down_fill
-                    : Icons.call_end_rounded,
-                destructive: true,
-                compact: true,
-              ),
-            ],
+                const SizedBox(width: Spacing.sm),
+                _AdaptiveVoiceAction(
+                  tooltip: 'Expand',
+                  onPressed: controller.expand,
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.chevron_up
+                      : Icons.keyboard_arrow_up_rounded,
+                  compact: true,
+                ),
+                const SizedBox(width: Spacing.xxs),
+                _AdaptiveVoiceAction(
+                  tooltip: l10n.voiceCallEnd,
+                  onPressed: controller.stop,
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.phone_down_fill
+                      : Icons.call_end_rounded,
+                  destructive: true,
+                  compact: true,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -259,11 +264,16 @@ class _VoiceText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = switch (snapshot.phase) {
-      ChatVoiceModePhase.speaking ||
-      ChatVoiceModePhase.sending => snapshot.assistantPreview,
-      _ => snapshot.transcript,
-    };
+    if (snapshot.phase == ChatVoiceModePhase.speaking ||
+        snapshot.phase == ChatVoiceModePhase.sending) {
+      final spoken = snapshot.spokenResponse.trim();
+      if (spoken.isEmpty) {
+        return const SizedBox(height: 36);
+      }
+      return _KaraokeResponseBar(snapshot: snapshot);
+    }
+
+    final text = snapshot.transcript;
     if (text.trim().isEmpty) {
       return const SizedBox(height: 20);
     }
@@ -275,6 +285,105 @@ class _VoiceText extends StatelessWidget {
       ),
       maxLines: 3,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class _KaraokeResponseBar extends StatelessWidget {
+  const _KaraokeResponseBar({required this.snapshot});
+
+  final ChatVoiceModeSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final rawText = snapshot.spokenResponse;
+    final text = rawText.trim();
+    final leadingTrim = rawText.length - rawText.trimLeft().length;
+    final adjustedStart = snapshot.spokenWordStart == null
+        ? null
+        : snapshot.spokenWordStart! - leadingTrim;
+    final adjustedEnd = snapshot.spokenWordEnd == null
+        ? null
+        : snapshot.spokenWordEnd! - leadingTrim;
+    final baseStyle = AppTypography.bodyMediumStyle.copyWith(
+      color: theme.textPrimary.withValues(alpha: Alpha.strong),
+      fontWeight: FontWeight.w500,
+      height: 1.25,
+    );
+    final highlightStyle = baseStyle.copyWith(
+      color: theme.buttonPrimaryText,
+      backgroundColor: theme.buttonPrimary,
+      fontWeight: FontWeight.w800,
+    );
+
+    return Semantics(
+      label: text,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.surfaceContainerHighest.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: theme.cardBorder.withValues(alpha: 0.75),
+            width: BorderWidth.thin,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.xs,
+          ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            child: RichText(
+              key: ValueKey<String>(text),
+              text: _karaokeTextSpan(
+                text: text,
+                baseStyle: baseStyle,
+                highlightStyle: highlightStyle,
+                start: adjustedStart,
+                end: adjustedEnd,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textScaler: MediaQuery.textScalerOf(context),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  TextSpan _karaokeTextSpan({
+    required String text,
+    required TextStyle baseStyle,
+    required TextStyle highlightStyle,
+    required int? start,
+    required int? end,
+  }) {
+    if (start == null ||
+        end == null ||
+        start < 0 ||
+        end <= start ||
+        start >= text.length) {
+      return TextSpan(text: text, style: baseStyle);
+    }
+
+    final safeStart = start.clamp(0, text.length).toInt();
+    final safeEnd = end.clamp(safeStart, text.length).toInt();
+    return TextSpan(
+      children: [
+        if (safeStart > 0)
+          TextSpan(text: text.substring(0, safeStart), style: baseStyle),
+        TextSpan(
+          text: text.substring(safeStart, safeEnd),
+          style: highlightStyle,
+        ),
+        if (safeEnd < text.length)
+          TextSpan(text: text.substring(safeEnd), style: baseStyle),
+      ],
     );
   }
 }

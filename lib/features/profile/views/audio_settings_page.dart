@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -214,12 +215,9 @@ class AudioSettingsPage extends ConsumerWidget {
             children: [
               AdaptiveSegmentedSelector<TtsEngine>(
                 value: settings.ttsEngine,
-                onChanged: (engine) {
+                onChanged: (engine) async {
                   final notifier = ref.read(appSettingsProvider.notifier);
-                  if (engine == TtsEngine.server) {
-                    notifier.setTtsVoice(null);
-                  }
-                  notifier.setTtsEngine(engine);
+                  await notifier.setTtsEngineSelection(engine);
                 },
                 options: [
                   (
@@ -334,11 +332,15 @@ class AudioSettingsPage extends ConsumerWidget {
 
   String _voiceSubtitle(AppLocalizations l10n, AppSettings settings) {
     if (settings.ttsEngine == TtsEngine.server) {
-      return settings.ttsServerVoiceName ??
+      final voice =
+          settings.ttsServerVoiceName ??
           settings.ttsServerVoiceId ??
           l10n.ttsSystemDefault;
+      return formatTtsVoiceDisplayName(voice);
     }
-    return settings.ttsVoice ?? l10n.ttsSystemDefault;
+    final voice =
+        settings.ttsVoiceName ?? settings.ttsVoice ?? l10n.ttsSystemDefault;
+    return formatTtsVoiceDisplayName(voice);
   }
 
   Future<void> _showVoicePickerSheet(
@@ -360,28 +362,24 @@ class AudioSettingsPage extends ConsumerWidget {
     }
 
     final notifier = ref.read(appSettingsProvider.notifier);
-    const systemDefaultId = '__system_default__';
+    final voiceOptions = buildTtsVoiceOptions(l10n, settings.ttsEngine, voices);
+    final selectedOptionId = selectedTtsVoiceOptionId(settings, voices);
     if (Platform.isIOS) {
       try {
         final selectedId = await NativeSheetBridge.instance
             .presentOptionsSelector(
               title: l10n.ttsSelectVoice,
-              selectedOptionId: _isSystemDefaultSelected(settings)
-                  ? systemDefaultId
-                  : settings.ttsEngine == TtsEngine.server
-                  ? settings.ttsServerVoiceId
-                  : settings.ttsVoice,
+              selectedOptionId: selectedOptionId,
               options: [
                 NativeSheetOptionConfig(
-                  id: systemDefaultId,
+                  id: ttsSystemDefaultVoiceId,
                   label: l10n.ttsSystemDefault,
                 ),
-                for (final voice in voices)
+                for (final option in voiceOptions)
                   NativeSheetOptionConfig(
-                    id: _voiceId(settings.ttsEngine, voice),
-                    label: (voice['name'] ?? voice['id'] ?? l10n.unknownLabel)
-                        .toString(),
-                    subtitle: (voice['locale'] as String?)?.trim(),
+                    id: option.id,
+                    label: option.label,
+                    subtitle: option.subtitle,
                   ),
               ],
               rethrowErrors: true,
@@ -389,26 +387,33 @@ class AudioSettingsPage extends ConsumerWidget {
         if (selectedId == null) {
           return;
         }
-        if (selectedId == systemDefaultId) {
+        if (selectedId == ttsSystemDefaultVoiceId) {
           if (settings.ttsEngine == TtsEngine.server) {
-            notifier.setTtsServerVoiceId(null);
-            notifier.setTtsServerVoiceName(null);
+            await notifier.setTtsServerVoiceSelection(null, null);
           } else {
-            notifier.setTtsVoice(null);
+            await notifier.setTtsDeviceVoiceSelection(null, null);
           }
           return;
         }
-        final selectedVoice = voices.cast<Map<String, dynamic>>().firstWhere(
-          (voice) => _voiceId(settings.ttsEngine, voice) == selectedId,
+        final selectedVoice = findTtsVoiceOption(
+          l10n,
+          settings.ttsEngine,
+          voices,
+          selectedId,
         );
-        final selectedName =
-            (selectedVoice['name'] ?? selectedVoice['id'] ?? l10n.unknownLabel)
-                .toString();
+        if (selectedVoice == null) {
+          return;
+        }
         if (settings.ttsEngine == TtsEngine.server) {
-          notifier.setTtsServerVoiceId(selectedId);
-          notifier.setTtsServerVoiceName(selectedName);
+          await notifier.setTtsServerVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         } else {
-          notifier.setTtsVoice(selectedId);
+          await notifier.setTtsDeviceVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         }
         return;
       } catch (_) {}
@@ -422,7 +427,7 @@ class AudioSettingsPage extends ConsumerWidget {
       builder: (sheetContext) {
         return SettingsSelectorSheet(
           title: l10n.ttsSelectVoice,
-          itemCount: voices.length + 1,
+          itemCount: voiceOptions.length + 1,
           initialChildSize: 0.68,
           minChildSize: 0.42,
           maxChildSize: 0.9,
@@ -430,35 +435,37 @@ class AudioSettingsPage extends ConsumerWidget {
             if (index == 0) {
               return SettingsSelectorTile(
                 title: l10n.ttsSystemDefault,
-                selected: _isSystemDefaultSelected(settings),
-                onTap: () {
+                selected: selectedOptionId == ttsSystemDefaultVoiceId,
+                onTap: () async {
                   if (settings.ttsEngine == TtsEngine.server) {
-                    notifier.setTtsServerVoiceId(null);
-                    notifier.setTtsServerVoiceName(null);
+                    await notifier.setTtsServerVoiceSelection(null, null);
                   } else {
-                    notifier.setTtsVoice(null);
+                    await notifier.setTtsDeviceVoiceSelection(null, null);
                   }
+                  if (!sheetContext.mounted) return;
                   Navigator.of(sheetContext).pop();
                 },
               );
             }
 
-            final voice = voices[index - 1];
-            final name = (voice['name'] ?? voice['id'] ?? l10n.unknownLabel)
-                .toString();
-            final locale = (voice['locale'] as String?)?.trim() ?? '';
+            final option = voiceOptions[index - 1];
             return SettingsSelectorTile(
-              title: name,
-              subtitle: locale.isEmpty ? null : locale,
-              selected: _isSelectedVoice(settings, voice),
-              onTap: () {
-                final id = _voiceId(settings.ttsEngine, voice);
+              title: option.label,
+              subtitle: option.subtitle,
+              selected: option.id == selectedOptionId,
+              onTap: () async {
                 if (settings.ttsEngine == TtsEngine.server) {
-                  notifier.setTtsServerVoiceId(id);
-                  notifier.setTtsServerVoiceName(name);
+                  await notifier.setTtsServerVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 } else {
-                  notifier.setTtsVoice(id);
+                  await notifier.setTtsDeviceVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 }
+                if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
               },
             );
@@ -466,29 +473,6 @@ class AudioSettingsPage extends ConsumerWidget {
         );
       },
     );
-  }
-
-  bool _isSystemDefaultSelected(AppSettings settings) {
-    return settings.ttsEngine == TtsEngine.server
-        ? settings.ttsServerVoiceId == null
-        : settings.ttsVoice == null;
-  }
-
-  bool _isSelectedVoice(AppSettings settings, Map<String, dynamic> voice) {
-    final id = _voiceId(settings.ttsEngine, voice);
-    return settings.ttsEngine == TtsEngine.server
-        ? settings.ttsServerVoiceId == id
-        : settings.ttsVoice == id;
-  }
-
-  String _voiceId(TtsEngine engine, Map<String, dynamic> voice) {
-    final id = voice['id']?.toString();
-    final name = voice['name']?.toString();
-    final identifier = voice['identifier']?.toString();
-    return switch (engine) {
-      TtsEngine.server => id ?? name ?? identifier ?? 'unknown',
-      TtsEngine.device => name ?? identifier ?? id ?? 'unknown',
-    };
   }
 
   Future<void> _previewTtsVoice(BuildContext context, WidgetRef ref) async {

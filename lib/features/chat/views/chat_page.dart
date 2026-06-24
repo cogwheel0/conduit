@@ -1846,6 +1846,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Watch models once here instead of per-message in the item builder.
     final modelsAsync = watchRef.watch(modelsProvider);
     final models = modelsAsync.hasValue ? modelsAsync.value : null;
+    final suppressAssistantStreamingHaptics = watchRef.watch(
+      chatVoiceModeControllerProvider.select((voice) => voice.isActive),
+    );
     final layoutMetadata = _resolveChatListStableLayoutMetadata(
       messages: messages,
       models: models,
@@ -2025,6 +2028,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           versionModelNames: rowMetadata.versionModelNames,
                           versionModelIconUrls:
                               rowMetadata.versionModelIconUrls,
+                          suppressStreamingHaptics:
+                              suppressAssistantStreamingHaptics,
                           onCopy: () {
                             final currentMessage = rowRef.read(
                               chatMessageByIdProvider(messageId),
