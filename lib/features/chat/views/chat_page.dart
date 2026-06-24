@@ -26,6 +26,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
+import '../../hermes/models/hermes_model.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -2745,12 +2746,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       trailingActionCount: trailingActionCount,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
+    // Single-agent backends (Hermes) have nothing to pick — hide the dropdown.
+    final selectedModel = ref.watch(selectedModelProvider);
+    final showModelDropdown =
+        selectedModel == null || !isHermesModel(selectedModel);
     final leading = _buildNativeToolbarLeading(
       context: context,
       isLoadingConversation: isLoadingConversation,
       modelLabel: modelLabel,
       leadingGap: leadingGap,
       maxModelWidth: maxModelWidth,
+      showModelDropdown: showModelDropdown,
     );
     final actions = _buildAdaptiveToolbarActionWidgets(
       context: context,
@@ -2802,6 +2808,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String modelLabel,
     required double leadingGap,
     required double maxModelWidth,
+    required bool showModelDropdown,
   }) {
     return buildConduitAdaptiveToolbarLeadingRow(
       children: [
@@ -2816,6 +2823,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: modelLabel,
           maxWidth: maxModelWidth,
           isLoading: isLoadingConversation,
+          showChevron: showModelDropdown,
           onPressed: () => _openModelSelector(context),
         ),
       ],

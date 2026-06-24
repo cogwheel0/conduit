@@ -12,6 +12,8 @@ import '../../../core/models/chat_message.dart';
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
+import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/widgets/hermes_approval_card.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'enhanced_attachment.dart';
@@ -23,6 +25,7 @@ import '../../../shared/widgets/web_content_embed.dart';
 import '../providers/chat_providers.dart'
     show
         chatComposerTextInsertionTargetId,
+        chatMessagesProvider,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider;
@@ -1015,6 +1018,85 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _buildDocumentationMessage();
   }
 
+  /// Renders the Hermes human-approval gate when the assistant message is
+  /// paused awaiting a decision. Returns an empty box otherwise.
+  Widget _buildHermesApprovalCard() {
+    final approval = widget.message.metadata?['hermesApproval'];
+    if (approval is! Map) return const SizedBox.shrink();
+
+    // Belt-and-suspenders: hide the gate if the server doesn't support approval.
+    final caps = ref.read(hermesCapabilitiesProvider).asData?.value;
+    if (caps != null && !caps.runApproval) return const SizedBox.shrink();
+
+    final stateStr = approval['state']?.toString() ?? 'pending';
+    final state = switch (stateStr) {
+      'resolving' => HermesApprovalState.resolving,
+      'approved' => HermesApprovalState.approved,
+      'denied' => HermesApprovalState.denied,
+      _ => HermesApprovalState.pending,
+    };
+
+    return HermesApprovalCard(
+      state: state,
+      summary: approval['summary']?.toString(),
+      onDecision: (approved) => _resolveHermesApproval(approved),
+    );
+  }
+
+  Future<void> _resolveHermesApproval(bool approved) async {
+    final approval = widget.message.metadata?['hermesApproval'];
+    if (approval is! Map) return;
+    final approvalId = approval['approvalId']?.toString();
+    final runId = approval['runId']?.toString();
+    if (approvalId == null || runId == null) return;
+
+    void setApprovalState(String next) {
+      ref.read(chatMessagesProvider.notifier).updateMessageById(
+        widget.message.id,
+        (m) {
+          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+          final current = meta['hermesApproval'];
+          if (current is! Map) return m;
+          meta['hermesApproval'] = {
+            ...current.cast<String, dynamic>(),
+            'state': next,
+          };
+          return m.copyWith(metadata: meta);
+        },
+      );
+    }
+
+    // If Hermes was disabled/invalidated between display and tap, the service is
+    // null and `?.resolveApproval` would silently no-op while the UI claimed
+    // success — leaving the server-side run blocked. Keep the gate decidable.
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) {
+      DebugLogger.warning('approval-no-service', scope: 'chat/hermes_approval');
+      setApprovalState('pending');
+      return;
+    }
+
+    setApprovalState('resolving');
+    try {
+      await service.resolveApproval(
+        runId,
+        approvalId: approvalId,
+        approved: approved,
+      );
+    } catch (error) {
+      // Surface failure by returning the gate to a decidable state.
+      DebugLogger.error(
+        'approval-resolve-failed',
+        scope: 'chat/hermes_approval',
+        error: error,
+      );
+      setApprovalState('pending');
+      return;
+    }
+    if (!mounted) return;
+    setApprovalState(approved ? 'approved' : 'denied');
+  }
+
   Widget _buildDocumentationMessage() {
     final displayStatusHistory = filterVisibleStatusUpdates(
       widget.message.statusHistory,
@@ -1130,6 +1212,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                       child: _buildStreamingContentBody(),
                     ),
                   ),
+
+                _buildHermesApprovalCard(),
 
                 if (showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),

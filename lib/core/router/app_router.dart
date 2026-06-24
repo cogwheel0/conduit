@@ -7,11 +7,15 @@ import 'package:go_router/go_router.dart';
 
 import '../auth/auth_state_manager.dart';
 import '../providers/app_providers.dart';
+import '../providers/backend_mode_providers.dart';
+import '../../features/hermes/models/hermes_config.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
 import '../services/navigation_service.dart';
 import '../services/performance_profiler.dart';
 import '../utils/debug_logger.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/auth/views/authentication_page.dart';
+import '../../features/auth/views/backend_chooser_page.dart';
 import '../../features/auth/views/connect_signin_page.dart';
 import '../../features/auth/views/connection_issue_page.dart';
 import '../../features/auth/views/proxy_auth_page.dart';
@@ -29,6 +33,8 @@ import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/hermes/views/hermes_settings_page.dart';
+import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -47,6 +53,10 @@ class RouterNotifier extends ChangeNotifier {
         authNavigationStateProvider,
         _onStateChanged,
       ),
+      // Hermes-only routing: re-evaluate when the preferred backend changes or
+      // the Hermes config becomes usable (secrets finish loading).
+      ref.listen<PreferredBackend>(preferredBackendProvider, _onStateChanged),
+      ref.listen<HermesConfig>(hermesConfigProvider, _onStateChanged),
     ];
   }
 
@@ -85,9 +95,23 @@ class RouterNotifier extends ChangeNotifier {
       return Routes.chat;
     }
 
+    // Onboarding screens (backend chooser + Hermes setup) always render.
+    if (location == Routes.backendChooser ||
+        location == Routes.hermesSettings) {
+      return null;
+    }
+
+    final preferredBackend = ref.read(preferredBackendProvider);
+    final hermesUsable = ref.read(hermesConfigProvider).isUsable;
+    final prefersHermes = preferredBackend == PreferredBackend.hermes;
+
     if (activeServerAsync.isLoading) {
       // Avoid redirect loops: do not override explicit auth routes while loading
       if (_isAuthLocation(location)) return null;
+      // Hermes-only user: don't flash the OWUI splash→serverConnection path.
+      if (prefersHermes && hermesUsable) {
+        return location == Routes.chat ? null : Routes.chat;
+      }
       // Keep splash during server loading otherwise
       return location == Routes.splash ? null : Routes.splash;
     }
@@ -98,11 +122,30 @@ class RouterNotifier extends ChangeNotifier {
 
     final activeServer = activeServerAsync.asData?.value;
     final hasActiveServer = activeServer != null;
+
+    // Hermes-only mode: onboarded to Hermes with no OWUI server → straight to
+    // chat, bypassing OWUI server/auth entirely (mirrors reviewer mode).
+    if (prefersHermes && !hasActiveServer) {
+      // Let a Hermes-only user reach the OWUI connect/auth flow so they can add
+      // an Open WebUI server (bidirectional switching). Once connected,
+      // preferredBackend flips to owui and this branch no longer applies.
+      if (_isAuthLocation(location)) return null;
+      if (hermesUsable) {
+        return location == Routes.chat ? null : Routes.chat;
+      }
+      // Not usable yet. If Hermes is still enabled, the API key secret is just
+      // loading → hold on splash (the hermesConfigProvider subscription re-runs
+      // this once it resolves). If disabled (config cleared), fall through to
+      // the chooser so the user is never stranded.
+      if (ref.read(hermesConfigProvider).enabled) {
+        return location == Routes.splash ? null : Routes.splash;
+      }
+    }
+
     if (!hasActiveServer) {
-      // No server configured - redirect to server connection
+      // No server configured - redirect to onboarding chooser.
       // Exception: allow staying on server connection, authentication,
       // proxy auth, and SSO pages during the connection/auth flow.
-      // But always redirect away from connection issue page (user logged out)
       if (location == Routes.serverConnection ||
           location == Routes.authentication ||
           location == Routes.proxyAuth ||
@@ -110,7 +153,7 @@ class RouterNotifier extends ChangeNotifier {
           location == Routes.login) {
         return null;
       }
-      return Routes.serverConnection;
+      return Routes.backendChooser;
     }
 
     final authState = ref.read(authNavigationStateProvider);
@@ -259,6 +302,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const ConnectAndSignInPage()),
     ),
     GoRoute(
+      path: Routes.backendChooser,
+      name: RouteNames.backendChooser,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const BackendChooserPage()),
+    ),
+    GoRoute(
       path: Routes.serverConnection,
       name: RouteNames.serverConnection,
       pageBuilder: (context, state) =>
@@ -361,6 +410,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         state: state,
         child: const NotificationSettingsPage(),
       ),
+    ),
+    GoRoute(
+      path: Routes.hermesSettings,
+      name: RouteNames.hermesSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: HermesSettingsPage(isOnboarding: state.extra == true),
+      ),
+    ),
+    GoRoute(
+      path: Routes.hermesJobs,
+      name: RouteNames.hermesJobs,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const HermesJobsPage()),
     ),
     GoRoute(
       path: Routes.about,

@@ -38,6 +38,8 @@ import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
@@ -652,10 +654,19 @@ class Models extends _$Models {
     }
 
     if (!ref.watch(isAuthenticatedProvider2)) {
+      // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
+      // just the synthetic Hermes model so the picker/composer work.
+      if (ref.watch(hermesConfigProvider).isUsable) {
+        return _withHermes(const <Model>[]);
+      }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
       return const [];
     }
+
+    // Re-run when the Hermes toggle flips so the synthetic model appears or
+    // disappears from the picker.
+    ref.watch(hermesEnabledProvider);
 
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
@@ -685,7 +696,7 @@ class Models extends _$Models {
             );
           }
         });
-        return visibleCached;
+        return _withHermes(visibleCached);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -704,7 +715,16 @@ class Models extends _$Models {
     }
 
     final fresh = await _load(api);
-    return fresh;
+    return _withHermes(fresh);
+  }
+
+  /// Appends the synthetic Hermes agent model when the feature is enabled.
+  /// Called after OpenWebUI models are persisted so Hermes never lands in the
+  /// model cache, and guarded against duplicates on rebuild.
+  List<Model> _withHermes(List<Model> models) {
+    if (!ref.read(hermesEnabledProvider)) return models;
+    if (models.any(isHermesModel)) return models;
+    return [...models, hermesSyntheticModel()];
   }
 
   Future<void> refresh() async {
@@ -725,12 +745,13 @@ class Models extends _$Models {
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
-    state = result;
+    final withHermes = result.whenData(_withHermes);
+    state = withHermes;
 
     // Update selected model with fresh data (e.g., filters) if it exists
     // in the new models list
-    if (result.hasValue) {
-      final freshModels = result.value!;
+    if (withHermes.hasValue) {
+      final freshModels = withHermes.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
         if (currentSelected.isHidden) {
@@ -1870,6 +1891,21 @@ Future<Model?> defaultModel(Ref ref) async {
 
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
+    // Hermes-only mode: auto-select the synthetic Hermes agent model.
+    if (ref.read(hermesConfigProvider).isUsable) {
+      final models = await ref.read(modelsProvider.future);
+      Model? hermes;
+      for (final model in models) {
+        if (isHermesModel(model)) {
+          hermes = model;
+          break;
+        }
+      }
+      if (hermes != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(hermes);
+      }
+      return hermes;
+    }
     DebugLogger.warning('no-api', scope: 'models/default');
     return null;
   }

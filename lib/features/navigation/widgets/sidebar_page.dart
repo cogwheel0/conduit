@@ -15,6 +15,8 @@ import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
 import '../utils/sidebar_create_action.dart';
 import '../../channels/widgets/channel_list_tab.dart';
+import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
 import '../../terminal/models/terminal_models.dart';
 import '../../terminal/providers/terminal_providers.dart';
@@ -33,7 +35,7 @@ const double _kSidebarNativeLeadingVerticalOffset = 3;
 const double _kSidebarWindowedLeadingInset = 62;
 const double _kSidebarNativeBottomBarContentHeight = 50;
 
-enum _SidebarTabId { chats, terminal, notes, channels }
+enum _SidebarTabId { chats, hermes, terminal, notes, channels }
 
 class _SidebarTabDefinition {
   const _SidebarTabDefinition({
@@ -109,6 +111,8 @@ IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
   switch (id) {
     case _SidebarTabId.chats:
       return selected ? Icons.chat_bubble : Icons.chat_bubble_outline;
+    case _SidebarTabId.hermes:
+      return selected ? Icons.smart_toy : Icons.smart_toy_outlined;
     case _SidebarTabId.notes:
       return selected ? Icons.note : Icons.note_outlined;
     case _SidebarTabId.terminal:
@@ -118,10 +122,35 @@ IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
   }
 }
 
+/// The real Hermes Agent logo (bundled from the official 48×48 icon), used for
+/// the Hermes tab instead of a generic glyph.
+const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
+
+/// Tab-bar rendering of the Hermes logo for the Material bottom bar — circular,
+/// full color (not tinted), matching the iOS bar's image rendering.
+class _HermesTabImage extends StatelessWidget {
+  const _HermesTabImage();
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: Image(
+        image: kHermesTabIcon,
+        width: _kSidebarNavigationBarIconSize,
+        height: _kSidebarNavigationBarIconSize,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+      ),
+    );
+  }
+}
+
 String _sfSymbolTabIcon(_SidebarTabId id, {bool selected = false}) {
   switch (id) {
     case _SidebarTabId.chats:
       return selected ? 'bubble.left.fill' : 'bubble.left';
+    case _SidebarTabId.hermes:
+      return 'sparkles';
     case _SidebarTabId.notes:
       return selected ? 'doc.text.fill' : 'doc.text';
     case _SidebarTabId.terminal:
@@ -187,8 +216,12 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
           destinations: [
             for (final item in navigationItems)
               NavigationDestination(
-                icon: Icon(_materialTabIcon(item.tabDefinition.id)),
-                selectedIcon: Icon(
+                icon: item.tabDefinition.id == _SidebarTabId.hermes
+                    ? const _HermesTabImage()
+                    : Icon(_materialTabIcon(item.tabDefinition.id)),
+                selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
+                    ? const _HermesTabImage()
+                    : Icon(
                   _materialTabIcon(item.tabDefinition.id, selected: true),
                 ),
                 label: item.label,
@@ -261,8 +294,14 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         _SidebarNavigationItem(
           label: def.label,
           destination: AdaptiveNavigationDestination(
-            icon: _sfSymbolTabIcon(def.id),
-            selectedIcon: _sfSymbolTabIcon(def.id, selected: true),
+            // Pass an ImageProvider (not a Widget): the iOS/native bar renders
+            // ImageProviders (full-color, circular) but ignores Widget icons.
+            icon: def.id == _SidebarTabId.hermes
+                ? kHermesTabIcon
+                : _sfSymbolTabIcon(def.id),
+            selectedIcon: def.id == _SidebarTabId.hermes
+                ? kHermesTabIcon
+                : _sfSymbolTabIcon(def.id, selected: true),
             label: def.label,
           ),
           tabDefinition: def,
@@ -432,13 +471,19 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
   @override
   Widget build(BuildContext context) {
     final localizations = AppLocalizations.of(context)!;
-    final notesEnabled = ref.watch(notesFeatureEnabledProvider);
-    final channelsEnabled = ref.watch(channelsFeatureEnabledProvider);
+    // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    final hermesEnabled = ref.watch(hermesEnabledProvider);
+    final notesEnabled = !hermesOnly && ref.watch(notesFeatureEnabledProvider);
+    final channelsEnabled =
+        !hermesOnly && ref.watch(channelsFeatureEnabledProvider);
     // Live when the server list resolves; cached last-known value when offline
     // (so a terminal-disabled server doesn't surface the tab offline).
-    final showTerminalTab = ref.watch(terminalTabVisibleProvider);
+    final showTerminalTab =
+        !hermesOnly && ref.watch(terminalTabVisibleProvider);
     final visibleTabIds = <_SidebarTabId>[
-      _SidebarTabId.chats,
+      if (!hermesOnly) _SidebarTabId.chats,
+      if (hermesEnabled) _SidebarTabId.hermes,
       if (notesEnabled) _SidebarTabId.notes,
       if (showTerminalTab) _SidebarTabId.terminal,
       if (channelsEnabled) _SidebarTabId.channels,
@@ -451,11 +496,18 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final isTerminalTabSelected =
         visibleTabIds[activeIndex] == _SidebarTabId.terminal;
     final tabDefinitions = <_SidebarTabDefinition>[
-      _SidebarTabDefinition(
-        id: _SidebarTabId.chats,
-        label: localizations.sidebarChatsTab,
-        body: const ChatsDrawer(),
-      ),
+      if (!hermesOnly)
+        _SidebarTabDefinition(
+          id: _SidebarTabId.chats,
+          label: localizations.sidebarChatsTab,
+          body: const ChatsDrawer(),
+        ),
+      if (hermesEnabled)
+        const _SidebarTabDefinition(
+          id: _SidebarTabId.hermes,
+          label: 'Hermes',
+          body: HermesSessionsTab(),
+        ),
       if (notesEnabled)
         _SidebarTabDefinition(
           id: _SidebarTabId.notes,
