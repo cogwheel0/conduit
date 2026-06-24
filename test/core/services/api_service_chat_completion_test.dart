@@ -739,6 +739,27 @@ void main() {
       });
     });
 
+    test('includes features with code_interpreter when enabled', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: [
+          {'role': 'user', 'content': 'compute fib(20)'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-code',
+        sessionId: 'sess-code',
+        enableCodeInterpreter: true,
+      );
+
+      check(payload['features']).isA<Map<String, dynamic>>().deepEquals({
+        'voice': false,
+        'web_search': false,
+        'image_generation': false,
+        'code_interpreter': true,
+      });
+    });
+
     test('keeps disabled feature flags for pipe compatibility', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
 

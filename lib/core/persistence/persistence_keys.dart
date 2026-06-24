@@ -19,6 +19,8 @@ final class PreferenceKeys {
   static const String chatWebSearchEnabled = 'chat_web_search_enabled';
   static const String chatImageGenerationEnabled =
       'chat_image_generation_enabled';
+  static const String chatCodeInterpreterEnabled =
+      'chat_code_interpreter_enabled';
   static const String sendOnEnterKey = 'send_on_enter';
   static const String activeServerId = 'active_server_id';
   static const String themeMode = 'theme_mode';

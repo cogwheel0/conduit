@@ -60,6 +60,8 @@ class SettingsService {
       PreferenceKeys.chatWebSearchEnabled;
   static const String _chatImageGenerationEnabledKey =
       PreferenceKeys.chatImageGenerationEnabled;
+  static const String _chatCodeInterpreterEnabledKey =
+      PreferenceKeys.chatCodeInterpreterEnabled;
   // Chat input behavior
   static const String _sendOnEnterKey = PreferenceKeys.sendOnEnterKey;
   // Voice silence duration for auto-stop (milliseconds)
@@ -288,6 +290,10 @@ class SettingsService {
       _chatImageGenerationEnabledKey,
       settings.chatImageGenerationEnabled,
     );
+    await _putOrRemove(
+      _chatCodeInterpreterEnabledKey,
+      settings.chatCodeInterpreterEnabled,
+    );
     await _putOrRemove(_defaultModelKey, settings.defaultModel);
     await _putOrRemove(
       _voiceLocaleKey,
@@ -485,6 +491,16 @@ class SettingsService {
     return _putOrRemove(_chatImageGenerationEnabledKey, value);
   }
 
+  static Future<bool?> getChatCodeInterpreterEnabled() {
+    return Future.value(
+      PreferencesStore.getBool(_chatCodeInterpreterEnabledKey),
+    );
+  }
+
+  static Future<void> setChatCodeInterpreterEnabled(bool? value) {
+    return _putOrRemove(_chatCodeInterpreterEnabledKey, value);
+  }
+
   // Chat input behavior
   static Future<bool> getSendOnEnter() {
     final value = _getPreference<bool>(_sendOnEnterKey);
@@ -595,6 +611,9 @@ class SettingsService {
       chatImageGenerationEnabled: PreferencesStore.get<bool>(
         _chatImageGenerationEnabledKey,
       ),
+      chatCodeInterpreterEnabled: PreferencesStore.get<bool>(
+        _chatCodeInterpreterEnabledKey,
+      ),
       sendOnEnter: PreferencesStore.get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: PreferencesStore.get<String>(PreferenceKeys.ttsVoice),
       ttsSpeechRate:
@@ -671,6 +690,7 @@ class AppSettings {
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
   final bool? chatImageGenerationEnabled;
+  final bool? chatCodeInterpreterEnabled;
   final bool sendOnEnter;
   final SttPreference sttPreference;
   final String? sttLanguageCode;
@@ -708,6 +728,7 @@ class AppSettings {
     this.quickPills = const [],
     this.chatWebSearchEnabled,
     this.chatImageGenerationEnabled,
+    this.chatCodeInterpreterEnabled,
     this.sendOnEnter = false,
     this.sttPreference = SttPreference.deviceOnly,
     this.sttLanguageCode,
@@ -746,6 +767,7 @@ class AppSettings {
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
     bool? chatImageGenerationEnabled,
+    bool? chatCodeInterpreterEnabled,
     bool? sendOnEnter,
     SttPreference? sttPreference,
     Object? sttLanguageCode = const _DefaultValue(),
@@ -789,6 +811,8 @@ class AppSettings {
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
       chatImageGenerationEnabled:
           chatImageGenerationEnabled ?? this.chatImageGenerationEnabled,
+      chatCodeInterpreterEnabled:
+          chatCodeInterpreterEnabled ?? this.chatCodeInterpreterEnabled,
       sendOnEnter: sendOnEnter ?? this.sendOnEnter,
       sttPreference: sttPreference ?? this.sttPreference,
       sttLanguageCode: sttLanguageCode is _DefaultValue
@@ -841,6 +865,7 @@ class AppSettings {
         other.voiceAutoSendFinal == voiceAutoSendFinal &&
         other.chatWebSearchEnabled == chatWebSearchEnabled &&
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
+        other.chatCodeInterpreterEnabled == chatCodeInterpreterEnabled &&
         other.sttPreference == sttPreference &&
         other.sttLanguageCode == sttLanguageCode &&
         other.sendOnEnter == sendOnEnter &&
@@ -881,6 +906,7 @@ class AppSettings {
       voiceAutoSendFinal,
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
+      chatCodeInterpreterEnabled,
       sttPreference,
       sttLanguageCode,
       sendOnEnter,
@@ -1086,6 +1112,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setChatImageGenerationEnabled(bool value) async {
     state = state.copyWith(chatImageGenerationEnabled: value);
     await SettingsService.setChatImageGenerationEnabled(value);
+  }
+
+  Future<void> setChatCodeInterpreterEnabled(bool value) async {
+    state = state.copyWith(chatCodeInterpreterEnabled: value);
+    await SettingsService.setChatCodeInterpreterEnabled(value);
   }
 
   Future<void> setSendOnEnter(bool value) async {

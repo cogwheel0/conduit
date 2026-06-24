@@ -34,12 +34,17 @@ void main() {
       final defaults = resolveChatFeatureDefaultsForTest(
         appSettings: const AppSettings(),
         userSettings: const {
-          'ui': {'webSearch': 'always', 'imageGeneration': 'always'},
+          'ui': {
+            'webSearch': 'always',
+            'imageGeneration': 'always',
+            'codeInterpreter': 'always',
+          },
         },
       );
 
       check(defaults.webSearchEnabled).isTrue();
       check(defaults.imageGenerationEnabled).isTrue();
+      check(defaults.codeInterpreterEnabled).isTrue();
     });
 
     test('falls back to model default features when available', () {
@@ -51,7 +56,11 @@ void main() {
           metadata: {
             'info': {
               'meta': {
-                'defaultFeatureIds': ['web_search', 'image_generation'],
+                'defaultFeatureIds': [
+                  'web_search',
+                  'image_generation',
+                  'code_interpreter',
+                ],
               },
             },
           },
@@ -60,6 +69,7 @@ void main() {
 
       check(defaults.webSearchEnabled).isTrue();
       check(defaults.imageGenerationEnabled).isTrue();
+      check(defaults.codeInterpreterEnabled).isTrue();
     });
 
     test('supports legacy root-level feature flags', () {
@@ -68,11 +78,30 @@ void main() {
         userSettings: const {
           'webSearchEnabled': true,
           'imageGenerationEnabled': true,
+          'codeInterpreterEnabled': true,
         },
       );
 
       check(defaults.webSearchEnabled).isTrue();
       check(defaults.imageGenerationEnabled).isTrue();
+      check(defaults.codeInterpreterEnabled).isTrue();
+    });
+
+    test('prefers local code interpreter override over model default', () {
+      final defaults = resolveChatFeatureDefaultsForTest(
+        appSettings: const AppSettings(chatCodeInterpreterEnabled: false),
+        model: const Model(
+          id: 'code-default',
+          name: 'Code Default',
+          metadata: {
+            'meta': {
+              'defaultFeatureIds': ['code_interpreter'],
+            },
+          },
+        ),
+      );
+
+      check(defaults.codeInterpreterEnabled).isFalse();
     });
   });
 }

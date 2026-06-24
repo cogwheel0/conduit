@@ -3567,6 +3567,7 @@ Future<void> restoreDefaultModel(dynamic ref) async {
 typedef _ChatFeatureDefaults = ({
   bool webSearchEnabled,
   bool imageGenerationEnabled,
+  bool codeInterpreterEnabled,
 });
 
 Map<String, dynamic>? _asStringDynamicMap(dynamic value) {
@@ -3657,16 +3658,29 @@ _ChatFeatureDefaults _resolveChatFeatureDefaults({
         legacyKey: 'imageGenerationEnabled',
       ) ||
       defaultFeatureIds.contains('image_generation');
+  final codeInterpreterDefault =
+      _isAlwaysOnChatFeatureSetting(
+        userSettings,
+        uiKey: 'codeInterpreter',
+        legacyKey: 'codeInterpreterEnabled',
+      ) ||
+      defaultFeatureIds.contains('code_interpreter');
 
   return (
     webSearchEnabled: appSettings.chatWebSearchEnabled ?? webSearchDefault,
     imageGenerationEnabled:
         appSettings.chatImageGenerationEnabled ?? imageGenerationDefault,
+    codeInterpreterEnabled:
+        appSettings.chatCodeInterpreterEnabled ?? codeInterpreterDefault,
   );
 }
 
 @visibleForTesting
-({bool webSearchEnabled, bool imageGenerationEnabled})
+({
+  bool webSearchEnabled,
+  bool imageGenerationEnabled,
+  bool codeInterpreterEnabled,
+})
 resolveChatFeatureDefaultsForTest({
   required AppSettings appSettings,
   Map<String, dynamic>? userSettings,
@@ -4059,6 +4073,9 @@ Future<void> regenerateMessage(
     final imageGenerationEnabled =
         ref.read(imageGenerationEnabledProvider) &&
         ref.read(imageGenerationAvailableProvider);
+    final codeInterpreterEnabled =
+        ref.read(codeInterpreterEnabledProvider) &&
+        ref.read(codeInterpreterAvailableProvider);
 
     final modelItem = _buildLocalModelItem(selectedModel);
 
@@ -4160,6 +4177,7 @@ Future<void> regenerateMessage(
         filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
+        enableCodeInterpreter: codeInterpreterEnabled,
         modelItem: modelItem,
         sessionIdOverride: socketSessionId,
         toolServers: toolServers,
@@ -4237,6 +4255,7 @@ Future<void> runQueuedCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool enableCodeInterpreter = false,
   String? sessionIdOverride,
 }) async {
   final api = ref.read(apiServiceProvider);
@@ -4360,6 +4379,7 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
+      enableCodeInterpreter: enableCodeInterpreter,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
       toolServers: toolServers,
@@ -4440,6 +4460,7 @@ Future<void> runHeadlessCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool enableCodeInterpreter = false,
   String? sessionIdOverride,
 }) async {
   final api = ref.read(apiServiceProvider);
@@ -4529,6 +4550,7 @@ Future<void> runHeadlessCompletion(
     filterIds: filterIds.isNotEmpty ? filterIds : null,
     enableWebSearch: enableWebSearch,
     enableImageGeneration: enableImageGeneration,
+    enableCodeInterpreter: enableCodeInterpreter,
     modelItem: modelItem,
     sessionIdOverride: socketSessionId,
     toolServers: toolServers,
@@ -4753,6 +4775,9 @@ Future<void> durableSend(
   final imageGenerationEnabled =
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
+  final codeInterpreterEnabled =
+      ref.read(codeInterpreterEnabledProvider) &&
+      ref.read(codeInterpreterAvailableProvider);
 
   final existingMessages = ref.read(chatMessagesProvider);
   final parentId = _resolveOpenWebUiParentIdForNewUserMessage(existingMessages);
@@ -4819,6 +4844,7 @@ Future<void> durableSend(
     terminalId: terminalIdForCompletion,
     enableWebSearch: webSearchEnabled,
     enableImageGeneration: imageGenerationEnabled,
+    enableCodeInterpreter: codeInterpreterEnabled,
   );
 
   var activeConversation = activeAtSendStart;
@@ -5581,6 +5607,9 @@ Future<void> _sendMessageInternal(
   final imageGenerationEnabled =
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
+  final codeInterpreterEnabled =
+      ref.read(codeInterpreterEnabledProvider) &&
+      ref.read(codeInterpreterAvailableProvider);
 
   // Get selected toggle filter IDs
   final selectedFilterIds = ref.read(selectedFilterIdsProvider);
@@ -5699,6 +5728,7 @@ Future<void> _sendMessageInternal(
         filterIds: filterIdsForApi,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
+        enableCodeInterpreter: codeInterpreterEnabled,
         isVoiceMode: isVoiceMode,
         modelItem: modelItem,
         sessionIdOverride: socketSessionId,

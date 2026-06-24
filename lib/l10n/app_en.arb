@@ -972,6 +972,14 @@
   "@imageGenerationDescription": {
     "description": "Explains creating images via model prompts."
   },
+  "codeInterpreter": "Code Interpreter",
+  "@codeInterpreter": {
+    "description": "Feature toggle/section for the code interpreter (execute_code)."
+  },
+  "codeInterpreterDescription": "Run generated code and use the results in replies.",
+  "@codeInterpreterDescription": {
+    "description": "Explains that the model can execute code and use its output."
+  },
   "copy": "Copy",
   "@copy": {
     "description": "Action to copy text to clipboard."

@@ -1763,6 +1763,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool webSearchEnabled,
     required bool imageGenerationAvailable,
     required bool imageGenerationEnabled,
+    required bool codeInterpreterAvailable,
+    required bool codeInterpreterEnabled,
     required List<Tool> availableTools,
     required List<String> selectedToolIds,
   }) {
@@ -1777,6 +1779,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       webSearchEnabled: webSearchEnabled,
       imageGenerationAvailable: imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
+      codeInterpreterAvailable: codeInterpreterAvailable,
+      codeInterpreterEnabled: codeInterpreterEnabled,
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
     ).map(_nativeKeyboardAttachmentActionFromItem).toList(growable: false);
@@ -1812,6 +1816,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       webSearchEnabled: ref.read(webSearchEnabledProvider),
       imageGenerationAvailable: ref.read(imageGenerationAvailableProvider),
       imageGenerationEnabled: ref.read(imageGenerationEnabledProvider),
+      codeInterpreterAvailable: ref.read(codeInterpreterAvailableProvider),
+      codeInterpreterEnabled: ref.read(codeInterpreterEnabledProvider),
       availableTools: availableTools,
       selectedToolIds: ref.read(selectedToolIdsProvider),
     );
@@ -1942,6 +1948,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<bool>(imageGenerationEnabledProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen<bool>(codeInterpreterAvailableProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<bool>(codeInterpreterEnabledProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
     ref.listen<List<String>>(selectedToolIdsProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
@@ -1976,6 +1988,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final codeInterpreterEnabled = ref.watch(codeInterpreterEnabledProvider);
+    final codeInterpreterAvailable = ref.watch(
+      codeInterpreterAvailableProvider,
+    );
     final l10n = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final isCreatingDraftNote = ref.watch(
@@ -2019,6 +2035,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       webSearchEnabled: webSearchEnabled,
       imageGenerationAvailable: imageGenAvailable,
       imageGenerationEnabled: imageGenEnabled,
+      codeInterpreterAvailable: codeInterpreterAvailable,
+      codeInterpreterEnabled: codeInterpreterEnabled,
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
     );

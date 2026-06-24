@@ -2975,6 +2975,27 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
   );
 });
 
+final codeInterpreterAvailableProvider = Provider<bool>((ref) {
+  final selectedModel = ref.watch(selectedModelProvider);
+  if (!_modelSupportsFeature(selectedModel, 'code_interpreter')) {
+    return false;
+  }
+
+  final user = ref
+      .watch(currentUserProvider)
+      .maybeWhen(data: (value) => value, orElse: () => null);
+  final perms = ref.watch(userPermissionsProvider);
+  return perms.maybeWhen(
+    data: (data) => _userCanUseFeature(
+      user: user,
+      permissions: data,
+      featureKey: 'code_interpreter',
+    ),
+    // Permissions unavailable (loading, error, older server) — assume available.
+    orElse: () => true,
+  );
+});
+
 /// Tracks whether the folders feature is enabled on the server.
 /// When the server returns 403 for folders endpoint, this becomes false.
 final foldersFeatureEnabledProvider =

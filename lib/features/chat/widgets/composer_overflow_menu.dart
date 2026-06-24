@@ -195,6 +195,10 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
+    final codeInterpreterAvailable = ref.watch(
+      codeInterpreterAvailableProvider,
+    );
+    final codeInterpreterEnabled = ref.watch(codeInterpreterEnabledProvider);
     final featureTiles =
         buildComposerOverflowFeatureItems(
           l10n: l10n,
@@ -202,6 +206,8 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           webSearchEnabled: webSearchEnabled,
           imageGenerationAvailable: imageGenAvailable,
           imageGenerationEnabled: imageGenEnabled,
+          codeInterpreterAvailable: codeInterpreterAvailable,
+          codeInterpreterEnabled: codeInterpreterEnabled,
         ).map((item) {
           return _buildOverflowItemTile(
             item: item,

@@ -18,6 +18,12 @@ final imageGenerationEnabledProvider =
       ImageGenerationEnabledNotifier.new,
     );
 
+// Code interpreter (execute_code) enabled state - behaves like web search
+final codeInterpreterEnabledProvider =
+    NotifierProvider<CodeInterpreterEnabledNotifier, bool>(
+      CodeInterpreterEnabledNotifier.new,
+    );
+
 // Vision capable models provider
 final visionCapableModelsProvider =
     NotifierProvider<VisionCapableModelsNotifier, List<String>>(
@@ -60,6 +66,20 @@ class ImageGenerationEnabledNotifier extends Notifier<bool> {
       ref
           .read(appSettingsProvider.notifier)
           .setChatImageGenerationEnabled(value),
+    );
+  }
+}
+
+class CodeInterpreterEnabledNotifier extends Notifier<bool> {
+  @override
+  bool build() => ref.watch(_chatFeatureDefaultsProvider).codeInterpreterEnabled;
+
+  void set(bool value) {
+    state = value;
+    unawaited(
+      ref
+          .read(appSettingsProvider.notifier)
+          .setChatCodeInterpreterEnabled(value),
     );
   }
 }
