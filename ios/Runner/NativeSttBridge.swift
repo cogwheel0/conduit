@@ -810,6 +810,10 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   func stop() async {
+    stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
+  }
+
+  private func stopRecognitionResources(deactivateAudioSession: Bool) {
     guard !stopped else { return }
     stopped = true
     cancelSegmentFinalization()
@@ -823,7 +827,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     recognitionRequest = nil
     recognitionTask = nil
     recognizer = nil
-    if !preserveAudioSession {
+    if deactivateAudioSession {
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
   }
@@ -934,7 +938,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
 
   private func handleRecognitionError(_ error: Error) {
     guard !stopped, isCurrent() else { return }
-    cancelSegmentFinalization()
+    stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
     emit([
       "type": "error",
       "code": "SFSPEECH_ERROR",
@@ -981,18 +985,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func cleanupForDeinit() {
-    stopped = true
-    cancelSegmentFinalization()
-    if tapInstalled {
-      audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
-    }
-    audioEngine.stop()
-    recognitionRequest?.endAudio()
-    recognitionTask?.cancel()
-    recognitionRequest = nil
-    recognitionTask = nil
-    recognizer = nil
+    stopRecognitionResources(deactivateAudioSession: false)
   }
 
   private func checkActive() throws {
