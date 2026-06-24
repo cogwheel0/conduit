@@ -35,7 +35,7 @@ class NotePullSync {
   NotePullSync({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks locks,
+    required NoteLocks locks,
     IdRemapper? remapper,
     void Function(bool enabled)? onFeatureEnabled,
   }) : _client = client,
@@ -47,7 +47,7 @@ class NotePullSync {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _locks;
+  final NoteLocks _locks;
 
   /// Used by pull-side note create crash-heal when a process crashed after the
   /// server minted a note but before the local `noteCreate` remap committed.
@@ -189,7 +189,7 @@ class NotePushSync {
   NotePushSync({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks noteLocks,
+    required NoteLocks noteLocks,
     required IdRemapper remapper,
   }) : _client = client,
        _db = db,
@@ -198,7 +198,7 @@ class NotePushSync {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _noteLocks;
+  final NoteLocks _noteLocks;
   final IdRemapper _remapper;
 
   // ---- noteCreate (§7.3 analog) ----

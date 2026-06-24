@@ -16,6 +16,7 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -26,6 +27,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+
+class _RecordingSyncEngine extends SyncEngine {
+  _RecordingSyncEngine(this.pulls);
+
+  final List<String> pulls;
+
+  @override
+  Future<PullResult?> requestPull({required String reason}) {
+    pulls.add(reason);
+    return Future.value(null);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -354,6 +367,28 @@ void main() {
         check(
           container.read(conversationsProvider).requireValue.single.title,
         ).equals('Remote rename');
+      },
+    );
+
+    test(
+      'missing remote conversation update submits reconcile pull immediately',
+      () async {
+        final pulls = <String>[];
+        final container = makeContainer(
+          extraOverrides: [
+            syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
+          ],
+        );
+        await container.read(conversationsProvider.future);
+
+        container
+            .read(conversationsProvider.notifier)
+            .updateConversationFromRemote(
+              'missing-chat',
+              (_) => throw StateError('unexpected transform'),
+            );
+
+        check(pulls).deepEquals(['conversations-reconcile']);
       },
     );
 

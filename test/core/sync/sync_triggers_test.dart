@@ -9,6 +9,8 @@ library;
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
@@ -55,14 +57,25 @@ final _clientProvider =
 /// Recreated (with the same shared list) whenever its watched dependencies
 /// flap, exactly like the production engine.
 class _RecordingSyncEngine extends SyncEngine {
-  _RecordingSyncEngine(this.pulls);
+  _RecordingSyncEngine(this.pulls, this.drains);
 
   final List<String> pulls;
+  final List<String> drains;
 
   @override
   Future<PullResult?> requestPull({required String reason}) {
     pulls.add(reason);
     return Future.value(null);
+  }
+
+  @override
+  Future<void> drainNow() async {
+    drains.add('now');
+  }
+
+  @override
+  Future<void> drainOutbox() async {
+    drains.add('outbox');
   }
 }
 
@@ -72,11 +85,13 @@ void main() {
   late AppDatabase db;
   late FakeSyncApiClient client;
   late List<String> pulls;
+  late List<String> drains;
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
     client = FakeSyncApiClient(FakeOpenWebUiServer());
     pulls = <String>[];
+    drains = <String>[];
   });
 
   tearDown(() async {
@@ -96,7 +111,7 @@ void main() {
     container.listen(syncApiClientProvider, (_, _) {});
   }
 
-  ProviderContainer makeContainer() {
+  ProviderContainer makeContainer({bool autoDispose = true}) {
     final container = ProviderContainer(
       overrides: [
         isAuthenticatedProvider2.overrideWith(
@@ -105,10 +120,14 @@ void main() {
         isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
         appDatabaseProvider.overrideWith((ref) => ref.watch(_dbProvider)),
         syncApiClientProvider.overrideWith((ref) => ref.watch(_clientProvider)),
-        syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
+        syncEngineProvider.overrideWith(
+          () => _RecordingSyncEngine(pulls, drains),
+        ),
       ],
     );
-    addTearDown(container.dispose);
+    if (autoDispose) {
+      addTearDown(container.dispose);
+    }
     materializeReadiness(container);
     return container;
   }
@@ -170,11 +189,24 @@ void main() {
         container.read(_clientProvider.notifier).set(client);
 
         container.read(syncTriggersProvider);
+        check(countOf('start')).equals(1);
         await flushMicrotasks();
 
         check(countOf('start')).equals(1);
       },
     );
+
+    test('start pull is submitted before immediate disposal can skip it', () {
+      final container = makeContainer(autoDispose: false);
+      container.read(_authProvider.notifier).set(true);
+      container.read(_dbProvider.notifier).set(db);
+      container.read(_clientProvider.notifier).set(client);
+
+      container.read(syncTriggersProvider);
+      container.dispose();
+
+      check(countOf('start')).equals(1);
+    });
 
     test(
       'start fires again when the ready database/client pair changes',
@@ -230,6 +262,28 @@ void main() {
     );
   });
 
+  group('active conversation edge', () {
+    test(
+      'chat-open drain is submitted before immediate disposal can skip it',
+      () {
+        final container = makeContainer(autoDispose: false);
+        container.read(_authProvider.notifier).set(true);
+        container.read(_dbProvider.notifier).set(db);
+        container.read(_clientProvider.notifier).set(client);
+        container.read(syncTriggersProvider);
+        pulls.clear();
+        drains.clear();
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-open'));
+        container.dispose();
+
+        check(drains).deepEquals(['outbox']);
+      },
+    );
+  });
+
   group('lifecycle observer + periodic timer', () {
     test('resume fires a foreground pull and restarts the timer; pause '
         'cancels it; dispose removes the observer', () {
@@ -244,7 +298,9 @@ void main() {
             syncApiClientProvider.overrideWith(
               (ref) => ref.watch(_clientProvider),
             ),
-            syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
+            syncEngineProvider.overrideWith(
+              () => _RecordingSyncEngine(pulls, drains),
+            ),
           ],
         );
         materializeReadiness(container);
@@ -319,7 +375,9 @@ void main() {
             syncApiClientProvider.overrideWith(
               (ref) => ref.watch(_clientProvider),
             ),
-            syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
+            syncEngineProvider.overrideWith(
+              () => _RecordingSyncEngine(pulls, drains),
+            ),
           ],
         );
         materializeReadiness(container);
@@ -353,4 +411,14 @@ void main() {
       });
     });
   });
+}
+
+Conversation _conversation(String id) {
+  final now = DateTime.fromMillisecondsSinceEpoch(1000);
+  return Conversation(
+    id: id,
+    title: 'Title $id',
+    createdAt: now,
+    updatedAt: now,
+  );
 }

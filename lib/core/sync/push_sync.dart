@@ -28,8 +28,8 @@ class PushSync {
   PushSync({
     required SyncApiClient client,
     required AppDatabase db,
-    required ChatLocks chatLocks,
-    required ChatLocks folderLocks,
+    required ConversationLocks chatLocks,
+    required FolderLocks folderLocks,
     required SyncClock clock,
     required IdRemapper remapper,
   }) : _client = client,
@@ -41,8 +41,8 @@ class PushSync {
 
   final SyncApiClient _client;
   final AppDatabase _db;
-  final ChatLocks _chatLocks;
-  final ChatLocks _folderLocks;
+  final ConversationLocks _chatLocks;
+  final FolderLocks _folderLocks;
 
   /// Held for signature parity + future use. The dirty/serverUpdatedAt rule
   /// uses the server response `updated_at`, never a device clock (§7.2

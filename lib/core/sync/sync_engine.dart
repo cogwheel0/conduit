@@ -108,9 +108,9 @@ class SyncEngine extends _$SyncEngine {
 
   AppDatabase? _boundDb;
   SyncApiClient? _boundClient;
-  ChatLocks? _boundChatLocks;
-  ChatLocks? _boundFolderLocks;
-  ChatLocks? _boundNoteLocks;
+  ConversationLocks? _boundChatLocks;
+  FolderLocks? _boundFolderLocks;
+  NoteLocks? _boundNoteLocks;
   SyncClock? _boundClock;
   Backoff? _boundBackoff;
   RequestCompletionRunner? _boundCompletionRunner;
@@ -120,6 +120,7 @@ class SyncEngine extends _$SyncEngine {
   /// idempotent + flag-gated per server, so a re-attempt is a cheap no-op).
   bool _migrated = false;
   Future<void>? _migrationInFlight;
+  AppDatabase? _migrationDb;
 
   /// Prevents overlapping fire-and-forget FTS backfills while the durable
   /// `fts_built` flag is still unset.
@@ -134,18 +135,86 @@ class SyncEngine extends _$SyncEngine {
   /// abort before crossing work into a different server/session.
   int _sessionEpoch = 0;
 
+  /// Auth-only generation captured by drainers. Unlike [_sessionEpoch], this
+  /// stays stable across non-auth dependency refreshes so preserved drainers can
+  /// finish same-session work, but flips on login/logout boundaries.
+  int _authEpoch = 0;
+  bool _disposeHookRegistered = false;
+  bool _drainerStaleAfterDrain = false;
+  final Map<OutboxDrainer, List<IdRemapper>> _retiredDrainerRemappers =
+      <OutboxDrainer, List<IdRemapper>>{};
+  final Map<OutboxDrainer, List<StreamSubscription<RemapEvent>>>
+  _retiredDrainerRemapForwards =
+      <OutboxDrainer, List<StreamSubscription<RemapEvent>>>{};
+
   @override
   SyncStatus build() {
-    final db = ref.watch(appDatabaseProvider);
-    final client = ref.watch(syncApiClientProvider);
-    final authenticated = ref.watch(isAuthenticatedProvider2);
-    final chatLocks = ref.watch(chatLocksProvider);
-    final folderLocks = ref.watch(folderLocksProvider);
-    final noteLocks = ref.watch(noteLocksProvider);
-    final clock = ref.watch(syncClockProvider);
-    final backoff = ref.watch(backoffProvider);
-    final completionRunner = ref.watch(requestCompletionRunnerProvider);
+    _registerDisposeForBuild();
+    _bindDependencies(
+      db: ref.watch(appDatabaseProvider),
+      client: ref.watch(syncApiClientProvider),
+      authenticated: ref.watch(isAuthenticatedProvider2),
+      chatLocks: ref.watch(chatLocksProvider),
+      folderLocks: ref.watch(folderLocksProvider),
+      noteLocks: ref.watch(noteLocksProvider),
+      clock: ref.watch(syncClockProvider),
+      backoff: ref.watch(backoffProvider),
+      completionRunner: ref.watch(requestCompletionRunnerProvider),
+    );
+    return const SyncStatus();
+  }
 
+  void _registerDisposeForBuild() {
+    if (_disposeHookRegistered) {
+      return;
+    }
+    _disposeHookRegistered = true;
+    ref.onDispose(() {
+      _disposeHookRegistered = false;
+      _resetSessionBoundState(
+        completeJoinable: false,
+        preserveDrainer: _drainer?.isDraining ?? false,
+        preserveMigration: _boundDb != null,
+      );
+      scheduleMicrotask(() {
+        if (ref.mounted) {
+          return;
+        }
+        _disposeSessionBoundState();
+      });
+    });
+  }
+
+  bool _refreshBoundDependencies() {
+    if (!ref.mounted) {
+      return false;
+    }
+    _bindDependencies(
+      db: ref.read(appDatabaseProvider),
+      client: ref.read(syncApiClientProvider),
+      authenticated: ref.read(isAuthenticatedProvider2),
+      chatLocks: ref.read(chatLocksProvider),
+      folderLocks: ref.read(folderLocksProvider),
+      noteLocks: ref.read(noteLocksProvider),
+      clock: ref.read(syncClockProvider),
+      backoff: ref.read(backoffProvider),
+      completionRunner: ref.read(requestCompletionRunnerProvider),
+    );
+    return true;
+  }
+
+  void _bindDependencies({
+    required AppDatabase? db,
+    required SyncApiClient? client,
+    required bool authenticated,
+    required ConversationLocks chatLocks,
+    required FolderLocks folderLocks,
+    required NoteLocks noteLocks,
+    required SyncClock clock,
+    required Backoff backoff,
+    required RequestCompletionRunner completionRunner,
+  }) {
+    final authChanged = _boundAuthenticated != authenticated;
     final dependenciesChanged =
         !identical(_boundDb, db) ||
         !identical(_boundClient, client) ||
@@ -155,47 +224,146 @@ class SyncEngine extends _$SyncEngine {
         !identical(_boundClock, clock) ||
         !identical(_boundBackoff, backoff) ||
         !identical(_boundCompletionRunner, completionRunner) ||
-        _boundAuthenticated != authenticated;
-    if (dependenciesChanged) {
-      _sessionEpoch++;
-      _resetSessionBoundState();
-      _boundDb = db;
-      _boundClient = client;
-      _boundChatLocks = chatLocks;
-      _boundFolderLocks = folderLocks;
-      _boundNoteLocks = noteLocks;
-      _boundClock = clock;
-      _boundBackoff = backoff;
-      _boundCompletionRunner = completionRunner;
-      _boundAuthenticated = authenticated;
+        authChanged;
+    if (!dependenciesChanged) {
+      // A reactive rebuild can follow an eager _refreshBoundDependencies() call
+      // that already updated the snapshot. onDispose cancels the debounce but
+      // keeps the joinable, so a no-op build must repair the armed waiter.
+      _reschedulePreservedJoinableIfNeeded();
+      return;
     }
-    ref.onDispose(_disposeSessionBoundState);
-    return const SyncStatus();
+
+    final sameDbBinding = identical(_boundDb, db);
+    final sameServerBinding = sameDbBinding && identical(_boundClient, client);
+    final authenticatedSameSession =
+        _boundAuthenticated == true && authenticated;
+    final activeDrainer = _drainer?.isDraining ?? false;
+    final preserveActiveDrainer =
+        sameServerBinding && authenticatedSameSession && activeDrainer;
+    final retireActiveDrainerRemapper = activeDrainer && !preserveActiveDrainer;
+    final preserveJoinable =
+        _joinable != null &&
+        !_joinable!.isCompleted &&
+        sameServerBinding &&
+        db != null &&
+        client != null &&
+        authenticated;
+
+    _sessionEpoch++;
+    if (authChanged) {
+      _authEpoch++;
+    }
+    _resetSessionBoundState(
+      completeJoinable: !preserveJoinable,
+      preserveDrainer: preserveActiveDrainer,
+      preserveRemapper: preserveActiveDrainer,
+      retireActiveDrainerRemapper: retireActiveDrainerRemapper,
+      preserveMigration: sameDbBinding && db != null,
+    );
+    _boundDb = db;
+    _boundClient = client;
+    _boundChatLocks = chatLocks;
+    _boundFolderLocks = folderLocks;
+    _boundNoteLocks = noteLocks;
+    _boundClock = clock;
+    _boundBackoff = backoff;
+    _boundCompletionRunner = completionRunner;
+    _boundAuthenticated = authenticated;
+    if (preserveJoinable) {
+      _schedulePreservedJoinable();
+    }
   }
 
-  void _resetSessionBoundState() {
+  void _resetSessionBoundState({
+    bool completeJoinable = true,
+    bool preserveDrainer = false,
+    bool preserveRemapper = false,
+    bool retireActiveDrainerRemapper = false,
+    bool preserveMigration = false,
+  }) {
     _debounce?.cancel();
     _debounce = null;
-    unawaited(_remapForward?.cancel());
-    _remapForward = null;
-    unawaited(_remapper?.dispose());
-    _remapper = null;
-    _drainer = null;
-    _migrated = false;
-    _migrationInFlight = null;
+    if (preserveDrainer) {
+      if (retireActiveDrainerRemapper) {
+        _retireActiveDrainerRemapperForCleanup();
+      }
+      _drainerStaleAfterDrain = true;
+    } else {
+      if (retireActiveDrainerRemapper) {
+        _retireActiveDrainerRemapperForCleanup();
+      } else if (!preserveRemapper) {
+        unawaited(_remapForward?.cancel());
+        _remapForward = null;
+        unawaited(_remapper?.dispose());
+        _remapper = null;
+      }
+      _drainer = null;
+      _drainerStaleAfterDrain = false;
+    }
+    if (!preserveMigration) {
+      _migrated = false;
+      if (_migrationInFlight == null) {
+        _migrationDb = null;
+      }
+    }
     _ftsBuildInFlight = false;
-    final joinable = _joinable;
-    _joinable = null;
-    if (joinable != null && !joinable.isCompleted) {
-      joinable.complete(null);
+    if (completeJoinable) {
+      final joinable = _joinable;
+      _joinable = null;
+      if (joinable != null && !joinable.isCompleted) {
+        joinable.complete(null);
+      }
     }
     if (!_running) {
       _rerunRequested = false;
     }
   }
 
+  void _schedulePreservedJoinable() {
+    if (_joinable == null) {
+      return;
+    }
+    if (_running) {
+      assert(
+        _joinable != null && !_joinable!.isCompleted,
+        'A queued rerun requires a live joinable.',
+      );
+      // The current cycle already captured its own completer in _startCycle.
+      // If the epoch change aborts that cycle, those callers receive null.
+      // This preserved _joinable belongs to callers that queued a rerun while
+      // the cycle was active; the finally block below will start their cycle.
+      // Until that finally block runs, future reset paths must not clear
+      // _joinable without also completing it or clearing _rerunRequested.
+      _rerunRequested = true;
+      return;
+    }
+    assert(_debounce == null);
+    if (_debounce != null) {
+      return;
+    }
+    _debounce = Timer(kSyncPullDebounce, _startCycle);
+  }
+
+  void _reschedulePreservedJoinableIfNeeded() {
+    final joinable = _joinable;
+    if (joinable == null ||
+        joinable.isCompleted ||
+        _debounce != null ||
+        _inert) {
+      return;
+    }
+    _schedulePreservedJoinable();
+  }
+
   void _disposeSessionBoundState() {
-    _resetSessionBoundState();
+    final activeDrainer = _drainer?.isDraining ?? false;
+    _resetSessionBoundState(
+      preserveDrainer: activeDrainer,
+      retireActiveDrainerRemapper: activeDrainer,
+    );
+    if (!activeDrainer) {
+      _disposeRetiredDrainerRemappers();
+    }
     _boundDb = null;
     _boundClient = null;
     _boundChatLocks = null;
@@ -246,12 +414,28 @@ class SyncEngine extends _$SyncEngine {
   @visibleForTesting
   IdRemapper? get remapperForTesting => _ensureRemapper();
 
+  @visibleForTesting
+  bool get hasCachedDrainerForTesting => _drainer != null;
+
+  @visibleForTesting
+  bool get hasCachedRemapperForTesting => _remapper != null;
+
+  @visibleForTesting
+  void Function()? legacyMigrationJoinObserverForTesting;
+
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
   Future<void> drainNow() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
-    await _ensureDrainer()?.onConnectivityRegained();
+    final drainer = _ensureDrainer();
+    if (drainer == null) return;
+    try {
+      await drainer.onConnectivityRegained();
+    } finally {
+      _clearStaleDrainerIfIdle(drainer);
+    }
   }
 
   /// Plain outbox drain (no backoff reset). Used by the active-conversation
@@ -259,9 +443,16 @@ class SyncEngine extends _$SyncEngine {
   /// (request_completion_runner Option B) runs promptly once the user opens its
   /// chat. Single-flight via the shared drainer's `_draining` guard.
   Future<void> drainOutbox() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
-    await _ensureDrainer()?.drain();
+    final drainer = _ensureDrainer();
+    if (drainer == null) return;
+    try {
+      await drainer.drain();
+    } finally {
+      _clearStaleDrainerIfIdle(drainer);
+    }
   }
 
   /// Single debounced entry point (RFC §7.6). 300 ms debounce; single-flight:
@@ -269,6 +460,9 @@ class SyncEngine extends _$SyncEngine {
   /// queued cycle). The returned future completes when the cycle the caller
   /// joined finishes — pull-to-refresh spinners await it.
   Future<PullResult?> requestPull({required String reason}) {
+    if (!_refreshBoundDependencies()) {
+      return Future.value(null);
+    }
     if (_inert) {
       DebugLogger.log('inert', scope: 'sync/engine', data: {'reason': reason});
       return Future.value(null);
@@ -288,6 +482,7 @@ class SyncEngine extends _$SyncEngine {
 
   /// Immediate, not debounced; serialization comes from [ChatLocks].
   Future<Conversation?> pullChatNow(String chatId) async {
+    if (!_refreshBoundDependencies()) return null;
     if (_inert) {
       DebugLogger.log(
         'inert',
@@ -422,8 +617,16 @@ class SyncEngine extends _$SyncEngine {
   /// Returns null (and does NOT cache) until db/client are ready.
   OutboxDrainer? _ensureDrainer() {
     final existing = _drainer;
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (_drainerStaleAfterDrain && !existing.isDraining) {
+        _drainer = null;
+        _drainerStaleAfterDrain = false;
+      } else {
+        return existing;
+      }
+    }
     final db = _boundDb;
+    final client = _boundClient;
     final clock = _boundClock;
     final backoff = _boundBackoff;
     final completion = _boundCompletionRunner;
@@ -432,20 +635,113 @@ class SyncEngine extends _$SyncEngine {
     // so a separate _buildPushSync() here would be a discarded duplicate.
     final adapters = _buildAdapters();
     if (db == null ||
+        client == null ||
         clock == null ||
         backoff == null ||
         completion == null ||
         adapters == null) {
       return null;
     }
+    final drainerAuthEpoch = _authEpoch;
+    final drainerDb = db;
+    final drainerClient = client;
+    final drainerChatLocks = _boundChatLocks;
+    final drainerFolderLocks = _boundFolderLocks;
+    final drainerNoteLocks = _boundNoteLocks;
+    final drainerClock = clock;
+    final drainerBackoff = backoff;
+    final drainerCompletion = completion;
+    final drainerRemapper = _remapper;
     return _drainer = OutboxDrainer(
       db: db,
       clock: clock,
       backoff: backoff,
-      isOnline: () => ref.read(isOnlineProvider),
+      isOnline: () =>
+          ref.mounted &&
+          identical(_boundDb, drainerDb) &&
+          identical(_boundClient, drainerClient) &&
+          identical(_boundChatLocks, drainerChatLocks) &&
+          identical(_boundFolderLocks, drainerFolderLocks) &&
+          identical(_boundNoteLocks, drainerNoteLocks) &&
+          identical(_boundClock, drainerClock) &&
+          identical(_boundBackoff, drainerBackoff) &&
+          identical(_boundCompletionRunner, drainerCompletion) &&
+          identical(_remapper, drainerRemapper) &&
+          _boundAuthenticated == true &&
+          _authEpoch == drainerAuthEpoch &&
+          ref.read(isOnlineProvider),
       completion: completion,
       adapters: adapters,
     );
+  }
+
+  void _clearStaleDrainerIfIdle(OutboxDrainer drainer) {
+    final hasRetiredRemappers =
+        _retiredDrainerRemappers[drainer]?.isNotEmpty ?? false;
+    final hasRetiredForwards =
+        _retiredDrainerRemapForwards[drainer]?.isNotEmpty ?? false;
+    if (hasRetiredRemappers || hasRetiredForwards) {
+      if (drainer.isDraining) {
+        return;
+      }
+      _disposeRetiredDrainerRemappersFor(drainer);
+    }
+    if (!identical(_drainer, drainer) ||
+        !_drainerStaleAfterDrain ||
+        drainer.isDraining) {
+      return;
+    }
+    _drainer = null;
+    _drainerStaleAfterDrain = false;
+  }
+
+  void _retireActiveDrainerRemapperForCleanup() {
+    final drainer = _drainer;
+    final remapper = _remapper;
+    final forward = _remapForward;
+    if (drainer != null && remapper != null) {
+      (_retiredDrainerRemappers[drainer] ??= <IdRemapper>[]).add(remapper);
+      if (forward != null) {
+        (_retiredDrainerRemapForwards[drainer] ??=
+                <StreamSubscription<RemapEvent>>[])
+            .add(forward);
+      }
+    } else {
+      unawaited(forward?.cancel());
+      unawaited(remapper?.dispose());
+    }
+    _remapForward = null;
+    _remapper = null;
+  }
+
+  void _disposeRetiredDrainerRemappers() {
+    if (_retiredDrainerRemappers.isEmpty &&
+        _retiredDrainerRemapForwards.isEmpty) {
+      return;
+    }
+    final drainers = <OutboxDrainer>{
+      ..._retiredDrainerRemappers.keys,
+      ..._retiredDrainerRemapForwards.keys,
+    };
+    for (final drainer in drainers) {
+      if (!drainer.isDraining) {
+        _disposeRetiredDrainerRemappersFor(drainer);
+      }
+    }
+  }
+
+  void _disposeRetiredDrainerRemappersFor(OutboxDrainer drainer) {
+    final remappers =
+        _retiredDrainerRemappers.remove(drainer) ?? const <IdRemapper>[];
+    final forwards =
+        _retiredDrainerRemapForwards.remove(drainer) ??
+        const <StreamSubscription<RemapEvent>>[];
+    for (final forward in forwards) {
+      unawaited(forward.cancel());
+    }
+    for (final remapper in remappers) {
+      unawaited(remapper.dispose());
+    }
   }
 
   /// Engine-internal: the one-time legacy Hive task-queue migrator. Built
@@ -482,28 +778,52 @@ class SyncEngine extends _$SyncEngine {
 
   /// §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
   /// ONCE per process, BEFORE any drain entry point can consume the outbox.
-  Future<void> _migrateLegacyTaskQueueIfNeeded() {
-    if (_migrated) return Future<void>.value();
-    final inFlight = _migrationInFlight;
-    if (inFlight != null) return inFlight;
-
-    final migrationEpoch = _sessionEpoch;
-    late final Future<void> migration;
-    migration = _runLegacyTaskQueueMigration(migrationEpoch).whenComplete(() {
-      if (migrationEpoch == _sessionEpoch &&
-          identical(_migrationInFlight, migration)) {
-        _migrationInFlight = null;
+  Future<void> _migrateLegacyTaskQueueIfNeeded() async {
+    while (true) {
+      if (_migrated) return;
+      final db = _boundDb;
+      if (db == null) return;
+      final inFlight = _migrationInFlight;
+      if (inFlight != null) {
+        final inFlightDb = _migrationDb;
+        legacyMigrationJoinObserverForTesting?.call();
+        await inFlight;
+        if (_migrated && identical(inFlightDb, db) && identical(_boundDb, db)) {
+          return;
+        }
+        continue;
       }
-    });
-    _migrationInFlight = migration;
-    return migration;
+
+      late final Future<void> migration;
+      migration = _runLegacyTaskQueueMigration(migrationDb: db).whenComplete(
+        () {
+          if (identical(_migrationInFlight, migration)) {
+            _migrationInFlight = null;
+            _migrationDb = null;
+          }
+        },
+      );
+      _migrationInFlight = migration;
+      _migrationDb = db;
+      await migration;
+      if (identical(_boundDb, db)) {
+        return;
+      }
+    }
   }
 
-  Future<void> _runLegacyTaskQueueMigration(int migrationEpoch) async {
+  Future<void> _runLegacyTaskQueueMigration({
+    required AppDatabase migrationDb,
+  }) async {
     try {
-      await _buildMigrator()?.migrateIfNeeded();
-      await _buildCacheMigrator()?.migrateIfNeeded();
-      if (migrationEpoch == _sessionEpoch) {
+      final taskQueueMigrator = _buildMigrator();
+      await taskQueueMigrator?.migrateIfNeeded();
+      if (!identical(_boundDb, migrationDb)) {
+        return;
+      }
+      final cacheMigrator = _buildCacheMigrator();
+      await cacheMigrator?.migrateIfNeeded();
+      if (identical(_boundDb, migrationDb)) {
         _migrated = true;
       }
     } catch (error, stackTrace) {
@@ -559,6 +879,7 @@ class SyncEngine extends _$SyncEngine {
   /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle) for
   /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
   Future<void> reconcileNow() async {
+    if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     // Independent try/catch per entity: an unexpected error from the chat
     // reconcile must NOT skip the note reconcile (and vice versa).
@@ -612,6 +933,7 @@ class SyncEngine extends _$SyncEngine {
       );
     } finally {
       _running = false;
+      _clearCachedDrainerIfIdle();
       if (ref.mounted) {
         final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
         var watermark = previousStateWatermark;
@@ -736,7 +1058,14 @@ class SyncEngine extends _$SyncEngine {
 
     // Drain the outbox AFTER pull (W: pull-then-push ordering). Errors are
     // caught + logged by the enclosing `_startCycle` try.
-    await _ensureDrainer()?.drain();
+    final drainer = _ensureDrainer();
+    if (drainer != null) {
+      try {
+        await drainer.drain();
+      } finally {
+        _clearStaleDrainerIfIdle(drainer);
+      }
+    }
     if (!_cycleStillBound(cycleEpoch, 'after-outbox-drain')) return null;
 
     // §7.5 deletion reconcile (background reason; its own 24h throttle gates
@@ -805,6 +1134,14 @@ class SyncEngine extends _$SyncEngine {
       await _scheduleFtsBuildIfNeeded(db, cycleEpoch);
     }
     return result;
+  }
+
+  void _clearCachedDrainerIfIdle() {
+    final drainer = _drainer;
+    if (drainer == null) {
+      return;
+    }
+    _clearStaleDrainerIfIdle(drainer);
   }
 
   Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db, int cycleEpoch) async {

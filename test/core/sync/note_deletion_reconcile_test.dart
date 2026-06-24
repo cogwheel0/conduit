@@ -88,13 +88,13 @@ Map<String, dynamic> serverNote(String id, int ns) => <String, dynamic>{
 void main() {
   late FakeOpenWebUiServer server;
   late AppDatabase db;
-  late ChatLocks locks;
+  late NoteLocks locks;
   late _Clock clock;
 
   setUp(() {
     server = FakeOpenWebUiServer();
     db = AppDatabase(NativeDatabase.memory());
-    locks = ChatLocks();
+    locks = NoteLocks();
     clock = _Clock();
   });
   tearDown(() => db.close());

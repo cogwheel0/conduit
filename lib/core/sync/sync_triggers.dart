@@ -8,6 +8,7 @@ import '../database/database_provider.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
 import '../utils/debug_logger.dart';
+import 'pull_sync.dart';
 import 'sync_api_client.dart';
 import 'sync_engine.dart';
 
@@ -55,7 +56,11 @@ class SyncTriggers extends _$SyncTriggers {
     ref.listen(isOnlineProvider, (previous, next) {
       if (previous == false && next) {
         _request('online');
-        unawaited(ref.read(syncEngineProvider.notifier).drainNow());
+        _runEngineOperation(
+          'drain-now',
+          reason: 'online',
+          run: (engine) => engine.drainNow(),
+        );
       }
     });
 
@@ -68,7 +73,11 @@ class SyncTriggers extends _$SyncTriggers {
       final id = next?.id;
       if (id == null || id.isEmpty || isTemporaryChat(id)) return;
       if (previous?.id == id) return;
-      unawaited(ref.read(syncEngineProvider.notifier).drainOutbox());
+      _runEngineOperation(
+        'drain-outbox',
+        reason: 'active-conversation',
+        run: (engine) => engine.drainOutbox(),
+      );
     });
 
     // Foreground/background lifecycle + periodic timer.
@@ -118,10 +127,11 @@ class SyncTriggers extends _$SyncTriggers {
         identical(client, _startClient)) {
       return;
     }
-    _startFired = true;
-    _startDatabase = db;
-    _startClient = client;
-    _request('start');
+    if (_request('start')) {
+      _startFired = true;
+      _startDatabase = db;
+      _startClient = client;
+    }
   }
 
   void _queueMaybeFireStart() {
@@ -172,23 +182,78 @@ class SyncTriggers extends _$SyncTriggers {
     _periodic = null;
   }
 
-  void _request(String reason) {
+  bool _request(String reason) {
     DebugLogger.log(
       'trigger',
       scope: 'sync/triggers',
       data: {'reason': reason},
     );
+    return _requestPull(reason);
+  }
+
+  bool _requestPull(String reason) {
+    Future<PullResult?> pull;
+    try {
+      pull = ref.read(syncEngineProvider.notifier).requestPull(reason: reason);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'engine-operation-failed',
+        scope: 'sync/triggers/request-pull',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'operation': 'request-pull', 'reason': reason},
+      );
+      return false;
+    }
     unawaited(
-      ref.read(syncEngineProvider.notifier).requestPull(reason: reason),
+      pull.catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'engine-operation-failed',
+          scope: 'sync/triggers/request-pull',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'operation': 'request-pull', 'reason': reason},
+        );
+        return null;
+      }),
+    );
+    return true;
+  }
+
+  void _runEngineOperation(
+    String operation, {
+    required String reason,
+    required Future<void> Function(SyncEngine engine) run,
+  }) {
+    Future<void> future;
+    try {
+      future = run(ref.read(syncEngineProvider.notifier));
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'engine-operation-failed',
+        scope: 'sync/triggers/$operation',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'operation': operation, 'reason': reason},
+      );
+      return;
+    }
+    unawaited(
+      future.catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'engine-operation-failed',
+          scope: 'sync/triggers/$operation',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'operation': operation, 'reason': reason},
+        );
+      }),
     );
   }
 }
 
 class _SyncLifecycleObserver with WidgetsBindingObserver {
-  _SyncLifecycleObserver({
-    required this.onResumed,
-    required this.onSuspended,
-  });
+  _SyncLifecycleObserver({required this.onResumed, required this.onSuspended});
 
   final void Function() onResumed;
   final void Function() onSuspended;

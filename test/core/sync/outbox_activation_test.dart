@@ -108,8 +108,8 @@ void main() {
   late OutboxDao dao;
   late FakeOpenWebUiServer server;
   late _LoggingClient client;
-  late ChatLocks chatLocks;
-  late ChatLocks folderLocks;
+  late ConversationLocks chatLocks;
+  late FolderLocks folderLocks;
   late IdRemapper remapper;
   late PushSync push;
   late _Clock clock;
@@ -123,8 +123,8 @@ void main() {
     server = FakeOpenWebUiServer();
     log = <String>[];
     client = _LoggingClient(server, log);
-    chatLocks = ChatLocks();
-    folderLocks = ChatLocks();
+    chatLocks = ConversationLocks();
+    folderLocks = FolderLocks();
     clock = _Clock(1000);
     remapper = IdRemapper(db);
     push = PushSync(

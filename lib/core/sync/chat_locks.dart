@@ -124,11 +124,23 @@ class ChatLocks {
   bool get isIdle => _tails.isEmpty;
 }
 
+/// Lock domain for chat/conversation rows.
+///
+/// Kept as a distinct type from [FolderLocks] and [NoteLocks] so constructor
+/// injection catches accidental cross-domain wiring at compile time.
+class ConversationLocks extends ChatLocks {}
+
+/// Lock domain for folder rows.
+class FolderLocks extends ChatLocks {}
+
+/// Lock domain for note rows.
+class NoteLocks extends ChatLocks {}
+
 /// Fresh instance per database identity so locks never leak across servers.
 @Riverpod(keepAlive: true)
-ChatLocks chatLocks(Ref ref) {
+ConversationLocks chatLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
-  return ChatLocks();
+  return ConversationLocks();
 }
 
 /// Folder ops own a SEPARATE lock domain from chats (`OutboxDao.isFolderKind`):
@@ -136,9 +148,9 @@ ChatLocks chatLocks(Ref ref) {
 /// instance from [chatLocksProvider] so a folder op never contends a chat op
 /// (and vice versa). Also recreated per database identity.
 @Riverpod(keepAlive: true)
-ChatLocks folderLocks(Ref ref) {
+FolderLocks folderLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
-  return ChatLocks();
+  return FolderLocks();
 }
 
 /// Note ops own a SEPARATE lock domain from chats and folders
@@ -147,7 +159,7 @@ ChatLocks folderLocks(Ref ref) {
 /// contends a chat/folder op (and vice versa). Recreated per database identity
 /// so locks never leak across servers. The per-key id is the NOTE id.
 @Riverpod(keepAlive: true)
-ChatLocks noteLocks(Ref ref) {
+NoteLocks noteLocks(Ref ref) {
   ref.watch(appDatabaseProvider);
-  return ChatLocks();
+  return NoteLocks();
 }

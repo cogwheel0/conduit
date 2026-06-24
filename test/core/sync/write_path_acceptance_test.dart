@@ -35,7 +35,7 @@ class _Clock implements SyncClock {
 class StubCompletionRunner implements RequestCompletionRunner {
   StubCompletionRunner(this.db, this.locks);
   final AppDatabase db;
-  final ChatLocks locks;
+  final ConversationLocks locks;
   final List<String> ranForChats = <String>[];
 
   @override
@@ -90,8 +90,8 @@ void main() {
   late AppDatabase db;
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
-  late ChatLocks chatLocks;
-  late ChatLocks folderLocks;
+  late ConversationLocks chatLocks;
+  late FolderLocks folderLocks;
   late IdRemapper remapper;
   late PushSync push;
   late _Clock clock;
@@ -124,8 +124,8 @@ void main() {
   );
 
   void wire() {
-    chatLocks = ChatLocks();
-    folderLocks = ChatLocks();
+    chatLocks = ConversationLocks();
+    folderLocks = FolderLocks();
     remapper = IdRemapper(db);
     clock = _Clock(7000);
     push = PushSync(

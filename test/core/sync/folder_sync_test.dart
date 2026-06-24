@@ -61,8 +61,8 @@ void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
   late AppDatabase db;
-  late ChatLocks chatLocks;
-  late ChatLocks folderLocks;
+  late ConversationLocks chatLocks;
+  late FolderLocks folderLocks;
   late IdRemapper remapper;
   late FakeSyncClock clock;
   late PushSync push;
@@ -71,8 +71,8 @@ void main() {
     server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000);
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
-    chatLocks = ChatLocks();
-    folderLocks = ChatLocks();
+    chatLocks = ConversationLocks();
+    folderLocks = FolderLocks();
     remapper = IdRemapper(db);
     clock = FakeSyncClock()..now = 7000;
     push = PushSync(

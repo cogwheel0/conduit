@@ -84,14 +84,14 @@ void main() {
   late FakeOpenWebUiServer server;
   late FakeSyncApiClient client;
   late AppDatabase db;
-  late ChatLocks locks;
+  late NoteLocks locks;
   late IdRemapper syncRemapper;
 
   setUp(() {
     server = FakeOpenWebUiServer();
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
-    locks = ChatLocks();
+    locks = NoteLocks();
     syncRemapper = IdRemapper(db);
   });
   tearDown(() async {
@@ -1006,7 +1006,7 @@ void main() {
   });
 
   test('pushNoteCreate remaps while the local-id lock is still held', () async {
-    final recordingLocks = _RecordingChatLocks();
+    final recordingLocks = _RecordingNoteLocks();
     final remapper = IdRemapper(db);
     addTearDown(remapper.dispose);
     final push = NotePushSync(
@@ -1223,7 +1223,7 @@ void main() {
   );
 }
 
-class _RecordingChatLocks extends ChatLocks {
+class _RecordingNoteLocks extends NoteLocks {
   final List<Set<String>> activeSnapshots = <Set<String>>[];
   final Set<String> _active = <String>{};
 

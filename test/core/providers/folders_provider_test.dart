@@ -10,6 +10,7 @@ import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -20,6 +21,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+
+class _RecordingSyncEngine extends SyncEngine {
+  _RecordingSyncEngine(this.pulls);
+
+  final List<String> pulls;
+
+  @override
+  Future<PullResult?> requestPull({required String reason}) {
+    pulls.add(reason);
+    return Future.value(null);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -201,6 +214,28 @@ void main() {
           final rows = await folderRows();
           return rows.any((row) => row.name == 'Renamed');
         });
+      },
+    );
+
+    test(
+      'missing remote folder update submits reconcile pull immediately',
+      () async {
+        final pulls = <String>[];
+        final container = makeContainer(
+          extraOverrides: [
+            syncEngineProvider.overrideWith(() => _RecordingSyncEngine(pulls)),
+          ],
+        );
+        await container.read(foldersProvider.future);
+
+        container
+            .read(foldersProvider.notifier)
+            .updateFolderFromRemote(
+              'missing-folder',
+              (_) => throw StateError('unexpected transform'),
+            );
+
+        check(pulls).deepEquals(['folders-reconcile']);
       },
     );
 
