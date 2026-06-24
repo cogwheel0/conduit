@@ -641,6 +641,72 @@ void main() {
       },
     );
 
+    test(
+      'database switch waits for active task queue migration before retrying',
+      () async {
+        await db.close();
+        final firstMigrationGate = _GateTaskMigrationFlagRead();
+        final secondMigrationGate = _GateTaskMigrationFlagRead();
+        final firstDb = AppDatabase(
+          NativeDatabase.memory().interceptWith(firstMigrationGate),
+        );
+        db = firstDb;
+        final secondDb = AppDatabase(
+          NativeDatabase.memory().interceptWith(secondMigrationGate),
+        );
+        final activeDbProvider =
+            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+              () => _MutableValue<AppDatabase?>(firstDb),
+            );
+        final boxes = HiveBoxes(
+          preferences: emptyHiveBox(),
+          caches: emptyHiveBox(),
+          attachmentQueue: emptyHiveBox(),
+          metadata: emptyHiveBox(),
+        );
+        final storage = _MockOptimizedStorageService();
+        when(
+          () => storage.getActiveServerId(),
+        ).thenAnswer((_) async => 'server-1');
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith(
+              (ref) => ref.watch(activeDbProvider),
+            ),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+            hiveBoxesProvider.overrideWith((ref) => boxes),
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await secondDb.close();
+        });
+
+        final engine = container.read(syncEngineProvider.notifier);
+        final firstDrain = engine.drainOutbox();
+        await firstMigrationGate.firstReadStarted.future;
+
+        container.read(activeDbProvider.notifier).set(secondDb);
+        container.read(syncEngineProvider);
+        final secondDrain = engine.drainNow();
+        await Future<void>.delayed(Duration.zero);
+
+        check(firstMigrationGate.taskMigrationFlagReads).equals(1);
+        check(secondMigrationGate.taskMigrationFlagReads).equals(0);
+
+        firstMigrationGate.releaseFirstRead.complete();
+        await secondMigrationGate.firstReadStarted.future;
+        secondMigrationGate.releaseFirstRead.complete();
+        await firstDrain;
+        await secondDrain;
+
+        check(secondMigrationGate.taskMigrationFlagReads).equals(1);
+      },
+    );
+
     test('folders 403 result flips foldersFeatureEnabledProvider', () async {
       seedChat('chat-1', 100);
       client.foldersFeatureEnabled = false;
@@ -1015,6 +1081,94 @@ void main() {
       check(client.createChatCalls).equals(1);
       check(completionRunner.calls).isEmpty();
     });
+
+    test(
+      'completion runner rebind keeps preserved drainer from using stale runner',
+      () async {
+        await seedLocalCreate(
+          'local:runner-rebind',
+          contentHash: 'h-runner-rebind',
+          completion: const RequestCompletionPayload(
+            assistantMessageId: 'assistant-1',
+            model: 'model-1',
+          ),
+        );
+        final firstRunner = _RecordingCompletionRunner();
+        final secondRunner = _RecordingCompletionRunner();
+        final completionProvider =
+            NotifierProvider<
+              _MutableValue<RequestCompletionRunner>,
+              RequestCompletionRunner
+            >(() => _MutableValue<RequestCompletionRunner>(firstRunner));
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => db),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+            requestCompletionRunnerProvider.overrideWith(
+              (ref) => ref.watch(completionProvider),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+        final drain = engine.drainOutbox();
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+
+        container.read(completionProvider.notifier).set(secondRunner);
+        container.read(syncEngineProvider);
+        gate.complete();
+        await drain;
+
+        check(firstRunner.calls).isEmpty();
+        check(secondRunner.calls).isEmpty();
+
+        await engine.drainNow();
+
+        check(firstRunner.calls).isEmpty();
+        check(secondRunner.calls).length.equals(1);
+      },
+    );
+
+    test(
+      'disposing during an active create keeps remap forwarding until drain ends',
+      () async {
+        await seedLocalCreate(
+          'local:dispose-remap',
+          contentHash: 'h-dispose-remap',
+        );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith((ref) => db),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+          ],
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+        final remapEvents = <RemapEvent>[];
+        final remapSub = engine.remapEvents.listen(remapEvents.add);
+        addTearDown(remapSub.cancel);
+
+        final gate = Completer<void>();
+        client.createChatGate = gate.future;
+        final drain = engine.drainOutbox();
+        await waitFor(() => client.createChatStarts.isNotEmpty);
+
+        container.dispose();
+        gate.complete();
+        await drain;
+
+        check(remapEvents).length.equals(1);
+        check(remapEvents.single.fromId).equals('local:dispose-remap');
+        check(engine.hasCachedDrainerForTesting).isFalse();
+        check(engine.hasCachedRemapperForTesting).isFalse();
+      },
+    );
 
     test(
       'pull-cycle drain clears a stale drainer after dependency refresh',

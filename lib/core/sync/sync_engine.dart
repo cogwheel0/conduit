@@ -284,6 +284,9 @@ class SyncEngine extends _$SyncEngine {
     _debounce?.cancel();
     _debounce = null;
     if (preserveDrainer) {
+      if (retireActiveDrainerRemapper) {
+        _retireActiveDrainerRemapperForCleanup();
+      }
       _drainerStaleAfterDrain = true;
     } else {
       if (retireActiveDrainerRemapper) {
@@ -299,8 +302,9 @@ class SyncEngine extends _$SyncEngine {
     }
     if (!preserveMigration) {
       _migrated = false;
-      _migrationInFlight = null;
-      _migrationDb = null;
+      if (_migrationInFlight == null) {
+        _migrationDb = null;
+      }
     }
     _ftsBuildInFlight = false;
     if (completeJoinable) {
@@ -352,8 +356,14 @@ class SyncEngine extends _$SyncEngine {
   }
 
   void _disposeSessionBoundState() {
-    _resetSessionBoundState();
-    _disposeRetiredDrainerRemappers();
+    final activeDrainer = _drainer?.isDraining ?? false;
+    _resetSessionBoundState(
+      preserveDrainer: activeDrainer,
+      retireActiveDrainerRemapper: activeDrainer,
+    );
+    if (!activeDrainer) {
+      _disposeRetiredDrainerRemappers();
+    }
     _boundDb = null;
     _boundClient = null;
     _boundChatLocks = null;
@@ -632,6 +642,13 @@ class SyncEngine extends _$SyncEngine {
     final drainerAuthEpoch = _authEpoch;
     final drainerDb = db;
     final drainerClient = client;
+    final drainerChatLocks = _boundChatLocks;
+    final drainerFolderLocks = _boundFolderLocks;
+    final drainerNoteLocks = _boundNoteLocks;
+    final drainerClock = clock;
+    final drainerBackoff = backoff;
+    final drainerCompletion = completion;
+    final drainerRemapper = _remapper;
     return _drainer = OutboxDrainer(
       db: db,
       clock: clock,
@@ -640,6 +657,13 @@ class SyncEngine extends _$SyncEngine {
           ref.mounted &&
           identical(_boundDb, drainerDb) &&
           identical(_boundClient, drainerClient) &&
+          identical(_boundChatLocks, drainerChatLocks) &&
+          identical(_boundFolderLocks, drainerFolderLocks) &&
+          identical(_boundNoteLocks, drainerNoteLocks) &&
+          identical(_boundClock, drainerClock) &&
+          identical(_boundBackoff, drainerBackoff) &&
+          identical(_boundCompletionRunner, drainerCompletion) &&
+          identical(_remapper, drainerRemapper) &&
           _boundAuthenticated == true &&
           _authEpoch == drainerAuthEpoch &&
           ref.read(isOnlineProvider),
@@ -659,7 +683,6 @@ class SyncEngine extends _$SyncEngine {
       _retiredDrainerRemapForwards.remove(drainer);
       unawaited(retiredForward?.cancel());
       unawaited(retiredRemapper?.dispose());
-      return;
     }
     if (!identical(_drainer, drainer) ||
         !_drainerStaleAfterDrain ||
@@ -740,23 +763,37 @@ class SyncEngine extends _$SyncEngine {
 
   /// §9 step 2 / §11: convert the legacy Hive task queue into rows+ops EXACTLY
   /// ONCE per process, BEFORE any drain entry point can consume the outbox.
-  Future<void> _migrateLegacyTaskQueueIfNeeded() {
-    if (_migrated) return Future<void>.value();
-    final db = _boundDb;
-    if (db == null) return Future<void>.value();
-    final inFlight = _migrationInFlight;
-    if (inFlight != null && identical(_migrationDb, db)) return inFlight;
-
-    late final Future<void> migration;
-    migration = _runLegacyTaskQueueMigration(migrationDb: db).whenComplete(() {
-      if (identical(_migrationInFlight, migration)) {
-        _migrationInFlight = null;
-        _migrationDb = null;
+  Future<void> _migrateLegacyTaskQueueIfNeeded() async {
+    while (true) {
+      if (_migrated) return;
+      final db = _boundDb;
+      if (db == null) return;
+      final inFlight = _migrationInFlight;
+      if (inFlight != null) {
+        final inFlightDb = _migrationDb;
+        await inFlight;
+        if (identical(inFlightDb, db) && identical(_boundDb, db)) {
+          return;
+        }
+        continue;
       }
-    });
-    _migrationInFlight = migration;
-    _migrationDb = db;
-    return migration;
+
+      late final Future<void> migration;
+      migration = _runLegacyTaskQueueMigration(migrationDb: db).whenComplete(
+        () {
+          if (identical(_migrationInFlight, migration)) {
+            _migrationInFlight = null;
+            _migrationDb = null;
+          }
+        },
+      );
+      _migrationInFlight = migration;
+      _migrationDb = db;
+      await migration;
+      if (identical(_boundDb, db)) {
+        return;
+      }
+    }
   }
 
   Future<void> _runLegacyTaskQueueMigration({
