@@ -111,6 +111,30 @@ class _GateTaskMigrationFlagRead extends QueryInterceptor {
   }
 }
 
+class _GateFirstOutboxClaim extends QueryInterceptor {
+  final claimStarted = Completer<void>();
+  final releaseClaim = Completer<void>();
+  bool _gated = false;
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final isClaim =
+        !_gated &&
+        statement.contains('outbox_ops') &&
+        args.contains(OutboxStatus.inFlight);
+    if (isClaim) {
+      _gated = true;
+      claimStarted.complete();
+      await releaseClaim.future;
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
 class _RecordingCompletionRunner implements RequestCompletionRunner {
   final calls = <String>[];
 
@@ -887,6 +911,57 @@ void main() {
 
         check(client.createChatCalls).equals(1);
         check(await db.outboxDao.pendingForChat('local:c2')).isEmpty();
+      },
+    );
+
+    test(
+      'database switch during an active claim does not post stale outbox work',
+      () async {
+        await db.close();
+        final claimGate = _GateFirstOutboxClaim();
+        final firstDb = AppDatabase(
+          NativeDatabase.memory().interceptWith(claimGate),
+        );
+        db = firstDb;
+        final secondDb = AppDatabase(NativeDatabase.memory());
+        final activeDbProvider =
+            NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+              () => _MutableValue<AppDatabase?>(firstDb),
+            );
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWith(
+              (ref) => ref.watch(activeDbProvider),
+            ),
+            syncApiClientProvider.overrideWith((ref) => client),
+            isAuthenticatedProvider2.overrideWith((ref) => true),
+            isOnlineProvider.overrideWith((ref) => true),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await secondDb.close();
+        });
+
+        await seedLocalCreate('local:stale-db', contentHash: 'h-stale-db');
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final drain = engine.drainOutbox();
+        await claimGate.claimStarted.future;
+
+        container.read(activeDbProvider.notifier).set(secondDb);
+        container.read(syncEngineProvider);
+        check(engine.hasCachedDrainerForTesting).isFalse();
+
+        claimGate.releaseClaim.complete();
+        await drain;
+
+        check(client.createChatCalls).equals(0);
+        final pending = await firstDb.outboxDao.pendingForChat(
+          'local:stale-db',
+        );
+        check(pending).length.equals(1);
+        check(pending.single.lastError).equals('offline');
       },
     );
 

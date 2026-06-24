@@ -240,8 +240,7 @@ class SyncEngine extends _$SyncEngine {
     final activeDrainer = _drainer?.isDraining ?? false;
     final preserveActiveDrainer =
         sameServerBinding && authenticatedSameSession && activeDrainer;
-    final retireActiveDrainerRemapper =
-        authChanged && sameServerBinding && activeDrainer;
+    final retireActiveDrainerRemapper = activeDrainer && !preserveActiveDrainer;
     final preserveJoinable =
         _joinable != null &&
         !_joinable!.isCompleted &&
@@ -614,6 +613,7 @@ class SyncEngine extends _$SyncEngine {
       }
     }
     final db = _boundDb;
+    final client = _boundClient;
     final clock = _boundClock;
     final backoff = _boundBackoff;
     final completion = _boundCompletionRunner;
@@ -622,6 +622,7 @@ class SyncEngine extends _$SyncEngine {
     // so a separate _buildPushSync() here would be a discarded duplicate.
     final adapters = _buildAdapters();
     if (db == null ||
+        client == null ||
         clock == null ||
         backoff == null ||
         completion == null ||
@@ -629,12 +630,16 @@ class SyncEngine extends _$SyncEngine {
       return null;
     }
     final drainerAuthEpoch = _authEpoch;
+    final drainerDb = db;
+    final drainerClient = client;
     return _drainer = OutboxDrainer(
       db: db,
       clock: clock,
       backoff: backoff,
       isOnline: () =>
           ref.mounted &&
+          identical(_boundDb, drainerDb) &&
+          identical(_boundClient, drainerClient) &&
           _boundAuthenticated == true &&
           _authEpoch == drainerAuthEpoch &&
           ref.read(isOnlineProvider),
