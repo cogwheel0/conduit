@@ -1244,6 +1244,44 @@ _RemovedItems<T> _removeItemById<T>(
 int _epochSecondsOf(DateTime dateTime) =>
     dateTime.millisecondsSinceEpoch ~/ 1000;
 
+void _submitReconcilePull(
+  Ref ref, {
+  required String reason,
+  required String scope,
+  required String action,
+}) {
+  DebugLogger.log(
+    'reconcile-after-remote-mutation',
+    scope: scope,
+    data: {'action': action},
+  );
+  Future<PullResult?> pull;
+  try {
+    pull = ref.read(syncEngineProvider.notifier).requestPull(reason: reason);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'reconcile-pull-failed',
+      scope: scope,
+      error: error,
+      stackTrace: stackTrace,
+      data: {'action': action},
+    );
+    return;
+  }
+  unawaited(
+    pull.catchError((Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'reconcile-pull-failed',
+        scope: scope,
+        error: error,
+        stackTrace: stackTrace,
+        data: {'action': action},
+      );
+      return null;
+    }),
+  );
+}
+
 // Conversation list provider — Drift-backed read path (CDT-RFC-001 Phase 1).
 //
 // The list renders from `ChatsDao.watchChatList()` (a narrow projection that
@@ -1426,37 +1464,11 @@ class Conversations extends _$Conversations {
   }
 
   void _requestConversationReconcilePull({required String action}) {
-    DebugLogger.log(
-      'reconcile-after-remote-mutation',
+    _submitReconcilePull(
+      ref,
+      reason: 'conversations-reconcile',
       scope: 'conversations',
-      data: {'action': action},
-    );
-    Future<PullResult?> pull;
-    try {
-      pull = ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'conversations-reconcile');
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'reconcile-pull-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'action': action},
-      );
-      return;
-    }
-    unawaited(
-      pull.catchError((Object error, StackTrace stackTrace) {
-        DebugLogger.error(
-          'reconcile-pull-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'action': action},
-        );
-        return null;
-      }),
+      action: action,
     );
   }
 
@@ -3442,37 +3454,11 @@ class Folders extends _$Folders {
   }
 
   void _requestReconcilePull({required String action}) {
-    DebugLogger.log(
-      'reconcile-after-remote-mutation',
+    _submitReconcilePull(
+      ref,
+      reason: 'folders-reconcile',
       scope: 'folders',
-      data: {'action': action},
-    );
-    Future<PullResult?> pull;
-    try {
-      pull = ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'folders-reconcile');
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'reconcile-pull-failed',
-        scope: 'folders',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'action': action},
-      );
-      return;
-    }
-    unawaited(
-      pull.catchError((Object error, StackTrace stackTrace) {
-        DebugLogger.error(
-          'reconcile-pull-failed',
-          scope: 'folders',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'action': action},
-        );
-        return null;
-      }),
+      action: action,
     );
   }
 
