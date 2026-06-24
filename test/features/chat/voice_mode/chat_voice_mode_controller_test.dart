@@ -230,7 +230,7 @@ void main() {
   );
 
   test(
-    'queues a final transcript that arrives while the previous final is sending',
+    'queues final transcripts that arrive while the previous final is sending',
     () async {
       final input = _FakeVoiceInputService()..nativeLocalStt = true;
       final tts = _FakeTextToSpeechService()..holdCompletion = true;
@@ -269,13 +269,14 @@ void main() {
       await controller.start(startNewConversation: false);
       await input.completeCurrent('first queued final', close: false);
       await input.completeCurrent('second queued final', close: false);
+      await input.completeCurrent('third queued final', close: false);
       await _until(
         () =>
             container
                 .read(chatMessagesProvider)
                 .where((message) => message.role == 'user')
                 .length ==
-            2,
+            3,
       );
 
       final userMessages = container
@@ -283,11 +284,13 @@ void main() {
           .where((message) => message.role == 'user')
           .map((message) => message.content)
           .toList();
-      check(
-        userMessages,
-      ).deepEquals(<String>['first queued final', 'second queued final']);
-      await _until(() => tts.finishedTexts.length == 2);
-      check(stopGenerationCalls).equals(1);
+      check(userMessages).deepEquals(<String>[
+        'first queued final',
+        'second queued final',
+        'third queued final',
+      ]);
+      await _until(() => tts.finishedTexts.length == 3);
+      check(stopGenerationCalls).equals(2);
       check(input.beginCalls).equals(1);
       await controller.stop();
     },

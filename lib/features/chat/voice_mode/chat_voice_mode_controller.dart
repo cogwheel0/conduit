@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -206,7 +207,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _assistantFinalizationDeferred = false;
   String? _pendingPausedAssistantText;
   String? _pendingPausedAssistantFinalText;
-  String? _pendingFinalTranscript;
+  final Queue<String> _pendingFinalTranscripts = Queue<String>();
   String? _lastSubmittedTranscript;
   bool _stoppingFromCallKit = false;
   bool _sendingTranscript = false;
@@ -709,7 +710,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     if (_sendingTranscript) {
-      _pendingFinalTranscript = transcript;
+      _enqueuePendingFinalTranscript(transcript);
       return;
     }
 
@@ -779,13 +780,26 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
   }
 
-  String? _takePendingFinalTranscript() {
-    final pending = _pendingFinalTranscript?.trim();
-    _pendingFinalTranscript = null;
-    if (pending == null || pending.isEmpty) {
-      return null;
+  void _enqueuePendingFinalTranscript(String transcript) {
+    final pending = transcript.trim();
+    if (pending.isEmpty || pending == _lastSubmittedTranscript) {
+      return;
     }
-    return pending;
+    if (_pendingFinalTranscripts.isNotEmpty &&
+        _pendingFinalTranscripts.last == pending) {
+      return;
+    }
+    _pendingFinalTranscripts.addLast(pending);
+  }
+
+  String? _takePendingFinalTranscript() {
+    while (_pendingFinalTranscripts.isNotEmpty) {
+      final pending = _pendingFinalTranscripts.removeFirst().trim();
+      if (pending.isNotEmpty && pending != _lastSubmittedTranscript) {
+        return pending;
+      }
+    }
+    return null;
   }
 
   Future<void> _restartAfterEmptyTranscript(int token) async {
@@ -1032,7 +1046,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
     _awaitingAssistant = false;
     _streamingTtsStarted = false;
-    _pendingFinalTranscript = null;
+    _pendingFinalTranscripts.clear();
     _lastSubmittedTranscript = null;
     _activeAssistantMessageId = null;
     _lastFedAssistantText = '';
@@ -1190,7 +1204,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _assistantFinalizationDeferred = false;
     _pendingPausedAssistantText = null;
     _pendingPausedAssistantFinalText = null;
-    _pendingFinalTranscript = null;
+    _pendingFinalTranscripts.clear();
     _lastSubmittedTranscript = null;
     _sendingTranscript = false;
     _assistantSpeechChunks = const <String>[];
