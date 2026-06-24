@@ -772,7 +772,7 @@ class SyncEngine extends _$SyncEngine {
       if (inFlight != null) {
         final inFlightDb = _migrationDb;
         await inFlight;
-        if (identical(inFlightDb, db) && identical(_boundDb, db)) {
+        if (_migrated && identical(inFlightDb, db) && identical(_boundDb, db)) {
           return;
         }
         continue;

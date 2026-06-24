@@ -642,6 +642,55 @@ void main() {
     );
 
     test(
+      'same-db migration joiner retries after active migration failure',
+      () async {
+        await db.close();
+        final migrationGate = _GateTaskMigrationFlagRead();
+        db = AppDatabase(NativeDatabase.memory().interceptWith(migrationGate));
+        final caches = _MockHiveBox();
+        var taskQueueProbes = 0;
+        when(() => caches.containsKey(HiveStoreKeys.taskQueue)).thenAnswer((_) {
+          taskQueueProbes++;
+          if (taskQueueProbes == 1) {
+            throw StateError('transient task queue probe');
+          }
+          return false;
+        });
+        when(() => caches.get(any<dynamic>())).thenReturn(null);
+        when(() => caches.delete(any<dynamic>())).thenAnswer((_) async {});
+        final boxes = HiveBoxes(
+          preferences: emptyHiveBox(),
+          caches: caches,
+          attachmentQueue: emptyHiveBox(),
+          metadata: emptyHiveBox(),
+        );
+        final storage = _MockOptimizedStorageService();
+        when(() => storage.getActiveServerId()).thenAnswer((_) async => null);
+        final container = makeContainer(
+          hiveBoxes: boxes,
+          storageService: storage,
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+
+        final firstDrain = engine.drainOutbox();
+        await migrationGate.firstReadStarted.future;
+        final joinedDrain = engine.drainNow();
+        await Future<void>.delayed(Duration.zero);
+
+        migrationGate.releaseFirstRead.complete();
+        await firstDrain;
+        await joinedDrain;
+
+        check(taskQueueProbes).equals(2);
+        check(
+          await db.syncMetaDao.getValue(
+            OutboxTaskQueueMigrator.migratedFlagKey,
+          ),
+        ).equals('1');
+      },
+    );
+
+    test(
       'database switch waits for active task queue migration before retrying',
       () async {
         await db.close();
