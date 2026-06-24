@@ -339,7 +339,9 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       }
 
       if (event.id == 'tts-voice-picker' && value is String) {
-        await _handleNativeTtsVoiceSelection(value);
+        await _handleNativeTtsVoiceSelection(
+          value == '__default__' ? ttsSystemDefaultVoiceId : value,
+        );
         return;
       }
 

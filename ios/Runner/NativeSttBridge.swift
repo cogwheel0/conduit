@@ -963,7 +963,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func finalizePendingSegment() {
-    guard !stopped else { return }
+    guard !stopped, isCurrent() else { return }
     let text = pendingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { return }
 
