@@ -704,6 +704,12 @@ void main() {
         await secondDrain;
 
         check(secondMigrationGate.taskMigrationFlagReads).equals(1);
+        check(
+          await firstDb.syncMetaDao.getValue('hive_caches_migrated'),
+        ).isNull();
+        check(
+          await secondDb.syncMetaDao.getValue('hive_caches_migrated'),
+        ).equals('1');
       },
     );
 

@@ -801,8 +801,11 @@ class SyncEngine extends _$SyncEngine {
   }) async {
     try {
       final taskQueueMigrator = _buildMigrator();
-      final cacheMigrator = _buildCacheMigrator();
       await taskQueueMigrator?.migrateIfNeeded();
+      if (!identical(_boundDb, migrationDb)) {
+        return;
+      }
+      final cacheMigrator = _buildCacheMigrator();
       await cacheMigrator?.migrateIfNeeded();
       if (identical(_boundDb, migrationDb)) {
         _migrated = true;
