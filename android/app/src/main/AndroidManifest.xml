@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-sdk tools:overrideLibrary="com.google.mlkit.genai.speechrecognition,com.google.mlkit.genai.common"/>
     
     <uses-permission android:name="android.permission.INTERNET"/>
     
@@ -15,8 +17,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <!-- No broad media/storage permissions; use Android Photo Picker (API 33+) and SAF/share intents -->
 
-    <!-- Bluetooth permissions for audio routing (Android 12+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" android:maxSdkVersion="32" />
+    <!-- Bluetooth permissions for hands-free/car audio routing. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
 
     <!-- Background streaming permissions -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>

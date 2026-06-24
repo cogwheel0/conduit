@@ -3,6 +3,7 @@ import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:vad/vad.dart';
 
 void main() {
   group('VoiceInputService.silenceDurationToVadFrames', () {
@@ -43,6 +44,62 @@ void main() {
       );
 
       check(language).equals('pl');
+    });
+  });
+
+  group('VoiceInputService.androidServerVadRecordConfig', () {
+    test('uses speech recognition routing outside voice calls', () {
+      final config = VoiceInputService.androidServerVadRecordConfigForTesting(
+        voiceCallSession: false,
+      );
+
+      check(config.audioSource).equals(AndroidAudioSource.voiceRecognition);
+      check(config.audioManagerMode).equals(AudioManagerMode.modeNormal);
+      check(config.manageBluetooth).isTrue();
+    });
+
+    test('uses communication routing during voice calls', () {
+      final config = VoiceInputService.androidServerVadRecordConfigForTesting(
+        voiceCallSession: true,
+      );
+
+      check(config.audioSource).equals(AndroidAudioSource.voiceCommunication);
+      check(
+        config.audioManagerMode,
+      ).equals(AudioManagerMode.modeInCommunication);
+      check(config.manageBluetooth).isTrue();
+    });
+  });
+
+  group('VoiceInputService.shouldSettleNativeDictation', () {
+    test('settles cumulative native dictation on final result', () {
+      check(
+        VoiceInputService.shouldSettleNativeDictationForTesting(
+          isFinal: true,
+          nativeAccumulateResults: true,
+          usingServerStt: false,
+        ),
+      ).isTrue();
+    });
+
+    test('keeps voice-call native STT continuous after final chunks', () {
+      check(
+        VoiceInputService.shouldSettleNativeDictationForTesting(
+          isFinal: true,
+          nativeAccumulateResults: false,
+          usingServerStt: false,
+        ),
+      ).isFalse();
+    });
+
+    test('does not settle server STT through the native final path', () {
+      check(
+        VoiceInputService.shouldSettleNativeDictationForTesting(
+          isFinal: true,
+          nativeAccumulateResults: true,
+          usingServerStt: true,
+        ),
+      ).isFalse();
     });
   });
 

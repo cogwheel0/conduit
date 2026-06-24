@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/providers/app_providers.dart';
@@ -38,6 +39,9 @@ class ChatVoiceModeSnapshot {
     this.phase = ChatVoiceModePhase.idle,
     this.transcript = '',
     this.assistantPreview = '',
+    this.spokenResponse = '',
+    this.spokenWordStart,
+    this.spokenWordEnd,
     this.intensity = 0,
     this.elapsed = Duration.zero,
     this.startedAt,
@@ -50,6 +54,9 @@ class ChatVoiceModeSnapshot {
   final ChatVoiceModePhase phase;
   final String transcript;
   final String assistantPreview;
+  final String spokenResponse;
+  final int? spokenWordStart;
+  final int? spokenWordEnd;
   final int intensity;
   final Duration elapsed;
   final DateTime? startedAt;
@@ -82,6 +89,11 @@ class ChatVoiceModeSnapshot {
     ChatVoiceModePhase? phase,
     String? transcript,
     String? assistantPreview,
+    String? spokenResponse,
+    bool clearSpokenResponse = false,
+    int? spokenWordStart,
+    int? spokenWordEnd,
+    bool clearSpokenProgress = false,
     int? intensity,
     Duration? elapsed,
     DateTime? startedAt,
@@ -97,6 +109,15 @@ class ChatVoiceModeSnapshot {
       phase: phase ?? this.phase,
       transcript: transcript ?? this.transcript,
       assistantPreview: assistantPreview ?? this.assistantPreview,
+      spokenResponse: clearSpokenResponse
+          ? ''
+          : spokenResponse ?? this.spokenResponse,
+      spokenWordStart: clearSpokenResponse || clearSpokenProgress
+          ? null
+          : spokenWordStart ?? this.spokenWordStart,
+      spokenWordEnd: clearSpokenResponse || clearSpokenProgress
+          ? null
+          : spokenWordEnd ?? this.spokenWordEnd,
       intensity: intensity ?? this.intensity,
       elapsed: elapsed ?? this.elapsed,
       startedAt: clearStartedAt ? null : startedAt ?? this.startedAt,
@@ -161,7 +182,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   int _token = 0;
   int _emptyTranscriptRestarts = 0;
 
-  StreamSubscription<String>? _transcriptSub;
+  StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
   StreamSubscription<int>? _intensitySub;
   StreamSubscription<TtsEvent>? _ttsSub;
   StreamSubscription<CallEvent>? _callKitSub;
@@ -186,6 +207,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   String? _pendingPausedAssistantText;
   String? _pendingPausedAssistantFinalText;
   bool _stoppingFromCallKit = false;
+  bool _sendingTranscript = false;
+  List<String> _assistantSpeechChunks = const <String>[];
+  int _activeAssistantSpeechChunkIndex = -1;
 
   @override
   ChatVoiceModeSnapshot build() {
@@ -263,6 +287,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           throw StateError('Voice input initialization failed.');
         }
 
+        await _requestAndroidVoiceRoutingPermission();
         await _initializeTts(tts, settings);
         _listenForTtsEvents(tts, token);
         await _startCallKit(model.name, token);
@@ -279,6 +304,35 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         await _fail(error.toString(), token);
       }
     });
+  }
+
+  Future<void> _requestAndroidVoiceRoutingPermission() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+
+    try {
+      final status = await Permission.bluetoothConnect.status;
+      if (status.isGranted) {
+        return;
+      }
+
+      final requested = await Permission.bluetoothConnect.request();
+      if (!requested.isGranted) {
+        DebugLogger.warning(
+          'bluetooth-connect-denied',
+          scope: 'chat/voice_mode',
+          data: {'status': requested.name},
+        );
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'bluetooth-connect-request-failed',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<void> stop() {
@@ -455,6 +509,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       switch (event) {
         case TtsStarted():
           if (_awaitingAssistant && state.phase != ChatVoiceModePhase.paused) {
+            if (_activeAssistantSpeechChunkIndex < 0 &&
+                _assistantSpeechChunks.isNotEmpty) {
+              _handleTtsChunkStarted(0);
+            }
             state = state.copyWith(phase: ChatVoiceModePhase.speaking);
           }
         case TtsCompleted():
@@ -467,9 +525,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           state = state.copyWith(errorMessage: message);
         case TtsPaused():
         case TtsResumed():
-        case TtsChunkStarted():
-        case TtsWordProgress():
           break;
+        case TtsChunkStarted(:final chunkIndex):
+          _handleTtsChunkStarted(chunkIndex);
+        case TtsWordProgress(:final start, :final end):
+          _handleTtsWordProgress(start, end);
       }
     });
   }
@@ -564,7 +624,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     final input = ref.read(voiceInputServiceProvider);
-    await _cancelListening();
+    if (_transcriptSub == null || !input.isListening) {
+      await _cancelListening();
+    }
     await _audioSessionCoordinator?.configureForListening();
 
     _currentTranscript = '';
@@ -572,6 +634,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       phase: ChatVoiceModePhase.listening,
       transcript: '',
       assistantPreview: '',
+      clearSpokenResponse: true,
       intensity: 0,
       clearErrorMessage: true,
     );
@@ -582,32 +645,33 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       unawaited(ref.read(callKitServiceProvider).markCallConnected(callId));
     }
 
-    final stream = await input.beginListening(
-      iosAudioSessionManagedExternally: _iosAudioSessionManagedExternally,
-    );
-    if (token != _token) return;
+    if (_transcriptSub == null || !input.isListening) {
+      final stream = await input.beginListeningEvents(
+        iosAudioSessionManagedExternally: _iosAudioSessionManagedExternally,
+      );
+      if (token != _token) return;
 
-    await _transcriptSub?.cancel();
-    _transcriptSub = stream.listen(
-      (text) {
-        if (token != _token) return;
-        _currentTranscript = text;
-        state = state.copyWith(transcript: text);
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        if (token != _token) return;
-        DebugLogger.error(
-          'listen-failed',
-          scope: 'chat/voice_mode',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        unawaited(_fail(error.toString(), token));
-      },
-      onDone: () {
-        unawaited(_handleListeningDone(token));
-      },
-    );
+      await _transcriptSub?.cancel();
+      _transcriptSub = stream.listen(
+        (event) {
+          _handleTranscriptEvent(event, token);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (token != _token) return;
+          DebugLogger.error(
+            'listen-failed',
+            scope: 'chat/voice_mode',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          unawaited(_fail(error.toString(), token));
+        },
+        onDone: () {
+          _transcriptSub = null;
+          unawaited(_handleListeningDone(token));
+        },
+      );
+    }
 
     await _intensitySub?.cancel();
     _intensitySub = input.intensityStream.listen((intensity) {
@@ -617,12 +681,56 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     });
   }
 
+  void _handleTranscriptEvent(VoiceTranscriptEvent event, int token) {
+    if (token != _token || state.isMuted) return;
+
+    _currentTranscript = event.text;
+    if (state.isActive && state.phase != ChatVoiceModePhase.paused) {
+      state = state.copyWith(transcript: event.text);
+    }
+
+    if (event.isFinal) {
+      unawaited(_handleFinalTranscript(event.text, token));
+    }
+  }
+
+  Future<void> _handleFinalTranscript(String text, int token) async {
+    if (token != _token ||
+        state.isMuted ||
+        state.phase == ChatVoiceModePhase.paused ||
+        _sendingTranscript) {
+      return;
+    }
+
+    final transcript = text.trim();
+    if (transcript.isEmpty) {
+      return;
+    }
+
+    _sendingTranscript = true;
+    try {
+      _emptyTranscriptRestarts = 0;
+      if (_awaitingAssistant ||
+          state.phase == ChatVoiceModePhase.sending ||
+          state.phase == ChatVoiceModePhase.speaking) {
+        await _interruptAssistantForBargeIn(token);
+      }
+      if (token != _token || state.isMuted) return;
+      await _sendTranscript(transcript, token);
+    } finally {
+      _sendingTranscript = false;
+    }
+  }
+
   Future<void> _handleListeningDone(int token) async {
     if (token != _token || state.phase != ChatVoiceModePhase.listening) {
       return;
     }
 
-    final transcript = _currentTranscript.trim();
+    final input = ref.read(voiceInputServiceProvider);
+    final transcript = input.lastCompletedTranscriptSendable
+        ? _currentTranscript.trim()
+        : '';
     if (transcript.isEmpty) {
       await _restartAfterEmptyTranscript(token);
       return;
@@ -656,8 +764,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _sendTranscript(String transcript, int token) async {
     if (token != _token) return;
 
-    await _cancelListening();
-    await _audioSessionCoordinator?.configureForSpeaking();
+    final input = ref.read(voiceInputServiceProvider);
+    final keepListening = input.isUsingNativeLocalStt;
+    if (!keepListening) {
+      await _cancelListening();
+    }
+    if (keepListening && Platform.isIOS) {
+      await _audioSessionCoordinator?.configureForBargeInSpeaking();
+    } else {
+      await _audioSessionCoordinator?.configureForSpeaking();
+    }
     final tts = ref.read(textToSpeechServiceProvider);
     _assistantMessageIdsBeforeTurn = _currentAssistantMessageIds();
     ref.read(streamingContentProvider.notifier).set(null);
@@ -668,11 +784,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _awaitingAssistant = true;
     _lastFedAssistantText = '';
     _activeAssistantMessageId = null;
+    _assistantSpeechChunks = const <String>[];
+    _activeAssistantSpeechChunkIndex = -1;
 
     state = state.copyWith(
       phase: ChatVoiceModePhase.sending,
       transcript: transcript,
       assistantPreview: '',
+      clearSpokenResponse: true,
       intensity: 0,
       clearErrorMessage: true,
     );
@@ -702,6 +821,35 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
   }
 
+  Future<void> _interruptAssistantForBargeIn(int token) async {
+    if (token != _token) return;
+
+    DebugLogger.info('barge-in', scope: 'chat/voice_mode');
+    final tts = ref.read(textToSpeechServiceProvider);
+    await tts.stopStreamingTts();
+    await tts.stop();
+
+    try {
+      ref.read(stopGenerationProvider)();
+    } catch (error, stackTrace) {
+      DebugLogger.warning(
+        'barge-in-stop-generation-failed',
+        scope: 'chat/voice_mode',
+        data: {'error': error, 'stackTrace': stackTrace},
+      );
+    }
+
+    _awaitingAssistant = false;
+    _assistantFinalized = true;
+    _streamingTtsStarted = false;
+    _activeAssistantMessageId = null;
+    _lastFedAssistantText = '';
+    _assistantSpeechChunks = const <String>[];
+    _activeAssistantSpeechChunkIndex = -1;
+    _assistantMessageIdsBeforeTurn = <String>{};
+    state = state.copyWith(clearSpokenResponse: true);
+  }
+
   void _handleAssistantContentChanged([List<ChatMessage>? messages]) {
     if (!_awaitingAssistant || !_streamingTtsStarted || _assistantFinalized) {
       return;
@@ -712,6 +860,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
+    _syncAssistantSpeechChunks(text);
     state = state.copyWith(assistantPreview: text);
     if (state.phase == ChatVoiceModePhase.paused) {
       _pendingPausedAssistantText = text;
@@ -750,6 +899,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     final finalText = _visibleAssistantText() ?? '';
+    _syncAssistantSpeechChunks(finalText);
     state = state.copyWith(assistantPreview: finalText);
 
     if (state.phase == ChatVoiceModePhase.paused) {
@@ -836,6 +986,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _streamingTtsStarted = false;
     _activeAssistantMessageId = null;
     _lastFedAssistantText = '';
+    _assistantSpeechChunks = const <String>[];
+    _activeAssistantSpeechChunkIndex = -1;
     _assistantMessageIdsBeforeTurn = <String>{};
 
     if (!state.isActive ||
@@ -915,6 +1067,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
       clearActiveCallId: true,
+      clearSpokenResponse: true,
       intensity: 0,
     );
   }
@@ -923,6 +1076,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
+      clearSpokenResponse: true,
       intensity: 0,
     );
   }
@@ -940,6 +1094,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       phase: ChatVoiceModePhase.ended,
       transcript: '',
       assistantPreview: '',
+      clearSpokenResponse: true,
       intensity: 0,
       elapsed: Duration.zero,
       clearStartedAt: true,
@@ -985,6 +1140,62 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _assistantFinalizationDeferred = false;
     _pendingPausedAssistantText = null;
     _pendingPausedAssistantFinalText = null;
+    _sendingTranscript = false;
+    _assistantSpeechChunks = const <String>[];
+    _activeAssistantSpeechChunkIndex = -1;
+  }
+
+  void _syncAssistantSpeechChunks(String text) {
+    _assistantSpeechChunks = ref
+        .read(textToSpeechServiceProvider)
+        .splitTextForSpeech(text);
+
+    final index = _activeAssistantSpeechChunkIndex;
+    if (index >= 0 && index < _assistantSpeechChunks.length) {
+      final chunk = _assistantSpeechChunks[index];
+      if (chunk != state.spokenResponse) {
+        state = state.copyWith(
+          spokenResponse: chunk,
+          clearSpokenProgress: true,
+        );
+      }
+    }
+  }
+
+  void _handleTtsChunkStarted(int chunkIndex) {
+    if (!_awaitingAssistant || !_streamingTtsStarted) {
+      return;
+    }
+
+    _activeAssistantSpeechChunkIndex = chunkIndex;
+    if (chunkIndex < 0) {
+      state = state.copyWith(clearSpokenResponse: true);
+      return;
+    }
+
+    if (chunkIndex >= _assistantSpeechChunks.length) {
+      _syncAssistantSpeechChunks(state.assistantPreview);
+    }
+
+    if (chunkIndex >= _assistantSpeechChunks.length) {
+      state = state.copyWith(clearSpokenResponse: true);
+      return;
+    }
+
+    state = state.copyWith(
+      spokenResponse: _assistantSpeechChunks[chunkIndex],
+      clearSpokenProgress: true,
+    );
+  }
+
+  void _handleTtsWordProgress(int start, int end) {
+    if (!_awaitingAssistant ||
+        !_streamingTtsStarted ||
+        state.spokenResponse.trim().isEmpty) {
+      return;
+    }
+
+    state = state.copyWith(spokenWordStart: start, spokenWordEnd: end);
   }
 
   void _startElapsedTimer(int token) {

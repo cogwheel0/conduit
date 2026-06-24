@@ -1429,11 +1429,11 @@
   "@sttServerUnavailableWarning": {
     "description": "Warning shown when the user selects server speech recognition but no server is available."
   },
-  "sttSilenceDuration": "Silence Duration",
+  "sttSilenceDuration": "Server STT silence duration",
   "@sttSilenceDuration": {
     "description": "Label for the silence duration setting in server speech-to-text."
   },
-  "sttSilenceDurationDescription": "Time to wait after silence before auto-stopping recording",
+  "sttSilenceDurationDescription": "Used by server transcription and legacy fallback only. Native on-device STT sends recognizer final results instead.",
   "@sttSilenceDurationDescription": {
     "description": "Description for the silence duration slider in server speech-to-text settings."
   },

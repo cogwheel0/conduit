@@ -22,6 +22,7 @@ import 'core/services/performance_profiler.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/sync/request_completion_runner_provider.dart';
+import 'core/utils/tts_voice_utils.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
@@ -336,6 +337,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'tts-voice-picker' && value is String) {
+        await _handleNativeTtsVoiceSelection(value);
+        return;
+      }
+
       if (event.id.startsWith('memory-save:')) {
         final encoded = event.id.substring('memory-save:'.length);
         final memoryId = Uri.decodeComponent(encoded);
@@ -486,6 +492,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           final notifier = ref.read(appSettingsProvider.notifier);
           if (value == TtsEngine.server.name) {
             await notifier.setTtsVoice(null);
+            await notifier.setTtsVoiceName(null);
             await notifier.setTtsEngine(TtsEngine.server);
             await _refreshNativeVoiceDetail();
           } else if (value == TtsEngine.device.name) {
@@ -661,28 +668,67 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   ) async {
     final encoded = event.id.substring('tts-voice-pick:'.length);
     final voiceKey = Uri.decodeComponent(encoded);
+    final fallbackDisplayName = event.value is String
+        ? event.value as String
+        : null;
+    await _handleNativeTtsVoiceSelection(
+      voiceKey == '__default__' ? ttsSystemDefaultVoiceId : voiceKey,
+      fallbackDisplayName: fallbackDisplayName,
+    );
+  }
+
+  Future<void> _handleNativeTtsVoiceSelection(
+    String voiceKey, {
+    String? fallbackDisplayName,
+  }) async {
     final settings = ref.read(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
 
-    if (voiceKey == '__default__') {
+    if (voiceKey == ttsSystemDefaultVoiceId) {
       if (settings.ttsEngine == TtsEngine.server) {
         await notifier.setTtsServerVoiceId(null);
         await notifier.setTtsServerVoiceName(null);
       } else {
         await notifier.setTtsVoice(null);
+        await notifier.setTtsVoiceName(null);
       }
+      await _refreshNativeVoiceDetail();
       return;
     }
 
-    final displayName = event.value is String
-        ? event.value as String
-        : voiceKey;
+    var selectedId = voiceKey;
+    var displayName = fallbackDisplayName ?? voiceKey;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final ttsService = ref.read(textToSpeechServiceProvider);
+      await ttsService.updateSettings(engine: settings.ttsEngine);
+      final voices = await ttsService.getAvailableVoices();
+      final selected = findTtsVoiceOption(
+        l10n,
+        settings.ttsEngine,
+        voices,
+        voiceKey,
+      );
+      if (selected != null) {
+        selectedId = selected.id;
+        displayName = selected.label;
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.warning(
+        'native-tts-voice-selection-lookup-failed',
+        scope: 'native-sheet',
+        data: {'error': error, 'stackTrace': stackTrace},
+      );
+    }
+
     if (settings.ttsEngine == TtsEngine.server) {
-      await notifier.setTtsServerVoiceId(voiceKey);
+      await notifier.setTtsServerVoiceId(selectedId);
       await notifier.setTtsServerVoiceName(displayName);
     } else {
-      await notifier.setTtsVoice(voiceKey);
+      await notifier.setTtsVoice(selectedId);
+      await notifier.setTtsVoiceName(displayName);
     }
+    await _refreshNativeVoiceDetail();
   }
 
   void _initializeAppState() {

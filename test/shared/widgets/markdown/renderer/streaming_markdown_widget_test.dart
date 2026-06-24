@@ -38,6 +38,10 @@ Iterable<_RecordedPlatformCall> _mediumImpactCalls(
       call.arguments == 'HapticFeedbackType.mediumImpact',
 );
 
+Iterable<_RecordedPlatformCall> _hapticFeedbackCalls(
+  List<_RecordedPlatformCall> calls,
+) => calls.where((call) => call.method == 'HapticFeedback.vibrate');
+
 /// Returns `true` if [text] contains any unpaired UTF-16 surrogate, which would
 /// render as a tofu/replacement glyph (the regression the fade-split snap
 /// guards against).
@@ -287,6 +291,7 @@ void main() {
     required ChatMessage message,
     required bool isStreaming,
     bool disableAnimations = false,
+    bool suppressStreamingHaptics = false,
   }) {
     return UncontrolledProviderScope(
       container: container,
@@ -301,6 +306,7 @@ void main() {
               message: message,
               isStreaming: isStreaming,
               showFollowUps: false,
+              suppressStreamingHaptics: suppressStreamingHaptics,
               onDelete: () {},
             ),
           ),
@@ -1456,6 +1462,69 @@ Tail keeps growing
         await tester.pump();
 
         expect(_mediumImpactCalls(platformCalls), isEmpty);
+      } finally {
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        container.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'assistant streaming haptics stay silent when suppressed by voice mode',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+        ],
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final platformCalls = <_RecordedPlatformCall>[];
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        platformCalls.add(_RecordedPlatformCall(call.method, call.arguments));
+        return null;
+      });
+
+      final message = ChatMessage(
+        id: 'voice-streaming-message',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+      );
+
+      try {
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message,
+            isStreaming: true,
+            disableAnimations: true,
+            suppressStreamingHaptics: true,
+          ),
+        );
+
+        container.read(streamingContentProvider.notifier).set('Hello');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+
+        await tester.pumpWidget(
+          buildAssistantHarness(
+            container: container,
+            message: message.copyWith(content: 'Hello'),
+            isStreaming: false,
+            disableAnimations: true,
+            suppressStreamingHaptics: true,
+          ),
+        );
+        await tester.pump();
+
+        expect(_hapticFeedbackCalls(platformCalls), isEmpty);
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         container.dispose();

@@ -62,6 +62,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final String? modelIconUrl;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
+  final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
   final VoidCallback onDelete;
@@ -78,6 +79,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.modelIconUrl,
     this.versionModelNames = const <String?>[],
     this.versionModelIconUrls = const <String?>[],
+    this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
     required this.onDelete,
@@ -858,7 +860,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// Fires a single haptic impulse if streaming haptics are enabled.
   void _streamingHaptic(HapticType type) {
-    final enabled = ref.read(streamingHapticsEnabledProvider);
+    final enabled = _streamingHapticsAllowed;
     PlatformService.hapticFeedbackWithSettings(
       type: type,
       hapticEnabled: enabled,
@@ -870,18 +872,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// Each tap is spaced 150ms apart so the user perceives three
   /// separate impulses rather than a single buzz.
   void _tripleHaptic() {
-    final enabled = ref.read(streamingHapticsEnabledProvider);
-    if (!enabled) return;
+    if (!_streamingHapticsAllowed) return;
     PlatformService.hapticFeedback(type: HapticType.medium);
     Future.delayed(const Duration(milliseconds: 150), () {
-      if (!mounted) return;
+      if (!mounted || !_streamingHapticsAllowed) return;
       PlatformService.hapticFeedback(type: HapticType.medium);
     });
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
+      if (!mounted || !_streamingHapticsAllowed) return;
       PlatformService.hapticFeedback(type: HapticType.medium);
     });
   }
+
+  bool get _streamingHapticsAllowed =>
+      ref.read(streamingHapticsEnabledProvider) &&
+      !widget.suppressStreamingHaptics;
 
   /// Subscribes to [streamingContentProvider] only while this message is
   /// actively streaming. Uses [ref.listenManual] for explicit lifecycle

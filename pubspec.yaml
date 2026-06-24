@@ -46,9 +46,7 @@ dependencies:
   
   # Platform Features
   vad: ^0.0.8
-  speech_to_text: ^7.4.0
   record: ^6.2.0
-  flutter_tts: ^4.2.5
   audio_session: ^0.2.2
   permission_handler: ^12.0.1
   image_picker: ^1.2.0

@@ -155,7 +155,12 @@ void stopActiveTransport(ChatMessage message, ApiService? api) {
   // Stop background task
   final taskId = meta?['taskId']?.toString();
   if (taskId != null && taskId.isNotEmpty) {
-    unawaited(api?.stopTask(taskId));
+    final taskConversationId = meta?['taskConversationId']?.toString();
+    if (taskConversationId != null && taskConversationId.isNotEmpty) {
+      unawaited(api?.stopTasksByChat(taskConversationId));
+    } else {
+      unawaited(api?.stopTask(taskId));
+    }
   }
 }
 
@@ -356,7 +361,10 @@ Future<void> dispatchChatTransport({
       // fallback can still resolve server content if the socket later dies.
       ref
           .read(chatMessagesProvider.notifier)
-          .recordResumeBoundRemoteMessageId(assistantMessageId, remoteMessageId);
+          .recordResumeBoundRemoteMessageId(
+            assistantMessageId,
+            remoteMessageId,
+          );
     },
     onChatActiveChanged: (chatId, active) {
       if (chatId == null || chatId.isEmpty) return;
@@ -408,9 +416,7 @@ Future<void> dispatchChatTransport({
       // CDT-RFC-001 Phase 1 (E2): the post-stream snapshot refresh persists
       // through the sync engine (upsertServerChat under the chat lock).
       try {
-        return await ref
-            .read(syncEngineProvider.notifier)
-            .pullChatNow(chatId);
+        return await ref.read(syncEngineProvider.notifier).pullChatNow(chatId);
       } catch (error, stackTrace) {
         // Engine unavailable (no database / reviewer mode): the helper falls
         // back to the direct fetch.

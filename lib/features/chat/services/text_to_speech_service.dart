@@ -235,11 +235,18 @@ class TextToSpeechService {
 
   /// Gets available voices from the device TTS engine.
   Future<List<Map<String, dynamic>>> getAvailableVoices() async {
+    final config = TtsManager.instance.config;
     if (!_initialized) {
-      await initialize();
+      await initialize(
+        deviceVoice: config.voice,
+        serverVoice: config.serverVoice,
+        speechRate: config.speechRate,
+        pitch: config.pitch,
+        volume: config.volume,
+        engine: config.preferServer ? TtsEngine.server : TtsEngine.device,
+      );
     }
 
-    final config = TtsManager.instance.config;
     if (config.preferServer && TtsManager.instance.serverAvailable) {
       return _getServerVoices();
     }

@@ -1633,10 +1633,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final modelItem =
         (selectedModel != null && selectedModel.id == resolvedModelId)
         ? _buildLocalModelItem(selectedModel)
-        : <String, dynamic>{
-            'id': resolvedModelId,
-            'name': resolvedModelId,
-          };
+        : <String, dynamic>{'id': resolvedModelId, 'name': resolvedModelId};
 
     DebugLogger.log(
       'Attaching socket resume stream for in-flight chat',
@@ -5775,7 +5772,10 @@ Future<void> _sendMessageInternal(
     // `dynamic` — without it Dart infers (dynamic) => dynamic at runtime.
     final ChatMessagesNotifier notifier =
         ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    notifier.failLastStreamingAssistant(e, assistantMessageId: assistantMessageId);
+    notifier.failLastStreamingAssistant(
+      e,
+      assistantMessageId: assistantMessageId,
+    );
     if (e.toString().contains('401') || e.toString().contains('403')) {
       // Authentication errors - clear auth state and redirect to login.
       ref.invalidate(authStateManagerProvider);
@@ -6180,12 +6180,7 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
       if (api != null && activeConv != null) {
         unawaited(() async {
           try {
-            final ids = await api.getTaskIdsByChat(activeConv.id);
-            for (final t in ids) {
-              try {
-                await api.stopTask(t);
-              } catch (_) {}
-            }
+            await api.stopTasksByChat(activeConv.id);
           } catch (_) {}
         }());
 

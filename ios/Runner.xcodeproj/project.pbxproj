@@ -19,6 +19,7 @@
 		D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */; };
 		D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */; };
 		D2A0B1F42F5E4D6C7B8A9012 /* NativeDropdownBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */; };
+		D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */; };
 		D2A0B2062F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */; };
 		D2A0B2142F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */; };
 		D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */; };
@@ -107,6 +108,7 @@
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
 		D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDropdownBridge.swift; sourceTree = "<group>"; };
+		D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSttBridge.swift; sourceTree = "<group>"; };
 		D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitSceneDelegate.swift; sourceTree = "<group>"; };
 		D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPlatformApis.g.swift; sourceTree = "<group>"; };
 		D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
@@ -325,6 +327,7 @@
 				D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */,
 				D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */,
 				D2A0B1F32F5E4D6C7B8A9012 /* NativeDropdownBridge.swift */,
+				D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */,
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
 				D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */,
 				D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */,
@@ -642,6 +645,7 @@
 				D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */,
 				D2A0B2252F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift in Sources */,
 				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
+				D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,

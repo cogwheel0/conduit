@@ -473,11 +473,11 @@ class BackgroundStreamingHandler implements BackgroundStreamingFlutterApi {
   /// Get list of active stream IDs
   List<String> get activeStreamIds => _activeLeases.keys.toList();
 
-  /// Notify the native layer that an external component (e.g., speech_to_text
-  /// plugin) is managing the audio session.
+  /// Notify the native layer that local speech recognition is managing the
+  /// audio session.
   ///
   /// On iOS, this prevents VoiceBackgroundAudioManager from conflicting with
-  /// the speech_to_text plugin's audio session management.
+  /// the native STT audio session management.
   /// On Android, this is a no-op as audio session management is different.
   Future<void> setExternalAudioSessionOwner(bool isExternal) async {
     if (!Platform.isIOS) return;
