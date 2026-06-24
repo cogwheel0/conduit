@@ -188,6 +188,11 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         override fun onError(utteranceId: String, errorCode: Int) {
             mainHandler.post {
                 if (activeUtterance?.id == utteranceId) {
+                    activeUtterance = null
+                    pausedRequest = null
+                    pausedOffset = 0
+                    lastProgressStart = 0
+                    resumeUtteranceIds.remove(utteranceId)
                     emit(
                         mapOf(
                             "type" to "error",

@@ -130,7 +130,10 @@ class NativeSttService {
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
 
-  Future<NativeSttAvailability> checkAvailability({String? localeId}) async {
+  Future<NativeSttAvailability> checkAvailability({
+    String? localeId,
+    bool allowOnlineFallback = true,
+  }) async {
     if (!isSupportedPlatform) {
       return const NativeSttAvailability(
         available: false,
@@ -141,7 +144,10 @@ class NativeSttService {
     try {
       final response = await _methodChannel.invokeMapMethod<Object?, Object?>(
         'checkAvailability',
-        <String, Object?>{'localeId': localeId},
+        <String, Object?>{
+          'localeId': localeId,
+          'allowOnlineFallback': allowOnlineFallback,
+        },
       );
       return NativeSttAvailability.fromMap(response);
     } on MissingPluginException {

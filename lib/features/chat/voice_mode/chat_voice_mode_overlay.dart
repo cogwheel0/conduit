@@ -297,7 +297,15 @@ class _KaraokeResponseBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final text = snapshot.spokenResponse.trim();
+    final rawText = snapshot.spokenResponse;
+    final text = rawText.trim();
+    final leadingTrim = rawText.length - rawText.trimLeft().length;
+    final adjustedStart = snapshot.spokenWordStart == null
+        ? null
+        : snapshot.spokenWordStart! - leadingTrim;
+    final adjustedEnd = snapshot.spokenWordEnd == null
+        ? null
+        : snapshot.spokenWordEnd! - leadingTrim;
     final baseStyle = AppTypography.bodyMediumStyle.copyWith(
       color: theme.textPrimary.withValues(alpha: Alpha.strong),
       fontWeight: FontWeight.w500,
@@ -335,8 +343,8 @@ class _KaraokeResponseBar extends StatelessWidget {
                 text: text,
                 baseStyle: baseStyle,
                 highlightStyle: highlightStyle,
-                start: snapshot.spokenWordStart,
-                end: snapshot.spokenWordEnd,
+                start: adjustedStart,
+                end: adjustedEnd,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -363,8 +371,8 @@ class _KaraokeResponseBar extends StatelessWidget {
       return TextSpan(text: text, style: baseStyle);
     }
 
-    final safeStart = start.clamp(0, text.length);
-    final safeEnd = end.clamp(safeStart, text.length);
+    final safeStart = start.clamp(0, text.length).toInt();
+    final safeEnd = end.clamp(safeStart, text.length).toInt();
     return TextSpan(
       children: [
         if (safeStart > 0)

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/chat_message.dart';
@@ -670,11 +671,7 @@ graph TD
 
       final afterFade = baseRenders;
       await tester.pump(const Duration(milliseconds: 400));
-      expect(
-        baseRenders,
-        afterFade,
-        reason: 'settling adds no base render',
-      );
+      expect(baseRenders, afterFade, reason: 'settling adds no base render');
     },
   );
 
@@ -778,7 +775,9 @@ graph TD
       isTrue,
       reason: 'every span settles to full opacity',
     );
-    final settledDocs = settledLeaves.singleWhere((span) => span.text == 'docs');
+    final settledDocs = settledLeaves.singleWhere(
+      (span) => span.text == 'docs',
+    );
     expect(
       settledDocs.recognizer,
       isNotNull,
@@ -818,10 +817,7 @@ graph TD
 
     await tester.pump(const Duration(milliseconds: 360));
     final settled = _textSpanLeaves(tailText().textSpan!).toList();
-    expect(
-      settled.every((span) => (span.style?.color?.a ?? 1) == 1),
-      isTrue,
-    );
+    expect(settled.every((span) => (span.style?.color?.a ?? 1) == 1), isTrue);
   });
 
   testWidgets('surrogate-pair boundary never splits mid-emoji while fading', (
@@ -866,14 +862,8 @@ graph TD
 
     await tester.pump(const Duration(milliseconds: 360));
     final settled = _textSpanLeaves(renderedText().textSpan!).toList();
-    expect(
-      settled.map((span) => span.text ?? '').join(),
-      'Hi \u{1F600} there',
-    );
-    expect(
-      settled.every((span) => (span.style?.color?.a ?? 1) == 1),
-      isTrue,
-    );
+    expect(settled.map((span) => span.text ?? '').join(), 'Hi \u{1F600} there');
+    expect(settled.every((span) => (span.style?.color?.a ?? 1) == 1), isTrue);
   });
 
   testWidgets('renders OpenWebUI mentions without placeholder leakage', (
@@ -1524,7 +1514,7 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(_hapticFeedbackCalls(platformCalls), isEmpty);
+        check(_hapticFeedbackCalls(platformCalls)).isEmpty();
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         container.dispose();

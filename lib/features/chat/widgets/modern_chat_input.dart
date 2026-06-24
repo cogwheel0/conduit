@@ -2795,7 +2795,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         behavior: HitTestBehavior.opaque,
         onTap: widget.enabled
             ? () {
-                ConduitHaptics.selectionClick();
                 unawaited(_stopVoice());
               }
             : null,

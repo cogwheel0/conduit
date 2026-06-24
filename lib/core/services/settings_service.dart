@@ -1165,6 +1165,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(state);
   }
 
+  Future<void> setTtsDeviceVoiceSelection(String? id, String? name) async {
+    state = state.copyWith(ttsVoice: id, ttsVoiceName: name);
+    await SettingsService.saveSettings(state);
+  }
+
   Future<void> setTtsSpeechRate(double rate) async {
     state = state.copyWith(ttsSpeechRate: rate);
     await SettingsService.saveSettings(state);
@@ -1185,6 +1190,13 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(state);
   }
 
+  Future<void> setTtsEngineSelection(TtsEngine engine) async {
+    state = engine == TtsEngine.server
+        ? state.copyWith(ttsEngine: engine, ttsVoice: null, ttsVoiceName: null)
+        : state.copyWith(ttsEngine: engine);
+    await SettingsService.saveSettings(state);
+  }
+
   Future<void> setTtsServerVoiceName(String? name) async {
     state = state.copyWith(ttsServerVoiceName: name);
     await SettingsService.saveSettings(state);
@@ -1192,6 +1204,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   Future<void> setTtsServerVoiceId(String? id) async {
     state = state.copyWith(ttsServerVoiceId: id);
+    await SettingsService.saveSettings(state);
+  }
+
+  Future<void> setTtsServerVoiceSelection(String? id, String? name) async {
+    state = state.copyWith(ttsServerVoiceId: id, ttsServerVoiceName: name);
     await SettingsService.saveSettings(state);
   }
 

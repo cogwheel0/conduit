@@ -45,6 +45,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private var platformAllowOnlineFallback = true
     private var platformLocaleId: String? = null
     private var platformCommittedText = ""
+    @Volatile
+    private var recognitionGeneration = 0
 
     fun setup(flutterEngine: FlutterEngine) {
         MethodChannel(
@@ -86,6 +88,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             }
             "stop" -> {
                 scope.launch {
+                    recognitionGeneration += 1
                     stopInternal(emitDone = false, awaitCompletion = true)
                     result.success(null)
                 }
@@ -100,9 +103,14 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
     override fun onCancel(arguments: Any?) {
         eventSink = null
+        recognitionGeneration += 1
+        scope.launch {
+            stopInternal(emitDone = false, awaitCompletion = false)
+        }
     }
 
     fun dispose() {
+        recognitionGeneration += 1
         scope.launch {
             stopInternal(emitDone = false, awaitCompletion = false)
             scope.cancel()
@@ -163,9 +171,27 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         allowOnlineFallback: Boolean,
         result: MethodChannel.Result
     ) {
+        val generation = recognitionGeneration + 1
+        recognitionGeneration = generation
         stopInternal(emitDone = false, awaitCompletion = false)
-        val prepared = withContext(Dispatchers.IO) {
-            prepareRecognizer(localeId)
+        val prepared = try {
+            withContext(Dispatchers.IO) {
+                prepareRecognizer(localeId, generation)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (!isCurrentGeneration(generation)) {
+                result.success(unavailable("Speech recognition start was cancelled"))
+                return
+            }
+            Log.w(TAG, "ML Kit STT startup failed", error)
+            null
+        }
+        if (!isCurrentGeneration(generation)) {
+            prepared?.first?.close()
+            result.success(unavailable("Speech recognition start was cancelled"))
+            return
         }
         if (prepared == null) {
             if (AndroidSpeechRecognizer.isRecognitionAvailable(activity.applicationContext)) {
@@ -193,6 +219,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     audioSource = AudioSource.fromMic()
                 }
                 recognizer.startRecognition(request).collect { response ->
+                    if (!isCurrentGeneration(generation)) return@collect
                     when (response) {
                         is SpeechRecognizerResponse.PartialTextResponse -> {
                             if (emitPartialResults) {
@@ -243,19 +270,30 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         result.success(available(engineName))
     }
 
-    private suspend fun prepareRecognizer(localeId: String?): Pair<MlKitSpeechRecognizer, String>? {
+    private suspend fun prepareRecognizer(
+        localeId: String?,
+        generation: Int
+    ): Pair<MlKitSpeechRecognizer, String>? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return null
         }
 
         val advanced = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_ADVANCED)
-        if (ensureReady(advanced, "mlkit_advanced")) {
+        if (!isCurrentGeneration(generation)) {
+            advanced.close()
+            return null
+        }
+        if (ensureReady(advanced, "mlkit_advanced", generation)) {
             return advanced to "mlkit_advanced"
         }
         advanced.close()
 
         val basic = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_BASIC)
-        if (ensureReady(basic, "mlkit_basic")) {
+        if (!isCurrentGeneration(generation)) {
+            basic.close()
+            return null
+        }
+        if (ensureReady(basic, "mlkit_basic", generation)) {
             return basic to "mlkit_basic"
         }
         basic.close()
@@ -271,13 +309,23 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         return SpeechRecognition.getClient(options)
     }
 
-    private suspend fun ensureReady(recognizer: MlKitSpeechRecognizer, engineName: String): Boolean {
+    private suspend fun ensureReady(
+        recognizer: MlKitSpeechRecognizer,
+        engineName: String,
+        generation: Int
+    ): Boolean {
+        if (!isCurrentGeneration(generation)) {
+            return false
+        }
         return when (val status = recognizer.checkStatus()) {
             FeatureStatus.AVAILABLE -> true
             FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
-                emitStatus("downloading", engineName)
+                if (isCurrentGeneration(generation)) {
+                    emitStatus("downloading", engineName)
+                }
                 var ready = false
                 recognizer.download().collect { downloadStatus ->
+                    if (!isCurrentGeneration(generation)) return@collect
                     when (downloadStatus) {
                         is DownloadStatus.DownloadStarted -> {
                             emitStatus("downloading", engineName)
@@ -312,6 +360,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 false
             }
         }
+    }
+
+    private fun isCurrentGeneration(generation: Int): Boolean {
+        return recognitionGeneration == generation
     }
 
     private fun startPlatformRecognizer(
@@ -544,7 +596,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         val trimmedNext = next.trim()
         if (trimmedNext.isEmpty()) return committed
         if (committed.isBlank()) return trimmedNext
-        if (committed.endsWith(trimmedNext)) return committed
+        if (committed == trimmedNext || committed.endsWith(trimmedNext)) return committed
+        if (trimmedNext.startsWith(committed)) return trimmedNext
         return "$committed $trimmedNext".trim()
     }
 

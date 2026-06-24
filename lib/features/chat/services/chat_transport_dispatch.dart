@@ -154,13 +154,11 @@ void stopActiveTransport(ChatMessage message, ApiService? api) {
 
   // Stop background task
   final taskId = meta?['taskId']?.toString();
-  if (taskId != null && taskId.isNotEmpty) {
-    final taskConversationId = meta?['taskConversationId']?.toString();
-    if (taskConversationId != null && taskConversationId.isNotEmpty) {
-      unawaited(api?.stopTasksByChat(taskConversationId));
-    } else {
-      unawaited(api?.stopTask(taskId));
-    }
+  final taskConversationId = meta?['taskConversationId']?.toString();
+  if (taskConversationId != null && taskConversationId.isNotEmpty) {
+    unawaited(api?.stopTasksByChat(taskConversationId));
+  } else if (taskId != null && taskId.isNotEmpty) {
+    unawaited(api?.stopTask(taskId));
   }
 }
 

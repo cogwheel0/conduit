@@ -789,7 +789,7 @@ class TtsManager {
       try {
         await _speakDeviceChunk(chunk);
       } catch (error) {
-        _emitEvent(TtsError(error.toString()));
+        _failDevicePlayback(session, error);
       }
       return;
     }
@@ -899,6 +899,8 @@ class TtsManager {
           _emitEvent(TtsWordProgress(start, end));
         }
       case 'error':
+        _activeSession = null;
+        _resetPlaybackState();
         _emitEvent(TtsError(event.message ?? 'Native TTS failed'));
     }
   }
@@ -947,7 +949,7 @@ class TtsManager {
     _emitEvent(TtsChunkStarted(nextIndex));
 
     _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
-      _emitEvent(TtsError(error.toString()));
+      _failDevicePlayback(session, error);
     });
   }
 
@@ -962,6 +964,14 @@ class TtsManager {
     if (!started) {
       throw StateError('Native TTS failed to start');
     }
+  }
+
+  void _failDevicePlayback(TtsPlaybackSession session, Object error) {
+    if (_activeSession?.id == session.id) {
+      _activeSession = null;
+      _resetPlaybackState();
+    }
+    _emitEvent(TtsError(error.toString()));
   }
 
   // ===========================================================================

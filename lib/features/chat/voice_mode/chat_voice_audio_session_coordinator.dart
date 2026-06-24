@@ -118,11 +118,14 @@ class ChatVoiceAudioSessionCoordinator {
 
   Future<void> deactivate() async {
     final session = _session;
-    await _clearIosVoiceRoute();
-    if (session != null) {
-      await _setActive(session, active: false, phase: 'deactivate');
+    try {
+      await _clearIosVoiceRoute();
+      if (session != null) {
+        await _setActive(session, active: false, phase: 'deactivate');
+      }
+    } finally {
+      await _restoreAndroidVoiceRoute();
     }
-    await _restoreAndroidVoiceRoute();
   }
 
   Future<void> _configureAndroidVoiceRoute({required String phase}) async {
@@ -194,7 +197,7 @@ class ChatVoiceAudioSessionCoordinator {
         () => manager.setCommunicationDevice(device),
         operation: 'set-communication-device',
         phase: phase,
-        data: {'deviceId': device.id, 'deviceName': device.productName},
+        data: {'deviceId': device.id, 'deviceType': device.type.toString()},
       );
       if (selected == true) {
         return true;
@@ -383,11 +386,7 @@ class ChatVoiceAudioSessionCoordinator {
       return '';
     }
     final type = port['type']?.toString() ?? 'unknown';
-    final name = port['name']?.toString() ?? '';
-    if (name.isEmpty) {
-      return type;
-    }
-    return '$type:$name';
+    return type;
   }
 
   Future<void> _configureSession(

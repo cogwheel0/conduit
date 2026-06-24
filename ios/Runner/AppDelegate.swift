@@ -134,6 +134,8 @@ final class VoiceAudioRouteBridge {
 
     private init() {}
 
+    deinit {}
+
     func configure(messenger: FlutterBinaryMessenger) {
         let channel = FlutterMethodChannel(
             name: conduitVoiceAudioRouteChannelName,
@@ -231,7 +233,6 @@ final class VoiceAudioRouteBridge {
 
     private func portPayload(_ port: AVAudioSessionPortDescription) -> [String: Any] {
         [
-            "name": port.portName,
             "type": port.portType.rawValue,
             "uid": port.uid,
         ]
@@ -249,6 +250,8 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
         super.init()
         synthesizer.delegate = self
     }
+
+    deinit {}
 
     func configure(messenger: FlutterBinaryMessenger) {
         let methodChannel = FlutterMethodChannel(

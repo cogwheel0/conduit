@@ -25,7 +25,8 @@ private enum NativeSttText {
     let trimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return committed }
     guard !committed.isEmpty else { return trimmed }
-    if committed.hasSuffix(trimmed) { return committed }
+    if committed == trimmed || committed.hasSuffix(trimmed) { return committed }
+    if trimmed.hasPrefix(committed) { return trimmed }
     return "\(committed) \(trimmed)".trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }
@@ -36,9 +37,17 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
   private var methodChannel: FlutterMethodChannel?
   private var eventSink: FlutterEventSink?
   private var session: NativeSttSession?
+  private var lifecycleGeneration = 0
 
   private override init() {
     super.init()
+  }
+
+  deinit {
+    let session = session
+    Task {
+      await session?.stop()
+    }
   }
 
   func configure(messenger: FlutterBinaryMessenger) {
@@ -64,6 +73,9 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
 
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
     eventSink = nil
+    Task {
+      await stopCurrentSession()
+    }
     return nil
   }
 
@@ -74,11 +86,15 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     let preserveAudioSession = arguments?["preserveAudioSession"] as? Bool ?? false
     let emitPartialResults = arguments?["emitPartialResults"] as? Bool ?? true
     let accumulateResults = arguments?["accumulateResults"] as? Bool ?? true
+    let allowOnlineFallback = arguments?["allowOnlineFallback"] as? Bool ?? true
 
     switch call.method {
     case "checkAvailability":
       Task {
-        let availability = await checkAvailability(localeId: localeId)
+        let availability = await checkAvailability(
+          localeId: localeId,
+          allowOnlineFallback: allowOnlineFallback
+        )
         await MainActor.run { result(availability) }
       }
     case "getLocales":
@@ -89,7 +105,8 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
           localeId: localeId,
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
-          accumulateResults: accumulateResults
+          accumulateResults: accumulateResults,
+          allowOnlineFallback: allowOnlineFallback
         )
         await MainActor.run { result(availability) }
       }
@@ -103,15 +120,23 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     }
   }
 
-  private func checkAvailability(localeId: String?) async -> [String: Any] {
+  private func checkAvailability(
+    localeId: String?,
+    allowOnlineFallback: Bool
+  ) async -> [String: Any] {
     if #available(iOS 26.0, *) {
       if await SpeechAnalyzerSttSession.isAvailable(localeId: localeId) {
         return NativeSttAvailability.available("speechAnalyzer")
       }
     }
 
-    if sfSpeechRecognizer(localeId: localeId)?.supportsOnDeviceRecognition == true {
-      return NativeSttAvailability.available("sfSpeech")
+    if let recognizer = sfSpeechRecognizer(localeId: localeId) {
+      if allowOnlineFallback, recognizer.isAvailable {
+        return NativeSttAvailability.available("sfSpeech")
+      }
+      if recognizer.supportsOnDeviceRecognition {
+        return NativeSttAvailability.available("sfSpeech")
+      }
     }
 
     return NativeSttAvailability.unavailable(
@@ -123,9 +148,12 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     localeId: String?,
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
-    accumulateResults: Bool
+    accumulateResults: Bool,
+    allowOnlineFallback: Bool
   ) async -> [String: Any] {
-    await stopCurrentSession()
+    let generation = nextLifecycleGeneration()
+    await stopCurrentSession(invalidateStart: false)
+    var speechAnalyzerFailure: Error?
 
     if #available(iOS 26.0, *) {
       do {
@@ -134,18 +162,24 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
           accumulateResults: accumulateResults,
-          emit: emit
+          emit: emit,
+          isCurrent: { [weak self] in
+            self?.isCurrentGeneration(generation) == true
+          }
         )
         session = speechAnalyzerSession
         try await speechAnalyzerSession.start()
+        guard isCurrentGeneration(generation) else {
+          await clearSessionIfCurrent(speechAnalyzerSession)
+          return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+        }
         return NativeSttAvailability.available("speechAnalyzer")
+      } catch is CancellationError {
+        await stopCurrentSession(invalidateStart: false)
+        return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
       } catch {
-        await stopCurrentSession()
-        emitError(
-          code: "SPEECH_ANALYZER_START_FAILED",
-          message: error.localizedDescription,
-          engine: "speechAnalyzer"
-        )
+        await stopCurrentSession(invalidateStart: false)
+        speechAnalyzerFailure = error
       }
     }
 
@@ -155,24 +189,56 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
         preserveAudioSession: preserveAudioSession,
         emitPartialResults: emitPartialResults,
         accumulateResults: accumulateResults,
+        allowOnlineFallback: allowOnlineFallback,
         emit: emit,
+        isCurrent: { [weak self] in
+          self?.isCurrentGeneration(generation) == true
+        },
         onFinished: { [weak self] in
           Task { await self?.stopCurrentSession() }
         }
       )
       session = fallbackSession
       try await fallbackSession.start()
+      guard isCurrentGeneration(generation) else {
+        await clearSessionIfCurrent(fallbackSession)
+        return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+      }
       return NativeSttAvailability.available("sfSpeech")
+    } catch is CancellationError {
+      return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
     } catch {
-      await stopCurrentSession()
-      return NativeSttAvailability.unavailable(error.localizedDescription)
+      await stopCurrentSession(invalidateStart: false)
+      let analyzerMessage = speechAnalyzerFailure.map { "; SpeechAnalyzer: \($0.localizedDescription)" } ?? ""
+      return NativeSttAvailability.unavailable("\(error.localizedDescription)\(analyzerMessage)")
     }
   }
 
-  private func stopCurrentSession() async {
+  private func stopCurrentSession(invalidateStart: Bool = true) async {
+    if invalidateStart {
+      lifecycleGeneration += 1
+    }
     let current = session
     session = nil
     await current?.stop()
+  }
+
+  private func clearSessionIfCurrent(_ current: NativeSttSession) async {
+    guard let active = session, active === current else {
+      await current.stop()
+      return
+    }
+    session = nil
+    await current.stop()
+  }
+
+  private func nextLifecycleGeneration() -> Int {
+    lifecycleGeneration += 1
+    return lifecycleGeneration
+  }
+
+  private func isCurrentGeneration(_ generation: Int) -> Bool {
+    lifecycleGeneration == generation
   }
 
   private func sfSpeechRecognizer(localeId: String?) -> SFSpeechRecognizer? {
@@ -242,6 +308,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   private let emitPartialResults: Bool
   private let accumulateResults: Bool
   private let emit: ([String: Any]) -> Void
+  private let isCurrent: () -> Bool
   private let audioEngine = AVAudioEngine()
   private var analyzer: SpeechAnalyzer?
   private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
@@ -255,13 +322,19 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
     accumulateResults: Bool,
-    emit: @escaping ([String: Any]) -> Void
+    emit: @escaping ([String: Any]) -> Void,
+    isCurrent: @escaping () -> Bool
   ) async throws {
     self.localeId = localeId
     self.preserveAudioSession = preserveAudioSession
     self.emitPartialResults = emitPartialResults
     self.accumulateResults = accumulateResults
     self.emit = emit
+    self.isCurrent = isCurrent
+  }
+
+  deinit {
+    cleanupForDeinit()
   }
 
   static func isAvailable(localeId: String?) async -> Bool {
@@ -274,6 +347,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
 
   func start() async throws {
     let requestedLocale = try await Self.requiredSupportedLocale(localeId: localeId)
+    try checkActive()
     let transcriber = Self.makeTranscriber(locale: requestedLocale)
     let modules: [any SpeechModule] = [transcriber]
 
@@ -282,6 +356,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     ) {
       emit(["type": "status", "message": "downloading", "engine": "speechAnalyzer"])
       try await installationRequest.downloadAndInstall()
+      try checkActive()
     }
 
     let analyzer = SpeechAnalyzer(
@@ -297,7 +372,9 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
         userInfo: [NSLocalizedDescriptionKey: "Speech recognition permission was not granted"]
       )
     }
+    try checkActive()
     try await Self.requestMicrophonePermission()
+    try checkActive()
     try configureAudioSession()
     let inputNode = audioEngine.inputNode
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
@@ -309,6 +386,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     )
     let converter = try Self.makeConverter(from: inputFormat, to: analyzerFormat)
     try await analyzer.prepareToAnalyze(in: analyzerFormat)
+    try checkActive()
 
     let inputStream = AsyncStream<AnalyzerInput> { continuation in
       self.inputContinuation = continuation
@@ -319,6 +397,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       guard let self else { return }
       do {
         for try await result in transcriber.results {
+          guard !self.stopped, self.isCurrent() else { return }
           let text = String(result.text.characters)
           if result.isFinal {
             let emittedText: String
@@ -336,9 +415,12 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
             self.emitResult(emittedText, isFinal: false)
           }
         }
-        self.emitDone()
+        if !self.stopped, self.isCurrent() {
+          self.emitDone()
+        }
       } catch is CancellationError {
       } catch {
+        guard !self.stopped, self.isCurrent() else { return }
         self.emitError(code: "SPEECH_ANALYZER_ERROR", message: error.localizedDescription)
       }
     }
@@ -349,12 +431,15 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
         try await analyzer.start(inputSequence: inputStream)
       } catch is CancellationError {
       } catch {
+        guard !self.stopped, self.isCurrent() else { return }
         self.emitError(code: "SPEECH_ANALYZER_ERROR", message: error.localizedDescription)
       }
     }
 
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
       guard let self,
+            !self.stopped,
+            self.isCurrent(),
             let analyzerBuffer = Self.copyOrConvert(
               buffer: buffer,
               targetFormat: analyzerFormat,
@@ -368,6 +453,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     tapInstalled = true
 
     do {
+      try checkActive()
       audioEngine.prepare()
       try audioEngine.start()
       emit(["type": "status", "message": "listening", "engine": "speechAnalyzer"])
@@ -394,6 +480,25 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     analyzer = nil
     if !preserveAudioSession {
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+  }
+
+  private func cleanupForDeinit() {
+    stopped = true
+    if tapInstalled {
+      audioEngine.inputNode.removeTap(onBus: 0)
+      tapInstalled = false
+    }
+    audioEngine.stop()
+    inputContinuation?.finish()
+    inputContinuation = nil
+    analyzerTask?.cancel()
+    resultTask?.cancel()
+  }
+
+  private func checkActive() throws {
+    if stopped || !isCurrent() || Task.isCancelled {
+      throw CancellationError()
     }
   }
 
@@ -626,9 +731,12 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   private let preserveAudioSession: Bool
   private let emitPartialResults: Bool
   private let accumulateResults: Bool
+  private let allowOnlineFallback: Bool
   private let emit: ([String: Any]) -> Void
+  private let isCurrent: () -> Bool
   private let onFinished: () -> Void
   private let audioEngine = AVAudioEngine()
+  private var recognizer: SFSpeechRecognizer?
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
   private var recognitionTask: SFSpeechRecognitionTask?
   private var finalizationWorkItem: DispatchWorkItem?
@@ -643,15 +751,23 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
     accumulateResults: Bool,
+    allowOnlineFallback: Bool,
     emit: @escaping ([String: Any]) -> Void,
+    isCurrent: @escaping () -> Bool,
     onFinished: @escaping () -> Void
   ) throws {
     self.localeId = localeId
     self.preserveAudioSession = preserveAudioSession
     self.emitPartialResults = emitPartialResults
     self.accumulateResults = accumulateResults
+    self.allowOnlineFallback = allowOnlineFallback
     self.emit = emit
+    self.isCurrent = isCurrent
     self.onFinished = onFinished
+  }
+
+  deinit {
+    cleanupForDeinit()
   }
 
   func start() async throws {
@@ -662,48 +778,19 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
         userInfo: [NSLocalizedDescriptionKey: "Speech recognition permission was not granted"]
       )
     }
+    try checkActive()
 
     let recognizer = try makeRecognizer()
+    self.recognizer = recognizer
     try await Self.requestMicrophonePermission()
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    request.shouldReportPartialResults = emitPartialResults
-    request.requiresOnDeviceRecognition = true
-    if #available(iOS 16.0, *) {
-      request.addsPunctuation = true
-    }
-    recognitionRequest = request
+    try checkActive()
 
     try configureAudioSession()
-    let inputNode = audioEngine.inputNode
-    Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
-    let inputFormat = inputNode.outputFormat(forBus: 0)
-    try Self.validateInputFormat(inputFormat)
-    inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
-      request.append(buffer)
-    }
-    tapInstalled = true
-
-    recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-      guard let self else { return }
-      guard !self.stopped else { return }
-      if let result {
-        self.handleRecognitionResult(result)
-      }
-
-      if let error {
-        self.cancelSegmentFinalization()
-        self.emit([
-          "type": "error",
-          "code": "SFSPEECH_ERROR",
-          "message": error.localizedDescription,
-          "engine": "sfSpeech",
-        ])
-        self.emit(["type": "done", "engine": "sfSpeech"])
-        self.onFinished()
-      }
-    }
+    try checkActive()
+    try startRecognitionTask(recognizer)
 
     do {
+      try checkActive()
       audioEngine.prepare()
       try audioEngine.start()
       emit(["type": "status", "message": "listening", "engine": "sfSpeech"])
@@ -727,8 +814,52 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     recognitionTask?.cancel()
     recognitionRequest = nil
     recognitionTask = nil
+    recognizer = nil
     if !preserveAudioSession {
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+  }
+
+  private func startRecognitionTask(_ recognizer: SFSpeechRecognizer) throws {
+    try checkActive()
+    cancelSegmentFinalization()
+    recognitionTask?.cancel()
+    recognitionRequest?.endAudio()
+    recognitionTask = nil
+    recognitionRequest = nil
+    if tapInstalled {
+      audioEngine.inputNode.removeTap(onBus: 0)
+      tapInstalled = false
+    }
+
+    let request = SFSpeechAudioBufferRecognitionRequest()
+    request.shouldReportPartialResults = emitPartialResults
+    request.requiresOnDeviceRecognition = !allowOnlineFallback
+    if #available(iOS 16.0, *) {
+      request.addsPunctuation = true
+    }
+    recognitionRequest = request
+
+    let inputNode = audioEngine.inputNode
+    Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
+    let inputFormat = inputNode.outputFormat(forBus: 0)
+    try Self.validateInputFormat(inputFormat)
+    inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+      guard let self, !self.stopped, self.isCurrent() else { return }
+      request.append(buffer)
+    }
+    tapInstalled = true
+
+    recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+      guard let self else { return }
+      guard !self.stopped, self.isCurrent() else { return }
+      if let result {
+        self.handleRecognitionResult(result)
+      }
+
+      if let error {
+        self.handleRecognitionError(error)
+      }
     }
   }
 
@@ -752,8 +883,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       cancelSegmentFinalization()
       emitResult(emittedText, isFinal: true)
       commitPendingSegment()
-      emit(["type": "done", "engine": "sfSpeech"])
-      onFinished()
+      restartRecognitionAfterFinal()
       return
     }
 
@@ -761,6 +891,41 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       emitResult(emittedText, isFinal: false)
     }
     scheduleSegmentFinalization()
+  }
+
+  private func restartRecognitionAfterFinal() {
+    guard !stopped, isCurrent() else { return }
+    DispatchQueue.main.async { [weak self] in
+      guard let self, !self.stopped, self.isCurrent() else { return }
+      guard let recognizer = self.recognizer else {
+        self.emit(["type": "done", "engine": "sfSpeech"])
+        self.onFinished()
+        return
+      }
+      do {
+        try self.startRecognitionTask(recognizer)
+        if !self.audioEngine.isRunning {
+          self.audioEngine.prepare()
+          try self.audioEngine.start()
+        }
+        self.emit(["type": "status", "message": "listening", "engine": "sfSpeech"])
+      } catch {
+        self.handleRecognitionError(error)
+      }
+    }
+  }
+
+  private func handleRecognitionError(_ error: Error) {
+    guard !stopped, isCurrent() else { return }
+    cancelSegmentFinalization()
+    emit([
+      "type": "error",
+      "code": "SFSPEECH_ERROR",
+      "message": error.localizedDescription,
+      "engine": "sfSpeech",
+    ])
+    emit(["type": "done", "engine": "sfSpeech"])
+    onFinished()
   }
 
   private func scheduleSegmentFinalization() {
@@ -796,6 +961,27 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     pendingFinalText = ""
     pendingFormattedText = ""
     finalizationWorkItem = nil
+  }
+
+  private func cleanupForDeinit() {
+    stopped = true
+    cancelSegmentFinalization()
+    if tapInstalled {
+      audioEngine.inputNode.removeTap(onBus: 0)
+      tapInstalled = false
+    }
+    audioEngine.stop()
+    recognitionRequest?.endAudio()
+    recognitionTask?.cancel()
+    recognitionRequest = nil
+    recognitionTask = nil
+    recognizer = nil
+  }
+
+  private func checkActive() throws {
+    if stopped || !isCurrent() || Task.isCancelled {
+      throw CancellationError()
+    }
   }
 
   private func emitResult(_ text: String, isFinal: Bool) {
@@ -840,7 +1026,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
         userInfo: [NSLocalizedDescriptionKey: "SFSpeechRecognizer is unavailable"]
       )
     }
-    guard recognizer.supportsOnDeviceRecognition else {
+    guard allowOnlineFallback || recognizer.supportsOnDeviceRecognition else {
       throw NSError(
         domain: "NativeSttBridge",
         code: 4,

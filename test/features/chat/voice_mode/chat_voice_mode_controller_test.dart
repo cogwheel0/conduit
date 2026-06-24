@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/callkit_service.dart';
@@ -167,12 +168,11 @@ void main() {
       await input.completeCurrent('partial transcript', finalResult: false);
       await _until(() => input.beginCalls == 2);
 
-      expect(container.read(chatMessagesProvider), isEmpty);
-      expect(tts.startedStreaming, isFalse);
-      expect(
+      check(container.read(chatMessagesProvider)).isEmpty();
+      check(tts.startedStreaming).isFalse();
+      check(
         container.read(chatVoiceModeControllerProvider).phase,
-        ChatVoiceModePhase.listening,
-      );
+      ).equals(ChatVoiceModePhase.listening);
     },
   );
 
@@ -219,13 +219,76 @@ void main() {
             ChatVoiceModePhase.listening,
       );
 
-      expect(
+      check(
         container.read(chatMessagesProvider).first.content,
-        'continuous final',
+      ).equals('continuous final');
+      check(input.beginCalls).equals(1);
+      check(input.stopCalls).equals(0);
+      check(input.isListening).isTrue();
+      await controller.stop();
+    },
+  );
+
+  test(
+    'queues a final transcript that arrives while the previous final is sending',
+    () async {
+      final input = _FakeVoiceInputService()..nativeLocalStt = true;
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      var stopGenerationCalls = 0;
+      final container = ProviderContainer(
+        overrides: [
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          stopGenerationProvider.overrideWithValue(() {
+            stopGenerationCalls += 1;
+          }),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
       );
-      expect(input.beginCalls, 1);
-      expect(input.stopCalls, 0);
-      expect(input.isListening, isTrue);
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('first queued final', close: false);
+      await input.completeCurrent('second queued final', close: false);
+      await _until(
+        () =>
+            container
+                .read(chatMessagesProvider)
+                .where((message) => message.role == 'user')
+                .length ==
+            2,
+      );
+
+      final userMessages = container
+          .read(chatMessagesProvider)
+          .where((message) => message.role == 'user')
+          .map((message) => message.content)
+          .toList();
+      check(
+        userMessages,
+      ).deepEquals(<String>['first queued final', 'second queued final']);
+      await _until(() => tts.finishedTexts.length == 2);
+      check(stopGenerationCalls).equals(1);
+      check(input.beginCalls).equals(1);
       await controller.stop();
     },
   );
@@ -291,14 +354,13 @@ void main() {
           .where((message) => message.role == 'user')
           .map((message) => message.content)
           .toList();
-      expect(userMessages, <String>[
-        'first assistant turn',
-        'second barge in turn',
-      ]);
+      check(
+        userMessages,
+      ).deepEquals(<String>['first assistant turn', 'second barge in turn']);
       await _until(() => tts.finishedTexts.length == 2);
-      expect(tts.stopStreamingCalls, 1);
-      expect(tts.stopCalls, 1);
-      expect(input.beginCalls, 1);
+      check(tts.stopStreamingCalls).equals(1);
+      check(tts.stopCalls).equals(1);
+      check(input.beginCalls).equals(1);
       await controller.stop();
     },
   );
@@ -355,9 +417,9 @@ void main() {
     );
 
     final snapshot = container.read(chatVoiceModeControllerProvider);
-    expect(snapshot.phase, ChatVoiceModePhase.speaking);
-    expect(snapshot.spokenResponse, spoken);
-    expect(snapshot.spokenWordEnd, word.end);
+    check(snapshot.phase).equals(ChatVoiceModePhase.speaking);
+    check(snapshot.spokenResponse).equals(spoken);
+    check(snapshot.spokenWordEnd).equals(word.end);
 
     await controller.stop();
   });

@@ -206,6 +206,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _assistantFinalizationDeferred = false;
   String? _pendingPausedAssistantText;
   String? _pendingPausedAssistantFinalText;
+  String? _pendingFinalTranscript;
+  String? _lastSubmittedTranscript;
   bool _stoppingFromCallKit = false;
   bool _sendingTranscript = false;
   List<String> _assistantSpeechChunks = const <String>[];
@@ -697,8 +699,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _handleFinalTranscript(String text, int token) async {
     if (token != _token ||
         state.isMuted ||
-        state.phase == ChatVoiceModePhase.paused ||
-        _sendingTranscript) {
+        state.phase == ChatVoiceModePhase.paused) {
       return;
     }
 
@@ -707,19 +708,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
-    _sendingTranscript = true;
-    try {
-      _emptyTranscriptRestarts = 0;
-      if (_awaitingAssistant ||
-          state.phase == ChatVoiceModePhase.sending ||
-          state.phase == ChatVoiceModePhase.speaking) {
-        await _interruptAssistantForBargeIn(token);
-      }
-      if (token != _token || state.isMuted) return;
-      await _sendTranscript(transcript, token);
-    } finally {
-      _sendingTranscript = false;
+    if (_sendingTranscript) {
+      _pendingFinalTranscript = transcript;
+      return;
     }
+
+    await _drainFinalTranscripts(transcript, token);
   }
 
   Future<void> _handleListeningDone(int token) async {
@@ -737,7 +731,61 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     _emptyTranscriptRestarts = 0;
-    await _sendTranscript(transcript, token);
+    await _handleFinalTranscript(transcript, token);
+  }
+
+  Future<void> _drainFinalTranscripts(
+    String initialTranscript,
+    int token,
+  ) async {
+    var transcript = initialTranscript;
+
+    while (true) {
+      if (token != _token ||
+          state.isMuted ||
+          state.phase == ChatVoiceModePhase.paused) {
+        return;
+      }
+
+      if (transcript == _lastSubmittedTranscript) {
+        final pending = _takePendingFinalTranscript();
+        if (pending == null) {
+          return;
+        }
+        transcript = pending;
+        continue;
+      }
+
+      _sendingTranscript = true;
+      try {
+        _emptyTranscriptRestarts = 0;
+        if (_awaitingAssistant ||
+            state.phase == ChatVoiceModePhase.sending ||
+            state.phase == ChatVoiceModePhase.speaking) {
+          await _interruptAssistantForBargeIn(token);
+        }
+        if (token != _token || state.isMuted) return;
+        _lastSubmittedTranscript = transcript;
+        await _sendTranscript(transcript, token);
+      } finally {
+        _sendingTranscript = false;
+      }
+
+      final pending = _takePendingFinalTranscript();
+      if (pending == null || pending == transcript) {
+        return;
+      }
+      transcript = pending;
+    }
+  }
+
+  String? _takePendingFinalTranscript() {
+    final pending = _pendingFinalTranscript?.trim();
+    _pendingFinalTranscript = null;
+    if (pending == null || pending.isEmpty) {
+      return null;
+    }
+    return pending;
   }
 
   Future<void> _restartAfterEmptyTranscript(int token) async {
@@ -984,6 +1032,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
     _awaitingAssistant = false;
     _streamingTtsStarted = false;
+    _pendingFinalTranscript = null;
+    _lastSubmittedTranscript = null;
     _activeAssistantMessageId = null;
     _lastFedAssistantText = '';
     _assistantSpeechChunks = const <String>[];
@@ -1140,6 +1190,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _assistantFinalizationDeferred = false;
     _pendingPausedAssistantText = null;
     _pendingPausedAssistantFinalText = null;
+    _pendingFinalTranscript = null;
+    _lastSubmittedTranscript = null;
     _sendingTranscript = false;
     _assistantSpeechChunks = const <String>[];
     _activeAssistantSpeechChunkIndex = -1;

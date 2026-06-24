@@ -192,6 +192,7 @@ class VoiceInputService {
     try {
       final availability = await _nativeStt.checkAvailability(
         localeId: _selectedLocaleId ?? deviceTag,
+        allowOnlineFallback: _preference != SttPreference.deviceOnly,
       );
       _nativeLocalSttAvailable = availability.available;
       if (availability.available) {
@@ -260,6 +261,7 @@ class VoiceInputService {
 
       final availability = await _nativeStt.checkAvailability(
         localeId: _selectedLocaleId,
+        allowOnlineFallback: false,
       );
       if (!availability.available) {
         return 'Native on-device STT unavailable: '
@@ -759,12 +761,13 @@ class VoiceInputService {
     }
 
     _localSttActive = false;
+    _usingNativeLocalStt = false;
+    final subscription = _nativeSttSub;
+    _nativeSttSub = null;
+    await subscription?.cancel();
     try {
       await _nativeStt.stopListening();
     } catch (_) {}
-    await _nativeSttSub?.cancel();
-    _nativeSttSub = null;
-    _usingNativeLocalStt = false;
   }
 
   Future<void> _releaseBackgroundMicrophone() async {
@@ -779,12 +782,14 @@ class VoiceInputService {
 
   Future<void> _ensureLocalSttReset() async {
     _cancelNativeDictationSettle();
+    _localSttActive = false;
+    _usingNativeLocalStt = false;
+    final subscription = _nativeSttSub;
+    _nativeSttSub = null;
+    await subscription?.cancel();
     try {
       await _nativeStt.stopListening();
     } catch (_) {}
-    await _nativeSttSub?.cancel();
-    _nativeSttSub = null;
-    _usingNativeLocalStt = false;
   }
 
   Future<void> _startServerRecording({

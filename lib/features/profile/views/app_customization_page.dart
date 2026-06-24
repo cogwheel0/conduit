@@ -1178,13 +1178,9 @@ class AppCustomizationPage extends ConsumerWidget {
               const SizedBox(height: Spacing.sm),
               AdaptiveSegmentedSelector<TtsEngine>(
                 value: settings.ttsEngine,
-                onChanged: (engine) {
+                onChanged: (engine) async {
                   final notifier = ref.read(appSettingsProvider.notifier);
-                  if (engine == TtsEngine.server) {
-                    notifier.setTtsVoice(null);
-                    notifier.setTtsVoiceName(null);
-                  }
-                  notifier.setTtsEngine(engine);
+                  await notifier.setTtsEngineSelection(engine);
                 },
                 options: [
                   (
@@ -1489,11 +1485,9 @@ class AppCustomizationPage extends ConsumerWidget {
         final notifier = ref.read(appSettingsProvider.notifier);
         if (selectedId == ttsSystemDefaultVoiceId) {
           if (settings.ttsEngine == TtsEngine.server) {
-            notifier.setTtsServerVoiceId(null);
-            notifier.setTtsServerVoiceName(null);
+            await notifier.setTtsServerVoiceSelection(null, null);
           } else {
-            notifier.setTtsVoice(null);
-            notifier.setTtsVoiceName(null);
+            await notifier.setTtsDeviceVoiceSelection(null, null);
           }
           return;
         }
@@ -1507,11 +1501,15 @@ class AppCustomizationPage extends ConsumerWidget {
           return;
         }
         if (settings.ttsEngine == TtsEngine.server) {
-          notifier.setTtsServerVoiceId(selectedVoice.id);
-          notifier.setTtsServerVoiceName(selectedVoice.label);
+          await notifier.setTtsServerVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         } else {
-          notifier.setTtsVoice(selectedVoice.id);
-          notifier.setTtsVoiceName(selectedVoice.label);
+          await notifier.setTtsDeviceVoiceSelection(
+            selectedVoice.id,
+            selectedVoice.label,
+          );
         }
         return;
       } catch (_) {
@@ -1586,15 +1584,14 @@ class AppCustomizationPage extends ConsumerWidget {
               return SettingsSelectorTile(
                 title: l10n.ttsSystemDefault,
                 selected: selectedOptionId == ttsSystemDefaultVoiceId,
-                onTap: () {
+                onTap: () async {
                   final notifier = ref.read(appSettingsProvider.notifier);
                   if (settings.ttsEngine == TtsEngine.server) {
-                    notifier.setTtsServerVoiceId(null);
-                    notifier.setTtsServerVoiceName(null);
+                    await notifier.setTtsServerVoiceSelection(null, null);
                   } else {
-                    notifier.setTtsVoice(null);
-                    notifier.setTtsVoiceName(null);
+                    await notifier.setTtsDeviceVoiceSelection(null, null);
                   }
+                  if (!sheetContext.mounted) return;
                   Navigator.of(sheetContext).pop();
                 },
               );
@@ -1604,15 +1601,20 @@ class AppCustomizationPage extends ConsumerWidget {
               title: option.label,
               subtitle: option.subtitle,
               selected: option.id == selectedOptionId,
-              onTap: () {
+              onTap: () async {
                 final notifier = ref.read(appSettingsProvider.notifier);
                 if (settings.ttsEngine == TtsEngine.server) {
-                  notifier.setTtsServerVoiceId(option.id);
-                  notifier.setTtsServerVoiceName(option.label);
+                  await notifier.setTtsServerVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 } else {
-                  notifier.setTtsVoice(option.id);
-                  notifier.setTtsVoiceName(option.label);
+                  await notifier.setTtsDeviceVoiceSelection(
+                    option.id,
+                    option.label,
+                  );
                 }
+                if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
               },
             );
