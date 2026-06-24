@@ -674,8 +674,14 @@ void main() {
 
         final firstDrain = engine.drainOutbox();
         await migrationGate.firstReadStarted.future;
+        final joinObserved = Completer<void>();
+        engine.legacyMigrationJoinObserverForTesting = () {
+          if (!joinObserved.isCompleted) {
+            joinObserved.complete();
+          }
+        };
         final joinedDrain = engine.drainNow();
-        await Future<void>.delayed(Duration.zero);
+        await joinObserved.future;
 
         migrationGate.releaseFirstRead.complete();
         await firstDrain;

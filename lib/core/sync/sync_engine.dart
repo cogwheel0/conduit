@@ -420,6 +420,9 @@ class SyncEngine extends _$SyncEngine {
   @visibleForTesting
   bool get hasCachedRemapperForTesting => _remapper != null;
 
+  @visibleForTesting
+  void Function()? legacyMigrationJoinObserverForTesting;
+
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
   Future<void> drainNow() async {
@@ -783,6 +786,7 @@ class SyncEngine extends _$SyncEngine {
       final inFlight = _migrationInFlight;
       if (inFlight != null) {
         final inFlightDb = _migrationDb;
+        legacyMigrationJoinObserverForTesting?.call();
         await inFlight;
         if (_migrated && identical(inFlightDb, db) && identical(_boundDb, db)) {
           return;
