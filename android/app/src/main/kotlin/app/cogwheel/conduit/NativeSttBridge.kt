@@ -37,6 +37,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     EventChannel.StreamHandler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var eventSink: EventChannel.EventSink? = null
+    @Volatile
     private var activeMlKitRecognizer: MlKitSpeechRecognizer? = null
     private var activePlatformRecognizer: AndroidSpeechRecognizer? = null
     private var recognitionJob: kotlinx.coroutines.Job? = null
