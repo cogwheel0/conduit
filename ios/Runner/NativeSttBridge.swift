@@ -175,9 +175,14 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
         }
         return NativeSttAvailability.available("speechAnalyzer")
       } catch is CancellationError {
-        await stopCurrentSession(invalidateStart: false)
+        if isCurrentGeneration(generation) {
+          await stopCurrentSession(invalidateStart: false)
+        }
         return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
       } catch {
+        guard isCurrentGeneration(generation) else {
+          return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+        }
         await stopCurrentSession(invalidateStart: false)
         speechAnalyzerFailure = error
       }
@@ -208,6 +213,9 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     } catch is CancellationError {
       return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
     } catch {
+      guard isCurrentGeneration(generation) else {
+        return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+      }
       await stopCurrentSession(invalidateStart: false)
       let analyzerMessage = speechAnalyzerFailure.map { "; SpeechAnalyzer: \($0.localizedDescription)" } ?? ""
       return NativeSttAvailability.unavailable("\(error.localizedDescription)\(analyzerMessage)")
@@ -845,14 +853,23 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-      guard let self, !self.stopped, self.isCurrent() else { return }
+      guard
+        let self,
+        !self.stopped,
+        self.isCurrent(),
+        self.recognitionRequest === request
+      else { return }
       request.append(buffer)
     }
     tapInstalled = true
 
     recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
       guard let self else { return }
-      guard !self.stopped, self.isCurrent() else { return }
+      guard
+        !self.stopped,
+        self.isCurrent(),
+        self.recognitionRequest === request
+      else { return }
       if let result {
         self.handleRecognitionResult(result)
       }

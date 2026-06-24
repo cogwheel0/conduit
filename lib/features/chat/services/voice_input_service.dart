@@ -192,7 +192,7 @@ class VoiceInputService {
     try {
       final availability = await _nativeStt.checkAvailability(
         localeId: _selectedLocaleId ?? deviceTag,
-        allowOnlineFallback: _preference != SttPreference.deviceOnly,
+        allowOnlineFallback: false,
       );
       _nativeLocalSttAvailable = availability.available;
       if (availability.available) {
@@ -272,6 +272,7 @@ class VoiceInputService {
         localeId: _selectedLocaleId,
         emitPartialResults: false,
         accumulateResults: false,
+        allowOnlineFallback: false,
       );
       await Future.delayed(const Duration(milliseconds: 100));
       await _nativeStt.stopListening();

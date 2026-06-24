@@ -27,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -324,34 +326,65 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     emitStatus("downloading", engineName)
                 }
                 var ready = false
-                recognizer.download().collect { downloadStatus ->
-                    if (!isCurrentGeneration(generation)) return@collect
-                    when (downloadStatus) {
-                        is DownloadStatus.DownloadStarted -> {
-                            emitStatus("downloading", engineName)
+                try {
+                    coroutineScope {
+                        val downloadJob = launch {
+                            recognizer.download().collect { downloadStatus ->
+                                if (!isCurrentGeneration(generation)) {
+                                    throw CancellationException("Stale recognition generation")
+                                }
+                                when (downloadStatus) {
+                                    is DownloadStatus.DownloadStarted -> {
+                                        emitStatus("downloading", engineName)
+                                    }
+                                    is DownloadStatus.DownloadCompleted -> {
+                                        ready = true
+                                        emitStatus("downloaded", engineName)
+                                    }
+                                    is DownloadStatus.DownloadProgress -> {
+                                        emit(
+                                            mapOf(
+                                                "type" to "status",
+                                                "message" to "downloading",
+                                                "engine" to engineName,
+                                                "bytesDownloaded" to downloadStatus.totalBytesDownloaded
+                                            )
+                                        )
+                                    }
+                                    is DownloadStatus.DownloadFailed -> {
+                                        emitError(
+                                            "MLKIT_DOWNLOAD_${downloadStatus.e.errorCode}",
+                                            downloadStatus.e.message ?: "ML Kit speech model download failed",
+                                            engineName
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        is DownloadStatus.DownloadCompleted -> {
-                            ready = true
-                            emitStatus("downloaded", engineName)
-                        }
-                        is DownloadStatus.DownloadProgress -> {
-                            emit(
-                                mapOf(
-                                    "type" to "status",
-                                    "message" to "downloading",
-                                    "engine" to engineName,
-                                    "bytesDownloaded" to downloadStatus.totalBytesDownloaded
+                        val staleGenerationJob = launch {
+                            while (downloadJob.isActive && isCurrentGeneration(generation)) {
+                                delay(STALE_GENERATION_CHECK_MS)
+                            }
+                            if (downloadJob.isActive) {
+                                downloadJob.cancel(
+                                    CancellationException("Stale recognition generation")
                                 )
-                            )
+                            }
                         }
-                        is DownloadStatus.DownloadFailed -> {
-                            emitError(
-                                "MLKIT_DOWNLOAD_${downloadStatus.e.errorCode}",
-                                downloadStatus.e.message ?: "ML Kit speech model download failed",
-                                engineName
-                            )
+                        try {
+                            downloadJob.join()
+                        } finally {
+                            staleGenerationJob.cancel()
                         }
                     }
+                    if (!isCurrentGeneration(generation)) {
+                        return false
+                    }
+                } catch (error: CancellationException) {
+                    if (!isCurrentGeneration(generation)) {
+                        return false
+                    }
+                    throw error
                 }
                 ready || recognizer.checkStatus() == FeatureStatus.AVAILABLE
             }
@@ -636,5 +669,6 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         private const val METHOD_CHANNEL = "app.cogwheel.conduit/native_stt"
         private const val EVENT_CHANNEL = "app.cogwheel.conduit/native_stt/events"
         private const val STOP_GRACE_PERIOD_MS = 1500L
+        private const val STALE_GENERATION_CHECK_MS = 50L
     }
 }
