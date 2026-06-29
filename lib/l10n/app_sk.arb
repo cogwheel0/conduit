@@ -1441,7 +1441,7 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Použite Automaticky pre jazyk tohto zariadenia alebo zadajte kód, napríklad pl.",
+  "sttTranscriptionLanguageDescription": "Použite Automaticky pre jazyk tohto zariadenia alebo zadajte kód, napríklad en.",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
@@ -1453,11 +1453,11 @@
   "@sttTranscriptionLanguageCustom": {
     "description": "Option label for entering an explicit speech-to-text language code."
   },
-  "sttTranscriptionLanguagePlaceholder": "Kód ISO-639-1, napr. pl",
+  "sttTranscriptionLanguagePlaceholder": "Kód ISO-639-1, napr. en",
   "@sttTranscriptionLanguagePlaceholder": {
     "description": "Placeholder for entering a two-letter speech-to-text language code."
   },
-  "sttTranscriptionLanguageInvalid": "Použite dvojpísmenový kód jazyka ako pl.",
+  "sttTranscriptionLanguageInvalid": "Použite dvojpísmenový kód jazyka ako en.",
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },

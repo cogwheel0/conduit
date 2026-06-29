@@ -2,7 +2,6 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/widgets.dart';
 import 'package:vad/vad.dart';
 
 void main() {
@@ -19,31 +18,28 @@ void main() {
   });
 
   group('VoiceInputService.resolveServerLanguageHint', () {
-    test('uses explicit STT language before locale fallbacks', () {
+    test('uses explicit STT language', () {
       final language = VoiceInputService.resolveServerLanguageHint(
         configuredLanguageCode: 'PL',
-        selectedLocaleId: 'de_DE',
-        fallbackLocale: const Locale('en'),
       );
 
       check(language).equals('pl');
     });
 
-    test('falls back to selected locale when no explicit language is set', () {
+    test('omits language when no explicit language is set', () {
       final language = VoiceInputService.resolveServerLanguageHint(
-        selectedLocaleId: 'de_DE',
-        fallbackLocale: const Locale('en'),
+        configuredLanguageCode: null,
       );
 
-      check(language).equals('de');
+      check(language).isNull();
     });
 
-    test('falls back to device locale when selected locale is unavailable', () {
+    test('omits language for auto-like inputs', () {
       final language = VoiceInputService.resolveServerLanguageHint(
-        fallbackLocale: const Locale('pl'),
+        configuredLanguageCode: 'auto',
       );
 
-      check(language).equals('pl');
+      check(language).isNull();
     });
   });
 

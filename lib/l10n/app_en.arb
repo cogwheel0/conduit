@@ -1441,23 +1441,23 @@
   "@sttTranscriptionLanguage": {
     "description": "Title for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageDescription": "Use Auto to follow this device's language, or enter a code such as pl.",
+  "sttTranscriptionLanguageDescription": "Use Auto-detect to let the server infer the spoken language, or enter a code such as en.",
   "@sttTranscriptionLanguageDescription": {
     "description": "Description for the server speech-to-text language setting."
   },
-  "sttTranscriptionLanguageAuto": "Auto",
+  "sttTranscriptionLanguageAuto": "Auto-detect",
   "@sttTranscriptionLanguageAuto": {
-    "description": "Option label for using the device language as the server speech-to-text language hint."
+    "description": "Option label for omitting the server speech-to-text language hint so the backend auto-detects the spoken language."
   },
   "sttTranscriptionLanguageCustom": "Custom language code",
   "@sttTranscriptionLanguageCustom": {
     "description": "Option label for entering an explicit speech-to-text language code."
   },
-  "sttTranscriptionLanguagePlaceholder": "ISO-639-1 code, e.g. pl",
+  "sttTranscriptionLanguagePlaceholder": "ISO-639-1 code, e.g. en",
   "@sttTranscriptionLanguagePlaceholder": {
     "description": "Placeholder for entering a two-letter speech-to-text language code."
   },
-  "sttTranscriptionLanguageInvalid": "Use a two-letter language code like pl.",
+  "sttTranscriptionLanguageInvalid": "Use a two-letter language code like en.",
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },

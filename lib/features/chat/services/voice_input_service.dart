@@ -996,25 +996,10 @@ class VoiceInputService {
   }
 
   @visibleForTesting
-  static String? resolveServerLanguageHint({
-    String? configuredLanguageCode,
-    String? selectedLocaleId,
-    Locale? fallbackLocale,
-  }) {
-    final configured = SettingsService.normalizeSttLanguageCode(
-      configuredLanguageCode,
-    );
-    if (configured != null) {
-      return configured;
-    }
-
-    final selected = _primaryLanguageFromLocaleId(selectedLocaleId);
-    if (selected != null) {
-      return selected;
-    }
-
-    final fallback = fallbackLocale?.languageCode.toLowerCase();
-    return fallback == null || fallback.isEmpty ? null : fallback;
+  static String? resolveServerLanguageHint({String? configuredLanguageCode}) {
+    // Open WebUI auto-detects speech language only when the language form
+    // field is omitted. A null setting must therefore stay null.
+    return SettingsService.normalizeSttLanguageCode(configuredLanguageCode);
   }
 
   @visibleForTesting
@@ -1036,14 +1021,6 @@ class VoiceInputService {
     required bool usingServerStt,
   }) {
     return isFinal && nativeAccumulateResults && !usingServerStt;
-  }
-
-  static String? _primaryLanguageFromLocaleId(String? localeId) {
-    if (localeId == null || localeId.isEmpty) {
-      return null;
-    }
-    final primary = localeId.split(RegExp('[-_]')).first.toLowerCase();
-    return primary.length >= 2 ? primary : null;
   }
 
   int _intensityFromVadFrame(List<double> frame) {
@@ -1108,14 +1085,8 @@ class VoiceInputService {
 
   String? _languageForServer() {
     final settings = _ref?.read(appSettingsProvider);
-    Locale? fallbackLocale;
-    try {
-      fallbackLocale = WidgetsBinding.instance.platformDispatcher.locale;
-    } catch (_) {}
     return resolveServerLanguageHint(
       configuredLanguageCode: settings?.sttLanguageCode,
-      selectedLocaleId: _selectedLocaleId,
-      fallbackLocale: fallbackLocale,
     );
   }
 

@@ -2403,7 +2403,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 child: _buildActiveOverlay(),
               ),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: _isMultiline
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.center,
               children: [
                 if (_isRecording)
                   _buildDictationStopButton()
