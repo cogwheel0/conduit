@@ -1,5 +1,7 @@
 import 'dart:io' show HttpClient, WebSocket;
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:web_socket/io_web_socket.dart' show IOWebSocket;
+import 'package:web_socket/web_socket.dart' as ws;
 
 import '../models/server_config.dart';
 import 'server_tls_http_client_factory.dart';
@@ -18,14 +20,11 @@ io.Socket createSocketWithOptionalBadCertOverride(
     return io.io(base, builder.build());
   }
 
-  final adapter = _ServerTlsHttpClientAdapter(serverConfig);
+  final connector = _CustomTlsWebSocketConnector(serverConfig);
   builder
     ..enableForceNew()
-    ..setHttpClientAdapter(adapter)
-    ..setTransportOptions({
-      'polling': {'httpClientAdapter': adapter},
-      'websocket': {'httpClientAdapter': adapter},
-    });
+    ..setTransports(const ['websocket'])
+    ..setWebSocketConnector(connector.connect);
   return io.io(base, builder.build());
 }
 
@@ -37,14 +36,26 @@ Uri? _tryParseUri(String url) {
   return null;
 }
 
-class _ServerTlsHttpClientAdapter implements io.HttpClientAdapter {
-  _ServerTlsHttpClientAdapter(ServerConfig serverConfig)
+class _CustomTlsWebSocketConnector {
+  _CustomTlsWebSocketConnector(ServerConfig serverConfig)
     : _httpClient = ServerTlsHttpClientFactory.createHttpClient(serverConfig);
 
   final HttpClient _httpClient;
 
-  @override
-  Future<WebSocket> connect(String uri, {Map<String, dynamic>? headers}) {
-    return WebSocket.connect(uri, headers: headers, customClient: _httpClient);
+  // socket_io_client's connector contract returns package:web_socket sockets.
+  // Keep the custom dart:io HttpClient so self-signed TLS policy is preserved;
+  // callers force WebSocket-only because HTTP polling cannot use this connector.
+  Future<ws.WebSocket> connect(
+    Uri uri, {
+    Iterable<String>? protocols,
+    Map<String, String>? headers,
+  }) async {
+    final socket = await WebSocket.connect(
+      uri.toString(),
+      protocols: protocols,
+      headers: headers,
+      customClient: _httpClient,
+    );
+    return IOWebSocket.fromWebSocket(socket);
   }
 }

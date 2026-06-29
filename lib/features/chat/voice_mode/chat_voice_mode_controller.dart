@@ -483,8 +483,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (callId == null) return;
 
     final endedCallId = switch (event) {
-      CallEventActionCallEnded(:final id) => id,
-      CallEventActionCallDecline(:final id) => id,
+      CallEventActionCallEnded(:final callKitParams) => callKitParams.id,
+      CallEventActionCallDecline(:final callKitParams) => callKitParams.id,
       CallEventActionCallTimeout(:final id) => id,
       _ => null,
     };

@@ -212,6 +212,7 @@ class ApiErrorInterceptor extends Interceptor {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
+      case DioExceptionType.transformTimeout:
         return 'Connection timeout - please check your internet connection';
       case DioExceptionType.connectionError:
         return 'Network connection error - please check your internet connection';

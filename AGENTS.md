@@ -8,7 +8,7 @@ Use the README command blocks as the baseline:
 
 ```bash
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 flutter run -d ios
 # or
 flutter run -d android
@@ -16,11 +16,11 @@ flutter run -d android
 
 ```bash
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 flutter test
 ```
 
-Run `dart run build_runner build --delete-conflicting-outputs` after `flutter pub get` and after switching branches or creating a fresh worktree. Generated `*.g.dart` and `*.freezed.dart` files are ignored by git but required by analyzer/test runs. `flutter test` and `flutter analyze` are local verification gates before handoff; `.github/workflows/` currently contains only `.github/workflows/l10n.yml` and `.github/workflows/release.yml`, so these checks are not run on every push.
+Run `dart run build_runner build` after `flutter pub get` and after switching branches or creating a fresh worktree. Generated `*.g.dart` and `*.freezed.dart` files are ignored by git but required by analyzer/test runs. `flutter test` and `flutter analyze` are local verification gates before handoff; `.github/workflows/` currently contains only `.github/workflows/l10n.yml` and `.github/workflows/release.yml`, so these checks are not run on every push.
 
 # Architecture & layout
 

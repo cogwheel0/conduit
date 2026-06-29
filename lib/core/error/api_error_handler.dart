@@ -81,6 +81,7 @@ class ApiErrorHandler {
         );
 
       case DioExceptionType.receiveTimeout:
+      case DioExceptionType.transformTimeout:
         return ApiError.timeout(
           message: l10n.serverErrorTimeout,
           endpoint: requestPath,

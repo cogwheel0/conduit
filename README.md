@@ -182,7 +182,7 @@ filters appear when they are available on the connected server.
 git clone https://github.com/cogwheel0/conduit.git
 cd conduit
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 flutter run -d ios
 # or
 flutter run -d android
@@ -192,7 +192,7 @@ flutter run -d android
 
 ```bash
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 flutter test
 ```
 
@@ -266,8 +266,7 @@ lib/
   configured in Xcode.
 - If Android builds fail, confirm your Java and Gradle toolchain, then try
   `flutter clean`.
-- If code generation fails, rerun
-  `dart run build_runner build --delete-conflicting-outputs`.
+- If code generation fails, rerun `dart run build_runner build`.
 
 </details>
 
