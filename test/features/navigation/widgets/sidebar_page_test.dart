@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:ui' show Tristate;
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/models/channel.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -301,6 +303,66 @@ void main() {
       channelsSemantics.getSemanticsData().flagsCollection.isSelected,
       Tristate.isFalse,
     );
+  });
+
+  testWidgets('empty chats tab shows a refresh action below the message', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final pendingRefresh = controllers.keepChatRefreshPending();
+
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+    await tester.pumpAndSettle();
+
+    final context = tester.element(find.byType(SidebarPage));
+    final l10n = AppLocalizations.of(context)!;
+    final refreshLabel = MaterialLocalizations.of(
+      context,
+    ).refreshIndicatorSemanticLabel;
+
+    final refreshAction = _checkEmptyStateRefreshButtonBelow(
+      tester,
+      layer: _SidebarTabLayer.chats,
+      message: l10n.noConversationsYet,
+      refreshLabel: refreshLabel,
+    );
+    await tester.tap(refreshAction);
+    await tester.tap(refreshAction);
+    await tester.pump();
+
+    check(controllers.chatRefreshCalls).equals(1);
+    pendingRefresh.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('empty notes tab shows a refresh action below the message', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers(initialIndex: 1);
+    final pendingRefresh = controllers.keepNoteRefreshPending();
+
+    await tester.pumpWidget(_buildSidebarHarness(controllers: controllers));
+    await tester.pumpAndSettle();
+
+    final context = tester.element(find.byType(SidebarPage));
+    final l10n = AppLocalizations.of(context)!;
+    final refreshLabel = MaterialLocalizations.of(
+      context,
+    ).refreshIndicatorSemanticLabel;
+
+    final refreshAction = _checkEmptyStateRefreshButtonBelow(
+      tester,
+      layer: _SidebarTabLayer.notes,
+      message: l10n.noNotesYet,
+      refreshLabel: refreshLabel,
+    );
+    await tester.tap(refreshAction);
+    await tester.tap(refreshAction);
+    await tester.pump();
+
+    check(controllers.noteRefreshCalls).equals(1);
+    pendingRefresh.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('channel layer state survives notes toggle', (tester) async {
@@ -693,6 +755,48 @@ Finder _layerOpacityFinder(_SidebarTabLayer layer) {
   );
 }
 
+Finder _checkEmptyStateRefreshButtonBelow(
+  WidgetTester tester, {
+  required _SidebarTabLayer layer,
+  required String message,
+  required String refreshLabel,
+}) {
+  final layerRoot = _layerRootFinder(layer);
+  final messageFinder = find.descendant(
+    of: layerRoot,
+    matching: find.text(message),
+  );
+  final refreshTextFinder = find.descendant(
+    of: layerRoot,
+    matching: find.text(refreshLabel),
+  );
+  final refreshSemanticsFinder = find.descendant(
+    of: layerRoot,
+    matching: find.bySemanticsLabel(refreshLabel),
+  );
+
+  check(messageFinder.evaluate()).length.equals(1);
+  check(refreshTextFinder.evaluate()).length.equals(1);
+  final refreshSemanticsCount = refreshSemanticsFinder.evaluate().length;
+  check(refreshSemanticsCount > 0).isTrue();
+  final hasEnabledButtonSemantics =
+      Iterable<int>.generate(refreshSemanticsCount).any((index) {
+        final semantics = tester
+            .getSemantics(refreshSemanticsFinder.at(index))
+            .getSemanticsData();
+        return semantics.label == refreshLabel &&
+            semantics.flagsCollection.isButton &&
+            semantics.flagsCollection.isEnabled == Tristate.isTrue;
+      });
+  check(hasEnabledButtonSemantics).isTrue();
+
+  final messageBottom = tester.getBottomLeft(messageFinder).dy;
+  final refreshTop = tester.getTopLeft(refreshTextFinder).dy;
+  check(refreshTop > messageBottom).isTrue();
+
+  return refreshTextFinder;
+}
+
 Widget _buildSidebarHarness({
   required _SidebarHarnessControllers controllers,
   User? currentUser,
@@ -742,14 +846,19 @@ Widget _buildSidebarHarness({
       currentUserProvider.overrideWith((ref) async => currentUser),
       // ignore: scoped_providers_should_specify_dependencies
       conversationsProvider.overrideWith(
-        () => _TestConversations(conversations),
+        () => _TestConversations(
+          conversations,
+          onRefresh: controllers.recordChatRefresh,
+        ),
       ),
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(_TestModels.new),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(() => _TestFolders(folders)),
       // ignore: scoped_providers_should_specify_dependencies
-      notesListProvider.overrideWith(_TestNotesList.new),
+      notesListProvider.overrideWith(
+        () => _TestNotesList(onRefresh: controllers.recordNoteRefresh),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       channelsListProvider.overrideWith(_TestChannelsList.new),
       // ignore: scoped_providers_should_specify_dependencies
@@ -815,6 +924,28 @@ class _SidebarHarnessControllers {
 
   final _TestNotesFeatureEnabledNotifier notesNotifier;
   final _TestSidebarActiveTab activeTabNotifier;
+  int chatRefreshCalls = 0;
+  int noteRefreshCalls = 0;
+  Completer<void>? _pendingChatRefresh;
+  Completer<void>? _pendingNoteRefresh;
+
+  Completer<void> keepChatRefreshPending() {
+    return _pendingChatRefresh = Completer<void>();
+  }
+
+  Completer<void> keepNoteRefreshPending() {
+    return _pendingNoteRefresh = Completer<void>();
+  }
+
+  Future<void> recordChatRefresh() {
+    chatRefreshCalls++;
+    return _pendingChatRefresh?.future ?? Future<void>.value();
+  }
+
+  Future<void> recordNoteRefresh() {
+    noteRefreshCalls++;
+    return _pendingNoteRefresh?.future ?? Future<void>.value();
+  }
 }
 
 class _TestNotesFeatureEnabledNotifier extends NotesFeatureEnabledNotifier {
@@ -849,12 +980,21 @@ class _TestSidebarActiveTab extends SidebarActiveTab {
 }
 
 class _TestConversations extends Conversations {
-  _TestConversations(this.conversations);
+  _TestConversations(this.conversations, {this.onRefresh});
 
   final List<Conversation> conversations;
+  final Future<void> Function()? onRefresh;
 
   @override
   Future<List<Conversation>> build() async => conversations;
+
+  @override
+  Future<void> refresh({
+    bool includeFolders = false,
+    bool forceFresh = false,
+  }) async {
+    await onRefresh?.call();
+  }
 }
 
 class _TestModels extends Models {
@@ -872,8 +1012,17 @@ class _TestFolders extends Folders {
 }
 
 class _TestNotesList extends NotesList {
+  _TestNotesList({this.onRefresh});
+
+  final Future<void> Function()? onRefresh;
+
   @override
   Future<List<Note>> build() async => const [];
+
+  @override
+  Future<void> refresh() async {
+    await onRefresh?.call();
+  }
 }
 
 class _TestChannelsList extends ChannelsList {

@@ -15,6 +15,7 @@ import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -61,6 +62,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   bool _isLoadingConversation = false;
   String? _pendingConversationId;
   bool _isLoadingMoreConversations = false;
+  bool _isRefreshingEmptyState = false;
 
   @override
   void initState() {
@@ -72,16 +74,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Future<void> _refreshChats() async {
     try {
-      // Always refresh folders and conversations cache
-      refreshConversationsCache(ref, includeFolders: true);
-
       if (_query.trim().isEmpty) {
-        // Refresh main conversations list
+        // Refresh main conversations list. The database stream delivers rows.
         try {
-          await ref.read(conversationsProvider.future);
+          await ref
+              .read(conversationsProvider.notifier)
+              .refresh(includeFolders: true);
         } catch (_) {}
       } else {
-        // Refresh server-side search results
+        // Refresh server-side search results and keep the local cache warm.
+        refreshConversationsCache(ref, includeFolders: true);
         ref.invalidate(serverSearchProvider(_query));
         try {
           await ref.read(serverSearchProvider(_query).future);
@@ -93,6 +95,18 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         await ref.read(foldersProvider.future);
       } catch (_) {}
     } catch (_) {}
+  }
+
+  Future<void> _refreshEmptyStateChats() async {
+    if (_isRefreshingEmptyState) return;
+    setState(() => _isRefreshingEmptyState = true);
+    try {
+      await _refreshChats();
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshingEmptyState = false);
+      }
+    }
   }
 
   void _onListScrolled() {
@@ -229,6 +243,39 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   ),
                 )
               : const SizedBox(height: Spacing.md),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(String message) {
+    final theme = context.conduitTheme;
+    final refreshLabel = MaterialLocalizations.of(
+      context,
+    ).refreshIndicatorSemanticLabel;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitButton(
+              text: refreshLabel,
+              icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+              onPressed: () => unawaited(_refreshEmptyStateChats()),
+              isSecondary: true,
+              isCompact: true,
+              isLoading: _isRefreshingEmptyState,
+            ),
+          ],
         ),
       ),
     );
@@ -516,16 +563,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final hasVisibleFolders = foldersEnabled && folders.isNotEmpty;
 
           if (list.isEmpty && !hasVisibleFolders) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(Spacing.lg),
-                child: Text(
-                  AppLocalizations.of(context)!.noConversationsYet,
-                  style: AppTypography.bodyMediumStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
-              ),
+            return _buildEmptyState(
+              AppLocalizations.of(context)!.noConversationsYet,
             );
           }
 
@@ -680,17 +719,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return searchAsync.when(
       data: (list) {
         if (list.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(Spacing.lg),
-              child: Text(
-                'No results for "$_query"',
-                style: AppTypography.bodyMediumStyle.copyWith(
-                  color: theme.textSecondary,
-                ),
-              ),
-            ),
-          );
+          return _buildEmptyState(AppLocalizations.of(context)!.noResults);
         }
 
         final pinned = list.where((c) => c.pinned == true).toList();

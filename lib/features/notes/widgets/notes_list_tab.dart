@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -9,10 +10,12 @@ import 'package:intl/intl.dart';
 
 import '../../../core/models/note.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/widgets/drawer_section_notifiers.dart';
@@ -42,6 +45,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   static final _noteRoutePattern = RegExp(r'^/notes/(.+)$');
 
   String? _activeNoteId;
+  bool _isRefreshingEmptyState = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -88,6 +92,65 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
       confirmAndDeleteNote(context, ref, note);
 
   Future<void> _togglePin(Note note) => toggleNotePin(context, ref, note);
+
+  Future<void> _refreshNotes({bool includeHaptic = false}) async {
+    if (includeHaptic) {
+      ConduitHaptics.lightImpact();
+    }
+    await ref.read(notesListProvider.notifier).refresh();
+  }
+
+  Future<void> _refreshEmptyStateNotes() async {
+    if (_isRefreshingEmptyState) return;
+    setState(() => _isRefreshingEmptyState = true);
+    try {
+      await _refreshNotes();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'empty-state-refresh-failed',
+        scope: 'notes/sidebar',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshingEmptyState = false);
+      }
+    }
+  }
+
+  Widget _buildEmptyState(String message) {
+    final theme = context.conduitTheme;
+    final refreshLabel = MaterialLocalizations.of(
+      context,
+    ).refreshIndicatorSemanticLabel;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              style: AppTypography.sidebarSupportingStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitButton(
+              text: refreshLabel,
+              icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+              onPressed: () => unawaited(_refreshEmptyStateNotes()),
+              isSecondary: true,
+              isCompact: true,
+              isLoading: _isRefreshingEmptyState,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   List<ConduitContextMenuAction> _buildNoteActions(Note note) {
     return buildNoteContextMenuActions(
@@ -226,7 +289,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final searchController = ref.watch(sidebarSearchFieldControllerProvider);
 
@@ -241,13 +303,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         return notes.when(
           data: (noteList) {
             if (noteList.isEmpty) {
-              return Center(
-                child: Text(
-                  query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
-                  style: AppTypography.sidebarSupportingStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
+              return _buildEmptyState(
+                query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
               );
             }
             final pinnedNotes = noteList
@@ -281,10 +338,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
 
             return RefreshIndicator.adaptive(
               edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
-              onRefresh: () async {
-                ConduitHaptics.lightImpact();
-                await ref.read(notesListProvider.notifier).refresh();
-              },
+              onRefresh: () => _refreshNotes(includeHaptic: true),
               child: ListView.builder(
                 padding: EdgeInsets.only(
                   top: sidebarTabContentTopPadding(context),
