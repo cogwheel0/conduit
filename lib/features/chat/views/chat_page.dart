@@ -1422,6 +1422,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _lastConversationId = conversationId;
     _cancelPendingInitialBottomSettle();
     _cancelPendingStickyBottomCorrection();
+    // Drop any sticky-correction latch so the incoming conversation does not
+    // inherit a stale anchored state (which would suppress the scroll-to-bottom
+    // button / mis-pin auto-scroll). The latch is cleared here rather than in
+    // _cancelPendingStickyBottomCorrection because that method is also called on
+    // drag-start, where the latch must survive to gate userScrollAwayThreshold.
+    _bottomAnchorController.verifyStickyCorrection(
+      nearBottom: false,
+      isFinalAttempt: true,
+    );
     _markdownPrewarmTimer?.cancel();
     _markdownPrewarmTimer = null;
     _markdownPrewarmGeneration++;

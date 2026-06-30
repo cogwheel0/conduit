@@ -32,7 +32,11 @@ class ChatBottomAnchorController {
       return true;
     }
 
-    if (_stickyLatchHolds) {
+    // While a sticky content change is still pending, keep the view anchored
+    // even mid-drag. Only shouldDetachForUserScrollAway (which honors
+    // userScrollAwayThreshold) may break this latch, so a minor accidental drag
+    // during streaming doesn't drop bottom anchoring.
+    if (_hasUnverifiedStickyContentChange && isAnchoredToBottom) {
       return true;
     }
 
