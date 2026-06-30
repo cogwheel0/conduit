@@ -2025,6 +2025,26 @@ void main() {
       check(config.ttsVoices.single.id).equals('legacy');
     });
 
+    test(
+      'getBackendConfig preserves split default when audio omits it',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'features': {}, 'tts_split_on': 'legacy-split'}),
+          _FakeAdapter.json({
+            'tts': {'VOICE': 'nova'},
+          }),
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final config = await api.getBackendConfig();
+
+        check(config).isNotNull();
+        check(config!.ttsVoice).equals('nova');
+        check(config.ttsSplitOn).equals('legacy-split');
+      },
+    );
+
     test('knowledge create update delete fall back to legacy routes', () async {
       final adapter = _QueuedFakeAdapter([
         _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
@@ -2370,6 +2390,34 @@ void main() {
         ).deepEquals({'file_id': 'file-1'});
       },
     );
+
+    test('addFileToKnowledgeBase recognizes file-wrapped nested id', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'file': {
+            'data': {'identifier': 'file-1'},
+          },
+        }),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/files/',
+        'POST /api/v1/knowledge/kb-1/file/add',
+      ]);
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'file_id': 'file-1'});
+    });
 
     test(
       'addFileToKnowledgeBase does not legacy reupload without file id',

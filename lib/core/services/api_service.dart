@@ -621,7 +621,7 @@ class ApiService {
     final audioConfig = await _loadServerAudioConfig();
     return config.copyWith(
       ttsVoice: audioConfig.voice ?? config.ttsVoice,
-      ttsSplitOn: audioConfig.splitOn ?? config.ttsSplitOn,
+      ttsSplitOn: audioConfig.splitOn ?? config.ttsSplitOn ?? 'punctuation',
       ttsVoices: audioConfig.voices.isEmpty
           ? config.ttsVoices
           : audioConfig.voices,
@@ -3848,6 +3848,18 @@ class ApiService {
       'document',
       'documents',
     };
+    const nonFileContainerKeys = {
+      'user',
+      'users',
+      'owner',
+      'owners',
+      'collection',
+      'collections',
+      'workspace',
+      'organization',
+      'metadata',
+      'meta',
+    };
     void collect(dynamic value, {String? key, bool inFileContainer = false}) {
       if (value is Map) {
         for (final entry in value.entries) {
@@ -3857,7 +3869,8 @@ class ApiService {
               .toLowerCase();
           final childIsFileContainer =
               fileContainerKeys.contains(normalizedChildKey) ||
-              (inFileContainer && entry.value is! Map);
+              (inFileContainer &&
+                  !nonFileContainerKeys.contains(normalizedChildKey));
           collect(
             entry.value,
             key: childKey,
@@ -4233,7 +4246,7 @@ class ApiService {
       final rawVoice = ttsConfig?['VOICE'] ?? ttsConfig?['voice'];
       final rawSplitOn = ttsConfig?['SPLIT_ON'] ?? ttsConfig?['split_on'];
       voice = _normalizeDynamicString(rawVoice);
-      splitOn = _normalizeDynamicString(rawSplitOn) ?? 'punctuation';
+      splitOn = _normalizeDynamicString(rawSplitOn);
     } catch (e, stackTrace) {
       DebugLogger.error(
         'backend-config-audio-defaults',
