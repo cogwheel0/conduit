@@ -125,7 +125,6 @@ class _StreamingMarkdownWidgetState
   late final MarkdownDocumentController _documentController;
   final GlobalKey _markdownContentKey = GlobalKey();
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
-  bool _preserveStaleCompiledDocumentUntilFreshFinal = false;
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
   bool _streamingRefreshFrameScheduled = false;
@@ -169,12 +168,6 @@ class _StreamingMarkdownWidgetState
   @override
   void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.isStreaming && !widget.isStreaming) {
-      _preserveStaleCompiledDocumentUntilFreshFinal = true;
-    } else if (widget.isStreaming ||
-        widget.stateScopeId != oldWidget.stateScopeId) {
-      _preserveStaleCompiledDocumentUntilFreshFinal = false;
-    }
     if (!identical(widget.sources, oldWidget.sources) ||
         widget.onSourceTap != oldWidget.onSourceTap ||
         widget.onTapLink != oldWidget.onTapLink ||
@@ -407,11 +400,12 @@ class _StreamingMarkdownWidgetState
     if (compiledDocument == null) {
       return const SizedBox.shrink();
     }
-    if (!widget.isStreaming &&
-        !hasFreshCompiledDocument &&
-        !_preserveStaleCompiledDocumentUntilFreshFinal) {
-      return const SizedBox.shrink();
-    }
+    // Once a compiled document exists, always render it — even when it is stale
+    // (a newer snapshot is still compiling). Replacing already-rendered content
+    // with a placeholder/blank causes the streaming body to flash whenever the
+    // turn phase flips to non-streaming mid-response (issue #540). The stale
+    // document is valid markdown and is superseded by `_applyCompiledDocumentState`
+    // within a frame once the fresh compile lands.
 
     final result = KeyedSubtree(
       key: _markdownContentKey,
@@ -534,8 +528,11 @@ class _StreamingMarkdownWidgetState
     if (hasFreshCompiledDocument) {
       return false;
     }
-    if (_preserveStaleCompiledDocumentUntilFreshFinal &&
-        compiledDocument != null) {
+    // The loading skeleton is strictly a first-paint state: it may only appear
+    // when no compiled document exists yet. Once any valid document has been
+    // rendered, a stale-but-valid document is kept on screen during async
+    // recompiles instead of regressing to the skeleton (issue #540).
+    if (compiledDocument != null) {
       return false;
     }
     return true;
@@ -545,19 +542,12 @@ class _StreamingMarkdownWidgetState
     String compiledPreparedContent,
     CompiledMarkdownDocument? document,
   ) {
-    final hasFreshCompiledDocument =
-        compiledPreparedContent == _snapshot.normalizedContent;
     if (!mounted) {
-      if (hasFreshCompiledDocument) {
-        _preserveStaleCompiledDocumentUntilFreshFinal = false;
-      }
       return;
     }
-    setState(() {
-      if (hasFreshCompiledDocument) {
-        _preserveStaleCompiledDocumentUntilFreshFinal = false;
-      }
-    });
+    // Rebuild so the freshly compiled document (or a cleared document) is
+    // reflected. Any stale document already on screen is superseded here.
+    setState(() {});
   }
 }
 
