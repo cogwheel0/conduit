@@ -1133,6 +1133,55 @@ void main() {
     );
 
     test(
+      'syncConversationMessages preserves assistant version output',
+      () async {
+        final adapter = _FakeAdapter.json({});
+        final api = _buildApiServiceForTest(adapter);
+
+        final messages = [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          ),
+          ChatMessage(
+            id: 'asst-1',
+            role: 'assistant',
+            content: 'Current answer',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+            versions: [
+              ChatMessageVersion(
+                id: 'asst-alt',
+                content: 'Alternate answer',
+                timestamp: DateTime.fromMillisecondsSinceEpoch(1700000002000),
+                output: const [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Alternate answer'},
+                    ],
+                  },
+                ],
+              ),
+            ],
+          ),
+        ];
+
+        await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
+
+        final body = adapter.lastRequest!.data as Map<String, dynamic>;
+        final chat = body['chat'] as Map<String, dynamic>;
+        final history = chat['history'] as Map<String, dynamic>;
+        final historyMessages = history['messages'] as Map<String, dynamic>;
+        final versionMessage =
+            historyMessages['asst-alt'] as Map<String, dynamic>;
+
+        check(versionMessage['output']).isA<List>().length.equals(1);
+      },
+    );
+
+    test(
       'createConversation omits done for streaming assistant placeholders',
       () async {
         final adapter = _FakeAdapter.json({

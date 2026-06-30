@@ -1905,6 +1905,7 @@ class ApiService {
               'modelIdx': 0,
               'done': true,
               if (ver.files != null) 'files': _sanitizeFilesForWebUI(ver.files),
+              if (ver.output != null) 'output': ver.output,
               if (_sanitizeEmbedsForWebUI(ver.embeds) != null)
                 'embeds': _sanitizeEmbedsForWebUI(ver.embeds),
               // Mirror follow-ups, code executions, sources, and errors for versions
