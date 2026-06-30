@@ -435,6 +435,42 @@ void main() {
     expect(summary[2].leadingOffset, summary[0].estimatedExtent);
   });
 
+  test('long assistant responses estimate beyond the old 2400 clamp', () {
+    final longContent = List<String>.filled(
+      400,
+      'This is a sentence in a long streamed response.',
+    ).join(' ');
+    final summary = debugBuildChatListLayoutSummaryForTesting([
+      ChatMessage(
+        id: 'assistant-long',
+        role: 'assistant',
+        content: longContent,
+        timestamp: DateTime(2026),
+      ),
+    ]);
+
+    // The pathological 2400 cap made tall rows estimate far below their real
+    // height, producing a large scroll-offset correction (jump that skipped the
+    // prompt) on first reveal during upward scroll.
+    expect(summary.single.estimatedExtent, greaterThan(2400));
+  });
+
+  test('a generated data-uri image does not over-estimate row extent', () {
+    final base64Payload = 'A' * 20000;
+    final summary = debugBuildChatListLayoutSummaryForTesting([
+      ChatMessage(
+        id: 'assistant-image',
+        role: 'assistant',
+        content: '![](data:image/png;base64,$base64Payload)',
+        timestamp: DateTime(2026),
+      ),
+    ]);
+
+    // The huge base64 payload must be excluded from the line estimate so the
+    // raised clamp ceiling can't inflate an image to image-as-text height.
+    expect(summary.single.estimatedExtent, lessThan(2000));
+  });
+
   test(
     'layout metadata only enables follow-ups for terminal assistant rows',
     () {

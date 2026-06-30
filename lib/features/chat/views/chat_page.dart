@@ -136,6 +136,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonHideThreshold = 150.0;
   static const int _initialBottomSettleMaxAttempts = 8;
   static const double _scrollCorrectionEpsilon = 1.0;
+  // During live streaming, a small per-chunk growth glides to the bottom so the
+  // newly streamed text reveals in place (with its fade) instead of stepping up
+  // via an instant jump. Larger growth still jumps so we don't lag fast streams.
+  static const double _streamingFollowDistanceThreshold = 48.0;
+  static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
 
   final ScrollController _scrollController = ScrollController();
   final ListController _messageListController = ListController();
@@ -1103,7 +1108,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         .prepareForStickyContentChange(wantsPinToTop: _wantsPinToTop);
 
     if (shouldKeepBottomAnchored) {
-      _correctStickyBottomAnchor();
+      _correctStickyBottomAnchor(smoothFollow: true);
       return;
     }
 
@@ -1278,7 +1283,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scrollToBottom(smooth: true);
   }
 
-  void _scrollToBottom({bool smooth = true}) {
+  void _scrollToBottom({
+    bool smooth = true,
+    Duration duration = const Duration(milliseconds: 200),
+  }) {
     if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
     final maxScroll = _bottomScrollOffset();
     if (!maxScroll.isFinite || maxScroll <= 0) return;
@@ -1292,7 +1300,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (smooth) {
       _scrollController.animateTo(
         maxScroll,
-        duration: const Duration(milliseconds: 200),
+        duration: duration,
         curve: Curves.easeOutCubic,
       );
     } else {
@@ -1305,7 +1313,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _stickyBottomCorrectionGeneration += 1;
   }
 
-  void _correctStickyBottomAnchor({int attempt = 0, int? generation}) {
+  void _correctStickyBottomAnchor({
+    int attempt = 0,
+    int? generation,
+    bool smoothFollow = false,
+  }) {
     final correctionGeneration =
         generation ?? (_stickyBottomCorrectionGeneration += 1);
     // A newer correction already owns the latch — never touch it from a stale
@@ -1332,6 +1344,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     )) {
       // The user took control — leave the latch alone; the user-scroll handler
       // (detachByUser / shouldDetachForUserScrollAway) clears it.
+      return;
+    }
+
+    if (smoothFollow &&
+        _distanceFromBottom() <= _streamingFollowDistanceThreshold) {
+      // Small per-chunk growth: glide to the bottom so the newly streamed text
+      // reveals in place (with its fade) rather than stepping up via an instant
+      // jump. We're within the small-delta window and animating to the exact
+      // bottom, so treat the correction as landed — settle the latch and stop
+      // (no per-frame re-issue; animateTo coalesces onto the moving target).
+      _scrollToBottom(smooth: true, duration: _streamingFollowDuration);
+      _bottomAnchorController.verifyStickyCorrection(nearBottom: true);
+      _updateScrollToBottomVisibility();
       return;
     }
 
@@ -3886,6 +3911,10 @@ int _rowIndexForEstimatedOffset(
   return result.clamp(0, rows.length - 1);
 }
 
+/// Matches a base64 (or remote) `data:image/...` payload so its huge text
+/// length can be excluded from the row-extent estimate.
+final RegExp _chatExtentDataUriImagePattern = RegExp(r'data:image/[^\s)\]]+');
+
 double _estimateChatMessageExtent(
   ChatMessage? message,
   double crossAxisExtent, {
@@ -3907,7 +3936,17 @@ double _estimateChatMessageExtent(
   }
 
   final width = crossAxisExtent.clamp(280.0, 960.0);
-  final contentLength = message.content.trim().length;
+  // Base64 data-uri images are enormous as text but render as a fixed-size
+  // image, so exclude their payload from the line estimate (a flat per-image
+  // term is added below); otherwise a generated image wildly over-estimates.
+  final rawContent = message.content;
+  final dataUriImageCount = _chatExtentDataUriImagePattern
+      .allMatches(rawContent)
+      .length;
+  final textContent = dataUriImageCount == 0
+      ? rawContent
+      : rawContent.replaceAll(_chatExtentDataUriImagePattern, '');
+  final contentLength = textContent.trim().length;
   final charsPerLine = (width / (message.role == 'user' ? 7.8 : 7.0)).clamp(
     26.0,
     96.0,
@@ -3916,6 +3955,13 @@ double _estimateChatMessageExtent(
 
   var estimate = message.role == 'user' ? 84.0 : 132.0;
   estimate += estimatedLineCount * 22.0;
+
+  // Structured markdown renders taller than a flat line count: code blocks add
+  // chrome/padding, and images render at a fixed size regardless of markup.
+  final codeFenceBlocks = '```'.allMatches(textContent).length ~/ 2;
+  estimate += codeFenceBlocks * 120.0;
+  final markdownImageCount = '!['.allMatches(textContent).length;
+  estimate += math.min(markdownImageCount, 8) * 220.0;
 
   if (message.error != null) {
     estimate += 64.0;
@@ -3939,5 +3985,10 @@ double _estimateChatMessageExtent(
     estimate += math.min(message.output!.length, 3) * 72.0;
   }
 
-  return estimate.clamp(84.0, 2400.0);
+  // Allow tall structured responses to estimate close to their rendered height.
+  // The previous 2400 ceiling badly under-estimated long responses, so a
+  // never-measured long history row produced a large scroll-offset correction
+  // (a visible jump that skipped past the prompt) on first reveal during an
+  // upward scroll.
+  return estimate.clamp(84.0, 20000.0);
 }
