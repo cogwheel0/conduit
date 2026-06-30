@@ -283,6 +283,9 @@ Body
         latestDocument!.blocks.map((block) => block.blockId).toList(),
         <String>['n0', 'n1'],
       );
+      expect(latestDocument!.mutableBlockStartIndex, 1);
+      expect(latestDocument!.isMutableRootBlock(0), isFalse);
+      expect(latestDocument!.isMutableRootBlock(1), isTrue);
 
       compiler.batchCalls.clear();
       compiler.singleCalls.clear();
@@ -296,6 +299,9 @@ Body
         latestDocument!.blocks.map((block) => block.blockId).toList(),
         <String>['n0', 'n1'],
       );
+      expect(latestDocument!.mutableBlockStartIndex, 1);
+      expect(latestDocument!.isMutableRootBlock(0), isFalse);
+      expect(latestDocument!.isMutableRootBlock(1), isTrue);
 
       compiler.batchCalls.clear();
       compiler.singleCalls.clear();
@@ -313,6 +319,9 @@ Body
         latestDocument!.blocks.map((block) => block.blockId).toList(),
         <String>['n0', 'n1', 'n2'],
       );
+      expect(latestDocument!.mutableBlockStartIndex, 2);
+      expect(latestDocument!.isMutableRootBlock(1), isFalse);
+      expect(latestDocument!.isMutableRootBlock(2), isTrue);
     },
   );
 

@@ -14,6 +14,7 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -295,6 +296,42 @@ void main() {
     );
   });
 
+  test(
+    'display parts keep completed block identity while the tail changes',
+    () {
+      CompiledMarkdownDocument streamingDocumentWithTail(String tail) {
+        final frozen = compilePreparedMarkdownSync('Intro paragraph.\n\n');
+        final mutableTail = compilePreparedMarkdownSync(
+          tail,
+        ).rebaseRootIds(rootNodeOffset: frozen.rootNodeCount);
+        return CompiledMarkdownDocument.compose(
+          normalizedContent: 'Intro paragraph.\n\n$tail',
+          segments: <CompiledMarkdownDocument>[frozen, mutableTail],
+          mutableBlockStartIndex: frozen.rootBlockCount,
+        );
+      }
+
+      final firstParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail('Tail'),
+        isStreaming: true,
+      );
+      final nextParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail('Tail grows'),
+        isStreaming: true,
+      );
+
+      expect(firstParts, hasLength(2));
+      expect(nextParts, hasLength(2));
+      expect(firstParts.first.partId, nextParts.first.partId);
+      expect(firstParts.first.document, nextParts.first.document);
+      expect(firstParts.first.isMutableTail, isFalse);
+      expect(firstParts.last.partId, nextParts.last.partId);
+      expect(firstParts.last.document, isNot(nextParts.last.document));
+      expect(firstParts.last.isMutableTail, isTrue);
+      expect(nextParts.last.isMutableTail, isTrue);
+    },
+  );
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,
@@ -457,6 +494,37 @@ graph TD
       expect(disposedCount, 0);
     },
   );
+
+  testWidgets('streaming updates rebuild only the mutable markdown part', (
+    tester,
+  ) async {
+    var baseRenders = 0;
+
+    Widget harness(String content) => buildHarness(
+      content,
+      isStreaming: true,
+      onBaseRender: () => baseRenders += 1,
+    );
+
+    await tester.pumpWidget(harness('Intro paragraph.\n\nTail'));
+    await tester.pump();
+
+    expect(
+      baseRenders,
+      2,
+      reason: 'initial render has one stable block and one mutable tail',
+    );
+
+    final beforeUpdate = baseRenders;
+    await tester.pumpWidget(harness('Intro paragraph.\n\nTail grows'));
+    await tester.pump();
+
+    expect(
+      baseRenders - beforeUpdate,
+      1,
+      reason: 'the frozen block keeps its cached base render',
+    );
+  });
 
   testWidgets(
     'automatically opens multiple heavy previews after streaming ends',
