@@ -1,8 +1,107 @@
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('bottom anchor controller separates sticky and detached states', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 24,
+      ),
+      isTrue,
+    );
+    expect(
+      controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
+      isTrue,
+    );
+
+    controller.updateAnchor(
+      hasScrollableContent: true,
+      distanceFromBottom: 320,
+    );
+
+    expect(controller.isAnchoredToBottom, isFalse);
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+    expect(
+      controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
+      isFalse,
+    );
+  });
+
+  test('bottom anchor controller keeps sticky content growth verified', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+
+    expect(
+      controller.prepareForStickyContentChange(wantsPinToTop: false),
+      isTrue,
+    );
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+
+    controller.verifyStickyCorrection(nearBottom: true);
+    expect(controller.isAnchoredToBottom, isTrue);
+  });
+
+  test('bottom anchor controller detaches on intentional user scroll away', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    controller.prepareForStickyContentChange(wantsPinToTop: false);
+
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: 4,
+      ),
+      isFalse,
+    );
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: 36,
+      ),
+      isTrue,
+    );
+
+    controller.detachByUser();
+    expect(controller.isAnchoredToBottom, isFalse);
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
@@ -132,51 +231,47 @@ void main() {
     expect(completedSignature, streamingSignature);
   });
 
-  test(
-    'layout estimate ignores the streaming flag but reacts to completion '
-    'content growth',
-    () {
-      final streamingMessage = ChatMessage(
-        id: 'assistant-streaming',
-        role: 'assistant',
-        content:
-            'Final response with enough text to get a real height estimate.',
-        timestamp: DateTime(2026),
-        model: 'model-a',
-        isStreaming: true,
-      );
-      // Flipping only the streaming flag must not change the estimate: the
-      // estimator intentionally does not read message.isStreaming.
-      final completedMessage = streamingMessage.copyWith(isStreaming: false);
+  test('layout estimate ignores the streaming flag but reacts to completion '
+      'content growth', () {
+    final streamingMessage = ChatMessage(
+      id: 'assistant-streaming',
+      role: 'assistant',
+      content: 'Final response with enough text to get a real height estimate.',
+      timestamp: DateTime(2026),
+      model: 'model-a',
+      isStreaming: true,
+    );
+    // Flipping only the streaming flag must not change the estimate: the
+    // estimator intentionally does not read message.isStreaming.
+    final completedMessage = streamingMessage.copyWith(isStreaming: false);
 
-      final streamingExtent = debugEstimateMessageListExtentForTesting([
-        streamingMessage,
-      ], index: 0);
-      final completedExtent = debugEstimateMessageListExtentForTesting([
-        completedMessage,
-      ], index: 0);
+    final streamingExtent = debugEstimateMessageListExtentForTesting([
+      streamingMessage,
+    ], index: 0);
+    final completedExtent = debugEstimateMessageListExtentForTesting([
+      completedMessage,
+    ], index: 0);
 
-      expect(completedExtent, streamingExtent);
+    expect(completedExtent, streamingExtent);
 
-      // Positive control: the real completion-driven layout shift is content
-      // growing from a short stream to a full response. The estimator consumes
-      // content length, so a longer completed body must produce a larger
-      // extent. This proves the estimator is not inert and guards against the
-      // stability assertion above passing vacuously.
-      final grownMessage = completedMessage.copyWith(
-        content:
-            '${completedMessage.content}\n\n'
-            'A substantially longer follow-up paragraph that adds several more '
-            'lines of content so the estimated height must increase relative to '
-            'the shorter streaming body above.',
-      );
-      final grownExtent = debugEstimateMessageListExtentForTesting([
-        grownMessage,
-      ], index: 0);
+    // Positive control: the real completion-driven layout shift is content
+    // growing from a short stream to a full response. The estimator consumes
+    // content length, so a longer completed body must produce a larger
+    // extent. This proves the estimator is not inert and guards against the
+    // stability assertion above passing vacuously.
+    final grownMessage = completedMessage.copyWith(
+      content:
+          '${completedMessage.content}\n\n'
+          'A substantially longer follow-up paragraph that adds several more '
+          'lines of content so the estimated height must increase relative to '
+          'the shorter streaming body above.',
+    );
+    final grownExtent = debugEstimateMessageListExtentForTesting([
+      grownMessage,
+    ], index: 0);
 
-      expect(grownExtent, greaterThan(completedExtent));
-    },
-  );
+    expect(grownExtent, greaterThan(completedExtent));
+  });
 
   test('layout signature changes for structural layout inputs', () {
     final baseMessage = ChatMessage(
@@ -511,6 +606,42 @@ void main() {
         );
 
     expect(shouldKeepBottomAnchored, isFalse);
+  });
+
+  test('pin-to-top user scroll keeps phantom until removal is stable', () {
+    expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 920,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      isFalse,
+    );
+    expect(
+      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
+        currentOffset: 920,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      800,
+    );
+
+    expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 760,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      isTrue,
+    );
+    expect(
+      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
+        currentOffset: 760,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      760,
+    );
   });
 
   test(
