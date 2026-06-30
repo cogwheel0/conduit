@@ -2641,6 +2641,76 @@ Tail keeps growing
     },
   );
 
+  testWidgets(
+    'clears stale content when the scope changes to a new message/version',
+    (tester) async {
+      // #540 follow-up: a scope change (new message/version) must NOT keep the
+      // previous scope's rendered content on screen while the new body compiles;
+      // the skeleton covers the gap instead (same-scope growth keeps content).
+      const firstVersion = 'First version answer.';
+      const secondVersion = 'Second version answer.';
+      final compiler = _SelectiveDelayedMarkdownCompileService(
+        delayedPreparedContent: prepareMarkdownContent(
+          secondVersion,
+          streaming: false,
+        ),
+      );
+      addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
+
+      Widget buildScopedHarness(String content, String scope) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  stateScopeId: scope,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(
+        buildScopedHarness(firstVersion, 'msg|version:0'),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('First version', findRichText: true),
+        findsOneWidget,
+      );
+
+      // Switch to a different version: scope + content change, compile delayed.
+      await tester.pumpWidget(
+        buildScopedHarness(secondVersion, 'msg|version:1'),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('First version', findRichText: true),
+        findsNothing,
+      );
+      expect(skeletonFinder, findsOneWidget);
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.textContaining('Second version', findRichText: true),
+        findsOneWidget,
+      );
+      expect(skeletonFinder, findsNothing);
+    },
+  );
+
   testWidgets('defers tool call embeds until the details view opens', (
     tester,
   ) async {

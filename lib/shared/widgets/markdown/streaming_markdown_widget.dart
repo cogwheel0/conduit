@@ -168,11 +168,12 @@ class _StreamingMarkdownWidgetState
   @override
   void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final scopeChanged = widget.stateScopeId != oldWidget.stateScopeId;
     if (!identical(widget.sources, oldWidget.sources) ||
         widget.onSourceTap != oldWidget.onSourceTap ||
         widget.onTapLink != oldWidget.onTapLink ||
         widget.imageBuilderOverride != oldWidget.imageBuilderOverride ||
-        widget.stateScopeId != oldWidget.stateScopeId) {
+        scopeChanged) {
       setState(() {});
     }
     if (widget.content == oldWidget.content &&
@@ -184,6 +185,11 @@ class _StreamingMarkdownWidgetState
       _invalidatePendingAsyncSnapshot();
       _applyPreparedSnapshotIfNeeded(
         prepareMarkdownContent(widget.content, streaming: false),
+        // A scope change means a new message/version, not a continuation of the
+        // current content. Clear the stale document so the previous scope's
+        // content isn't shown while the new body compiles (the skeleton covers
+        // the gap instead). Same-scope growth keeps its document (issue #540).
+        clearStaleDocument: scopeChanged,
       );
       return;
     }
@@ -346,22 +352,34 @@ class _StreamingMarkdownWidgetState
     }
   }
 
-  void _applySnapshot(_MarkdownRenderSnapshot nextSnapshot) {
+  void _applySnapshot(
+    _MarkdownRenderSnapshot nextSnapshot, {
+    bool clearStaleDocument = false,
+  }) {
     final changed = _snapshot != nextSnapshot;
     if (!changed) {
       if (_compiledDocument == null ||
           _compiledPreparedContent != nextSnapshot.normalizedContent) {
-        _resolveCompiledDocument(nextSnapshot);
+        _resolveCompiledDocument(
+          nextSnapshot,
+          clearStaleDocument: clearStaleDocument,
+        );
       }
       return;
     }
     if (!mounted) {
       _snapshot = nextSnapshot;
-      _resolveCompiledDocument(nextSnapshot);
+      _resolveCompiledDocument(
+        nextSnapshot,
+        clearStaleDocument: clearStaleDocument,
+      );
       return;
     }
     setState(() => _snapshot = nextSnapshot);
-    _resolveCompiledDocument(nextSnapshot);
+    _resolveCompiledDocument(
+      nextSnapshot,
+      clearStaleDocument: clearStaleDocument,
+    );
   }
 
   /// Adapts the legacy [imageBuilderOverride] callback
@@ -458,12 +476,18 @@ class _StreamingMarkdownWidgetState
     );
   }
 
-  void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
+  void _resolveCompiledDocument(
+    _MarkdownRenderSnapshot snapshot, {
+    bool clearStaleDocument = false,
+  }) {
     if (widget.isStreaming) {
       _documentController.resolveStreamingPrepared(snapshot.normalizedContent);
       return;
     }
-    _documentController.resolvePrepared(snapshot.normalizedContent);
+    _documentController.resolvePrepared(
+      snapshot.normalizedContent,
+      clearDocumentWhenAsync: clearStaleDocument,
+    );
   }
 
   bool _needsPreparedSnapshotUpdate(String preparedContent) {
@@ -474,11 +498,17 @@ class _StreamingMarkdownWidgetState
         _compiledPreparedContent != preparedContent;
   }
 
-  void _applyPreparedSnapshotIfNeeded(String preparedContent) {
+  void _applyPreparedSnapshotIfNeeded(
+    String preparedContent, {
+    bool clearStaleDocument = false,
+  }) {
     if (!_needsPreparedSnapshotUpdate(preparedContent)) {
       return;
     }
-    _applySnapshot(_MarkdownRenderSnapshot.full(preparedContent));
+    _applySnapshot(
+      _MarkdownRenderSnapshot.full(preparedContent),
+      clearStaleDocument: clearStaleDocument,
+    );
   }
 
   bool get _canActivelyRefreshStreamingMarkdown =>
