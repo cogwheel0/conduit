@@ -3729,6 +3729,7 @@ class ApiService {
         final uploadData = uploadResponse.data as Map<String, dynamic>;
         final fileId = _fileIdFromUploadResponse(uploadData);
         if (fileId == null) {
+          await _deleteUploadedFileFromUploadResponseBestEffort(uploadData);
           throw StateError(
             'Upload succeeded but did not return a file id to attach',
           );
@@ -3790,6 +3791,15 @@ class ApiService {
     }
   }
 
+  Future<void> _deleteUploadedFileFromUploadResponseBestEffort(
+    Map<String, dynamic> data,
+  ) async {
+    final ids = _fileIdsFromUploadResponse(data);
+    for (final id in ids) {
+      await _deleteUploadedFileBestEffort(id);
+    }
+  }
+
   bool _shouldFallbackToLegacyKnowledgeFileAdd(DioException error) {
     final statusCode = error.response?.statusCode;
     return statusCode == 404 ||
@@ -3799,16 +3809,52 @@ class ApiService {
   }
 
   String? _fileIdFromUploadResponse(Map<String, dynamic> data) {
+    final ids = _fileIdsFromUploadResponse(data);
+    return ids.isEmpty ? null : ids.first;
+  }
+
+  List<String> _fileIdsFromUploadResponse(Map<String, dynamic> data) {
+    final ids = <String>{};
+    void collect(dynamic value, {String? key}) {
+      if (value is Map) {
+        for (final entry in value.entries) {
+          collect(entry.value, key: entry.key.toString());
+        }
+        return;
+      }
+      if (value is List) {
+        for (final item in value) {
+          collect(item);
+        }
+        return;
+      }
+      final normalizedKey = key?.replaceAll(RegExp(r'[_-]'), '').toLowerCase();
+      if (normalizedKey == 'id' ||
+          normalizedKey == 'fileid' ||
+          normalizedKey == 'uuid' ||
+          normalizedKey == 'identifier') {
+        final id = _normalizeDynamicString(value);
+        if (id != null) {
+          ids.add(id);
+        }
+      }
+    }
+
     final id = _normalizeDynamicString(
       data['id'] ?? data['file_id'] ?? data['fileId'] ?? data['uuid'],
     );
     if (id != null) {
-      return id;
+      ids.add(id);
     }
     final file = _coerceJsonMap(data['file']) ?? _coerceJsonMap(data['data']);
-    return _normalizeDynamicString(
+    final nestedId = _normalizeDynamicString(
       file?['id'] ?? file?['file_id'] ?? file?['fileId'] ?? file?['uuid'],
     );
+    if (nestedId != null) {
+      ids.add(nestedId);
+    }
+    collect(data);
+    return ids.toList(growable: false);
   }
 
   Future<Map<String, dynamic>?> processWebpage({

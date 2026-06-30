@@ -903,6 +903,9 @@ String _mergeContentWithStructuredOutput(
     return renderStructuredOutputBlocks(outputBlocks);
   }
   if (strippedSemanticDetails) {
+    if (hasOutputPlainText && !baseContent.contains(outputPlainText)) {
+      return renderStructuredOutputBlocks(outputBlocks);
+    }
     return renderSemanticMessageBlocks([SemanticTextBlock(baseContent)]);
   }
   return '';

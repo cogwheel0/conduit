@@ -2226,6 +2226,38 @@ void main() {
     });
 
     test(
+      'addFileToKnowledgeBase recognizes nested identifier upload id',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'upload': {'identifier': 'file-1'},
+          }),
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final file = await api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        );
+
+        check(file?['upload']).isA<Map>().containsKey('identifier');
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'POST /api/v1/files/',
+          'POST /api/v1/knowledge/kb-1/file/add',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'file_id': 'file-1'});
+      },
+    );
+
+    test(
       'addFileToKnowledgeBase does not legacy reupload without file id',
       () async {
         final adapter = _QueuedFakeAdapter([

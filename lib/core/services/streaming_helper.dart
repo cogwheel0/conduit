@@ -840,6 +840,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final strippedVisibleContent = visibleHasStaleDetails
         ? stripRenderedSemanticDetails(renderedStreamingContent)
         : '';
+    final strippedVisibleContentMatchesSnapshot =
+        strippedVisibleContent.isNotEmpty &&
+        (renderedSnapshot.trim().isEmpty ||
+            strippedVisibleContent.contains(renderedSnapshot));
     final outputContent = hasDetails
         ? shouldRenderFullSnapshot
               ? renderedSnapshot
@@ -848,7 +852,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   replacementPlainText,
                 )
         : visibleHasStaleDetails
-        ? strippedVisibleContent.isNotEmpty
+        ? strippedVisibleContentMatchesSnapshot
               ? strippedVisibleContent
               : renderedSnapshot
         : renderedSnapshot != plainStreamingContent
