@@ -620,9 +620,11 @@ class ApiService {
   ) async {
     final audioConfig = await _loadServerAudioConfig();
     return config.copyWith(
-      ttsVoice: audioConfig.voice,
-      ttsSplitOn: audioConfig.splitOn,
-      ttsVoices: audioConfig.voices.isEmpty ? null : audioConfig.voices,
+      ttsVoice: audioConfig.voice ?? config.ttsVoice,
+      ttsSplitOn: audioConfig.splitOn ?? config.ttsSplitOn,
+      ttsVoices: audioConfig.voices.isEmpty
+          ? config.ttsVoices
+          : audioConfig.voices,
     );
   }
 
@@ -2319,6 +2321,10 @@ class ApiService {
         scope: 'api/conversation',
         data: {'id': id, 'field': field, 'desired': desired, 'actual': actual},
       );
+      throw StateError(
+        'Cannot confirm $field for chat $id after toggling to $desired '
+        '(actual: $actual)',
+      );
     }
   }
 
@@ -3389,7 +3395,10 @@ class ApiService {
   Future<void> deleteKnowledgeBase(String id) async {
     _traceApi('Deleting knowledge base: $id');
     try {
-      await _dio.delete('/api/v1/knowledge/$id/delete');
+      final response = await _dio.delete('/api/v1/knowledge/$id/delete');
+      if (response.data is bool && response.data == false) {
+        throw StateError('Failed to delete knowledge base: $id');
+      }
     } on DioException catch (error) {
       if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
         rethrow;
@@ -3830,6 +3839,15 @@ class ApiService {
 
   List<String> _fileIdsFromUploadResponse(Map<String, dynamic> data) {
     final ids = <String>{};
+    const fileContainerKeys = {
+      'file',
+      'files',
+      'upload',
+      'uploadedfile',
+      'uploadedfiles',
+      'document',
+      'documents',
+    };
     void collect(dynamic value, {String? key, bool inFileContainer = false}) {
       if (value is Map) {
         for (final entry in value.entries) {
@@ -3838,16 +3856,8 @@ class ApiService {
               .replaceAll(RegExp(r'[_-]'), '')
               .toLowerCase();
           final childIsFileContainer =
-              inFileContainer ||
-              const {
-                'file',
-                'files',
-                'upload',
-                'uploadedfile',
-                'uploadedfiles',
-                'document',
-                'documents',
-              }.contains(normalizedChildKey);
+              fileContainerKeys.contains(normalizedChildKey) ||
+              (inFileContainer && entry.value is! Map);
           collect(
             entry.value,
             key: childKey,

@@ -1872,27 +1872,35 @@ void main() {
       ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
     });
 
-    test('pinConversation does not retry stateless toggle post', () async {
-      final adapter = _QueuedFakeAdapter([
-        _FakeAdapter.raw(
-          bytes: utf8.encode('false'),
-          headers: {
-            'content-type': ['application/json; charset=utf-8'],
-          },
-        ),
-        _FakeAdapter.json({'pinned': false}),
-      ]);
-      final api = _buildApiServiceForTest(adapter);
+    test(
+      'pinConversation surfaces mismatched state after toggle post',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('false'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+          _FakeAdapter.json({'pinned': false}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
 
-      await api.pinConversation('chat-1', true);
+        await expectLater(
+          api.pinConversation('chat-1', true),
+          throwsA(isA<StateError>()),
+        );
 
-      check(
-        adapter.requests.map((request) => '${request.method} ${request.path}'),
-      ).deepEquals([
-        'GET /api/v1/chats/chat-1/pinned',
-        'POST /api/v1/chats/chat-1/pin',
-      ]);
-    });
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/chats/chat-1/pinned',
+          'POST /api/v1/chats/chat-1/pin',
+        ]);
+      },
+    );
 
     test('pinConversation surfaces unknown state after toggle post', () async {
       final adapter = _QueuedFakeAdapter([
@@ -1986,7 +1994,14 @@ void main() {
 
     test('getBackendConfig preserves older audio config defaults', () async {
       final adapter = _QueuedFakeAdapter([
-        _FakeAdapter.json({'features': {}}),
+        _FakeAdapter.json({
+          'features': {},
+          'tts_voice': 'legacy-voice',
+          'tts_split_on': 'legacy-split',
+          'tts_voices': [
+            {'id': 'legacy', 'name': 'Legacy Voice'},
+          ],
+        }),
         _FakeAdapter.json({
           'tts': {'VOICE': 'nova', 'SPLIT_ON': 'paragraphs'},
         }),
@@ -2006,7 +2021,8 @@ void main() {
       check(config).isNotNull();
       check(config!.ttsVoice).equals('nova');
       check(config.ttsSplitOn).equals('paragraphs');
-      check(config.ttsVoices).isEmpty();
+      check(config.ttsVoices).length.equals(1);
+      check(config.ttsVoices.single.id).equals('legacy');
     });
 
     test('knowledge create update delete fall back to legacy routes', () async {
@@ -2043,6 +2059,32 @@ void main() {
         'DELETE /api/v1/knowledge/kb-1',
       ]);
     });
+
+    test(
+      'deleteKnowledgeBase throws when new delete route returns false',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('false'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.deleteKnowledgeBase('kb-1'),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['DELETE /api/v1/knowledge/kb-1/delete']);
+      },
+    );
 
     test(
       'knowledge validation 400 does not fall back to legacy route',
