@@ -546,6 +546,29 @@ void main() {
     expect(part.document.normalizedContent, contains('browser'));
   });
 
+  test('display part ids dedupe blocks that share the same block id', () {
+    final node = CompiledMarkdownText('Repeated', nodeId: 'n0');
+    final block = CompiledMarkdownNodeBlock.fromNode(blockId: 'dup', node: node);
+    final document = CompiledMarkdownDocument(
+      normalizedContent: 'Repeated\n\nRepeated',
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[block, block],
+      nodes: <CompiledMarkdownNode>[node],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+    // Two blocks colliding on the same base id get a ':count' suffix so the
+    // ValueKey wrappers can't collide and crash the Column.
+    expect(parts, hasLength(2));
+    expect(parts[0].partId, 'markdownBlock:dup');
+    expect(parts[1].partId, 'markdownBlock:dup:1');
+  });
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,
@@ -913,6 +936,75 @@ graph TD
       greaterThan(0),
     );
     expect((paragraphPaddings.last.padding as EdgeInsets).bottom, 0);
+  });
+
+  testWidgets('trimLastBlockBottomPadding=false keeps the last block bottom padding', (
+    tester,
+  ) async {
+    EdgeInsets lastParagraphPadding() {
+      final paragraphPaddings = tester
+          .widgetList<Padding>(
+            find.byWidgetPredicate((widget) {
+              if (widget is! Padding || widget.child is! Text) {
+                return false;
+              }
+              final text = widget.child as Text;
+              final plainText = text.textSpan?.toPlainText() ?? text.data;
+              return plainText == 'First' || plainText == 'Second';
+            }),
+          )
+          .toList(growable: false);
+      expect(paragraphPaddings, hasLength(2));
+      return paragraphPaddings.last.padding as EdgeInsets;
+    }
+
+    Widget conduitHarness({required bool trim}) => ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ConduitMarkdownWidget(
+              data: 'First\n\nSecond',
+              trimLastBlockBottomPadding: trim,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Non-final parts pass false, which must keep the trailing block's bottom
+    // padding so the frozen/tail boundary isn't squashed.
+    await tester.pumpWidget(conduitHarness(trim: false));
+    expect(lastParagraphPadding().bottom, greaterThan(0));
+
+    await tester.pumpWidget(conduitHarness(trim: true));
+    expect(lastParagraphPadding().bottom, 0);
+  });
+
+  testWidgets('trimLastBlockBottomPadding change invalidates the base render', (
+    tester,
+  ) async {
+    var baseRenders = 0;
+    Widget harness({required bool trim}) => ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ConduitMarkdownWidget(
+              data: 'First\n\nSecond',
+              trimLastBlockBottomPadding: trim,
+              debugOnBaseRender: () => baseRenders += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(trim: true));
+    final before = baseRenders;
+
+    // Flipping the flag must re-run the cached base render (it is part of the
+    // reuse key), not reuse the stale-padding tree.
+    await tester.pumpWidget(harness(trim: false));
+    expect(baseRenders, greaterThan(before));
   });
 
   testWidgets('streaming markdown fades newly appended rendered text', (

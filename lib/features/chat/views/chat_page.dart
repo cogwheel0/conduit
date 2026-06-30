@@ -1308,6 +1308,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _correctStickyBottomAnchor({int attempt = 0, int? generation}) {
     final correctionGeneration =
         generation ?? (_stickyBottomCorrectionGeneration += 1);
+    // A newer correction already owns the latch — never touch it from a stale
+    // generation, including on the abandon path below.
+    if (_stickyBottomCorrectionGeneration != correctionGeneration) {
+      return;
+    }
     if (!mounted || _isDeactivated || !_scrollController.hasClients) {
       // Correction abandoned (widget gone / scroll detached). Drop the sticky
       // latch so button visibility falls back to distance-based logic and the
@@ -1322,12 +1327,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       return;
     }
-    if (_stickyBottomCorrectionGeneration != correctionGeneration ||
-        !_bottomAnchorController.shouldKeepAnchoredOnContentSizeChange(
-          wantsPinToTop: _wantsPinToTop,
-        )) {
-      // A newer correction owns the latch, or the user took control — leave the
-      // latch alone; the superseding correction or the user-scroll handler
+    if (!_bottomAnchorController.shouldKeepAnchoredOnContentSizeChange(
+      wantsPinToTop: _wantsPinToTop,
+    )) {
+      // The user took control — leave the latch alone; the user-scroll handler
       // (detachByUser / shouldDetachForUserScrollAway) clears it.
       return;
     }

@@ -952,7 +952,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? queuedCompletionAsync.value
         : null;
     final hasQueuedCompletion = queuedCompletion != null;
-    final footerSwitchDuration = Duration.zero;
     final showQueuedAsEmptyState =
         queuedCompletion != null &&
         _isAssistantResponseEmpty &&
@@ -1070,8 +1069,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           // running turn indicator is owned by the timeline.
           if (!hasQueuedCompletion)
             AnimatedSwitcher(
-              duration: footerSwitchDuration,
-              reverseDuration: footerSwitchDuration,
+              // The running indicator is owned by the timeline footer now, so
+              // this switch only swaps in the completed action row instantly.
+              duration: Duration.zero,
+              reverseDuration: Duration.zero,
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               layoutBuilder: (currentChild, previousChildren) {

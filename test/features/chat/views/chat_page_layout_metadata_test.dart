@@ -289,6 +289,67 @@ void main() {
     );
   });
 
+  test('bottom anchor controller re-anchors when the final attempt is near bottom', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    controller.prepareForStickyContentChange(wantsPinToTop: false);
+    // Detach so only the nearBottom branch can re-anchor (the isFinalAttempt
+    // branch never sets isAnchoredToBottom back to true).
+    controller.detachByUser();
+    expect(controller.isAnchoredToBottom, isFalse);
+
+    controller.verifyStickyCorrection(nearBottom: true, isFinalAttempt: true);
+
+    // nearBottom wins over isFinalAttempt: re-anchored, not merely latch-dropped.
+    expect(controller.isAnchoredToBottom, isTrue);
+  });
+
+  test('bottom anchor controller releases the sticky latch while the user interacts', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    expect(
+      controller.prepareForStickyContentChange(wantsPinToTop: false),
+      isTrue,
+    );
+
+    // User begins dragging: the latch is suppressed, so updateAnchor falls
+    // through to the detach path instead of staying pinned.
+    controller.isUserInteractingWithScroll = true;
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+
+    // Re-arm the latch, then confirm interaction alone resumes distance-based
+    // button visibility.
+    controller.isUserInteractingWithScroll = false;
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    expect(
+      controller.prepareForStickyContentChange(wantsPinToTop: false),
+      isTrue,
+    );
+    controller.isUserInteractingWithScroll = true;
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
