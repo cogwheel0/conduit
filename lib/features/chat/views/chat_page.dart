@@ -1308,13 +1308,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _correctStickyBottomAnchor({int attempt = 0, int? generation}) {
     final correctionGeneration =
         generation ?? (_stickyBottomCorrectionGeneration += 1);
-    if (!mounted ||
-        _isDeactivated ||
-        _stickyBottomCorrectionGeneration != correctionGeneration ||
-        !_scrollController.hasClients ||
+    if (!mounted || _isDeactivated || !_scrollController.hasClients) {
+      // Correction abandoned (widget gone / scroll detached). Drop the sticky
+      // latch so button visibility falls back to distance-based logic and the
+      // scroll-to-bottom button isn't left wrongly suppressed (e.g. when
+      // _handleLiveTurnSizeChange armed it before the scroll view attached).
+      _bottomAnchorController.verifyStickyCorrection(
+        nearBottom: false,
+        isFinalAttempt: true,
+      );
+      if (mounted && !_isDeactivated) {
+        _updateScrollToBottomVisibility();
+      }
+      return;
+    }
+    if (_stickyBottomCorrectionGeneration != correctionGeneration ||
         !_bottomAnchorController.shouldKeepAnchoredOnContentSizeChange(
           wantsPinToTop: _wantsPinToTop,
         )) {
+      // A newer correction owns the latch, or the user took control — leave the
+      // latch alone; the superseding correction or the user-scroll handler
+      // (detachByUser / shouldDetachForUserScrollAway) clears it.
       return;
     }
 
@@ -1507,7 +1521,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return null;
     }
     final lastMessage = messages.last;
-    if (lastMessage.role == 'assistant' && lastMessage.isStreaming) {
+    // Use the same phase rule as the timeline's hasRunningTurn so the
+    // scroll-keepalive agrees with the footer/pin logic across the responseDone
+    // gap (isStreaming still set, responseDone already true => settled).
+    if (chatTurnPhaseForMessage(lastMessage) == ChatTurnPhase.running) {
       return lastMessage.id;
     }
     return null;

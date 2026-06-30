@@ -386,6 +386,10 @@ CompiledMarkdownBlock _rebaseCompiledMarkdownBlock(
     );
   }
   if (block is CompiledMarkdownDetailsBlock) {
+    // A details block's only rebaseable id is its blockId, which mirrors the
+    // matching root node's nodeId. detailsData carries no node ids, so it is
+    // reused unchanged. If a future details payload gains node ids that feed
+    // rootNodesById lookups in buildMarkdownDisplayParts, rebase them here too.
     return CompiledMarkdownDetailsBlock(
       blockId: _rebaseCompiledMarkdownPathId(block.blockId, rootNodeOffset),
       detailsData: block.detailsData,

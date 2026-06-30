@@ -6,11 +6,9 @@ enum ChatTurnPhase { none, running, completed, failed }
 
 @immutable
 class ChatTurnFooterHost {
-  const ChatTurnFooterHost({required this.message});
+  const ChatTurnFooterHost({required this.messageId});
 
-  final ChatMessage message;
-
-  String get messageId => message.id;
+  final String messageId;
 }
 
 ChatTurnPhase chatTurnPhaseForMessage(
