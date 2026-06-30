@@ -710,6 +710,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void Function() syncImages = () {};
   void Function() updateImagesFromCurrentContent = () {};
 
+  String initialPlainStreamingContent(String content) {
+    if (!content.contains('<details')) {
+      return content;
+    }
+    return content
+        .replaceAll(RegExp(r'<details[\s\S]*?</details>\s*'), '')
+        .trim();
+  }
+
   var renderedStreamingContent = (() {
     final visibleContent = getVisibleStreamingContent();
     if (visibleContent != null) {
@@ -721,7 +730,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     return messages.last.content;
   })();
-  var plainStreamingContent = renderedStreamingContent;
+  var plainStreamingContent = initialPlainStreamingContent(
+    renderedStreamingContent,
+  );
   var renderedFromStructuredOutput = false;
   final seenStreamingToolCallKeys = <String>{};
   var inReasoningBlock = false;

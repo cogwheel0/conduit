@@ -540,6 +540,27 @@ void main() {
       check(serialized).contains('done="false"');
     });
 
+    test('renders custom tool call output as details', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'custom_tool_call',
+          'id': 'custom-1',
+          'name': 'lookup',
+          'input': {'query': 'docs'},
+        },
+        {
+          'type': 'custom_tool_call_output',
+          'id': 'custom-1',
+          'content': 'result',
+        },
+      ]);
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+
+      check(toolBlock.name).equals('lookup');
+      check(toolBlock.result).equals('result');
+      check(toolBlock.done).isTrue();
+    });
+
     test('code interpreter fence grows around untrusted backticks', () {
       final rendered = renderStructuredOutputBlocks(
         parseOpenWebUIStructuredOutput([

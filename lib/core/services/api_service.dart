@@ -2303,18 +2303,12 @@ class ApiService {
       );
     }
 
-    for (var attempt = 0; attempt < 2; attempt += 1) {
-      final response = await _dio.post(endpoint);
-      final data = _coerceResponseMap(response.data);
-      final actual = data?[field] is bool
-          ? data![field] as bool
-          : await _fetchConversationBooleanField(id, field);
-      if (actual == desired) {
-        return;
-      }
-      if (attempt == 0) {
-        continue;
-      }
+    final response = await _dio.post(endpoint);
+    final data = _coerceResponseMap(response.data);
+    final actual = data?[field] is bool
+        ? data![field] as bool
+        : await _fetchConversationBooleanField(id, field);
+    if (actual is bool && actual != desired) {
       DebugLogger.warning(
         'toggle-mismatch',
         scope: 'api/conversation',
@@ -2959,8 +2953,10 @@ class ApiService {
     _traceApi('Fetching conversations with tag: $tag');
     try {
       const pageSize = 50;
+      const maxPages = 100;
       final conversations = <Conversation>[];
       var skip = 0;
+      var pageCount = 0;
       while (true) {
         final response = await _dio.post(
           '/api/v1/chats/tags',
@@ -2976,6 +2972,11 @@ class ApiService {
           break;
         }
         skip += pageSize;
+        pageCount += 1;
+        if (pageCount >= maxPages) {
+          _traceApi('Warning: Hit max tag page limit ($maxPages) for $tag');
+          break;
+        }
       }
       return conversations;
     } on DioException catch (error) {
@@ -3484,10 +3485,24 @@ class ApiService {
 
   bool _shouldFallbackToLegacyKnowledgeApi(DioException error) {
     final statusCode = error.response?.statusCode;
-    return statusCode == 400 ||
-        statusCode == 404 ||
+    return statusCode == 404 ||
         statusCode == 405 ||
-        statusCode == 422;
+        statusCode == 422 ||
+        (statusCode == 400 && _looksLikeLegacyShapeError(error.response?.data));
+  }
+
+  bool _looksLikeLegacyShapeError(dynamic data) {
+    final detail = data is Map
+        ? data['detail']?.toString()
+        : data is String
+        ? data
+        : null;
+    final normalized = detail?.toLowerCase() ?? '';
+    return normalized.contains('invalid body') ||
+        normalized.contains('field required') ||
+        normalized.contains('extra') ||
+        normalized.contains('schema') ||
+        normalized.contains('validation');
   }
 
   Future<Map<String, dynamic>> addKnowledgeBaseItem(

@@ -67,8 +67,10 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
 
   final toolOutputs = <String, Map<String, dynamic>>{};
   for (final item in output) {
-    if (item is Map && item['type']?.toString() == 'function_call_output') {
-      final callId = item['call_id']?.toString();
+    if (item is Map &&
+        (item['type']?.toString() == 'function_call_output' ||
+            item['type']?.toString() == 'custom_tool_call_output')) {
+      final callId = item['call_id']?.toString() ?? item['id']?.toString();
       if (callId != null && callId.isNotEmpty) {
         toolOutputs[callId] = _coerceJsonMap(item);
       }
@@ -100,22 +102,27 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
           );
         }
       case 'function_call':
-        final callId = item['call_id']?.toString() ?? '';
+      case 'custom_tool_call':
+        final callId =
+            item['call_id']?.toString() ?? item['id']?.toString() ?? '';
         final resultItem = toolOutputs[callId];
         blocks.add(
           StructuredOutputToolCallBlock(
             id: callId,
-            name: item['name']?.toString() ?? '',
-            arguments: item['arguments'] ?? '',
+            name:
+                item['name']?.toString() ??
+                (itemType == 'custom_tool_call' ? 'Custom Tool' : ''),
+            arguments: item['arguments'] ?? item['input'] ?? '',
             done:
                 resultItem != null ||
                 _isDoneStatus(item['status'], includeCompleted: false),
-            result: resultItem?['output'],
+            result: resultItem?['output'] ?? resultItem?['content'],
             files: resultItem?['files'],
             embeds: resultItem?['embeds'],
           ),
         );
       case 'function_call_output':
+      case 'custom_tool_call_output':
         continue;
       case 'web_search_call':
       case 'file_search_call':

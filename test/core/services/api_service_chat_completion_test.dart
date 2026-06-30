@@ -1865,6 +1865,28 @@ void main() {
       ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
     });
 
+    test('pinConversation does not retry stateless toggle post', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('false'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'pinned': false}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.pinConversation('chat-1', true);
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'GET /api/v1/chats/chat-1/pinned',
+        'POST /api/v1/chats/chat-1/pin',
+      ]);
+    });
+
     test(
       'pinConversation does not toggle when current state is unknown',
       () async {
@@ -1961,6 +1983,27 @@ void main() {
         'DELETE /api/v1/knowledge/kb-1',
       ]);
     });
+
+    test(
+      'knowledge validation 400 does not fall back to legacy route',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Name is required'}, statusCode: 400),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.createKnowledgeBase(name: '', description: ''),
+          throwsA(isA<DioException>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['POST /api/v1/knowledge/create']);
+      },
+    );
 
     test(
       'updateKnowledgeBase falls back when prefetch rejects new route',
