@@ -456,7 +456,7 @@ void main() {
   });
 
   test('a generated data-uri image does not over-estimate row extent', () {
-    final base64Payload = 'A' * 20000;
+    final base64Payload = List<String>.filled(20000, 'A').join();
     final summary = debugBuildChatListLayoutSummaryForTesting([
       ChatMessage(
         id: 'assistant-image',
@@ -472,7 +472,7 @@ void main() {
   });
 
   test('a raw standalone base64 image line estimates its rendered height', () {
-    final base64Payload = 'A' * 20000;
+    final base64Payload = List<String>.filled(20000, 'A').join();
     final summary = debugBuildChatListLayoutSummaryForTesting([
       ChatMessage(
         id: 'assistant-raw-image',
