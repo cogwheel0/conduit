@@ -430,6 +430,66 @@ void main() {
     expect(partIds.toSet().length, partIds.length);
   });
 
+  test('display parts mark only the last block mutable when no mutable metadata is present', () {
+    final document = compilePreparedMarkdownSync('A\n\nB');
+    // A full sync compile carries no incremental tail metadata, so the
+    // isStreaming && index == last fallback is exercised.
+    expect(document.hasMutableBlockMetadata, isFalse);
+    expect(document.blocks.length, greaterThanOrEqualTo(2));
+
+    final streamingParts = buildMarkdownDisplayParts(
+      document,
+      isStreaming: true,
+    );
+    expect(streamingParts.first.isMutableTail, isFalse);
+    expect(streamingParts.last.isMutableTail, isTrue);
+
+    final frozenParts = buildMarkdownDisplayParts(document, isStreaming: false);
+    expect(frozenParts.every((part) => !part.isMutableTail), isTrue);
+  });
+
+  test('details display parts keep a non-empty single-block document without a root node', () {
+    final detailsDoc = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final detailsBlock = detailsDoc.blocks
+        .whereType<CompiledMarkdownDetailsBlock>()
+        .first;
+
+    // Rebuild the document without the correlated root node so
+    // _normalizedContentForBlock must fall back to _normalizedContentForDetails
+    // (summary text) rather than the empty element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: detailsDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[detailsBlock],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
+
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    // Non-empty so ConduitMarkdownWidget.build does not short-circuit and drop
+    // the reasoning/tool-call block.
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.blocks, hasLength(1));
+    expect(part.document.blocks.single, isA<CompiledMarkdownDetailsBlock>());
+    expect(part.document.normalizedContent.trim(), isNotEmpty);
+    expect(part.document.normalizedContent, contains('search'));
+  });
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,

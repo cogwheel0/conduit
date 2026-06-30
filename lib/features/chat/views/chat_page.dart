@@ -64,6 +64,7 @@ import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import 'chat_bottom_anchor_controller.dart';
 import 'chat_timeline_render_model.dart';
+import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
@@ -2125,41 +2126,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         if (latestMessage == null) {
                           return const SizedBox.shrink();
                         }
-                        return assistant.AssistantMessageWidget(
-                          message: latestMessage,
-                          isStreaming: latestMessage.isStreaming,
-                          showFollowUps: rowMetadata.showFollowUps,
-                          // A completed assistant that migrates from the live
-                          // tail into history remounts in a different sliver;
-                          // suppress its mount fade so it doesn't re-animate
-                          // when a follow-up turn begins.
-                          animateOnMount:
-                              !rowMetadata.replacesArchivedAssistant &&
-                              latestMessage.metadata?['responseDone'] != true,
-                          modelName: rowMetadata.displayModelName,
-                          modelIconUrl: rowMetadata.modelIconUrl,
-                          versionModelNames: rowMetadata.versionModelNames,
-                          versionModelIconUrls:
-                              rowMetadata.versionModelIconUrls,
+                        return _buildAssistantMessageRowContent(
+                          rowRef: rowRef,
+                          messageId: messageId,
+                          latestMessage: latestMessage,
+                          rowMetadata: rowMetadata,
                           suppressStreamingHaptics:
                               suppressAssistantStreamingHaptics,
-                          onCopy: () {
-                            final currentMessage = rowRef.read(
-                              chatMessageByIdProvider(messageId),
-                            );
-                            if (currentMessage != null) {
-                              _copyMessage(currentMessage.content);
-                            }
-                          },
-                          onRegenerate: () => _regenerateMessage(messageId),
-                          onDelete: () {
-                            final currentMessage = rowRef.read(
-                              chatMessageByIdProvider(messageId),
-                            );
-                            if (currentMessage != null) {
-                              _deleteMessage(currentMessage);
-                            }
-                          },
                         );
                       },
                     ),
@@ -2188,36 +2161,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       if (latestMessage == null || liveSourceIndex == null) {
                         return const SizedBox.shrink();
                       }
-                      final rowMetadata = layoutMetadata.rows[liveSourceIndex];
-                      return assistant.AssistantMessageWidget(
-                        message: latestMessage,
-                        isStreaming: latestMessage.isStreaming,
-                        showFollowUps: rowMetadata.showFollowUps,
-                        animateOnMount: !rowMetadata.replacesArchivedAssistant,
-                        modelName: rowMetadata.displayModelName,
-                        modelIconUrl: rowMetadata.modelIconUrl,
-                        versionModelNames: rowMetadata.versionModelNames,
-                        versionModelIconUrls: rowMetadata.versionModelIconUrls,
+                      return _buildAssistantMessageRowContent(
+                        rowRef: rowRef,
+                        messageId: tailAssistant.id,
+                        latestMessage: latestMessage,
+                        rowMetadata: layoutMetadata.rows[liveSourceIndex],
                         suppressStreamingHaptics:
                             suppressAssistantStreamingHaptics,
-                        onCopy: () {
-                          final currentMessage = rowRef.read(
-                            chatMessageByIdProvider(tailAssistant.id),
-                          );
-                          if (currentMessage != null) {
-                            _copyMessage(currentMessage.content);
-                          }
-                        },
-                        onRegenerate: () =>
-                            _regenerateMessage(tailAssistant.id),
-                        onDelete: () {
-                          final currentMessage = rowRef.read(
-                            chatMessageByIdProvider(tailAssistant.id),
-                          );
-                          if (currentMessage != null) {
-                            _deleteMessage(currentMessage);
-                          }
-                        },
                       );
                     },
                   ),
@@ -2283,6 +2233,50 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onChange: (_) => _handleLiveTurnSizeChange(),
         child: child,
       ),
+    );
+  }
+
+  /// Shared assistant-row body for both the history sliver and the live-tail
+  /// sliver. Each call site keeps its own Consumer / null-check so their
+  /// rebuild scoping stays distinct; only the widget wiring is shared.
+  Widget _buildAssistantMessageRowContent({
+    required WidgetRef rowRef,
+    required String messageId,
+    required ChatMessage latestMessage,
+    required _ChatRowLayoutMetadata rowMetadata,
+    required bool suppressStreamingHaptics,
+  }) {
+    return assistant.AssistantMessageWidget(
+      message: latestMessage,
+      isStreaming: latestMessage.isStreaming,
+      showFollowUps: rowMetadata.showFollowUps,
+      // Suppress the mount fade for a settled (completed or failed) assistant so
+      // it doesn't re-animate when its widget remounts — either as the live tail
+      // on first load, or when it migrates into the history sliver as a
+      // follow-up turn begins. Genuinely running turns still animate.
+      animateOnMount:
+          !rowMetadata.replacesArchivedAssistant &&
+          !chatTurnPhaseShowsCompletedFooter(
+            chatTurnPhaseForMessage(latestMessage),
+          ),
+      modelName: rowMetadata.displayModelName,
+      modelIconUrl: rowMetadata.modelIconUrl,
+      versionModelNames: rowMetadata.versionModelNames,
+      versionModelIconUrls: rowMetadata.versionModelIconUrls,
+      suppressStreamingHaptics: suppressStreamingHaptics,
+      onCopy: () {
+        final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));
+        if (currentMessage != null) {
+          _copyMessage(currentMessage.content);
+        }
+      },
+      onRegenerate: () => _regenerateMessage(messageId),
+      onDelete: () {
+        final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));
+        if (currentMessage != null) {
+          _deleteMessage(currentMessage);
+        }
+      },
     );
   }
 

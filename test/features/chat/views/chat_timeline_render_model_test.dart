@@ -132,6 +132,10 @@ void main() {
       'assistant-streaming',
       'user-final',
     ]);
+    expect(nonTailTimeline.historyIndexByMessageKey, {
+      'message-assistant-streaming': 0,
+      'message-user-final': 1,
+    });
   });
 
   test('routes a failed tail assistant to the completed (non-running) footer', () {
@@ -209,5 +213,9 @@ void main() {
       'user-1',
       'assistant-archived',
     ]);
+    expect(timeline.historyIndexByMessageKey, {
+      'message-user-1': 0,
+      'message-assistant-archived': 1,
+    });
   });
 }

@@ -206,6 +206,89 @@ void main() {
     );
   });
 
+  test('bottom anchor controller hysteresis keeps the button shown across the band', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    // Detach so the button is currently visible.
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 320);
+
+    // Already showing: in the 150-300 band the button stays shown (the hide
+    // check uses hideThreshold, not showThreshold).
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
+        hasScrollableContent: true,
+        distanceFromBottom: 200,
+      ),
+      isTrue,
+    );
+
+    // Already showing: at/under hideThreshold the button hides.
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
+        hasScrollableContent: true,
+        distanceFromBottom: 100,
+      ),
+      isFalse,
+    );
+
+    // Contrast: a hidden button does not appear yet in the same band (the show
+    // check uses showThreshold).
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 200,
+      ),
+      isFalse,
+    );
+  });
+
+  test('bottom anchor controller re-anchors when content is not scrollable', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    // Detach first so the re-anchor is observable.
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 320);
+    expect(controller.isAnchoredToBottom, isFalse);
+
+    // Even with a large distance, a non-scrollable list counts as nearBottom:
+    // re-anchor, clear the sticky latch, and report anchored.
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: false,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+    expect(controller.isAnchoredToBottom, isTrue);
+
+    // The latch was cleared, so a subsequent scroll away detaches immediately.
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+
+    // The button stays hidden whenever content is not scrollable.
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: false,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
