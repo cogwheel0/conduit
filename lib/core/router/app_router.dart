@@ -117,13 +117,15 @@ class RouterNotifier extends ChangeNotifier {
 
     // Compatibility gate: when the connected server runs a version newer than
     // this app build supports, block every in-app route and surface the
-    // incompatibility page. The auth/connection flow stays reachable so the
-    // user can recover by pointing the app at a different (supported) server —
-    // the connect-time gate prevents authenticating into another unsupported
-    // server, so opening those pages here is safe.
+    // incompatibility page. Reachable exceptions: the gate page itself, the
+    // server-connection form, and an in-progress connection/auth flow that
+    // targets a DIFFERENT server (the "use a different server" recovery).
+    // Re-authenticating into the same unsupported server stays gated.
     final serverIncompatible = ref.read(serverIncompatibleProvider);
     if (serverIncompatible) {
-      if (location == Routes.serverIncompatible || _isAuthLocation(location)) {
+      if (location == Routes.serverIncompatible ||
+          location == Routes.serverConnection ||
+          _isConnectFlowToDifferentServer(state, activeServer)) {
         return null;
       }
       return Routes.serverIncompatible;
@@ -190,6 +192,31 @@ class RouterNotifier extends ChangeNotifier {
         location == Routes.connectionIssue ||
         location == Routes.ssoAuth ||
         location == Routes.proxyAuth;
+  }
+
+  /// Whether [state] is an in-progress connection/auth flow whose target server
+  /// differs from [activeServer]. The compatibility gate uses this to permit
+  /// the "use a different server" recovery (connecting to a new, supported
+  /// server) while still blocking re-authentication into the current,
+  /// unsupported server. Returns false when the target can't be determined, so
+  /// the gate enforces by default.
+  bool _isConnectFlowToDifferentServer(
+    GoRouterState state,
+    ServerConfig? activeServer,
+  ) {
+    if (activeServer == null) return false;
+    final extra = state.extra;
+    final String? targetUrl;
+    if (extra is AuthFlowConfig) {
+      targetUrl = extra.serverConfig.url;
+    } else if (extra is ProxyAuthConfig) {
+      targetUrl = extra.serverConfig.url;
+    } else if (extra is ServerConfig) {
+      targetUrl = extra.url;
+    } else {
+      targetUrl = null;
+    }
+    return targetUrl != null && targetUrl != activeServer.url;
   }
 
   @override

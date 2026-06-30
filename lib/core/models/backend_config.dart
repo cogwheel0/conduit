@@ -110,6 +110,7 @@ class BackendTtsVoice {
 class BackendConfig {
   const BackendConfig({
     this.version,
+    this.serverId,
     this.enableWebsocket,
     this.enableWebSearch,
     this.enableAudioInput,
@@ -131,6 +132,13 @@ class BackendConfig {
   /// The Open WebUI server version string reported by `/api/config`
   /// (e.g. `0.10.1`). `null` when the server omitted it or it was not parsed.
   final String? version;
+
+  /// Id of the [ServerConfig] this config was fetched from. The cached config
+  /// is global (single key), so consumers that care about *which* server a
+  /// version belongs to (e.g. the compatibility gate) compare this against the
+  /// active server id and ignore the config when it doesn't match. `null` for
+  /// configs fetched before this was tracked or never tagged.
+  final String? serverId;
 
   /// Mirrors `features.enable_websocket` from OpenWebUI.
   final bool? enableWebsocket;
@@ -170,6 +178,7 @@ class BackendConfig {
   /// Returns a copy with updated fields.
   BackendConfig copyWith({
     String? version,
+    String? serverId,
     bool? enableWebsocket,
     bool? enableWebSearch,
     bool? enableAudioInput,
@@ -189,6 +198,7 @@ class BackendConfig {
   }) {
     return BackendConfig(
       version: version ?? this.version,
+      serverId: serverId ?? this.serverId,
       enableWebsocket: enableWebsocket ?? this.enableWebsocket,
       enableWebSearch: enableWebSearch ?? this.enableWebSearch,
       enableAudioInput: enableAudioInput ?? this.enableAudioInput,
@@ -230,6 +240,7 @@ class BackendConfig {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'version': version,
+      'server_id': serverId,
       'enable_websocket': enableWebsocket,
       'enable_web_search': enableWebSearch,
       'enable_audio_input': enableAudioInput,
@@ -251,6 +262,7 @@ class BackendConfig {
 
   static BackendConfig fromJson(Map<String, dynamic> json) {
     String? version;
+    String? serverId;
     bool? enableWebsocket;
     bool? enableWebSearch;
     bool? enableAudioInput;
@@ -271,6 +283,11 @@ class BackendConfig {
     final versionValue = json['version'];
     if (versionValue is String && versionValue.trim().isNotEmpty) {
       version = versionValue.trim();
+    }
+
+    final serverIdValue = json['server_id'];
+    if (serverIdValue is String && serverIdValue.isNotEmpty) {
+      serverId = serverIdValue;
     }
 
     // Try canonical format first
@@ -423,6 +440,7 @@ class BackendConfig {
 
     return BackendConfig(
       version: version,
+      serverId: serverId,
       enableWebsocket: enableWebsocket,
       enableWebSearch: enableWebSearch,
       enableAudioInput: enableAudioInput,

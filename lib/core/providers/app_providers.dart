@@ -217,15 +217,25 @@ final serverConnectionStateProvider = Provider<bool>((ref) {
   );
 });
 
-/// Whether the connected server reports a version newer than this app build
-/// is known to support (see [ServerVersionCompat]).
+/// Whether the *active* server reports a version newer than this app build is
+/// known to support (see [ServerVersionCompat]).
 ///
-/// Fails open while the backend config is still loading or the version is
-/// unknown, so the compatibility gate never flashes during normal startup and
-/// never locks users out of a server whose version we can't parse.
+/// The cached backend config is global, not per-server, so this gates only
+/// when the config was fetched from the currently-active server
+/// ([BackendConfig.serverId] matches). That makes the decision robust against
+/// a stale config from a previously-active server — whether left over after a
+/// server switch, an out-of-order refresh, or restored from disk on a cold
+/// start — which would otherwise trap a supported server on the gate.
+///
+/// Fails open while the active server or backend config is still loading, when
+/// the config belongs to a different server, or when the version is unknown, so
+/// the gate never flashes during startup and never locks users out of a server
+/// whose version we can't parse.
 final serverIncompatibleProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
   final config = ref.watch(backendConfigProvider).asData?.value;
-  if (config == null) return false;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false; // stale/foreign — fail open
   return ServerVersionCompat.isUnsupported(config.version);
 });
 
@@ -233,37 +243,9 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   late final OptimizedStorageService _storage;
 
-  /// Tracks the last non-null active server id so a genuine A->B switch is
-  /// detected even when [activeServerProvider] passes through a transient
-  /// loading/null state (e.g. on `ref.invalidate`).
-  String? _lastKnownServerId;
-
   @override
   Future<BackendConfig?> build() async {
     _storage = ref.watch(optimizedStorageServiceProvider);
-
-    // The cached backend config (and its version) is global, not per-server.
-    // When the active server changes to a *different* one, the cached config
-    // belongs to the previous server and must not be used to gate the new one
-    // (see serverIncompatibleProvider). Drop it immediately — failing open
-    // until a fresh /api/config is fetched for the newly selected server — so
-    // a user can't get stranded on the incompatibility gate after switching
-    // from an unsupported server to a supported one.
-    _lastKnownServerId = ref.read(activeServerProvider).asData?.value?.id;
-    ref.listen(activeServerProvider.select((s) => s.asData?.value?.id), (
-      previous,
-      next,
-    ) {
-      if (next == null) return; // ignore transient loading/none states
-      final previousId = _lastKnownServerId;
-      _lastKnownServerId = next;
-      if (previousId != null && previousId != next) {
-        state = const AsyncData(null);
-        unawaited(_storage.saveLocalBackendConfig(null));
-        unawaited(_refreshBackendConfig());
-      }
-    });
-
     final cached = await _storage.getLocalBackendConfig();
     unawaited(_refreshBackendConfig());
     return cached;
@@ -313,7 +295,11 @@ Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
         }
       }
     }
-    return config;
+    // Tag the config with the server it was fetched from so the compatibility
+    // gate can ignore a globally-cached config that belongs to a different
+    // server (e.g. after a server switch, or a stale config restored on a
+    // cold start). See serverIncompatibleProvider.
+    return config?.copyWith(serverId: server.id);
   } catch (_) {
     return null;
   }
