@@ -3474,12 +3474,20 @@ class ApiService {
         _normalizeDynamicString(meta['filename']) ??
         _normalizeDynamicString(meta['name']) ??
         'Unknown';
+    String? nonBlankContent(dynamic value) {
+      final text = value?.toString();
+      if (text == null || text.trim().isEmpty) {
+        return null;
+      }
+      return text;
+    }
+
     final dataMap = _coerceJsonMap(file['data']);
     final content =
-        file['content']?.toString() ??
-        file['text']?.toString() ??
-        dataMap?['content']?.toString() ??
-        dataMap?['text']?.toString() ??
+        nonBlankContent(file['content']) ??
+        nonBlankContent(file['text']) ??
+        nonBlankContent(dataMap?['content']) ??
+        nonBlankContent(dataMap?['text']) ??
         '';
     return KnowledgeBaseItem.fromJson({
       'id': file['id'],
@@ -3720,15 +3728,18 @@ class ApiService {
         );
         final uploadData = uploadResponse.data as Map<String, dynamic>;
         final fileId = _fileIdFromUploadResponse(uploadData);
-        if (fileId != null) {
-          try {
-            await _attachUploadedFileToKnowledgeBase(knowledgeBaseId, fileId);
-            return uploadData;
-          } on DioException catch (error) {
-            await _deleteUploadedFileBestEffort(fileId);
-            if (!_shouldFallbackToLegacyKnowledgeFileAdd(error)) {
-              rethrow;
-            }
+        if (fileId == null) {
+          throw StateError(
+            'Upload succeeded but did not return a file id to attach',
+          );
+        }
+        try {
+          await _attachUploadedFileToKnowledgeBase(knowledgeBaseId, fileId);
+          return uploadData;
+        } on DioException catch (error) {
+          await _deleteUploadedFileBestEffort(fileId);
+          if (!_shouldFallbackToLegacyKnowledgeFileAdd(error)) {
+            rethrow;
           }
         }
       } on DioException catch (error) {
@@ -3781,10 +3792,10 @@ class ApiService {
 
   bool _shouldFallbackToLegacyKnowledgeFileAdd(DioException error) {
     final statusCode = error.response?.statusCode;
-    return statusCode == 400 ||
-        statusCode == 404 ||
+    return statusCode == 404 ||
         statusCode == 405 ||
-        statusCode == 422;
+        statusCode == 422 ||
+        (statusCode == 400 && _looksLikeLegacyShapeError(error.response?.data));
   }
 
   String? _fileIdFromUploadResponse(Map<String, dynamic> data) {

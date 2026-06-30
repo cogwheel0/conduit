@@ -1354,7 +1354,8 @@ void main() {
         await pumpMicrotasks();
 
         registrar.emitChatEvent('chat:completion', {
-          'content': 'Final answer',
+          'content':
+              '<details><summary>User details</summary>Keep me</details>\nFinal answer',
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
@@ -1381,7 +1382,11 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
 
-        check(log.messages.last.content).equals('Final answer');
+        final content = log.messages.last.content;
+        check(content).contains('<details><summary>User details</summary>');
+        check(content).contains('Keep me');
+        check(content).contains('Final answer');
+        check(content).not((it) => it.contains('Executing...'));
       },
     );
 

@@ -2067,6 +2067,7 @@ void main() {
           'items': [
             {
               'id': 'file-1',
+              'content': '',
               'data': {'content': 'Guide text'},
               'created_at': 1700000000,
               'updated_at': 1700000001,
@@ -2223,6 +2224,62 @@ void main() {
         adapter.requests.last.data as Map<String, dynamic>,
       ).deepEquals({'file_id': 'file-1'});
     });
+
+    test(
+      'addFileToKnowledgeBase does not legacy reupload without file id',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.addFileToKnowledgeBase(
+            'kb-1',
+            filename: 'guide.md',
+            content: utf8.encode('hello'),
+          ),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['POST /api/v1/files/']);
+      },
+    );
+
+    test(
+      'addFileToKnowledgeBase does not legacy reupload unprocessed file',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'id': 'file-1'}),
+          _FakeAdapter.json({'detail': 'FILE_NOT_PROCESSED'}, statusCode: 400),
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.addFileToKnowledgeBase(
+            'kb-1',
+            filename: 'guide.md',
+            content: utf8.encode('hello'),
+          ),
+          throwsA(isA<DioException>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'POST /api/v1/files/',
+          'POST /api/v1/knowledge/kb-1/file/add',
+          'DELETE /api/v1/files/file-1',
+        ]);
+      },
+    );
 
     test(
       'addFileToKnowledgeBase falls back when attach route rejects file id body',

@@ -802,6 +802,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     ).hasMatch(content);
   }
 
+  String stripRenderedSemanticDetails(String content) {
+    if (!content.contains('<details')) {
+      return content;
+    }
+    final semanticDetailsPattern = RegExp(
+      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+    );
+    return content.replaceAll(semanticDetailsPattern, '').trim();
+  }
+
   void replaceVisibleAssistantStructuredOutput(
     List<StructuredOutputBlock> blocks,
   ) {
@@ -827,6 +837,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         !hasDetails &&
         renderedStreamingContent != renderedSnapshot &&
         containsRenderedSemanticDetails(renderedStreamingContent);
+    final strippedVisibleContent = visibleHasStaleDetails
+        ? stripRenderedSemanticDetails(renderedStreamingContent)
+        : '';
     final outputContent = hasDetails
         ? shouldRenderFullSnapshot
               ? renderedSnapshot
@@ -834,9 +847,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   blocks,
                   replacementPlainText,
                 )
-        : renderedSnapshot != plainStreamingContent
-        ? renderedSnapshot
         : visibleHasStaleDetails
+        ? strippedVisibleContent.isNotEmpty
+              ? strippedVisibleContent
+              : renderedSnapshot
+        : renderedSnapshot != plainStreamingContent
         ? renderedSnapshot
         : '';
     if (outputContent.isEmpty) return;

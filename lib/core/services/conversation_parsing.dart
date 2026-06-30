@@ -899,10 +899,13 @@ String _mergeContentWithStructuredOutput(
       effectiveContent,
     );
   }
-  return outputTextIsAuthoritative ||
-          (strippedSemanticDetails && hasOutputPlainText)
-      ? renderStructuredOutputBlocks(outputBlocks)
-      : '';
+  if (outputTextIsAuthoritative) {
+    return renderStructuredOutputBlocks(outputBlocks);
+  }
+  if (strippedSemanticDetails) {
+    return renderSemanticMessageBlocks([SemanticTextBlock(baseContent)]);
+  }
+  return '';
 }
 
 String _stripRenderedSemanticDetails(String content) {

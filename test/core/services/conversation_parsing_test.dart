@@ -507,6 +507,7 @@ void main() {
                     '<details type="tool_calls" done="false">\n'
                     '<summary>Executing...</summary>\n'
                     '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
                     'Final answer',
                 'output': [
                   {
@@ -523,7 +524,11 @@ void main() {
         });
 
         final messages = result['messages'] as List<Map<String, dynamic>>;
-        check(messages.first['content']).equals('Final answer');
+        final content = messages.first['content'] as String;
+        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
+        check(content).contains('Keep me');
+        check('Final answer'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('Executing...'));
       });
 
       test('falls back to history output when reloading message chain', () {
