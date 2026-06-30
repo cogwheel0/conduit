@@ -104,7 +104,7 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
   }
 
   if (replacementText != null && replacementTextParts == null) {
-    semanticBlocks.insert(0, SemanticTextBlock(replacementText));
+    semanticBlocks.add(SemanticTextBlock(replacementText));
   }
 
   return semanticBlocks;

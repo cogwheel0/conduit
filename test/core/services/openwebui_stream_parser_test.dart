@@ -504,6 +504,42 @@ void main() {
       check(rendered).endsWith('</details>\nB');
     });
 
+    test('replacement text is appended after detail-only output', () {
+      final rendered = renderStructuredOutputBlocksWithContent(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'reasoning',
+            'status': 'completed',
+            'summary': [
+              {'type': 'summary_text', 'text': 'thinking'},
+            ],
+          },
+        ]),
+        'Final answer',
+      );
+
+      check(rendered).startsWith('<details type="reasoning"');
+      check(rendered).endsWith('</details>\nFinal answer');
+    });
+
+    test('completed function call stays pending until output arrives', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call-1',
+          'name': 'search',
+          'status': 'completed',
+          'arguments': {'query': 'docs'},
+        },
+      ]);
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(toolBlock.done).isFalse();
+      check(serialized).contains('<summary>Executing...</summary>');
+      check(serialized).contains('done="false"');
+    });
+
     test('code interpreter fence grows around untrusted backticks', () {
       final rendered = renderStructuredOutputBlocks(
         parseOpenWebUIStructuredOutput([
@@ -654,7 +690,7 @@ void main() {
       ).contains('<details type="code_interpreter" done="true"');
     });
 
-    test('marks completed function call done without output item', () {
+    test('marks function call done when output item is present', () {
       final blocks = parseOpenWebUIStructuredOutput([
         {
           'type': 'function_call',
@@ -662,6 +698,11 @@ void main() {
           'name': 'search',
           'status': 'completed',
           'arguments': {'query': 'docs'},
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': 'result',
         },
       ]);
       final toolBlock = blocks.single as StructuredOutputToolCallBlock;

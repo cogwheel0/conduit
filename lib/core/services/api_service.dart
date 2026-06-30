@@ -2332,6 +2332,9 @@ class ApiService {
           if (pinned is bool) {
             return pinned;
           }
+          if (pinned == null) {
+            return false;
+          }
         } on DioException {
           // Older servers may not expose the dedicated pinned-status endpoint;
           // fall through to the full chat payload below.
@@ -2340,6 +2343,9 @@ class ApiService {
       final response = await _dio.get('/api/v1/chats/$id');
       final data = _coerceResponseMap(response.data);
       final value = data?[field];
+      if (value == null && (data?.containsKey(field) ?? false)) {
+        return false;
+      }
       return value is bool ? value : null;
     } catch (e, stackTrace) {
       DebugLogger.error(

@@ -423,6 +423,33 @@ void main() {
         check('Final answer'.allMatches(content).length).equals(1);
       });
 
+      test('prefers longer structured output text over stale content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Partial',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Partial final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Partial final answer');
+      });
+
       test('falls back to history output when reloading message chain', () {
         final result = parseFullConversation({
           'id': 'conv-1',

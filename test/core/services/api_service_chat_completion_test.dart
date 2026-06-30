@@ -1846,6 +1846,25 @@ void main() {
       ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
     });
 
+    test('pinConversation treats null pinned state as false', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('null'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'id': 'chat-1', 'pinned': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.pinConversation('chat-1', true);
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
+    });
+
     test(
       'pinConversation does not toggle when current state is unknown',
       () async {

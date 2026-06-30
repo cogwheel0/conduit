@@ -107,7 +107,9 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
             id: callId,
             name: item['name']?.toString() ?? '',
             arguments: item['arguments'] ?? '',
-            done: resultItem != null || _isDoneStatus(item['status']),
+            done:
+                resultItem != null ||
+                _isDoneStatus(item['status'], includeCompleted: false),
             result: resultItem?['output'],
             files: resultItem?['files'],
             embeds: resultItem?['embeds'],
@@ -214,9 +216,9 @@ bool _isCodeInterpreterDone(
   return _isDoneStatus(status) || hasDuration || !isLastItem;
 }
 
-bool _isDoneStatus(Object? status) {
+bool _isDoneStatus(Object? status, {bool includeCompleted = true}) {
   final normalized = status?.toString();
-  return normalized == 'completed' ||
+  return (includeCompleted && normalized == 'completed') ||
       normalized == 'failed' ||
       normalized == 'incomplete';
 }

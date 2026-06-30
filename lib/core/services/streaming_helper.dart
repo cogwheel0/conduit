@@ -455,6 +455,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   Timer? terminalCompletionRecoveryTimer;
   bool terminalRecoveryAllowContentOnlyTerminal = false;
   bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
+  bool terminalRecoveryInferDoneFromMissingStreaming = false;
   Future<void>? chatCompletedSyncFuture;
   int stableNonTerminalTerminalRecoveryCount = 0;
   String? stableNonTerminalTerminalRecoverySignature;
@@ -874,6 +875,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     bool allowContentOnlyTerminal,
     bool allowStableNonTerminalLocalFallback,
+    bool inferDoneFromMissingStreaming,
   })
   scheduleTerminalCompletionRecovery;
 
@@ -1774,6 +1776,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool allowLocalContentFallbackAfterPollFailedOrMissing = false,
     bool allowLocalContentFallbackAfterNonTerminalSnapshot = false,
     bool allowStableNonTerminalLocalFallback = true,
+    bool inferDoneFromMissingStreaming = true,
     bool retryWhenSnapshotStillStreaming = false,
   }) async {
     if (isObsoleteStream) {
@@ -1784,7 +1787,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool allowStableNonTerminalLocalFinish = false;
     try {
       final result = await pollServerForMessage(
-        inferDoneFromMissingStreaming: allowStableNonTerminalLocalFallback,
+        inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
       );
       if (hasFinished || isObsoleteStream) {
         return;
@@ -1915,6 +1918,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         allowContentOnlyTerminal: allowContentOnlyTerminal,
         allowStableNonTerminalLocalFallback:
             allowStableNonTerminalLocalFallback,
+        inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
       );
     }
   }
@@ -1924,6 +1928,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         required String source,
         bool allowContentOnlyTerminal = true,
         bool allowStableNonTerminalLocalFallback = true,
+        bool inferDoneFromMissingStreaming = true,
       }) {
         if (hasFinished || isObsoleteStream) {
           return;
@@ -1934,6 +1939,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         terminalRecoveryAllowStableNonTerminalLocalFallback =
             terminalRecoveryAllowStableNonTerminalLocalFallback ||
             allowStableNonTerminalLocalFallback;
+        terminalRecoveryInferDoneFromMissingStreaming =
+            terminalRecoveryInferDoneFromMissingStreaming ||
+            inferDoneFromMissingStreaming;
         if (terminalCompletionRecoveryTimer != null) {
           return;
         }
@@ -1952,8 +1960,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 terminalRecoveryAllowContentOnlyTerminal;
             final recoveryAllowStableNonTerminalLocalFallback =
                 terminalRecoveryAllowStableNonTerminalLocalFallback;
+            final recoveryInferDoneFromMissingStreaming =
+                terminalRecoveryInferDoneFromMissingStreaming;
             terminalRecoveryAllowContentOnlyTerminal = false;
             terminalRecoveryAllowStableNonTerminalLocalFallback = false;
+            terminalRecoveryInferDoneFromMissingStreaming = false;
             DebugLogger.log(
               '$source: recovering after missed done/inactive',
               scope: 'streaming/helper',
@@ -1964,6 +1975,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 allowContentOnlyTerminal: recoveryAllowContentOnlyTerminal,
                 allowStableNonTerminalLocalFallback:
                     recoveryAllowStableNonTerminalLocalFallback,
+                inferDoneFromMissingStreaming:
+                    recoveryInferDoneFromMissingStreaming,
                 retryWhenSnapshotStillStreaming: true,
               ),
             );
@@ -3594,6 +3607,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               source: 'taskSocket HTTP completion recovery',
               allowContentOnlyTerminal: false,
               allowStableNonTerminalLocalFallback: false,
+              inferDoneFromMissingStreaming: false,
             );
           }
         },

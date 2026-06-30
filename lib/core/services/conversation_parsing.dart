@@ -285,11 +285,10 @@ Map<String, dynamic>? _parseSiblingAsVersion(
   final outputItems = _effectiveOutputItems(msgData, historyMsg);
   if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
-    final outputContent = contentString.trim().isEmpty
-        ? renderStructuredOutputBlocks(outputBlocks)
-        : structuredOutputBlocksContainDetails(outputBlocks)
-        ? renderStructuredOutputBlocksWithContent(outputBlocks, contentString)
-        : '';
+    final outputContent = _mergeContentWithStructuredOutput(
+      contentString,
+      outputBlocks,
+    );
     if (outputContent.isNotEmpty) {
       contentString = outputContent;
     }
@@ -533,11 +532,10 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
   final outputItems = _effectiveOutputItems(msgData, historyMsg);
   if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
-    final outputContent = contentString.trim().isEmpty
-        ? renderStructuredOutputBlocks(outputBlocks)
-        : structuredOutputBlocksContainDetails(outputBlocks)
-        ? renderStructuredOutputBlocksWithContent(outputBlocks, contentString)
-        : '';
+    final outputContent = _mergeContentWithStructuredOutput(
+      contentString,
+      outputBlocks,
+    );
     if (outputContent.isNotEmpty) {
       contentString = outputContent;
     }
@@ -875,6 +873,32 @@ List<Map<String, dynamic>> _effectiveOutputItems(
     return directItems;
   }
   return _normalizeOutputItems(historyMsg['output']);
+}
+
+String _mergeContentWithStructuredOutput(
+  String content,
+  List<StructuredOutputBlock> outputBlocks,
+) {
+  final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
+  final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
+  final outputTextIsAuthoritative =
+      hasOutputPlainText && outputPlainText.length > content.length;
+  final effectiveContent = outputTextIsAuthoritative
+      ? outputPlainText
+      : content;
+
+  if (effectiveContent.trim().isEmpty) {
+    return renderStructuredOutputBlocks(outputBlocks);
+  }
+  if (structuredOutputBlocksContainDetails(outputBlocks)) {
+    return renderStructuredOutputBlocksWithContent(
+      outputBlocks,
+      effectiveContent,
+    );
+  }
+  return outputTextIsAuthoritative
+      ? renderStructuredOutputBlocks(outputBlocks)
+      : '';
 }
 
 String _stringOr(dynamic value, String fallback) {
