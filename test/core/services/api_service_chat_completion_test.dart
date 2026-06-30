@@ -1914,6 +1914,30 @@ void main() {
       },
     );
 
+    test(
+      'archiveConversation reads wrapped chat state before toggling',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'chat': {'archived': false},
+          }),
+          _FakeAdapter.json({'id': 'chat-1', 'archived': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.archiveConversation('chat-1', true);
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/chats/chat-1',
+          'POST /api/v1/chats/chat-1/archive',
+        ]);
+      },
+    );
+
     test('sendChatCompleted omits null session_id', () async {
       final adapter = _FakeAdapter.json({'ok': true});
       final api = _buildApiServiceForTest(adapter);
@@ -2043,11 +2067,10 @@ void main() {
           'items': [
             {
               'id': 'file-1',
-              'filename': 'guide.md',
               'content': 'Guide text',
               'created_at': 1700000000,
               'updated_at': 1700000001,
-              'meta': {'name': 'Guide'},
+              'meta': {'filename': 'guide.md', 'name': 'Guide'},
             },
           ],
           'total': 2,

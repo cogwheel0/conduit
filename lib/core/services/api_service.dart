@@ -2340,7 +2340,15 @@ class ApiService {
       if (value == null && (data?.containsKey(field) ?? false)) {
         return false;
       }
-      return value is bool ? value : null;
+      if (value is bool) {
+        return value;
+      }
+      final wrappedChat = _coerceJsonMap(data?['chat']);
+      final wrappedValue = wrappedChat?[field];
+      if (wrappedValue == null && (wrappedChat?.containsKey(field) ?? false)) {
+        return false;
+      }
+      return wrappedValue is bool ? wrappedValue : null;
     } catch (e, stackTrace) {
       DebugLogger.error(
         'toggle-state-fetch-failed',
@@ -3463,6 +3471,7 @@ class ApiService {
     final filename =
         _normalizeDynamicString(file['filename']) ??
         _normalizeDynamicString(file['name']) ??
+        _normalizeDynamicString(meta['filename']) ??
         _normalizeDynamicString(meta['name']) ??
         'Unknown';
     final content =

@@ -450,6 +450,48 @@ void main() {
         check(messages.first['content']).equals('Partial final answer');
       });
 
+      test('does not reuse rendered details as replacement text', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="reasoning" done="true">\n'
+                    '<summary>Thought for 0 seconds</summary>\n'
+                    '&gt; stale\n'
+                    '</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'status': 'completed',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'fresh'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check('<details'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('&gt; stale'));
+        check('Final answer'.allMatches(content).length).equals(1);
+      });
+
       test('falls back to history output when reloading message chain', () {
         final result = parseFullConversation({
           'id': 'conv-1',

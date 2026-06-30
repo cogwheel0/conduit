@@ -456,7 +456,7 @@ void main() {
         ]),
       );
 
-      check(serialized).equals(' hello &lt;world&gt;\n');
+      check(serialized).equals(' hello \n&lt;world&gt;\n');
     });
 
     test('extracts text-bearing message parts without a type', () {
@@ -665,6 +665,42 @@ void main() {
           .has((block) => block.text, 'text')
           .equals('content reasoning');
       check(serialized).contains('&gt; content reasoning');
+    });
+
+    test('reads string reasoning content', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {'type': 'reasoning', 'content': 'plain reasoning'},
+      ]);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.text, 'text')
+          .equals('plain reasoning');
+    });
+
+    test('keeps failed tool calls and code interpreter blocks open', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call-1',
+          'name': 'search',
+          'status': 'failed',
+        },
+        {
+          'type': 'code_interpreter',
+          'status': 'incomplete',
+          'code': 'print(1)',
+        },
+      ]);
+
+      check(blocks[0])
+          .isA<StructuredOutputToolCallBlock>()
+          .has((block) => block.done, 'done')
+          .isFalse();
+      check(blocks[1])
+          .isA<StructuredOutputCodeInterpreterBlock>()
+          .has((block) => block.done, 'done')
+          .isFalse();
     });
 
     test('serializes upstream code interpreter output shape', () {

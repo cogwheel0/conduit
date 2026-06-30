@@ -1140,7 +1140,7 @@ void main() {
             {
               'type': 'message',
               'content': [
-                {'type': 'output_text', 'text': '2 < 3'},
+                {'type': 'output_text', 'text': '2 < 3 and 4 > 1'},
               ],
             },
             {
@@ -1159,7 +1159,7 @@ void main() {
         await pumpMicrotasks();
 
         final content = log.messages.last.content;
-        check(content).contains('2 &lt; 3');
+        check(content).contains('2 &lt; 3 and 4 &gt; 1');
         check(content).not((it) => it.contains('&amp;lt;'));
         check(content).contains('<details type="tool_calls"');
       },
@@ -1282,6 +1282,56 @@ void main() {
         check(content).contains('tool result');
         check(content).not((it) => it.contains('Executing...'));
         check(content).not((it) => it.contains('&lt;details'));
+      },
+    );
+
+    test(
+      'chat:completion content replacement lets pending tool status reappear',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        final toolCallPayload = {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        };
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        registrar.emitChatEvent('chat:completion', {
+          'content': 'intermediate answer',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        check(log.messages.last.content).equals('intermediate answer');
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
       },
     );
 

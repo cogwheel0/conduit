@@ -782,6 +782,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       plainStreamingContent = plainContent;
     } else if (!fromStructuredOutput) {
       plainStreamingContent = content;
+      seenStreamingToolCallKeys.clear();
     } else if (content.isEmpty) {
       plainStreamingContent = '';
     }
@@ -800,6 +801,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final renderedSnapshot = renderStructuredOutputBlocks(blocks);
     final snapshotPlainText = structuredOutputBlocksPlainText(blocks);
     final hasPlainContent = plainStreamingContent.trim().isNotEmpty;
+    final replacementPlainText =
+        snapshotPlainText.trim().isNotEmpty &&
+            snapshotPlainText.length > plainStreamingContent.length
+        ? snapshotPlainText
+        : plainStreamingContent;
     final shouldRenderFullSnapshot =
         renderedStreamingContent.trim().isEmpty ||
         renderedFromStructuredOutput ||
@@ -809,12 +815,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ? renderedSnapshot
               : renderStructuredOutputBlocksWithContent(
                   blocks,
-                  plainStreamingContent,
+                  replacementPlainText,
                 )
         : renderedSnapshot != plainStreamingContent
         ? renderedSnapshot
         : '';
     if (outputContent.isEmpty) return;
+    if (!blocks.any((block) => block is StructuredOutputToolCallBlock)) {
+      seenStreamingToolCallKeys.clear();
+    }
 
     replaceVisibleAssistantContent(
       outputContent,
@@ -822,7 +831,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       plainContent: hasDetails
           ? shouldRenderFullSnapshot
                 ? snapshotPlainText
-                : plainStreamingContent
+                : replacementPlainText
           : snapshotPlainText,
     );
   }
@@ -1944,14 +1953,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (hasFinished || isObsoleteStream) {
           return;
         }
-        terminalRecoveryAllowContentOnlyTerminal =
-            terminalRecoveryAllowContentOnlyTerminal ||
-            allowContentOnlyTerminal;
+        terminalRecoveryAllowContentOnlyTerminal = allowContentOnlyTerminal;
         terminalRecoveryAllowStableNonTerminalLocalFallback =
-            terminalRecoveryAllowStableNonTerminalLocalFallback ||
             allowStableNonTerminalLocalFallback;
         terminalRecoveryInferDoneFromMissingStreaming =
-            terminalRecoveryInferDoneFromMissingStreaming ||
             inferDoneFromMissingStreaming;
         if (terminalCompletionRecoveryTimer != null) {
           return;

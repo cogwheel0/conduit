@@ -178,7 +178,7 @@ String _messageTextFromOutputItem(Map<String, dynamic> item) {
       }
     }
   }
-  return messageParts.join();
+  return messageParts.join('\n');
 }
 
 String _reasoningTextFromOutputItem(Map<String, dynamic> item) {
@@ -187,6 +187,9 @@ String _reasoningTextFromOutputItem(Map<String, dynamic> item) {
   final summaryText = summary is List ? _textFromOutputParts(summary) : '';
   if (summaryText.trim().isNotEmpty) {
     return summaryText;
+  }
+  if (content is String) {
+    return content;
   }
   return content is List ? _textFromOutputParts(content) : '';
 }
@@ -200,7 +203,7 @@ String _textFromOutputParts(List<dynamic> sourceList) {
       reasoningParts.add(text);
     }
   }
-  return reasoningParts.join();
+  return reasoningParts.join('\n');
 }
 
 bool _isReasoningDone(Map<String, dynamic> item, int index, int outputLength) {
@@ -225,9 +228,7 @@ bool _isCodeInterpreterDone(
 
 bool _isDoneStatus(Object? status, {bool includeCompleted = true}) {
   final normalized = status?.toString();
-  return (includeCompleted && normalized == 'completed') ||
-      normalized == 'failed' ||
-      normalized == 'incomplete';
+  return includeCompleted && normalized == 'completed';
 }
 
 String _openAiToolName(String itemType) {

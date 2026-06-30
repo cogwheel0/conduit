@@ -879,18 +879,22 @@ String _mergeContentWithStructuredOutput(
   String content,
   List<StructuredOutputBlock> outputBlocks,
 ) {
+  final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
+  final baseContent = hasDetails
+      ? _stripRenderedSemanticDetails(content)
+      : content;
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
   final outputTextIsAuthoritative =
-      hasOutputPlainText && outputPlainText.length > content.length;
+      hasOutputPlainText && outputPlainText.length > baseContent.length;
   final effectiveContent = outputTextIsAuthoritative
       ? outputPlainText
-      : content;
+      : baseContent;
 
   if (effectiveContent.trim().isEmpty) {
     return renderStructuredOutputBlocks(outputBlocks);
   }
-  if (structuredOutputBlocksContainDetails(outputBlocks)) {
+  if (hasDetails) {
     return renderStructuredOutputBlocksWithContent(
       outputBlocks,
       effectiveContent,
@@ -899,6 +903,15 @@ String _mergeContentWithStructuredOutput(
   return outputTextIsAuthoritative
       ? renderStructuredOutputBlocks(outputBlocks)
       : '';
+}
+
+String _stripRenderedSemanticDetails(String content) {
+  if (!content.contains('<details')) {
+    return content;
+  }
+  return content
+      .replaceAll(RegExp(r'<details[\s\S]*?</details>\s*'), '')
+      .trim();
 }
 
 String _stringOr(dynamic value, String fallback) {
