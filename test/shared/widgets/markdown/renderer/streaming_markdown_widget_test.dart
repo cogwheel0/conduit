@@ -329,6 +329,24 @@ void main() {
       expect(firstParts.last.document, isNot(nextParts.last.document));
       expect(firstParts.last.isMutableTail, isTrue);
       expect(nextParts.last.isMutableTail, isTrue);
+
+      final latexTailParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail(r'Tail $x$'),
+        isStreaming: true,
+      );
+      final changedLatexTailParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail(r'Tail $x + y$'),
+        isStreaming: true,
+      );
+      expect(latexTailParts.first.partId, changedLatexTailParts.first.partId);
+      expect(
+        latexTailParts.first.document,
+        changedLatexTailParts.first.document,
+      );
+      expect(
+        latexTailParts.last.document,
+        isNot(changedLatexTailParts.last.document),
+      );
     },
   );
 
