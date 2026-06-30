@@ -32,6 +32,104 @@ void main() {
     expect(chatMessageDescendantIds(messages, 'child'), {'child', 'leaf'});
   });
 
+  test('applies OpenWebUI delete semantics by reparenting grandchildren', () {
+    final messages = [
+      _message('root', childrenIds: const ['child', 'sibling']),
+      _message('child', parentId: 'root', childrenIds: const ['leaf']),
+      _message('leaf', parentId: 'child'),
+      _message('sibling', parentId: 'root'),
+    ];
+
+    expect(openWebUiDeletedMessageIds(messages, 'child'), {'child', 'leaf'});
+
+    final updated = deleteOpenWebUiMessageFromChatMessages(messages, 'child');
+
+    expect(updated.map((message) => message.id), ['root', 'sibling']);
+    expect(chatMessageChildrenIds(updated.first), ['sibling']);
+  });
+
+  test('OpenWebUI delete reparents grandchildren to the deleted parent', () {
+    final messages = [
+      _message('root', childrenIds: const ['child']),
+      _message('child', parentId: 'root', childrenIds: const ['leaf']),
+      _message('leaf', parentId: 'child', childrenIds: const ['grandchild']),
+      _message('grandchild', parentId: 'leaf'),
+    ];
+
+    final updated = deleteOpenWebUiMessageFromChatMessages(messages, 'child');
+    final root = updated.singleWhere((message) => message.id == 'root');
+    final grandchild = updated.singleWhere(
+      (message) => message.id == 'grandchild',
+    );
+
+    expect(updated.map((message) => message.id), ['root', 'grandchild']);
+    expect(chatMessageChildrenIds(root), ['grandchild']);
+    expect(chatMessageParentId(grandchild), 'root');
+  });
+
+  test('OpenWebUI raw delete uses the same direct-child reparent plan', () {
+    final messages = <String, Map<String, dynamic>>{
+      'root': {
+        'id': 'root',
+        'childrenIds': ['child', 'sibling'],
+      },
+      'child': {
+        'id': 'child',
+        'parentId': 'root',
+        'childrenIds': ['leaf'],
+      },
+      'sibling': {'id': 'sibling', 'parentId': 'root'},
+      'leaf': {
+        'id': 'leaf',
+        'parentId': 'child',
+        'childrenIds': ['grandchild'],
+      },
+      'grandchild': {'id': 'grandchild', 'parentId': 'leaf'},
+    };
+
+    final result = deleteOpenWebUiMessageFromRawHistory(messages, 'child');
+
+    expect(result?.deletedIds, {'child', 'leaf'});
+    expect(result?.currentId, 'grandchild');
+    expect(messages.keys, ['root', 'sibling', 'grandchild']);
+    expect(messages['root']!['childrenIds'], ['sibling', 'grandchild']);
+    expect(messages['grandchild']!['parentId'], 'root');
+  });
+
+  test('OpenWebUI current id traversal stops on children cycles', () {
+    final messages = <String, Map<String, dynamic>>{
+      'root': {
+        'id': 'root',
+        'childrenIds': ['a'],
+      },
+      'a': {
+        'id': 'a',
+        'parentId': 'root',
+        'childrenIds': ['b'],
+      },
+      'b': {
+        'id': 'b',
+        'parentId': 'a',
+        'childrenIds': ['a'],
+      },
+    };
+    const plan = OpenWebUiDeletePlan(
+      rootId: 'deleted',
+      deletedIds: <String>{},
+      deletedParentId: 'root',
+      grandchildIds: <String>[],
+    );
+
+    final currentId = currentIdAfterOpenWebUiDelete<Map<String, dynamic>>(
+      messages,
+      plan,
+      parentIdOf: rawMessageParentId,
+      childrenIdsOf: rawMessageChildrenIds,
+    );
+
+    expect(currentId, 'b');
+  });
+
   test('guards chain traversal against cycles', () {
     final messages = {
       'a': {'id': 'a', 'parentId': 'b'},

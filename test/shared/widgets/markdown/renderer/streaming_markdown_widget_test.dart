@@ -3031,7 +3031,7 @@ Tail keeps growing
       // Reproduces issue #540: during the responseDone gap the turn phase
       // latches to completed (isStreaming:false to the body) while answer tokens
       // keep arriving. Each non-streaming content growth must NOT regress the
-      // already-rendered body to a loading skeleton.
+      // already-rendered body to a loading skeleton (the ~13Hz strobe).
       const firstContent = 'Settled answer paragraph.';
       const grownContent = 'Settled answer paragraph.\n\nFollow-up sentence.';
       final compiler = _SelectiveDelayedMarkdownCompileService(

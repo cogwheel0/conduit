@@ -2437,9 +2437,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     final latestMessages = ref.read(chatMessagesProvider);
     final removedIds = _messageIdsToDelete(latestMessages, message.id);
-    final updatedMessages = latestMessages
-        .where((candidate) => !removedIds.contains(candidate.id))
-        .toList(growable: false);
+    final updatedMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
+      latestMessages,
+      message.id,
+    );
 
     final removedStreamingMessage = latestMessages
         .where((candidate) => removedIds.contains(candidate.id))
@@ -2505,7 +2506,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Set<String> _messageIdsToDelete(
     List<ChatMessage> messages,
     String messageId,
-  ) => message_tree.chatMessageDescendantIds(messages, messageId);
+  ) => message_tree.openWebUiDeletedMessageIds(messages, messageId);
 
   void _regenerateMessage(String assistantMessageId) async {
     try {

@@ -1,6 +1,13 @@
 {
   "@@locale": "ru",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "Сервер не поддерживается",
+  "serverIncompatibleMessage": "На этом сервере установлена версия Open WebUI {serverVersion}, которая новее, чем поддерживает это приложение (до {maxVersion}).",
+  "serverIncompatibleResolution": "Чтобы продолжить, понизьте версию сервера до {maxVersion} или более ранней либо дождитесь обновления приложения с поддержкой новой версии.",
+  "serverIncompatibleConnectBlocked": "Этот сервер новее, чем поддерживает это приложение (до {maxVersion}).",
+  "serverIncompatibleRecheck": "Проверить сервер",
+  "serverIncompatibleSwitchServer": "Выбрать другой сервер",
+  "serverIncompatibleStillUnsupported": "Этот сервер по-прежнему новее, чем поддерживает это приложение.",
   "retry": "Повторить",
   "back": "Назад",
   "you": "Вы",

@@ -1133,6 +1133,62 @@ void main() {
     );
 
     test(
+      'syncConversationMessages preserves assistant version output',
+      () async {
+        final adapter = _FakeAdapter.json({});
+        final api = _buildApiServiceForTest(adapter);
+
+        final messages = [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: 'hello',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+          ),
+          ChatMessage(
+            id: 'asst-1',
+            role: 'assistant',
+            content: 'Current answer',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000001000),
+            versions: [
+              ChatMessageVersion(
+                id: 'asst-alt',
+                content: 'Alternate answer',
+                timestamp: DateTime.fromMillisecondsSinceEpoch(1700000002000),
+                output: const [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Alternate answer'},
+                    ],
+                  },
+                ],
+              ),
+            ],
+          ),
+        ];
+
+        await api.syncConversationMessages('conv-1', messages, model: 'gpt-4');
+
+        final body = adapter.lastRequest!.data as Map<String, dynamic>;
+        final chat = body['chat'] as Map<String, dynamic>;
+        final history = chat['history'] as Map<String, dynamic>;
+        final historyMessages = history['messages'] as Map<String, dynamic>;
+        final versionMessage =
+            historyMessages['asst-alt'] as Map<String, dynamic>;
+
+        check(versionMessage['output'] as List<dynamic>).deepEquals([
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Alternate answer'},
+            ],
+          },
+        ]);
+      },
+    );
+
+    test(
       'createConversation omits done for streaming assistant placeholders',
       () async {
         final adapter = _FakeAdapter.json({
@@ -1150,7 +1206,7 @@ void main() {
                   'role': 'user',
                   'content': 'hello',
                   'timestamp': 1700000000,
-                  'childrenIds': ['asst-1'],
+                  'childrenIds': ['asst-1', 'asst-newer'],
                 },
                 'asst-1': {
                   'id': 'asst-1',
@@ -1238,7 +1294,7 @@ void main() {
                   'role': 'user',
                   'content': 'hello',
                   'timestamp': 1700000000,
-                  'childrenIds': ['asst-1'],
+                  'childrenIds': ['asst-1', 'asst-newer'],
                 },
                 'asst-1': {
                   'id': 'asst-1',
@@ -1395,17 +1451,1140 @@ void main() {
       final adapter = _FakeAdapter.json({});
       final api = _buildApiServiceForTest(adapter);
 
-      await api.updateUserInfo({
-        'location': '12.346, 67.890 (lat, long)',
-      });
+      await api.updateUserInfo({'location': '12.346, 67.890 (lat, long)'});
 
       final request = adapter.lastRequest!;
       check(request.path).equals('/api/v1/users/user/info/update');
       final body = request.data as Map<String, dynamic>;
-      check(body).deepEquals({
-        'location': '12.346, 67.890 (lat, long)',
-      });
+      check(body).deepEquals({'location': '12.346, 67.890 (lat, long)'});
     });
+  });
+
+  group('Open WebUI 0.10.1 compatibility', () {
+    test(
+      'getDefaultModel parses comma-separated /api/config defaults',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'ui': {}}),
+          _FakeAdapter.json({'default_models': 'gpt-4.1, claude-sonnet'}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final model = await api.getDefaultModel();
+
+        check(model).equals('gpt-4.1');
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals(['/api/v1/users/user/settings', '/api/config']);
+      },
+    );
+
+    test('getSuggestions reads prompt suggestions from /api/config', () async {
+      final adapter = _FakeAdapter.json({
+        'default_prompt_suggestions': [
+          {
+            'title': ['Help me write'],
+            'content': 'Draft a concise project update.',
+          },
+          {
+            'title': ['Fallback title'],
+            'content': '',
+          },
+        ],
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final suggestions = await api.getSuggestions();
+
+      check(adapter.lastRequest!.path).equals('/api/config');
+      check(
+        suggestions,
+      ).deepEquals(['Draft a concise project update.', 'Fallback title']);
+    });
+
+    test('getSuggestions falls back to older suggestions endpoint', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({}),
+        _FakeAdapter.raw(
+          bytes: utf8.encode(
+            jsonEncode([
+              {
+                'title': ['Fallback title'],
+                'content': 'Legacy prompt suggestion.',
+              },
+            ]),
+          ),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final suggestions = await api.getSuggestions();
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/config', '/api/v1/configs/suggestions']);
+      check(suggestions).deepEquals(['Legacy prompt suggestion.']);
+    });
+
+    test(
+      'cloneConversation sends the CloneForm body required upstream',
+      () async {
+        final adapter = _FakeAdapter.json(
+          _legacyChatPayload(
+            historyMessages: const {
+              'root': {
+                'id': 'root',
+                'role': 'user',
+                'content': 'hello',
+                'timestamp': 1700000000,
+              },
+            },
+            currentId: 'root',
+          ),
+        );
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.cloneConversation('chat-1');
+
+        final request = adapter.lastRequest!;
+        check(request.path).equals('/api/v1/chats/chat-1/clone');
+        check(
+          request.data as Map<String, dynamic>,
+        ).deepEquals(<String, dynamic>{});
+      },
+    );
+
+    test('deleteConversationMessage uses upstream delete route', () async {
+      final adapter = _FakeAdapter.json({});
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.deleteConversationMessage('chat-1', 'msg-1');
+
+      final request = adapter.lastRequest!;
+      check(request.method).equals('DELETE');
+      check(request.path).equals('/api/v1/chats/chat-1/messages/msg-1');
+    });
+
+    test('deleteConversationMessage falls back for older servers', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.json(
+          _legacyChatPayload(
+            currentId: 'asst-1',
+            historyMessages: const {
+              'user-1': {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'hello',
+                'timestamp': 1700000000,
+                'childrenIds': ['asst-1'],
+              },
+              'asst-1': {
+                'id': 'asst-1',
+                'role': 'assistant',
+                'content': 'hi',
+                'timestamp': 1700000001,
+                'parentId': 'user-1',
+              },
+            },
+          ),
+        ),
+        _FakeAdapter.json({}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.deleteConversationMessage('chat-1', 'asst-1');
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'DELETE /api/v1/chats/chat-1/messages/asst-1',
+        'GET /api/v1/chats/chat-1',
+        'POST /api/v1/chats/chat-1',
+      ]);
+      final posted = adapter.requests.last.data as Map<String, dynamic>;
+      final chat = posted['chat'] as Map<String, dynamic>;
+      final history = chat['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      check(messages.keys.toList()).deepEquals(['user-1']);
+      check(history['currentId']).equals('user-1');
+    });
+
+    test(
+      'deleteConversationMessage fallback reparents grandchildren',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+          _FakeAdapter.json(
+            _legacyChatPayload(
+              currentId: 'asst-2',
+              historyMessages: const {
+                'user-1': {
+                  'id': 'user-1',
+                  'role': 'user',
+                  'content': 'hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['asst-1', 'asst-newer'],
+                },
+                'asst-1': {
+                  'id': 'asst-1',
+                  'role': 'assistant',
+                  'content': 'calling tool',
+                  'timestamp': 1700000001,
+                  'parentId': 'user-1',
+                  'childrenIds': ['tool-1'],
+                },
+                'asst-newer': {
+                  'id': 'asst-newer',
+                  'role': 'assistant',
+                  'content': 'newer sibling',
+                  'timestamp': 1700000004,
+                  'parentId': 'user-1',
+                },
+                'tool-1': {
+                  'id': 'tool-1',
+                  'role': 'tool',
+                  'content': 'tool result',
+                  'timestamp': 1700000002,
+                  'parentId': 'asst-1',
+                  'childrenIds': ['asst-2'],
+                },
+                'asst-2': {
+                  'id': 'asst-2',
+                  'role': 'assistant',
+                  'content': 'final answer',
+                  'timestamp': 1700000003,
+                  'parentId': 'tool-1',
+                },
+              },
+            ),
+          ),
+          _FakeAdapter.json({}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.deleteConversationMessage('chat-1', 'asst-1');
+
+        final posted = adapter.requests.last.data as Map<String, dynamic>;
+        final chat = posted['chat'] as Map<String, dynamic>;
+        final history = chat['history'] as Map<String, dynamic>;
+        final messages = history['messages'] as Map<String, dynamic>;
+        final user = messages['user-1'] as Map<String, dynamic>;
+        final assistant = messages['asst-2'] as Map<String, dynamic>;
+        final serializedMessages = chat['messages'] as List<dynamic>;
+
+        check(
+          messages.keys.toList(),
+        ).deepEquals(['user-1', 'asst-newer', 'asst-2']);
+        check(
+          user['childrenIds'] as List<dynamic>,
+        ).deepEquals(['asst-newer', 'asst-2']);
+        check(assistant['parentId']).equals('user-1');
+        check(history['currentId']).equals('asst-2');
+        check(
+          serializedMessages
+              .map((message) => (message as Map<String, dynamic>)['id'])
+              .toList(),
+        ).deepEquals(['user-1', 'asst-2']);
+      },
+    );
+
+    test('addTagToConversation falls back to legacy tag body', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
+        _FakeAdapter.json({}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.addTagToConversation('chat-1', 'work');
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/chat-1/tags', '/api/v1/chats/chat-1/tags']);
+      check(
+        adapter.requests.first.data as Map<String, dynamic>,
+      ).deepEquals({'name': 'work'});
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'tag': 'work'});
+    });
+
+    test('getAllTags falls back to legacy tags route', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.raw(
+          bytes: utf8.encode(jsonEncode(['work', 'personal'])),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final tags = await api.getAllTags();
+
+      check(tags).deepEquals(['work', 'personal']);
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/all/tags', '/api/v1/chats/tags']);
+    });
+
+    test('removeTagFromConversation falls back to legacy tag route', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.json({}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.removeTagFromConversation('chat-1', 'work tag');
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals([
+        '/api/v1/chats/chat-1/tags',
+        '/api/v1/chats/chat-1/tags/work%20tag',
+      ]);
+      check(
+        adapter.requests.first.data as Map<String, dynamic>,
+      ).deepEquals({'name': 'work tag'});
+    });
+
+    test('getConversationsByTag falls back to legacy tag route', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.raw(
+          bytes: utf8.encode('[]'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final conversations = await api.getConversationsByTag('work');
+
+      check(conversations).isEmpty();
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/tags', '/api/v1/chats/tags/work']);
+      check(
+        adapter.requests.first.data as Map<String, dynamic>,
+      ).deepEquals({'name': 'work', 'skip': 0, 'limit': 50});
+      check(adapter.requests.last.method).equals('GET');
+    });
+
+    test('getConversationsByTag paginates the 0.10 tag filter route', () async {
+      Map<String, dynamic> taggedChat(int index) => {
+        'id': 'chat-$index',
+        'title': 'Chat $index',
+        'updated_at': 1700000000 + index,
+        'created_at': 1700000000,
+      };
+
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode(
+            jsonEncode([for (var i = 0; i < 50; i += 1) taggedChat(i)]),
+          ),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.raw(
+          bytes: utf8.encode(jsonEncode([taggedChat(50)])),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final conversations = await api.getConversationsByTag('work');
+
+      check(conversations).length.equals(51);
+      check(
+        adapter.requests.map((request) => request.data).cast<Map>().toList(),
+      ).deepEquals([
+        {'name': 'work', 'skip': 0, 'limit': 50},
+        {'name': 'work', 'skip': 50, 'limit': 50},
+      ]);
+    });
+
+    test(
+      'pinConversation skips toggle when server state already matches',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('true'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.pinConversation('chat-1', true);
+
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals(['/api/v1/chats/chat-1/pinned']);
+      },
+    );
+
+    test('pinConversation toggles when server state differs', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('false'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'id': 'chat-1', 'pinned': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.pinConversation('chat-1', true);
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
+    });
+
+    test('pinConversation treats null pinned state as false', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('null'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'id': 'chat-1', 'pinned': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.pinConversation('chat-1', true);
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
+    });
+
+    test(
+      'pinConversation surfaces mismatched state after toggle post',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('false'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+          _FakeAdapter.json({'pinned': false}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.pinConversation('chat-1', true),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/chats/chat-1/pinned',
+          'POST /api/v1/chats/chat-1/pin',
+        ]);
+      },
+    );
+
+    test('pinConversation surfaces unknown state after toggle post', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('false'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'ok': true}),
+        _FakeAdapter.json({}),
+        _FakeAdapter.json({'id': 'chat-1'}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.pinConversation('chat-1', true),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'GET /api/v1/chats/chat-1/pinned',
+        'POST /api/v1/chats/chat-1/pin',
+        'GET /api/v1/chats/chat-1/pinned',
+        'GET /api/v1/chats/chat-1',
+      ]);
+    });
+
+    test(
+      'pinConversation does not toggle when current state is unknown',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({}),
+          _FakeAdapter.json({'id': 'chat-1'}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.pinConversation('chat-1', true),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1']);
+      },
+    );
+
+    test(
+      'archiveConversation reads wrapped chat state before toggling',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'chat': {'archived': false},
+          }),
+          _FakeAdapter.json({'id': 'chat-1', 'archived': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.archiveConversation('chat-1', true);
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/chats/chat-1',
+          'POST /api/v1/chats/chat-1/archive',
+        ]);
+      },
+    );
+
+    test('sendChatCompleted omits null session_id', () async {
+      final adapter = _FakeAdapter.json({'ok': true});
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.sendChatCompleted(
+        chatId: 'chat-1',
+        messageId: 'msg-1',
+        messages: const [
+          {'id': 'msg-1', 'role': 'assistant', 'content': 'Done'},
+        ],
+        model: 'gpt-4.1',
+      );
+
+      final body = adapter.lastRequest!.data as Map<String, dynamic>;
+      check(body.containsKey('session_id')).isFalse();
+    });
+
+    test('getBackendConfig preserves older audio config defaults', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'features': {},
+          'tts_voice': 'legacy-voice',
+          'tts_split_on': 'legacy-split',
+          'tts_voices': [
+            {'id': 'legacy', 'name': 'Legacy Voice'},
+          ],
+        }),
+        _FakeAdapter.json({
+          'tts': {'VOICE': 'nova', 'SPLIT_ON': 'paragraphs'},
+        }),
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final config = await api.getBackendConfig();
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals([
+        '/api/config',
+        '/api/v1/audio/config',
+        '/api/v1/audio/voices',
+      ]);
+      check(config).isNotNull();
+      check(config!.ttsVoice).equals('nova');
+      check(config.ttsSplitOn).equals('paragraphs');
+      check(config.ttsVoices).length.equals(1);
+      check(config.ttsVoices.single.id).equals('legacy');
+    });
+
+    test(
+      'getBackendConfig preserves split default when audio omits it',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'features': {}, 'tts_split_on': 'legacy-split'}),
+          _FakeAdapter.json({
+            'tts': {'VOICE': 'nova'},
+          }),
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final config = await api.getBackendConfig();
+
+        check(config).isNotNull();
+        check(config!.ttsVoice).equals('nova');
+        check(config.ttsSplitOn).equals('legacy-split');
+      },
+    );
+
+    test('knowledge create update delete fall back to legacy routes', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
+        _FakeAdapter.json({'id': 'kb-1', 'name': 'Docs'}),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
+        _FakeAdapter.json({}),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
+        _FakeAdapter.json({}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final created = await api.createKnowledgeBase(
+        name: 'Docs',
+        description: 'Team docs',
+      );
+      await api.updateKnowledgeBase(
+        'kb-1',
+        name: 'Docs 2',
+        description: 'Updated',
+      );
+      await api.deleteKnowledgeBase('kb-1');
+
+      check(created['id']).equals('kb-1');
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/knowledge/create',
+        'POST /api/v1/knowledge/',
+        'POST /api/v1/knowledge/kb-1/update',
+        'PUT /api/v1/knowledge/kb-1',
+        'DELETE /api/v1/knowledge/kb-1/delete',
+        'DELETE /api/v1/knowledge/kb-1',
+      ]);
+    });
+
+    test(
+      'deleteKnowledgeBase throws when new delete route returns false',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('false'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.deleteKnowledgeBase('kb-1'),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['DELETE /api/v1/knowledge/kb-1/delete']);
+      },
+    );
+
+    test(
+      'knowledge validation 400 does not fall back to legacy route',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Name is required'}, statusCode: 400),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.createKnowledgeBase(name: '', description: ''),
+          throwsA(isA<DioException>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['POST /api/v1/knowledge/create']);
+      },
+    );
+
+    test(
+      'updateKnowledgeBase falls back when prefetch rejects new route',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Invalid route'}, statusCode: 422),
+          _FakeAdapter.json({}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.updateKnowledgeBase('kb-1', name: 'Docs');
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/knowledge/kb-1',
+          'PUT /api/v1/knowledge/kb-1',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'name': 'Docs'});
+      },
+    );
+
+    test(
+      'updateKnowledgeBase legacy update preserves prefetched fields',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'name': 'Docs',
+            'description': 'Existing description',
+          }),
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+          _FakeAdapter.json({}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.updateKnowledgeBase('kb-1', name: 'Docs 2');
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/knowledge/kb-1',
+          'POST /api/v1/knowledge/kb-1/update',
+          'PUT /api/v1/knowledge/kb-1',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'name': 'Docs 2', 'description': 'Existing description'});
+      },
+    );
+
+    test('getKnowledgeBaseItems reads the 0.10 file-backed endpoint', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'items': [
+            {
+              'id': 'file-1',
+              'content': '',
+              'data': {'content': 'Guide text'},
+              'created_at': 1700000000,
+              'updated_at': 1700000001,
+              'meta': {'filename': 'guide.md', 'name': 'Guide'},
+            },
+          ],
+          'total': 2,
+        }),
+        _FakeAdapter.json({
+          'items': [
+            {
+              'id': 'file-2',
+              'filename': 'notes.md',
+              'content': 'Notes text',
+              'created_at': 1700000002,
+              'updated_at': 1700000003,
+            },
+          ],
+          'total': 2,
+        }),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final items = await api.getKnowledgeBaseItems('kb-1');
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals([
+        '/api/v1/knowledge/kb-1/files',
+        '/api/v1/knowledge/kb-1/files',
+      ]);
+      check(
+        adapter.requests
+            .map((request) => request.queryParameters['page'])
+            .toList(),
+      ).deepEquals([1, 2]);
+      check(
+        adapter.requests
+            .map((request) => request.queryParameters['include_content'])
+            .toList(),
+      ).deepEquals([true, true]);
+      check(items).length.equals(2);
+      check(items.first.id).equals('file-1');
+      check(items.first.title).equals('guide.md');
+      check(items.first.content).equals('Guide text');
+      check(items[1].id).equals('file-2');
+      check(items[1].content).equals('Notes text');
+    });
+
+    test('getKnowledgeBaseItems falls back to legacy items route', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.raw(
+          bytes: utf8.encode(
+            jsonEncode([
+              {
+                'id': 'item-1',
+                'title': 'Legacy note',
+                'content': 'Saved text',
+                'created_at': 1700000000,
+                'updated_at': 1700000001,
+              },
+            ]),
+          ),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final items = await api.getKnowledgeBaseItems('kb-1');
+
+      check(
+        adapter.requests.map((request) => request.path).toList(),
+      ).deepEquals([
+        '/api/v1/knowledge/kb-1/files',
+        '/api/v1/knowledge/kb-1/items',
+      ]);
+      check(items).length.equals(1);
+      check(items.single.id).equals('item-1');
+      check(items.single.title).equals('Legacy note');
+      check(items.single.content).equals('Saved text');
+    });
+
+    test(
+      'getKnowledgeBaseItems falls back on non-json files response',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('<html>not json</html>'),
+            headers: {
+              'content-type': ['text/html; charset=utf-8'],
+            },
+          ),
+          _FakeAdapter.raw(
+            bytes: utf8.encode(
+              jsonEncode([
+                {
+                  'id': 'item-1',
+                  'title': 'Legacy note',
+                  'content': 'Saved text',
+                  'created_at': 1700000000,
+                  'updated_at': 1700000001,
+                },
+              ]),
+            ),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final items = await api.getKnowledgeBaseItems('kb-1');
+
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals([
+          '/api/v1/knowledge/kb-1/files',
+          '/api/v1/knowledge/kb-1/items',
+        ]);
+        check(items).length.equals(1);
+        check(items.single.id).equals('item-1');
+        check(items.single.content).equals('Saved text');
+      },
+    );
+
+    test(
+      'addFileToKnowledgeBase falls back to legacy file add route',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+          _FakeAdapter.json({'id': 'file-1'}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final file = await api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        );
+
+        check(file?['id']).equals('file-1');
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals(['/api/v1/files/', '/api/v1/knowledge/kb-1/file/add']);
+      },
+    );
+
+    test('addFileToKnowledgeBase explicitly attaches uploaded file', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'id': 'file-1'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final file = await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
+
+      check(file?['id']).equals('file-1');
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/files/',
+        'POST /api/v1/knowledge/kb-1/file/add',
+      ]);
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'file_id': 'file-1'});
+    });
+
+    test('addFileToKnowledgeBase recognizes camelCase upload id', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'fileId': 'file-1'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final file = await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
+
+      check(file?['fileId']).equals('file-1');
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/files/',
+        'POST /api/v1/knowledge/kb-1/file/add',
+      ]);
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'file_id': 'file-1'});
+    });
+
+    test(
+      'addFileToKnowledgeBase recognizes nested identifier upload id',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'upload': {'identifier': 'file-1'},
+          }),
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final file = await api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        );
+
+        check(file?['upload']).isA<Map>().containsKey('identifier');
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'POST /api/v1/files/',
+          'POST /api/v1/knowledge/kb-1/file/add',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'file_id': 'file-1'});
+      },
+    );
+
+    test('addFileToKnowledgeBase recognizes file-wrapped nested id', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'file': {
+            'data': {'identifier': 'file-1'},
+          },
+        }),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/files/',
+        'POST /api/v1/knowledge/kb-1/file/add',
+      ]);
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'file_id': 'file-1'});
+    });
+
+    test(
+      'addFileToKnowledgeBase does not legacy reupload without file id',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.addFileToKnowledgeBase(
+            'kb-1',
+            filename: 'guide.md',
+            content: utf8.encode('hello'),
+          ),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals(['POST /api/v1/files/']);
+      },
+    );
+
+    test('addFileToKnowledgeBase ignores unrelated nested ids', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'data': {
+            'user': {'id': 'user-1'},
+            'collection': {'uuid': 'collection-1'},
+          },
+        }),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals(['POST /api/v1/files/']);
+    });
+
+    test('addFileToKnowledgeBase ignores arbitrary nested file ids', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'file': {
+            'data': {
+              'attributes': {'id': 'attribute-1'},
+            },
+          },
+        }),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals(['POST /api/v1/files/']);
+    });
+
+    test(
+      'addFileToKnowledgeBase does not legacy reupload unprocessed file',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'id': 'file-1'}),
+          _FakeAdapter.json({'detail': 'FILE_NOT_PROCESSED'}, statusCode: 400),
+          _FakeAdapter.json({'status': true}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.addFileToKnowledgeBase(
+            'kb-1',
+            filename: 'guide.md',
+            content: utf8.encode('hello'),
+          ),
+          throwsA(isA<DioException>()),
+        );
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'POST /api/v1/files/',
+          'POST /api/v1/knowledge/kb-1/file/add',
+          'DELETE /api/v1/files/file-1',
+        ]);
+      },
+    );
+
+    test(
+      'addFileToKnowledgeBase falls back when attach route rejects file id body',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'id': 'file-1'}),
+          _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
+          _FakeAdapter.json({'status': true}),
+          _FakeAdapter.json({'id': 'legacy-file'}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final file = await api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        );
+
+        check(file?['id']).equals('legacy-file');
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals([
+          '/api/v1/files/',
+          '/api/v1/knowledge/kb-1/file/add',
+          '/api/v1/files/file-1',
+          '/api/v1/knowledge/kb-1/file/add',
+        ]);
+        check(adapter.requests[2].method).equals('DELETE');
+      },
+    );
   });
 
   group('getChannels feature flag', () {
