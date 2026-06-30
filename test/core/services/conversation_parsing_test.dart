@@ -639,6 +639,48 @@ void main() {
         check(content).contains('<details type="reasoning" done="true"');
         check(content).contains('Final answer');
       });
+
+      test(
+        'derives content from output on the history-backed reload path',
+        () {
+          // Reloaded conversations source messages from
+          // `chat.history.messages` (a Map keyed by id) following the
+          // `currentId` parent chain. Responses-API models persist `output`
+          // with an empty `content` there too, so the fallback must fire on
+          // this path (the actual leave-and-return scenario).
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'title': 'Reloaded',
+            'chat': {
+              'history': {
+                'currentId': 'msg-1',
+                'messages': {
+                  'msg-1': {
+                    'id': 'msg-1',
+                    'role': 'assistant',
+                    'content': '',
+                    'output': [
+                      {
+                        'type': 'message',
+                        'role': 'assistant',
+                        'content': [
+                          {'type': 'output_text', 'text': 'Reloaded output'},
+                        ],
+                      },
+                    ],
+                    'timestamp': 1700000000,
+                  },
+                },
+              },
+            },
+          });
+
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          check(messages).has((it) => it.length, 'length').equals(1);
+          check(messages.first['content']).equals('Reloaded output');
+          check(messages.first['output']).isNotNull();
+        },
+      );
     });
 
     group('empty or missing data', () {
