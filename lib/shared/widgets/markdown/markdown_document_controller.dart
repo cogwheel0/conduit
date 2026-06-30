@@ -329,6 +329,9 @@ class MarkdownDocumentController {
         if (!frozenDocument.isEmpty) frozenDocument,
         if (tailDocument != null && !tailDocument.isEmpty) tailDocument,
       ],
+      mutableBlockStartIndex: tailDocument == null || tailDocument.isEmpty
+          ? -1
+          : frozenDocument.rootBlockCount,
     );
     _streamingIncrementalState = _StreamingIncrementalState(
       preparedContent: preparedContent,
@@ -391,6 +394,9 @@ class MarkdownDocumentController {
             if (!updatedFrozenDocument.isEmpty) updatedFrozenDocument,
             if (!tailDocument.isEmpty) tailDocument,
           ],
+          mutableBlockStartIndex: tailDocument.isEmpty
+              ? -1
+              : updatedFrozenDocument.rootBlockCount,
         );
         _streamingIncrementalState = _StreamingIncrementalState(
           preparedContent: preparedContent,
@@ -429,6 +435,9 @@ class MarkdownDocumentController {
         if (!updatedFrozenDocument.isEmpty) updatedFrozenDocument,
         if (!tailDocument.isEmpty) tailDocument,
       ],
+      mutableBlockStartIndex: tailDocument.isEmpty
+          ? -1
+          : updatedFrozenDocument.rootBlockCount,
     );
     _streamingIncrementalState = _StreamingIncrementalState(
       preparedContent: preparedContent,

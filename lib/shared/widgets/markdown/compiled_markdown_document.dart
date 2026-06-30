@@ -47,6 +47,7 @@ class CompiledMarkdownDocument {
     required List<CompiledMarkdownNode> nodes,
     required Map<String, String> blockLatexExpressions,
     required Map<String, String> inlineLatexExpressions,
+    this.mutableBlockStartIndex = -1,
   }) : blocks = List<CompiledMarkdownBlock>.unmodifiable(blocks),
        nodes = List<CompiledMarkdownNode>.unmodifiable(nodes),
        blockLatexExpressions = Map<String, String>.unmodifiable(
@@ -64,7 +65,8 @@ class CompiledMarkdownDocument {
       blocks = const <CompiledMarkdownBlock>[],
       nodes = const <CompiledMarkdownNode>[],
       blockLatexExpressions = const <String, String>{},
-      inlineLatexExpressions = const <String, String>{};
+      inlineLatexExpressions = const <String, String>{},
+      mutableBlockStartIndex = -1;
 
   final String normalizedContent;
   final MarkdownRenderTier renderTier;
@@ -74,8 +76,10 @@ class CompiledMarkdownDocument {
   final List<CompiledMarkdownNode> nodes;
   final Map<String, String> blockLatexExpressions;
   final Map<String, String> inlineLatexExpressions;
+  final int mutableBlockStartIndex;
 
-  bool get isEmpty => normalizedContent.trim().isEmpty || nodes.isEmpty;
+  bool get isEmpty =>
+      normalizedContent.trim().isEmpty || (nodes.isEmpty && blocks.isEmpty);
 
   bool get hasHeavyBlocks => heavyBlockCount > 0;
 
@@ -85,6 +89,16 @@ class CompiledMarkdownDocument {
   int get rootNodeCount => nodes.length;
 
   int get rootBlockCount => blocks.length;
+
+  bool get hasMutableBlockMetadata =>
+      mutableBlockStartIndex >= 0 && mutableBlockStartIndex < blocks.length;
+
+  bool isMutableRootBlock(int index) {
+    if (!hasMutableBlockMetadata) {
+      return false;
+    }
+    return index >= mutableBlockStartIndex;
+  }
 
   int get estimatedWeight {
     final blockWeight = blocks.fold<int>(0, (sum, block) => sum + block.weight);
@@ -139,12 +153,14 @@ class CompiledMarkdownDocument {
       nodes: rebasedRootNodes,
       blockLatexExpressions: blockLatexExpressions,
       inlineLatexExpressions: inlineLatexExpressions,
+      mutableBlockStartIndex: mutableBlockStartIndex,
     );
   }
 
   static CompiledMarkdownDocument compose({
     required String normalizedContent,
     required Iterable<CompiledMarkdownDocument> segments,
+    int mutableBlockStartIndex = -1,
   }) {
     final segmentList = segments
         .where((segment) => segment.nodes.isNotEmpty)
@@ -161,11 +177,13 @@ class CompiledMarkdownDocument {
               nodes: const <CompiledMarkdownNode>[],
               blockLatexExpressions: const <String, String>{},
               inlineLatexExpressions: const <String, String>{},
+              mutableBlockStartIndex: mutableBlockStartIndex,
             );
     }
     if (segmentList.length == 1) {
       final segment = segmentList.single;
-      if (segment.normalizedContent == normalizedContent) {
+      if (segment.normalizedContent == normalizedContent &&
+          segment.mutableBlockStartIndex == mutableBlockStartIndex) {
         return segment;
       }
       return CompiledMarkdownDocument(
@@ -177,6 +195,7 @@ class CompiledMarkdownDocument {
         nodes: segment.nodes,
         blockLatexExpressions: segment.blockLatexExpressions,
         inlineLatexExpressions: segment.inlineLatexExpressions,
+        mutableBlockStartIndex: mutableBlockStartIndex,
       );
     }
 
@@ -213,6 +232,7 @@ class CompiledMarkdownDocument {
       nodes: nodes,
       blockLatexExpressions: blockLatexExpressions,
       inlineLatexExpressions: inlineLatexExpressions,
+      mutableBlockStartIndex: mutableBlockStartIndex,
     );
   }
 
@@ -225,6 +245,7 @@ class CompiledMarkdownDocument {
     'nodes': nodes.map((node) => node.toMap()).toList(growable: false),
     'blockLatexExpressions': blockLatexExpressions,
     'inlineLatexExpressions': inlineLatexExpressions,
+    'mutableBlockStartIndex': mutableBlockStartIndex,
   };
 
   factory CompiledMarkdownDocument.fromMap(Map<String, Object?> map) {
@@ -263,6 +284,8 @@ class CompiledMarkdownDocument {
       nodes: nodes,
       blockLatexExpressions: blockLatex,
       inlineLatexExpressions: inlineLatex,
+      mutableBlockStartIndex:
+          (map['mutableBlockStartIndex'] as num?)?.toInt() ?? -1,
     );
   }
 
@@ -276,7 +299,8 @@ class CompiledMarkdownDocument {
         listEquals(other.blocks, blocks) &&
         listEquals(other.nodes, nodes) &&
         mapEquals(other.blockLatexExpressions, blockLatexExpressions) &&
-        mapEquals(other.inlineLatexExpressions, inlineLatexExpressions);
+        mapEquals(other.inlineLatexExpressions, inlineLatexExpressions) &&
+        other.mutableBlockStartIndex == mutableBlockStartIndex;
   }
 
   @override
@@ -289,6 +313,7 @@ class CompiledMarkdownDocument {
     Object.hashAll(nodes),
     Object.hashAllUnordered(blockLatexExpressions.entries),
     Object.hashAllUnordered(inlineLatexExpressions.entries),
+    mutableBlockStartIndex,
   );
 }
 

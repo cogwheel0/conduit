@@ -66,6 +66,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.stateScopeId,
     this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+    this.trimLastBlockBottomPadding = true,
     this.debugTreatAsWidgetTest,
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
@@ -106,6 +107,10 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
 
   /// Controls how expensive preview-backed blocks should behave.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+
+  /// Whether the final rendered root block should drop trailing paragraph
+  /// spacing. Multi-part streaming renders keep spacing on non-final parts.
+  final bool trimLastBlockBottomPadding;
 
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
@@ -176,6 +181,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       stateScopeId: widget.stateScopeId,
       enableStreamingTextFade: widget.enableStreamingTextFade,
       heavyBlockPolicy: widget.heavyBlockPolicy,
+      trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
       debugOnMounted: widget.debugOnCompiledViewMounted,
       debugOnDisposed: widget.debugOnCompiledViewDisposed,
       debugOnBaseRender: widget.debugOnBaseRender,
@@ -232,6 +238,7 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.stateScopeId,
     this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+    this.trimLastBlockBottomPadding = true,
     this.debugOnMounted,
     this.debugOnDisposed,
     this.debugOnBaseRender,
@@ -245,6 +252,7 @@ class _CompiledMarkdownView extends StatefulWidget {
   final String? stateScopeId;
   final bool enableStreamingTextFade;
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
+  final bool trimLastBlockBottomPadding;
   final VoidCallback? debugOnMounted;
   final VoidCallback? debugOnDisposed;
   final VoidCallback? debugOnBaseRender;
@@ -281,6 +289,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   // ends and must re-hydrate previews).
   MarkdownHeavyBlockPolicy? _renderedHeavyBlockPolicy;
   bool? _renderedEnableStreamingTextFade;
+  bool? _renderedTrimLastBlockBottomPadding;
   LinkTapCallback? _renderedOnLinkTap;
   List<ChatSourceReference>? _renderedSources;
   void Function(int sourceIndex)? _renderedOnSourceTap;
@@ -405,6 +414,8 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
         _renderedTier == widget.document.renderTier &&
         _renderedHeavyBlockPolicy == widget.heavyBlockPolicy &&
         _renderedEnableStreamingTextFade == widget.enableStreamingTextFade &&
+        _renderedTrimLastBlockBottomPadding ==
+            widget.trimLastBlockBottomPadding &&
         identical(_renderedOnLinkTap, widget.onLinkTap) &&
         identical(_renderedSources, widget.sources) &&
         identical(_renderedOnSourceTap, widget.onSourceTap) &&
@@ -432,18 +443,22 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _cachedView = switch (widget.document.renderTier) {
       MarkdownRenderTier.plainText => _buildPlainText(inlineRenderer, style),
       MarkdownRenderTier.richText => _buildRichText(inlineRenderer, style),
-      MarkdownRenderTier.blocks => BlockRenderer(
-        context,
-        style,
-        inlineRenderer,
-        _latexPreprocessor,
-        widget.onLinkTap,
-        widget.imageBuilder,
-        widget.stateScopeId,
-        null,
-        widget.heavyBlockPolicy,
-        _fadeSourceOrNull(),
-      ).renderCompiledBlocks(widget.document.blocks),
+      MarkdownRenderTier.blocks =>
+        BlockRenderer(
+          context,
+          style,
+          inlineRenderer,
+          _latexPreprocessor,
+          widget.onLinkTap,
+          widget.imageBuilder,
+          widget.stateScopeId,
+          null,
+          widget.heavyBlockPolicy,
+          _fadeSourceOrNull(),
+        ).renderCompiledBlocks(
+          widget.document.blocks,
+          trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+        ),
     };
 
     _renderedDocument = widget.document;
@@ -453,6 +468,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _renderedTier = widget.document.renderTier;
     _renderedHeavyBlockPolicy = widget.heavyBlockPolicy;
     _renderedEnableStreamingTextFade = widget.enableStreamingTextFade;
+    _renderedTrimLastBlockBottomPadding = widget.trimLastBlockBottomPadding;
     _renderedOnLinkTap = widget.onLinkTap;
     _renderedSources = widget.sources;
     _renderedOnSourceTap = widget.onSourceTap;
@@ -468,6 +484,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _renderedTier = null;
     _renderedHeavyBlockPolicy = null;
     _renderedEnableStreamingTextFade = null;
+    _renderedTrimLastBlockBottomPadding = null;
     _renderedOnLinkTap = null;
     _renderedSources = null;
     _renderedOnSourceTap = null;
