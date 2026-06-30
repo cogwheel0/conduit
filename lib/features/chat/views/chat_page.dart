@@ -3923,6 +3923,11 @@ final RegExp _chatExtentStandaloneDataUriPattern = RegExp(
   r'(?:^|\n)[ \t]*data:image/',
 );
 
+/// Matches fenced code blocks (``` ... ```). Their content renders verbatim, so
+/// any image / data-uri markup inside is shown as text — it must be counted for
+/// line height but excluded from the image-term and data-uri-strip logic.
+final RegExp _chatExtentFencedCodePattern = RegExp('```[\\s\\S]*?```');
+
 double _estimateChatMessageExtent(
   ChatMessage? message,
   double crossAxisExtent, {
@@ -3944,17 +3949,31 @@ double _estimateChatMessageExtent(
   }
 
   final width = crossAxisExtent.clamp(280.0, 960.0);
-  // Base64 data-uri images are enormous as text but render as a fixed-size
-  // image, so exclude their payload from the line estimate (a flat per-image
-  // term is added below); otherwise a generated image wildly over-estimates.
+
   final rawContent = message.content;
-  final dataUriImageCount = _chatExtentDataUriImagePattern
+  // Fenced code blocks render verbatim — any image / data-uri markup inside is
+  // shown as text, not a rendered image — so handle them separately: count
+  // their content in full for line height, and apply the image-term /
+  // data-uri-strip logic only to the prose outside them.
+  final fencedCodeMatches = _chatExtentFencedCodePattern
       .allMatches(rawContent)
-      .length;
-  final textContent = dataUriImageCount == 0
+      .toList(growable: false);
+  final codeFenceBlocks = fencedCodeMatches.length;
+  final codeContentLength = fencedCodeMatches.fold<int>(
+    0,
+    (sum, match) => sum + match.group(0)!.length,
+  );
+  final proseContent = codeFenceBlocks == 0
       ? rawContent
-      : rawContent.replaceAll(_chatExtentDataUriImagePattern, '');
-  final contentLength = textContent.trim().length;
+      : rawContent.replaceAll(_chatExtentFencedCodePattern, '');
+
+  // Base64 data-uri images in prose are enormous as text but render as a
+  // fixed-size image, so exclude their payload from the line estimate (a flat
+  // per-image term is added below); otherwise a generated image over-estimates.
+  final proseText = proseContent.contains('data:image/')
+      ? proseContent.replaceAll(_chatExtentDataUriImagePattern, '')
+      : proseContent;
+  final contentLength = proseText.trim().length + codeContentLength;
   final charsPerLine = (width / (message.role == 'user' ? 7.8 : 7.0)).clamp(
     26.0,
     96.0,
@@ -3964,17 +3983,16 @@ double _estimateChatMessageExtent(
   var estimate = message.role == 'user' ? 84.0 : 132.0;
   estimate += estimatedLineCount * 22.0;
 
-  // Structured markdown renders taller than a flat line count: code blocks add
-  // chrome/padding, and images render at a fixed size regardless of markup.
-  final codeFenceBlocks = '```'.allMatches(textContent).length ~/ 2;
+  // Code blocks add chrome/padding on top of their counted content height.
   estimate += codeFenceBlocks * 120.0;
-  // Count each rendered image once: markdown `![...]` images plus raw
-  // standalone data-uri lines (rendered as images at display time with no
-  // `![]` wrapper). A data-uri inside a markdown image isn't at line start, so
-  // it is only counted by the `![` term, not double-counted here.
-  final markdownImageCount = '!['.allMatches(textContent).length;
+  // Count each rendered image once, in prose only (code blocks show markup
+  // verbatim): markdown `![...]` images plus raw standalone data-uri lines
+  // (rendered as images with no `![]` wrapper). A data-uri inside a markdown
+  // image isn't at line start, so it is counted by the `![` term, not
+  // double-counted by the standalone pattern.
+  final markdownImageCount = '!['.allMatches(proseText).length;
   final standaloneDataUriImageCount = _chatExtentStandaloneDataUriPattern
-      .allMatches(rawContent)
+      .allMatches(proseContent)
       .length;
   final imageCount = markdownImageCount + standaloneDataUriImageCount;
   estimate += math.min(imageCount, 8) * 220.0;

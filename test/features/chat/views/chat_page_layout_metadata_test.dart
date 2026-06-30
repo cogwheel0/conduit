@@ -490,6 +490,25 @@ void main() {
     expect(extent, lessThan(2000));
   });
 
+  test('image markup inside a fenced code block counts as verbatim text', () {
+    final base64Payload = List<String>.filled(20000, 'A').join();
+    final codeSample =
+        '```\n![alt](https://example.com/x.png)\ndata:image/png;base64,$base64Payload\n```';
+    final summary = debugBuildChatListLayoutSummaryForTesting([
+      ChatMessage(
+        id: 'assistant-code',
+        role: 'assistant',
+        content: codeSample,
+        timestamp: DateTime(2026),
+      ),
+    ]);
+
+    // The code block renders its content (including the base64) verbatim, so the
+    // estimate must reflect that large text height — not strip the base64 and
+    // treat the markup as a couple of small images (which would under-estimate).
+    expect(summary.single.estimatedExtent, greaterThan(2400));
+  });
+
   test(
     'layout metadata only enables follow-ups for terminal assistant rows',
     () {
