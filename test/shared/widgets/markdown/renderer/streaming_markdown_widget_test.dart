@@ -490,6 +490,62 @@ void main() {
     expect(part.document.normalizedContent, contains('search'));
   });
 
+  test('buildMarkdownDisplayParts returns an empty list for an empty document', () {
+    final parts = buildMarkdownDisplayParts(
+      const CompiledMarkdownDocument.empty(),
+      isStreaming: true,
+    );
+    expect(parts, isEmpty);
+  });
+
+  test('details group display part joins every grouped summary into one part', () {
+    final first = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final second = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+      ].join('\n'),
+    ).rebaseRootIds(rootNodeOffset: first.rootNodeCount);
+    final groupDoc = CompiledMarkdownDocument.compose(
+      normalizedContent: '${first.normalizedContent}\n${second.normalizedContent}',
+      segments: <CompiledMarkdownDocument>[first, second],
+    );
+    final group = groupDoc.blocks
+        .whereType<CompiledMarkdownDetailsGroup>()
+        .single;
+
+    // Drop root nodes so _normalizedContentForBlock takes the detailsGroup join
+    // branch (joined summaries) instead of the element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: groupDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[group],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
+
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.normalizedContent, contains('search'));
+    expect(part.document.normalizedContent, contains('browser'));
+  });
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,
@@ -557,6 +613,33 @@ void main() {
       ),
     );
   }
+
+  testWidgets('renders correctly when a streaming display part is dropped', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness('Alpha block.\n\nBeta block.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+    expect(
+      find.textContaining('Beta block', findRichText: true),
+      findsOneWidget,
+    );
+
+    // Re-pump with the middle part removed so the stable-part cache reuse +
+    // eviction path (_reuseStableDisplayPartDocuments) runs across a shrinking
+    // part list: the dropped part stops rendering, survivors remain.
+    await tester.pumpWidget(
+      buildHarness('Alpha block.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('Beta block', findRichText: true), findsNothing);
+    expect(
+      find.textContaining('Alpha block', findRichText: true),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'defers heavy mermaid previews while the message is still streaming',

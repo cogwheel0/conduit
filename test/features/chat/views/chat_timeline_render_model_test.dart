@@ -218,4 +218,24 @@ void main() {
       'message-assistant-archived': 1,
     });
   });
+
+  test('fromMessages([]) yields an empty, tail-less timeline', () {
+    final timeline = ChatTimelineRenderModel.fromMessages(const []);
+
+    expect(timeline.historyMessages, isEmpty);
+    expect(timeline.tailAssistant, isNull);
+    expect(timeline.tailAssistantSourceIndex, isNull);
+    expect(timeline.tailAssistantPhase, ChatTurnPhase.none);
+    expect(timeline.runningFooterHost, isNull);
+    expect(timeline.hasTailAssistant, isFalse);
+    expect(timeline.hasRunningTurn, isFalse);
+    expect(timeline.historyIndexByMessageKey, isEmpty);
+  });
+
+  test('chatTurnPhaseShowsCompletedFooter is true only for completed and failed', () {
+    expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.none), isFalse);
+    expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.running), isFalse);
+    expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.completed), isTrue);
+    expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.failed), isTrue);
+  });
 }

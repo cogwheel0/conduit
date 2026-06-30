@@ -13,6 +13,13 @@ class ChatBottomAnchorController {
   bool isAnchoredToBottom = true;
   bool _hasUnverifiedStickyContentChange = false;
 
+  /// Whether an unverified sticky content change is still holding the view
+  /// anchored to the bottom (and is not being overridden by user interaction).
+  bool get _stickyLatchHolds =>
+      _hasUnverifiedStickyContentChange &&
+      isAnchoredToBottom &&
+      !isUserInteractingWithScroll;
+
   bool updateAnchor({
     required bool hasScrollableContent,
     required double distanceFromBottom,
@@ -25,9 +32,7 @@ class ChatBottomAnchorController {
       return true;
     }
 
-    if (_hasUnverifiedStickyContentChange &&
-        isAnchoredToBottom &&
-        !isUserInteractingWithScroll) {
+    if (_stickyLatchHolds) {
       return true;
     }
 
@@ -41,9 +46,7 @@ class ChatBottomAnchorController {
     required bool hasScrollableContent,
     required double distanceFromBottom,
   }) {
-    if (_hasUnverifiedStickyContentChange &&
-        isAnchoredToBottom &&
-        !isUserInteractingWithScroll) {
+    if (_stickyLatchHolds) {
       return false;
     }
     final farFromBottom = distanceFromBottom > showThreshold;

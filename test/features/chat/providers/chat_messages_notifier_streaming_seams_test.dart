@@ -335,6 +335,22 @@ void main() {
             timestamp: DateTime(2024, 1, 1),
             error: const ChatMessageError(content: 'boom'),
           ),
+          'sources': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            sources: const [
+              ChatSourceReference(title: 'Doc', url: 'https://example.com'),
+            ],
+          ),
+          'codeExecutions': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            codeExecutions: const [ChatCodeExecution(id: 'ce1')],
+          ),
         };
 
         for (final entry in completionEchoes.entries) {
