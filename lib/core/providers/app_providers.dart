@@ -34,6 +34,7 @@ import '../services/connectivity_service.dart';
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
+import '../utils/server_version_compat.dart';
 import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
@@ -214,6 +215,18 @@ final serverConnectionStateProvider = Provider<bool>((ref) {
     data: (server) => server != null,
     orElse: () => false,
   );
+});
+
+/// Whether the connected server reports a version newer than this app build
+/// is known to support (see [ServerVersionCompat]).
+///
+/// Fails open while the backend config is still loading or the version is
+/// unknown, so the compatibility gate never flashes during normal startup and
+/// never locks users out of a server whose version we can't parse.
+final serverIncompatibleProvider = Provider<bool>((ref) {
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (config == null) return false;
+  return ServerVersionCompat.isUnsupported(config.version);
 });
 
 @Riverpod(keepAlive: true)

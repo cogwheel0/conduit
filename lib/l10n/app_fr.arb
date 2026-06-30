@@ -1,6 +1,13 @@
 {
   "@@locale": "fr",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "Serveur non pris en charge",
+  "serverIncompatibleMessage": "Ce serveur exécute Open WebUI {serverVersion}, une version plus récente que celle prise en charge par cette application (jusqu'à {maxVersion}).",
+  "serverIncompatibleResolution": "Pour continuer, rétrogradez votre serveur vers la version {maxVersion} ou une version antérieure, ou attendez une mise à jour de l'application qui ajoute la prise en charge.",
+  "serverIncompatibleConnectBlocked": "Ce serveur est plus récent que ce que cette application prend en charge (jusqu'à {maxVersion}).",
+  "serverIncompatibleRecheck": "Revérifier le serveur",
+  "serverIncompatibleSwitchServer": "Utiliser un autre serveur",
+  "serverIncompatibleStillUnsupported": "Ce serveur est toujours plus récent que ce que cette application prend en charge.",
   "retry": "Réessayer",
   "back": "Retour",
   "you": "Vous",

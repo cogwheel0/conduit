@@ -1,6 +1,13 @@
 {
   "@@locale": "zh_Hant",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "不支援此伺服器",
+  "serverIncompatibleMessage": "此伺服器執行的 Open WebUI 版本為 {serverVersion}，比此應用程式所支援的版本（最高 {maxVersion}）還要新。",
+  "serverIncompatibleResolution": "若要繼續，請將您的伺服器降級至 {maxVersion} 或更舊的版本，或等待應用程式更新以新增支援。",
+  "serverIncompatibleConnectBlocked": "此伺服器比此應用程式所支援的版本（最高 {maxVersion}）還要新。",
+  "serverIncompatibleRecheck": "重新檢查伺服器",
+  "serverIncompatibleSwitchServer": "使用其他伺服器",
+  "serverIncompatibleStillUnsupported": "此伺服器仍比此應用程式所支援的版本還要新。",
   "retry": "重試",
   "back": "返回",
   "you": "你",

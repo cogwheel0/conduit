@@ -22,8 +22,10 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/server_version_compat.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
+import 'server_incompatible_page.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -203,6 +205,32 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         throw Exception('This does not appear to be an Open-WebUI server.');
       }
 
+      // Compatibility gate: refuse to proceed when the server is newer than
+      // this app build supports. The server config is not saved, so the user
+      // stays on the connection form after acknowledging.
+      if (!backendConfig.isVersionSupported) {
+        DebugLogger.log(
+          'Server version ${backendConfig.version} unsupported '
+          '(max ${ServerVersionCompat.maxSupportedVersion}); blocking',
+          scope: 'auth/connection',
+        );
+        if (mounted) {
+          await showServerIncompatibleDialog(
+            context,
+            serverVersion: backendConfig.version,
+          );
+        }
+        if (mounted) {
+          setState(() {
+            _connectionError =
+                AppLocalizations.of(context)?.serverIncompatibleConnectBlocked(
+                  ServerVersionCompat.maxSupportedVersion,
+                );
+          });
+        }
+        return;
+      }
+
       DebugLogger.log(
         'Server validation passed, navigating to auth page',
         scope: 'auth/connection',
@@ -350,6 +378,31 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           _connectionError =
               'Could not verify OpenWebUI server. The proxy cookies may '
               'have expired or be invalid. Please try again.';
+          _isConnecting = false;
+        });
+      }
+      return;
+    }
+
+    // Compatibility gate (proxy path): same block as the direct connection.
+    if (!backendConfig.isVersionSupported) {
+      DebugLogger.log(
+        'Server version ${backendConfig.version} unsupported '
+        '(max ${ServerVersionCompat.maxSupportedVersion}); blocking proxy flow',
+        scope: 'auth/connection',
+      );
+      if (mounted) {
+        await showServerIncompatibleDialog(
+          context,
+          serverVersion: backendConfig.version,
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _connectionError =
+              AppLocalizations.of(context)?.serverIncompatibleConnectBlocked(
+                ServerVersionCompat.maxSupportedVersion,
+              );
           _isConnecting = false;
         });
       }

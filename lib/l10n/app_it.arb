@@ -1,6 +1,13 @@
 {
   "@@locale": "it",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "Server non supportato",
+  "serverIncompatibleMessage": "Questo server esegue Open WebUI {serverVersion}, una versione più recente di quella supportata da questa app (fino alla {maxVersion}).",
+  "serverIncompatibleResolution": "Per continuare, riporta il server alla versione {maxVersion} o precedente, oppure attendi un aggiornamento dell'app che ne aggiunga il supporto.",
+  "serverIncompatibleConnectBlocked": "Questo server è più recente di quanto supportato da questa app (fino alla {maxVersion}).",
+  "serverIncompatibleRecheck": "Ricontrolla il server",
+  "serverIncompatibleSwitchServer": "Usa un server diverso",
+  "serverIncompatibleStillUnsupported": "Questo server è ancora più recente di quanto supportato da questa app.",
   "retry": "Riprova",
   "back": "Indietro",
   "you": "Tu",

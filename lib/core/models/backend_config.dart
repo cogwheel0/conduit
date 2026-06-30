@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../utils/server_version_compat.dart';
+
 /// Represents the available OAuth providers configured on the server.
 @immutable
 class OAuthProviders {
@@ -107,6 +109,7 @@ class BackendTtsVoice {
 @immutable
 class BackendConfig {
   const BackendConfig({
+    this.version,
     this.enableWebsocket,
     this.enableWebSearch,
     this.enableAudioInput,
@@ -124,6 +127,10 @@ class BackendConfig {
     this.enableLdap = false,
     this.enableLoginForm = true,
   });
+
+  /// The Open WebUI server version string reported by `/api/config`
+  /// (e.g. `0.10.1`). `null` when the server omitted it or it was not parsed.
+  final String? version;
 
   /// Mirrors `features.enable_websocket` from OpenWebUI.
   final bool? enableWebsocket;
@@ -155,8 +162,14 @@ class BackendConfig {
   /// Whether SSO (OAuth) login is available.
   bool get hasSsoEnabled => oauthProviders.hasAnyProvider;
 
+  /// Whether the reported [version] is within the range this app supports.
+  ///
+  /// See [ServerVersionCompat]. Fails open for unknown/unparseable versions.
+  bool get isVersionSupported => ServerVersionCompat.isSupported(version);
+
   /// Returns a copy with updated fields.
   BackendConfig copyWith({
+    String? version,
     bool? enableWebsocket,
     bool? enableWebSearch,
     bool? enableAudioInput,
@@ -175,6 +188,7 @@ class BackendConfig {
     bool? enableLoginForm,
   }) {
     return BackendConfig(
+      version: version ?? this.version,
       enableWebsocket: enableWebsocket ?? this.enableWebsocket,
       enableWebSearch: enableWebSearch ?? this.enableWebSearch,
       enableAudioInput: enableAudioInput ?? this.enableAudioInput,
@@ -215,6 +229,7 @@ class BackendConfig {
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
+      'version': version,
       'enable_websocket': enableWebsocket,
       'enable_web_search': enableWebSearch,
       'enable_audio_input': enableAudioInput,
@@ -235,6 +250,7 @@ class BackendConfig {
   }
 
   static BackendConfig fromJson(Map<String, dynamic> json) {
+    String? version;
     bool? enableWebsocket;
     bool? enableWebSearch;
     bool? enableAudioInput;
@@ -251,6 +267,11 @@ class BackendConfig {
     OAuthProviders oauthProviders = const OAuthProviders();
     bool enableLdap = false;
     bool enableLoginForm = true;
+
+    final versionValue = json['version'];
+    if (versionValue is String && versionValue.trim().isNotEmpty) {
+      version = versionValue.trim();
+    }
 
     // Try canonical format first
     final value = json['enable_websocket'];
@@ -401,6 +422,7 @@ class BackendConfig {
     }
 
     return BackendConfig(
+      version: version,
       enableWebsocket: enableWebsocket,
       enableWebSearch: enableWebSearch,
       enableAudioInput: enableAudioInput,

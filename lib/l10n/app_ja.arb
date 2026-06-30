@@ -1,6 +1,13 @@
 {
   "@@locale": "ja",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "サーバーは未対応です",
+  "serverIncompatibleMessage": "このサーバーは Open WebUI {serverVersion} を実行しており、このアプリが対応するバージョン（{maxVersion} まで）よりも新しいバージョンです。",
+  "serverIncompatibleResolution": "続行するには、サーバーを {maxVersion} 以前にダウングレードするか、対応を追加するアプリの更新をお待ちください。",
+  "serverIncompatibleConnectBlocked": "このサーバーは、このアプリが対応するバージョン（{maxVersion} まで）よりも新しいバージョンです。",
+  "serverIncompatibleRecheck": "サーバーを再確認",
+  "serverIncompatibleSwitchServer": "別のサーバーを使用",
+  "serverIncompatibleStillUnsupported": "このサーバーは、まだこのアプリが対応するバージョンよりも新しいバージョンです。",
   "@appTitle": {
     "description": "Application name displayed in the app and OS UI."
   },

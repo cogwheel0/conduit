@@ -16,6 +16,7 @@ import '../../features/auth/views/connect_signin_page.dart';
 import '../../features/auth/views/connection_issue_page.dart';
 import '../../features/auth/views/proxy_auth_page.dart';
 import '../../features/auth/views/server_connection_page.dart';
+import '../../features/auth/views/server_incompatible_page.dart';
 import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
 import '../../features/navigation/views/folder_page.dart';
@@ -47,6 +48,7 @@ class RouterNotifier extends ChangeNotifier {
         authNavigationStateProvider,
         _onStateChanged,
       ),
+      ref.listen<bool>(serverIncompatibleProvider, _onStateChanged),
     ];
   }
 
@@ -111,6 +113,24 @@ class RouterNotifier extends ChangeNotifier {
         return null;
       }
       return Routes.serverConnection;
+    }
+
+    // Compatibility gate: when the connected server runs a version newer than
+    // this app build supports, block every in-app route and surface the
+    // incompatibility page. The server-connection route stays reachable so the
+    // user can point the app at a different (supported) server.
+    final serverIncompatible = ref.read(serverIncompatibleProvider);
+    if (serverIncompatible) {
+      if (location == Routes.serverIncompatible ||
+          location == Routes.serverConnection) {
+        return null;
+      }
+      return Routes.serverIncompatible;
+    }
+    // Server is compatible again (e.g. user downgraded or switched servers):
+    // don't strand them on the gate page — re-enter the normal flow.
+    if (location == Routes.serverIncompatible) {
+      return Routes.splash;
     }
 
     final authState = ref.read(authNavigationStateProvider);
@@ -269,6 +289,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.connectionIssue,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const ConnectionIssuePage()),
+    ),
+    GoRoute(
+      path: Routes.serverIncompatible,
+      name: RouteNames.serverIncompatible,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const ServerIncompatiblePage(),
+      ),
     ),
     GoRoute(
       path: Routes.authentication,
