@@ -69,9 +69,9 @@ void main() {
         Stream<List<int>>.fromIterable([
           utf8.encode(
             'data: ${jsonEncode({
-              'type': 'error',
-              'error': {'message': 'boom'},
-            })}\n\n',
+                  'type': 'error',
+                  'error': {'message': 'boom'},
+                })}\n\n',
           ),
         ]),
       ).toList();
@@ -111,14 +111,11 @@ void main() {
           .isA<OpenWebUIEventUpdate>()
           .has((u) => u.type, 'type')
           .equals('citation');
-      check(updates[0])
-          .isA<OpenWebUIEventUpdate>()
-          .has((u) {
-            final data = u.data as Map<String, dynamic>;
-            final source = data['source'] as Map<String, dynamic>;
-            return source['name'];
-          }, 'source.name')
-          .equals('Example Title');
+      check(updates[0]).isA<OpenWebUIEventUpdate>().has((u) {
+        final data = u.data as Map<String, dynamic>;
+        final source = data['source'] as Map<String, dynamic>;
+        return source['name'];
+      }, 'source.name').equals('Example Title');
       check(
         updates[1],
       ).isA<OpenWebUIEventUpdate>().has((u) => u.type, 'type').equals('status');
@@ -128,13 +125,17 @@ void main() {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([
           utf8.encode(
-            'data: ${jsonEncode({'type': 'status', 'description': 'Searching', 'done': false})}\n\n',
+            'data: ${jsonEncode({
+                  'type': 'status',
+                  'description': 'Searching',
+                  'done': false
+                })}\n\n',
           ),
           utf8.encode(
             'data: ${jsonEncode({
-              'type': 'citation',
-              'source': {'name': 'Example Title'},
-            })}\n\n',
+                  'type': 'citation',
+                  'source': {'name': 'Example Title'},
+                })}\n\n',
           ),
         ]),
       ).toList();
@@ -147,14 +148,11 @@ void main() {
             'description',
           )
           .equals('Searching');
-      check(updates[1])
-          .isA<OpenWebUIEventUpdate>()
-          .has((u) {
-            final data = u.data as Map<String, dynamic>;
-            final source = data['source'] as Map<String, dynamic>;
-            return source['name'];
-          }, 'source.name')
-          .equals('Example Title');
+      check(updates[1]).isA<OpenWebUIEventUpdate>().has((u) {
+        final data = u.data as Map<String, dynamic>;
+        final source = data['source'] as Map<String, dynamic>;
+        return source['name'];
+      }, 'source.name').equals('Example Title');
     });
 
     test(
@@ -367,6 +365,84 @@ void main() {
           .isA<OpenWebUIContentDelta>()
           .has((u) => u.content, 'content')
           .equals('say');
+    });
+  });
+
+  group('serializeOpenWebUIOutput', () {
+    test('renders message output_text as visible content', () {
+      final result = serializeOpenWebUIOutput([
+        {
+          'type': 'message',
+          'role': 'assistant',
+          'content': [
+            {'type': 'output_text', 'text': 'Hello world'},
+          ],
+        },
+      ]);
+      check(result).equals('Hello world');
+    });
+
+    test('renders reasoning as a done details block', () {
+      final result = serializeOpenWebUIOutput([
+        {
+          'type': 'reasoning',
+          'summary': [
+            {'type': 'summary_text', 'text': 'Because 2+2=4'},
+          ],
+          'duration': 3,
+          'status': 'completed',
+        },
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': '4'},
+          ],
+        },
+      ]);
+      check(result)
+          .contains('<details type="reasoning" done="true" duration="3">');
+      check(result).contains('Thought for 3 seconds');
+      check(result).contains('&gt; Because 2+2=4');
+      check(result).endsWith('4');
+    });
+
+    test('pairs function_call with function_call_output by call_id', () {
+      final result = serializeOpenWebUIOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call_1',
+          'name': 'get_weather',
+          'arguments': '{"city":"Tampa"}',
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'call_1',
+          'output': [
+            {'text': 'Sunny, 90F'},
+          ],
+        },
+      ]);
+      check(result).contains('<details type="tool_calls" done="true"');
+      check(result).contains('name="get_weather"');
+      check(result).contains('Tool Executed');
+      check(result).contains('Sunny, 90F');
+    });
+
+    test('renders pending function_call without output', () {
+      final result = serializeOpenWebUIOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call_2',
+          'name': 'search',
+          'arguments': '{}',
+        },
+      ]);
+      check(result).contains('<details type="tool_calls" done="false"');
+      check(result).contains('Executing...');
+    });
+
+    test('returns empty string for empty output', () {
+      check(serializeOpenWebUIOutput(const [])).equals('');
     });
   });
 }

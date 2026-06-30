@@ -549,6 +549,98 @@ void main() {
       });
     });
 
+    group('Responses API output fallback', () {
+      test('derives content from output when content is empty', () {
+        final result = parseFullConversation({
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'output': [
+                  {
+                    'type': 'message',
+                    'role': 'assistant',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Hello from output'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Hello from output');
+        check(messages.first['output']).isNotNull();
+      });
+
+      test('keeps existing content when populated', () {
+        final result = parseFullConversation({
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Existing content',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'should not win'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Existing content');
+      });
+
+      test('derives reasoning and message text from output', () {
+        final result = parseFullConversation({
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'Thinking hard'},
+                    ],
+                    'duration': 2,
+                    'status': 'completed',
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check(content).contains('<details type="reasoning" done="true"');
+        check(content).contains('Final answer');
+      });
+    });
+
     group('empty or missing data', () {
       test('empty chatData returns minimal structure', () {
         final result = parseFullConversation({});

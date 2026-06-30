@@ -822,6 +822,9 @@ void main() {
         check(log.messageByIdMutationCount).equals(1);
         check(log.sourceReferences).isEmpty();
         check(lastMessage.output).has((it) => it?.length, 'length').equals(1);
+        // Newer Open WebUI servers emit `output` without a `content` string;
+        // the helper must serialize the output so the assistant text renders.
+        check(lastMessage.content).equals('Structured output');
         check(lastMessage.metadata).isNotNull();
         check(lastMessage.metadata!['selectedModelId']).equals('gpt-4o');
         check(lastMessage.metadata!['arena']).equals(true);

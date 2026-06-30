@@ -7,6 +7,7 @@ import '../models/conversation.dart';
 import '../utils/embed_utils.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import '../utils/openwebui_source_parser.dart';
+import 'openwebui_stream_parser.dart';
 
 /// Utilities for converting OpenWebUI conversation payloads into JSON maps
 /// that match the app's `Conversation` / `ChatMessage` schemas. All helpers
@@ -513,6 +514,19 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     }
   }
 
+  // Responses-API models persist only the structured `output` list (the
+  // `content` string stays empty on the server). Serialize it client-side so
+  // reloaded assistant messages render their text, reasoning, and tools.
+  final outputItems = _normalizeOutputItems(
+    msgData['output'] ?? historyMsg?['output'],
+  );
+  if (contentString.trim().isEmpty && outputItems.isNotEmpty) {
+    final fromOutput = serializeOpenWebUIOutput(outputItems);
+    if (fromOutput.isNotEmpty) {
+      contentString = fromOutput;
+    }
+  }
+
   // Extract error field from OpenWebUI - preserve it separately for round-trip
   final errorData = _extractErrorData(msgData, historyMsg);
 
@@ -608,6 +622,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'sources': _parseSourcesField(sourcesRaw),
     'usage': usage,
     'versions': const <Map<String, dynamic>>[],
+    if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
   };
 }
@@ -1006,6 +1021,34 @@ String _jsonStringify(dynamic value) {
   } catch (_) {
     return value.toString();
   }
+}
+
+/// Normalizes a raw `output` payload (as persisted by Open WebUI for
+/// Responses-API models) into a typed list suitable for serialization.
+///
+/// Newer Open WebUI servers stream `chat:completion` deltas carrying only
+/// the structured `output` list (no pre-serialized `content` string) and
+/// persist messages the same way. When a message is reloaded from the server,
+/// its `content` field is empty for such models, so the structured `output`
+/// must be serialized client-side to render the assistant text, reasoning,
+/// and tool-call blocks.
+List<Map<String, dynamic>> _normalizeOutputItems(dynamic raw) {
+  if (raw is! List) return const [];
+  final items = <Map<String, dynamic>>[];
+  for (final item in raw) {
+    if (item is Map) {
+      items.add(Map<String, dynamic>.from(item));
+    }
+  }
+  return List<Map<String, dynamic>>.unmodifiable(items);
+}
+
+/// Returns serialized visible content for `output` items, or an empty string
+/// when `output` is absent/empty. Mirrors upstream `serialize_output`.
+String _contentFromOutput(dynamic raw) {
+  final items = _normalizeOutputItems(raw);
+  if (items.isEmpty) return '';
+  return serializeOpenWebUIOutput(items);
 }
 
 String _escapeHtmlAttr(String value) {
