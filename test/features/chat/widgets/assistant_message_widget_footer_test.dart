@@ -471,6 +471,31 @@ void main() {
     },
   );
 
+  testWidgets('errored streaming message shows the action footer, not the typing footer', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-errored-streaming',
+      role: 'assistant',
+      content: 'Partial answer',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+      error: const ChatMessageError(content: 'boom'),
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, isStreaming: true, isChatStreaming: true),
+    );
+    await tester.pumpAndSettle();
+
+    // error -> failed phase takes precedence over the still-set isStreaming
+    // flag: the action row surfaces, the typing footer is suppressed, and the
+    // error banner renders.
+    expect(find.byKey(const ValueKey('typing')), findsNothing);
+    expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+    expect(find.text('boom'), findsOneWidget);
+  });
+
   testWidgets('starting a new stream clears stale footer actions immediately', (
     tester,
   ) async {

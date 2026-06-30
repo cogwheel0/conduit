@@ -471,6 +471,52 @@ void main() {
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
+    test(
+      'empty non-streaming echo preserves streaming-state, content, and modelName together',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        // Local streaming tail with a non-empty partial body and a modelName chip.
+        final localTail = _assistantMessage(
+          id: 'assistant-1',
+          content: 'Partial streamed answer',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(_conversation('chat-1', [userMessage, localTail]));
+        await Future<void>.delayed(Duration.zero);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        // Lagging server echo: empty content, isStreaming:false, no modelName.
+        final emptyEcho = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: false,
+        );
+        active.set(_conversation('chat-1', [userMessage, emptyEcho]));
+        await Future<void>.delayed(Duration.zero);
+
+        final merged = container.read(chatMessagesProvider).last;
+        check(merged.isStreaming).isTrue(); // shouldPreserveStreamingState
+        check(
+          merged.content,
+        ).equals('Partial streamed answer'); // preserveContent
+        check(
+          merged.metadata?['modelName'],
+        ).equals('GPT-4o'); // shouldPreserveModelName
+
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
       addTearDown(container.dispose);

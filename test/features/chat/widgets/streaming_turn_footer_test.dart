@@ -4,15 +4,42 @@ import 'package:conduit/features/chat/widgets/five_rotating_dots.dart';
 import 'package:conduit/features/chat/widgets/streaming_turn_footer.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _RecordedPlatformCall {
+  const _RecordedPlatformCall(this.method, this.arguments);
+
+  final String method;
+  final Object? arguments;
+}
+
+Iterable<_RecordedPlatformCall> _lightImpactCalls(
+  List<_RecordedPlatformCall> calls,
+) => calls.where(
+  (call) =>
+      call.method == 'HapticFeedback.vibrate' &&
+      call.arguments == 'HapticFeedbackType.lightImpact',
+);
 
 ProviderContainer _buildContainer() {
   return ProviderContainer(
     overrides: [
       appSettingsProvider.overrideWithValue(
         const AppSettings(hapticFeedback: false),
+      ),
+    ],
+  );
+}
+
+ProviderContainer _buildHapticsContainer({bool hapticFeedback = true}) {
+  return ProviderContainer(
+    overrides: [
+      appSettingsProvider.overrideWithValue(
+        AppSettings(hapticFeedback: hapticFeedback),
       ),
     ],
   );
@@ -211,4 +238,145 @@ void main() {
       );
     },
   );
+
+  testWidgets('fires one running haptic and re-arms on message id change', (
+    tester,
+  ) async {
+    final container = _buildHapticsContainer();
+    addTearDown(container.dispose);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <_RecordedPlatformCall>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      calls.add(_RecordedPlatformCall(call.method, call.arguments));
+      return null;
+    });
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+    try {
+      final running = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      );
+
+      await tester.pumpWidget(
+        _buildHarness(container: container, message: running),
+      );
+      await tester.pump();
+      expect(_lightImpactCalls(calls), hasLength(1));
+
+      // Same id, content arrives, still running: the fire-once guard holds.
+      await tester.pumpWidget(
+        _buildHarness(
+          container: container,
+          message: running.copyWith(content: 'Hi'),
+        ),
+      );
+      await tester.pump();
+      expect(_lightImpactCalls(calls), hasLength(1));
+
+      // A new running message id re-arms the haptic.
+      final next = ChatMessage(
+        id: 'assistant-2',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      );
+      await tester.pumpWidget(
+        _buildHarness(container: container, message: next),
+      );
+      await tester.pump();
+      expect(_lightImpactCalls(calls), hasLength(2));
+    } finally {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('does not fire the running haptic when suppressed on the footer', (
+    tester,
+  ) async {
+    final container = _buildHapticsContainer();
+    addTearDown(container.dispose);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <_RecordedPlatformCall>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      calls.add(_RecordedPlatformCall(call.method, call.arguments));
+      return null;
+    });
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+    try {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: MediaQuery(
+              data: const MediaQueryData(disableAnimations: true),
+              child: Scaffold(
+                body: StreamingTurnFooter(
+                  message: ChatMessage(
+                    id: 'assistant-1',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: DateTime(2026),
+                    isStreaming: true,
+                  ),
+                  suppressStreamingHaptics: true,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(_lightImpactCalls(calls), isEmpty);
+    } finally {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('does not fire the running haptic when haptics are disabled', (
+    tester,
+  ) async {
+    final container = _buildHapticsContainer(hapticFeedback: false);
+    addTearDown(container.dispose);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <_RecordedPlatformCall>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      calls.add(_RecordedPlatformCall(call.method, call.arguments));
+      return null;
+    });
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+    try {
+      await tester.pumpWidget(
+        _buildHarness(
+          container: container,
+          message: ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2026),
+            isStreaming: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(_lightImpactCalls(calls), isEmpty);
+    } finally {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 }

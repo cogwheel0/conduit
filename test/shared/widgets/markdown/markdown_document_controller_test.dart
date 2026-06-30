@@ -301,6 +301,39 @@ Body
     },
   );
 
+  test('compose stamps the mutable index on a single tail-only segment', () {
+    final tail = compilePreparedMarkdownSync('### Partial heading');
+    expect(tail.mutableBlockStartIndex, -1); // freshly compiled, no metadata
+
+    final composed = CompiledMarkdownDocument.compose(
+      normalizedContent: tail.normalizedContent,
+      segments: <CompiledMarkdownDocument>[tail],
+      mutableBlockStartIndex: 0,
+    );
+
+    expect(composed.mutableBlockStartIndex, 0);
+    expect(composed.isMutableRootBlock(0), isTrue);
+    expect(
+      composed.blocks.map((block) => block.blockId).toList(),
+      tail.blocks.map((block) => block.blockId).toList(),
+    );
+
+    final parts = buildMarkdownDisplayParts(composed, isStreaming: true);
+    expect(parts.first.isMutableTail, isTrue);
+  });
+
+  test('compose preserves a requested mutable index when all segments are empty', () {
+    final composed = CompiledMarkdownDocument.compose(
+      normalizedContent: 'some plain text',
+      segments: const <CompiledMarkdownDocument>[],
+      mutableBlockStartIndex: 0,
+    );
+
+    expect(composed.mutableBlockStartIndex, 0);
+    expect(composed.renderTier, MarkdownRenderTier.plainText);
+    expect(composed.blocks, isEmpty);
+  });
+
   test(
     'controller recompiles only the mutable tail between streaming updates',
     () async {

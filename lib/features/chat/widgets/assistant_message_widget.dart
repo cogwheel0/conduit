@@ -137,26 +137,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
 
+  // Phase derivation routes through chatTurnPhaseForMessage, which returns
+  // ChatTurnPhase.none for a null/non-ChatMessage. Every production call site
+  // and test supplies a ChatMessage, so the helper path is the only reachable
+  // one; deriving from the shared phase rule keeps a single source of truth.
   bool get _responseCompleted {
     if (_activeVersionIndex >= 0) {
       return true;
     }
-    final chatMessage = _chatMessage;
-    if (chatMessage != null) {
-      return chatTurnPhaseShowsCompletedFooter(_turnPhase);
-    }
-    return !widget.isStreaming ||
-        widget.message.metadata?['responseDone'] == true;
+    return chatTurnPhaseShowsCompletedFooter(_turnPhase);
   }
 
-  bool get _uiTreatsAsStreaming {
-    final chatMessage = _chatMessage;
-    if (chatMessage != null) {
-      return _turnPhase == ChatTurnPhase.running;
-    }
-    return widget.isStreaming &&
-        widget.message.metadata?['responseDone'] != true;
-  }
+  bool get _uiTreatsAsStreaming => _turnPhase == ChatTurnPhase.running;
 
   // press state handled by shared ChatActionButton
 

@@ -24,7 +24,7 @@ class ChatTimelineRenderModel {
         ? null
         : messages[tailAssistantSourceIndex];
     final tailAssistantPhase = chatTurnPhaseForMessage(tailAssistant);
-    final footerHost = tailAssistant == null || tailAssistantSourceIndex == null
+    final footerHost = tailAssistant == null
         ? null
         : ChatTurnFooterHost(message: tailAssistant);
     final historyIndexByMessageKey = <String, int>{};
