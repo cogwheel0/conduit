@@ -1,6 +1,13 @@
 {
   "@@locale": "cs",
   "appTitle": "Conduit",
+  "serverIncompatibleTitle": "Server není podporován",
+  "serverIncompatibleMessage": "Tento server používá Open WebUI {serverVersion}, což je novější verze, než tato aplikace podporuje (maximálně {maxVersion}).",
+  "serverIncompatibleResolution": "Chcete-li pokračovat, snižte verzi serveru na {maxVersion} nebo nižší, nebo počkejte na aktualizaci aplikace, která podporu doplní.",
+  "serverIncompatibleConnectBlocked": "Tento server je novější, než tato aplikace podporuje (maximálně {maxVersion}).",
+  "serverIncompatibleRecheck": "Zkontrolovat server znovu",
+  "serverIncompatibleSwitchServer": "Vybrat jiný server",
+  "serverIncompatibleStillUnsupported": "Tento server je stále novější, než tato aplikace podporuje.",
   "@appTitle": {
     "description": "Application name displayed in the app and OS UI."
   },

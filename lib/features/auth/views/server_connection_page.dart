@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -22,8 +23,10 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/server_version_compat.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
+import 'server_incompatible_page.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -96,6 +99,36 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _mtlsPrivateKeyPasswordController.dispose();
     _headerValueFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Refuses to proceed when [backendConfig] reports a server version newer
+  /// than this build supports: surfaces the blocking dialog plus an inline
+  /// error and returns `true` so the caller can abort. Shared by the direct
+  /// and reverse-proxy connection flows. `_isConnecting` is intentionally left
+  /// to each caller's `finally`, which always resets it.
+  Future<bool> _refuseIfServerIncompatible(BackendConfig backendConfig) async {
+    if (backendConfig.isVersionSupported) return false;
+    DebugLogger.log(
+      'Server version ${backendConfig.version} unsupported '
+      '(max ${ServerVersionCompat.maxSupportedVersion}); blocking',
+      scope: 'auth/connection',
+    );
+    if (mounted) {
+      await showServerIncompatibleDialog(
+        context,
+        serverVersion: backendConfig.version,
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _connectionError = AppLocalizations.of(
+          context,
+        )?.serverIncompatibleConnectBlocked(
+          ServerVersionCompat.maxSupportedVersion,
+        );
+      });
+    }
+    return true;
   }
 
   Future<void> _connectToServer() async {
@@ -201,6 +234,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (backendConfig == null) {
         throw Exception('This does not appear to be an Open-WebUI server.');
+      }
+
+      // Compatibility gate: refuse to proceed when the server is newer than
+      // this app build supports. The server config is not saved, so the user
+      // stays on the connection form after acknowledging.
+      if (await _refuseIfServerIncompatible(backendConfig)) {
+        return;
       }
 
       DebugLogger.log(
@@ -353,6 +393,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           _isConnecting = false;
         });
       }
+      return;
+    }
+
+    // Compatibility gate (proxy path): shares the direct flow's helper.
+    if (await _refuseIfServerIncompatible(backendConfig)) {
       return;
     }
 

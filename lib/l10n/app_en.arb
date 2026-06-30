@@ -29,6 +29,56 @@
   "@connectionIssueSubtitle": {
     "description": "Subtitle explaining available actions when the server cannot be reached"
   },
+  "serverIncompatibleTitle": "Server not supported",
+  "@serverIncompatibleTitle": {
+    "description": "Title shown when the connected Open WebUI server is newer than the app supports"
+  },
+  "serverIncompatibleMessage": "This server runs Open WebUI {serverVersion}, which is newer than this app supports (up to {maxVersion}).",
+  "@serverIncompatibleMessage": {
+    "description": "Explains that the server version is too new for the current app build",
+    "placeholders": {
+      "serverVersion": {
+        "type": "String",
+        "example": "0.11.0"
+      },
+      "maxVersion": {
+        "type": "String",
+        "example": "0.10.1"
+      }
+    }
+  },
+  "serverIncompatibleResolution": "To continue, downgrade your server to {maxVersion} or earlier, or wait for an app update that adds support.",
+  "@serverIncompatibleResolution": {
+    "description": "Tells the user how to resolve an unsupported server version",
+    "placeholders": {
+      "maxVersion": {
+        "type": "String",
+        "example": "0.10.1"
+      }
+    }
+  },
+  "serverIncompatibleConnectBlocked": "This server is newer than this app supports (up to {maxVersion}).",
+  "@serverIncompatibleConnectBlocked": {
+    "description": "Inline error on the connection form when the probed server version is too new",
+    "placeholders": {
+      "maxVersion": {
+        "type": "String",
+        "example": "0.10.1"
+      }
+    }
+  },
+  "serverIncompatibleRecheck": "Recheck server",
+  "@serverIncompatibleRecheck": {
+    "description": "Button that re-fetches the server version after a downgrade"
+  },
+  "serverIncompatibleSwitchServer": "Use a different server",
+  "@serverIncompatibleSwitchServer": {
+    "description": "Button that lets the user connect to a different server from the incompatibility gate"
+  },
+  "serverIncompatibleStillUnsupported": "This server is still newer than this app supports.",
+  "@serverIncompatibleStillUnsupported": {
+    "description": "Status shown after a recheck when the server version is still too new"
+  },
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },

@@ -123,6 +123,7 @@ class Routes {
   static const String login = '/login';
   static const String serverConnection = '/server-connection';
   static const String connectionIssue = '/connection-issue';
+  static const String serverIncompatible = '/server-incompatible';
   static const String authentication = '/authentication';
   static const String ssoAuth = '/sso-auth';
   static const String proxyAuth = '/proxy-auth';
@@ -148,6 +149,7 @@ class RouteNames {
   static const String login = 'login';
   static const String serverConnection = 'server-connection';
   static const String connectionIssue = 'connection-issue';
+  static const String serverIncompatible = 'server-incompatible';
   static const String authentication = 'authentication';
   static const String ssoAuth = 'sso-auth';
   static const String proxyAuth = 'proxy-auth';
