@@ -2978,6 +2978,79 @@ Tail keeps growing
     },
   );
 
+  testWidgets(
+    'keeps rendered content visible when non-streaming content grows mid-response',
+    (tester) async {
+      // Reproduces issue #540: during the responseDone gap the turn phase
+      // latches to completed (isStreaming:false to the body) while answer tokens
+      // keep arriving. Each non-streaming content growth must NOT regress the
+      // already-rendered body to a loading skeleton.
+      const firstContent = 'Settled answer paragraph.';
+      const grownContent = 'Settled answer paragraph.\n\nFollow-up sentence.';
+      final compiler = _SelectiveDelayedMarkdownCompileService(
+        delayedPreparedContent: prepareMarkdownContent(
+          grownContent,
+          streaming: false,
+        ),
+      );
+      addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
+
+      Widget buildSelectiveHarness(String content) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  // The body already treats the turn as settled (responseDone
+                  // gap), so isStreaming is false for both frames.
+                  isStreaming: false,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // Frame 1: first settled content compiles immediately and renders.
+      await tester.pumpWidget(buildSelectiveHarness(firstContent));
+      await tester.pump();
+      expect(skeletonFinder, findsNothing);
+      expect(
+        find.textContaining('Settled answer paragraph', findRichText: true),
+        findsOneWidget,
+      );
+
+      // Frame 2: content grows while still non-streaming; the grown content's
+      // compile is delayed. The previously-rendered body must stay visible.
+      await tester.pumpWidget(buildSelectiveHarness(grownContent));
+      await tester.pump();
+
+      expect(skeletonFinder, findsNothing);
+      expect(
+        find.textContaining('Settled answer paragraph', findRichText: true),
+        findsOneWidget,
+      );
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+
+      expect(skeletonFinder, findsNothing);
+      expect(
+        find.textContaining('Follow-up sentence', findRichText: true),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('defers tool call embeds until the details view opens', (
     tester,
   ) async {
