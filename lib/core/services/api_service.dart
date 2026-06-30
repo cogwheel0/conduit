@@ -3401,6 +3401,7 @@ class ApiService {
     var page = 1;
     int? total;
     const maxPages = 100;
+    var useLegacyItemsFallback = false;
 
     try {
       while (true) {
@@ -3415,11 +3416,15 @@ class ApiService {
         }
 
         final responseMap = _coerceJsonMap(data);
-        final pageItems = responseMap?['items'] is List
-            ? responseMap!['items'] as List
+        if (responseMap == null) {
+          useLegacyItemsFallback = true;
+          break;
+        }
+        final pageItems = responseMap['items'] is List
+            ? responseMap['items'] as List
             : const <dynamic>[];
         rawItems.addAll(pageItems);
-        final rawTotal = responseMap?['total'];
+        final rawTotal = responseMap['total'];
         if (rawTotal is int) {
           total = rawTotal;
         } else if (rawTotal is num) {
@@ -3442,6 +3447,11 @@ class ApiService {
       if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
         rethrow;
       }
+      useLegacyItemsFallback = true;
+    }
+
+    if (useLegacyItemsFallback) {
+      rawItems.clear();
       final response = await _dio.get(
         '/api/v1/knowledge/$knowledgeBaseId/items',
       );
@@ -3815,24 +3825,43 @@ class ApiService {
 
   List<String> _fileIdsFromUploadResponse(Map<String, dynamic> data) {
     final ids = <String>{};
-    void collect(dynamic value, {String? key}) {
+    void collect(dynamic value, {String? key, bool inFileContainer = false}) {
       if (value is Map) {
         for (final entry in value.entries) {
-          collect(entry.value, key: entry.key.toString());
+          final childKey = entry.key.toString();
+          final normalizedChildKey = childKey
+              .replaceAll(RegExp(r'[_-]'), '')
+              .toLowerCase();
+          final childIsFileContainer =
+              inFileContainer ||
+              const {
+                'file',
+                'data',
+                'upload',
+                'item',
+                'result',
+                'document',
+              }.contains(normalizedChildKey);
+          collect(
+            entry.value,
+            key: childKey,
+            inFileContainer: childIsFileContainer,
+          );
         }
         return;
       }
       if (value is List) {
         for (final item in value) {
-          collect(item);
+          collect(item, inFileContainer: inFileContainer);
         }
         return;
       }
       final normalizedKey = key?.replaceAll(RegExp(r'[_-]'), '').toLowerCase();
-      if (normalizedKey == 'id' ||
-          normalizedKey == 'fileid' ||
-          normalizedKey == 'uuid' ||
-          normalizedKey == 'identifier') {
+      if (normalizedKey == 'fileid' ||
+          (inFileContainer &&
+              (normalizedKey == 'id' ||
+                  normalizedKey == 'uuid' ||
+                  normalizedKey == 'identifier'))) {
         final id = _normalizeDynamicString(value);
         if (id != null) {
           ids.add(id);

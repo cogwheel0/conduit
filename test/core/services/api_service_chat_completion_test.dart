@@ -2154,6 +2154,49 @@ void main() {
     });
 
     test(
+      'getKnowledgeBaseItems falls back on non-json files response',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.raw(
+            bytes: utf8.encode('<html>not json</html>'),
+            headers: {
+              'content-type': ['text/html; charset=utf-8'],
+            },
+          ),
+          _FakeAdapter.raw(
+            bytes: utf8.encode(
+              jsonEncode([
+                {
+                  'id': 'item-1',
+                  'title': 'Legacy note',
+                  'content': 'Saved text',
+                  'created_at': 1700000000,
+                  'updated_at': 1700000001,
+                },
+              ]),
+            ),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        final items = await api.getKnowledgeBaseItems('kb-1');
+
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals([
+          '/api/v1/knowledge/kb-1/files',
+          '/api/v1/knowledge/kb-1/items',
+        ]);
+        check(items).length.equals(1);
+        check(items.single.id).equals('item-1');
+        check(items.single.content).equals('Saved text');
+      },
+    );
+
+    test(
       'addFileToKnowledgeBase falls back to legacy file add route',
       () async {
         final adapter = _QueuedFakeAdapter([
@@ -2281,6 +2324,29 @@ void main() {
         ).deepEquals(['POST /api/v1/files/']);
       },
     );
+
+    test('addFileToKnowledgeBase ignores unrelated nested ids', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'user': {'id': 'user-1'},
+          'collection': {'uuid': 'collection-1'},
+        }),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals(['POST /api/v1/files/']);
+    });
 
     test(
       'addFileToKnowledgeBase does not legacy reupload unprocessed file',
