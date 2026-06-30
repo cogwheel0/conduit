@@ -97,7 +97,7 @@ class CompiledMarkdownDocument {
     if (!hasMutableBlockMetadata) {
       return false;
     }
-    return index >= mutableBlockStartIndex;
+    return index >= mutableBlockStartIndex && index < blocks.length;
   }
 
   int get estimatedWeight {

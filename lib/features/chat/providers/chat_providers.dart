@@ -92,6 +92,11 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
         ..write('\u0000')
+        // responseDone flips the rendered turn phase (running footer host /
+        // pin-to-top) while isStreaming is still set, so the list shell must
+        // rebuild on this transition to recompute the timeline.
+        ..write(message.metadata?['responseDone'] == true ? 1 : 0)
+        ..write('\u0000')
         // Include the displayed model-name fallback so the structure signature
         // changes whenever the label changes, keeping the list-shell rebuild
         // trigger in agreement with chat_page's layout signature. Use the

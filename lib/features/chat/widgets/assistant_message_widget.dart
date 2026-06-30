@@ -269,7 +269,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     if (oldWidget.isStreaming != widget.isStreaming ||
         oldWidget.message.metadata?['responseDone'] !=
-            widget.message.metadata?['responseDone']) {
+            widget.message.metadata?['responseDone'] ||
+        // An error can appear in place (failing the turn) while isStreaming
+        // stays true, flipping the phase to failed without an isStreaming or
+        // responseDone change; re-settle so the action row surfaces.
+        oldWidget.message.error != widget.message.error) {
       _updateActionRowSettle();
     }
 
@@ -412,7 +416,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _actionRowSettled = false;
       return;
     }
-    if (widget.message.metadata?['responseDone'] == true) {
+    if (widget.message.metadata?['responseDone'] == true ||
+        _turnPhase == ChatTurnPhase.failed) {
       _hasStreamedThisMessage = true;
       _actionRowSettled = true;
       return;
