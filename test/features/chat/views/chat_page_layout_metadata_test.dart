@@ -471,6 +471,25 @@ void main() {
     expect(summary.single.estimatedExtent, lessThan(2000));
   });
 
+  test('a raw standalone base64 image line estimates its rendered height', () {
+    final base64Payload = 'A' * 20000;
+    final summary = debugBuildChatListLayoutSummaryForTesting([
+      ChatMessage(
+        id: 'assistant-raw-image',
+        role: 'assistant',
+        content: 'Here is the image:\n\ndata:image/png;base64,$base64Payload',
+        timestamp: DateTime(2026),
+      ),
+    ]);
+
+    // A raw base64 line (no markdown wrapper) is rendered as an image, so it
+    // must add a per-image height term rather than estimating as ~one line of
+    // text (which would under-estimate and re-introduce the scroll jump).
+    final extent = summary.single.estimatedExtent;
+    expect(extent, greaterThan(220));
+    expect(extent, lessThan(2000));
+  });
+
   test(
     'layout metadata only enables follow-ups for terminal assistant rows',
     () {
