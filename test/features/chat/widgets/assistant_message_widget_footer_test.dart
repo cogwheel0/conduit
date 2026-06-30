@@ -496,6 +496,42 @@ void main() {
     expect(find.text('boom'), findsOneWidget);
   });
 
+  testWidgets('a turn that fails mid-stream reveals the action footer', (
+    tester,
+  ) async {
+    final streaming = ChatMessage(
+      id: 'assistant-fail-midstream',
+      role: 'assistant',
+      content: 'Partial',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        streaming,
+        isStreaming: true,
+        isChatStreaming: true,
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('actions')), findsNothing);
+
+    // An error appears while the transport flag is still streaming: the phase
+    // flips to failed without an isStreaming/responseDone change, so the settle
+    // refresh must still surface the action row.
+    final failed = streaming.copyWith(
+      error: const ChatMessageError(content: 'boom'),
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(failed, isStreaming: true, isChatStreaming: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+    expect(find.text('boom'), findsOneWidget);
+  });
+
   testWidgets('starting a new stream clears stale footer actions immediately', (
     tester,
   ) async {
