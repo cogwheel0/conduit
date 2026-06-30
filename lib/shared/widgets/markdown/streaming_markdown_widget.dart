@@ -125,7 +125,6 @@ class _StreamingMarkdownWidgetState
   late final MarkdownDocumentController _documentController;
   final GlobalKey _markdownContentKey = GlobalKey();
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
-  bool _preserveStaleCompiledDocumentUntilFreshFinal = false;
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
   bool _streamingRefreshFrameScheduled = false;
@@ -169,17 +168,12 @@ class _StreamingMarkdownWidgetState
   @override
   void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.isStreaming && !widget.isStreaming) {
-      _preserveStaleCompiledDocumentUntilFreshFinal = true;
-    } else if (widget.isStreaming ||
-        widget.stateScopeId != oldWidget.stateScopeId) {
-      _preserveStaleCompiledDocumentUntilFreshFinal = false;
-    }
+    final scopeChanged = widget.stateScopeId != oldWidget.stateScopeId;
     if (!identical(widget.sources, oldWidget.sources) ||
         widget.onSourceTap != oldWidget.onSourceTap ||
         widget.onTapLink != oldWidget.onTapLink ||
         widget.imageBuilderOverride != oldWidget.imageBuilderOverride ||
-        widget.stateScopeId != oldWidget.stateScopeId) {
+        scopeChanged) {
       setState(() {});
     }
     if (widget.content == oldWidget.content &&
@@ -191,6 +185,11 @@ class _StreamingMarkdownWidgetState
       _invalidatePendingAsyncSnapshot();
       _applyPreparedSnapshotIfNeeded(
         prepareMarkdownContent(widget.content, streaming: false),
+        // A scope change means a new message/version, not a continuation of the
+        // current content. Clear the stale document so the previous scope's
+        // content isn't shown while the new body compiles (the skeleton covers
+        // the gap instead). Same-scope growth keeps its document (issue #540).
+        clearStaleDocument: scopeChanged,
       );
       return;
     }
@@ -209,10 +208,22 @@ class _StreamingMarkdownWidgetState
         widget.debugOnStreamingRefreshFrame?.call();
       }
       _invalidatePendingAsyncSnapshot();
-      _applyPreparedSnapshotIfNeeded(preparedContent);
+      _applyPreparedSnapshotIfNeeded(
+        preparedContent,
+        clearStaleDocument: scopeChanged,
+      );
       return;
     }
 
+    // Deferred streaming path: the body needs an async compile, so the new
+    // document won't be ready this frame. On a scope change, clear the previous
+    // scope's document now — deferring the clear to the scheduled refresh would
+    // let the old document paint for one frame under the new scope (#541). The
+    // scheduled refresh below then compiles the new content. (The sync paths
+    // above clear/replace the document synchronously and don't need this.)
+    if (scopeChanged) {
+      _documentController.clearDocument();
+    }
     _markPendingStreamingContent(widget.content);
     _scheduleStreamingRefresh();
   }
@@ -353,22 +364,34 @@ class _StreamingMarkdownWidgetState
     }
   }
 
-  void _applySnapshot(_MarkdownRenderSnapshot nextSnapshot) {
+  void _applySnapshot(
+    _MarkdownRenderSnapshot nextSnapshot, {
+    bool clearStaleDocument = false,
+  }) {
     final changed = _snapshot != nextSnapshot;
     if (!changed) {
       if (_compiledDocument == null ||
           _compiledPreparedContent != nextSnapshot.normalizedContent) {
-        _resolveCompiledDocument(nextSnapshot);
+        _resolveCompiledDocument(
+          nextSnapshot,
+          clearStaleDocument: clearStaleDocument,
+        );
       }
       return;
     }
     if (!mounted) {
       _snapshot = nextSnapshot;
-      _resolveCompiledDocument(nextSnapshot);
+      _resolveCompiledDocument(
+        nextSnapshot,
+        clearStaleDocument: clearStaleDocument,
+      );
       return;
     }
     setState(() => _snapshot = nextSnapshot);
-    _resolveCompiledDocument(nextSnapshot);
+    _resolveCompiledDocument(
+      nextSnapshot,
+      clearStaleDocument: clearStaleDocument,
+    );
   }
 
   /// Adapts the legacy [imageBuilderOverride] callback
@@ -407,21 +430,25 @@ class _StreamingMarkdownWidgetState
     if (compiledDocument == null) {
       return const SizedBox.shrink();
     }
-    if (!widget.isStreaming &&
-        !hasFreshCompiledDocument &&
-        !_preserveStaleCompiledDocumentUntilFreshFinal) {
-      return const SizedBox.shrink();
-    }
+    // Once a compiled document exists, always render it — even when it is stale
+    // (a newer snapshot is still compiling). Replacing already-rendered content
+    // with a placeholder/blank causes the streaming body to flash whenever the
+    // turn phase flips to non-streaming mid-response (issue #540). The stale
+    // document is valid markdown and is superseded by `_applyCompiledDocumentState`
+    // within a frame once the fresh compile lands.
 
     final result = KeyedSubtree(
       key: _markdownContentKey,
       child: _buildMarkdownWithCitations(compiledDocument),
     );
 
-    // Only wrap in SelectionArea when not streaming to
-    // avoid concurrent modification errors in Flutter's
-    // selection system during rapid updates.
-    if (widget.isStreaming) {
+    // Only wrap in SelectionArea when not streaming AND the rendered document is
+    // fresh for the current content. A stale-but-valid document shown during
+    // ongoing updates (the responseDone-gap growing-content path that #540's fix
+    // now keeps on screen) must not be made selectable: SelectionArea over
+    // rapidly-changing content triggers concurrent-modification errors in
+    // Flutter's selection system. It becomes selectable once the compile settles.
+    if (widget.isStreaming || !hasFreshCompiledDocument) {
       return result;
     }
 
@@ -464,12 +491,21 @@ class _StreamingMarkdownWidgetState
     );
   }
 
-  void _resolveCompiledDocument(_MarkdownRenderSnapshot snapshot) {
+  void _resolveCompiledDocument(
+    _MarkdownRenderSnapshot snapshot, {
+    bool clearStaleDocument = false,
+  }) {
     if (widget.isStreaming) {
-      _documentController.resolveStreamingPrepared(snapshot.normalizedContent);
+      _documentController.resolveStreamingPrepared(
+        snapshot.normalizedContent,
+        clearDocumentWhenAsync: clearStaleDocument,
+      );
       return;
     }
-    _documentController.resolvePrepared(snapshot.normalizedContent);
+    _documentController.resolvePrepared(
+      snapshot.normalizedContent,
+      clearDocumentWhenAsync: clearStaleDocument,
+    );
   }
 
   bool _needsPreparedSnapshotUpdate(String preparedContent) {
@@ -480,11 +516,17 @@ class _StreamingMarkdownWidgetState
         _compiledPreparedContent != preparedContent;
   }
 
-  void _applyPreparedSnapshotIfNeeded(String preparedContent) {
+  void _applyPreparedSnapshotIfNeeded(
+    String preparedContent, {
+    bool clearStaleDocument = false,
+  }) {
     if (!_needsPreparedSnapshotUpdate(preparedContent)) {
       return;
     }
-    _applySnapshot(_MarkdownRenderSnapshot.full(preparedContent));
+    _applySnapshot(
+      _MarkdownRenderSnapshot.full(preparedContent),
+      clearStaleDocument: clearStaleDocument,
+    );
   }
 
   bool get _canActivelyRefreshStreamingMarkdown =>
@@ -534,8 +576,11 @@ class _StreamingMarkdownWidgetState
     if (hasFreshCompiledDocument) {
       return false;
     }
-    if (_preserveStaleCompiledDocumentUntilFreshFinal &&
-        compiledDocument != null) {
+    // The loading skeleton is strictly a first-paint state: it may only appear
+    // when no compiled document exists yet. Once any valid document has been
+    // rendered, a stale-but-valid document is kept on screen during async
+    // recompiles instead of regressing to the skeleton (issue #540).
+    if (compiledDocument != null) {
       return false;
     }
     return true;
@@ -545,19 +590,12 @@ class _StreamingMarkdownWidgetState
     String compiledPreparedContent,
     CompiledMarkdownDocument? document,
   ) {
-    final hasFreshCompiledDocument =
-        compiledPreparedContent == _snapshot.normalizedContent;
     if (!mounted) {
-      if (hasFreshCompiledDocument) {
-        _preserveStaleCompiledDocumentUntilFreshFinal = false;
-      }
       return;
     }
-    setState(() {
-      if (hasFreshCompiledDocument) {
-        _preserveStaleCompiledDocumentUntilFreshFinal = false;
-      }
-    });
+    // Rebuild so the freshly compiled document (or a cleared document) is
+    // reflected. Any stale document already on screen is superseded here.
+    setState(() {});
   }
 }
 
