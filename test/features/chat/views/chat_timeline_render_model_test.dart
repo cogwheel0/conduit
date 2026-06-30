@@ -238,4 +238,18 @@ void main() {
     expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.completed), isTrue);
     expect(chatTurnPhaseShowsCompletedFooter(ChatTurnPhase.failed), isTrue);
   });
+
+  test('chatTurnPhaseForMessage returns none for null and non-assistant messages', () {
+    expect(chatTurnPhaseForMessage(null), ChatTurnPhase.none);
+
+    // A non-assistant message is never a turn, even while streaming.
+    final user = ChatMessage(
+      id: 'user-1',
+      role: 'user',
+      content: 'Hi',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+    expect(chatTurnPhaseForMessage(user), ChatTurnPhase.none);
+  });
 }
