@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -98,6 +99,36 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _mtlsPrivateKeyPasswordController.dispose();
     _headerValueFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Refuses to proceed when [backendConfig] reports a server version newer
+  /// than this build supports: surfaces the blocking dialog plus an inline
+  /// error and returns `true` so the caller can abort. Shared by the direct
+  /// and reverse-proxy connection flows. `_isConnecting` is intentionally left
+  /// to each caller's `finally`, which always resets it.
+  Future<bool> _refuseIfServerIncompatible(BackendConfig backendConfig) async {
+    if (backendConfig.isVersionSupported) return false;
+    DebugLogger.log(
+      'Server version ${backendConfig.version} unsupported '
+      '(max ${ServerVersionCompat.maxSupportedVersion}); blocking',
+      scope: 'auth/connection',
+    );
+    if (mounted) {
+      await showServerIncompatibleDialog(
+        context,
+        serverVersion: backendConfig.version,
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _connectionError = AppLocalizations.of(
+          context,
+        )?.serverIncompatibleConnectBlocked(
+          ServerVersionCompat.maxSupportedVersion,
+        );
+      });
+    }
+    return true;
   }
 
   Future<void> _connectToServer() async {
@@ -208,26 +239,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       // Compatibility gate: refuse to proceed when the server is newer than
       // this app build supports. The server config is not saved, so the user
       // stays on the connection form after acknowledging.
-      if (!backendConfig.isVersionSupported) {
-        DebugLogger.log(
-          'Server version ${backendConfig.version} unsupported '
-          '(max ${ServerVersionCompat.maxSupportedVersion}); blocking',
-          scope: 'auth/connection',
-        );
-        if (mounted) {
-          await showServerIncompatibleDialog(
-            context,
-            serverVersion: backendConfig.version,
-          );
-        }
-        if (mounted) {
-          setState(() {
-            _connectionError =
-                AppLocalizations.of(context)?.serverIncompatibleConnectBlocked(
-                  ServerVersionCompat.maxSupportedVersion,
-                );
-          });
-        }
+      if (await _refuseIfServerIncompatible(backendConfig)) {
         return;
       }
 
@@ -384,28 +396,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return;
     }
 
-    // Compatibility gate (proxy path): same block as the direct connection.
-    if (!backendConfig.isVersionSupported) {
-      DebugLogger.log(
-        'Server version ${backendConfig.version} unsupported '
-        '(max ${ServerVersionCompat.maxSupportedVersion}); blocking proxy flow',
-        scope: 'auth/connection',
-      );
-      if (mounted) {
-        await showServerIncompatibleDialog(
-          context,
-          serverVersion: backendConfig.version,
-        );
-      }
-      if (mounted) {
-        setState(() {
-          _connectionError =
-              AppLocalizations.of(context)?.serverIncompatibleConnectBlocked(
-                ServerVersionCompat.maxSupportedVersion,
-              );
-          _isConnecting = false;
-        });
-      }
+    // Compatibility gate (proxy path): shares the direct flow's helper.
+    if (await _refuseIfServerIncompatible(backendConfig)) {
       return;
     }
 

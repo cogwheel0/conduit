@@ -233,9 +233,37 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   late final OptimizedStorageService _storage;
 
+  /// Tracks the last non-null active server id so a genuine A->B switch is
+  /// detected even when [activeServerProvider] passes through a transient
+  /// loading/null state (e.g. on `ref.invalidate`).
+  String? _lastKnownServerId;
+
   @override
   Future<BackendConfig?> build() async {
     _storage = ref.watch(optimizedStorageServiceProvider);
+
+    // The cached backend config (and its version) is global, not per-server.
+    // When the active server changes to a *different* one, the cached config
+    // belongs to the previous server and must not be used to gate the new one
+    // (see serverIncompatibleProvider). Drop it immediately — failing open
+    // until a fresh /api/config is fetched for the newly selected server — so
+    // a user can't get stranded on the incompatibility gate after switching
+    // from an unsupported server to a supported one.
+    _lastKnownServerId = ref.read(activeServerProvider).asData?.value?.id;
+    ref.listen(activeServerProvider.select((s) => s.asData?.value?.id), (
+      previous,
+      next,
+    ) {
+      if (next == null) return; // ignore transient loading/none states
+      final previousId = _lastKnownServerId;
+      _lastKnownServerId = next;
+      if (previousId != null && previousId != next) {
+        state = const AsyncData(null);
+        unawaited(_storage.saveLocalBackendConfig(null));
+        unawaited(_refreshBackendConfig());
+      }
+    });
+
     final cached = await _storage.getLocalBackendConfig();
     unawaited(_refreshBackendConfig());
     return cached;

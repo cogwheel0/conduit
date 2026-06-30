@@ -117,12 +117,13 @@ class RouterNotifier extends ChangeNotifier {
 
     // Compatibility gate: when the connected server runs a version newer than
     // this app build supports, block every in-app route and surface the
-    // incompatibility page. The server-connection route stays reachable so the
-    // user can point the app at a different (supported) server.
+    // incompatibility page. The auth/connection flow stays reachable so the
+    // user can recover by pointing the app at a different (supported) server —
+    // the connect-time gate prevents authenticating into another unsupported
+    // server, so opening those pages here is safe.
     final serverIncompatible = ref.read(serverIncompatibleProvider);
     if (serverIncompatible) {
-      if (location == Routes.serverIncompatible ||
-          location == Routes.serverConnection) {
+      if (location == Routes.serverIncompatible || _isAuthLocation(location)) {
         return null;
       }
       return Routes.serverIncompatible;
