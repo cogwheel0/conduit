@@ -2799,6 +2799,11 @@ Tail keeps growing
             home: Scaffold(
               body: SingleChildScrollView(
                 child: StreamingMarkdownWidget(
+                  // Shared key: the second pump must reuse this State so the
+                  // switch goes through didUpdateWidget's scope-change clear,
+                  // not a remount (which would hide the old content for the
+                  // wrong reason).
+                  key: const ValueKey('streaming-markdown-under-test'),
                   content: content,
                   isStreaming: streaming,
                   stateScopeId: scope,
@@ -2823,10 +2828,10 @@ Tail keeps growing
       await tester.pumpWidget(
         buildScopedHarness(liveResponse, 'msg|current', true),
       );
-      // Fire the scheduled streaming refresh frame, then let the async prepare
-      // resolve so the stale document is cleared before the compile lands.
-      await tester.pump();
-      await tester.pump();
+      // The very first frame after the switch — before the scheduled streaming
+      // refresh runs — must already be clear of the old scope. A deferred clear
+      // would let the old document paint for this one frame under the new scope,
+      // which is exactly the flash this guards against (#541).
       expect(
         find.textContaining('Old version', findRichText: true),
         findsNothing,
@@ -2834,6 +2839,23 @@ Tail keeps growing
       // Streaming never shows the skeleton; the gap is blank until the compile
       // settles.
       expect(skeletonFinder, findsNothing);
+
+      // Let the scheduled streaming refresh frame fire and the async prepare
+      // resolve; the old scope must stay gone throughout.
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.textContaining('Old version', findRichText: true),
+        findsNothing,
+      );
+      expect(skeletonFinder, findsNothing);
+      // The compile is still blocked, so the new body must NOT have appeared
+      // yet — this proves the gap is a genuine async wait, not a synchronous
+      // swap that would mask whether the clear happened at the right time.
+      expect(
+        find.textContaining('Live streaming response', findRichText: true),
+        findsNothing,
+      );
 
       compiler.release();
       await tester.pump();

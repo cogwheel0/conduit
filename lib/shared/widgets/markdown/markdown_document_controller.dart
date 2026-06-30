@@ -204,6 +204,22 @@ class MarkdownDocumentController {
     _invalidatePendingAsyncDocument();
   }
 
+  /// Immediately drops the rendered document (without re-resolving) so a stale
+  /// scope's content stops painting on the very next frame. Used when a scope
+  /// change's recompile is deferred: merely arming a pending clear would let the
+  /// old document paint for one frame under the new scope before the deferred
+  /// refresh lands (#541). The deferred refresh then compiles the new content.
+  void clearDocument() {
+    // Always cancel any in-flight/queued async resolve first, so a stale compile
+    // started under the previous scope can't land after the clear — even when
+    // there is no rendered document to drop yet.
+    _invalidatePendingAsyncDocument();
+    if (_compiledDocument == null) {
+      return;
+    }
+    _setState(_compiledPreparedContent, null);
+  }
+
   void dispose() {
     _disposed = true;
     _queuedRequest = null;
