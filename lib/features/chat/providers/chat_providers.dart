@@ -1433,7 +1433,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final serverMsg = serverMessages.where((m) => m.id == localStreamingMsg.id);
     if (serverMsg.isNotEmpty && !serverMsg.first.isStreaming) {
       final serverMessage = serverMsg.first;
-      if (_isStaleStreamingAssistantEcho(localStreamingMsg, serverMessage)) {
+      // A stale empty non-streaming echo of the in-flight assistant must not
+      // retire the stream — UNLESS the server has already moved past this turn
+      // (it carries more messages than we hold locally), which proves the turn
+      // completed and the echo is no longer the tail. Mirrors the
+      // additional-messages guard in _shouldPreserveLocalAssistantStreamingState
+      // so the cleanup and preserve paths agree.
+      final serverHasAdditionalMessages = serverMessages.length > state.length;
+      if (!serverHasAdditionalMessages &&
+          _isStaleStreamingAssistantEcho(localStreamingMsg, serverMessage)) {
         DebugLogger.log(
           'Ignoring stale non-streaming server echo for active message '
           '${localStreamingMsg.id}',
