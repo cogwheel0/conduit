@@ -3387,7 +3387,7 @@ class ApiService {
       }
       await _dio.put(
         '/api/v1/knowledge/$id',
-        data: {'name': ?name, 'description': ?description},
+        data: {'name': ?nextName, 'description': ?nextDescription},
       );
     }
   }
@@ -3848,18 +3848,7 @@ class ApiService {
       'document',
       'documents',
     };
-    const nonFileContainerKeys = {
-      'user',
-      'users',
-      'owner',
-      'owners',
-      'collection',
-      'collections',
-      'workspace',
-      'organization',
-      'metadata',
-      'meta',
-    };
+    const filePayloadWrapperKeys = {'data', 'item', 'result'};
     void collect(dynamic value, {String? key, bool inFileContainer = false}) {
       if (value is Map) {
         for (final entry in value.entries) {
@@ -3867,10 +3856,13 @@ class ApiService {
           final normalizedChildKey = childKey
               .replaceAll(RegExp(r'[_-]'), '')
               .toLowerCase();
+          final valueIsNestedContainer =
+              entry.value is Map || entry.value is List;
           final childIsFileContainer =
               fileContainerKeys.contains(normalizedChildKey) ||
               (inFileContainer &&
-                  !nonFileContainerKeys.contains(normalizedChildKey));
+                  (!valueIsNestedContainer ||
+                      filePayloadWrapperKeys.contains(normalizedChildKey)));
           collect(
             entry.value,
             key: childKey,

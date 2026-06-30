@@ -2152,6 +2152,36 @@ void main() {
       },
     );
 
+    test(
+      'updateKnowledgeBase legacy update preserves prefetched fields',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'name': 'Docs',
+            'description': 'Existing description',
+          }),
+          _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+          _FakeAdapter.json({}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.updateKnowledgeBase('kb-1', name: 'Docs 2');
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/knowledge/kb-1',
+          'POST /api/v1/knowledge/kb-1/update',
+          'PUT /api/v1/knowledge/kb-1',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'name': 'Docs 2', 'description': 'Existing description'});
+      },
+    );
+
     test('getKnowledgeBaseItems reads the 0.10 file-backed endpoint', () async {
       final adapter = _QueuedFakeAdapter([
         _FakeAdapter.json({
@@ -2450,6 +2480,32 @@ void main() {
           'data': {
             'user': {'id': 'user-1'},
             'collection': {'uuid': 'collection-1'},
+          },
+        }),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.addFileToKnowledgeBase(
+          'kb-1',
+          filename: 'guide.md',
+          content: utf8.encode('hello'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals(['POST /api/v1/files/']);
+    });
+
+    test('addFileToKnowledgeBase ignores arbitrary nested file ids', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({
+          'file': {
+            'data': {
+              'attributes': {'id': 'attribute-1'},
+            },
           },
         }),
       ]);
