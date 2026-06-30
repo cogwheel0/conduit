@@ -1007,6 +1007,24 @@ graph TD
     expect(baseRenders, greaterThan(before));
   });
 
+  testWidgets('only the mutable tail part enables streaming text fade', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness('Intro paragraph.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+
+    final markdownWidgets = tester
+        .widgetList<ConduitMarkdownWidget>(find.byType(ConduitMarkdownWidget))
+        .toList();
+    expect(markdownWidgets.length, greaterThanOrEqualTo(2));
+    // The frozen leading block must not fade; only the trailing mutable tail
+    // does — locking the isMutableTail gate end-to-end into ConduitMarkdownWidget.
+    expect(markdownWidgets.first.enableStreamingTextFade, isFalse);
+    expect(markdownWidgets.last.enableStreamingTextFade, isTrue);
+  });
+
   testWidgets('streaming markdown fades newly appended rendered text', (
     tester,
   ) async {
