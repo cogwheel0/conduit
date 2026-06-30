@@ -109,17 +109,41 @@ CompiledMarkdownDocument _documentForBlock({
   required List<CompiledMarkdownNode> nodes,
   required bool isMutableTail,
 }) {
+  final normalizedContent = _normalizedContentForBlock(block, nodes);
+
   return CompiledMarkdownDocument(
-    normalizedContent: _normalizedContentForBlock(block, nodes),
+    normalizedContent: normalizedContent,
     renderTier: MarkdownRenderTier.blocks,
     containsCitations: nodes.any(_compiledNodeContainsCitations),
     heavyBlockCount: _countHeavyBlocksInCompiledNodes(nodes),
     blocks: <CompiledMarkdownBlock>[block],
     nodes: nodes,
-    blockLatexExpressions: source.blockLatexExpressions,
-    inlineLatexExpressions: source.inlineLatexExpressions,
+    blockLatexExpressions: _filterLatexExpressions(
+      source.blockLatexExpressions,
+      normalizedContent,
+    ),
+    inlineLatexExpressions: _filterLatexExpressions(
+      source.inlineLatexExpressions,
+      normalizedContent,
+    ),
     mutableBlockStartIndex: isMutableTail ? 0 : -1,
   );
+}
+
+Map<String, String> _filterLatexExpressions(
+  Map<String, String> expressions,
+  String content,
+) {
+  if (expressions.isEmpty || content.isEmpty) {
+    return const <String, String>{};
+  }
+  final filtered = <String, String>{};
+  for (final entry in expressions.entries) {
+    if (content.contains(entry.key)) {
+      filtered[entry.key] = entry.value;
+    }
+  }
+  return filtered;
 }
 
 String _normalizedContentForBlock(
