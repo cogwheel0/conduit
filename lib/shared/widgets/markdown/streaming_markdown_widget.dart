@@ -127,6 +127,13 @@ class _StreamingMarkdownWidgetState
   final GlobalKey _markdownContentKey = GlobalKey();
   final Map<String, CompiledMarkdownDocument> _displayPartDocumentCache =
       <String, CompiledMarkdownDocument>{};
+  // Unique per-instance prefix used when no stateScopeId is supplied, so two
+  // scope-less StreamingMarkdownWidgets on the same route don't share
+  // PageStorage keys (markdown_compile_service reuses block ids across unrelated
+  // documents, so a raw partId is not unique on its own).
+  static int _scopelessInstanceCounter = 0;
+  late final String _scopelessFallbackScopeId =
+      'sm${_scopelessInstanceCounter++}';
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
@@ -563,7 +570,7 @@ class _StreamingMarkdownWidgetState
   String? _stateScopeIdForPart(MarkdownDisplayPart part) {
     final scope = widget.stateScopeId;
     if (scope == null || scope.isEmpty) {
-      return part.partId;
+      return '$_scopelessFallbackScopeId:${part.partId}';
     }
     return '$scope:${part.partId}';
   }
