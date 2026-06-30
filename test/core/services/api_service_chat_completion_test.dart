@@ -1894,6 +1894,35 @@ void main() {
       ]);
     });
 
+    test('pinConversation surfaces unknown state after toggle post', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode('false'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.json({'ok': true}),
+        _FakeAdapter.json({}),
+        _FakeAdapter.json({'id': 'chat-1'}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await expectLater(
+        api.pinConversation('chat-1', true),
+        throwsA(isA<StateError>()),
+      );
+
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'GET /api/v1/chats/chat-1/pinned',
+        'POST /api/v1/chats/chat-1/pin',
+        'GET /api/v1/chats/chat-1/pinned',
+        'GET /api/v1/chats/chat-1',
+      ]);
+    });
+
     test(
       'pinConversation does not toggle when current state is unknown',
       () async {
@@ -2328,8 +2357,10 @@ void main() {
     test('addFileToKnowledgeBase ignores unrelated nested ids', () async {
       final adapter = _QueuedFakeAdapter([
         _FakeAdapter.json({
-          'user': {'id': 'user-1'},
-          'collection': {'uuid': 'collection-1'},
+          'data': {
+            'user': {'id': 'user-1'},
+            'collection': {'uuid': 'collection-1'},
+          },
         }),
       ]);
       final api = _buildApiServiceForTest(adapter);

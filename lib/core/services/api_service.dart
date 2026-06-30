@@ -2308,7 +2308,12 @@ class ApiService {
     final actual = data?[field] is bool
         ? data![field] as bool
         : await _fetchConversationBooleanField(id, field);
-    if (actual is bool && actual != desired) {
+    if (actual == null) {
+      throw StateError(
+        'Cannot confirm $field for chat $id after toggling to $desired',
+      );
+    }
+    if (actual != desired) {
       DebugLogger.warning(
         'toggle-mismatch',
         scope: 'api/conversation',
@@ -3836,11 +3841,12 @@ class ApiService {
               inFileContainer ||
               const {
                 'file',
-                'data',
+                'files',
                 'upload',
-                'item',
-                'result',
+                'uploadedfile',
+                'uploadedfiles',
                 'document',
+                'documents',
               }.contains(normalizedChildKey);
           collect(
             entry.value,
