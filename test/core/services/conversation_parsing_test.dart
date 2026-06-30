@@ -463,6 +463,7 @@ void main() {
                     '<summary>Thought for 0 seconds</summary>\n'
                     '&gt; stale\n'
                     '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
                     'Final answer',
                 'output': [
                   {
@@ -489,6 +490,8 @@ void main() {
         final content = messages.first['content'] as String;
         check('<details'.allMatches(content).length).equals(1);
         check(content).not((it) => it.contains('&gt; stale'));
+        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
+        check(content).contains('Keep me');
         check('Final answer'.allMatches(content).length).equals(1);
       });
 

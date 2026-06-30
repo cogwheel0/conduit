@@ -2067,7 +2067,7 @@ void main() {
           'items': [
             {
               'id': 'file-1',
-              'content': 'Guide text',
+              'data': {'content': 'Guide text'},
               'created_at': 1700000000,
               'updated_at': 1700000001,
               'meta': {'filename': 'guide.md', 'name': 'Guide'},

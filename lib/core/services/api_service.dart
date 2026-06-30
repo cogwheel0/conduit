@@ -3474,8 +3474,13 @@ class ApiService {
         _normalizeDynamicString(meta['filename']) ??
         _normalizeDynamicString(meta['name']) ??
         'Unknown';
+    final dataMap = _coerceJsonMap(file['data']);
     final content =
-        file['content']?.toString() ?? file['text']?.toString() ?? '';
+        file['content']?.toString() ??
+        file['text']?.toString() ??
+        dataMap?['content']?.toString() ??
+        dataMap?['text']?.toString() ??
+        '';
     return KnowledgeBaseItem.fromJson({
       'id': file['id'],
       'content': content,

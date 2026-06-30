@@ -909,9 +909,10 @@ String _stripRenderedSemanticDetails(String content) {
   if (!content.contains('<details')) {
     return content;
   }
-  return content
-      .replaceAll(RegExp(r'<details[\s\S]*?</details>\s*'), '')
-      .trim();
+  final semanticDetailsPattern = RegExp(
+    r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+  );
+  return content.replaceAll(semanticDetailsPattern, '').trim();
 }
 
 String _stringOr(dynamic value, String fallback) {

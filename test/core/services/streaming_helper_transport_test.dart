@@ -1336,6 +1336,56 @@ void main() {
     );
 
     test(
+      'chat:completion plain output clears stale pending tool details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'content': 'Final answer',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Final answer'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).equals('Final answer');
+      },
+    );
+
+    test(
       'chat:completion output snapshot keeps answer after reasoning-only state',
       () async {
         final log = _CallbackLog();

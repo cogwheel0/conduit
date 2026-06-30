@@ -714,9 +714,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (!content.contains('<details')) {
       return content;
     }
-    return content
-        .replaceAll(RegExp(r'<details[\s\S]*?</details>\s*'), '')
-        .trim();
+    final semanticDetailsPattern = RegExp(
+      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+    );
+    return content.replaceAll(semanticDetailsPattern, '').trim();
   }
 
   var renderedStreamingContent = (() {
@@ -792,6 +793,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  bool containsRenderedSemanticDetails(String content) {
+    if (!content.contains('<details')) {
+      return false;
+    }
+    return RegExp(
+      r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])''',
+    ).hasMatch(content);
+  }
+
   void replaceVisibleAssistantStructuredOutput(
     List<StructuredOutputBlock> blocks,
   ) {
@@ -806,10 +816,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             snapshotPlainText.length > plainStreamingContent.length
         ? snapshotPlainText
         : plainStreamingContent;
+    final fullSnapshotPlainText = snapshotPlainText.trim().isNotEmpty
+        ? snapshotPlainText
+        : replacementPlainText;
     final shouldRenderFullSnapshot =
         renderedStreamingContent.trim().isEmpty ||
         renderedFromStructuredOutput ||
         !hasPlainContent;
+    final visibleHasStaleDetails =
+        !hasDetails &&
+        renderedStreamingContent != renderedSnapshot &&
+        containsRenderedSemanticDetails(renderedStreamingContent);
     final outputContent = hasDetails
         ? shouldRenderFullSnapshot
               ? renderedSnapshot
@@ -818,6 +835,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   replacementPlainText,
                 )
         : renderedSnapshot != plainStreamingContent
+        ? renderedSnapshot
+        : visibleHasStaleDetails
         ? renderedSnapshot
         : '';
     if (outputContent.isEmpty) return;
@@ -830,7 +849,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       fromStructuredOutput: shouldRenderFullSnapshot,
       plainContent: hasDetails
           ? shouldRenderFullSnapshot
-                ? snapshotPlainText
+                ? fullSnapshotPlainText
                 : replacementPlainText
           : snapshotPlainText,
     );
@@ -910,7 +929,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool includeInPlainContent = true,
   }) {
     if (chunk.isEmpty) return;
-    renderedFromStructuredOutput = false;
+    if (includeInPlainContent) {
+      renderedFromStructuredOutput = false;
+    }
 
     if (inReasoningBlock) {
       renderedStreamingContent =
