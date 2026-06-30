@@ -308,10 +308,11 @@ void main() {
     expect(controller.isAnchoredToBottom, isTrue);
   });
 
-  test('bottom anchor controller releases the sticky latch while the user interacts', () {
+  test('bottom anchor controller keeps the anchor on a small mid-drag and detaches past the threshold', () {
     final controller = ChatBottomAnchorController(
       showThreshold: 300,
       hideThreshold: 150,
+      userScrollAwayThreshold: 24,
     );
 
     controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
@@ -320,26 +321,25 @@ void main() {
       isTrue,
     );
 
-    // User begins dragging: the latch is suppressed, so updateAnchor falls
-    // through to the detach path instead of staying pinned.
+    // User begins dragging during the sticky correction. A small (sub-threshold)
+    // drag must NOT detach: updateAnchor keeps the anchor while the latch holds,
+    // deferring the break to shouldDetachForUserScrollAway's threshold check.
     controller.isUserInteractingWithScroll = true;
     expect(
       controller.updateAnchor(
         hasScrollableContent: true,
         distanceFromBottom: 320,
       ),
+      isTrue,
+    );
+    expect(controller.isAnchoredToBottom, isTrue);
+    expect(
+      controller.shouldDetachForUserScrollAway(nearBottom: false, scrollDelta: 4),
       isFalse,
     );
 
-    // Re-arm the latch, then confirm interaction alone resumes distance-based
-    // button visibility.
-    controller.isUserInteractingWithScroll = false;
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    expect(
-      controller.prepareForStickyContentChange(wantsPinToTop: false),
-      isTrue,
-    );
-    controller.isUserInteractingWithScroll = true;
+    // But the scroll-to-bottom button still surfaces while interacting (the
+    // distance-based hysteresis is not suppressed during a drag).
     expect(
       controller.shouldShowScrollToBottom(
         currentlyShowing: false,
@@ -347,6 +347,25 @@ void main() {
         distanceFromBottom: 320,
       ),
       isTrue,
+    );
+
+    // A drag past userScrollAwayThreshold breaks the latch via the scroll
+    // handler, after which updateAnchor reports detached.
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: 40,
+      ),
+      isTrue,
+    );
+    controller.detachByUser();
+    expect(controller.isAnchoredToBottom, isFalse);
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
     );
   });
 
