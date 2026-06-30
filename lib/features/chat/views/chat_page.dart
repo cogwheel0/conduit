@@ -3916,6 +3916,14 @@ int _rowIndexForEstimatedOffset(
 /// length can be excluded from the row-extent estimate.
 final RegExp _chatExtentDataUriImagePattern = RegExp(r'data:image/[^\s)\]]+');
 
+/// Matches a raw standalone `data:image/...` line (no markdown `![]()` wrapper).
+/// These are rendered as images at display time, so they need a per-image
+/// height term. A data-uri inside a markdown image is not at line start, so it
+/// is not matched here and therefore not double-counted with the `![` count.
+final RegExp _chatExtentStandaloneDataUriPattern = RegExp(
+  r'(?:^|\n)[ \t]*data:image/',
+);
+
 double _estimateChatMessageExtent(
   ChatMessage? message,
   double crossAxisExtent, {
@@ -3961,8 +3969,16 @@ double _estimateChatMessageExtent(
   // chrome/padding, and images render at a fixed size regardless of markup.
   final codeFenceBlocks = '```'.allMatches(textContent).length ~/ 2;
   estimate += codeFenceBlocks * 120.0;
+  // Count each rendered image once: markdown `![...]` images plus raw
+  // standalone data-uri lines (rendered as images at display time with no
+  // `![]` wrapper). A data-uri inside a markdown image isn't at line start, so
+  // it is only counted by the `![` term, not double-counted here.
   final markdownImageCount = '!['.allMatches(textContent).length;
-  estimate += math.min(markdownImageCount, 8) * 220.0;
+  final standaloneDataUriImageCount = _chatExtentStandaloneDataUriPattern
+      .allMatches(rawContent)
+      .length;
+  final imageCount = markdownImageCount + standaloneDataUriImageCount;
+  estimate += math.min(imageCount, 8) * 220.0;
 
   if (message.error != null) {
     estimate += 64.0;
