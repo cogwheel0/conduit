@@ -2237,7 +2237,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant typing indicator updates when a same-length status row flips to done',
+    'assistant message does not own typing indicator when status row flips to done',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -2296,12 +2296,6 @@ Tail keeps growing
         await tester.pump();
 
         expect(find.byKey(const ValueKey('typing')), findsNothing);
-
-        await tester.pump(const Duration(milliseconds: 149));
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
-
-        await tester.pump(const Duration(milliseconds: 1));
-        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
       } finally {
         container.dispose();
       }
@@ -2309,8 +2303,8 @@ Tail keeps growing
   );
 
   testWidgets(
-    'typing indicator holds the footer slot while content streams, then swaps '
-    'to the action row on completion',
+    'assistant message keeps its own footer empty while streaming, then actions '
+    'show on completion',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -2338,15 +2332,12 @@ Tail keeps growing
           ),
         );
 
-        // Before the 150ms gate, neither the indicator nor the action row shows.
         await tester.pump();
         expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsNothing);
 
-        // After the gate the typing indicator occupies the footer (action-row)
-        // slot even though content is already streaming in above it.
-        await tester.pump(const Duration(milliseconds: 150));
-        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+        await tester.pump();
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsNothing);
 
         // Completion swaps the indicator for the action row.

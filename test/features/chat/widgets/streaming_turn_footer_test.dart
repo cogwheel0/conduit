@@ -1,0 +1,192 @@
+import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/features/chat/widgets/five_rotating_dots.dart';
+import 'package:conduit/features/chat/widgets/streaming_turn_footer.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+ProviderContainer _buildContainer() {
+  return ProviderContainer(
+    overrides: [
+      appSettingsProvider.overrideWithValue(
+        const AppSettings(hapticFeedback: false),
+      ),
+    ],
+  );
+}
+
+Widget _buildHarness({
+  required ProviderContainer container,
+  required ChatMessage message,
+}) {
+  return UncontrolledProviderScope(
+    container: container,
+    child: MaterialApp(
+      theme: AppTheme.light(TweakcnThemes.t3Chat),
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: Scaffold(body: StreamingTurnFooter(message: message)),
+      ),
+    ),
+  );
+}
+
+void main() {
+  testWidgets('shows empty-stream indicator immediately while running', (
+    tester,
+  ) async {
+    final container = _buildContainer();
+    addTearDown(container.dispose);
+    final message = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: message),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  testWidgets('stays visible once streaming content arrives', (tester) async {
+    final container = _buildContainer();
+    addTearDown(container.dispose);
+    final message = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: 'Hello',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: message),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  testWidgets('left-aligns the running indicator in its footer row', (
+    tester,
+  ) async {
+    final container = _buildContainer();
+    addTearDown(container.dispose);
+    final message = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: 'Hello',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: MediaQuery(
+            data: const MediaQueryData(disableAnimations: true),
+            child: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 320,
+                  child: StreamingTurnFooter(message: message),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final indicatorLeft = tester.getTopLeft(find.byType(FiveRotatingDots)).dx;
+    expect(indicatorLeft, lessThan(48));
+  });
+
+  testWidgets('stays visible while status rows are pending', (tester) async {
+    final container = _buildContainer();
+    addTearDown(container.dispose);
+    final pending = ChatMessage(
+      id: 'assistant-status',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+      statusHistory: const [
+        ChatStatusUpdate(action: 'search', description: 'Searching'),
+      ],
+    );
+    final done = pending.copyWith(
+      statusHistory: const [
+        ChatStatusUpdate(
+          action: 'search',
+          description: 'Searching',
+          done: true,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: pending),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+
+    await tester.pumpWidget(_buildHarness(container: container, message: done));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  test(
+    'active assistant streams show the footer until response completion',
+    () {
+      final streaming = ChatMessage(
+        id: 'assistant-live',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        isStreaming: true,
+      );
+
+      expect(shouldShowStreamingTurnFooter(message: streaming), isTrue);
+      expect(
+        shouldShowStreamingTurnFooter(
+          message: streaming.copyWith(content: 'Hello'),
+        ),
+        isTrue,
+      );
+      expect(
+        shouldShowStreamingTurnFooter(
+          message: streaming.copyWith(metadata: const {'responseDone': true}),
+        ),
+        isTrue,
+      );
+      expect(
+        shouldShowStreamingTurnFooter(
+          message: streaming.copyWith(files: const [{}]),
+        ),
+        isTrue,
+      );
+      expect(
+        shouldShowStreamingTurnFooter(
+          message: streaming.copyWith(
+            isStreaming: false,
+            metadata: const {'responseDone': true},
+          ),
+        ),
+        isFalse,
+      );
+    },
+  );
+}

@@ -189,6 +189,94 @@ void main() {
       },
     );
 
+    test(
+      'first conversation activation preserves a stale same-id stream echo',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final assistantMessage = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+        notifier.addMessages([userMessage, assistantMessage]);
+
+        final staleServerEcho = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: false,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('local:first', [userMessage, staleServerEcho]));
+        await Future<void>.delayed(Duration.zero);
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).length.equals(2);
+        check(messages.last.id).equals('assistant-1');
+        check(messages.last.isStreaming).isTrue();
+        check(messages.last.metadata?['modelName']).equals('GPT-4o');
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'same-chat empty server echo does not retire the active stream',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final assistantMessage = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+        final activeConversationNotifier = container.read(
+          activeConversationProvider.notifier,
+        );
+        activeConversationNotifier.set(
+          _conversation('chat-1', [userMessage, assistantMessage]),
+        );
+        await Future<void>.delayed(Duration.zero);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        final staleServerEcho = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: false,
+        );
+        activeConversationNotifier.set(
+          _conversation('chat-1', [userMessage, staleServerEcho]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).length.equals(2);
+        check(messages.last.id).equals('assistant-1');
+        check(messages.last.isStreaming).isTrue();
+        check(messages.last.metadata?['modelName']).equals('GPT-4o');
+
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
       addTearDown(container.dispose);
@@ -387,143 +475,132 @@ void main() {
       },
     );
 
-    test(
-      'preserved follow-ups also overwrite a stale empty followUps key in '
-      'server metadata',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        container.read(chatMessagesProvider.notifier);
+    test('preserved follow-ups also overwrite a stale empty followUps key in '
+        'server metadata', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        final localAssistant = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer',
-          followUps: const ['Ask again'],
-        );
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final localAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer',
+        followUps: const ['Ask again'],
+      );
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, localAssistant]));
-        await Future<void>.delayed(Duration.zero);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, localAssistant]));
+      await Future<void>.delayed(Duration.zero);
 
-        // Server snapshot drops the follow-ups AND carries an explicit empty
-        // followUps in its metadata map.
-        final serverAssistant = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer',
-          metadata: const {'followUps': <String>[]},
-        );
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, serverAssistant]));
-        await Future<void>.delayed(Duration.zero);
+      // Server snapshot drops the follow-ups AND carries an explicit empty
+      // followUps in its metadata map.
+      final serverAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer',
+        metadata: const {'followUps': <String>[]},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, serverAssistant]));
+      await Future<void>.delayed(Duration.zero);
 
-        final adopted = container.read(chatMessagesProvider).last;
-        check(adopted.followUps).deepEquals(['Ask again']);
-        // The metadata mirror must match the typed field, not stay stale [].
-        check(
-          (adopted.metadata?['followUps'] as List).cast<String>(),
-        ).deepEquals(['Ask again']);
-      },
-    );
+      final adopted = container.read(chatMessagesProvider).last;
+      check(adopted.followUps).deepEquals(['Ask again']);
+      // The metadata mirror must match the typed field, not stay stale [].
+      check(
+        (adopted.metadata?['followUps'] as List).cast<String>(),
+      ).deepEquals(['Ask again']);
+    });
 
-    test(
-      'content-preserving snapshot keeps local-only metadata (modelName) '
-      'when the server snapshot lacks it',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        container.read(chatMessagesProvider.notifier);
+    test('content-preserving snapshot keeps local-only metadata (modelName) '
+        'when the server snapshot lacks it', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        // Locally-streamed assistant carries the modelName chip this PR writes
-        // to every placeholder, and is fresher than the server snapshot.
-        final localAssistant = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer that streamed completely',
-          // Locally streamed: carries provenance (transport) plus the modelName
-          // chip. The bug erased modelName when content was preserved.
-          metadata: const {'transport': 'httpStream', 'modelName': 'GPT-4o'},
-        );
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      // Locally-streamed assistant carries the modelName chip this PR writes
+      // to every placeholder, and is fresher than the server snapshot.
+      final localAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer that streamed completely',
+        // Locally streamed: carries provenance (transport) plus the modelName
+        // chip. The bug erased modelName when content was preserved.
+        metadata: const {'transport': 'httpStream', 'modelName': 'GPT-4o'},
+      );
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, localAssistant]));
-        await Future<void>.delayed(Duration.zero);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, localAssistant]));
+      await Future<void>.delayed(Duration.zero);
 
-        // Server snapshot captured before the durable payload was finalized:
-        // shorter content and no modelName.
-        final laggingServerAssistant = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Answer that',
-        );
-        container
-            .read(activeConversationProvider.notifier)
-            .set(
-              _conversation('chat-1', [userMessage, laggingServerAssistant]),
-            );
-        await Future<void>.delayed(Duration.zero);
+      // Server snapshot captured before the durable payload was finalized:
+      // shorter content and no modelName.
+      final laggingServerAssistant = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Answer that',
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, laggingServerAssistant]));
+      await Future<void>.delayed(Duration.zero);
 
-        final adopted = container.read(chatMessagesProvider).last;
-        check(adopted.content).equals('Answer that streamed completely');
-        check(adopted.metadata?['modelName']).equals('GPT-4o');
-      },
-    );
+      final adopted = container.read(chatMessagesProvider).last;
+      check(adopted.content).equals('Answer that streamed completely');
+      check(adopted.metadata?['modelName']).equals('GPT-4o');
+    });
 
-    test(
-      'empty placeholder keeps its modelName when a pre-first-token server '
-      'snapshot lacks it',
-      () async {
-        final container = _buildContainer();
-        addTearDown(container.dispose);
-        container.read(chatMessagesProvider.notifier);
+    test('empty placeholder keeps its modelName when a pre-first-token server '
+        'snapshot lacks it', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier);
 
-        final userMessage = ChatMessage(
-          id: 'user-1',
-          role: 'user',
-          content: 'Hello',
-          timestamp: DateTime(2024, 1, 1),
-        );
-        // Fresh placeholder: no content yet, but already carries the modelName
-        // chip written at send time.
-        final placeholder = _assistantMessage(
-          id: 'assistant-1',
-          content: '',
-          metadata: const {'modelName': 'GPT-4o'},
-        );
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      // Fresh placeholder: no content yet, but already carries the modelName
+      // chip written at send time.
+      final placeholder = _assistantMessage(
+        id: 'assistant-1',
+        content: '',
+        metadata: const {'modelName': 'GPT-4o'},
+      );
 
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, placeholder]));
-        await Future<void>.delayed(Duration.zero);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, placeholder]));
+      await Future<void>.delayed(Duration.zero);
 
-        // Stale snapshot adopted before the first token: server content arrives
-        // but without modelName.
-        final serverFirstTokens = _assistantMessage(
-          id: 'assistant-1',
-          content: 'Hel',
-        );
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [userMessage, serverFirstTokens]));
-        await Future<void>.delayed(Duration.zero);
+      // Stale snapshot adopted before the first token: server content arrives
+      // but without modelName.
+      final serverFirstTokens = _assistantMessage(
+        id: 'assistant-1',
+        content: 'Hel',
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', [userMessage, serverFirstTokens]));
+      await Future<void>.delayed(Duration.zero);
 
-        final adopted = container.read(chatMessagesProvider).last;
-        check(adopted.content).equals('Hel');
-        check(adopted.metadata?['modelName']).equals('GPT-4o');
-      },
-    );
+      final adopted = container.read(chatMessagesProvider).last;
+      check(adopted.content).equals('Hel');
+      check(adopted.metadata?['modelName']).equals('GPT-4o');
+    });
 
     test(
       'an explicit empty server modelName does not blank the preserved local '
@@ -602,7 +679,9 @@ void main() {
 
         container
             .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', [user1, olderLocal, user2, tailLocal]));
+            .set(
+              _conversation('chat-1', [user1, olderLocal, user2, tailLocal]),
+            );
         await Future<void>.delayed(Duration.zero);
 
         // Authoritative server snapshot: the older message is corrected
@@ -708,7 +787,8 @@ void main() {
       // No socket -> no resume subscriptions -> not protected. (The 1s poll
       // fallback is gated on an API service, also null here, so it is inert.)
       check(
-        container.read(chatMessagesProvider.notifier)
+        container
+            .read(chatMessagesProvider.notifier)
             .debugShouldProtectLocalStreamingState,
       ).isFalse();
     });

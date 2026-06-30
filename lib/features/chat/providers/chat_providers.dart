@@ -395,7 +395,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
 
         if (next != null) {
-          final nextMessages = next.messages;
+          final nextMessages = _preserveFreshLocalAssistantState(next.messages);
           final currentMessagesAlreadyVisible =
               state.isNotEmpty &&
               !_messagesDifferByStreamingSignatures(nextMessages, state);
@@ -869,10 +869,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final localById = <String, ChatMessage>{
       for (final message in state)
         // Also index empty placeholders that still carry a local-only
-        // `modelName`, so a stale pre-first-token snapshot can't drop the model
-        // label before the metadata merge runs.
+        // streaming state or `modelName`, so a stale pre-first-token snapshot
+        // can't drop local turn state before the metadata merge runs.
         if (message.role == 'assistant' &&
-            (message.content.trim().isNotEmpty ||
+            (message.isStreaming ||
+                message.content.trim().isNotEmpty ||
                 message.followUps.isNotEmpty ||
                 _messageModelName(message) != null))
           message.id: message,
@@ -886,6 +887,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // already-completed assistant messages must defer to the server so an
     // authoritative refresh can correct or truncate them.
     final localTailId = state.last.role == 'assistant' ? state.last.id : null;
+    final serverHasAdditionalMessages = serverMessages.length > state.length;
 
     var changed = false;
     final merged = <ChatMessage>[];
@@ -907,6 +909,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           localMessage != null &&
           isStreamingTail &&
           _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
+      final shouldPreserveStreamingState =
+          localMessage != null &&
+          _shouldPreserveLocalAssistantStreamingState(
+            localMessage,
+            serverMessage,
+            isStreamingTail: isStreamingTail,
+            serverHasAdditionalMessages: serverHasAdditionalMessages,
+          );
       final sameResponseContent =
           localMessage != null &&
           _sameAssistantResponseText(
@@ -928,7 +938,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _messageModelName(serverMessage) == null;
       if (!preserveContent &&
           !shouldPreserveFollowUps &&
-          !shouldPreserveModelName) {
+          !shouldPreserveModelName &&
+          !shouldPreserveStreamingState) {
         merged.add(serverMessage);
         continue;
       }
@@ -955,6 +966,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       merged.add(
         serverMessage.copyWith(
+          isStreaming: shouldPreserveStreamingState
+              ? true
+              : serverMessage.isStreaming,
           content: preserveContent
               ? localMessage.content
               : serverMessage.content,
@@ -967,6 +981,51 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     return changed ? List<ChatMessage>.unmodifiable(merged) : serverMessages;
+  }
+
+  bool _shouldPreserveLocalAssistantStreamingState(
+    ChatMessage localMessage,
+    ChatMessage serverMessage, {
+    required bool isStreamingTail,
+    required bool serverHasAdditionalMessages,
+  }) {
+    if (!isStreamingTail || serverHasAdditionalMessages) {
+      return false;
+    }
+    if (localMessage.role != 'assistant' ||
+        serverMessage.role != 'assistant' ||
+        !localMessage.isStreaming ||
+        serverMessage.isStreaming) {
+      return false;
+    }
+    if (serverMessage.metadata?['responseDone'] == true ||
+        serverMessage.error != null) {
+      return false;
+    }
+    return _isStaleStreamingAssistantEcho(localMessage, serverMessage);
+  }
+
+  bool _isStaleStreamingAssistantEcho(
+    ChatMessage localMessage,
+    ChatMessage serverMessage,
+  ) {
+    if (localMessage.role != 'assistant' ||
+        serverMessage.role != 'assistant' ||
+        !localMessage.isStreaming ||
+        serverMessage.isStreaming) {
+      return false;
+    }
+    if (serverMessage.metadata?['responseDone'] == true ||
+        serverMessage.error != null) {
+      return false;
+    }
+    return serverMessage.content.trim().isEmpty &&
+        serverMessage.output?.isNotEmpty != true &&
+        serverMessage.files?.isNotEmpty != true &&
+        serverMessage.embeds?.isNotEmpty != true &&
+        serverMessage.followUps.isEmpty &&
+        serverMessage.sources.isEmpty &&
+        serverMessage.codeExecutions.isEmpty;
   }
 
   bool _shouldPreserveLocalAssistantContent(
@@ -1375,6 +1434,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Find the same message in server messages by ID
     final serverMsg = serverMessages.where((m) => m.id == localStreamingMsg.id);
     if (serverMsg.isNotEmpty && !serverMsg.first.isStreaming) {
+      final serverMessage = serverMsg.first;
+      if (_isStaleStreamingAssistantEcho(localStreamingMsg, serverMessage)) {
+        DebugLogger.log(
+          'Ignoring stale non-streaming server echo for active message '
+          '${localStreamingMsg.id}',
+          scope: 'chat/providers',
+        );
+        return false;
+      }
       DebugLogger.log(
         'Server indicates streaming complete for message ${localStreamingMsg.id}',
         scope: 'chat/providers',
