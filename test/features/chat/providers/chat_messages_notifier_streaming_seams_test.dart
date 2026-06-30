@@ -629,6 +629,31 @@ void main() {
           ]),
         ).isTrue();
 
+        // A stale echo is still retired once the server has moved past this
+        // turn: extra messages after the echo prove streaming completed, so the
+        // echo must not keep the stream (and its footer/task state) attached to
+        // a no-longer-tail message.
+        check(
+          notifier.debugShouldCleanupStreamingFromServer([
+            _assistantMessage(
+              id: 'assistant-1',
+              content: '',
+              isStreaming: false,
+            ),
+            ChatMessage(
+              id: 'user-2',
+              role: 'user',
+              content: 'Next question',
+              timestamp: DateTime(2024, 1, 1),
+            ),
+            _assistantMessage(
+              id: 'assistant-2',
+              content: 'Next answer',
+              isStreaming: false,
+            ),
+          ]),
+        ).isTrue();
+
         notifier.clearMessages();
       },
     );
