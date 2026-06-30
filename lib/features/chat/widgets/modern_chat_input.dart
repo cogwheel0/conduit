@@ -142,7 +142,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   StreamSubscription<IosNativePastePayload>? _pasteSubscription;
   StreamSubscription<IosKeyboardAttachmentEvent>?
   _keyboardAttachmentSubscription;
-  late VoiceInputService _voiceService;
+  VoiceInputService? _voiceService;
   StreamSubscription<String>? _textSub;
   Timer? _contextSuggestionDebounce;
   String _baseTextAtStart = '';
@@ -167,7 +167,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   @override
   void initState() {
     super.initState();
-    _voiceService = ref.read(voiceInputServiceProvider);
 
     // Apply any prefilled text on first frame (focus handled via inputFocusTrigger)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -241,6 +240,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Do not auto-focus on mount; only focus on explicit user intent
   }
 
+  VoiceInputService get _voiceInputService {
+    final VoiceInputService service =
+        _voiceService ?? ref.read(voiceInputServiceProvider);
+    _voiceService = service;
+    return service;
+  }
+
   @override
   void dispose() {
     // Note: Avoid using ref in dispose as per Riverpod best practices
@@ -257,7 +263,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!kIsWeb && Platform.isIOS) {
       unawaited(IosKeyboardAttachmentBridge.instance.hide());
     }
-    _voiceService.stopListening();
+    _voiceService?.stopListening();
     super.dispose();
   }
 
@@ -3419,7 +3425,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Future<void> _startVoice() async {
     if (!widget.enabled) return;
     try {
-      final ok = await _voiceService.initialize();
+      final ok = await _voiceInputService.initialize();
       if (!mounted) return;
       if (!ok) {
         _showVoiceUnavailable(
@@ -3429,7 +3435,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         return;
       }
       // Centralized permission + start
-      final stream = await _voiceService.beginListening();
+      final stream = await _voiceInputService.beginListening();
       if (!mounted) return;
       setState(() {
         _isRecording = true;
@@ -3467,7 +3473,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _stopVoice() async {
-    await _voiceService.stopListening();
+    await _voiceInputService.stopListening();
     if (!mounted) return;
     setState(() => _isRecording = false);
     ConduitHaptics.selectionClick();
@@ -3478,7 +3484,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       await _stopVoice();
       return;
     }
-    await _voiceService.stopListening();
+    await _voiceInputService.stopListening();
     if (!mounted) return;
     setState(() => _isRecording = false);
     ConduitHaptics.lightImpact();
