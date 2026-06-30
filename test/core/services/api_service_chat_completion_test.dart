@@ -1177,7 +1177,14 @@ void main() {
         final versionMessage =
             historyMessages['asst-alt'] as Map<String, dynamic>;
 
-        check(versionMessage['output']).isA<List>().length.equals(1);
+        check(versionMessage['output'] as List<dynamic>).deepEquals([
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Alternate answer'},
+            ],
+          },
+        ]);
       },
     );
 
