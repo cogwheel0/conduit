@@ -351,6 +351,35 @@ void main() {
             timestamp: DateTime(2024, 1, 1),
             codeExecutions: const [ChatCodeExecution(id: 'ce1')],
           ),
+          'statusHistory': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            statusHistory: const [
+              ChatStatusUpdate(description: 'Searching', done: true),
+            ],
+          ),
+          'versions': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            versions: [
+              ChatMessageVersion(
+                id: 'v1',
+                content: 'Earlier draft',
+                timestamp: DateTime(2024, 1, 1),
+              ),
+            ],
+          ),
+          'usage': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            usage: const {'prompt_tokens': 10},
+          ),
         };
 
         for (final entry in completionEchoes.entries) {

@@ -1017,13 +1017,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         serverMessage.error != null) {
       return false;
     }
+    // A snapshot that carries only metadata (a final statusHistory entry, a
+    // saved version, or usage stats) with empty content is a real server update,
+    // not a stale empty echo. Treating it as stale would force isStreaming back
+    // to true and block finalization, leaving the typing indicator stuck until a
+    // later refresh.
     return serverMessage.content.trim().isEmpty &&
         serverMessage.output?.isNotEmpty != true &&
         serverMessage.files?.isNotEmpty != true &&
         serverMessage.embeds?.isNotEmpty != true &&
         serverMessage.followUps.isEmpty &&
         serverMessage.sources.isEmpty &&
-        serverMessage.codeExecutions.isEmpty;
+        serverMessage.codeExecutions.isEmpty &&
+        serverMessage.statusHistory.isEmpty &&
+        serverMessage.versions.isEmpty &&
+        serverMessage.usage?.isNotEmpty != true;
   }
 
   bool _shouldPreserveLocalAssistantContent(
