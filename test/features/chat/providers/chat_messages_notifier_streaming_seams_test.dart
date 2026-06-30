@@ -533,6 +533,106 @@ void main() {
       },
     );
 
+    test(
+      'socket-resumed tail preserves streaming-state when a stale empty echo carries the foreign server id',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localTail = _assistantMessage(
+          id: 'assistant-local',
+          content: 'Partial',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(_conversation('chat-1', [userMessage, localTail]));
+        await Future<void>.delayed(Duration.zero);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        // Socket resume bound a foreign server id to the local tail (must be
+        // recorded while the tail is still state.last).
+        notifier.recordResumeBoundRemoteMessageId(
+          'assistant-local',
+          'server-foreign',
+        );
+
+        // Lagging snapshot carries the FOREIGN id with empty, non-streaming
+        // content: the boundToTail path must still preserve streaming-state.
+        final foreignEcho = _assistantMessage(
+          id: 'server-foreign',
+          content: '',
+          isStreaming: false,
+        );
+        active.set(_conversation('chat-1', [userMessage, foreignEcho]));
+        await Future<void>.delayed(Duration.zero);
+
+        final merged = container.read(chatMessagesProvider).last;
+        check(merged.isStreaming).isTrue();
+        check(merged.metadata?['modelName']).equals('GPT-4o');
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'shouldCleanupStreamingFromServer ignores a stale echo but retires real completions',
+      () {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(
+            id: 'assistant-1',
+            content: 'Partial',
+            isStreaming: true,
+          ),
+        ]);
+
+        // A stale empty non-streaming echo must NOT retire the stream.
+        check(
+          notifier.debugShouldCleanupStreamingFromServer([
+            _assistantMessage(id: 'assistant-1', content: '', isStreaming: false),
+          ]),
+        ).isFalse();
+
+        // responseDone retires it.
+        check(
+          notifier.debugShouldCleanupStreamingFromServer([
+            _assistantMessage(
+              id: 'assistant-1',
+              content: '',
+              isStreaming: false,
+              metadata: const {'responseDone': true},
+            ),
+          ]),
+        ).isTrue();
+
+        // An error retires it.
+        check(
+          notifier.debugShouldCleanupStreamingFromServer([
+            ChatMessage(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              timestamp: DateTime(2024, 1, 1),
+              error: const ChatMessageError(content: 'boom'),
+            ),
+          ]),
+        ).isTrue();
+
+        notifier.clearMessages();
+      },
+    );
+
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
       addTearDown(container.dispose);

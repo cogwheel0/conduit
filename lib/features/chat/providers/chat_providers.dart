@@ -1458,6 +1458,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return false;
   }
 
+  @visibleForTesting
+  bool debugShouldCleanupStreamingFromServer(
+    List<ChatMessage> serverMessages,
+  ) => _shouldCleanupStreamingFromServer(serverMessages);
+
   bool get _hasStreamingAssistant {
     if (state.isEmpty) return false;
     final last = state.last;

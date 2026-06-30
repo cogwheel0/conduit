@@ -350,6 +350,42 @@ void main() {
     );
   });
 
+  test('bottom anchor controller keeps the button hidden when the latch holds even if currently showing', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    expect(
+      controller.prepareForStickyContentChange(wantsPinToTop: false),
+      isTrue,
+    );
+
+    // Latch armed: even with the button already visible and a large distance,
+    // the sticky latch short-circuits visibility to hidden.
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+
+    // Once the latch clears, the same call falls through to the hysteresis
+    // branch and reports the button shown.
+    controller.verifyStickyCorrection(nearBottom: false, isFinalAttempt: true);
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: true,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
