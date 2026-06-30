@@ -71,6 +71,88 @@ bool isTlsHandshakeFailureForTest(DioException error) {
       message.contains('alert bad certificate');
 }
 
+/// Raised when Conduit would overwrite a user-managed Open WebUI webhook.
+class UserNotificationWebhookConflictException implements Exception {
+  UserNotificationWebhookConflictException({
+    required this.currentWebhookUrl,
+    this.expectedWebhookUrl,
+  });
+
+  final String currentWebhookUrl;
+  final String? expectedWebhookUrl;
+
+  @override
+  String toString() =>
+      'UserNotificationWebhookConflictException(current webhook differs)';
+}
+
+@visibleForTesting
+Map<String, dynamic> mergeUserNotificationWebhookSettingsForTest(
+  Map<String, dynamic> source, {
+  required String? webhookUrl,
+  String? expectedCurrentWebhookUrl,
+}) {
+  return _mergeUserNotificationWebhookSettings(
+    source,
+    webhookUrl: webhookUrl,
+    expectedCurrentWebhookUrl: expectedCurrentWebhookUrl,
+  );
+}
+
+Map<String, dynamic> _mergeUserNotificationWebhookSettings(
+  Map<String, dynamic> source, {
+  required String? webhookUrl,
+  String? expectedCurrentWebhookUrl,
+}) {
+  final settings = normalizeJsonLikeMap(source);
+  final ui = _coerceJsonMapForWebhookMerge(settings['ui']);
+  final notifications = _coerceJsonMapForWebhookMerge(ui['notifications']);
+  final currentWebhookUrl = _normalizeStringForWebhookMerge(
+    notifications['webhook_url'],
+  );
+  final expectedWebhookUrl = _normalizeStringForWebhookMerge(
+    expectedCurrentWebhookUrl,
+  );
+  final nextWebhookUrl = _normalizeStringForWebhookMerge(webhookUrl);
+
+  if (currentWebhookUrl != null && currentWebhookUrl != expectedWebhookUrl) {
+    throw UserNotificationWebhookConflictException(
+      currentWebhookUrl: currentWebhookUrl,
+      expectedWebhookUrl: expectedWebhookUrl,
+    );
+  }
+
+  if (nextWebhookUrl == null) {
+    notifications.remove('webhook_url');
+  } else {
+    notifications['webhook_url'] = nextWebhookUrl;
+  }
+
+  ui['notifications'] = notifications;
+  settings['ui'] = ui;
+  return settings;
+}
+
+Map<String, dynamic> _coerceJsonMapForWebhookMerge(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return normalizeJsonLikeMap(value);
+  }
+  if (value is Map) {
+    return normalizeJsonLikeMap(
+      value.map((key, entry) => MapEntry(key?.toString() ?? '', entry)),
+    );
+  }
+  return <String, dynamic>{};
+}
+
+String? _normalizeStringForWebhookMerge(Object? value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
 /// Get MIME type from file extension.
 String? _getMimeType(String fileName) {
   final ext = fileName.toLowerCase().split('.').last;
@@ -613,6 +695,23 @@ class ApiService {
       );
       rethrow;
     }
+  }
+
+  Future<Map<String, dynamic>> getAdminConfig() async {
+    _traceApi('Fetching admin config');
+    final response = await _dio.get('/api/v1/auths/admin/config');
+    return _requireResponseMap(response.data, 'admin config');
+  }
+
+  Future<Map<String, dynamic>> setAdminUserWebhooksEnabled(bool enabled) async {
+    final config = await getAdminConfig();
+    config['ENABLE_USER_WEBHOOKS'] = enabled;
+    _traceApi('Updating admin user webhook config');
+    final response = await _dio.post(
+      '/api/v1/auths/admin/config',
+      data: config,
+    );
+    return _coerceResponseMap(response.data) ?? config;
   }
 
   Future<BackendConfig> _enrichBackendConfigWithAudioConfig(
@@ -2409,6 +2508,29 @@ class ApiService {
     }
 
     _traceApi('Updating user notification settings');
+    final response = await _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+    );
+    final data = _coerceResponseMap(response.data) ?? settings;
+    return ServerUserSettings.fromJson(data);
+  }
+
+  /// Persists Conduit's per-user notification webhook URL under Open WebUI's
+  /// `ui.notifications.webhook_url` setting. If [expectedCurrentWebhookUrl] is
+  /// supplied, an existing different webhook is treated as user-managed and is
+  /// not overwritten.
+  Future<ServerUserSettings> updateUserNotificationWebhook({
+    required String? webhookUrl,
+    String? expectedCurrentWebhookUrl,
+  }) async {
+    final settings = _mergeUserNotificationWebhookSettings(
+      await getUserSettings(),
+      webhookUrl: webhookUrl,
+      expectedCurrentWebhookUrl: expectedCurrentWebhookUrl,
+    );
+
+    _traceApi('Updating user notification webhook');
     final response = await _dio.post(
       '/api/v1/users/user/settings/update',
       data: settings,

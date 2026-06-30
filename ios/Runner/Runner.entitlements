@@ -8,5 +8,7 @@
 	</array>
 	<key>com.apple.developer.carplay-voice-based-conversation</key>
 	<true/>
+	<key>aps-environment</key>
+	<string>$(APS_ENVIRONMENT)</string>
 </dict>
 </plist>

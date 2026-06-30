@@ -18,6 +18,7 @@ import '../services/local_notification_service.dart';
 import '../services/notification_event_classifier.dart';
 import '../services/notification_router.dart';
 import '../services/notification_sound_service.dart';
+import '../services/remote_push_service.dart';
 
 part 'notification_socket_listener.g.dart';
 
@@ -117,6 +118,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   SocketEventSubscription? _channelSub;
   StreamSubscription<void>? _reconnectSub;
   StreamSubscription<NotificationTap>? _tapSub;
+  StreamSubscription<NotificationTap>? _remoteTapSub;
   SocketService? _boundSocket;
 
   @override
@@ -126,6 +128,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       _channelSub?.dispose();
       _reconnectSub?.cancel();
       _tapSub?.cancel();
+      _remoteTapSub?.cancel();
     });
 
     final local = ref.read(localNotificationServiceProvider);
@@ -135,6 +138,13 @@ class NotificationSocketListener extends _$NotificationSocketListener {
 
     // System-notification taps (foreground) route to the target.
     _tapSub = local.taps.listen((tap) {
+      unawaited(_handleTap(ref, tap));
+    });
+
+    final remotePush = ref.read(remotePushServiceProvider);
+    unawaited(remotePush.start());
+    unawaited(remotePush.syncForCurrentSettings());
+    _remoteTapSub = remotePush.taps.listen((tap) {
       unawaited(_handleTap(ref, tap));
     });
 
@@ -156,6 +166,10 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     final tap = await local.launchTap();
     if (tap != null) {
       await _handleTap(ref, tap);
+    }
+    final remoteTap = await ref.read(remotePushServiceProvider).launchTap();
+    if (remoteTap != null) {
+      await _handleTap(ref, remoteTap);
     }
   }
 
@@ -186,8 +200,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     });
   }
 
-  String get _currentUserId =>
-      ref.read(currentUserProvider).value?.id ?? '';
+  String get _currentUserId => ref.read(currentUserProvider).value?.id ?? '';
 
   void _onChatEvent(Map<String, dynamic> event) {
     final notification = _classifier.classifyChatEvent(

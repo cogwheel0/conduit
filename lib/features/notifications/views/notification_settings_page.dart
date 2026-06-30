@@ -12,6 +12,9 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../services/local_notification_service.dart';
+import '../services/remote_push_build_config.dart';
+import '../services/remote_push_models.dart';
+import '../services/remote_push_service.dart';
 
 /// Notification preferences. The master toggle requests OS permission on
 /// opt-in. The three Open WebUI-aligned prefs (master / sound / sound-always)
@@ -26,6 +29,10 @@ class NotificationSettingsPage extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
     final enabled = settings.notificationsEnabled;
+    final backendConfig = ref.watch(backendConfigProvider).value;
+    final currentUser = ref.watch(currentUserProvider).value;
+    final isAdmin = currentUser?.role == 'admin';
+    final serverUserWebhooksEnabled = backendConfig?.enableUserWebhooks == true;
 
     Widget tile({
       required IconData icon,
@@ -79,8 +86,23 @@ class NotificationSettingsPage extends ConsumerWidget {
           title: l10n.notificationSystemTitle,
           subtitle: l10n.notificationSystemDescription,
           value: settings.notificationSystem,
-          onChanged: notifier.setNotificationSystem,
+          onChanged: (value) => _setSystem(ref, value),
         ),
+        if (isAdmin) ...[
+          const SizedBox(height: Spacing.sm),
+          tile(
+            icon: CupertinoIcons.cloud_upload_fill,
+            title: l10n.notificationServerAutoConfigureTitle,
+            subtitle: serverUserWebhooksEnabled
+                ? l10n.notificationServerAutoConfigureEnabledDescription
+                : RemotePushBuildConfig.current.isConfigured
+                ? l10n.notificationServerAutoConfigureDescription
+                : l10n.notificationRemotePushBuildMissing,
+            value: serverUserWebhooksEnabled,
+            dependantOnMaster: false,
+            onChanged: (value) => _setServerAutoConfigure(context, ref, value),
+          ),
+        ],
         const SizedBox(height: Spacing.sm),
         tile(
           icon: CupertinoIcons.speaker_2_fill,
@@ -138,6 +160,33 @@ class NotificationSettingsPage extends ConsumerWidget {
           type: AdaptiveSnackBarType.warning,
         );
       }
+      if (granted) {
+        final result = await ref
+            .read(remotePushServiceProvider)
+            .syncForCurrentSettings(requestPermission: true);
+        if (context.mounted) {
+          _showRemotePushResult(context, result);
+        }
+      }
+    } else {
+      unawaited(
+        ref
+            .read(remotePushServiceProvider)
+            .disableForActiveServer(removeServerWebhook: true),
+      );
+    }
+  }
+
+  Future<void> _setSystem(WidgetRef ref, bool value) async {
+    await ref.read(appSettingsProvider.notifier).setNotificationSystem(value);
+    if (value) {
+      unawaited(ref.read(remotePushServiceProvider).syncForCurrentSettings());
+    } else {
+      unawaited(
+        ref
+            .read(remotePushServiceProvider)
+            .disableForActiveServer(removeServerWebhook: true),
+      );
     }
   }
 
@@ -182,6 +231,115 @@ class NotificationSettingsPage extends ConsumerWidget {
               );
             },
           ),
+    );
+  }
+
+  Future<void> _setServerAutoConfigure(
+    BuildContext context,
+    WidgetRef ref,
+    bool value,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(
+          value
+              ? l10n.notificationServerAutoConfigureEnableDialogTitle
+              : l10n.notificationServerAutoConfigureDisableDialogTitle,
+        ),
+        content: Text(
+          value
+              ? l10n.notificationServerAutoConfigureEnableDialogMessage
+              : l10n.notificationServerAutoConfigureDisableDialogMessage,
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.cancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: !value,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              value
+                  ? l10n.notificationServerAutoConfigureEnableAction
+                  : l10n.notificationServerAutoConfigureDisableAction,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+
+    try {
+      await api.setAdminUserWebhooksEnabled(value);
+      await ref.read(backendConfigProvider.notifier).refresh();
+      if (value) {
+        final result = await ref
+            .read(remotePushServiceProvider)
+            .syncForCurrentSettings();
+        if (context.mounted) {
+          _showRemotePushResult(context, result);
+        }
+      } else {
+        await ref
+            .read(remotePushServiceProvider)
+            .disableForActiveServer(removeServerWebhook: true);
+      }
+      if (!context.mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.notificationServerAutoConfigureDone,
+        type: AdaptiveSnackBarType.success,
+      );
+    } catch (e, st) {
+      DebugLogger.error(
+        'failed to update server notification setup',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/settings',
+      );
+      if (!context.mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.notificationServerAutoConfigureFailed,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
+  }
+
+  void _showRemotePushResult(
+    BuildContext context,
+    RemotePushSyncResult result,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final message = switch (result.status) {
+      RemotePushSyncStatus.registered => l10n.notificationRemotePushConfigured,
+      RemotePushSyncStatus.serverUserWebhooksDisabled =>
+        l10n.notificationRemotePushServerDisabled,
+      RemotePushSyncStatus.buildNotConfigured ||
+      RemotePushSyncStatus.unsupportedPlatform =>
+        l10n.notificationRemotePushBuildMissing,
+      RemotePushSyncStatus.existingWebhookConflict =>
+        l10n.notificationRemotePushConflict,
+      RemotePushSyncStatus.permissionDenied =>
+        l10n.notificationsPermissionDenied,
+      RemotePushSyncStatus.tokenUnavailable ||
+      RemotePushSyncStatus.failed => l10n.notificationRemotePushFailed,
+      RemotePushSyncStatus.disabledByPreference ||
+      RemotePushSyncStatus.missingSession => null,
+    };
+    if (message == null) return;
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: result.status == RemotePushSyncStatus.registered
+          ? AdaptiveSnackBarType.success
+          : AdaptiveSnackBarType.warning,
     );
   }
 }

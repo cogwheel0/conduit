@@ -11,6 +11,7 @@ class ServerUserSettings {
     this.notificationEnabled,
     this.notificationSound,
     this.notificationSoundAlways,
+    this.notificationWebhookUrl,
   });
 
   final String? systemPrompt;
@@ -24,6 +25,10 @@ class ServerUserSettings {
   final bool? notificationEnabled;
   final bool? notificationSound;
   final bool? notificationSoundAlways;
+
+  /// Open WebUI stores the per-user notification webhook at
+  /// `ui.notifications.webhook_url`.
+  final String? notificationWebhookUrl;
 
   /// The user's preferred default model, if one is configured.
   String? get defaultModelId =>
@@ -42,6 +47,9 @@ class ServerUserSettings {
       notificationEnabled: _coerceBool(json['notificationEnabled']),
       notificationSound: _coerceBool(json['notificationSound']),
       notificationSoundAlways: _coerceBool(json['notificationSoundAlways']),
+      notificationWebhookUrl: _normalizeString(
+        _coerceJsonMap(ui?['notifications'])?['webhook_url'],
+      ),
     );
   }
 
@@ -53,6 +61,7 @@ class ServerUserSettings {
     bool? notificationEnabled,
     bool? notificationSound,
     bool? notificationSoundAlways,
+    Object? notificationWebhookUrl = _serverUserSettingsUnset,
   }) {
     return ServerUserSettings(
       systemPrompt: systemPrompt == _serverUserSettingsUnset
@@ -65,6 +74,9 @@ class ServerUserSettings {
       notificationSound: notificationSound ?? this.notificationSound,
       notificationSoundAlways:
           notificationSoundAlways ?? this.notificationSoundAlways,
+      notificationWebhookUrl: notificationWebhookUrl == _serverUserSettingsUnset
+          ? this.notificationWebhookUrl
+          : notificationWebhookUrl as String?,
     );
   }
 }

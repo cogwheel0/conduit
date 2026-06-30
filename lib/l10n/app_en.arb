@@ -3582,6 +3582,70 @@
   "@notificationViewAction": {
     "description": "Action label on an in-app notification banner that opens the target."
   },
+  "notificationServerAutoConfigureTitle": "Auto-configure server",
+  "@notificationServerAutoConfigureTitle": {
+    "description": "Admin toggle title for enabling Open WebUI user webhooks."
+  },
+  "notificationServerAutoConfigureDescription": "Enable Open WebUI user webhooks so Conduit can register push wakeups for users on this server.",
+  "@notificationServerAutoConfigureDescription": {
+    "description": "Admin toggle description before server-side user webhooks are enabled."
+  },
+  "notificationServerAutoConfigureEnabledDescription": "Open WebUI user webhooks are enabled; users who enable notifications are registered automatically.",
+  "@notificationServerAutoConfigureEnabledDescription": {
+    "description": "Admin toggle description after server-side user webhooks are enabled."
+  },
+  "notificationServerAutoConfigureEnableDialogTitle": "Enable server push wakeups?",
+  "@notificationServerAutoConfigureEnableDialogTitle": {
+    "description": "Title of the admin disclosure dialog for enabling server push setup."
+  },
+  "notificationServerAutoConfigureEnableDialogMessage": "Conduit will enable Open WebUI user webhooks on this server. Each user's app can save a per-user Conduit webhook URL for the push proxy. Notification metadata is sent to the proxy so APNs or FCM can wake devices.",
+  "@notificationServerAutoConfigureEnableDialogMessage": {
+    "description": "Disclosure shown to admins before enabling Open WebUI user webhooks."
+  },
+  "notificationServerAutoConfigureDisableDialogTitle": "Disable server push wakeups?",
+  "@notificationServerAutoConfigureDisableDialogTitle": {
+    "description": "Title of the admin disclosure dialog for disabling server push setup."
+  },
+  "notificationServerAutoConfigureDisableDialogMessage": "Open WebUI will stop sending user notification webhooks. Existing user webhook settings remain stored, but Conduit push wakeups will not be delivered while this is off.",
+  "@notificationServerAutoConfigureDisableDialogMessage": {
+    "description": "Disclosure shown to admins before disabling Open WebUI user webhooks."
+  },
+  "notificationServerAutoConfigureEnableAction": "Enable",
+  "@notificationServerAutoConfigureEnableAction": {
+    "description": "Confirmation action for enabling server push setup."
+  },
+  "notificationServerAutoConfigureDisableAction": "Disable",
+  "@notificationServerAutoConfigureDisableAction": {
+    "description": "Confirmation action for disabling server push setup."
+  },
+  "notificationServerAutoConfigureDone": "Server notification setup updated.",
+  "@notificationServerAutoConfigureDone": {
+    "description": "Snackbar shown after server notification setup changes successfully."
+  },
+  "notificationServerAutoConfigureFailed": "Couldn't update server notification setup.",
+  "@notificationServerAutoConfigureFailed": {
+    "description": "Snackbar shown after server notification setup fails."
+  },
+  "notificationRemotePushConfigured": "Remote notifications configured for this server.",
+  "@notificationRemotePushConfigured": {
+    "description": "Snackbar shown after Conduit successfully registers its push webhook."
+  },
+  "notificationRemotePushServerDisabled": "An admin must enable Open WebUI user webhooks before remote notifications can work.",
+  "@notificationRemotePushServerDisabled": {
+    "description": "Snackbar shown when remote push setup cannot continue because server-side user webhooks are disabled."
+  },
+  "notificationRemotePushBuildMissing": "This build is missing push proxy configuration.",
+  "@notificationRemotePushBuildMissing": {
+    "description": "Snackbar or subtitle shown when the app was built without push proxy/Firebase configuration."
+  },
+  "notificationRemotePushConflict": "Existing webhook found. Remove it in Open WebUI notification settings before enabling Conduit remote notifications.",
+  "@notificationRemotePushConflict": {
+    "description": "Snackbar shown when Conduit refuses to overwrite an existing user webhook URL."
+  },
+  "notificationRemotePushFailed": "Couldn't configure remote notifications.",
+  "@notificationRemotePushFailed": {
+    "description": "Snackbar shown when push proxy registration fails."
+  },
   "notificationsPermissionDenied": "Notifications are turned off in system settings.",
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."

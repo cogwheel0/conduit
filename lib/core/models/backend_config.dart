@@ -123,6 +123,7 @@ class BackendConfig {
     this.oauthProviders = const OAuthProviders(),
     this.enableLdap = false,
     this.enableLoginForm = true,
+    this.enableUserWebhooks = false,
   });
 
   /// Mirrors `features.enable_websocket` from OpenWebUI.
@@ -152,6 +153,9 @@ class BackendConfig {
   /// Whether the standard login form (email/password) is enabled.
   final bool enableLoginForm;
 
+  /// Whether Open WebUI allows per-user webhook URLs for notifications.
+  final bool enableUserWebhooks;
+
   /// Whether SSO (OAuth) login is available.
   bool get hasSsoEnabled => oauthProviders.hasAnyProvider;
 
@@ -173,6 +177,7 @@ class BackendConfig {
     OAuthProviders? oauthProviders,
     bool? enableLdap,
     bool? enableLoginForm,
+    bool? enableUserWebhooks,
   }) {
     return BackendConfig(
       enableWebsocket: enableWebsocket ?? this.enableWebsocket,
@@ -191,6 +196,7 @@ class BackendConfig {
       oauthProviders: oauthProviders ?? this.oauthProviders,
       enableLdap: enableLdap ?? this.enableLdap,
       enableLoginForm: enableLoginForm ?? this.enableLoginForm,
+      enableUserWebhooks: enableUserWebhooks ?? this.enableUserWebhooks,
     );
   }
 
@@ -231,6 +237,7 @@ class BackendConfig {
       'oauth': {'providers': oauthProviders.toJson()},
       'enable_ldap': enableLdap,
       'enable_login_form': enableLoginForm,
+      'enable_user_webhooks': enableUserWebhooks,
     };
   }
 
@@ -251,6 +258,7 @@ class BackendConfig {
     OAuthProviders oauthProviders = const OAuthProviders();
     bool enableLdap = false;
     bool enableLoginForm = true;
+    bool enableUserWebhooks = false;
 
     // Try canonical format first
     final value = json['enable_websocket'];
@@ -311,6 +319,8 @@ class BackendConfig {
     if (ldapValue is bool) enableLdap = ldapValue;
     final loginFormValue = json['enable_login_form'];
     if (loginFormValue is bool) enableLoginForm = loginFormValue;
+    final userWebhooksValue = json['enable_user_webhooks'];
+    if (userWebhooksValue is bool) enableUserWebhooks = userWebhooksValue;
 
     // Fallback to nested format for backwards compatibility
     final features = json['features'];
@@ -379,6 +389,10 @@ class BackendConfig {
       if (nestedLdap is bool) enableLdap = nestedLdap;
       final nestedLoginForm = features['enable_login_form'];
       if (nestedLoginForm is bool) enableLoginForm = nestedLoginForm;
+      final nestedUserWebhooks = features['enable_user_webhooks'];
+      if (nestedUserWebhooks is bool) {
+        enableUserWebhooks = nestedUserWebhooks;
+      }
     }
 
     return BackendConfig(
@@ -398,6 +412,7 @@ class BackendConfig {
       oauthProviders: oauthProviders,
       enableLdap: enableLdap,
       enableLoginForm: enableLoginForm,
+      enableUserWebhooks: enableUserWebhooks,
     );
   }
 }
