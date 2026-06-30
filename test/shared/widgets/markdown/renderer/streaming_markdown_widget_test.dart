@@ -3019,7 +3019,8 @@ Tail keeps growing
         );
       }
 
-      // Frame 1: first settled content compiles immediately and renders.
+      // Frame 1: first settled content compiles immediately and renders. A
+      // fresh non-streaming document is selectable.
       await tester.pumpWidget(buildSelectiveHarness(firstContent));
       await tester.pump();
       expect(skeletonFinder, findsNothing);
@@ -3027,9 +3028,12 @@ Tail keeps growing
         find.textContaining('Settled answer paragraph', findRichText: true),
         findsOneWidget,
       );
+      expect(find.byType(SelectionArea), findsOneWidget);
 
       // Frame 2: content grows while still non-streaming; the grown content's
-      // compile is delayed. The previously-rendered body must stay visible.
+      // compile is delayed. The previously-rendered body must stay visible, but
+      // the stale document must NOT be wrapped in SelectionArea (that would
+      // re-enable the concurrent-modification crash during ongoing updates).
       await tester.pumpWidget(buildSelectiveHarness(grownContent));
       await tester.pump();
 
@@ -3038,6 +3042,7 @@ Tail keeps growing
         find.textContaining('Settled answer paragraph', findRichText: true),
         findsOneWidget,
       );
+      expect(find.byType(SelectionArea), findsNothing);
 
       compiler.release();
       await tester.pump();
@@ -3048,6 +3053,8 @@ Tail keeps growing
         find.textContaining('Follow-up sentence', findRichText: true),
         findsOneWidget,
       );
+      // Once the compile settles, the document becomes selectable again.
+      expect(find.byType(SelectionArea), findsOneWidget);
     },
   );
 

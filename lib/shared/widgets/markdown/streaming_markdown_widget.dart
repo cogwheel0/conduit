@@ -440,10 +440,13 @@ class _StreamingMarkdownWidgetState
       child: _buildMarkdownDisplayParts(compiledDocument),
     );
 
-    // Only wrap in SelectionArea when not streaming to
-    // avoid concurrent modification errors in Flutter's
-    // selection system during rapid updates.
-    if (widget.isStreaming) {
+    // Only wrap in SelectionArea when not streaming AND the rendered document is
+    // fresh for the current content. A stale-but-valid document shown during
+    // ongoing updates (the responseDone-gap growing-content path that #540's fix
+    // now keeps on screen) must not be made selectable: SelectionArea over
+    // rapidly-changing content triggers concurrent-modification errors in
+    // Flutter's selection system. It becomes selectable once the compile settles.
+    if (widget.isStreaming || !hasFreshCompiledDocument) {
       return result;
     }
 
