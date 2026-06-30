@@ -129,6 +129,10 @@ class _StreamingMarkdownWidgetState
   bool _snapshotInFlight = false;
   bool _streamingRefreshFrameScheduled = false;
   String? _pendingStreamingContent;
+  // Set when a scope change (new message/version) arrives on the deferred
+  // streaming path, so the first async refresh clears the previous scope's
+  // stale document instead of showing it under the new scope (issue #541).
+  bool _pendingClearStaleDocument = false;
   String? _selectedText;
   int _snapshotGeneration = 0;
   bool _isAppForeground = true;
@@ -208,10 +212,19 @@ class _StreamingMarkdownWidgetState
         widget.debugOnStreamingRefreshFrame?.call();
       }
       _invalidatePendingAsyncSnapshot();
-      _applyPreparedSnapshotIfNeeded(preparedContent);
+      _applyPreparedSnapshotIfNeeded(
+        preparedContent,
+        clearStaleDocument: scopeChanged,
+      );
       return;
     }
 
+    // Deferred streaming path: the body needs an async compile, so a scope
+    // change must clear the previous scope's document when that refresh lands
+    // (the sync paths above replace the document directly and don't need it).
+    if (scopeChanged) {
+      _pendingClearStaleDocument = true;
+    }
     _markPendingStreamingContent(widget.content);
     _scheduleStreamingRefresh();
   }
@@ -262,6 +275,10 @@ class _StreamingMarkdownWidgetState
     _debugStreamingDelayTimer?.cancel();
     _debugStreamingDelayTimer = null;
     _pendingStreamingContent = null;
+    // The sync/non-streaming callers that invalidate the async pipeline handle
+    // their own scope-change clear, so drop any pending deferred clear to keep
+    // it from leaking onto a later, unrelated refresh.
+    _pendingClearStaleDocument = false;
     _snapshotGeneration += 1;
     _documentController.invalidatePending();
   }
@@ -313,6 +330,11 @@ class _StreamingMarkdownWidgetState
 
     _snapshotInFlight = true;
     final generation = _snapshotGeneration;
+    // Consume any pending scope-change clear so only this first refresh after the
+    // scope change discards the previous scope's document; later refreshes (same
+    // scope, growing content) must keep it (issue #540).
+    final clearStaleDocument = _pendingClearStaleDocument;
+    _pendingClearStaleDocument = false;
     try {
       final compiler = ref.read(markdownCompileServiceProvider);
       if (compiler.shouldPrepareSynchronously(
@@ -323,7 +345,10 @@ class _StreamingMarkdownWidgetState
           content,
           streaming: true,
         );
-        _applyPreparedSnapshotIfNeeded(synchronousPrepared);
+        _applyPreparedSnapshotIfNeeded(
+          synchronousPrepared,
+          clearStaleDocument: clearStaleDocument,
+        );
         return;
       }
       final preparedContent = await compiler.prepareContent(
@@ -333,13 +358,17 @@ class _StreamingMarkdownWidgetState
       if (!mounted || generation != _snapshotGeneration) {
         return;
       }
-      _applyPreparedSnapshotIfNeeded(preparedContent);
+      _applyPreparedSnapshotIfNeeded(
+        preparedContent,
+        clearStaleDocument: clearStaleDocument,
+      );
     } catch (_) {
       if (!mounted || generation != _snapshotGeneration) {
         return;
       }
       _applyPreparedSnapshotIfNeeded(
         prepareMarkdownContent(content, streaming: true),
+        clearStaleDocument: clearStaleDocument,
       );
     } finally {
       _snapshotInFlight = false;
@@ -484,7 +513,10 @@ class _StreamingMarkdownWidgetState
     bool clearStaleDocument = false,
   }) {
     if (widget.isStreaming) {
-      _documentController.resolveStreamingPrepared(snapshot.normalizedContent);
+      _documentController.resolveStreamingPrepared(
+        snapshot.normalizedContent,
+        clearDocumentWhenAsync: clearStaleDocument,
+      );
       return;
     }
     _documentController.resolvePrepared(

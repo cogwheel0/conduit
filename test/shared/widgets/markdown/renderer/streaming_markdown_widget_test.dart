@@ -197,6 +197,53 @@ class _PrepareCountingMarkdownCompileService extends MarkdownCompileService {
   }
 }
 
+// Forces the deferred streaming path (async prepare) AND delays the compile of
+// one target prepared content, so a streaming scope change exercises the
+// `_pendingClearStaleDocument` flag and the streaming async-clear branch.
+class _DeferredStreamingCompileService extends MarkdownCompileService {
+  _DeferredStreamingCompileService({required this.delayedPreparedContent})
+    : super(workerManager: WorkerManager());
+
+  final String delayedPreparedContent;
+  final Completer<void> _release = Completer<void>();
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  bool shouldPrepareSynchronously(String content, {bool widgetTest = false}) =>
+      false;
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async => prepareMarkdownContent(content, streaming: streaming);
+
+  @override
+  bool shouldCompileSynchronously(
+    String preparedContent, {
+    bool widgetTest = false,
+  }) => preparedContent != delayedPreparedContent;
+
+  @override
+  Future<CompiledMarkdownDocument> compilePrepared(
+    String preparedContent, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    if (preparedContent == delayedPreparedContent) {
+      await _release.future;
+    }
+    return compilePreparedSynchronously(preparedContent);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -2715,6 +2762,86 @@ Tail keeps growing
         findsOneWidget,
       );
       expect(skeletonFinder, findsNothing);
+    },
+  );
+
+  testWidgets(
+    'clears stale content when the scope changes while streaming',
+    (tester) async {
+      // #541 follow-up: the scope-change clear must also run on the deferred
+      // streaming path (e.g. switching from an old version back to the live,
+      // streaming current). The previous scope's document must not flash under
+      // the new scope while the streaming body compiles.
+      const oldVersion = 'Old version body.';
+      const liveResponse = 'Live streaming response.';
+      final compiler = _DeferredStreamingCompileService(
+        delayedPreparedContent: prepareMarkdownContent(
+          liveResponse,
+          streaming: true,
+        ),
+      );
+      addTearDown(compiler.dispose);
+      final skeletonFinder = find.byType(MarkdownLoadingSkeleton);
+
+      Widget buildScopedHarness(
+        String content,
+        String scope,
+        bool streaming,
+      ) {
+        return ProviderScope(
+          overrides: [
+            markdownCompileServiceProvider.overrideWithValue(compiler),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: streaming,
+                  stateScopeId: scope,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(
+        buildScopedHarness(oldVersion, 'msg|version:0', false),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('Old version', findRichText: true),
+        findsOneWidget,
+      );
+
+      // Switch to the live, still-streaming current version: scope + content
+      // change with the new body needing an async compile.
+      await tester.pumpWidget(
+        buildScopedHarness(liveResponse, 'msg|current', true),
+      );
+      // Fire the scheduled streaming refresh frame, then let the async prepare
+      // resolve so the stale document is cleared before the compile lands.
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.textContaining('Old version', findRichText: true),
+        findsNothing,
+      );
+      // Streaming never shows the skeleton; the gap is blank until the compile
+      // settles.
+      expect(skeletonFinder, findsNothing);
+
+      compiler.release();
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.textContaining('Live streaming response', findRichText: true),
+        findsOneWidget,
+      );
     },
   );
 

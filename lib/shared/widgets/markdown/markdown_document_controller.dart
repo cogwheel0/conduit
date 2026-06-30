@@ -139,7 +139,10 @@ class MarkdownDocumentController {
     unawaited(_refreshCompiledDocument(request));
   }
 
-  void resolveStreamingPrepared(String preparedContent) {
+  void resolveStreamingPrepared(
+    String preparedContent, {
+    bool clearDocumentWhenAsync = false,
+  }) {
     final preparedChanged =
         _requestedPreparedContent != preparedContent ||
         _requestedResolveMode != _MarkdownResolveMode.streamingIncremental;
@@ -179,6 +182,10 @@ class MarkdownDocumentController {
       );
       _setState(preparedContent, syncDocument);
       return;
+    }
+
+    if (clearDocumentWhenAsync && preparedChanged) {
+      _setState(_compiledPreparedContent, null);
     }
 
     final request = _MarkdownResolveRequest(
