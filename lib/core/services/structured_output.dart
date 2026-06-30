@@ -161,7 +161,8 @@ String _messageTextFromOutputItem(Map<String, dynamic> item) {
   for (final part in content) {
     if (part is! Map) continue;
     final partType = part['type']?.toString();
-    if (partType == 'text' || partType == 'output_text') {
+    if (part.containsKey('text') &&
+        (partType == null || partType == 'text' || partType == 'output_text')) {
       final text = part['text']?.toString() ?? '';
       if (text.isNotEmpty) {
         messageParts.add(text);

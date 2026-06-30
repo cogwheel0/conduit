@@ -2296,11 +2296,24 @@ class ApiService {
     if (current == desired) {
       return;
     }
+    if (current == null) {
+      throw StateError(
+        'Cannot set $field for chat $id because the current state is unknown',
+      );
+    }
 
-    final response = await _dio.post(endpoint);
-    final data = _coerceResponseMap(response.data);
-    final actual = data?[field];
-    if (actual is bool && actual != desired) {
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      final response = await _dio.post(endpoint);
+      final data = _coerceResponseMap(response.data);
+      final actual = data?[field] is bool
+          ? data![field] as bool
+          : await _fetchConversationBooleanField(id, field);
+      if (actual == desired) {
+        return;
+      }
+      if (attempt == 0) {
+        continue;
+      }
       DebugLogger.warning(
         'toggle-mismatch',
         scope: 'api/conversation',
@@ -2311,6 +2324,18 @@ class ApiService {
 
   Future<bool?> _fetchConversationBooleanField(String id, String field) async {
     try {
+      if (field == 'pinned') {
+        try {
+          final pinnedResponse = await _dio.get('/api/v1/chats/$id/pinned');
+          final pinned = pinnedResponse.data;
+          if (pinned is bool) {
+            return pinned;
+          }
+        } on DioException {
+          // Older servers may not expose the dedicated pinned-status endpoint;
+          // fall through to the full chat payload below.
+        }
+      }
       final response = await _dio.get('/api/v1/chats/$id');
       final data = _coerceResponseMap(response.data);
       final value = data?[field];
@@ -2925,26 +2950,40 @@ class ApiService {
 
   Future<List<Conversation>> getConversationsByTag(String tag) async {
     _traceApi('Fetching conversations with tag: $tag');
-    Response<dynamic> response;
     try {
-      response = await _dio.post(
-        '/api/v1/chats/tags',
-        data: {'name': tag},
-        options: Options(responseType: ResponseType.bytes),
-      );
+      const pageSize = 50;
+      final conversations = <Conversation>[];
+      var skip = 0;
+      while (true) {
+        final response = await _dio.post(
+          '/api/v1/chats/tags',
+          data: {'name': tag, 'skip': skip, 'limit': pageSize},
+          options: Options(responseType: ResponseType.bytes),
+        );
+        final page = await _parseConversationSummaryPayload(
+          regular: response.data,
+          debugLabel: 'parse_tag_${tag}_skip_$skip',
+        );
+        conversations.addAll(page);
+        if (page.length < pageSize) {
+          break;
+        }
+        skip += pageSize;
+      }
+      return conversations;
     } on DioException catch (error) {
       if (!_shouldFallbackToLegacyTagApi(error)) {
         rethrow;
       }
-      response = await _dio.get(
+      final response = await _dio.get(
         '/api/v1/chats/tags/${Uri.encodeComponent(tag)}',
         options: Options(responseType: ResponseType.bytes),
       );
+      return _parseConversationSummaryPayload(
+        regular: response.data,
+        debugLabel: 'parse_tag_$tag',
+      );
     }
-    return _parseConversationSummaryPayload(
-      regular: response.data,
-      debugLabel: 'parse_tag_$tag',
-    );
   }
 
   bool _shouldFallbackToLegacyTagApi(DioException error) {
@@ -3339,7 +3378,7 @@ class ApiService {
       while (true) {
         final response = await _dio.get(
           '/api/v1/knowledge/$knowledgeBaseId/files',
-          queryParameters: {'page': page},
+          queryParameters: {'page': page, 'include_content': true},
         );
         final data = response.data;
         if (data is List) {
@@ -3390,7 +3429,7 @@ class ApiService {
   }
 
   KnowledgeBaseItem _knowledgeEntryToItem(Map<String, dynamic> file) {
-    if (file.containsKey('title') || file.containsKey('content')) {
+    if (file.containsKey('title')) {
       return KnowledgeBaseItem.fromJson(file);
     }
     final meta = _coerceJsonMap(file['meta']) ?? const <String, dynamic>{};
@@ -3419,7 +3458,10 @@ class ApiService {
 
   bool _shouldFallbackToLegacyKnowledgeApi(DioException error) {
     final statusCode = error.response?.statusCode;
-    return statusCode == 404 || statusCode == 405;
+    return statusCode == 400 ||
+        statusCode == 404 ||
+        statusCode == 405 ||
+        statusCode == 422;
   }
 
   Future<Map<String, dynamic>> addKnowledgeBaseItem(
@@ -3628,10 +3670,10 @@ class ApiService {
             await _attachUploadedFileToKnowledgeBase(knowledgeBaseId, fileId);
             return uploadData;
           } on DioException catch (error) {
+            await _deleteUploadedFileBestEffort(fileId);
             if (!_shouldFallbackToLegacyKnowledgeFileAdd(error)) {
               rethrow;
             }
-            await _deleteUploadedFileBestEffort(fileId);
           }
         }
       } on DioException catch (error) {
@@ -3684,7 +3726,10 @@ class ApiService {
 
   bool _shouldFallbackToLegacyKnowledgeFileAdd(DioException error) {
     final statusCode = error.response?.statusCode;
-    return statusCode == 404 || statusCode == 405 || statusCode == 422;
+    return statusCode == 400 ||
+        statusCode == 404 ||
+        statusCode == 405 ||
+        statusCode == 422;
   }
 
   String? _fileIdFromUploadResponse(Map<String, dynamic> data) {
@@ -3910,8 +3955,8 @@ class ApiService {
       'model': model,
       'messages': formattedMessages,
       'chat_id': chatId,
-      'session_id': sessionId,
       'id': messageId,
+      'session_id': ?sessionId,
     };
 
     // Include filter_ids if provided (for outlet filters)

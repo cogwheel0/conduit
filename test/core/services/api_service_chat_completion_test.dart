@@ -1716,15 +1716,57 @@ void main() {
       ).deepEquals(['/api/v1/chats/tags', '/api/v1/chats/tags/work']);
       check(
         adapter.requests.first.data as Map<String, dynamic>,
-      ).deepEquals({'name': 'work'});
+      ).deepEquals({'name': 'work', 'skip': 0, 'limit': 50});
       check(adapter.requests.last.method).equals('GET');
+    });
+
+    test('getConversationsByTag paginates the 0.10 tag filter route', () async {
+      Map<String, dynamic> taggedChat(int index) => {
+        'id': 'chat-$index',
+        'title': 'Chat $index',
+        'updated_at': 1700000000 + index,
+        'created_at': 1700000000,
+      };
+
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.raw(
+          bytes: utf8.encode(
+            jsonEncode([for (var i = 0; i < 50; i += 1) taggedChat(i)]),
+          ),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+        _FakeAdapter.raw(
+          bytes: utf8.encode(jsonEncode([taggedChat(50)])),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final conversations = await api.getConversationsByTag('work');
+
+      check(conversations).length.equals(51);
+      check(
+        adapter.requests.map((request) => request.data).cast<Map>().toList(),
+      ).deepEquals([
+        {'name': 'work', 'skip': 0, 'limit': 50},
+        {'name': 'work', 'skip': 50, 'limit': 50},
+      ]);
     });
 
     test(
       'pinConversation skips toggle when server state already matches',
       () async {
         final adapter = _QueuedFakeAdapter([
-          _FakeAdapter.json({'id': 'chat-1', 'pinned': true}),
+          _FakeAdapter.raw(
+            bytes: utf8.encode('true'),
+            headers: {
+              'content-type': ['application/json; charset=utf-8'],
+            },
+          ),
         ]);
         final api = _buildApiServiceForTest(adapter);
 
@@ -1732,13 +1774,18 @@ void main() {
 
         check(
           adapter.requests.map((request) => request.path).toList(),
-        ).deepEquals(['/api/v1/chats/chat-1']);
+        ).deepEquals(['/api/v1/chats/chat-1/pinned']);
       },
     );
 
     test('pinConversation toggles when server state differs', () async {
       final adapter = _QueuedFakeAdapter([
-        _FakeAdapter.json({'id': 'chat-1', 'pinned': false}),
+        _FakeAdapter.raw(
+          bytes: utf8.encode('false'),
+          headers: {
+            'content-type': ['application/json; charset=utf-8'],
+          },
+        ),
         _FakeAdapter.json({'id': 'chat-1', 'pinned': true}),
       ]);
       final api = _buildApiServiceForTest(adapter);
@@ -1747,10 +1794,30 @@ void main() {
 
       check(
         adapter.requests.map((request) => request.path).toList(),
-      ).deepEquals(['/api/v1/chats/chat-1', '/api/v1/chats/chat-1/pin']);
+      ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1/pin']);
     });
 
-    test('sendChatCompleted includes nullable session_id key', () async {
+    test(
+      'pinConversation does not toggle when current state is unknown',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({}),
+          _FakeAdapter.json({'id': 'chat-1'}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await expectLater(
+          api.pinConversation('chat-1', true),
+          throwsA(isA<StateError>()),
+        );
+
+        check(
+          adapter.requests.map((request) => request.path).toList(),
+        ).deepEquals(['/api/v1/chats/chat-1/pinned', '/api/v1/chats/chat-1']);
+      },
+    );
+
+    test('sendChatCompleted omits null session_id', () async {
       final adapter = _FakeAdapter.json({'ok': true});
       final api = _buildApiServiceForTest(adapter);
 
@@ -1764,8 +1831,7 @@ void main() {
       );
 
       final body = adapter.lastRequest!.data as Map<String, dynamic>;
-      check(body.containsKey('session_id')).isTrue();
-      check(body['session_id']).isNull();
+      check(body.containsKey('session_id')).isFalse();
     });
 
     test('getBackendConfig preserves older audio config defaults', () async {
@@ -1795,11 +1861,11 @@ void main() {
 
     test('knowledge create update delete fall back to legacy routes', () async {
       final adapter = _QueuedFakeAdapter([
-        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
         _FakeAdapter.json({'id': 'kb-1', 'name': 'Docs'}),
-        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
         _FakeAdapter.json({}),
-        _FakeAdapter.json({'detail': 'Not found'}, statusCode: 404),
+        _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
         _FakeAdapter.json({}),
       ]);
       final api = _buildApiServiceForTest(adapter);
@@ -1835,6 +1901,7 @@ void main() {
             {
               'id': 'file-1',
               'filename': 'guide.md',
+              'content': 'Guide text',
               'created_at': 1700000000,
               'updated_at': 1700000001,
               'meta': {'name': 'Guide'},
@@ -1847,6 +1914,7 @@ void main() {
             {
               'id': 'file-2',
               'filename': 'notes.md',
+              'content': 'Notes text',
               'created_at': 1700000002,
               'updated_at': 1700000003,
             },
@@ -1869,11 +1937,17 @@ void main() {
             .map((request) => request.queryParameters['page'])
             .toList(),
       ).deepEquals([1, 2]);
+      check(
+        adapter.requests
+            .map((request) => request.queryParameters['include_content'])
+            .toList(),
+      ).deepEquals([true, true]);
       check(items).length.equals(2);
       check(items.first.id).equals('file-1');
       check(items.first.title).equals('guide.md');
-      check(items.first.content).equals('');
+      check(items.first.content).equals('Guide text');
       check(items[1].id).equals('file-2');
+      check(items[1].content).equals('Notes text');
     });
 
     test('getKnowledgeBaseItems falls back to legacy items route', () async {
@@ -1964,7 +2038,7 @@ void main() {
       () async {
         final adapter = _QueuedFakeAdapter([
           _FakeAdapter.json({'id': 'file-1'}),
-          _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 422),
+          _FakeAdapter.json({'detail': 'Invalid body'}, statusCode: 400),
           _FakeAdapter.json({'status': true}),
           _FakeAdapter.json({'id': 'legacy-file'}),
         ]);

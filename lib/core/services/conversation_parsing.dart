@@ -282,9 +282,7 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     }
   }
 
-  final outputItems = _normalizeOutputItems(
-    msgData['output'] ?? historyMsg?['output'],
-  );
+  final outputItems = _effectiveOutputItems(msgData, historyMsg);
   if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = contentString.trim().isEmpty
@@ -532,9 +530,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     }
   }
 
-  final outputItems = _normalizeOutputItems(
-    msgData['output'] ?? historyMsg?['output'],
-  );
+  final outputItems = _effectiveOutputItems(msgData, historyMsg);
   if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = contentString.trim().isEmpty
@@ -868,6 +864,17 @@ List<Map<String, dynamic>> _normalizeOutputItems(dynamic raw) {
     }
   }
   return List<Map<String, dynamic>>.unmodifiable(items);
+}
+
+List<Map<String, dynamic>> _effectiveOutputItems(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final directItems = _normalizeOutputItems(msgData['output']);
+  if (directItems.isNotEmpty || historyMsg == null) {
+    return directItems;
+  }
+  return _normalizeOutputItems(historyMsg['output']);
 }
 
 String _stringOr(dynamic value, String fallback) {

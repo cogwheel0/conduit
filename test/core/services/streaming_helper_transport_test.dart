@@ -1106,6 +1106,66 @@ void main() {
     );
 
     test(
+      'chat:completion text snapshot remains raw for later details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'compare',
+              'arguments': {'left': 2, 'right': 3},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'true',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content).contains('2 &lt; 3');
+        check(content).not((it) => it.contains('&amp;lt;'));
+        check(content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
       'chat:completion output snapshot replaces pending tool placeholder',
       () async {
         final log = _CallbackLog();
@@ -1837,6 +1897,67 @@ void main() {
         check(log.finishCount).equals(1);
         check(log.messages.last.isStreaming).isFalse();
         check(log.messages.last.content).equals('Hello there.');
+      },
+    );
+
+    test(
+      'taskSocket HTTP completion recovery does not locally finish stable partial snapshots',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 2;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Partial answer',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        for (var i = 0; i < 8; i += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('Partial answer');
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
       },
     );
 

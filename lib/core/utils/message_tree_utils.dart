@@ -357,8 +357,13 @@ String? currentIdAfterOpenWebUiDelete<T>(
     childIds = current == null ? const <String>[] : childrenIdsOf(current);
   }
 
+  final visited = <String>{?currentId};
   while (childIds.isNotEmpty) {
-    currentId = childIds.last;
+    final nextId = childIds.last;
+    if (!visited.add(nextId)) {
+      break;
+    }
+    currentId = nextId;
     final current = messagesById[currentId];
     childIds = current == null ? const <String>[] : childrenIdsOf(current);
   }

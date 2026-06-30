@@ -453,6 +453,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool isObsoleteStream = false;
   bool backgroundExecutionStopped = false;
   Timer? terminalCompletionRecoveryTimer;
+  bool terminalRecoveryAllowContentOnlyTerminal = false;
+  bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
   Future<void>? chatCompletedSyncFuture;
   int stableNonTerminalTerminalRecoveryCount = 0;
   String? stableNonTerminalTerminalRecoverySignature;
@@ -784,6 +786,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     final hasDetails = structuredOutputBlocksContainDetails(blocks);
     final renderedSnapshot = renderStructuredOutputBlocks(blocks);
+    final snapshotPlainText = structuredOutputBlocksPlainText(blocks);
     final hasPlainContent = plainStreamingContent.trim().isNotEmpty;
     final shouldRenderFullSnapshot =
         renderedStreamingContent.trim().isEmpty ||
@@ -804,7 +807,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     replaceVisibleAssistantContent(
       outputContent,
       fromStructuredOutput: shouldRenderFullSnapshot,
-      plainContent: hasDetails ? plainStreamingContent : outputContent,
+      plainContent: hasDetails ? plainStreamingContent : snapshotPlainText,
     );
   }
 
@@ -863,7 +866,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
   final socketSubscriptions = <VoidCallback>[];
   final hasSocketSignals = socketService != null;
-  late final void Function({required String source})
+  late final void Function({
+    required String source,
+    bool allowContentOnlyTerminal,
+    bool allowStableNonTerminalLocalFallback,
+  })
   scheduleTerminalCompletionRecovery;
 
   void resetTerminalCompletionRecoveryStability() {
@@ -1366,6 +1373,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   Future<_ServerMessageSnapshot?> pollServerForMessage({
     int attempt = 0,
     int maxAttempts = 3,
+    bool inferDoneFromMissingStreaming = true,
   }) async {
     if (isObsoleteStream) {
       return null;
@@ -1418,7 +1426,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final isDone =
           serverMsg['done'] == true ||
           errorContent != null ||
-          (serverMsg['isStreaming'] != true && content.isNotEmpty);
+          (inferDoneFromMissingStreaming &&
+              serverMsg['isStreaming'] != true &&
+              content.isNotEmpty);
 
       return (
         content: content,
@@ -1442,6 +1452,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return pollServerForMessage(
           attempt: attempt + 1,
           maxAttempts: maxAttempts,
+          inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
         );
       }
 
@@ -1716,7 +1727,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
-  bool finishFromLocalState({required bool allowContentOnlyTerminal}) {
+  bool finishFromLocalState({
+    required bool allowContentOnlyTerminal,
+    bool allowAlreadyNonStreamingTerminal = true,
+  }) {
     if (isObsoleteStream) {
       return false;
     }
@@ -1728,7 +1742,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final comparisonSnapshot = readLocalMessageComparisonSnapshot(msgs.last);
     final last = comparisonSnapshot.message;
     if (!last.isStreaming) {
-      return true;
+      return allowAlreadyNonStreamingTerminal;
     }
 
     final hasNonTextTerminalArtifacts =
@@ -1755,6 +1769,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool allowContentOnlyTerminal = false,
     bool allowLocalContentFallbackAfterPollFailedOrMissing = false,
     bool allowLocalContentFallbackAfterNonTerminalSnapshot = false,
+    bool allowStableNonTerminalLocalFallback = true,
     bool retryWhenSnapshotStillStreaming = false,
   }) async {
     if (isObsoleteStream) {
@@ -1762,9 +1777,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     bool pollFailedOrMissing = true;
     bool snapshotIndicatedDone = false;
-    bool allowStableNonTerminalLocalFallback = false;
+    bool allowStableNonTerminalLocalFinish = false;
     try {
-      final result = await pollServerForMessage();
+      final result = await pollServerForMessage(
+        inferDoneFromMissingStreaming: allowStableNonTerminalLocalFallback,
+      );
       if (hasFinished || isObsoleteStream) {
         return;
       }
@@ -1820,9 +1837,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             stableNonTerminalTerminalRecoverySignature = stabilitySignature;
             stableNonTerminalTerminalRecoveryCount = 1;
           }
-          allowStableNonTerminalLocalFallback =
+          allowStableNonTerminalLocalFinish =
+              allowStableNonTerminalLocalFallback &&
               stableNonTerminalTerminalRecoveryCount >=
-              debugTaskSocketStableNonTerminalRecoveryLimit;
+                  debugTaskSocketStableNonTerminalRecoveryLimit;
         } else {
           resetTerminalCompletionRecoveryStability();
         }
@@ -1860,9 +1878,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         stableNonTerminalTerminalRecoverySignature = stabilitySignature;
         stableNonTerminalTerminalRecoveryCount = 1;
       }
-      allowStableNonTerminalLocalFallback =
+      allowStableNonTerminalLocalFinish =
+          allowStableNonTerminalLocalFallback &&
           stableNonTerminalTerminalRecoveryCount >=
-          debugTaskSocketStableNonTerminalRecoveryLimit;
+              debugTaskSocketStableNonTerminalRecoveryLimit;
     } else if (pollFailedOrMissing) {
       resetTerminalCompletionRecoveryStability();
     }
@@ -1872,9 +1891,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         (allowLocalContentFallbackAfterPollFailedOrMissing ||
             snapshotIndicatedDone ||
             allowLocalContentFallbackAfterNonTerminalSnapshot ||
-            allowStableNonTerminalLocalFallback);
+            allowStableNonTerminalLocalFinish);
     if (finishFromLocalState(
       allowContentOnlyTerminal: shouldAllowLocalContentFallback,
+      allowAlreadyNonStreamingTerminal:
+          snapshotIndicatedDone || shouldAllowLocalContentFallback,
     )) {
       Future.microtask(refreshConversationSnapshot);
       return;
@@ -1885,42 +1906,66 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         retryWhenSnapshotStillStreaming &&
         !snapshotIndicatedDone &&
         !shouldAllowLocalContentFallback) {
-      scheduleTerminalCompletionRecovery(source: source);
+      scheduleTerminalCompletionRecovery(
+        source: source,
+        allowContentOnlyTerminal: allowContentOnlyTerminal,
+        allowStableNonTerminalLocalFallback:
+            allowStableNonTerminalLocalFallback,
+      );
     }
   }
 
-  scheduleTerminalCompletionRecovery = ({required String source}) {
-    if (hasFinished || isObsoleteStream) {
-      return;
-    }
-    if (terminalCompletionRecoveryTimer != null) {
-      return;
-    }
-
-    terminalCompletionRecoveryTimer = Timer(
-      debugTaskSocketTerminalRecoveryDelay,
-      () {
-        terminalCompletionRecoveryTimer = null;
+  scheduleTerminalCompletionRecovery =
+      ({
+        required String source,
+        bool allowContentOnlyTerminal = true,
+        bool allowStableNonTerminalLocalFallback = true,
+      }) {
         if (hasFinished || isObsoleteStream) {
           return;
         }
-        if (currentAssistantTargetId() != assistantMessageId) {
+        terminalRecoveryAllowContentOnlyTerminal =
+            terminalRecoveryAllowContentOnlyTerminal ||
+            allowContentOnlyTerminal;
+        terminalRecoveryAllowStableNonTerminalLocalFallback =
+            terminalRecoveryAllowStableNonTerminalLocalFallback ||
+            allowStableNonTerminalLocalFallback;
+        if (terminalCompletionRecoveryTimer != null) {
           return;
         }
-        DebugLogger.log(
-          '$source: recovering after missed done/inactive',
-          scope: 'streaming/helper',
+
+        terminalCompletionRecoveryTimer = Timer(
+          debugTaskSocketTerminalRecoveryDelay,
+          () {
+            terminalCompletionRecoveryTimer = null;
+            if (hasFinished || isObsoleteStream) {
+              return;
+            }
+            if (currentAssistantTargetId() != assistantMessageId) {
+              return;
+            }
+            final recoveryAllowContentOnlyTerminal =
+                terminalRecoveryAllowContentOnlyTerminal;
+            final recoveryAllowStableNonTerminalLocalFallback =
+                terminalRecoveryAllowStableNonTerminalLocalFallback;
+            terminalRecoveryAllowContentOnlyTerminal = false;
+            terminalRecoveryAllowStableNonTerminalLocalFallback = false;
+            DebugLogger.log(
+              '$source: recovering after missed done/inactive',
+              scope: 'streaming/helper',
+            );
+            unawaited(
+              recoverTaskSocketTerminalState(
+                source: source,
+                allowContentOnlyTerminal: recoveryAllowContentOnlyTerminal,
+                allowStableNonTerminalLocalFallback:
+                    recoveryAllowStableNonTerminalLocalFallback,
+                retryWhenSnapshotStillStreaming: true,
+              ),
+            );
+          },
         );
-        unawaited(
-          recoverTaskSocketTerminalState(
-            source: source,
-            allowContentOnlyTerminal: true,
-            retryWhenSnapshotStillStreaming: true,
-          ),
-        );
-      },
-    );
-  };
+      };
 
   if (hasSocketSignals) {
     // Handle socket reconnection - update session IDs and check for missed events
@@ -3543,6 +3588,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             );
             scheduleTerminalCompletionRecovery(
               source: 'taskSocket HTTP completion recovery',
+              allowContentOnlyTerminal: false,
+              allowStableNonTerminalLocalFallback: false,
             );
           }
         },

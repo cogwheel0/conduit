@@ -96,6 +96,40 @@ void main() {
     expect(messages['grandchild']!['parentId'], 'root');
   });
 
+  test('OpenWebUI current id traversal stops on children cycles', () {
+    final messages = <String, Map<String, dynamic>>{
+      'root': {
+        'id': 'root',
+        'childrenIds': ['a'],
+      },
+      'a': {
+        'id': 'a',
+        'parentId': 'root',
+        'childrenIds': ['b'],
+      },
+      'b': {
+        'id': 'b',
+        'parentId': 'a',
+        'childrenIds': ['a'],
+      },
+    };
+    const plan = OpenWebUiDeletePlan(
+      rootId: 'deleted',
+      deletedIds: <String>{},
+      deletedParentId: 'root',
+      grandchildIds: <String>[],
+    );
+
+    final currentId = currentIdAfterOpenWebUiDelete<Map<String, dynamic>>(
+      messages,
+      plan,
+      parentIdOf: rawMessageParentId,
+      childrenIdsOf: rawMessageChildrenIds,
+    );
+
+    expect(currentId, 'b');
+  });
+
   test('guards chain traversal against cycles', () {
     final messages = {
       'a': {'id': 'a', 'parentId': 'b'},

@@ -463,6 +463,54 @@ void main() {
         ).isA<List>().has((it) => it.length, 'length').equals(1);
       });
 
+      test('uses history output when message output list is empty', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'Hello',
+                'timestamp': 1700000000,
+              },
+              {
+                'id': 'msg-2',
+                'role': 'assistant',
+                'content': '',
+                'output': const <dynamic>[],
+                'timestamp': 1700000001,
+              },
+            ],
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'History answer'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(1);
+        check(messages.first['content']).equals('History answer');
+        check(
+          messages.first['output'],
+        ).isA<List>().has((it) => it.length, 'length').equals(1);
+      });
+
       test('renders structured output for assistant sibling versions', () {
         final result = parseFullConversation({
           'id': 'conv-1',

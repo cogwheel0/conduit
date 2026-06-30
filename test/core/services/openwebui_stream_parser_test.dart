@@ -459,6 +459,51 @@ void main() {
       check(serialized).equals(' hello &lt;world&gt;\n');
     });
 
+    test('extracts text-bearing message parts without a type', () {
+      final serialized = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'message',
+            'content': [
+              {'text': 'typeless text'},
+            ],
+          },
+        ]),
+      );
+
+      check(serialized).equals('typeless text');
+    });
+
+    test('replacement text preserves text block ordering around details', () {
+      final rendered = renderStructuredOutputBlocksWithContent(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'A'},
+            ],
+          },
+          {
+            'type': 'reasoning',
+            'status': 'completed',
+            'summary': [
+              {'type': 'summary_text', 'text': 'thinking'},
+            ],
+          },
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'B'},
+            ],
+          },
+        ]),
+        'AB',
+      );
+
+      check(rendered).startsWith('A\n<details type="reasoning"');
+      check(rendered).endsWith('</details>\nB');
+    });
+
     test('escapes generated details body and attributes', () {
       final serialized = renderStructuredOutputBlocks(
         parseOpenWebUIStructuredOutput([
