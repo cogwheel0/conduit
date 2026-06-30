@@ -56,6 +56,8 @@ class ServerAboutInfo {
     final audio = _coerceJsonMap(config['audio']) ?? const {};
     final audioTts = _coerceJsonMap(audio['tts']) ?? const {};
     final audioStt = _coerceJsonMap(audio['stt']) ?? const {};
+    final sttEngine = _normalizeString(audioStt['engine']);
+    final ttsEngine = _normalizeString(audioTts['engine']);
 
     return ServerAboutInfo(
       name: (config['name'] ?? 'Open WebUI').toString(),
@@ -77,10 +79,12 @@ class ServerAboutInfo {
         features['enable_password_change_form'],
       ),
       enableApiKeys: _coerceBool(features['enable_api_keys']),
-      enableAudioInput: _coerceBool(features['enable_audio_input']),
-      enableAudioOutput: _coerceBool(features['enable_audio_output']),
-      sttEngine: _normalizeString(audioStt['engine']),
-      ttsEngine: _normalizeString(audioTts['engine']),
+      enableAudioInput:
+          _coerceBool(features['enable_audio_input']) ?? sttEngine != null,
+      enableAudioOutput:
+          _coerceBool(features['enable_audio_output']) ?? ttsEngine != null,
+      sttEngine: sttEngine,
+      ttsEngine: ttsEngine,
     );
   }
 }
@@ -139,12 +143,20 @@ int? _coerceInt(dynamic value) {
 }
 
 List<String> _coerceStringList(dynamic value) {
-  if (value is! List) {
-    return const <String>[];
+  if (value is String) {
+    return List<String>.unmodifiable(
+      value
+          .split(',')
+          .map((entry) => entry.trim())
+          .where((entry) => entry.isNotEmpty),
+    );
   }
-  return List<String>.unmodifiable(
-    value
-        .map((entry) => entry.toString().trim())
-        .where((entry) => entry.isNotEmpty),
-  );
+  if (value is List) {
+    return List<String>.unmodifiable(
+      value
+          .map((entry) => entry.toString().trim())
+          .where((entry) => entry.isNotEmpty),
+    );
+  }
+  return const <String>[];
 }

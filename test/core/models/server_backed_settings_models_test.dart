@@ -2,6 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/models/account_metadata.dart';
+import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_about_info.dart';
 import 'package:conduit/core/models/server_user_settings.dart';
 
@@ -140,6 +141,74 @@ void main() {
       check(about.ttsEngine).equals('kokoro');
       check(about.hasAvailableUpdate).isTrue();
       check(about.hasLicenseMetadata).isTrue();
+    });
+
+    test('parses Open WebUI 0.10 string defaults and nested audio flags', () {
+      final about = ServerAboutInfo.fromJson({
+        'name': 'Open WebUI',
+        'version': '0.10.1',
+        'default_models': 'gpt-4.1, claude-sonnet',
+        'features': {'enable_login_form': true},
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'tts': {'engine': 'openai'},
+        },
+      });
+
+      check(about.defaultModels).deepEquals(['gpt-4.1', 'claude-sonnet']);
+      check(about.enableAudioInput).equals(true);
+      check(about.enableAudioOutput).equals(true);
+      check(about.sttEngine).equals('openai');
+      check(about.ttsEngine).equals('openai');
+    });
+  });
+
+  group('BackendConfig.fromJson', () {
+    test('parses Open WebUI 0.10 nested audio config', () {
+      final config = BackendConfig.fromJson({
+        'features': {
+          'enable_websocket': true,
+          'enable_ldap': true,
+          'enable_login_form': false,
+        },
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'tts': {
+            'engine': 'openai',
+            'voice': 'alloy',
+            'split_on': 'punctuation',
+          },
+        },
+        'oauth': {
+          'providers': {'github': 'GitHub'},
+        },
+      });
+
+      check(config.enableWebsocket).equals(true);
+      check(config.enableLdap).isTrue();
+      check(config.enableLoginForm).isFalse();
+      check(config.enableAudioInput).equals(true);
+      check(config.enableAudioOutput).equals(true);
+      check(config.sttProvider).equals('openai');
+      check(config.ttsProvider).equals('openai');
+      check(config.ttsVoice).equals('alloy');
+      check(config.ttsSplitOn).equals('punctuation');
+      check(config.oauthProviders.github).equals('GitHub');
+    });
+
+    test('explicit nested audio feature flags override engine inference', () {
+      final config = BackendConfig.fromJson({
+        'features': {'enable_audio_input': false, 'enable_audio_output': false},
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'tts': {'engine': 'openai'},
+        },
+      });
+
+      check(config.enableAudioInput).equals(false);
+      check(config.enableAudioOutput).equals(false);
+      check(config.sttProvider).equals('openai');
+      check(config.ttsProvider).equals('openai');
     });
   });
 }

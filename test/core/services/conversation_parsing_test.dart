@@ -356,6 +356,356 @@ void main() {
         check(messages.first['content']).equals('Hello world');
       });
 
+      test('falls back to structured output for empty persisted content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Structured answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Structured answer');
+        check(
+          messages.first['output'],
+        ).isA<List>().has((it) => it.length, 'length').equals(1);
+      });
+
+      test('preserves structured details with persisted content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Final answer',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'status': 'completed',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'checked docs'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check(content).contains('<details type="reasoning"');
+        check(content).contains('Final answer');
+        check('Final answer'.allMatches(content).length).equals(1);
+      });
+
+      test('prefers longer structured output text over stale content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Partial',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Partial final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Partial final answer');
+      });
+
+      test('does not reuse rendered details as replacement text', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="reasoning" done="true">\n'
+                    '<summary>Thought for 0 seconds</summary>\n'
+                    '&gt; stale\n'
+                    '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'status': 'completed',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'fresh'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check('<details'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('&gt; stale'));
+        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
+        check(content).contains('Keep me');
+        check('Final answer'.allMatches(content).length).equals(1);
+      });
+
+      test('plain structured output clears stale rendered details', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="tool_calls" done="false">\n'
+                    '<summary>Executing...</summary>\n'
+                    '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check(content).contains('&lt;details&gt;&lt;summary&gt;User details');
+        check(content).contains('Keep me');
+        check('Final answer'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('Executing...'));
+      });
+
+      test('plain structured output replaces stale stripped text', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="tool_calls" done="false">\n'
+                    '<summary>Executing...</summary>\n'
+                    '</details>\n'
+                    'Partial',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Final answer');
+      });
+
+      test('falls back to history output when reloading message chain', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-1': {
+                  'role': 'user',
+                  'content': 'Hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['msg-2'],
+                },
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': '',
+                  'parentId': 'msg-1',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'Reloaded answer'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(2);
+        check(messages[1]['content']).equals('Reloaded answer');
+        check(
+          messages[1]['output'],
+        ).isA<List>().has((it) => it.length, 'length').equals(1);
+      });
+
+      test('uses history output when message output list is empty', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'Hello',
+                'timestamp': 1700000000,
+              },
+              {
+                'id': 'msg-2',
+                'role': 'assistant',
+                'content': '',
+                'output': const <dynamic>[],
+                'timestamp': 1700000001,
+              },
+            ],
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'History answer'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(1);
+        check(messages.first['content']).equals('History answer');
+        check(
+          messages.first['output'],
+        ).isA<List>().has((it) => it.length, 'length').equals(1);
+      });
+
+      test('renders structured output for assistant sibling versions', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'current-asst',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['alt-asst', 'current-asst'],
+                },
+                'alt-asst': {
+                  'role': 'assistant',
+                  'content': '',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'reasoning',
+                      'status': 'completed',
+                      'summary': [
+                        {'type': 'summary_text', 'text': 'checked docs'},
+                      ],
+                    },
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'Alt answer'},
+                      ],
+                    },
+                  ],
+                },
+                'current-asst': {
+                  'role': 'assistant',
+                  'content': 'Current answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000002,
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final versions = messages[1]['versions'] as List<dynamic>;
+        final version = versions.single as Map<String, dynamic>;
+        final content = version['content'] as String;
+        check(content).contains('<details type="reasoning"');
+        check(content).contains('Alt answer');
+        check(
+          version['output'],
+        ).isA<List>().has((it) => it.length, 'length').equals(2);
+      });
+
       test('normalizes assistant embeds from message payloads', () {
         final result = parseFullConversation({
           'id': 'conv-1',

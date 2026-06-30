@@ -486,6 +486,133 @@ void main() {
       ).equals(1);
     });
 
+    test('httpStream renders output-only structured snapshots', () async {
+      final log = _CallbackLog();
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Partial stream'},
+              ],
+            },
+          ],
+        }),
+        _sseFrame({
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Structured stream'},
+              ],
+            },
+          ],
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      check(
+        log.replacedContents,
+      ).deepEquals(['Partial stream', 'Structured stream']);
+      check(log.messages.last.content).equals('Structured stream');
+      check(log.finishCount).equals(1);
+    });
+
+    test(
+      'httpStream does not duplicate mixed output and delta content',
+      () async {
+        final log = _CallbackLog();
+        final byteStream = Stream<List<int>>.fromIterable([
+          _sseFrame({
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': 'Hello'},
+                ],
+              },
+            ],
+            'choices': [
+              {
+                'delta': {'content': 'Hel'},
+              },
+            ],
+          }),
+          _sseDone(),
+        ]);
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            byteStream: byteStream,
+            abort: () async {},
+          ),
+          log: log,
+        );
+
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        check(log.appendedChunks).deepEquals(['Hel']);
+        check(log.messages.last.content).equals('Hello');
+        check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'chat:completion tracks tool placeholders without string scans',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        final payload = {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        };
+        registrar.emitChatEvent('chat:completion', payload, messageId: 'msg-1');
+        await pumpMicrotasks();
+        registrar.emitChatEvent('chat:completion', payload, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).length.equals(1);
+        check(log.appendedChunks.single).contains('type="tool_calls"');
+        check(log.appendedChunks.single).contains('name="search"');
+      },
+    );
+
     test('httpStream handles emitter delta and status events', () async {
       final log = _CallbackLog();
       final byteStream = Stream<List<int>>.fromIterable([
@@ -835,6 +962,647 @@ void main() {
     );
 
     test(
+      'chat:completion output snapshots replace visible empty content',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'content': '',
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'first'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'final'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.replacedContents).deepEquals(['first', 'final']);
+        check(log.messages.last.content).equals('final');
+      },
+    );
+
+    test(
+      'chat:completion output snapshot preserves streamed text with details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Visible answer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'tool result',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).deepEquals(['Visible answer']);
+        check(log.replacedContents).has((it) => it.length, 'length').equals(1);
+        check(log.messages.last.content).contains('Visible answer');
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+        check(log.messages.last.content).contains('name="search"');
+        check(
+          log.messages.last.output,
+        ).has((it) => it?.length, 'length').equals(2);
+      },
+    );
+
+    test(
+      'chat:completion text-only output snapshot completes streamed delta',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Hel'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Hello'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).deepEquals(['Hel']);
+        check(log.messages.last.content).equals('Hello');
+        check(log.messages.last.output).isNotNull();
+      },
+    );
+
+    test(
+      'chat:completion text snapshot remains raw for later details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3 and 4 > 1'},
+              ],
+            },
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'compare',
+              'arguments': {'left': 2, 'right': 3},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'true',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content).contains('2 &lt; 3 and 4 &gt; 1');
+        check(content).not((it) => it.contains('&amp;lt;'));
+        check(content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
+      'chat:completion full structured snapshot keeps raw plain text',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+            {
+              'type': 'reasoning',
+              'status': 'completed',
+              'summary': [
+                {'type': 'summary_text', 'text': 'checked'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'compare',
+              'arguments': const <String, dynamic>{},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content).contains('2 &lt; 3');
+        check(content).not((it) => it.contains('&amp;lt;'));
+        check(content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
+      'chat:completion output snapshot replaces pending tool placeholder',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'tool result',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(
+          '<details type="tool_calls"'.allMatches(content).length,
+        ).equals(1);
+        check(content).contains('<summary>Tool Executed</summary>');
+        check(content).contains('tool result');
+        check(content).not((it) => it.contains('Executing...'));
+        check(content).not((it) => it.contains('&lt;details'));
+      },
+    );
+
+    test(
+      'chat:completion content replacement lets pending tool status reappear',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        final toolCallPayload = {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        };
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        registrar.emitChatEvent('chat:completion', {
+          'content': 'intermediate answer',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        check(log.messages.last.content).equals('intermediate answer');
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+      },
+    );
+
+    test(
+      'chat:completion plain output clears stale pending tool details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'content':
+              '<details><summary>User details</summary>Keep me</details>\nFinal answer',
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Final answer'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content).contains('<details><summary>User details</summary>');
+        check(content).contains('Keep me');
+        check(content).contains('Final answer');
+        check(content).not((it) => it.contains('Executing...'));
+      },
+    );
+
+    test('chat:completion plain output replaces stale partial text', () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'content': 'Partial',
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      registrar.emitChatEvent('chat:completion', {
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'function': {'name': 'search'},
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+      check(log.messages.last.content).contains('Partial');
+      check(log.messages.last.content).contains('<summary>Executing...');
+
+      registrar.emitChatEvent('chat:completion', {
+        'output': [
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Final answer'},
+            ],
+          },
+        ],
+      }, messageId: 'msg-1');
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).equals('Final answer');
+    });
+
+    test(
+      'chat:completion structured tool snapshot suppresses duplicate pending status',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(
+          '<details type="tool_calls"'.allMatches(content).length,
+        ).equals(1);
+      },
+    );
+
+    test(
+      'chat:completion output snapshot keeps answer after reasoning-only state',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'reasoning_content': 'thinking'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'reasoning',
+              'status': 'completed',
+              'summary': [
+                {'type': 'summary_text', 'text': 'thinking'},
+              ],
+            },
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Final answer'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.messages.last.content).contains('<details type="reasoning"');
+        check(log.messages.last.content).contains('Final answer');
+      },
+    );
+
+    test(
+      'chat:completion repeated output snapshots keep one details block',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'Visible answer'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        Map<String, Object?> outputPayload(String result) => {
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': result,
+            },
+          ],
+        };
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          outputPayload('first result'),
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        registrar.emitChatEvent(
+          'chat:completion',
+          outputPayload('second result'),
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(
+          '<details type="tool_calls"'.allMatches(content).length,
+        ).equals(1);
+        check(content).contains('Visible answer');
+        check(content).contains('second result');
+        check(content).not((it) => it.contains('&lt;details'));
+      },
+    );
+
+    test(
       'taskSocket channel stream preserves malformed payload fallback',
       () async {
         final log = _CallbackLog();
@@ -1080,6 +1848,47 @@ void main() {
         check(log.finishCount).equals(1);
         check(log.messages.last.isStreaming).isFalse();
         expect(log.messages.last.content, equals('Hello there.'));
+      },
+    );
+
+    test(
+      'taskSocket HTTP completion starts poll recovery when socket events are missing',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'Recovered from poll')],
+          ),
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).isGreaterThan(0);
+        check(log.messages.last.content).equals('Recovered from poll');
+        check(log.finishCount).equals(1);
       },
     );
 
@@ -1350,6 +2159,67 @@ void main() {
         check(log.finishCount).equals(1);
         check(log.messages.last.isStreaming).isFalse();
         check(log.messages.last.content).equals('Hello there.');
+      },
+    );
+
+    test(
+      'taskSocket HTTP completion recovery does not locally finish stable partial snapshots',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketStableNonTerminalRecoveryLimit = 2;
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Partial answer',
+                'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          ),
+        );
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        for (var i = 0; i < 8; i += 1) {
+          await pumpMicrotasks();
+        }
+
+        check(log.messages.last.content).equals('Partial answer');
+        check(log.finishCount).equals(0);
+        check(log.messages.last.isStreaming).isTrue();
+
+        registrar.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
       },
     );
 
@@ -1700,6 +2570,86 @@ void main() {
       check(log.finishCount).equals(1);
     });
 
+    test('jsonCompletion renders output-only payloads', () async {
+      final log = _CallbackLog();
+
+      _attach(
+        session: ChatCompletionSession.jsonCompletion(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          jsonPayload: {
+            'choices': [
+              {
+                'message': {'content': ''},
+              },
+            ],
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': 'Structured JSON reply'},
+                ],
+              },
+            ],
+          },
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      check(log.replacedContents).deepEquals(['Structured JSON reply']);
+      check(log.messages.last.content).equals('Structured JSON reply');
+      check(log.messages.last.output).isNotNull();
+      check(log.finishCount).equals(1);
+    });
+
+    test('jsonCompletion preserves content with structured details', () async {
+      final log = _CallbackLog();
+
+      _attach(
+        session: ChatCompletionSession.jsonCompletion(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          jsonPayload: {
+            'choices': [
+              {
+                'message': {'content': 'Direct reply'},
+              },
+            ],
+            'output': [
+              {
+                'type': 'reasoning',
+                'status': 'completed',
+                'summary': [
+                  {'type': 'summary_text', 'text': 'checked docs'},
+                ],
+              },
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': 'Direct reply'},
+                ],
+              },
+            ],
+          },
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      check(log.messages.last.content).contains('<details type="reasoning"');
+      check(log.messages.last.content).contains('Direct reply');
+      check(
+        'Direct reply'.allMatches(log.messages.last.content).length,
+      ).equals(1);
+      check(log.messages.last.output).isNotNull();
+      check(log.finishCount).equals(1);
+    });
+
     // -----------------------------------------------------------------------
     // 4. jsonCompletion applies usage, sources, and error
     // -----------------------------------------------------------------------
@@ -1858,6 +2808,48 @@ void main() {
         log.messages.last.usage,
         equals({'prompt_tokens': 10, 'completion_tokens': 5}),
       );
+    });
+
+    test('httpStream applies usage and output from one frame', () async {
+      final log = _CallbackLog();
+
+      final byteStream = Stream<List<int>>.fromIterable([
+        _sseFrame({
+          'usage': {'prompt_tokens': 10, 'completion_tokens': 5},
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'Structured with usage'},
+              ],
+            },
+          ],
+        }),
+        _sseDone(),
+      ]);
+
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: byteStream,
+          abort: () async {},
+        ),
+        log: log,
+      );
+
+      await pumpMicrotasks();
+      await pumpMicrotasks();
+
+      expect(
+        log.messages.last.usage,
+        equals({'prompt_tokens': 10, 'completion_tokens': 5}),
+      );
+      check(log.messages.last.content).equals('Structured with usage');
+      check(log.messages.last.output).isNotNull();
+      check(
+        log.messages.last.output!,
+      ).has((it) => it.length, 'length').equals(1);
     });
 
     test('httpStream applies selected model update', () async {
@@ -2109,7 +3101,7 @@ void main() {
         await pumpMicrotasks();
 
         check(log.finishCount).equals(1);
-        check(log.messages.last.content).equals('');
+        check(log.messages.last.content).equals('tool output');
 
         await Future<void>.delayed(const Duration(milliseconds: 2600));
         for (var i = 0; i < 5; i++) {

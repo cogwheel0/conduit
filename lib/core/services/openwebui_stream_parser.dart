@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'structured_output.dart';
+
 /// Base class for all stream update types emitted by the OpenWebUI SSE parser.
 sealed class OpenWebUIStreamUpdate {
   const OpenWebUIStreamUpdate();
@@ -30,10 +32,14 @@ final class OpenWebUIReasoningDelta extends OpenWebUIStreamUpdate {
 /// The `output` array contains OR-aligned items such as message, reasoning,
 /// code_interpreter, function_call, and function_call_output.
 final class OpenWebUIOutputUpdate extends OpenWebUIStreamUpdate {
-  const OpenWebUIOutputUpdate(this.output);
+  OpenWebUIOutputUpdate(this.output)
+    : blocks = parseOpenWebUIStructuredOutput(output);
 
-  /// List of output item maps.
+  /// Raw output item maps from the server, preserved for message storage.
   final List<dynamic> output;
+
+  /// Typed blocks parsed from [output].
+  final List<StructuredOutputBlock> blocks;
 }
 
 /// Token usage statistics from a completion chunk.
@@ -166,41 +172,39 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
   }
   if (parsed['sources'] != null) {
     yield OpenWebUISourcesUpdate(parsed['sources'] as List<dynamic>);
-    return;
   }
   if (parsed['selected_model_id'] != null) {
     yield OpenWebUISelectedModelUpdate(parsed['selected_model_id'].toString());
-    return;
   }
   if (parsed['usage'] is Map<String, dynamic>) {
     yield OpenWebUIUsageUpdate(parsed['usage'] as Map<String, dynamic>);
-    return;
-  }
-
-  // Structured output items from the backend middleware.
-  final output = parsed['output'];
-  if (output is List && output.isNotEmpty) {
-    yield OpenWebUIOutputUpdate(output);
   }
 
   final choices = parsed['choices'];
-  if (choices is! List || choices.isEmpty) return;
+  if (choices is List && choices.isNotEmpty) {
+    final firstChoice = choices.first;
+    if (firstChoice is Map<String, dynamic>) {
+      final delta = firstChoice['delta'];
+      if (delta is Map<String, dynamic>) {
+        // Reasoning/thinking content (chain-of-thought tokens).
+        final reasoning = delta['reasoning_content']?.toString() ?? '';
+        if (reasoning.isNotEmpty) {
+          yield OpenWebUIReasoningDelta(reasoning);
+        }
 
-  final firstChoice = choices.first;
-  if (firstChoice is! Map<String, dynamic>) return;
-
-  final delta = firstChoice['delta'];
-  if (delta is! Map<String, dynamic>) return;
-
-  // Reasoning/thinking content (chain-of-thought tokens).
-  final reasoning = delta['reasoning_content']?.toString() ?? '';
-  if (reasoning.isNotEmpty) {
-    yield OpenWebUIReasoningDelta(reasoning);
+        final content = delta['content']?.toString() ?? '';
+        if (content.isNotEmpty) {
+          yield OpenWebUIContentDelta(content);
+        }
+      }
+    }
   }
 
-  final content = delta['content']?.toString() ?? '';
-  if (content.isNotEmpty) {
-    yield OpenWebUIContentDelta(content);
+  // Structured output snapshots are applied after deltas from the same frame so
+  // the renderer can merge details with the plain text instead of duplicating it.
+  final output = parsed['output'];
+  if (output is List && output.isNotEmpty) {
+    yield OpenWebUIOutputUpdate(output);
   }
 }
 

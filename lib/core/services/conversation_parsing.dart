@@ -7,6 +7,9 @@ import '../models/conversation.dart';
 import '../utils/embed_utils.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import '../utils/openwebui_source_parser.dart';
+import 'semantic_message_builder.dart';
+import 'structured_output.dart';
+import 'structured_output_renderer.dart';
 
 /// Utilities for converting OpenWebUI conversation payloads into JSON maps
 /// that match the app's `Conversation` / `ChatMessage` schemas. All helpers
@@ -279,6 +282,18 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     }
   }
 
+  final outputItems = _effectiveOutputItems(msgData, historyMsg);
+  if (outputItems.isNotEmpty) {
+    final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
+    final outputContent = _mergeContentWithStructuredOutput(
+      contentString,
+      outputBlocks,
+    );
+    if (outputContent.isNotEmpty) {
+      contentString = outputContent;
+    }
+  }
+
   // Extract files
   final effectiveFiles = msgData['files'] ?? historyMsg?['files'];
   List<Map<String, dynamic>>? files;
@@ -331,6 +346,7 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     'followUps': _coerceStringList(followUpsRaw),
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),
     if (rawUsage.isNotEmpty) 'usage': rawUsage,
+    if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
   };
 }
@@ -513,6 +529,18 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     }
   }
 
+  final outputItems = _effectiveOutputItems(msgData, historyMsg);
+  if (outputItems.isNotEmpty) {
+    final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
+    final outputContent = _mergeContentWithStructuredOutput(
+      contentString,
+      outputBlocks,
+    );
+    if (outputContent.isNotEmpty) {
+      contentString = outputContent;
+    }
+  }
+
   // Extract error field from OpenWebUI - preserve it separately for round-trip
   final errorData = _extractErrorData(msgData, historyMsg);
 
@@ -608,6 +636,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'sources': _parseSourcesField(sourcesRaw),
     'usage': usage,
     'versions': const <Map<String, dynamic>>[],
+    if (outputItems.isNotEmpty) 'output': outputItems,
     'error': ?errorData,
   };
 }
@@ -824,6 +853,74 @@ dynamic _coerceJsonValue(dynamic value) {
   return value;
 }
 
+List<Map<String, dynamic>> _normalizeOutputItems(dynamic raw) {
+  if (raw is! List) return const [];
+  final items = <Map<String, dynamic>>[];
+  for (final item in raw) {
+    if (item is Map) {
+      items.add(_coerceJsonMap(item));
+    }
+  }
+  return List<Map<String, dynamic>>.unmodifiable(items);
+}
+
+List<Map<String, dynamic>> _effectiveOutputItems(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final directItems = _normalizeOutputItems(msgData['output']);
+  if (directItems.isNotEmpty || historyMsg == null) {
+    return directItems;
+  }
+  return _normalizeOutputItems(historyMsg['output']);
+}
+
+String _mergeContentWithStructuredOutput(
+  String content,
+  List<StructuredOutputBlock> outputBlocks,
+) {
+  final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
+  final baseContent = _stripRenderedSemanticDetails(content);
+  final strippedSemanticDetails = baseContent != content;
+  final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
+  final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
+  final outputTextIsAuthoritative =
+      hasOutputPlainText && outputPlainText.length > baseContent.length;
+  final effectiveContent = outputTextIsAuthoritative
+      ? outputPlainText
+      : baseContent;
+
+  if (effectiveContent.trim().isEmpty) {
+    return renderStructuredOutputBlocks(outputBlocks);
+  }
+  if (hasDetails) {
+    return renderStructuredOutputBlocksWithContent(
+      outputBlocks,
+      effectiveContent,
+    );
+  }
+  if (outputTextIsAuthoritative) {
+    return renderStructuredOutputBlocks(outputBlocks);
+  }
+  if (strippedSemanticDetails) {
+    if (hasOutputPlainText && !baseContent.contains(outputPlainText)) {
+      return renderStructuredOutputBlocks(outputBlocks);
+    }
+    return renderSemanticMessageBlocks([SemanticTextBlock(baseContent)]);
+  }
+  return '';
+}
+
+String _stripRenderedSemanticDetails(String content) {
+  if (!content.contains('<details')) {
+    return content;
+  }
+  final semanticDetailsPattern = RegExp(
+    r'''<details\b(?=[^>]*\btype\s*=\s*["'](?:reasoning|tool_calls|code_interpreter|openai_builtin_tool)["'])[\s\S]*?</details>\s*''',
+  );
+  return content.replaceAll(semanticDetailsPattern, '').trim();
+}
+
 String _stringOr(dynamic value, String fallback) {
   if (value is String && value.isNotEmpty) {
     return value;
@@ -846,7 +943,13 @@ bool? _safeBool(dynamic value) {
 }
 
 String _synthesizeToolDetailsFromToolCalls(List<Map> calls) {
-  final buffer = StringBuffer();
+  return renderSemanticMessageBlocks(
+    _semanticToolBlocksFromToolCalls(calls),
+  ).trim();
+}
+
+List<SemanticMessageBlock> _semanticToolBlocksFromToolCalls(List<Map> calls) {
+  final blocks = <SemanticMessageBlock>[];
   for (final rawCall in calls) {
     final call = Map<String, dynamic>.from(rawCall);
     final function = call['function'];
@@ -856,34 +959,39 @@ String _synthesizeToolDetailsFromToolCalls(List<Map> calls) {
     final id =
         (call['id']?.toString() ??
         'call_${DateTime.now().millisecondsSinceEpoch}');
-    final done = call['done']?.toString() ?? 'true';
+    final done = _safeBool(call['done']) ?? true;
     final argsRaw = function is Map ? function['arguments'] : call['arguments'];
     final resRaw =
         call['result'] ??
         call['output'] ??
         (function is Map ? function['result'] : null);
-    final attrs = StringBuffer()
-      ..write('type="tool_calls"')
-      ..write(' done="${_escapeHtmlAttr(done)}"')
-      ..write(' id="${_escapeHtmlAttr(id)}"')
-      ..write(' name="${_escapeHtmlAttr(name)}"')
-      ..write(' arguments="${_escapeHtmlAttr(_jsonStringify(argsRaw))}"');
-    final resultStr = _jsonStringify(resRaw);
-    if (resultStr.isNotEmpty) {
-      attrs.write(' result="${_escapeHtmlAttr(resultStr)}"');
-    }
-    buffer.writeln(
-      '<details ${attrs.toString()}><summary>Tool Executed</summary></details>',
+    blocks.add(
+      SemanticDetailsBlock.toolCall(
+        id: id,
+        name: name,
+        arguments: argsRaw,
+        done: done,
+        result: resRaw,
+      ),
     );
   }
-  return buffer.toString().trim();
+  return blocks;
 }
 
 String _synthesizeToolDetailsFromToolCallsWithResults(
   List<Map> calls,
   List<Map> results,
 ) {
-  final buffer = StringBuffer();
+  return renderSemanticMessageBlocks(
+    _semanticToolBlocksFromToolCallsWithResults(calls, results),
+  ).trim();
+}
+
+List<SemanticMessageBlock> _semanticToolBlocksFromToolCallsWithResults(
+  List<Map> calls,
+  List<Map> results,
+) {
+  final blocks = <SemanticMessageBlock>[];
   final resultsMap = <String, Map<String, dynamic>>{};
   for (final rawResult in results) {
     final result = Map<String, dynamic>.from(rawResult);
@@ -908,36 +1016,24 @@ String _synthesizeToolDetailsFromToolCallsWithResults(
     final filesRaw = resultEntry != null ? resultEntry['files'] : null;
     final embedsRaw = resultEntry != null ? resultEntry['embeds'] : null;
 
-    final attrs = StringBuffer()
-      ..write('type="tool_calls"')
-      ..write(
-        ' done="${_escapeHtmlAttr(resultEntry != null ? 'true' : 'false')}"',
-      )
-      ..write(' id="${_escapeHtmlAttr(id)}"')
-      ..write(' name="${_escapeHtmlAttr(name)}"')
-      ..write(' arguments="${_escapeHtmlAttr(_jsonStringify(argsRaw))}"');
-    final resultStr = _jsonStringify(resRaw);
-    if (resultStr.isNotEmpty) {
-      attrs.write(' result="${_escapeHtmlAttr(resultStr)}"');
-    }
-    final filesStr = _jsonStringify(filesRaw);
-    if (filesStr.isNotEmpty) {
-      attrs.write(' files="${_escapeHtmlAttr(filesStr)}"');
-    }
-    final embedsStr = _jsonStringify(embedsRaw);
-    if (embedsStr.isNotEmpty) {
-      attrs.write(' embeds="${_escapeHtmlAttr(embedsStr)}"');
-    }
-    buffer.writeln(
-      '<details ${attrs.toString()}><summary>${resultEntry != null ? 'Tool Executed' : 'Executing...'}</summary></details>',
+    blocks.add(
+      SemanticDetailsBlock.toolCall(
+        id: id,
+        name: name,
+        arguments: argsRaw,
+        done: resultEntry != null,
+        result: resRaw,
+        files: filesRaw,
+        embeds: embedsRaw,
+      ),
     );
   }
 
-  return buffer.toString().trim();
+  return blocks;
 }
 
 String _synthesizeToolDetailsFromContentArray(List<dynamic> content) {
-  final buffer = StringBuffer();
+  final blocks = <SemanticMessageBlock>[];
   for (final item in content) {
     if (item is! Map) continue;
     final type = item['type']?.toString();
@@ -960,13 +1056,9 @@ String _synthesizeToolDetailsFromContentArray(List<dynamic> content) {
           }
         }
       }
-      final synthesized = _synthesizeToolDetailsFromToolCallsWithResults(
-        calls,
-        results,
+      blocks.addAll(
+        _semanticToolBlocksFromToolCallsWithResults(calls, results),
       );
-      if (synthesized.isNotEmpty) {
-        buffer.writeln(synthesized);
-      }
       continue;
     }
 
@@ -975,46 +1067,21 @@ String _synthesizeToolDetailsFromContentArray(List<dynamic> content) {
       final id =
           (item['id']?.toString() ??
           'call_${DateTime.now().millisecondsSinceEpoch}');
-      final argsStr = _jsonStringify(item['arguments'] ?? item['args']);
+      final argsRaw = item['arguments'] ?? item['args'];
       final resStr = item['result'] ?? item['output'] ?? item['response'];
-      final embedsStr = _jsonStringify(item['embeds']);
-      final attrs = StringBuffer()
-        ..write('type="tool_calls"')
-        ..write(' done="${_escapeHtmlAttr(resStr != null ? 'true' : 'false')}"')
-        ..write(' id="${_escapeHtmlAttr(id)}"')
-        ..write(' name="${_escapeHtmlAttr(name)}"')
-        ..write(' arguments="${_escapeHtmlAttr(argsStr)}"');
-      final result = _jsonStringify(resStr);
-      if (result.isNotEmpty) {
-        attrs.write(' result="${_escapeHtmlAttr(result)}"');
-      }
-      if (embedsStr.isNotEmpty) {
-        attrs.write(' embeds="${_escapeHtmlAttr(embedsStr)}"');
-      }
-      buffer.writeln(
-        '<details ${attrs.toString()}><summary>${resStr != null ? 'Tool Executed' : 'Executing...'}</summary></details>',
+      blocks.add(
+        SemanticDetailsBlock.toolCall(
+          id: id,
+          name: name,
+          arguments: argsRaw,
+          done: resStr != null,
+          result: resStr,
+          embeds: item['embeds'],
+        ),
       );
     }
   }
-  return buffer.toString().trim();
-}
-
-String _jsonStringify(dynamic value) {
-  if (value == null) return '';
-  try {
-    return jsonEncode(value);
-  } catch (_) {
-    return value.toString();
-  }
-}
-
-String _escapeHtmlAttr(String value) {
-  return value
-      .replaceAll('&', '&amp;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
+  return renderSemanticMessageBlocks(blocks).trim();
 }
 
 Conversation parseFullConversationModel(Object? payload) {

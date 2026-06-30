@@ -1914,8 +1914,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   List<_AssistantFooterAction> _buildFooterActions() {
     final l10n = AppLocalizations.of(context)!;
-    final ttsState = ref.watch(textToSpeechControllerProvider);
-    final isChatStreaming = ref.watch(isChatStreamingProvider);
+    final ttsState = ref.read(textToSpeechControllerProvider);
+    final isChatStreaming = ref.read(isChatStreamingProvider);
     final activeUsage = _resolveActiveUsage();
     final messageId = _messageId;
     final activeError = _getActiveError();
