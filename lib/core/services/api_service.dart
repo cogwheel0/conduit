@@ -3332,11 +3332,22 @@ class ApiService {
     var nextName = name;
     var nextDescription = description;
     if (nextName == null || nextDescription == null) {
-      final current = _coerceResponseMap(
-        (await _dio.get('/api/v1/knowledge/$id')).data,
-      );
-      nextName ??= current?['name']?.toString();
-      nextDescription ??= current?['description']?.toString();
+      try {
+        final current = _coerceResponseMap(
+          (await _dio.get('/api/v1/knowledge/$id')).data,
+        );
+        nextName ??= current?['name']?.toString();
+        nextDescription ??= current?['description']?.toString();
+      } on DioException catch (error) {
+        if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+          rethrow;
+        }
+        await _dio.put(
+          '/api/v1/knowledge/$id',
+          data: {'name': ?name, 'description': ?description},
+        );
+        return;
+      }
     }
     try {
       await _dio.post(
@@ -3373,6 +3384,7 @@ class ApiService {
     final rawItems = <dynamic>[];
     var page = 1;
     int? total;
+    const maxPages = 100;
 
     try {
       while (true) {
@@ -3402,6 +3414,13 @@ class ApiService {
           break;
         }
         page += 1;
+        if (page > maxPages) {
+          _traceApi(
+            'Warning: Hit max knowledge item page limit '
+            '($maxPages) for $knowledgeBaseId',
+          );
+          break;
+        }
       }
     } on DioException catch (error) {
       if (!_shouldFallbackToLegacyKnowledgeApi(error)) {

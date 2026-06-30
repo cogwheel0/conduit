@@ -1894,6 +1894,31 @@ void main() {
       ]);
     });
 
+    test(
+      'updateKnowledgeBase falls back when prefetch rejects new route',
+      () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Invalid route'}, statusCode: 422),
+          _FakeAdapter.json({}),
+        ]);
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.updateKnowledgeBase('kb-1', name: 'Docs');
+
+        check(
+          adapter.requests.map(
+            (request) => '${request.method} ${request.path}',
+          ),
+        ).deepEquals([
+          'GET /api/v1/knowledge/kb-1',
+          'PUT /api/v1/knowledge/kb-1',
+        ]);
+        check(
+          adapter.requests.last.data as Map<String, dynamic>,
+        ).deepEquals({'name': 'Docs'});
+      },
+    );
+
     test('getKnowledgeBaseItems reads the 0.10 file-backed endpoint', () async {
       final adapter = _QueuedFakeAdapter([
         _FakeAdapter.json({

@@ -504,6 +504,22 @@ void main() {
       check(rendered).endsWith('</details>\nB');
     });
 
+    test('code interpreter fence grows around untrusted backticks', () {
+      final rendered = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'code_interpreter',
+            'status': 'completed',
+            'language': 'dart',
+            'code': 'print("before");\n```\nprint("after");',
+          },
+        ]),
+      );
+
+      check(rendered).contains('````dart');
+      check(rendered).contains('print(&quot;after&quot;);');
+    });
+
     test('escapes generated details body and attributes', () {
       final serialized = renderStructuredOutputBlocks(
         parseOpenWebUIStructuredOutput([

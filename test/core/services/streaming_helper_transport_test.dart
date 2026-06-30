@@ -1166,6 +1166,68 @@ void main() {
     );
 
     test(
+      'chat:completion full structured snapshot keeps raw plain text',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+            {
+              'type': 'reasoning',
+              'status': 'completed',
+              'summary': [
+                {'type': 'summary_text', 'text': 'checked'},
+              ],
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': '2 < 3'},
+              ],
+            },
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'compare',
+              'arguments': const <String, dynamic>{},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(content).contains('2 &lt; 3');
+        check(content).not((it) => it.contains('&amp;lt;'));
+        check(content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
       'chat:completion output snapshot replaces pending tool placeholder',
       () async {
         final log = _CallbackLog();

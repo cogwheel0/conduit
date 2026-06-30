@@ -807,7 +807,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     replaceVisibleAssistantContent(
       outputContent,
       fromStructuredOutput: shouldRenderFullSnapshot,
-      plainContent: hasDetails ? plainStreamingContent : snapshotPlainText,
+      plainContent: hasDetails
+          ? shouldRenderFullSnapshot
+                ? snapshotPlainText
+                : plainStreamingContent
+          : snapshotPlainText,
     );
   }
 

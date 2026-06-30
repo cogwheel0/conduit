@@ -34,7 +34,7 @@ void main() {
 
   test('applies OpenWebUI delete semantics by reparenting grandchildren', () {
     final messages = [
-      _message('root', childrenIds: const ['child']),
+      _message('root', childrenIds: const ['child', 'sibling']),
       _message('child', parentId: 'root', childrenIds: const ['leaf']),
       _message('leaf', parentId: 'child'),
       _message('sibling', parentId: 'root'),
@@ -45,7 +45,7 @@ void main() {
     final updated = deleteOpenWebUiMessageFromChatMessages(messages, 'child');
 
     expect(updated.map((message) => message.id), ['root', 'sibling']);
-    expect(chatMessageChildrenIds(updated.first), isEmpty);
+    expect(chatMessageChildrenIds(updated.first), ['sibling']);
   });
 
   test('OpenWebUI delete reparents grandchildren to the deleted parent', () {

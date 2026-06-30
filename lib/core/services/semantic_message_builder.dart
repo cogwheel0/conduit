@@ -80,7 +80,7 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     Object? output,
   }) {
     final bodyParts = <String>[
-      if (code.isNotEmpty) '```$language\n$code\n```',
+      if (code.isNotEmpty) _markdownCodeFence(code, language),
       if (output != null) _formatBodyValue(output),
     ].where((part) => part.trim().isNotEmpty).toList(growable: false);
     return SemanticDetailsBlock._(
@@ -169,6 +169,18 @@ String _formatBodyValue(Object value) {
   } catch (_) {
     return value.toString();
   }
+}
+
+String _markdownCodeFence(String code, String language) {
+  final longestFence = RegExp(r'`+').allMatches(code).fold<int>(0, (
+    max,
+    match,
+  ) {
+    final length = match.group(0)?.length ?? 0;
+    return length > max ? length : max;
+  });
+  final fence = '`' * (longestFence >= 3 ? longestFence + 1 : 3);
+  return '$fence$language\n$code\n$fence';
 }
 
 String _escape(String value) => _semanticHtmlEscape.convert(value);
