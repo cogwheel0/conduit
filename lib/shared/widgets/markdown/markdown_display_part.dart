@@ -8,26 +8,17 @@ enum MarkdownDisplayPartKind { markdownBlock, detailsBlock, detailsGroup }
 class MarkdownDisplayPart {
   const MarkdownDisplayPart({
     required this.partId,
-    required this.kind,
-    required this.sourceBlockIndex,
-    required this.sourceBlockId,
     required this.isMutableTail,
     required this.document,
   });
 
   final String partId;
-  final MarkdownDisplayPartKind kind;
-  final int sourceBlockIndex;
-  final String sourceBlockId;
   final bool isMutableTail;
   final CompiledMarkdownDocument document;
 
   MarkdownDisplayPart copyWith({CompiledMarkdownDocument? document}) {
     return MarkdownDisplayPart(
       partId: partId,
-      kind: kind,
-      sourceBlockIndex: sourceBlockIndex,
-      sourceBlockId: sourceBlockId,
       isMutableTail: isMutableTail,
       document: document ?? this.document,
     );
@@ -64,9 +55,6 @@ List<MarkdownDisplayPart> buildMarkdownDisplayParts(
     parts.add(
       MarkdownDisplayPart(
         partId: partId,
-        kind: kind,
-        sourceBlockIndex: index,
-        sourceBlockId: block.blockId,
         isMutableTail: isMutableTail,
         document: _documentForBlock(
           source: document,
@@ -151,7 +139,15 @@ String _normalizedContentForBlock(
   List<CompiledMarkdownNode> nodes,
 ) {
   if (nodes.isNotEmpty) {
-    return nodes.map((node) => node.textContent).join('\n\n');
+    final joined = nodes.map((node) => node.textContent).join('\n\n');
+    if (joined.trim().isNotEmpty) {
+      return joined;
+    }
+    // Nodes with no text content (e.g. a standalone image block) still need a
+    // non-empty normalizedContent so ConduitMarkdownWidget.build does not
+    // short-circuit on `prepared.trim().isEmpty` and drop the block before the
+    // BlockRenderer can render it.
+    return block.blockId;
   }
   if (block is CompiledMarkdownDetailsBlock) {
     return _normalizedContentForDetails(block);

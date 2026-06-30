@@ -163,7 +163,7 @@ class CompiledMarkdownDocument {
     int mutableBlockStartIndex = -1,
   }) {
     final segmentList = segments
-        .where((segment) => segment.nodes.isNotEmpty)
+        .where((segment) => !segment.isEmpty)
         .toList(growable: false);
     if (segmentList.isEmpty) {
       return normalizedContent.trim().isEmpty
@@ -206,10 +206,31 @@ class CompiledMarkdownDocument {
     final blockLatexExpressions = <String, String>{};
     final inlineLatexExpressions = <String, String>{};
 
+    // `mutableBlockStartIndex` is supplied as a block index into the naive
+    // concatenation of the segments. _appendComposedCompiledMarkdownBlock can
+    // merge a groupable tool_calls block into the previous block — collapsing
+    // the boundary between the frozen prefix and the mutable tail — which
+    // shifts composed indices. Recompute the effective index from the composed
+    // list so the mutable tail block keeps its streaming-fade classification.
+    final tracksMutableTail = mutableBlockStartIndex >= 0;
+    var naiveBlockIndex = 0;
+    var effectiveMutableBlockStartIndex = mutableBlockStartIndex;
+
     for (final segment in segmentList) {
       nodes.addAll(segment.nodes);
       for (final block in segment.blocks) {
+        final blockCountBeforeAppend = blocks.length;
         _appendComposedCompiledMarkdownBlock(blocks, block);
+        if (tracksMutableTail && naiveBlockIndex == mutableBlockStartIndex) {
+          // First block of the mutable tail. If it merged into the preceding
+          // (frozen) block, that merged block is the mutable boundary;
+          // otherwise it sits at its freshly appended position.
+          final merged = blocks.length == blockCountBeforeAppend;
+          effectiveMutableBlockStartIndex = merged
+              ? blockCountBeforeAppend - 1
+              : blockCountBeforeAppend;
+        }
+        naiveBlockIndex += 1;
       }
       containsCitations = containsCitations || segment.containsCitations;
       heavyBlockCount += segment.heavyBlockCount;
@@ -232,7 +253,7 @@ class CompiledMarkdownDocument {
       nodes: nodes,
       blockLatexExpressions: blockLatexExpressions,
       inlineLatexExpressions: inlineLatexExpressions,
-      mutableBlockStartIndex: mutableBlockStartIndex,
+      mutableBlockStartIndex: effectiveMutableBlockStartIndex,
     );
   }
 

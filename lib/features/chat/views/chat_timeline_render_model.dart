@@ -11,8 +11,6 @@ class ChatTimelineRenderModel {
     required this.tailAssistantSourceIndex,
     required this.tailAssistantPhase,
     required this.runningFooterHost,
-    required this.completedFooterHost,
-    required this.historyIndexByMessageId,
     required this.historyIndexByMessageKey,
   });
 
@@ -28,17 +26,11 @@ class ChatTimelineRenderModel {
     final tailAssistantPhase = chatTurnPhaseForMessage(tailAssistant);
     final footerHost = tailAssistant == null || tailAssistantSourceIndex == null
         ? null
-        : ChatTurnFooterHost(
-            message: tailAssistant,
-            sourceIndex: tailAssistantSourceIndex,
-            phase: tailAssistantPhase,
-          );
-    final historyIndexByMessageId = <String, int>{};
+        : ChatTurnFooterHost(message: tailAssistant);
     final historyIndexByMessageKey = <String, int>{};
 
     for (var index = 0; index < historyMessages.length; index += 1) {
       final messageId = historyMessages[index].id;
-      historyIndexByMessageId[messageId] = index;
       historyIndexByMessageKey['message-$messageId'] = index;
     }
 
@@ -50,12 +42,6 @@ class ChatTimelineRenderModel {
       runningFooterHost: chatTurnPhaseShowsRunningFooter(tailAssistantPhase)
           ? footerHost
           : null,
-      completedFooterHost: chatTurnPhaseShowsCompletedFooter(tailAssistantPhase)
-          ? footerHost
-          : null,
-      historyIndexByMessageId: Map<String, int>.unmodifiable(
-        historyIndexByMessageId,
-      ),
       historyIndexByMessageKey: Map<String, int>.unmodifiable(
         historyIndexByMessageKey,
       ),
@@ -67,8 +53,6 @@ class ChatTimelineRenderModel {
   final int? tailAssistantSourceIndex;
   final ChatTurnPhase tailAssistantPhase;
   final ChatTurnFooterHost? runningFooterHost;
-  final ChatTurnFooterHost? completedFooterHost;
-  final Map<String, int> historyIndexByMessageId;
   final Map<String, int> historyIndexByMessageKey;
 
   bool get hasTailAssistant => tailAssistant != null;
@@ -81,7 +65,12 @@ int? _tailAssistantIndex(List<ChatMessage> messages) {
   }
   final lastIndex = messages.length - 1;
   final lastMessage = messages[lastIndex];
-  if (lastMessage.role == 'assistant') {
+  // Archived variants are hidden by the history sliver. Excluding them here
+  // keeps the single source of truth in the history path and prevents a stale
+  // archived assistant from briefly rendering as the live tail (e.g. on the
+  // intermediate regeneration frame before the new assistant is appended).
+  if (lastMessage.role == 'assistant' &&
+      lastMessage.metadata?['archivedVariant'] != true) {
     return lastIndex;
   }
   return null;

@@ -102,6 +102,110 @@ void main() {
     expect(controller.isAnchoredToBottom, isFalse);
   });
 
+  test('bottom anchor controller re-pins after detached programmatic scroll', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(
+      hasScrollableContent: true,
+      distanceFromBottom: 320,
+    );
+    controller.isUserInteractingWithScroll = true;
+    expect(controller.isAnchoredToBottom, isFalse);
+
+    controller.resetForDetachedScroll();
+
+    expect(controller.isAnchoredToBottom, isTrue);
+    expect(controller.isUserInteractingWithScroll, isFalse);
+    // The sticky latch was cleared, so a subsequent scroll away detaches.
+    expect(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+  });
+
+  test('bottom anchor controller never detaches near bottom or when unanchored', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    controller.prepareForStickyContentChange(wantsPinToTop: false);
+
+    // nearBottom short-circuits regardless of delta.
+    expect(
+      controller.shouldDetachForUserScrollAway(nearBottom: true, scrollDelta: 999),
+      isFalse,
+    );
+
+    // Unanchored short-circuits regardless of delta.
+    controller.detachByUser();
+    expect(controller.isAnchoredToBottom, isFalse);
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: 999,
+      ),
+      isFalse,
+    );
+  });
+
+  test('bottom anchor controller keeps sticky pending when correction is mid-flight', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    controller.prepareForStickyContentChange(wantsPinToTop: false);
+
+    // A non-final correction that has not reached the bottom is a no-op: the
+    // latch stays set so the scroll-to-bottom button remains hidden.
+    controller.verifyStickyCorrection(nearBottom: false);
+
+    expect(controller.isAnchoredToBottom, isTrue);
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isFalse,
+    );
+  });
+
+  test('bottom anchor controller releases latch when sticky correction never reaches bottom', () {
+    final controller = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    );
+
+    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
+    expect(
+      controller.prepareForStickyContentChange(wantsPinToTop: false),
+      isTrue,
+    );
+
+    // The final correction attempt is still far from the bottom: the latch must
+    // clear so button visibility falls back to distance-based logic.
+    controller.verifyStickyCorrection(nearBottom: false, isFinalAttempt: true);
+
+    expect(
+      controller.shouldShowScrollToBottom(
+        currentlyShowing: false,
+        hasScrollableContent: true,
+        distanceFromBottom: 320,
+      ),
+      isTrue,
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(

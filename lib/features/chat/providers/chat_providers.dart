@@ -992,16 +992,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (!isStreamingTail || serverHasAdditionalMessages) {
       return false;
     }
-    if (localMessage.role != 'assistant' ||
-        serverMessage.role != 'assistant' ||
-        !localMessage.isStreaming ||
-        serverMessage.isStreaming) {
-      return false;
-    }
-    if (serverMessage.metadata?['responseDone'] == true ||
-        serverMessage.error != null) {
-      return false;
-    }
+    // The role / streaming / responseDone / error guards are all re-checked by
+    // _isStaleStreamingAssistantEcho, so delegate directly rather than
+    // duplicating them here.
     return _isStaleStreamingAssistantEcho(localMessage, serverMessage);
   }
 

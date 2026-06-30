@@ -59,16 +59,26 @@ void main() {
   testWidgets('stays visible once streaming content arrives', (tester) async {
     final container = _buildContainer();
     addTearDown(container.dispose);
-    final message = ChatMessage(
+    final empty = ChatMessage(
       id: 'assistant-live',
       role: 'assistant',
-      content: 'Hello',
+      content: '',
       timestamp: DateTime(2026),
       isStreaming: true,
     );
 
     await tester.pumpWidget(
-      _buildHarness(container: container, message: message),
+      _buildHarness(container: container, message: empty),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+
+    // Re-pump the same message id with content arriving so the footer is driven
+    // through the empty -> content transition rather than asserting a static
+    // single state.
+    final withContent = empty.copyWith(content: 'Hello');
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: withContent),
     );
     await tester.pump();
     expect(find.byKey(const ValueKey('typing')), findsOneWidget);
@@ -166,17 +176,29 @@ void main() {
         ),
         isTrue,
       );
+      // `responseDone` settles the turn even while the transport flag is still
+      // streaming, so the typing footer must hide (the "responseDone gap").
       expect(
         shouldShowStreamingTurnFooter(
           message: streaming.copyWith(metadata: const {'responseDone': true}),
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         shouldShowStreamingTurnFooter(
           message: streaming.copyWith(files: const [{}]),
         ),
         isTrue,
+      );
+      // An errored turn is failed, not running — the footer is suppressed even
+      // while `isStreaming` is still set.
+      expect(
+        shouldShowStreamingTurnFooter(
+          message: streaming.copyWith(
+            error: const ChatMessageError(content: 'boom'),
+          ),
+        ),
+        isFalse,
       );
       expect(
         shouldShowStreamingTurnFooter(

@@ -440,7 +440,7 @@ void main() {
   });
 
   testWidgets(
-    'response-done metadata does not show actions while stream flag is active',
+    'response-done metadata shows actions before the stream flag clears',
     (tester) async {
       final message = ChatMessage(
         id: 'assistant-response-done-streaming',
@@ -464,8 +464,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('actions')), findsNothing);
-      expect(find.byType(FollowUpSuggestionBar), findsNothing);
+      // `responseDone` is a settled UI state: the action row and follow-ups
+      // appear even though the transport `isStreaming` flag has not flipped yet.
+      expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+      expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
     },
   );
 
