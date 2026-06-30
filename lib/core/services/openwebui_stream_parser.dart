@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
+/// Reusable HTML escaper for attribute and body text in serialized output.
+const HtmlEscape _outputHtmlEscape = HtmlEscape();
+
 /// Base class for all stream update types emitted by the OpenWebUI SSE parser.
 sealed class OpenWebUIStreamUpdate {
   const OpenWebUIStreamUpdate();
@@ -204,6 +207,189 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
   }
 }
 
+/// Serializes OpenWebUI OR-aligned output items into a visible HTML string.
+///
+/// Mirrors the upstream `serialize_output` contract that Open WebUI used to
+/// emit as the `content` field on `chat:completion` socket deltas. Newer
+/// servers emit only the structured `output` list (no `content` string), so
+/// callers must serialize it client-side to render assistant text, reasoning,
+/// and tool-call blocks.
+///
+/// Supported item types:
+/// - `message`: concatenates `content[].text` for `text`/`output_text` parts.
+/// - `reasoning`: renders a `<details type="reasoning">` block matching the
+///   shape produced by `streaming_helper._buildStreamingReasoningDetails` so
+///   existing reasoning parsers keep working.
+/// - `function_call`: renders a `<details type="tool_calls">` block, paired
+///   with any matching `function_call_output` by `call_id`.
+/// - `function_call_output`: skipped (consumed inline with its call).
+/// - `code_interpreter`: renders a `<details type="code_interpreter">` block.
+String serializeOpenWebUIOutput(List<Map<String, dynamic>> output) {
+  if (output.isEmpty) return '';
+
+  // First pass: index function_call_output items by call_id for pairing.
+  final toolOutputs = <String, Map<String, dynamic>>{};
+  for (final item in output) {
+    if (item['type']?.toString() == 'function_call_output') {
+      final callId = item['call_id']?.toString();
+      if (callId != null && callId.isNotEmpty) {
+        toolOutputs[callId] = item;
+      }
+    }
+  }
+
+  final parts = <String>[];
+  for (var index = 0; index < output.length; index++) {
+    final item = output[index];
+    final itemType = item['type']?.toString() ?? '';
+
+    if (itemType == 'message') {
+      final content = item['content'];
+      if (content is List) {
+        for (final part in content) {
+          if (part is Map) {
+            final partType = part['type']?.toString();
+            if (partType == 'text' || partType == 'output_text') {
+              final text = part['text']?.toString().trim() ?? '';
+              if (text.isNotEmpty) {
+                parts.add(text);
+              }
+            }
+          }
+        }
+      }
+    } else if (itemType == 'reasoning') {
+      final sourceList = item['summary'] is List
+          ? item['summary'] as List
+          : (item['content'] is List ? item['content'] as List : const []);
+      final reasoningParts = <String>[];
+      for (final part in sourceList) {
+        if (part is Map) {
+          final text = part['text']?.toString();
+          if (text != null && text.isNotEmpty) {
+            reasoningParts.add(text);
+          }
+        }
+      }
+      final reasoningContent = reasoningParts.join().trim();
+      if (reasoningContent.isNotEmpty) {
+        final duration = item['duration']?.toString();
+        final status = item['status']?.toString();
+        final isLastItem = index == output.length - 1;
+        final done = status == 'completed' || duration != null || !isLastItem;
+        final escapedDisplay = _outputHtmlEscape.convert(
+          LineSplitter.split(reasoningContent)
+              .map((line) => line.startsWith('>') ? line : '> $line')
+              .join('\n'),
+        );
+        if (done) {
+          final dur = duration ?? '0';
+          parts.add(
+            '<details type="reasoning" done="true" duration="$dur">\n'
+            '<summary>Thought for $dur seconds</summary>\n'
+            '$escapedDisplay\n'
+            '</details>',
+          );
+        } else {
+          parts.add(
+            '<details type="reasoning" done="false">\n'
+            '<summary>Thinking…</summary>\n'
+            '$escapedDisplay\n'
+            '</details>',
+          );
+        }
+      }
+    } else if (itemType == 'function_call') {
+      final callId = item['call_id']?.toString() ?? '';
+      final name = item['name']?.toString() ?? '';
+      final arguments = item['arguments'] ?? '';
+      final escapedArgs = _outputHtmlEscape.convert(jsonEncode(arguments));
+      final resultItem = toolOutputs[callId];
+      if (resultItem != null) {
+        final resultParts = <String>[];
+        final resultOutput = resultItem['output'];
+        if (resultOutput is List) {
+          for (final out in resultOutput) {
+            if (out is Map) {
+              final text = out['text'];
+              if (text != null) {
+                resultParts.add(
+                  text is String ? text : text.toString(),
+                );
+              }
+            }
+          }
+        } else if (resultOutput is String) {
+          resultParts.add(resultOutput);
+        }
+        final resultText = resultParts.join();
+        final escapedResult = _outputHtmlEscape.convert(
+          jsonEncode(resultText),
+        );
+        final files = resultItem['files'];
+        final escapedFiles =
+            files == null ? '' : _outputHtmlEscape.convert(jsonEncode(files));
+        final embeds = resultItem['embeds'];
+        final escapedEmbeds =
+            embeds == null ? '' : _outputHtmlEscape.convert(jsonEncode(embeds));
+        parts.add(
+          '<details type="tool_calls" done="true" id="$callId" name="$name" arguments="$escapedArgs" files="$escapedFiles" embeds="$escapedEmbeds">\n'
+          '<summary>Tool Executed</summary>\n'
+          '$escapedResult\n'
+          '</details>',
+        );
+      } else {
+        parts.add(
+          '<details type="tool_calls" done="false" id="$callId" name="$name" arguments="$escapedArgs">\n'
+          '<summary>Executing...</summary>\n'
+          '</details>',
+        );
+      }
+    } else if (itemType == 'function_call_output') {
+      // Consumed inline with its function_call above.
+      continue;
+    } else if (itemType == 'code_interpreter') {
+      final status = item['status']?.toString() ?? 'in_progress';
+      final duration = item['duration']?.toString();
+      final isLastItem = index == output.length - 1;
+      final done = status == 'completed' ||
+          status == 'failed' ||
+          status == 'incomplete' ||
+          duration != null ||
+          !isLastItem;
+      final code = item['code']?.toString() ?? '';
+      final lang = item['language']?.toString() ?? '';
+      final display = code.isEmpty ? '' : '```$lang\n$code\n```';
+      final ciOutput = item['output'];
+      String outputAttr = '';
+      if (ciOutput != null) {
+        final outputJson = ciOutput is Map
+            ? jsonEncode(ciOutput)
+            : jsonEncode({'result': ciOutput.toString()});
+        outputAttr = ' output="${_outputHtmlEscape.convert(outputJson)}"';
+      }
+      if (done) {
+        final dur = duration ?? '0';
+        parts.add(
+          '<details type="code_interpreter" done="true" duration="$dur"$outputAttr>\n'
+          '<summary>Analyzed</summary>\n'
+          '$display\n'
+          '</details>',
+        );
+      } else {
+        parts.add(
+          '<details type="code_interpreter" done="false"$outputAttr>\n'
+          '<summary>Analyzing…</summary>\n'
+          '$display\n'
+          '</details>',
+        );
+      }
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
 /// Incrementally scans decoded SSE text and emits complete `data:` payloads.
 final class _OpenWebUISseScanner {
   final StringBuffer _lineBuffer = StringBuffer();
@@ -304,10 +490,10 @@ OpenWebUIEventUpdate? _eventUpdateFromMap(Map<dynamic, dynamic> raw) {
   final data = raw.containsKey('data')
       ? raw['data']
       : raw.entries
-            .where((entry) => entry.key?.toString() != 'type')
-            .fold<Map<String, dynamic>>(<String, dynamic>{}, (map, entry) {
-              map[entry.key.toString()] = entry.value;
-              return map;
-            });
+          .where((entry) => entry.key?.toString() != 'type')
+          .fold<Map<String, dynamic>>(<String, dynamic>{}, (map, entry) {
+          map[entry.key.toString()] = entry.value;
+          return map;
+        });
   return OpenWebUIEventUpdate(type: type, data: data);
 }
