@@ -618,22 +618,12 @@ class ApiService {
   Future<BackendConfig> _enrichBackendConfigWithAudioConfig(
     BackendConfig config,
   ) async {
-    try {
-      final audioConfig = await _loadServerAudioConfig();
-      return config.copyWith(
-        ttsVoice: audioConfig.voice ?? config.ttsVoice,
-        ttsSplitOn: audioConfig.splitOn,
-        ttsVoices: audioConfig.voices,
-      );
-    } catch (e, stackTrace) {
-      DebugLogger.error(
-        'backend-config-audio-defaults',
-        scope: 'api/config',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      return config;
-    }
+    final audioConfig = await _loadServerAudioConfig();
+    return config.copyWith(
+      ttsVoice: audioConfig.voice,
+      ttsSplitOn: audioConfig.splitOn,
+      ttsVoices: audioConfig.voices.isEmpty ? null : audioConfig.voices,
+    );
   }
 
   Future<ServerAboutInfo> getServerAboutInfo() async {
@@ -938,7 +928,7 @@ class ApiService {
     try {
       final response = await _dio.get('/api/config');
       final config = _coerceResponseMap(response.data);
-      final defaultModels = _coerceStringList(config?['default_models']);
+      final defaultModels = _coerceConfigStringList(config?['default_models']);
       if (defaultModels.isNotEmpty) {
         final defaultModel = defaultModels.first;
         DebugLogger.log(
@@ -2006,6 +1996,14 @@ class ApiService {
     return trimmed;
   }
 
+  String? _normalizeDynamicString(dynamic value) {
+    final trimmed = value?.toString().trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
   List<String> _coerceStringList(dynamic value) {
     if (value is! List) {
       return <String>[];
@@ -2015,6 +2013,17 @@ class ApiService {
         .map((item) => item?.toString().trim() ?? '')
         .where((item) => item.isNotEmpty)
         .toList(growable: true);
+  }
+
+  List<String> _coerceConfigStringList(dynamic value) {
+    if (value is String) {
+      return value
+          .split(',')
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: true);
+    }
+    return _coerceStringList(value);
   }
 
   List<Map<String, dynamic>> _buildHistoryChainMessages(
@@ -2031,39 +2040,46 @@ class ApiService {
         .toList(growable: false);
   }
 
-  Set<String> _collectMessageDescendantIds(
-    Map<String, Map<String, dynamic>> messagesMap,
-    String messageId,
-  ) {
-    return message_tree.collectDescendantIds(messageId, {
-      for (final entry in messagesMap.entries)
-        entry.key: message_tree.rawMessageChildrenIds(entry.value),
-    });
-  }
-
-  String? _latestRemainingMessageId(
-    Map<String, Map<String, dynamic>> messagesMap,
-  ) {
-    return message_tree.latestRemainingMessageId<Map<String, dynamic>>(
-      messagesMap,
-      timestampOf: (message) {
-        final timestamp = message['timestamp'];
-        return timestamp is num ? timestamp : null;
-      },
-    );
-  }
-
   /// Deletes one message from the current server-side chat history.
-  ///
-  /// This edits the latest raw chat payload from the server instead of replaying
-  /// a local message list, preserving any server-only history fields and
-  /// messages that may have arrived since the local state last synced.
   Future<void> deleteConversationMessage(
     String conversationId,
     String messageId,
   ) async {
     _traceApi('Deleting message $messageId from chat $conversationId');
+    try {
+      await _dio.delete('/api/v1/chats/$conversationId/messages/$messageId');
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyMessageDelete(error)) {
+        rethrow;
+      }
+      DebugLogger.log(
+        'delete-message-legacy-fallback',
+        scope: 'api/conversation',
+        data: {
+          'chatId': conversationId,
+          'messageId': messageId,
+          'status': error.response?.statusCode,
+        },
+      );
+      await _deleteConversationMessageByHistoryRewrite(
+        conversationId,
+        messageId,
+      );
+    }
+  }
 
+  bool _shouldFallbackToLegacyMessageDelete(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 404 || statusCode == 405;
+  }
+
+  /// Legacy fallback for older Open WebUI servers that predate the per-message
+  /// DELETE endpoint. It edits the latest raw chat payload instead of replaying
+  /// a local message list, preserving server-only history fields.
+  Future<void> _deleteConversationMessageByHistoryRewrite(
+    String conversationId,
+    String messageId,
+  ) async {
     final response = await _dio.get('/api/v1/chats/$conversationId');
     final rawConversation = _coerceJsonMap(response.data);
     final rawChat = _coerceJsonMap(rawConversation?['chat']);
@@ -2089,21 +2105,15 @@ class ApiService {
       return;
     }
 
-    final removedIds = _collectMessageDescendantIds(messagesMap, messageId);
-    messagesMap.removeWhere((id, _) => removedIds.contains(id));
-
-    for (final entry in messagesMap.entries) {
-      final message = entry.value;
-      final children = _coerceStringList(
-        message['childrenIds'],
-      ).where((id) => !removedIds.contains(id)).toList(growable: false);
-      message['childrenIds'] = children;
+    final deleteResult = message_tree.deleteOpenWebUiMessageFromRawHistory(
+      messagesMap,
+      messageId,
+    );
+    if (deleteResult == null) {
+      return;
     }
 
-    final currentId = history['currentId']?.toString();
-    final nextCurrentId = currentId != null && !removedIds.contains(currentId)
-        ? currentId
-        : _latestRemainingMessageId(messagesMap);
+    final nextCurrentId = deleteResult.currentId;
 
     history['messages'] = messagesMap;
     if (nextCurrentId == null || nextCurrentId.isEmpty) {
@@ -2257,13 +2267,64 @@ class ApiService {
   // Pin/Unpin conversation
   Future<void> pinConversation(String id, bool pinned) async {
     _traceApi('${pinned ? 'Pinning' : 'Unpinning'} conversation: $id');
-    await _dio.post('/api/v1/chats/$id/pin', data: {'pinned': pinned});
+    await _setConversationToggle(
+      id: id,
+      field: 'pinned',
+      endpoint: '/api/v1/chats/$id/pin',
+      desired: pinned,
+    );
   }
 
   // Archive/Unarchive conversation
   Future<void> archiveConversation(String id, bool archived) async {
     _traceApi('${archived ? 'Archiving' : 'Unarchiving'} conversation: $id');
-    await _dio.post('/api/v1/chats/$id/archive', data: {'archived': archived});
+    await _setConversationToggle(
+      id: id,
+      field: 'archived',
+      endpoint: '/api/v1/chats/$id/archive',
+      desired: archived,
+    );
+  }
+
+  Future<void> _setConversationToggle({
+    required String id,
+    required String field,
+    required String endpoint,
+    required bool desired,
+  }) async {
+    final current = await _fetchConversationBooleanField(id, field);
+    if (current == desired) {
+      return;
+    }
+
+    final response = await _dio.post(endpoint);
+    final data = _coerceResponseMap(response.data);
+    final actual = data?[field];
+    if (actual is bool && actual != desired) {
+      DebugLogger.warning(
+        'toggle-mismatch',
+        scope: 'api/conversation',
+        data: {'id': id, 'field': field, 'desired': desired, 'actual': actual},
+      );
+    }
+  }
+
+  Future<bool?> _fetchConversationBooleanField(String id, String field) async {
+    try {
+      final response = await _dio.get('/api/v1/chats/$id');
+      final data = _coerceResponseMap(response.data);
+      final value = data?[field];
+      return value is bool ? value : null;
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'toggle-state-fetch-failed',
+        scope: 'api/conversation',
+        error: e,
+        stackTrace: stackTrace,
+        data: {'id': id, 'field': field},
+      );
+      return null;
+    }
   }
 
   // Share conversation
@@ -2301,6 +2362,7 @@ class ApiService {
     _traceApi('Cloning conversation: $id');
     final response = await _dio.post(
       '/api/v1/chats/$id/clone',
+      data: const <String, dynamic>{},
       options: Options(responseType: ResponseType.bytes),
     );
     return _parseConversationPayload(
@@ -2436,12 +2498,69 @@ class ApiService {
   // Suggestions
   Future<List<String>> getSuggestions() async {
     _traceApi('Fetching conversation suggestions');
-    final response = await _dio.get('/api/v1/configs/suggestions');
-    final data = response.data;
-    if (data is List) {
-      return data.cast<String>();
+    final data = await _loadPromptSuggestionConfig();
+    final suggestions = data?['default_prompt_suggestions'];
+    if (suggestions is List) {
+      return suggestions
+          .map(_promptSuggestionToString)
+          .whereType<String>()
+          .toList(growable: false);
+    }
+    return _loadLegacyPromptSuggestions();
+  }
+
+  Future<Map<String, dynamic>?> _loadPromptSuggestionConfig() async {
+    try {
+      final response = await _dio.get('/api/config');
+      return _coerceResponseMap(response.data);
+    } on DioException {
+      return null;
+    }
+  }
+
+  Future<List<String>> _loadLegacyPromptSuggestions() async {
+    try {
+      final response = await _dio.get('/api/v1/configs/suggestions');
+      final data = response.data;
+      final suggestions = data is List
+          ? data
+          : _coerceResponseMap(data)?['suggestions'] ??
+                _coerceResponseMap(data)?['default_prompt_suggestions'];
+      if (suggestions is List) {
+        return suggestions
+            .map(_promptSuggestionToString)
+            .whereType<String>()
+            .toList(growable: false);
+      }
+    } on DioException {
+      return const [];
     }
     return [];
+  }
+
+  String? _promptSuggestionToString(dynamic value) {
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+    final suggestion = _coerceJsonMap(value);
+    if (suggestion == null) {
+      return null;
+    }
+    final content = suggestion['content']?.toString().trim();
+    if (content != null && content.isNotEmpty) {
+      return content;
+    }
+    final title = suggestion['title'];
+    if (title is List) {
+      final parts = title
+          .map((part) => part?.toString().trim() ?? '')
+          .where((part) => part.isNotEmpty)
+          .toList(growable: false);
+      return parts.isEmpty ? null : parts.join(' ');
+    }
+    final fallback = title?.toString().trim();
+    return fallback == null || fallback.isEmpty ? null : fallback;
   }
 
   Future<Conversation> _parseConversationPayload(
@@ -2746,14 +2865,24 @@ class ApiService {
     final response = await _dio.get('/api/v1/chats/$conversationId/tags');
     final data = response.data;
     if (data is List) {
-      return data.cast<String>();
+      return data.map(_tagNameFromEntry).whereType<String>().toList();
     }
     return [];
   }
 
   Future<void> addTagToConversation(String conversationId, String tag) async {
     _traceApi('Adding tag "$tag" to conversation: $conversationId');
-    await _dio.post('/api/v1/chats/$conversationId/tags', data: {'tag': tag});
+    try {
+      await _dio.post(
+        '/api/v1/chats/$conversationId/tags',
+        data: {'name': tag},
+      );
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyTagApi(error)) {
+        rethrow;
+      }
+      await _dio.post('/api/v1/chats/$conversationId/tags', data: {'tag': tag});
+    }
   }
 
   Future<void> removeTagFromConversation(
@@ -2761,29 +2890,80 @@ class ApiService {
     String tag,
   ) async {
     _traceApi('Removing tag "$tag" from conversation: $conversationId');
-    await _dio.delete('/api/v1/chats/$conversationId/tags/$tag');
+    try {
+      await _dio.delete(
+        '/api/v1/chats/$conversationId/tags',
+        data: {'name': tag},
+      );
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyTagApi(error)) {
+        rethrow;
+      }
+      await _dio.delete(
+        '/api/v1/chats/$conversationId/tags/${Uri.encodeComponent(tag)}',
+      );
+    }
   }
 
   Future<List<String>> getAllTags() async {
     _traceApi('Fetching all available tags');
-    final response = await _dio.get('/api/v1/chats/tags');
+    Response<dynamic> response;
+    try {
+      response = await _dio.get('/api/v1/chats/all/tags');
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyTagApi(error)) {
+        rethrow;
+      }
+      response = await _dio.get('/api/v1/chats/tags');
+    }
     final data = response.data;
     if (data is List) {
-      return data.cast<String>();
+      return data.map(_tagNameFromEntry).whereType<String>().toList();
     }
     return [];
   }
 
   Future<List<Conversation>> getConversationsByTag(String tag) async {
     _traceApi('Fetching conversations with tag: $tag');
-    final response = await _dio.get(
-      '/api/v1/chats/tags/$tag',
-      options: Options(responseType: ResponseType.bytes),
-    );
+    Response<dynamic> response;
+    try {
+      response = await _dio.post(
+        '/api/v1/chats/tags',
+        data: {'name': tag},
+        options: Options(responseType: ResponseType.bytes),
+      );
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyTagApi(error)) {
+        rethrow;
+      }
+      response = await _dio.get(
+        '/api/v1/chats/tags/${Uri.encodeComponent(tag)}',
+        options: Options(responseType: ResponseType.bytes),
+      );
+    }
     return _parseConversationSummaryPayload(
       regular: response.data,
       debugLabel: 'parse_tag_$tag',
     );
+  }
+
+  bool _shouldFallbackToLegacyTagApi(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 400 ||
+        statusCode == 404 ||
+        statusCode == 405 ||
+        statusCode == 422;
+  }
+
+  String? _tagNameFromEntry(dynamic value) {
+    if (value is String) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+    final tag = _coerceJsonMap(value);
+    final name = tag?['name'] ?? tag?['id'];
+    final normalized = name?.toString().trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
   // Files
@@ -3086,10 +3266,21 @@ class ApiService {
     String? description,
   }) async {
     _traceApi('Creating knowledge base: $name');
-    final response = await _dio.post(
-      '/api/v1/knowledge/',
-      data: {'name': name, 'description': ?description},
-    );
+    Response<dynamic> response;
+    try {
+      response = await _dio.post(
+        '/api/v1/knowledge/create',
+        data: {'name': name, 'description': description ?? ''},
+      );
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+        rethrow;
+      }
+      response = await _dio.post(
+        '/api/v1/knowledge/',
+        data: {'name': name, 'description': ?description},
+      );
+    }
     return response.data as Map<String, dynamic>;
   }
 
@@ -3099,31 +3290,136 @@ class ApiService {
     String? description,
   }) async {
     _traceApi('Updating knowledge base: $id');
-    await _dio.put(
-      '/api/v1/knowledge/$id',
-      data: {'name': ?name, 'description': ?description},
-    );
+    var nextName = name;
+    var nextDescription = description;
+    if (nextName == null || nextDescription == null) {
+      final current = _coerceResponseMap(
+        (await _dio.get('/api/v1/knowledge/$id')).data,
+      );
+      nextName ??= current?['name']?.toString();
+      nextDescription ??= current?['description']?.toString();
+    }
+    try {
+      await _dio.post(
+        '/api/v1/knowledge/$id/update',
+        data: {'name': nextName ?? '', 'description': nextDescription ?? ''},
+      );
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+        rethrow;
+      }
+      await _dio.put(
+        '/api/v1/knowledge/$id',
+        data: {'name': ?name, 'description': ?description},
+      );
+    }
   }
 
   Future<void> deleteKnowledgeBase(String id) async {
     _traceApi('Deleting knowledge base: $id');
-    await _dio.delete('/api/v1/knowledge/$id');
+    try {
+      await _dio.delete('/api/v1/knowledge/$id/delete');
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+        rethrow;
+      }
+      await _dio.delete('/api/v1/knowledge/$id');
+    }
   }
 
   Future<List<KnowledgeBaseItem>> getKnowledgeBaseItems(
     String knowledgeBaseId,
   ) async {
     _traceApi('Fetching knowledge base items: $knowledgeBaseId');
-    final response = await _dio.get('/api/v1/knowledge/$knowledgeBaseId/items');
-    final data = response.data;
-    if (data is List) {
+    final rawItems = <dynamic>[];
+    var page = 1;
+    int? total;
+
+    try {
+      while (true) {
+        final response = await _dio.get(
+          '/api/v1/knowledge/$knowledgeBaseId/files',
+          queryParameters: {'page': page},
+        );
+        final data = response.data;
+        if (data is List) {
+          rawItems.addAll(data);
+          break;
+        }
+
+        final responseMap = _coerceJsonMap(data);
+        final pageItems = responseMap?['items'] is List
+            ? responseMap!['items'] as List
+            : const <dynamic>[];
+        rawItems.addAll(pageItems);
+        final rawTotal = responseMap?['total'];
+        if (rawTotal is int) {
+          total = rawTotal;
+        } else if (rawTotal is num) {
+          total = rawTotal.toInt();
+        }
+
+        if (pageItems.isEmpty || (total != null && rawItems.length >= total)) {
+          break;
+        }
+        page += 1;
+      }
+    } on DioException catch (error) {
+      if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+        rethrow;
+      }
+      final response = await _dio.get(
+        '/api/v1/knowledge/$knowledgeBaseId/items',
+      );
+      final data = response.data;
+      if (data is List) {
+        rawItems
+          ..clear()
+          ..addAll(data);
+      }
+    }
+
+    if (rawItems.isNotEmpty) {
       final normalized = await _normalizeList(
-        data,
+        rawItems,
         debugLabel: 'parse_kb_items',
       );
-      return normalized.map(KnowledgeBaseItem.fromJson).toList(growable: false);
+      return normalized.map(_knowledgeEntryToItem).toList(growable: false);
     }
     return const [];
+  }
+
+  KnowledgeBaseItem _knowledgeEntryToItem(Map<String, dynamic> file) {
+    if (file.containsKey('title') || file.containsKey('content')) {
+      return KnowledgeBaseItem.fromJson(file);
+    }
+    final meta = _coerceJsonMap(file['meta']) ?? const <String, dynamic>{};
+    final filename =
+        _normalizeDynamicString(file['filename']) ??
+        _normalizeDynamicString(file['name']) ??
+        _normalizeDynamicString(meta['name']) ??
+        'Unknown';
+    final content =
+        file['content']?.toString() ?? file['text']?.toString() ?? '';
+    return KnowledgeBaseItem.fromJson({
+      'id': file['id'],
+      'content': content,
+      'title': filename,
+      'created_at': file['created_at'] ?? file['createdAt'],
+      'updated_at':
+          file['updated_at'] ?? file['updatedAt'] ?? file['created_at'],
+      'metadata': {
+        ...meta,
+        'filename': filename,
+        if (file['hash'] != null) 'hash': file['hash'],
+        if (file['content_hash'] != null) 'content_hash': file['content_hash'],
+      },
+    });
+  }
+
+  bool _shouldFallbackToLegacyKnowledgeApi(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 404 || statusCode == 405;
   }
 
   Future<Map<String, dynamic>> addKnowledgeBaseItem(
@@ -3309,15 +3605,43 @@ class ApiService {
     _traceApi('Adding file to knowledge base: $knowledgeBaseId ($filename)');
     try {
       final mimeType = _getMimeType(filename);
+      FormData formData() => FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          content,
+          filename: filename,
+          contentType: mimeType != null ? MediaType.parse(mimeType) : null,
+        ),
+      });
+      try {
+        final uploadResponse = await _dio.post(
+          '/api/v1/files/',
+          queryParameters: const {
+            'process': true,
+            'process_in_background': false,
+          },
+          data: formData(),
+        );
+        final uploadData = uploadResponse.data as Map<String, dynamic>;
+        final fileId = _fileIdFromUploadResponse(uploadData);
+        if (fileId != null) {
+          try {
+            await _attachUploadedFileToKnowledgeBase(knowledgeBaseId, fileId);
+            return uploadData;
+          } on DioException catch (error) {
+            if (!_shouldFallbackToLegacyKnowledgeFileAdd(error)) {
+              rethrow;
+            }
+            await _deleteUploadedFileBestEffort(fileId);
+          }
+        }
+      } on DioException catch (error) {
+        if (!_shouldFallbackToLegacyKnowledgeApi(error)) {
+          rethrow;
+        }
+      }
       final response = await _dio.post(
         '/api/v1/knowledge/$knowledgeBaseId/file/add',
-        data: FormData.fromMap({
-          'file': MultipartFile.fromBytes(
-            content,
-            filename: filename,
-            contentType: mimeType != null ? MediaType.parse(mimeType) : null,
-          ),
-        }),
+        data: formData(),
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
@@ -3334,6 +3658,42 @@ class ApiService {
       }
       rethrow;
     }
+  }
+
+  Future<void> _attachUploadedFileToKnowledgeBase(
+    String knowledgeBaseId,
+    String fileId,
+  ) async {
+    await _dio.post(
+      '/api/v1/knowledge/$knowledgeBaseId/file/add',
+      data: {'file_id': fileId},
+    );
+  }
+
+  Future<void> _deleteUploadedFileBestEffort(String fileId) async {
+    try {
+      await _dio.delete('/api/v1/files/$fileId');
+    } catch (e, stackTrace) {
+      DebugLogger.warning(
+        'knowledge-upload-orphan-cleanup-failed',
+        scope: 'api/knowledge',
+        data: {'fileId': fileId, 'error': e, 'stackTrace': stackTrace},
+      );
+    }
+  }
+
+  bool _shouldFallbackToLegacyKnowledgeFileAdd(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 404 || statusCode == 405 || statusCode == 422;
+  }
+
+  String? _fileIdFromUploadResponse(Map<String, dynamic> data) {
+    final id = _normalizeDynamicString(data['id'] ?? data['file_id']);
+    if (id != null) {
+      return id;
+    }
+    final file = _coerceJsonMap(data['file']) ?? _coerceJsonMap(data['data']);
+    return _normalizeDynamicString(file?['id'] ?? file?['file_id']);
   }
 
   Future<Map<String, dynamic>?> processWebpage({
@@ -3550,7 +3910,7 @@ class ApiService {
       'model': model,
       'messages': formattedMessages,
       'chat_id': chatId,
-      'session_id': ?sessionId,
+      'session_id': sessionId,
       'id': messageId,
     };
 
@@ -3653,29 +4013,46 @@ class ApiService {
   }
 
   // Audio
-  Future<({String? voice, String splitOn, List<BackendTtsVoice> voices})>
+  Future<({String? voice, String? splitOn, List<BackendTtsVoice> voices})>
   _loadServerAudioConfig() async {
-    _traceApi('Fetching server TTS defaults');
-    final response = await _dio.get('/api/v1/audio/config');
-    final data = response.data;
-    final voices = await _loadServerTtsVoicesFromAudioEndpoint();
-    if (data is Map<String, dynamic>) {
-      final ttsConfig = data['tts'];
-      if (ttsConfig is Map<String, dynamic>) {
-        final rawVoice = ttsConfig['VOICE'] ?? ttsConfig['voice'];
-        final rawSplitOn = ttsConfig['SPLIT_ON'] ?? ttsConfig['split_on'];
+    String? voice;
+    String? splitOn;
 
-        final voice = rawVoice is String && rawVoice.trim().isNotEmpty
-            ? rawVoice.trim()
-            : null;
-        final splitOn = rawSplitOn is String && rawSplitOn.trim().isNotEmpty
-            ? rawSplitOn.trim()
-            : 'punctuation';
-
-        return (voice: voice, splitOn: splitOn, voices: voices);
-      }
+    try {
+      _traceApi('Fetching server TTS defaults');
+      final response = await _dio.get('/api/v1/audio/config');
+      final data = response.data;
+      final config = _coerceJsonMap(data);
+      final ttsConfig = _coerceJsonMap(config?['tts']);
+      final rawVoice = ttsConfig?['VOICE'] ?? ttsConfig?['voice'];
+      final rawSplitOn = ttsConfig?['SPLIT_ON'] ?? ttsConfig?['split_on'];
+      voice = _normalizeDynamicString(rawVoice);
+      splitOn = _normalizeDynamicString(rawSplitOn) ?? 'punctuation';
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'backend-config-audio-defaults',
+        scope: 'api/config',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
-    return (voice: null, splitOn: 'punctuation', voices: voices);
+
+    final voices = await _loadServerTtsVoicesOrEmpty();
+    return (voice: voice, splitOn: splitOn, voices: voices);
+  }
+
+  Future<List<BackendTtsVoice>> _loadServerTtsVoicesOrEmpty() async {
+    try {
+      return await _loadServerTtsVoicesFromAudioEndpoint();
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'backend-config-audio-voices',
+        scope: 'api/config',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return const [];
+    }
   }
 
   Future<List<BackendTtsVoice>> _loadServerTtsVoicesFromAudioEndpoint() async {

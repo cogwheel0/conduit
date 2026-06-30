@@ -297,11 +297,23 @@ class BackendConfig {
     final vad = json['vad_enabled'];
     if (vad is bool) vadEnabled = vad;
 
+    final audio = _coerceJsonMap(json['audio']);
+    final audioTts = _coerceJsonMap(audio?['tts']);
+    final audioStt = _coerceJsonMap(audio?['stt']);
+    final nestedTtsEngine = _normalizeString(audioTts?['engine']);
+    final nestedTtsVoice = _normalizeString(audioTts?['voice']);
+    final nestedTtsSplitOn = _normalizeString(audioTts?['split_on']);
+    final nestedSttEngine = _normalizeString(audioStt?['engine']);
+    ttsProvider ??= nestedTtsEngine;
+    ttsVoice ??= nestedTtsVoice;
+    ttsSplitOn ??= nestedTtsSplitOn;
+    sttProvider ??= nestedSttEngine;
+
     // Parse OAuth providers from top-level oauth.providers
-    final oauth = json['oauth'];
-    if (oauth is Map<String, dynamic>) {
-      final providers = oauth['providers'];
-      if (providers is Map<String, dynamic>) {
+    final oauth = _coerceJsonMap(json['oauth']);
+    if (oauth != null) {
+      final providers = _coerceJsonMap(oauth['providers']);
+      if (providers != null) {
         oauthProviders = OAuthProviders.fromJson(providers);
       }
     }
@@ -381,6 +393,13 @@ class BackendConfig {
       if (nestedLoginForm is bool) enableLoginForm = nestedLoginForm;
     }
 
+    if (nestedTtsEngine != null) {
+      enableAudioOutput ??= true;
+    }
+    if (nestedSttEngine != null) {
+      enableAudioInput ??= true;
+    }
+
     return BackendConfig(
       enableWebsocket: enableWebsocket,
       enableWebSearch: enableWebSearch,
@@ -400,4 +419,22 @@ class BackendConfig {
       enableLoginForm: enableLoginForm,
     );
   }
+}
+
+Map<String, dynamic>? _coerceJsonMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, entryValue) => MapEntry(key.toString(), entryValue));
+  }
+  return null;
+}
+
+String? _normalizeString(dynamic value) {
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
 }
