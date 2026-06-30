@@ -235,13 +235,21 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
   final activeId = ref.watch(activeServerProvider).asData?.value?.id;
   final config = ref.watch(backendConfigProvider).asData?.value;
   if (activeId == null || config == null) return false;
-  // A config explicitly tagged for a *different* server is stale/foreign —
-  // fail open so it can't gate the current server. A null serverId means a
-  // legacy cache (written before tagging) or a not-yet-tagged fetch; treat it
-  // as the active server's so an unsupported server restored from an older
-  // install still triggers the gate on a cold start. Fresh configs are always
-  // tagged in _loadBackendConfig, so this can't reintroduce the switch trap.
-  if (config.serverId != null && config.serverId != activeId) return false;
+  // Gate only on a config confirmed to belong to the active server — i.e. one
+  // tagged (in _loadBackendConfig) with the active server id. Anything else
+  // fails open:
+  //  - a config tagged for a *different* server is stale after a switch and
+  //    must not trap the (possibly supported) new server;
+  //  - a null serverId is a legacy cache written before tagging existed, or a
+  //    not-yet-tagged fetch — we can't attribute it to a server, so we don't
+  //    act on it.
+  // The trade-off is that, right after upgrading the app while connected to an
+  // unsupported server, the gate stays open until the refresh kicked off in
+  // BackendConfigNotifier.build() returns a freshly-tagged config (~one
+  // round-trip). That's intentional: gating off a possibly-stale cache and
+  // risking locking a user out of a valid server is worse than a brief,
+  // self-healing delay before gating an unsupported one.
+  if (config.serverId != activeId) return false;
   return ServerVersionCompat.isUnsupported(config.version);
 });
 

@@ -73,26 +73,14 @@ void main() {
       },
     );
 
-    test(
-      'gates an untagged (legacy) cached config against the active server',
-      () async {
-        // A cache written by a pre-tagging app version has a null serverId.
-        // On a cold start into an unsupported server it must still gate, not
-        // be treated as foreign and waved through.
-        final container = await _container(
-          activeServer: _server('A'),
-          config: const BackendConfig(version: '0.11.0'),
-        );
-        addTearDown(container.dispose);
-
-        expect(container.read(serverIncompatibleProvider), isTrue);
-      },
-    );
-
-    test('does not gate a supported untagged (legacy) cached config', () async {
+    test('fails open for an untagged (legacy) cached config', () async {
+      // A cache written by a pre-tagging app version has a null serverId and
+      // can't be attributed to a server. The gate fails open and relies on the
+      // immediate refresh to produce a freshly-tagged config, rather than risk
+      // trapping a supported server on a stale unsupported cache.
       final container = await _container(
         activeServer: _server('A'),
-        config: const BackendConfig(version: '0.10.0'),
+        config: const BackendConfig(version: '0.11.0'),
       );
       addTearDown(container.dispose);
 
