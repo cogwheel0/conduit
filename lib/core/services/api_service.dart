@@ -3788,12 +3788,16 @@ class ApiService {
   }
 
   String? _fileIdFromUploadResponse(Map<String, dynamic> data) {
-    final id = _normalizeDynamicString(data['id'] ?? data['file_id']);
+    final id = _normalizeDynamicString(
+      data['id'] ?? data['file_id'] ?? data['fileId'] ?? data['uuid'],
+    );
     if (id != null) {
       return id;
     }
     final file = _coerceJsonMap(data['file']) ?? _coerceJsonMap(data['data']);
-    return _normalizeDynamicString(file?['id'] ?? file?['file_id']);
+    return _normalizeDynamicString(
+      file?['id'] ?? file?['file_id'] ?? file?['fileId'] ?? file?['uuid'],
+    );
   }
 
   Future<Map<String, dynamic>?> processWebpage({

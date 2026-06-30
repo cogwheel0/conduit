@@ -2199,6 +2199,31 @@ void main() {
       ).deepEquals({'file_id': 'file-1'});
     });
 
+    test('addFileToKnowledgeBase recognizes camelCase upload id', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'fileId': 'file-1'}),
+        _FakeAdapter.json({'status': true}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      final file = await api.addFileToKnowledgeBase(
+        'kb-1',
+        filename: 'guide.md',
+        content: utf8.encode('hello'),
+      );
+
+      check(file?['fileId']).equals('file-1');
+      check(
+        adapter.requests.map((request) => '${request.method} ${request.path}'),
+      ).deepEquals([
+        'POST /api/v1/files/',
+        'POST /api/v1/knowledge/kb-1/file/add',
+      ]);
+      check(
+        adapter.requests.last.data as Map<String, dynamic>,
+      ).deepEquals({'file_id': 'file-1'});
+    });
+
     test(
       'addFileToKnowledgeBase falls back when attach route rejects file id body',
       () async {

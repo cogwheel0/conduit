@@ -840,8 +840,24 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         ? renderedSnapshot
         : '';
     if (outputContent.isEmpty) return;
-    if (!blocks.any((block) => block is StructuredOutputToolCallBlock)) {
+    final renderedToolCallKeys = blocks
+        .whereType<StructuredOutputToolCallBlock>()
+        .map((block) {
+          final id = block.id.trim();
+          if (id.isNotEmpty) {
+            return 'id:$id';
+          }
+          final name = block.name.trim();
+          return name.isEmpty ? null : 'name:$name';
+        })
+        .nonNulls
+        .toSet();
+    if (renderedToolCallKeys.isEmpty) {
       seenStreamingToolCallKeys.clear();
+    } else {
+      seenStreamingToolCallKeys
+        ..clear()
+        ..addAll(renderedToolCallKeys);
     }
 
     replaceVisibleAssistantContent(

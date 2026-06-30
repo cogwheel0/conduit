@@ -880,9 +880,8 @@ String _mergeContentWithStructuredOutput(
   List<StructuredOutputBlock> outputBlocks,
 ) {
   final hasDetails = structuredOutputBlocksContainDetails(outputBlocks);
-  final baseContent = hasDetails
-      ? _stripRenderedSemanticDetails(content)
-      : content;
+  final baseContent = _stripRenderedSemanticDetails(content);
+  final strippedSemanticDetails = baseContent != content;
   final outputPlainText = structuredOutputBlocksPlainText(outputBlocks);
   final hasOutputPlainText = outputPlainText.trim().isNotEmpty;
   final outputTextIsAuthoritative =
@@ -900,7 +899,8 @@ String _mergeContentWithStructuredOutput(
       effectiveContent,
     );
   }
-  return outputTextIsAuthoritative
+  return outputTextIsAuthoritative ||
+          (strippedSemanticDetails && hasOutputPlainText)
       ? renderStructuredOutputBlocks(outputBlocks)
       : '';
 }

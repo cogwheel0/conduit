@@ -1386,6 +1386,53 @@ void main() {
     );
 
     test(
+      'chat:completion structured tool snapshot suppresses duplicate pending status',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final content = log.messages.last.content;
+        check(
+          '<details type="tool_calls"'.allMatches(content).length,
+        ).equals(1);
+      },
+    );
+
+    test(
       'chat:completion output snapshot keeps answer after reasoning-only state',
       () async {
         final log = _CallbackLog();

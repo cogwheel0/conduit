@@ -495,6 +495,37 @@ void main() {
         check('Final answer'.allMatches(content).length).equals(1);
       });
 
+      test('plain structured output clears stale rendered details', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="tool_calls" done="false">\n'
+                    '<summary>Executing...</summary>\n'
+                    '</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Final answer');
+      });
+
       test('falls back to history output when reloading message chain', () {
         final result = parseFullConversation({
           'id': 'conv-1',
