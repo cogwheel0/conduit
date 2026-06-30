@@ -235,7 +235,13 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
   final activeId = ref.watch(activeServerProvider).asData?.value?.id;
   final config = ref.watch(backendConfigProvider).asData?.value;
   if (activeId == null || config == null) return false;
-  if (config.serverId != activeId) return false; // stale/foreign — fail open
+  // A config explicitly tagged for a *different* server is stale/foreign —
+  // fail open so it can't gate the current server. A null serverId means a
+  // legacy cache (written before tagging) or a not-yet-tagged fetch; treat it
+  // as the active server's so an unsupported server restored from an older
+  // install still triggers the gate on a cold start. Fresh configs are always
+  // tagged in _loadBackendConfig, so this can't reintroduce the switch trap.
+  if (config.serverId != null && config.serverId != activeId) return false;
   return ServerVersionCompat.isUnsupported(config.version);
 });
 

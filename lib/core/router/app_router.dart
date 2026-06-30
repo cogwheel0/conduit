@@ -216,7 +216,22 @@ class RouterNotifier extends ChangeNotifier {
     } else {
       targetUrl = null;
     }
-    return targetUrl != null && targetUrl != activeServer.url;
+    if (targetUrl == null) return false;
+    // Canonicalize before comparing so a trailing slash or case difference in
+    // how the same server's URL was entered/stored doesn't read as a different
+    // server (which would loosen the gate exemption).
+    return _canonicalUrl(targetUrl) != _canonicalUrl(activeServer.url);
+  }
+
+  /// Comparison-only canonicalization of a server base URL: trims whitespace
+  /// and trailing slashes and lowercases. Used solely to decide gate
+  /// exemption, never to construct requests.
+  String _canonicalUrl(String url) {
+    var u = url.trim();
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    return u.toLowerCase();
   }
 
   @override
