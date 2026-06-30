@@ -1,6 +1,7 @@
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_document_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -258,6 +259,49 @@ Body
   );
 
   test(
+    'compose realigns the mutable tail index when a tool_calls details merges across the boundary',
+    () {
+      final frozenToolCall = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="search">',
+          '<summary>search</summary>',
+          '</details>',
+        ].join('\n'),
+      );
+      final tail = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="browser">',
+          '<summary>browser</summary>',
+          '</details>',
+          '',
+          'Visible response',
+        ].join('\n'),
+      ).rebaseRootIds(rootNodeOffset: frozenToolCall.rootNodeCount);
+
+      final composed = CompiledMarkdownDocument.compose(
+        normalizedContent:
+            '${frozenToolCall.normalizedContent}\n${tail.normalizedContent}',
+        segments: <CompiledMarkdownDocument>[frozenToolCall, tail],
+        // Pre-merge index: the frozen prefix contributes one block. The boundary
+        // tool_calls blocks then merge into a single group, shifting the tail.
+        mutableBlockStartIndex: frozenToolCall.rootBlockCount,
+      );
+
+      // Composed list is [group(search, browser), paragraph]. The merged group
+      // still carries the streaming tail item, so it must be the mutable tail —
+      // not left below the (pre-merge) start index and treated as frozen.
+      expect(composed.blocks, hasLength(2));
+      expect(composed.blocks.first, isA<CompiledMarkdownDetailsGroup>());
+      expect(composed.mutableBlockStartIndex, 0);
+      expect(composed.isMutableRootBlock(0), isTrue);
+      expect(composed.isMutableRootBlock(1), isTrue);
+
+      final parts = buildMarkdownDisplayParts(composed, isStreaming: true);
+      expect(parts.first.isMutableTail, isTrue);
+    },
+  );
+
+  test(
     'controller recompiles only the mutable tail between streaming updates',
     () async {
       final compiler = _RecordingIncrementalMarkdownCompileService();
@@ -324,6 +368,28 @@ Body
       expect(latestDocument!.isMutableRootBlock(2), isTrue);
     },
   );
+
+  test('controller marks a fully-frozen document with no mutable tail', () async {
+    final compiler = _RecordingIncrementalMarkdownCompileService();
+    addTearDown(compiler.dispose);
+
+    CompiledMarkdownDocument? latestDocument;
+    final controller = MarkdownDocumentController(
+      readCompiler: () => compiler,
+      isWidgetTest: () => false,
+      onStateChanged: (_, document) => latestDocument = document,
+    );
+    addTearDown(controller.dispose);
+
+    // A closed fenced block freezes entirely, leaving an empty mutable tail.
+    controller.resolveStreamingPrepared('```dart\nprint("done");\n```');
+    await _flushAsyncWork();
+
+    expect(latestDocument, isNotNull);
+    expect(latestDocument!.mutableBlockStartIndex, -1);
+    expect(latestDocument!.hasMutableBlockMetadata, isFalse);
+    expect(latestDocument!.isMutableRootBlock(0), isFalse);
+  });
 
   test(
     'controller falls back to a full compile when composed latex keys collide',

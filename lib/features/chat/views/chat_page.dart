@@ -1319,8 +1319,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _scrollToBottom(smooth: false);
     final nearBottom = _distanceFromBottom() <= _scrollCorrectionEpsilon;
-    _bottomAnchorController.verifyStickyCorrection(nearBottom: nearBottom);
-    if (nearBottom || attempt >= _initialBottomSettleMaxAttempts) {
+    final isFinalAttempt = attempt >= _initialBottomSettleMaxAttempts;
+    _bottomAnchorController.verifyStickyCorrection(
+      nearBottom: nearBottom,
+      isFinalAttempt: isFinalAttempt,
+    );
+    if (nearBottom || isFinalAttempt) {
+      // Re-evaluate button visibility now that the correction has settled or
+      // given up; `_handleLiveTurnSizeChange` returns early after this call and
+      // won't run it again.
+      _updateScrollToBottomVisibility();
       return;
     }
 
@@ -2121,8 +2129,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           message: latestMessage,
                           isStreaming: latestMessage.isStreaming,
                           showFollowUps: rowMetadata.showFollowUps,
+                          // A completed assistant that migrates from the live
+                          // tail into history remounts in a different sliver;
+                          // suppress its mount fade so it doesn't re-animate
+                          // when a follow-up turn begins.
                           animateOnMount:
-                              !rowMetadata.replacesArchivedAssistant,
+                              !rowMetadata.replacesArchivedAssistant &&
+                              latestMessage.metadata?['responseDone'] != true,
                           modelName: rowMetadata.displayModelName,
                           modelIconUrl: rowMetadata.modelIconUrl,
                           versionModelNames: rowMetadata.versionModelNames,
@@ -3527,18 +3540,6 @@ bool _shouldKeepConversationBottomAnchoredOnComposerHeightChange({
       !wantsPinToTop;
 }
 
-bool _shouldKeepConversationBottomAnchoredOnContentSizeChange({
-  required bool isAnchoredToBottom,
-  required bool isUserInteractingWithScroll,
-  required bool wantsPinToTop,
-}) {
-  return shouldKeepConversationBottomAnchoredOnContentSizeChange(
-    isAnchoredToBottom: isAnchoredToBottom,
-    isUserInteractingWithScroll: isUserInteractingWithScroll,
-    wantsPinToTop: wantsPinToTop,
-  );
-}
-
 double _scrollOffsetAfterRemovingPinToTopPhantom({
   required double currentOffset,
   required double maxScrollExtent,
@@ -3681,7 +3682,7 @@ bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
   required bool isUserInteractingWithScroll,
   required bool wantsPinToTop,
 }) {
-  return _shouldKeepConversationBottomAnchoredOnContentSizeChange(
+  return shouldKeepConversationBottomAnchoredOnContentSizeChange(
     isAnchoredToBottom: isAnchoredToBottom,
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,

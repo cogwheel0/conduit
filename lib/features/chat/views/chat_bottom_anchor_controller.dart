@@ -84,9 +84,17 @@ class ChatBottomAnchorController {
     return scrollDelta.abs() >= userScrollAwayThreshold;
   }
 
-  void verifyStickyCorrection({required bool nearBottom}) {
+  void verifyStickyCorrection({
+    required bool nearBottom,
+    bool isFinalAttempt = false,
+  }) {
     if (nearBottom) {
       isAnchoredToBottom = true;
+      _hasUnverifiedStickyContentChange = false;
+    } else if (isFinalAttempt) {
+      // The correction exhausted its attempts without reaching the bottom; drop
+      // the latch so button visibility falls back to distance-based logic
+      // instead of staying falsely pinned to the bottom.
       _hasUnverifiedStickyContentChange = false;
     }
   }

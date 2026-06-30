@@ -16,6 +16,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -349,6 +350,85 @@ void main() {
       );
     },
   );
+
+  testWidgets('keeps a standalone image block renderable across display parts', (
+    tester,
+  ) async {
+    const imageKey = ValueKey<String>('display-part-image');
+    const base64Png =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    for (final imageMarkup in <String>[
+      '![](https://example.com/x.png)',
+      '![]($base64Png)',
+    ]) {
+      final document = compilePreparedMarkdownSync(
+        'Intro paragraph.\n\n$imageMarkup',
+      );
+      final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+      // The image is its own block; no part may collapse to an empty document
+      // or ConduitMarkdownWidget would drop it before the BlockRenderer runs.
+      expect(parts.length, greaterThanOrEqualTo(2));
+      for (final part in parts) {
+        expect(part.document.isEmpty, isFalse);
+      }
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    for (final part in parts)
+                      ConduitMarkdownWidget(
+                        compiledDocument: part.document,
+                        imageBuilder: (_, _, _) => const SizedBox(
+                          key: imageKey,
+                          width: 24,
+                          height: 24,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(imageKey), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+  });
+
+  test('display part ids stay unique across mixed block kinds', () {
+    final document = compilePreparedMarkdownSync(
+      [
+        'Intro paragraph.',
+        '',
+        '<details type="reasoning" done="true">',
+        '<summary>Thinking</summary>',
+        'Some reasoning body.',
+        '</details>',
+        '',
+        'Closing paragraph.',
+      ].join('\n'),
+    );
+
+    final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+    expect(parts.length, greaterThanOrEqualTo(2));
+    final partIds = parts.map((part) => part.partId).toList();
+    // Unique ids guard the ValueKey('markdown-display-part:<id>') wrappers from
+    // a duplicate-key crash when a document is split into parts.
+    expect(partIds.toSet().length, partIds.length);
+  });
 
   Widget buildHarness(
     String content, {

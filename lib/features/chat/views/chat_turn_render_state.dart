@@ -6,15 +6,9 @@ enum ChatTurnPhase { none, running, completed, failed }
 
 @immutable
 class ChatTurnFooterHost {
-  const ChatTurnFooterHost({
-    required this.message,
-    required this.sourceIndex,
-    required this.phase,
-  });
+  const ChatTurnFooterHost({required this.message});
 
   final ChatMessage message;
-  final int sourceIndex;
-  final ChatTurnPhase phase;
 
   String get messageId => message.id;
 }
@@ -30,7 +24,11 @@ ChatTurnPhase chatTurnPhaseForMessage(
     return ChatTurnPhase.failed;
   }
   final effectiveStreaming = isStreaming ?? message.isStreaming;
-  if (effectiveStreaming) {
+  // `responseDone` is a settled UI state: the response is finalized even though
+  // the transport `isStreaming` flag may not have flipped yet (the "responseDone
+  // gap"). Treat it as completed so the typing footer hides and the action row
+  // appears without waiting for the trailing `done` event.
+  if (effectiveStreaming && message.metadata?['responseDone'] != true) {
     return ChatTurnPhase.running;
   }
   return ChatTurnPhase.completed;

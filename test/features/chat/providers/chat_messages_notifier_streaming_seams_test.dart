@@ -277,6 +277,200 @@ void main() {
       },
     );
 
+    test(
+      'non-streaming echo with a non-empty completion field retires the stream',
+      () async {
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final completionEchoes = <String, ChatMessage>{
+          'files': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            files: const [
+              {'id': 'f1'},
+            ],
+          ),
+          'output': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            output: const [
+              {'type': 'text'},
+            ],
+          ),
+          'embeds': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            embeds: const [
+              {'url': 'https://example.com'},
+            ],
+          ),
+          'followUps': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            followUps: const ['Ask again'],
+          ),
+          'responseDone': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            metadata: const {'responseDone': true},
+          ),
+          'error': ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            error: const ChatMessageError(content: 'boom'),
+          ),
+        };
+
+        for (final entry in completionEchoes.entries) {
+          final container = _buildContainer();
+          final active = container.read(activeConversationProvider.notifier);
+          active.set(
+            _conversation('chat-1', [
+              userMessage,
+              _assistantMessage(
+                id: 'assistant-1',
+                content: '',
+                isStreaming: true,
+                metadata: const {'modelName': 'GPT-4o'},
+              ),
+            ]),
+          );
+          await Future<void>.delayed(Duration.zero);
+          check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+          active.set(_conversation('chat-1', [userMessage, entry.value]));
+          await Future<void>.delayed(Duration.zero);
+
+          check(
+            container.read(chatMessagesProvider).last.isStreaming,
+            because: 'completion field "${entry.key}" should retire the stream',
+          ).isFalse();
+
+          container.read(chatMessagesProvider.notifier).clearMessages();
+          container.dispose();
+        }
+      },
+    );
+
+    test('server snapshot advancing past the streaming tail retires it', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final active = container.read(activeConversationProvider.notifier);
+      active.set(
+        _conversation('chat-1', [
+          userMessage,
+          _assistantMessage(id: 'assistant-1', content: 'Partial', isStreaming: true),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      active.set(
+        _conversation('chat-1', [
+          userMessage,
+          _assistantMessage(id: 'assistant-1', content: 'Done', isStreaming: false),
+          ChatMessage(
+            id: 'user-2',
+            role: 'user',
+            content: 'Next',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+          _assistantMessage(
+            id: 'assistant-2',
+            content: 'New turn',
+            isStreaming: false,
+          ),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final messages = container.read(chatMessagesProvider);
+      check(messages).length.equals(4);
+      check(
+        messages.firstWhere((message) => message.id == 'assistant-1').isStreaming,
+      ).isFalse();
+
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
+    test('a streaming row that is not the tail is not force-kept streaming', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+
+      final userMessage = ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final secondUser = ChatMessage(
+        id: 'user-2',
+        role: 'user',
+        content: 'Follow up',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final active = container.read(activeConversationProvider.notifier);
+      active.set(
+        _conversation('chat-1', [
+          userMessage,
+          _assistantMessage(
+            id: 'assistant-1',
+            content: 'Streaming earlier',
+            isStreaming: true,
+          ),
+          secondUser,
+          _assistantMessage(id: 'assistant-2', content: 'Tail', isStreaming: false),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      active.set(
+        _conversation('chat-1', [
+          userMessage,
+          _assistantMessage(
+            id: 'assistant-1',
+            content: 'Streaming earlier',
+            isStreaming: false,
+          ),
+          secondUser,
+          _assistantMessage(id: 'assistant-2', content: 'Tail', isStreaming: false),
+        ]),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        container
+            .read(chatMessagesProvider)
+            .firstWhere((message) => message.id == 'assistant-1')
+            .isStreaming,
+      ).isFalse();
+
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
     test('send failure converts active placeholder to an error row', () {
       final container = _buildContainer();
       addTearDown(container.dispose);

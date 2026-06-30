@@ -27,8 +27,6 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.completed);
     expect(timeline.runningFooterHost, isNull);
-    expect(timeline.completedFooterHost?.messageId, 'assistant-1');
-    expect(timeline.historyIndexByMessageId, {'user-1': 0});
     expect(timeline.historyIndexByMessageKey, {'message-user-1': 0});
   });
 
@@ -56,8 +54,6 @@ void main() {
     expect(timeline.tailAssistantSourceIndex, 1);
     expect(timeline.tailAssistantPhase, ChatTurnPhase.running);
     expect(timeline.runningFooterHost?.messageId, 'assistant-live');
-    expect(timeline.completedFooterHost, isNull);
-    expect(timeline.historyIndexByMessageId, {'user-1': 0});
     expect(timeline.historyIndexByMessageKey, {'message-user-1': 0});
   });
 
@@ -135,6 +131,83 @@ void main() {
     expect(nonTailTimeline.historyMessages.map((message) => message.id), [
       'assistant-streaming',
       'user-final',
+    ]);
+  });
+
+  test('routes a failed tail assistant to the completed (non-running) footer', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Question',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-failed',
+        role: 'assistant',
+        content: 'Partial',
+        timestamp: DateTime(2026),
+        // error must take precedence over the streaming flag.
+        isStreaming: true,
+        error: const ChatMessageError(content: 'boom'),
+      ),
+    ];
+
+    final timeline = ChatTimelineRenderModel.fromMessages(messages);
+
+    expect(timeline.tailAssistant?.id, 'assistant-failed');
+    expect(timeline.tailAssistantPhase, ChatTurnPhase.failed);
+    expect(timeline.runningFooterHost, isNull);
+  });
+
+  test('chatTurnPhaseForMessage treats responseDone as completed while streaming', () {
+    final streaming = ChatMessage(
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Partial',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+
+    expect(chatTurnPhaseForMessage(streaming), ChatTurnPhase.running);
+    expect(
+      chatTurnPhaseForMessage(
+        streaming.copyWith(metadata: const {'responseDone': true}),
+      ),
+      ChatTurnPhase.completed,
+    );
+    // The explicit override still wins for the running case.
+    expect(
+      chatTurnPhaseForMessage(streaming, isStreaming: false),
+      ChatTurnPhase.completed,
+    );
+  });
+
+  test('does not promote an archived-variant assistant to the live tail', () {
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'user-1',
+        role: 'user',
+        content: 'Question',
+        timestamp: DateTime(2026),
+      ),
+      ChatMessage(
+        id: 'assistant-archived',
+        role: 'assistant',
+        content: 'Stale archived answer',
+        timestamp: DateTime(2026),
+        metadata: const {'archivedVariant': true},
+      ),
+    ];
+
+    final timeline = ChatTimelineRenderModel.fromMessages(messages);
+
+    expect(timeline.tailAssistant, isNull);
+    expect(timeline.tailAssistantSourceIndex, isNull);
+    expect(timeline.runningFooterHost, isNull);
+    expect(timeline.historyMessages.map((message) => message.id), [
+      'user-1',
+      'assistant-archived',
     ]);
   });
 }
