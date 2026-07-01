@@ -51,7 +51,7 @@ void main() {
     test('does not gate when the active server is supported', () async {
       final container = await _container(
         activeServer: _server('A'),
-        config: const BackendConfig(version: '0.10.1', serverId: 'A'),
+        config: const BackendConfig(version: '0.10.2', serverId: 'A'),
       );
       addTearDown(container.dispose);
 
