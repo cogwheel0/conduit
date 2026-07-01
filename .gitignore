@@ -113,6 +113,9 @@ lib/l10n/app_localizations_*.dart
 **/ios/fastlane/
 **/android/fastlane/
 
+# Local App Store screenshot workspace
+store-screenshots/
+
 # Firebase
 google-services.json
 GoogleService-Info.plist

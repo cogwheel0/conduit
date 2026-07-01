@@ -14,7 +14,9 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -295,6 +297,278 @@ void main() {
     );
   });
 
+  test(
+    'display parts keep completed block identity while the tail changes',
+    () {
+      CompiledMarkdownDocument streamingDocumentWithTail(String tail) {
+        final frozen = compilePreparedMarkdownSync('Intro paragraph.\n\n');
+        final mutableTail = compilePreparedMarkdownSync(
+          tail,
+        ).rebaseRootIds(rootNodeOffset: frozen.rootNodeCount);
+        return CompiledMarkdownDocument.compose(
+          normalizedContent: 'Intro paragraph.\n\n$tail',
+          segments: <CompiledMarkdownDocument>[frozen, mutableTail],
+          mutableBlockStartIndex: frozen.rootBlockCount,
+        );
+      }
+
+      final firstParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail('Tail'),
+        isStreaming: true,
+      );
+      final nextParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail('Tail grows'),
+        isStreaming: true,
+      );
+
+      expect(firstParts, hasLength(2));
+      expect(nextParts, hasLength(2));
+      expect(firstParts.first.partId, nextParts.first.partId);
+      expect(firstParts.first.document, nextParts.first.document);
+      expect(firstParts.first.isMutableTail, isFalse);
+      expect(firstParts.last.partId, nextParts.last.partId);
+      expect(firstParts.last.document, isNot(nextParts.last.document));
+      expect(firstParts.last.isMutableTail, isTrue);
+      expect(nextParts.last.isMutableTail, isTrue);
+
+      final latexTailParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail(r'Tail $x$'),
+        isStreaming: true,
+      );
+      final changedLatexTailParts = buildMarkdownDisplayParts(
+        streamingDocumentWithTail(r'Tail $x + y$'),
+        isStreaming: true,
+      );
+      expect(latexTailParts.first.partId, changedLatexTailParts.first.partId);
+      expect(
+        latexTailParts.first.document,
+        changedLatexTailParts.first.document,
+      );
+      expect(
+        latexTailParts.last.document,
+        isNot(changedLatexTailParts.last.document),
+      );
+    },
+  );
+
+  testWidgets('keeps a standalone image block renderable across display parts', (
+    tester,
+  ) async {
+    const imageKey = ValueKey<String>('display-part-image');
+    const base64Png =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    for (final imageMarkup in <String>[
+      '![](https://example.com/x.png)',
+      '![]($base64Png)',
+    ]) {
+      final document = compilePreparedMarkdownSync(
+        'Intro paragraph.\n\n$imageMarkup',
+      );
+      final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+      // The image is its own block; no part may collapse to an empty document
+      // or ConduitMarkdownWidget would drop it before the BlockRenderer runs.
+      expect(parts.length, greaterThanOrEqualTo(2));
+      for (final part in parts) {
+        expect(part.document.isEmpty, isFalse);
+      }
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    for (final part in parts)
+                      ConduitMarkdownWidget(
+                        compiledDocument: part.document,
+                        imageBuilder: (_, _, _) => const SizedBox(
+                          key: imageKey,
+                          width: 24,
+                          height: 24,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(imageKey), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+  });
+
+  test('display part ids stay unique across mixed block kinds', () {
+    final document = compilePreparedMarkdownSync(
+      [
+        'Intro paragraph.',
+        '',
+        '<details type="reasoning" done="true">',
+        '<summary>Thinking</summary>',
+        'Some reasoning body.',
+        '</details>',
+        '',
+        'Closing paragraph.',
+      ].join('\n'),
+    );
+
+    final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+    expect(parts.length, greaterThanOrEqualTo(2));
+    final partIds = parts.map((part) => part.partId).toList();
+    // Unique ids guard the ValueKey('markdown-display-part:<id>') wrappers from
+    // a duplicate-key crash when a document is split into parts.
+    expect(partIds.toSet().length, partIds.length);
+  });
+
+  test('display parts mark only the last block mutable when no mutable metadata is present', () {
+    final document = compilePreparedMarkdownSync('A\n\nB');
+    // A full sync compile carries no incremental tail metadata, so the
+    // isStreaming && index == last fallback is exercised.
+    expect(document.hasMutableBlockMetadata, isFalse);
+    expect(document.blocks.length, greaterThanOrEqualTo(2));
+
+    final streamingParts = buildMarkdownDisplayParts(
+      document,
+      isStreaming: true,
+    );
+    expect(streamingParts.first.isMutableTail, isFalse);
+    expect(streamingParts.last.isMutableTail, isTrue);
+
+    final frozenParts = buildMarkdownDisplayParts(document, isStreaming: false);
+    expect(frozenParts.every((part) => !part.isMutableTail), isTrue);
+  });
+
+  test('details display parts keep a non-empty single-block document without a root node', () {
+    final detailsDoc = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final detailsBlock = detailsDoc.blocks
+        .whereType<CompiledMarkdownDetailsBlock>()
+        .first;
+
+    // Rebuild the document without the correlated root node so
+    // _normalizedContentForBlock must fall back to _normalizedContentForDetails
+    // (summary text) rather than the empty element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: detailsDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[detailsBlock],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
+
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    // Non-empty so ConduitMarkdownWidget.build does not short-circuit and drop
+    // the reasoning/tool-call block.
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.blocks, hasLength(1));
+    expect(part.document.blocks.single, isA<CompiledMarkdownDetailsBlock>());
+    expect(part.document.normalizedContent.trim(), isNotEmpty);
+    expect(part.document.normalizedContent, contains('search'));
+  });
+
+  test('buildMarkdownDisplayParts returns an empty list for an empty document', () {
+    final parts = buildMarkdownDisplayParts(
+      const CompiledMarkdownDocument.empty(),
+      isStreaming: true,
+    );
+    expect(parts, isEmpty);
+  });
+
+  test('details group display part joins every grouped summary into one part', () {
+    final first = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="search">',
+        '<summary>search</summary>',
+        '</details>',
+      ].join('\n'),
+    );
+    final second = compilePreparedMarkdownSync(
+      [
+        '<details type="tool_calls" done="true" name="browser">',
+        '<summary>browser</summary>',
+        '</details>',
+      ].join('\n'),
+    ).rebaseRootIds(rootNodeOffset: first.rootNodeCount);
+    final groupDoc = CompiledMarkdownDocument.compose(
+      normalizedContent: '${first.normalizedContent}\n${second.normalizedContent}',
+      segments: <CompiledMarkdownDocument>[first, second],
+    );
+    final group = groupDoc.blocks
+        .whereType<CompiledMarkdownDetailsGroup>()
+        .single;
+
+    // Drop root nodes so _normalizedContentForBlock takes the detailsGroup join
+    // branch (joined summaries) instead of the element textContent.
+    final documentWithoutRootNodes = CompiledMarkdownDocument(
+      normalizedContent: groupDoc.normalizedContent,
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[group],
+      nodes: const <CompiledMarkdownNode>[],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(
+      documentWithoutRootNodes,
+      isStreaming: false,
+    );
+
+    expect(parts, hasLength(1));
+    final part = parts.single;
+    expect(part.document.isEmpty, isFalse);
+    expect(part.document.normalizedContent, contains('search'));
+    expect(part.document.normalizedContent, contains('browser'));
+  });
+
+  test('display part ids dedupe blocks that share the same block id', () {
+    final node = CompiledMarkdownText('Repeated', nodeId: 'n0');
+    final block = CompiledMarkdownNodeBlock.fromNode(blockId: 'dup', node: node);
+    final document = CompiledMarkdownDocument(
+      normalizedContent: 'Repeated\n\nRepeated',
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[block, block],
+      nodes: <CompiledMarkdownNode>[node],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{},
+    );
+
+    final parts = buildMarkdownDisplayParts(document, isStreaming: false);
+
+    // Two blocks colliding on the same base id get a ':count' suffix so the
+    // ValueKey wrappers can't collide and crash the Column.
+    expect(parts, hasLength(2));
+    expect(parts[0].partId, 'markdownBlock:dup');
+    expect(parts[1].partId, 'markdownBlock:dup:1');
+  });
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,
@@ -362,6 +636,33 @@ void main() {
       ),
     );
   }
+
+  testWidgets('renders correctly when a streaming display part is dropped', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness('Alpha block.\n\nBeta block.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+    expect(
+      find.textContaining('Beta block', findRichText: true),
+      findsOneWidget,
+    );
+
+    // Re-pump with the middle part removed so the stable-part cache reuse +
+    // eviction path (_reuseStableDisplayPartDocuments) runs across a shrinking
+    // part list: the dropped part stops rendering, survivors remain.
+    await tester.pumpWidget(
+      buildHarness('Alpha block.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('Beta block', findRichText: true), findsNothing);
+    expect(
+      find.textContaining('Alpha block', findRichText: true),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'defers heavy mermaid previews while the message is still streaming',
@@ -457,6 +758,37 @@ graph TD
       expect(disposedCount, 0);
     },
   );
+
+  testWidgets('streaming updates rebuild only the mutable markdown part', (
+    tester,
+  ) async {
+    var baseRenders = 0;
+
+    Widget harness(String content) => buildHarness(
+      content,
+      isStreaming: true,
+      onBaseRender: () => baseRenders += 1,
+    );
+
+    await tester.pumpWidget(harness('Intro paragraph.\n\nTail'));
+    await tester.pump();
+
+    expect(
+      baseRenders,
+      2,
+      reason: 'initial render has one stable block and one mutable tail',
+    );
+
+    final beforeUpdate = baseRenders;
+    await tester.pumpWidget(harness('Intro paragraph.\n\nTail grows'));
+    await tester.pump();
+
+    expect(
+      baseRenders - beforeUpdate,
+      1,
+      reason: 'the frozen block keeps its cached base render',
+    );
+  });
 
   testWidgets(
     'automatically opens multiple heavy previews after streaming ends',
@@ -604,6 +936,93 @@ graph TD
       greaterThan(0),
     );
     expect((paragraphPaddings.last.padding as EdgeInsets).bottom, 0);
+  });
+
+  testWidgets('trimLastBlockBottomPadding=false keeps the last block bottom padding', (
+    tester,
+  ) async {
+    EdgeInsets lastParagraphPadding() {
+      final paragraphPaddings = tester
+          .widgetList<Padding>(
+            find.byWidgetPredicate((widget) {
+              if (widget is! Padding || widget.child is! Text) {
+                return false;
+              }
+              final text = widget.child as Text;
+              final plainText = text.textSpan?.toPlainText() ?? text.data;
+              return plainText == 'First' || plainText == 'Second';
+            }),
+          )
+          .toList(growable: false);
+      expect(paragraphPaddings, hasLength(2));
+      return paragraphPaddings.last.padding as EdgeInsets;
+    }
+
+    Widget conduitHarness({required bool trim}) => ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ConduitMarkdownWidget(
+              data: 'First\n\nSecond',
+              trimLastBlockBottomPadding: trim,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Non-final parts pass false, which must keep the trailing block's bottom
+    // padding so the frozen/tail boundary isn't squashed.
+    await tester.pumpWidget(conduitHarness(trim: false));
+    expect(lastParagraphPadding().bottom, greaterThan(0));
+
+    await tester.pumpWidget(conduitHarness(trim: true));
+    expect(lastParagraphPadding().bottom, 0);
+  });
+
+  testWidgets('trimLastBlockBottomPadding change invalidates the base render', (
+    tester,
+  ) async {
+    var baseRenders = 0;
+    Widget harness({required bool trim}) => ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ConduitMarkdownWidget(
+              data: 'First\n\nSecond',
+              trimLastBlockBottomPadding: trim,
+              debugOnBaseRender: () => baseRenders += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(harness(trim: true));
+    final before = baseRenders;
+
+    // Flipping the flag must re-run the cached base render (it is part of the
+    // reuse key), not reuse the stale-padding tree.
+    await tester.pumpWidget(harness(trim: false));
+    expect(baseRenders, greaterThan(before));
+  });
+
+  testWidgets('only the mutable tail part enables streaming text fade', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness('Intro paragraph.\n\nTail', isStreaming: true),
+    );
+    await tester.pump();
+
+    final markdownWidgets = tester
+        .widgetList<ConduitMarkdownWidget>(find.byType(ConduitMarkdownWidget))
+        .toList();
+    expect(markdownWidgets.length, greaterThanOrEqualTo(2));
+    // The frozen leading block must not fade; only the trailing mutable tail
+    // does — locking the isMutableTail gate end-to-end into ConduitMarkdownWidget.
+    expect(markdownWidgets.first.enableStreamingTextFade, isFalse);
+    expect(markdownWidgets.last.enableStreamingTextFade, isTrue);
   });
 
   testWidgets('streaming markdown fades newly appended rendered text', (
@@ -2284,7 +2703,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant typing indicator updates when a same-length status row flips to done',
+    'assistant message does not own typing indicator when status row flips to done',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -2343,12 +2762,6 @@ Tail keeps growing
         await tester.pump();
 
         expect(find.byKey(const ValueKey('typing')), findsNothing);
-
-        await tester.pump(const Duration(milliseconds: 149));
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
-
-        await tester.pump(const Duration(milliseconds: 1));
-        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
       } finally {
         container.dispose();
       }
@@ -2356,8 +2769,8 @@ Tail keeps growing
   );
 
   testWidgets(
-    'typing indicator holds the footer slot while content streams, then swaps '
-    'to the action row on completion',
+    'assistant message keeps its own footer empty while streaming, then actions '
+    'show on completion',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -2385,15 +2798,12 @@ Tail keeps growing
           ),
         );
 
-        // Before the 150ms gate, neither the indicator nor the action row shows.
         await tester.pump();
         expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsNothing);
 
-        // After the gate the typing indicator occupies the footer (action-row)
-        // slot even though content is already streaming in above it.
-        await tester.pump(const Duration(milliseconds: 150));
-        expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+        await tester.pump();
+        expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsNothing);
 
         // Completion swaps the indicator for the action row.
