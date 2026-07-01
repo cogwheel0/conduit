@@ -17,7 +17,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "app.cogwheel.conduit"
     compileSdk = 36
-    ndkVersion = "29.0.14206865"
+    ndkVersion = flutter.ndkVersion  
 
     defaultConfig {
     applicationId = "app.cogwheel.conduit"
@@ -35,10 +35,10 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        // Generate JVM bytecode targeting Java 17
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
+    // kotlinOptions {
+    //     // Generate JVM bytecode targeting Java 17
+    //     jvmTarget = JavaVersion.VERSION_17.toString()
+    // }
 
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
@@ -67,6 +67,31 @@ android {
             // signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
         }
+    }
+    // exclude some common metadata files that inflate APK size
+    packagingOptions {
+        jniLibs { useLegacyPackaging = true }
+        resources {
+            excludes +=
+                    setOf(
+                            "META-INF/*.kotlin_module",
+                            "META-INF/*.version",
+                            "META-INF/AL2.0",
+                            "META-INF/LGPL2.1",
+                            "META-INF/LICENSE*",
+                            "META-INF/NOTICE*",
+                            "META-INF/DEPENDENCIES",
+                            "META-INF/proguard/*",
+                            "META-INF/gradle/incremental.annotation.processors"
+                    )
+        }
+    }
+}
+
+// AGP +9 migration
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
