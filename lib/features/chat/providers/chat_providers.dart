@@ -1017,21 +1017,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         serverMessage.error != null) {
       return false;
     }
-    // A snapshot that carries only metadata (a final statusHistory entry, a
-    // saved version, or usage stats) with empty content is a real server update,
-    // not a stale empty echo. Treating it as stale would force isStreaming back
-    // to true and block finalization, leaving the typing indicator stuck until a
-    // later refresh.
+    // Deliberately does NOT gate on statusHistory, versions, or usage. Those
+    // fields are populated on the assistant message *during* streaming — the
+    // server pushes status/usage updates as content-empty, non-streaming
+    // snapshots before the answer tokens arrive (see streaming_helper's status/
+    // usage patches). Treating their presence as "a real completed update"
+    // therefore retires the active stream prematurely and drops the typing
+    // footer mid-turn. Real completion is proven by responseDone/error (guarded
+    // above) or by non-empty content/output/files/embeds/followUps/sources/
+    // codeExecutions, so a genuinely finished turn is never a metadata-only echo.
     return serverMessage.content.trim().isEmpty &&
         serverMessage.output?.isNotEmpty != true &&
         serverMessage.files?.isNotEmpty != true &&
         serverMessage.embeds?.isNotEmpty != true &&
         serverMessage.followUps.isEmpty &&
         serverMessage.sources.isEmpty &&
-        serverMessage.codeExecutions.isEmpty &&
-        serverMessage.statusHistory.isEmpty &&
-        serverMessage.versions.isEmpty &&
-        serverMessage.usage?.isNotEmpty != true;
+        serverMessage.codeExecutions.isEmpty;
   }
 
   bool _shouldPreserveLocalAssistantContent(

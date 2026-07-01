@@ -278,6 +278,65 @@ void main() {
     );
 
     test(
+      'in-progress status-only server echo does not retire the active stream',
+      () async {
+        // Regression: the server pushes status updates (e.g. "Searching…") as
+        // content-empty, non-streaming snapshots before the answer tokens
+        // arrive. statusHistory is populated during streaming, so a metadata-
+        // only echo must NOT be treated as completion — retiring the stream here
+        // drops the typing footer mid-turn.
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final assistantMessage = _assistantMessage(
+          id: 'assistant-1',
+          content: '',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+        final activeConversationNotifier = container.read(
+          activeConversationProvider.notifier,
+        );
+        activeConversationNotifier.set(
+          _conversation('chat-1', [userMessage, assistantMessage]),
+        );
+        await Future<void>.delayed(Duration.zero);
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+        final statusOnlyEcho = ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime(2024, 1, 1),
+          isStreaming: false,
+          statusHistory: const [
+            ChatStatusUpdate(description: 'Searching', done: false),
+          ],
+        );
+        activeConversationNotifier.set(
+          _conversation('chat-1', [userMessage, statusOnlyEcho]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).length.equals(2);
+        check(messages.last.id).equals('assistant-1');
+        check(
+          messages.last.isStreaming,
+          because: 'an in-progress status-only echo must keep the stream alive',
+        ).isTrue();
+
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
       'non-streaming echo with a non-empty completion field retires the stream',
       () async {
         final userMessage = ChatMessage(
@@ -350,35 +409,6 @@ void main() {
             content: '',
             timestamp: DateTime(2024, 1, 1),
             codeExecutions: const [ChatCodeExecution(id: 'ce1')],
-          ),
-          'statusHistory': ChatMessage(
-            id: 'assistant-1',
-            role: 'assistant',
-            content: '',
-            timestamp: DateTime(2024, 1, 1),
-            statusHistory: const [
-              ChatStatusUpdate(description: 'Searching', done: true),
-            ],
-          ),
-          'versions': ChatMessage(
-            id: 'assistant-1',
-            role: 'assistant',
-            content: '',
-            timestamp: DateTime(2024, 1, 1),
-            versions: [
-              ChatMessageVersion(
-                id: 'v1',
-                content: 'Earlier draft',
-                timestamp: DateTime(2024, 1, 1),
-              ),
-            ],
-          ),
-          'usage': ChatMessage(
-            id: 'assistant-1',
-            role: 'assistant',
-            content: '',
-            timestamp: DateTime(2024, 1, 1),
-            usage: const {'prompt_tokens': 10},
           ),
         };
 
