@@ -43,7 +43,7 @@
       },
       "maxVersion": {
         "type": "String",
-        "example": "0.10.1"
+        "example": "0.10.2"
       }
     }
   },
@@ -53,7 +53,7 @@
     "placeholders": {
       "maxVersion": {
         "type": "String",
-        "example": "0.10.1"
+        "example": "0.10.2"
       }
     }
   },
@@ -63,7 +63,7 @@
     "placeholders": {
       "maxVersion": {
         "type": "String",
-        "example": "0.10.1"
+        "example": "0.10.2"
       }
     }
   },

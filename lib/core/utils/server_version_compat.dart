@@ -17,10 +17,10 @@ class ServerVersionCompat {
   /// Servers reporting a `/api/config` `version` strictly greater than this are
   /// gated off. Bump this (and re-verify against `openwebui-src/`) whenever a
   /// newer server release is validated.
-  static const String maxSupportedVersion = '0.10.1';
+  static const String maxSupportedVersion = '0.10.2';
 
   /// Parsed [maxSupportedVersion] components: `[major, minor, patch]`.
-  static const List<int> _maxSupported = [0, 10, 1];
+  static const List<int> _maxSupported = [0, 10, 2];
 
   /// Whether [rawVersion] is within the supported range (<= [maxSupportedVersion]).
   ///
@@ -40,7 +40,7 @@ class ServerVersionCompat {
   /// Parses a semantic-ish version string into up to three numeric components.
   ///
   /// Tolerates a leading `v`/`V` and drops any pre-release or build metadata
-  /// suffix (e.g. `0.10.1-dev`, `0.10.1+build.5`). Returns `null` when no
+  /// suffix (e.g. `0.10.2-dev`, `0.10.2+build.5`). Returns `null` when no
   /// leading numeric component can be found.
   static List<int>? _parse(String? raw) {
     if (raw == null) return null;
@@ -49,7 +49,7 @@ class ServerVersionCompat {
     if (s.startsWith('v') || s.startsWith('V')) {
       s = s.substring(1);
     }
-    // Strip pre-release / build metadata so `0.10.1-rc1` compares as `0.10.1`.
+    // Strip pre-release / build metadata so `0.10.2-rc1` compares as `0.10.2`.
     final cut = s.indexOf(RegExp(r'[-+ ]'));
     if (cut != -1) {
       s = s.substring(0, cut);
