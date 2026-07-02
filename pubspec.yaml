@@ -101,6 +101,8 @@ dependencies:
   fleather: ^1.27.0
   # Document model + markdown/HTML codecs backing the Fleather note editor.
   parchment: ^1.27.0
+  firebase_core: ^4.11.0
+  firebase_messaging: ^16.4.1
 
 dev_dependencies:
   flutter_test:

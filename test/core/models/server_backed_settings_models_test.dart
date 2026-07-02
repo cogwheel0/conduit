@@ -73,6 +73,35 @@ void main() {
       check(settings.notificationSound).isNull();
       check(settings.notificationSoundAlways).isNull();
     });
+
+    test('parses user notification webhook URL', () {
+      final settings = ServerUserSettings.fromJson({
+        'ui': {
+          'notifications': {'webhook_url': ' https://push.example.test/hook '},
+        },
+      });
+
+      check(
+        settings.notificationWebhookUrl,
+      ).equals('https://push.example.test/hook');
+    });
+  });
+
+  group('BackendConfig.fromJson', () {
+    test('parses nested user webhooks feature flag', () {
+      final config = BackendConfig.fromJson({
+        'features': {'enable_user_webhooks': true},
+      });
+
+      check(config.enableUserWebhooks).isTrue();
+      check(config.toJson()['enable_user_webhooks']).equals(true);
+    });
+
+    test('parses top-level user webhooks feature flag', () {
+      final config = BackendConfig.fromJson({'enable_user_webhooks': true});
+
+      check(config.enableUserWebhooks).isTrue();
+    });
   });
 
   group('AccountMetadata.fromJson', () {

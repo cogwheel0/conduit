@@ -28,6 +28,7 @@ import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/providers/remap_route_sync_provider.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/services/local_notification_service.dart';
+import '../../features/notifications/services/remote_push_service.dart';
 
 part 'app_startup_providers.g.dart';
 
@@ -116,6 +117,19 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
           stackTrace: st,
         );
       }),
+    );
+    unawaited(
+      ref
+          .read(remotePushServiceProvider)
+          .unregisterAllLocalSubscriptions()
+          .catchError((Object e, StackTrace st) {
+            DebugLogger.error(
+              'failed to unregister push subscriptions on sign-out',
+              scope: 'notifications/push',
+              error: e,
+              stackTrace: st,
+            );
+          }),
     );
     ref.invalidate(notificationRouterProvider);
     ref.invalidate(notificationSocketListenerProvider);
