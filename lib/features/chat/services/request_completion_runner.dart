@@ -7,6 +7,8 @@ import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/conversation_parsing.dart';
+import '../../../core/services/worker_manager.dart';
 import '../../../core/sync/outbox_drainer.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../providers/chat_providers.dart';
@@ -166,7 +168,17 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     // Headless drive — no active-conversation switch, no chatMessagesProvider
     // mutation. Builds the request from this chat's DB rows.
     final rows = await db.messagesDao.getForChat(chatId);
-    final conversation = assembleConversation(chatRow, rows);
+    final conversation = await assembleConversationGuarded(
+      chatRow,
+      rows,
+      offload: (envelope) => _ref
+          .read(workerManagerProvider)
+          .schedule(
+            parseFullConversationModelWorker,
+            envelope,
+            debugLabel: 'headless.assembleConversation',
+          ),
+    );
     await runHeadlessCompletion(
       _ref,
       chatId: chatId,
