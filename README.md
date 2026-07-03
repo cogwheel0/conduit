@@ -107,6 +107,7 @@ enough for daily use.
 | Mobile UX | Voice input, full voice-call mode, home screen widgets, app quick actions, clipboard image paste, haptics, and adaptive Material/Cupertino UI |
 | Personalization | Light, dark, and system themes plus a localized interface across 13 supported locales |
 | Privacy | Native secure storage, no third-party analytics or ads, and no developer-operated backend relaying your data |
+| Terminal | Interactive terminal sessions over WebSocket with a file browser, shown only when your server exposes the terminal integration |
 
 ## Built for Self-Hosted Reality
 
@@ -179,7 +180,7 @@ filters appear when they are available on the connected server.
 ### Run locally
 
 ```bash
-git clone https://github.com/cogwheel0/conduit.git
+git clone --recursive https://github.com/cogwheel0/conduit.git
 cd conduit
 flutter pub get
 dart run build_runner build
@@ -187,6 +188,8 @@ flutter run -d ios
 # or
 flutter run -d android
 ```
+
+The `--recursive` flag pulls the `openwebui-src` submodule — a vendored Open WebUI checkout used as an API reference during development; the app builds without it.
 
 ### Developer checks
 
@@ -226,7 +229,7 @@ credential handling built into the core layer.
 - Riverpod 3 and `riverpod_generator` for state and dependency wiring
 - GoRouter for navigation
 - Dio plus socket transport for API and streaming
-- Hive and shared preferences for local persistence
+- Drift (SQLite) for structured local data, with shared preferences for settings
 - Flutter Secure Storage for credentials
 
 ### Project layout
@@ -249,10 +252,12 @@ lib/
 <details>
 <summary>Platform permissions</summary>
 
-- Android asks for internet, microphone, camera, and file access for chat,
-  voice input, attachments, and image capture.
-- iOS requests microphone, speech recognition, camera, and photo library access
-  for voice and attachment workflows.
+- Android asks for internet, microphone, camera, file access, and optional
+  location for chat, voice input, attachments, image capture, and location
+  sharing.
+- iOS requests microphone, speech recognition, camera, photo library, and
+  optional location-when-in-use access for voice, attachment, and location
+  sharing workflows.
 
 </details>
 
