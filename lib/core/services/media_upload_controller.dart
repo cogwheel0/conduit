@@ -382,5 +382,13 @@ class _InflightUpload {
 /// rebuilds (an upload can outlive the widget that started it). Every former
 /// `enqueueUploadMedia` call site reads this instead.
 @Riverpod(keepAlive: true)
-MediaUploadController mediaUploadController(Ref ref) =>
-    MediaUploadController(ref);
+MediaUploadController mediaUploadController(Ref ref) {
+  // When the active server / ApiService changes (server switch or logout),
+  // stop the shared upload queue's timer and drop its stale onUpload closure.
+  // The next upload re-initializes it against the new server. `ref.listen`
+  // does not fire for the current value, so this is inert until a real change.
+  ref.listen(apiServiceProvider, (previous, next) {
+    AttachmentUploadQueue().deactivate();
+  });
+  return MediaUploadController(ref);
+}

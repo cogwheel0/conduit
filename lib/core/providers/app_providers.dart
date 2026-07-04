@@ -11,7 +11,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
 import '../auth/auth_state_manager.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../services/attachment_upload_queue.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
 import '../models/model.dart';
@@ -560,23 +559,6 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
     orElse: () =>
         ref.read(socketServiceManagerProvider.notifier).currentService,
   );
-});
-
-// Attachment upload queue provider
-final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
-  final api = ref.watch(apiServiceProvider);
-  if (api == null) return null;
-
-  final queue = AttachmentUploadQueue();
-  // Re-runs when the API (and thus active server) changes, reloading the queue
-  // from the active server's Drift table.
-  queue.initialize(
-    onUpload: (filePath, fileName, {cancelToken}) =>
-        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
-    database: () => ref.read(appDatabaseProvider),
-  );
-
-  return queue;
 });
 
 // Auth providers

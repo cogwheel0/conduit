@@ -310,6 +310,25 @@ class AttachmentUploadQueue {
     Timer(const Duration(milliseconds: 500), _processSafe);
   }
 
+  /// Stops background processing and detaches the current server's callbacks.
+  ///
+  /// Called when the active [ApiService] changes (server switch / logout) so a
+  /// stale [_onUpload] closure bound to the previous server can no longer fire
+  /// on a retry tick. Deliberately minimal and reusable: it cancels the periodic
+  /// timer and nulls the callbacks/db resolver, but does NOT close [queueStream]
+  /// (a shared broadcast stream reused across uploads) and does NOT cancel
+  /// in-flight [_cancelTokens] (an upload already awaiting its network call is
+  /// allowed to finish). The next [initialize] re-arms the timer and callbacks
+  /// and reloads the queue from the (new) active server's Drift table.
+  void deactivate() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _onUpload = null;
+    _onQueueChanged = null;
+    _databaseResolver = null;
+    DebugLogger.log('AttachmentUploadQueue deactivated', scope: 'attachments/queue');
+  }
+
   void _processSafe() {
     // Fire and forget
     unawaited(processQueue());
