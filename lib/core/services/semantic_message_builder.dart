@@ -202,7 +202,7 @@ String _escape(String value) => _semanticHtmlEscape.convert(value);
 // a longer/shorter closing fence, a backtick in the info string, etc.).
 final _openingBacktickFence = RegExp(r'^ {0,3}(`{3,})[^`]*$');
 final _openingTildeFence = RegExp(r'^ {0,3}(~{3,}).*$');
-final _closingFence = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*\r?$');
+final _closingFence = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$');
 final _inlineCodeSpan = RegExp(r'`[^`]+?`');
 
 /// Escapes HTML-significant characters in plain answer text while leaving the
@@ -229,7 +229,12 @@ String _escapeText(String value) {
   String? openFenceChar;
   var openFenceLength = 0;
 
-  for (final line in lines) {
+  for (final rawLine in lines) {
+    // Normalize CRLF: split('\n') leaves a trailing '\r' the fence patterns
+    // (and the downstream renderer) would otherwise mishandle.
+    final line = rawLine.endsWith('\r')
+        ? rawLine.substring(0, rawLine.length - 1)
+        : rawLine;
     if (openFenceChar != null) {
       // Inside a fenced block: emit verbatim, closing on a matching fence line.
       result.add(line);

@@ -147,6 +147,20 @@ void main() {
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
+    // CRLF input must be recognized as fences too, otherwise code content
+    // (especially `~~~` blocks) is escaped and leaks entities.
+    test('recognizes fenced code blocks with CRLF line endings', () {
+      const body = 'a\n~~~\nMap<String, int> m = f("x/y");\n~~~\nb';
+      final rendered = renderSemanticMessageBlocks([
+        SemanticTextBlock(body.replaceAll('\n', '\r\n')),
+      ]);
+
+      check(rendered).contains('Map<String, int>');
+      check(rendered).contains('f("x/y")');
+      check(rendered).not((it) => it.contains('&lt;'));
+      check(rendered).not((it) => it.contains('&quot;'));
+    });
+
     test('still escapes tags outside code even when code is present', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock('run `ls` then <details>spoof</details>'),
