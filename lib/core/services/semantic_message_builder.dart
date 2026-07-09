@@ -1,6 +1,12 @@
 import 'dart:convert';
 
-const HtmlEscape _semanticHtmlEscape = HtmlEscape();
+// Escape only the characters needed to neutralize HTML tags (`&`, `<`, `>`)
+// and keep double-quoted `<details>` attributes intact (`"`). The default
+// `HtmlEscape()` (HtmlEscapeMode.unknown) additionally escapes `/` -> `&#47;`
+// and `'` -> `&#39;`. Those extra entities are unnecessary for tag safety and
+// are never decoded inside markdown code spans/blocks, so they leak into
+// rendered output (e.g. URLs showing `https:&#47;&#47;`). See issue #549.
+const HtmlEscape _semanticHtmlEscape = HtmlEscape(HtmlEscapeMode.attribute);
 
 /// Semantic assistant-message blocks that can be serialized into the markdown
 /// dialect consumed by Conduit's shared markdown renderer.
@@ -113,7 +119,7 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
     switch (block) {
       case SemanticTextBlock(:final text):
         if (text.trim().isNotEmpty) {
-          parts.add(_escape(text));
+          parts.add(_escapeText(text));
         }
       case SemanticDetailsBlock():
         final rendered = _renderDetailsBlock(block);
@@ -184,3 +190,26 @@ String _markdownCodeFence(String code, String language) {
 }
 
 String _escape(String value) => _semanticHtmlEscape.convert(value);
+
+// Matches fenced code blocks (```...```) and single-line inline code spans.
+// Inline spans are intentionally matched one line at a time: a multi-line span
+// must never be able to hide a line-leading `<details>`/`<summary>` from the
+// block parser (see [_escapeText]).
+final _codeRegionPattern = RegExp(r'```[\s\S]*?```|`[^`\n]+?`');
+
+/// Escapes HTML-significant characters in plain answer text while leaving the
+/// contents of markdown code spans and fenced code blocks untouched.
+///
+/// Answer text is re-parsed by the markdown pipeline, which does not decode
+/// entity references inside code spans/fences. Escaping those regions leaks
+/// literal entities into the rendered output (e.g. `List&lt;int&gt;`,
+/// `https:&#47;&#47;`). Text outside code is still escaped so a model cannot
+/// emit a literal `<details>`/`<summary>` block that renders as a spoofed
+/// reasoning/tool section. Unlike [_escape], this is only safe for top-level
+/// answer text; `<details>` attributes/summaries/bodies are HTML-unescaped
+/// wholesale at parse time and must keep full escaping.
+String _escapeText(String value) => value.splitMapJoin(
+  _codeRegionPattern,
+  onMatch: (match) => match[0] ?? '',
+  onNonMatch: _escape,
+);
