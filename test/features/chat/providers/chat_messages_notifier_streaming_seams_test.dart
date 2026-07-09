@@ -643,6 +643,66 @@ void main() {
     );
 
     test(
+      'adopt preserves foreign-id streaming echo even when tracked transport '
+      'does not protect the local tail',
+      () async {
+        // Greptile P1: `_adoptServerMessages` used to drop transport (clearing
+        // `_boundRemoteMessageId`) before `_preserveFreshLocalAssistantState`.
+        // Tracked-but-unprotected transport is the path that exercises that
+        // ordering — e.g. a stale transport id that no longer matches the tail.
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localTail = _assistantMessage(
+          id: 'assistant-local',
+          content: 'Partial',
+          isStreaming: true,
+          metadata: const {'modelName': 'GPT-4o'},
+        );
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(_conversation('chat-1', [userMessage, localTail]));
+        await Future<void>.delayed(Duration.zero);
+
+        // Transport is tracked under a non-matching id so protection is false
+        // and adopt is allowed, but `_hasTrackedStreamingTransport` is true.
+        var transportDisposed = false;
+        notifier.setSocketSubscriptions('stale-transport-id', [
+          () => transportDisposed = true,
+        ]);
+        check(notifier.debugShouldProtectLocalStreamingState).isFalse();
+
+        notifier.recordResumeBoundRemoteMessageId(
+          'assistant-local',
+          'server-foreign',
+        );
+
+        final foreignEcho = _assistantMessage(
+          id: 'server-foreign',
+          content: '',
+          isStreaming: false,
+        );
+        active.set(_conversation('chat-1', [userMessage, foreignEcho]));
+        await Future<void>.delayed(Duration.zero);
+
+        final merged = container.read(chatMessagesProvider).last;
+        check(merged.isStreaming).isTrue();
+        check(merged.metadata?['modelName']).equals('GPT-4o');
+        // Still-streaming preserve must not tear down transport either.
+        check(transportDisposed).isFalse();
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
       'shouldCleanupStreamingFromServer ignores a stale echo but retires real completions',
       () {
         final container = _buildContainer();

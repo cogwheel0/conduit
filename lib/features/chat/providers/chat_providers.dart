@@ -501,8 +501,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   /// Database emissions adopt through the exact same protected path as
   /// server snapshots: streaming state is never touched while
-  /// [_shouldProtectLocalStreamingState] holds, and all dedupe/protection
-  /// lives in [_adoptServerMessages].
+  /// [_shouldProtectLocalStreamingState] or [_isResumeStreamingActive] holds,
+  /// and all dedupe/protection lives in [_adoptServerMessages].
   Future<void> _onDbMessagesChanged(
     String conversationId,
     List<MessageRow> rows,
@@ -510,7 +510,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ) async {
     if (_disposed ||
         generation != _dbMessagesGeneration ||
-        _shouldProtectLocalStreamingState) {
+        _shouldProtectLocalStreamingState ||
+        _isResumeStreamingActive) {
       return;
     }
     if (ref.read(activeConversationProvider)?.id != conversationId) {
@@ -532,7 +533,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (_disposed ||
           !ref.mounted ||
           generation != _dbMessagesGeneration ||
-          _shouldProtectLocalStreamingState) {
+          _shouldProtectLocalStreamingState ||
+          _isResumeStreamingActive) {
         return;
       }
       if (ref.read(activeConversationProvider)?.id != conversationId) {
@@ -809,11 +811,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
     _clearStreamingContent();
-    if (_hasTrackedStreamingTransport) {
-      _dropStreamingTransportState(source: 'server adoption from $source');
-    }
+
+    // Preserve while `_boundRemoteMessageId` is still set. Dropping transport
+    // first cleared that binding (and the resume task monitor), so a stale
+    // empty echo under the foreign server id could replace the local streaming
+    // tail and retire the stream early.
     state = _preserveFreshLocalAssistantState(serverMessages);
     _syncStreamingProfileWithState();
+
+    // Only tear down transport when this adopt ends the stream. A preserved
+    // still-streaming echo must keep the resume monitor / socket binding /
+    // bound remote id intact for later polls and socket deltas.
+    if (needsCleanup || !_hasStreamingAssistant) {
+      if (_hasTrackedStreamingTransport) {
+        _dropStreamingTransportState(source: 'server adoption from $source');
+      }
+    }
 
     if (needsCleanup) {
       _cancelMessageStream();
