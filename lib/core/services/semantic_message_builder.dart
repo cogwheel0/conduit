@@ -192,16 +192,20 @@ String _markdownCodeFence(String code, String language) {
 String _escape(String value) => _semanticHtmlEscape.convert(value);
 
 // Matches fenced code blocks (``` or ~~~) and single-line inline code spans.
-// Fences must open and close at the start of a line (0-3 spaces indent) with a
-// matching run of fence characters, so the matched regions are a strict subset
-// of what the markdown block parser treats as code. Escaping is therefore only
-// ever SKIPPED where the parser would not begin a block, so a line-leading
+// Fences must OPEN at the start of a line (0-3 spaces indent); the three
+// alternatives are (1) a fence closed by a matching run of fence characters,
+// (2) an unclosed fence that runs to end of input (as the block parser and
+// [ConduitMarkdownPreprocessor.normalize] treat it — e.g. mid-stream, or when a
+// model forgets the closing fence), and (3) a single-line inline span. Because
+// every fence is anchored to a line start, the matched regions are a strict
+// subset of what the markdown block parser treats as code, so escaping is only
+// ever SKIPPED where the parser would not begin a block — a line-leading
 // `<details>`/`<summary>` can never be smuggled past [_escapeText] via a
 // mid-line fence marker. Inline code is matched one line at a time for the same
-// reason. Mismatched or unclosed fences fall back to being escaped as prose
-// (the safe direction — worst case is a rare cosmetic entity, never injection).
+// reason.
 final _codeRegionPattern = RegExp(
   r'(?:^|\n)[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\1[ \t]*(?=\n|$)'
+  r'|(?:^|\n)[ ]{0,3}(?:`{3,}|~{3,})[^\n]*\n[\s\S]*$'
   r'|`[^`\n]+?`',
   multiLine: true,
 );

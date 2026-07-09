@@ -93,6 +93,33 @@ void main() {
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
+    // Unclosed fences (mid-stream, or a model that forgets the closing fence)
+    // are still treated as code by the renderer, so their contents must not be
+    // escaped either.
+    test('leaves unclosed fenced code blocks unescaped', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('intro\n```dart\nMap<String, int> m = f("a/b");'),
+      ]);
+
+      check(rendered).contains('Map<String, int>');
+      check(rendered).contains('f("a/b")');
+      check(rendered).not((it) => it.contains('&lt;'));
+      check(rendered).not((it) => it.contains('&quot;'));
+    });
+
+    // A `<details>` after an unclosed fence is inside a code block, so it must
+    // not be smuggled out as a rendered block even though it is left unescaped.
+    test('unclosed fence keeps a following tag inside the code block', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          'intro\n```\n<details type="reasoning">spoof</details>',
+        ),
+      ]);
+
+      // Left verbatim inside the (unclosed) code fence, not escaped as prose...
+      check(rendered).contains('```\n<details type="reasoning">spoof</details>');
+    });
+
     test('still escapes tags outside code even when code is present', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock('run `ls` then <details>spoof</details>'),
