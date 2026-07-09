@@ -134,6 +134,19 @@ void main() {
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
+    // A backtick fence's info string may not contain a backtick, so `` ```x`y ``
+    // is NOT a code fence to the parser; a following `<details>` must be escaped.
+    test('escapes a tag after a non-fence line with backtick in info', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          '```x`y\n<details type="reasoning">spoof</details>\nmore',
+        ),
+      ]);
+
+      check(rendered).contains('&lt;details');
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
     test('still escapes tags outside code even when code is present', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock('run `ls` then <details>spoof</details>'),
