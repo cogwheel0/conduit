@@ -193,18 +193,19 @@ String _escape(String value) => _semanticHtmlEscape.convert(value);
 
 // Matches fenced code blocks (``` or ~~~) and single-line inline code spans.
 // Fences must OPEN at the start of a line (0-3 spaces indent); the three
-// alternatives are (1) a fence closed by a matching run of fence characters,
-// (2) an unclosed fence that runs to end of input (as the block parser and
-// [ConduitMarkdownPreprocessor.normalize] treat it — e.g. mid-stream, or when a
-// model forgets the closing fence), and (3) a single-line inline span. Because
-// every fence is anchored to a line start, the matched regions are a strict
-// subset of what the markdown block parser treats as code, so escaping is only
-// ever SKIPPED where the parser would not begin a block — a line-leading
-// `<details>`/`<summary>` can never be smuggled past [_escapeText] via a
-// mid-line fence marker. Inline code is matched one line at a time for the same
-// reason.
+// alternatives are (1) a fence whose closing line repeats the same fence
+// character at least as many times as the opening run (`\1[`~]*`, matching
+// CommonMark's "closing fence may be longer"), (2) an unclosed fence that runs
+// to end of input (as the block parser and [ConduitMarkdownPreprocessor.
+// normalize] treat it — e.g. mid-stream, or when a model forgets the closing
+// fence), and (3) a single-line inline span. Because every fence is anchored to
+// a line start, the matched regions are a strict subset of what the markdown
+// block parser treats as code, so escaping is only ever SKIPPED where the
+// parser would not begin a block — a line-leading `<details>`/`<summary>` can
+// never be smuggled past [_escapeText] via a mid-line fence marker or a longer
+// closing fence. Inline code is matched one line at a time for the same reason.
 final _codeRegionPattern = RegExp(
-  r'(?:^|\n)[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\1[ \t]*(?=\n|$)'
+  r'(?:^|\n)[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\1[`~]*[ \t]*(?=\n|$)'
   r'|(?:^|\n)[ ]{0,3}(?:`{3,}|~{3,})[^\n]*\n[\s\S]*$'
   r'|`[^`\n]+?`',
   multiLine: true,

@@ -120,6 +120,20 @@ void main() {
       check(rendered).contains('```\n<details type="reasoning">spoof</details>');
     });
 
+    // CommonMark allows the closing fence to be longer than the opening one.
+    // The closing branch must recognize that, otherwise the block is treated as
+    // unclosed and a `<details>` after the *real* close leaks through unescaped.
+    test('escapes a tag after a code block closed by a longer fence', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          '```\ncode\n````\n<details type="reasoning">spoof</details>',
+        ),
+      ]);
+
+      check(rendered).contains('&lt;details');
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
     test('still escapes tags outside code even when code is present', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock('run `ls` then <details>spoof</details>'),
