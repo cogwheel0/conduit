@@ -161,6 +161,12 @@ String _normalizedContentForBlock(
 String _normalizedContentForDetails(CompiledMarkdownDetailsBlock block) {
   final summary = block.summaryText.trim();
   final body = block.bodyMarkdown.trim();
+  // Match `_normalizedContentForBlock`: a blank details block still needs a
+  // non-empty normalizedContent so ConduitMarkdownWidget does not shrink it
+  // away before the details renderer can paint the chrome.
+  if (summary.isEmpty && body.isEmpty) {
+    return block.blockId;
+  }
   if (summary.isEmpty) {
     return body;
   }

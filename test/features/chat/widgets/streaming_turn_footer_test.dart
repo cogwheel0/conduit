@@ -1,5 +1,6 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit/features/chat/widgets/five_rotating_dots.dart';
 import 'package:conduit/features/chat/widgets/streaming_turn_footer.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -238,6 +239,46 @@ void main() {
       );
     },
   );
+
+  testWidgets('hides typing indicator while a queued completion is pending', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(hapticFeedback: false),
+        ),
+        queuedCompletionInfoForMessageProvider('assistant-queued').overrideWith(
+          (ref) => Stream<QueuedCompletionInfo?>.value(
+            const QueuedCompletionInfo(
+              seq: 1,
+              chatId: 'chat-1',
+              assistantMessageId: 'assistant-queued',
+              phase: QueuedCompletionPhase.pending,
+              isOffline: true,
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final message = ChatMessage(
+      id: 'assistant-queued',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: message),
+    );
+    await tester.pump();
+
+    expect(find.byType(FiveRotatingDots), findsNothing);
+    expect(find.byKey(const ValueKey('typing')), findsNothing);
+  });
 
   testWidgets('fires one running haptic and re-arms on message id change', (
     tester,

@@ -490,6 +490,46 @@ void main() {
     expect(part.document.normalizedContent, contains('search'));
   });
 
+  test(
+    'blank details display part falls back to blockId so the chrome is not shrunk away',
+    () {
+      // A details block with empty summary/body still needs non-empty
+      // normalizedContent — otherwise ConduitMarkdownWidget short-circuits to
+      // SizedBox.shrink and the split-render path drops the block entirely.
+      const blankDetails = CompiledMarkdownDetailsBlock(
+        blockId: 'detailsBlock:blank',
+        detailsData: CompiledMarkdownDetailsData(
+          summaryText: '',
+          bodyMarkdown: '',
+          bodyStartIndex: 0,
+          hasBody: false,
+          kind: CompiledMarkdownDetailsKind.reasoning,
+          type: 'reasoning',
+          name: '',
+          isDone: false,
+          isPending: true,
+          durationSeconds: 0,
+        ),
+      );
+      final document = CompiledMarkdownDocument(
+        normalizedContent: '',
+        renderTier: MarkdownRenderTier.blocks,
+        containsCitations: false,
+        heavyBlockCount: 0,
+        blocks: const <CompiledMarkdownBlock>[blankDetails],
+        nodes: const <CompiledMarkdownNode>[],
+        blockLatexExpressions: const <String, String>{},
+        inlineLatexExpressions: const <String, String>{},
+      );
+
+      final parts = buildMarkdownDisplayParts(document, isStreaming: true);
+
+      expect(parts, hasLength(1));
+      expect(parts.single.document.normalizedContent, 'detailsBlock:blank');
+      expect(parts.single.document.isEmpty, isFalse);
+    },
+  );
+
   test('buildMarkdownDisplayParts returns an empty list for an empty document', () {
     final parts = buildMarkdownDisplayParts(
       const CompiledMarkdownDocument.empty(),

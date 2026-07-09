@@ -703,6 +703,70 @@ void main() {
     );
 
     test(
+      'genuine completion under a bound foreign id retires the stream',
+      () async {
+        // Cleanup previously only matched server messages by the local
+        // placeholder id, so a finished foreign-id snapshot with the same
+        // message count slipped past `_shouldCleanupStreamingFromServer`.
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final userMessage = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Hello',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final localTail = _assistantMessage(
+          id: 'assistant-local',
+          content: 'Partial',
+          isStreaming: true,
+        );
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(_conversation('chat-1', [userMessage, localTail]));
+        await Future<void>.delayed(Duration.zero);
+
+        notifier.recordResumeBoundRemoteMessageId(
+          'assistant-local',
+          'server-foreign',
+        );
+
+        check(
+          notifier.debugShouldCleanupStreamingFromServer([
+            userMessage,
+            _assistantMessage(
+              id: 'server-foreign',
+              content: 'Final answer',
+              isStreaming: false,
+              metadata: const {'responseDone': true},
+            ),
+          ]),
+        ).isTrue();
+
+        active.set(
+          _conversation('chat-1', [
+            userMessage,
+            _assistantMessage(
+              id: 'server-foreign',
+              content: 'Final answer',
+              isStreaming: false,
+              metadata: const {'responseDone': true},
+            ),
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final merged = container.read(chatMessagesProvider).last;
+        check(merged.isStreaming).isFalse();
+        check(merged.content).equals('Final answer');
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
       'shouldCleanupStreamingFromServer ignores a stale echo but retires real completions',
       () {
         final container = _buildContainer();

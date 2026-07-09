@@ -86,16 +86,24 @@ void main() {
     expect(
       controller.shouldDetachForUserScrollAway(
         nearBottom: false,
-        scrollDelta: 4,
+        scrollDelta: -4,
       ),
       isFalse,
     );
     expect(
       controller.shouldDetachForUserScrollAway(
         nearBottom: false,
-        scrollDelta: 36,
+        scrollDelta: -36,
       ),
       isTrue,
+    );
+    // Scrolling toward the bottom must not break the sticky latch.
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: 36,
+      ),
+      isFalse,
     );
 
     controller.detachByUser();
@@ -334,7 +342,7 @@ void main() {
     );
     expect(controller.isAnchoredToBottom, isTrue);
     expect(
-      controller.shouldDetachForUserScrollAway(nearBottom: false, scrollDelta: 4),
+      controller.shouldDetachForUserScrollAway(nearBottom: false, scrollDelta: -4),
       isFalse,
     );
 
@@ -354,7 +362,7 @@ void main() {
     expect(
       controller.shouldDetachForUserScrollAway(
         nearBottom: false,
-        scrollDelta: 40,
+        scrollDelta: -40,
       ),
       isTrue,
     );

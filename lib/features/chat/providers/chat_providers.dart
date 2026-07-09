@@ -1452,8 +1452,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       orElse: () => state.last,
     );
 
-    // Find the same message in server messages by ID
-    final serverMsg = serverMessages.where((m) => m.id == localStreamingMsg.id);
+    // Find the same message in server messages by local id, or by the foreign
+    // id a socket resume bound to this tail (`_boundRemoteMessageId`).
+    final serverMsg = serverMessages.where(
+      (m) =>
+          m.id == localStreamingMsg.id ||
+          (_boundRemoteMessageId != null && m.id == _boundRemoteMessageId),
+    );
     if (serverMsg.isNotEmpty && !serverMsg.first.isStreaming) {
       final serverMessage = serverMsg.first;
       // A stale empty non-streaming echo of the in-flight assistant must not

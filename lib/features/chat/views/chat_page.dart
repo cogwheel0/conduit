@@ -2067,7 +2067,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               _distanceFromBottom() <= _scrollButtonHideThreshold;
           final scrollDelta = notification is ScrollUpdateNotification
               ? notification.scrollDelta ?? 0
-              : _bottomAnchorController.userScrollAwayThreshold;
+              // Non-update user-scroll signals (drag start / directional) have
+              // no delta; treat them as an intentional scroll-away so the sticky
+              // latch can break once the user takes control.
+              : -_bottomAnchorController.userScrollAwayThreshold;
           if (_bottomAnchorController.shouldDetachForUserScrollAway(
             nearBottom: nearBottom,
             scrollDelta: scrollDelta,
@@ -2086,7 +2089,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         }
         if (notification is ScrollEndNotification || isUserScrollIdle) {
           _endScrollProfile(reason: 'idle');
+          final wasInteracting = _isUserInteractingWithScroll;
           _isUserInteractingWithScroll = false;
+          // During a drag, `_dismissPinToTopAfterUserScroll` may bail when
+          // removing the phantom spacer would jump the viewport. Retry the
+          // compensated dismiss once the gesture ends so pin-to-top cannot
+          // stay stuck with the extra bottom spacer.
+          if (wasInteracting && _wantsPinToTop) {
+            _endPinToTop(preserveStreamingId: true);
+          }
         }
         return false; // Allow notification to continue bubbling
       },

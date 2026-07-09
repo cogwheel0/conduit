@@ -88,7 +88,11 @@ class ChatBottomAnchorController {
     if (!_hasUnverifiedStickyContentChange) {
       return true;
     }
-    return scrollDelta.abs() >= userScrollAwayThreshold;
+    // Only detach when the user scrolls *away* from the bottom. In a
+    // non-reversed list, that is a negative scrollDelta (offset decreases).
+    // Using abs() previously also broke the sticky latch on intentional
+    // downward drags back toward the bottom.
+    return scrollDelta <= -userScrollAwayThreshold;
   }
 
   void verifyStickyCorrection({

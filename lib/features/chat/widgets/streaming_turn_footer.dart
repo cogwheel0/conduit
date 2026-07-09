@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/platform_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../providers/queued_completion_provider.dart';
 import '../views/chat_turn_render_state.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
@@ -69,7 +70,18 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
 
   @override
   Widget build(BuildContext context) {
-    final shouldShow = shouldShowStreamingTurnFooter(message: widget.message);
+    // Queued/offline/stalled completions keep `isStreaming: true` on the
+    // assistant row while the message body shows the retry banner. Suppress
+    // the timeline typing indicator in that case — the old in-message footer
+    // gated on `!hasQueuedCompletion` the same way.
+    final queuedCompletionAsync = ref.watch(
+      queuedCompletionInfoForMessageProvider(widget.message.id),
+    );
+    final hasQueuedCompletion =
+        queuedCompletionAsync.hasValue && queuedCompletionAsync.value != null;
+    final shouldShow =
+        !hasQueuedCompletion &&
+        shouldShowStreamingTurnFooter(message: widget.message);
     _syncRunningHaptic(shouldShow);
 
     return AnimatedSwitcher(
