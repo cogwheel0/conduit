@@ -822,14 +822,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Only tear down transport when this adopt ends the stream. A preserved
     // still-streaming echo must keep the resume monitor / socket binding /
     // bound remote id intact for later polls and socket deltas.
-    if (needsCleanup || !_hasStreamingAssistant) {
+    // Cancel before drop: `_dropStreamingTransportState` nulls `_messageStream`
+    // without canceling the controller, so `_cancelMessageStream` must run
+    // first while the controller is still attached.
+    if (needsCleanup) {
+      _cancelMessageStream();
+    } else if (!_hasStreamingAssistant) {
       if (_hasTrackedStreamingTransport) {
         _dropStreamingTransportState(source: 'server adoption from $source');
       }
-    }
-
-    if (needsCleanup) {
-      _cancelMessageStream();
     }
 
     DebugLogger.log(
