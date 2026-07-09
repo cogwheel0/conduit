@@ -66,6 +66,33 @@ void main() {
       check(rendered).not((it) => it.contains('&quot;'));
     });
 
+    // `~~~` fences are code blocks too (GFM); their contents must be preserved.
+    test('leaves ~~~ fenced code blocks unescaped', () {
+      const code = 'wrapper:\n~~~dart\nMap<String, int> m; f("x/y") && g;\n~~~';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(code),
+      ]);
+
+      check(rendered).contains('Map<String, int>');
+      check(rendered).contains('f("x/y") && g');
+      check(rendered).not((it) => it.contains('&lt;'));
+      check(rendered).not((it) => it.contains('&quot;'));
+    });
+
+    // A fence marker that is NOT at the start of a line must not create a code
+    // region the block parser disagrees with; otherwise a line-leading
+    // `<details>` could slip through unescaped and render as a spoofed block.
+    test('escapes a line-leading tag after a mid-line fence marker', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          'see ``` mid\n<details type="reasoning">spoof</details>\n``` end',
+        ),
+      ]);
+
+      check(rendered).contains('&lt;details');
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
     test('still escapes tags outside code even when code is present', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock('run `ls` then <details>spoof</details>'),

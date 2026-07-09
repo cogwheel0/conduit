@@ -191,11 +191,20 @@ String _markdownCodeFence(String code, String language) {
 
 String _escape(String value) => _semanticHtmlEscape.convert(value);
 
-// Matches fenced code blocks (```...```) and single-line inline code spans.
-// Inline spans are intentionally matched one line at a time: a multi-line span
-// must never be able to hide a line-leading `<details>`/`<summary>` from the
-// block parser (see [_escapeText]).
-final _codeRegionPattern = RegExp(r'```[\s\S]*?```|`[^`\n]+?`');
+// Matches fenced code blocks (``` or ~~~) and single-line inline code spans.
+// Fences must open and close at the start of a line (0-3 spaces indent) with a
+// matching run of fence characters, so the matched regions are a strict subset
+// of what the markdown block parser treats as code. Escaping is therefore only
+// ever SKIPPED where the parser would not begin a block, so a line-leading
+// `<details>`/`<summary>` can never be smuggled past [_escapeText] via a
+// mid-line fence marker. Inline code is matched one line at a time for the same
+// reason. Mismatched or unclosed fences fall back to being escaped as prose
+// (the safe direction — worst case is a rare cosmetic entity, never injection).
+final _codeRegionPattern = RegExp(
+  r'(?:^|\n)[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ ]{0,3}\1[ \t]*(?=\n|$)'
+  r'|`[^`\n]+?`',
+  multiLine: true,
+);
 
 /// Escapes HTML-significant characters in plain answer text while leaving the
 /// contents of markdown code spans and fenced code blocks untouched.
