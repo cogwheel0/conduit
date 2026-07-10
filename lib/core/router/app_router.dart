@@ -20,6 +20,7 @@ import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
 import '../../features/navigation/views/folder_page.dart';
 import '../../shared/widgets/drawer_shell_page.dart';
+import '../../shared/widgets/server_version_warning_shell.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
@@ -190,7 +191,7 @@ final routerNotifierProvider = Provider<RouterNotifier>((ref) {
 final goRouterProvider = Provider<GoRouter>((ref) {
   final notifier = ref.watch(routerNotifierProvider);
 
-  final routes = <RouteBase>[
+  final appRoutes = <RouteBase>[
     GoRoute(
       path: Routes.splash,
       name: RouteNames.splash,
@@ -381,7 +382,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: Routes.splash,
     refreshListenable: notifier,
     redirect: notifier.redirect,
-    routes: routes,
+    routes: [
+      ShellRoute(
+        builder: (context, state, child) =>
+            ServerVersionWarningShell(child: child),
+        routes: appRoutes,
+      ),
+    ],
     observers: [NavigationLoggingObserver()],
     errorBuilder: (context, state) {
       final l10n = AppLocalizations.of(context);
