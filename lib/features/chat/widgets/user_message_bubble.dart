@@ -91,12 +91,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     final imageCount = widget.message.attachmentIds!.length;
 
-    // iMessage-style image layout with AnimatedSwitcher for smooth transitions
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      switchInCurve: Curves.easeInOut,
-      child: _buildImageLayout(imageCount),
-    );
+    return _buildImageLayout(imageCount);
   }
 
   Widget _buildUserFileImages(_UserFilePartitions partitions) {
@@ -108,13 +103,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     // Add images first
     if (imageFiles.isNotEmpty) {
-      widgets.add(
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          switchInCurve: Curves.easeInOut,
-          child: _buildFileImageLayout(imageFiles, imageFiles.length),
-        ),
-      );
+      widgets.add(_buildFileImageLayout(imageFiles, imageFiles.length));
     }
 
     // Add non-image files

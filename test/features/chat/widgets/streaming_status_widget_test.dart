@@ -5,15 +5,23 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Widget buildHarness(
     List<ChatStatusUpdate> updates, {
     bool isStreaming = true,
+    bool disableAnimations = false,
   }) {
     return MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(disableAnimations: disableAnimations),
+        child: child!,
+      ),
       home: Scaffold(
         body: Center(
           child: StreamingStatusWidget(
@@ -141,4 +149,27 @@ void main() {
       expect(find.text('Generating image...'), findsOneWidget);
     },
   );
+
+  testWidgets('reduced motion skips status-chip entrance effects', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildHarness(const [
+        ChatStatusUpdate(
+          action: 'web_search_queries_generated',
+          queries: ['motion polish'],
+          done: true,
+        ),
+      ], disableAnimations: true),
+    );
+
+    await tester.tap(find.text('Searching'));
+    await tester.pumpAndSettle();
+    final query = find.text('motion polish');
+    expect(query, findsOneWidget);
+    expect(
+      find.ancestor(of: query, matching: find.byType(Animate)),
+      findsNothing,
+    );
+  });
 }

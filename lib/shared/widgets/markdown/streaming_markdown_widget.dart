@@ -7,6 +7,7 @@ import '../../utils/ask_conduit_context_menu.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
+import 'markdown_display_part.dart';
 import 'markdown_document_controller.dart';
 import 'markdown_loading_skeleton.dart';
 import 'renderer/block_renderer.dart';
@@ -91,7 +92,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
 
-  /// Fades newly appended visible text while streaming without moving layout.
+  /// Controls fading newly appended visible text while streaming.
+  ///
+  /// This stays enabled by default for existing standalone callers. Live chat
+  /// explicitly disables it so token updates remain immediate; low-frequency
+  /// preview surfaces can retain the decorative reveal.
   final bool enableStreamingTextFade;
 
   @visibleForTesting
@@ -124,6 +129,15 @@ class _StreamingMarkdownWidgetState
     with WidgetsBindingObserver {
   late final MarkdownDocumentController _documentController;
   final GlobalKey _markdownContentKey = GlobalKey();
+  final Map<String, CompiledMarkdownDocument> _displayPartDocumentCache =
+      <String, CompiledMarkdownDocument>{};
+  // Unique per-instance prefix used when no stateScopeId is supplied, so two
+  // scope-less StreamingMarkdownWidgets on the same route don't share
+  // PageStorage keys (markdown_compile_service reuses block ids across unrelated
+  // documents, so a raw partId is not unique on its own).
+  static int _scopelessInstanceCounter = 0;
+  late final String _scopelessFallbackScopeId =
+      'sm${_scopelessInstanceCounter++}';
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
@@ -439,7 +453,7 @@ class _StreamingMarkdownWidgetState
 
     final result = KeyedSubtree(
       key: _markdownContentKey,
-      child: _buildMarkdownWithCitations(compiledDocument),
+      child: _buildMarkdownDisplayParts(compiledDocument),
     );
 
     // Only wrap in SelectionArea when not streaming AND the rendered document is
@@ -468,27 +482,101 @@ class _StreamingMarkdownWidgetState
     );
   }
 
+  Widget _buildMarkdownDisplayParts(CompiledMarkdownDocument document) {
+    final parts = buildMarkdownDisplayParts(
+      document,
+      isStreaming: widget.isStreaming,
+    );
+    if (parts.isEmpty) {
+      _displayPartDocumentCache.clear();
+      return _buildMarkdownWithCitations(
+        document: document,
+        stateScopeId: widget.stateScopeId,
+        enableStreamingTextFade:
+            widget.isStreaming && widget.enableStreamingTextFade,
+        trimLastBlockBottomPadding: true,
+      );
+    }
+    final stableParts = _reuseStableDisplayPartDocuments(parts);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (var index = 0; index < stableParts.length; index += 1)
+          KeyedSubtree(
+            key: ValueKey<String>(
+              'markdown-display-part:${stableParts[index].partId}',
+            ),
+            child: _buildMarkdownWithCitations(
+              document: stableParts[index].document,
+              stateScopeId: _stateScopeIdForPart(stableParts[index]),
+              enableStreamingTextFade:
+                  widget.isStreaming &&
+                  widget.enableStreamingTextFade &&
+                  stableParts[index].isMutableTail,
+              trimLastBlockBottomPadding: index == stableParts.length - 1,
+            ),
+          ),
+      ],
+    );
+  }
+
+  List<MarkdownDisplayPart> _reuseStableDisplayPartDocuments(
+    List<MarkdownDisplayPart> parts,
+  ) {
+    final activePartIds = <String>{};
+    final stableParts = <MarkdownDisplayPart>[];
+    for (final part in parts) {
+      activePartIds.add(part.partId);
+      final previousDocument = _displayPartDocumentCache[part.partId];
+      final stableDocument =
+          previousDocument != null && previousDocument == part.document
+          ? previousDocument
+          : part.document;
+      _displayPartDocumentCache[part.partId] = stableDocument;
+      stableParts.add(part.copyWith(document: stableDocument));
+    }
+    _displayPartDocumentCache.removeWhere(
+      (partId, _) => !activePartIds.contains(partId),
+    );
+    return stableParts;
+  }
+
   /// Builds markdown with inline citation badges.
   ///
   /// Citations like [1], [2] are rendered as clickable
   /// badges inline with the text.
-  Widget _buildMarkdownWithCitations(CompiledMarkdownDocument document) {
+  Widget _buildMarkdownWithCitations({
+    required CompiledMarkdownDocument document,
+    required String? stateScopeId,
+    required bool enableStreamingTextFade,
+    required bool trimLastBlockBottomPadding,
+  }) {
     return ConduitMarkdownWidget(
       compiledDocument: document,
       onLinkTap: widget.onTapLink,
       imageBuilder: _adaptImageBuilder(),
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
-      stateScopeId: widget.stateScopeId,
-      enableStreamingTextFade:
-          widget.isStreaming && widget.enableStreamingTextFade,
+      stateScopeId: stateScopeId,
+      enableStreamingTextFade: enableStreamingTextFade,
       heavyBlockPolicy: widget.isStreaming
           ? MarkdownHeavyBlockPolicy.defer
           : MarkdownHeavyBlockPolicy.eager,
+      trimLastBlockBottomPadding: trimLastBlockBottomPadding,
       debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
       debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
       debugOnBaseRender: widget.debugOnBaseRender,
     );
+  }
+
+  String? _stateScopeIdForPart(MarkdownDisplayPart part) {
+    final scope = widget.stateScopeId;
+    if (scope == null || scope.isEmpty) {
+      return '$_scopelessFallbackScopeId:${part.partId}';
+    }
+    return '$scope:${part.partId}';
   }
 
   void _resolveCompiledDocument(
@@ -603,6 +691,7 @@ extension StreamingMarkdownExtension on String {
   Widget toMarkdown({
     required BuildContext context,
     bool isStreaming = false,
+    bool enableStreamingTextFade = true,
     MarkdownLinkTapCallback? onTapLink,
     List<ChatSourceReference>? sources,
     void Function(int sourceIndex)? onSourceTap,
@@ -612,6 +701,7 @@ extension StreamingMarkdownExtension on String {
     return StreamingMarkdownWidget(
       content: this,
       isStreaming: isStreaming,
+      enableStreamingTextFade: enableStreamingTextFade,
       onTapLink: onTapLink,
       sources: sources,
       onSourceTap: onSourceTap,
@@ -622,10 +712,16 @@ extension StreamingMarkdownExtension on String {
 }
 
 class MarkdownWithLoading extends StatelessWidget {
-  const MarkdownWithLoading({super.key, this.content, required this.isLoading});
+  const MarkdownWithLoading({
+    super.key,
+    this.content,
+    required this.isLoading,
+    this.enableStreamingTextFade = true,
+  });
 
   final String? content;
   final bool isLoading;
+  final bool enableStreamingTextFade;
 
   @override
   Widget build(BuildContext context) {
@@ -634,6 +730,10 @@ class MarkdownWithLoading extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return StreamingMarkdownWidget(content: value, isStreaming: isLoading);
+    return StreamingMarkdownWidget(
+      content: value,
+      isStreaming: isLoading,
+      enableStreamingTextFade: enableStreamingTextFade,
+    );
   }
 }

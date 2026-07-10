@@ -904,7 +904,7 @@ class _EnhancedImageAttachmentState
   }
 
   Widget _buildErrorState() {
-    return Container(
+    final error = Container(
       key: const ValueKey('error'),
       constraints:
           widget.constraints ??
@@ -946,7 +946,11 @@ class _EnhancedImageAttachmentState
           ),
         ],
       ),
-    ).animate().fadeIn(duration: const Duration(milliseconds: 200));
+    );
+    if (widget.disableAnimation || context.reduceMotion) {
+      return error;
+    }
+    return error.animate().fadeIn(duration: const Duration(milliseconds: 200));
   }
 
   Widget _buildNetworkImage() {
@@ -969,6 +973,9 @@ class _EnhancedImageAttachmentState
       memCacheHeight: dimensions.height,
       maxWidthDiskCache: dimensions.width,
       maxHeightDiskCache: dimensions.height,
+      // A short opacity reveal remains safe under Reduce Motion and avoids an
+      // abrupt placeholder swap in OctoImage. Spatial Hero motion is disabled
+      // separately below.
       fadeInDuration: widget.disableAnimation
           ? Duration.zero
           : const Duration(milliseconds: 200),
@@ -1075,22 +1082,28 @@ class _EnhancedImageAttachmentState
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap ?? () => _showFullScreenImage(context),
-          child: Hero(
-            tag: _heroTag,
-            flightShuttleBuilder:
-                (
-                  flightContext,
-                  animation,
-                  flightDirection,
-                  fromHeroContext,
-                  toHeroContext,
-                ) {
-                  final hero = flightDirection == HeroFlightDirection.push
-                      ? fromHeroContext.widget as Hero
-                      : toHeroContext.widget as Hero;
-                  return FadeTransition(opacity: animation, child: hero.child);
-                },
-            child: imageWidget,
+          child: HeroMode(
+            enabled: !context.reduceMotion,
+            child: Hero(
+              tag: _heroTag,
+              flightShuttleBuilder:
+                  (
+                    flightContext,
+                    animation,
+                    flightDirection,
+                    fromHeroContext,
+                    toHeroContext,
+                  ) {
+                    final hero = flightDirection == HeroFlightDirection.push
+                        ? fromHeroContext.widget as Hero
+                        : toHeroContext.widget as Hero;
+                    return FadeTransition(
+                      opacity: animation,
+                      child: hero.child,
+                    );
+                  },
+              child: imageWidget,
+            ),
           ),
         ),
       ),
@@ -1278,12 +1291,15 @@ class FullScreenImageViewer extends ConsumerWidget {
       body: Stack(
         children: [
           Center(
-            child: Hero(
-              tag: tag,
-              child: InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 5.0,
-                child: imageWidget,
+            child: HeroMode(
+              enabled: !context.reduceMotion,
+              child: Hero(
+                tag: tag,
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 5.0,
+                  child: imageWidget,
+                ),
               ),
             ),
           ),

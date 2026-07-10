@@ -116,7 +116,10 @@ class BlockRenderer {
       renderCompiledBlocks(_compiledBlocksFromNodes(nodes));
 
   /// Renders a list of precompiled root blocks as a [Column].
-  Widget renderCompiledBlocks(List<CompiledMarkdownBlock> blocks) {
+  Widget renderCompiledBlocks(
+    List<CompiledMarkdownBlock> blocks, {
+    bool trimLastBlockBottomPadding = true,
+  }) {
     final renderedBlocks = <(String blockId, Widget widget)>[];
     for (final block in blocks) {
       final widget = _renderCompiledBlock(block);
@@ -124,7 +127,7 @@ class BlockRenderer {
         renderedBlocks.add((block.blockId, widget));
       }
     }
-    if (renderedBlocks.isNotEmpty) {
+    if (trimLastBlockBottomPadding && renderedBlocks.isNotEmpty) {
       final lastBlock = renderedBlocks.last;
       renderedBlocks[renderedBlocks.length - 1] = (
         lastBlock.$1,
@@ -1354,6 +1357,9 @@ class BlockRenderer {
       return StreamingMarkdownWidget(
         content: data.bodyMarkdown,
         isStreaming: true,
+        // Nested pending details inherit the parent renderer's decision rather
+        // than silently re-enabling a per-update fade.
+        enableStreamingTextFade: streamingFade != null,
         stateScopeId: nestedStateScopeId,
         onTapLink: onLinkTap,
         sources: inlineRenderer.sources,

@@ -92,6 +92,11 @@ class _ChatMessageListStructure {
         ..write('\u0000')
         ..write(message.metadata?['archivedVariant'] == true ? 1 : 0)
         ..write('\u0000')
+        // responseDone flips the rendered turn phase (running footer host /
+        // pin-to-top) while isStreaming is still set, so the list shell must
+        // rebuild on this transition to recompute the timeline.
+        ..write(message.metadata?['responseDone'] == true ? 1 : 0)
+        ..write('\u0000')
         // Include the displayed model-name fallback so the structure signature
         // changes whenever the label changes, keeping the list-shell rebuild
         // trigger in agreement with chat_page's layout signature. Use the
@@ -395,7 +400,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _stopRemoteTaskMonitor();
 
         if (next != null) {
-          final nextMessages = next.messages;
+          final nextMessages = _preserveFreshLocalAssistantState(next.messages);
           final currentMessagesAlreadyVisible =
               state.isNotEmpty &&
               !_messagesDifferByStreamingSignatures(nextMessages, state);
@@ -496,8 +501,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   /// Database emissions adopt through the exact same protected path as
   /// server snapshots: streaming state is never touched while
-  /// [_shouldProtectLocalStreamingState] holds, and all dedupe/protection
-  /// lives in [_adoptServerMessages].
+  /// [_shouldProtectLocalStreamingState] or [_isResumeStreamingActive] holds,
+  /// and all dedupe/protection lives in [_adoptServerMessages].
   Future<void> _onDbMessagesChanged(
     String conversationId,
     List<MessageRow> rows,
@@ -505,7 +510,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ) async {
     if (_disposed ||
         generation != _dbMessagesGeneration ||
-        _shouldProtectLocalStreamingState) {
+        _shouldProtectLocalStreamingState ||
+        _isResumeStreamingActive) {
       return;
     }
     if (ref.read(activeConversationProvider)?.id != conversationId) {
@@ -527,7 +533,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (_disposed ||
           !ref.mounted ||
           generation != _dbMessagesGeneration ||
-          _shouldProtectLocalStreamingState) {
+          _shouldProtectLocalStreamingState ||
+          _isResumeStreamingActive) {
         return;
       }
       if (ref.read(activeConversationProvider)?.id != conversationId) {
@@ -804,14 +811,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
     _clearStreamingContent();
-    if (_hasTrackedStreamingTransport) {
-      _dropStreamingTransportState(source: 'server adoption from $source');
-    }
+
+    // Preserve while `_boundRemoteMessageId` is still set. Dropping transport
+    // first cleared that binding (and the resume task monitor), so a stale
+    // empty echo under the foreign server id could replace the local streaming
+    // tail and retire the stream early.
     state = _preserveFreshLocalAssistantState(serverMessages);
     _syncStreamingProfileWithState();
 
+    // Only tear down transport when this adopt ends the stream. A preserved
+    // still-streaming echo must keep the resume monitor / socket binding /
+    // bound remote id intact for later polls and socket deltas.
+    // Genuine completion uses the full cancellation path so streaming profile
+    // state is finalized. The fallback below only retires stale transport
+    // ownership after adoption leaves no streaming assistant.
     if (needsCleanup) {
       _cancelMessageStream();
+    } else if (!_hasStreamingAssistant) {
+      if (_hasTrackedStreamingTransport) {
+        _dropStreamingTransportState(source: 'server adoption from $source');
+      }
     }
 
     DebugLogger.log(
@@ -869,10 +888,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final localById = <String, ChatMessage>{
       for (final message in state)
         // Also index empty placeholders that still carry a local-only
-        // `modelName`, so a stale pre-first-token snapshot can't drop the model
-        // label before the metadata merge runs.
+        // streaming state or `modelName`, so a stale pre-first-token snapshot
+        // can't drop local turn state before the metadata merge runs.
         if (message.role == 'assistant' &&
-            (message.content.trim().isNotEmpty ||
+            (message.isStreaming ||
+                message.content.trim().isNotEmpty ||
                 message.followUps.isNotEmpty ||
                 _messageModelName(message) != null))
           message.id: message,
@@ -886,6 +906,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // already-completed assistant messages must defer to the server so an
     // authoritative refresh can correct or truncate them.
     final localTailId = state.last.role == 'assistant' ? state.last.id : null;
+    final serverHasAdditionalMessages = serverMessages.length > state.length;
 
     var changed = false;
     final merged = <ChatMessage>[];
@@ -907,6 +928,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           localMessage != null &&
           isStreamingTail &&
           _shouldPreserveLocalAssistantContent(localMessage, serverMessage);
+      final shouldPreserveStreamingState =
+          localMessage != null &&
+          _shouldPreserveLocalAssistantStreamingState(
+            localMessage,
+            serverMessage,
+            isStreamingTail: isStreamingTail,
+            serverHasAdditionalMessages: serverHasAdditionalMessages,
+          );
       final sameResponseContent =
           localMessage != null &&
           _sameAssistantResponseText(
@@ -928,7 +957,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _messageModelName(serverMessage) == null;
       if (!preserveContent &&
           !shouldPreserveFollowUps &&
-          !shouldPreserveModelName) {
+          !shouldPreserveModelName &&
+          !shouldPreserveStreamingState) {
         merged.add(serverMessage);
         continue;
       }
@@ -955,6 +985,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       merged.add(
         serverMessage.copyWith(
+          isStreaming: shouldPreserveStreamingState
+              ? true
+              : serverMessage.isStreaming,
           content: preserveContent
               ? localMessage.content
               : serverMessage.content,
@@ -967,6 +1000,53 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     return changed ? List<ChatMessage>.unmodifiable(merged) : serverMessages;
+  }
+
+  bool _shouldPreserveLocalAssistantStreamingState(
+    ChatMessage localMessage,
+    ChatMessage serverMessage, {
+    required bool isStreamingTail,
+    required bool serverHasAdditionalMessages,
+  }) {
+    if (!isStreamingTail || serverHasAdditionalMessages) {
+      return false;
+    }
+    // The role / streaming / responseDone / error guards are all re-checked by
+    // _isStaleStreamingAssistantEcho, so delegate directly rather than
+    // duplicating them here.
+    return _isStaleStreamingAssistantEcho(localMessage, serverMessage);
+  }
+
+  bool _isStaleStreamingAssistantEcho(
+    ChatMessage localMessage,
+    ChatMessage serverMessage,
+  ) {
+    if (localMessage.role != 'assistant' ||
+        serverMessage.role != 'assistant' ||
+        !localMessage.isStreaming ||
+        serverMessage.isStreaming) {
+      return false;
+    }
+    if (serverMessage.metadata?['responseDone'] == true ||
+        serverMessage.error != null) {
+      return false;
+    }
+    // Deliberately does NOT gate on statusHistory, versions, or usage. Those
+    // fields are populated on the assistant message *during* streaming — the
+    // server pushes status/usage updates as content-empty, non-streaming
+    // snapshots before the answer tokens arrive (see streaming_helper's status/
+    // usage patches). Treating their presence as "a real completed update"
+    // therefore retires the active stream prematurely and drops the typing
+    // footer mid-turn. Real completion is proven by responseDone/error (guarded
+    // above) or by non-empty content/output/files/embeds/followUps/sources/
+    // codeExecutions, so a genuinely finished turn is never a metadata-only echo.
+    return serverMessage.content.trim().isEmpty &&
+        serverMessage.output?.isNotEmpty != true &&
+        serverMessage.files?.isNotEmpty != true &&
+        serverMessage.embeds?.isNotEmpty != true &&
+        serverMessage.followUps.isEmpty &&
+        serverMessage.sources.isEmpty &&
+        serverMessage.codeExecutions.isEmpty;
   }
 
   bool _shouldPreserveLocalAssistantContent(
@@ -1372,9 +1452,31 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       orElse: () => state.last,
     );
 
-    // Find the same message in server messages by ID
-    final serverMsg = serverMessages.where((m) => m.id == localStreamingMsg.id);
+    // Find the same message in server messages by local id, or by the foreign
+    // id a socket resume bound to this tail (`_boundRemoteMessageId`).
+    final serverMsg = serverMessages.where(
+      (m) =>
+          m.id == localStreamingMsg.id ||
+          (_boundRemoteMessageId != null && m.id == _boundRemoteMessageId),
+    );
     if (serverMsg.isNotEmpty && !serverMsg.first.isStreaming) {
+      final serverMessage = serverMsg.first;
+      // A stale empty non-streaming echo of the in-flight assistant must not
+      // retire the stream — UNLESS the server has already moved past this turn
+      // (it carries more messages than we hold locally), which proves the turn
+      // completed and the echo is no longer the tail. Mirrors the
+      // additional-messages guard in _shouldPreserveLocalAssistantStreamingState
+      // so the cleanup and preserve paths agree.
+      final serverHasAdditionalMessages = serverMessages.length > state.length;
+      if (!serverHasAdditionalMessages &&
+          _isStaleStreamingAssistantEcho(localStreamingMsg, serverMessage)) {
+        DebugLogger.log(
+          'Ignoring stale non-streaming server echo for active message '
+          '${localStreamingMsg.id}',
+          scope: 'chat/providers',
+        );
+        return false;
+      }
       DebugLogger.log(
         'Server indicates streaming complete for message ${localStreamingMsg.id}',
         scope: 'chat/providers',
@@ -1396,6 +1498,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     return false;
   }
+
+  @visibleForTesting
+  bool debugShouldCleanupStreamingFromServer(
+    List<ChatMessage> serverMessages,
+  ) => _shouldCleanupStreamingFromServer(serverMessages);
 
   bool get _hasStreamingAssistant {
     if (state.isEmpty) return false;
@@ -1490,9 +1597,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       scope: 'chat/providers',
     );
 
+    // Cancel before releasing the only controller reference so late transport
+    // callbacks cannot mutate state after its transport has been retired.
+    final controller = _messageStream;
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
     _boundRemoteMessageId = null;
+    if (controller != null && controller.isActive) {
+      unawaited(controller.cancel());
+    }
     cancelSocketSubscriptions();
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();

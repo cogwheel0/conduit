@@ -900,7 +900,7 @@ class _CollapseToggle extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             AnimatedSwitcher(
-              duration: AnimationDuration.fast,
+              duration: context.motionDuration(AnimationDuration.fast),
               child: Icon(
                 isCollapsed
                     ? Icons.expand_more_rounded
@@ -912,7 +912,7 @@ class _CollapseToggle extends StatelessWidget {
             ),
             const SizedBox(width: Spacing.xs),
             AnimatedSwitcher(
-              duration: AnimationDuration.fast,
+              duration: context.motionDuration(AnimationDuration.fast),
               child: Text(
                 isCollapsed ? 'Show $hiddenLineCount more lines' : 'Show less',
                 key: ValueKey(isCollapsed),
@@ -1031,7 +1031,7 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
             child: GestureDetector(
               onTap: _handleCopy,
               child: AnimatedContainer(
-                duration: AnimationDuration.fast,
+                duration: context.motionDuration(AnimationDuration.fast),
                 padding: const EdgeInsets.symmetric(
                   horizontal: Spacing.xs + 2,
                   vertical: Spacing.xs - 1,
@@ -1046,7 +1046,7 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     AnimatedSwitcher(
-                      duration: AnimationDuration.fast,
+                      duration: context.motionDuration(AnimationDuration.fast),
                       child: Icon(
                         _isCopied
                             ? Icons.check_rounded
@@ -1058,15 +1058,11 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
                     ),
                     if (_isHovering || _isCopied) ...[
                       const SizedBox(width: Spacing.xs),
-                      AnimatedOpacity(
-                        duration: AnimationDuration.fast,
-                        opacity: 1.0,
-                        child: Text(
-                          _isCopied ? 'Copied!' : 'Copy',
-                          style: markdownStyle.codeChrome.copyWith(
-                            color: _isCopied ? successColor : iconColor,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      Text(
+                        _isCopied ? 'Copied!' : 'Copy',
+                        style: markdownStyle.codeChrome.copyWith(
+                          color: _isCopied ? successColor : iconColor,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
