@@ -14,6 +14,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -262,6 +263,49 @@ void main() {
 
     expect(find.text('Model B'), findsOneWidget);
     expect(find.text('Model A'), findsNothing);
+  });
+
+  testWidgets('archived version stays settled when the live version resumes', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-version-resume',
+      role: 'assistant',
+      content: 'Current version',
+      timestamp: DateTime(2024, 1, 1),
+      versions: [
+        ChatMessageVersion(
+          id: 'assistant-version-resume-v1',
+          content: 'Older version',
+          timestamp: DateTime(2023, 12, 31),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pumpAndSettle();
+    await _tapVersionControl(
+      tester,
+      visibleIcon: Icons.chevron_left,
+      overflowLabel: 'Prev',
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message.copyWith(isStreaming: true),
+        isStreaming: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Older version'), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(
+      tester
+          .widget<StreamingMarkdownWidget>(find.byType(StreamingMarkdownWidget))
+          .isStreaming,
+      isFalse,
+    );
   });
 
   testWidgets('pending-only finished statuses do not leave an empty gap', (

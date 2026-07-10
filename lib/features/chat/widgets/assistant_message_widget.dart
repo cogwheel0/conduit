@@ -148,7 +148,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return chatTurnPhaseShowsCompletedFooter(_turnPhase);
   }
 
-  bool get _uiTreatsAsStreaming => _turnPhase == ChatTurnPhase.running;
+  bool get _uiTreatsAsStreaming =>
+      _activeVersionIndex < 0 && _turnPhase == ChatTurnPhase.running;
 
   // press state handled by shared ChatActionButton
 
