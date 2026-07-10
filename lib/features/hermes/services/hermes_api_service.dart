@@ -98,9 +98,11 @@ class HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    CancelToken? cancelToken,
   }) async {
     final resp = await _dio.post<dynamic>(
       '$_root/v1/runs',
+      cancelToken: cancelToken,
       data: {
         'input': input,
         'session_id': ?sessionId,
@@ -151,10 +153,24 @@ class HermesApiService {
 
   /// Fetches the current state of a run (`GET /v1/runs/{id}`) — used to recover
   /// a final result when the events stream drops before a terminal event.
-  Future<Map<String, dynamic>> getRun(String runId) async {
-    final resp = await _dio.get<dynamic>('$_root/v1/runs/$runId');
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    final resp = await _dio.get<dynamic>(
+      '$_root/v1/runs/$runId',
+      cancelToken: cancelToken,
+    );
     final data = resp.data;
-    return data is Map ? data.cast<String, dynamic>() : const {};
+    if (data is! Map) {
+      throw const FormatException('Hermes getRun returned a non-object body');
+    }
+    final map = data.cast<String, dynamic>();
+    for (final key in const ['run', 'data', 'result']) {
+      final nested = map[key];
+      if (nested is Map) return nested.cast<String, dynamic>();
+    }
+    return map;
   }
 
   /// Stops a run (`POST /v1/runs/{id}/stop`).
@@ -175,9 +191,13 @@ class HermesApiService {
   // ---------------------------------------------------------------------------
 
   /// Creates a session (`POST /api/sessions`) and returns its id.
-  Future<String> createSession({String? title}) async {
+  Future<String> createSession({
+    String? title,
+    CancelToken? cancelToken,
+  }) async {
     final resp = await _dio.post<dynamic>(
       '$_root/api/sessions',
+      cancelToken: cancelToken,
       data: {'title': ?title},
     );
     final id = _sessionId(resp.data);
@@ -333,8 +353,9 @@ class HermesApiService {
     required String approvalId,
     required bool approved,
   }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
     await _dio.post<dynamic>(
-      '$_root/v1/runs/$runId/approval',
+      '$_root/v1/runs/$encodedRunId/approval',
       data: {
         'approval_id': approvalId,
         'approved': approved,

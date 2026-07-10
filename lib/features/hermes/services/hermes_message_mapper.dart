@@ -24,6 +24,11 @@ List<ChatMessage> hermesMessagesToChatMessages(
 
     final content = _extractText(item['content'] ?? item['text']).trim();
     if (content.isEmpty) continue;
+    final responseId = role == 'assistant'
+        ? (item['run_id'] ?? item['response_id'] ?? item['responseId'])
+              ?.toString()
+              .trim()
+        : null;
 
     messages.add(
       ChatMessage(
@@ -34,6 +39,9 @@ List<ChatMessage> hermesMessagesToChatMessages(
             _parseTime(item['created_at'] ?? item['timestamp']) ??
             DateTime.fromMillisecondsSinceEpoch(i * 1000),
         model: role == 'assistant' ? modelId : null,
+        metadata: responseId == null || responseId.isEmpty
+            ? null
+            : {'hermesRunId': responseId},
       ),
     );
   }

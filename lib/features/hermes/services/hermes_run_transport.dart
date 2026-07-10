@@ -7,6 +7,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../models/hermes_run_event.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_api_service.dart';
+import 'hermes_stream_parser.dart';
 
 /// Metadata key under which Hermes approval state is stored on an assistant
 /// [ChatMessage]. The value is a map: `{state, approvalId, runId, summary}`.
@@ -28,14 +29,29 @@ Future<void> dispatchHermesRun({
   required String input,
   String? sessionId,
   String? previousResponseId,
+  CancelToken? cancelToken,
   required void Function(String content) appendContent,
+  void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
-  final cancelToken = CancelToken();
+  final runCancelToken = cancelToken ?? CancelToken();
+  final completer = Completer<void>();
+  if (runCancelToken.isCancelled) {
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+  registry.registerPending(
+    assistantMessageId,
+    cancelToken: runCancelToken,
+    onCancelled: () {
+      if (!completer.isCompleted) completer.complete();
+    },
+  );
 
   String runId;
   try {
@@ -43,8 +59,15 @@ Future<void> dispatchHermesRun({
       input: input,
       sessionId: sessionId,
       previousResponseId: previousResponseId,
+      cancelToken: runCancelToken,
     );
   } catch (e, st) {
+    registry.complete(assistantMessageId, cancelToken: runCancelToken);
+    if (runCancelToken.isCancelled) {
+      finishStreaming();
+      completeStreamingUi();
+      return;
+    }
     DebugLogger.error(
       'create-run-failed',
       scope: 'hermes/transport',
@@ -55,6 +78,17 @@ Future<void> dispatchHermesRun({
       (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(e))),
     );
     finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+
+  // A Stop/New Chat can race a server that commits the run just before Dio
+  // observes cancellation. Stop the newly-known remote id before subscribing.
+  if (runCancelToken.isCancelled) {
+    await service.stopRun(runId);
+    registry.complete(assistantMessageId, cancelToken: runCancelToken);
+    finishStreaming();
+    completeStreamingUi();
     return;
   }
 
@@ -66,7 +100,6 @@ Future<void> dispatchHermesRun({
     return m.copyWith(metadata: meta);
   });
 
-  final completer = Completer<void>();
   var sawTerminal = false;
   var gotContent = false;
   var streamedText = '';
@@ -75,9 +108,10 @@ Future<void> dispatchHermesRun({
 
   late final StreamSubscription<HermesRunEvent> sub;
   sub = service
-      .runEvents(runId, sessionId: sessionId, cancelToken: cancelToken)
+      .runEvents(runId, sessionId: sessionId, cancelToken: runCancelToken)
       .listen(
         (event) {
+          if (sawTerminal) return;
           if (event is HermesTokenDelta) {
             gotContent = true;
             streamedText += event.content;
@@ -85,6 +119,7 @@ Future<void> dispatchHermesRun({
           if (event is HermesFinalOutput) finalOutput = event.text;
           if (event is HermesRunDone || event is HermesRunError) {
             sawTerminal = true;
+            if (!completer.isCompleted) completer.complete();
           }
           _handleEvent(
             event,
@@ -95,7 +130,7 @@ Future<void> dispatchHermesRun({
           );
         },
         onError: (Object e, StackTrace st) {
-          if (!cancelToken.isCancelled) streamError = e;
+          if (!runCancelToken.isCancelled) streamError = e;
           if (!completer.isCompleted) completer.complete();
         },
         onDone: () {
@@ -104,40 +139,55 @@ Future<void> dispatchHermesRun({
         cancelOnError: true,
       );
 
-  registry.register(
+  final attached = registry.attachRun(
     assistantMessageId,
+    cancelToken: runCancelToken,
     runId: runId,
-    cancelToken: cancelToken,
     subscription: sub,
+    stopRemote: service.stopRun,
   );
+  if (!attached) {
+    await sub.cancel();
+    await service.stopRun(runId);
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
 
   try {
     await completer.future;
 
-    // The run finished but streamed no incremental text — fall back to the
-    // final output carried by `run.completed`.
-    if (sawTerminal &&
-        !gotContent &&
-        finalOutput != null &&
-        finalOutput!.isNotEmpty) {
-      appendContent(finalOutput!);
+    // `run.completed.output` is authoritative. Reconcile a missing terminal
+    // suffix even when earlier deltas were received, without duplicating text.
+    if (sawTerminal && finalOutput != null && finalOutput!.isNotEmpty) {
+      _appendAuthoritativeOutput(
+        finalOutput!,
+        streamedText: streamedText,
+        gotContent: gotContent,
+        appendContent: appendContent,
+        replaceContent: replaceContent,
+      );
     }
 
     // The events stream ended without a terminal event and the user didn't
     // stop — it likely dropped (network blip / app backgrounded). Reconcile the
     // final result by polling the run instead of leaving the message hung.
-    if (!sawTerminal && !cancelToken.isCancelled) {
-      final recovered = await _recoverRunOutput(service, runId);
-      if (recovered != null) {
+    if (!sawTerminal && !runCancelToken.isCancelled) {
+      try {
+        final recovered = await _recoverRunOutput(
+          service,
+          runId,
+          cancelToken: runCancelToken,
+        );
+        if (recovered == null) return;
         if (recovered.text.isNotEmpty) {
-          if (!gotContent) {
-            appendContent(recovered.text);
-          } else if (recovered.text.length > streamedText.length &&
-              recovered.text.startsWith(streamedText)) {
-            // Stream dropped mid-content: append the missing suffix from the
-            // authoritative recovered output instead of leaving it truncated.
-            appendContent(recovered.text.substring(streamedText.length));
-          }
+          _appendAuthoritativeOutput(
+            recovered.text,
+            streamedText: streamedText,
+            gotContent: gotContent,
+            appendContent: appendContent,
+            replaceContent: replaceContent,
+          );
         }
         if (recovered.failed) {
           updateMessage(
@@ -146,73 +196,106 @@ Future<void> dispatchHermesRun({
             ),
           );
         }
-      } else if (streamError != null) {
+      } catch (recoveryError, recoveryStack) {
+        final error = streamError ?? recoveryError;
         DebugLogger.error(
           'run-stream-error',
           scope: 'hermes/transport',
-          error: streamError,
+          error: error,
+          stackTrace: recoveryStack,
         );
         updateMessage(
           (m) => m.copyWith(
-            error: ChatMessageError(content: _friendlyError(streamError!)),
+            error: ChatMessageError(content: _friendlyError(error)),
           ),
         );
       }
     }
   } finally {
     await sub.cancel();
-    registry.complete(assistantMessageId);
+    registry.complete(assistantMessageId, cancelToken: runCancelToken);
     finishStreaming();
     completeStreamingUi();
   }
 }
 
-/// Polls `GET /v1/runs/{id}` a few times to reconcile a run whose event stream
-/// dropped. Returns the final text + failure flag, or null if nothing resolved.
+void _appendAuthoritativeOutput(
+  String output, {
+  required String streamedText,
+  required bool gotContent,
+  required void Function(String) appendContent,
+  required void Function(String)? replaceContent,
+}) {
+  if (!gotContent) {
+    appendContent(output);
+    return;
+  }
+  if (output.length > streamedText.length && output.startsWith(streamedText)) {
+    appendContent(output.substring(streamedText.length));
+  } else if (output != streamedText) {
+    // Terminal/recovered output is authoritative even when the server corrected
+    // or normalized an earlier delta instead of merely extending it.
+    replaceContent?.call(output);
+  }
+}
+
+/// Polls `GET /v1/runs/{id}` until the server reports a terminal state.
+///
+/// A running run may expose partial output; that is never treated as final. The
+/// user can cancel this loop through [cancelToken]. Repeated polling failures
+/// become an observable error instead of silently completing a truncated turn.
 Future<({String text, bool failed})?> _recoverRunOutput(
   HermesApiService service,
-  String runId,
-) async {
-  for (var attempt = 0; attempt < 4; attempt++) {
+  String runId, {
+  required CancelToken cancelToken,
+}) async {
+  var consecutiveErrors = 0;
+  var malformedResponses = 0;
+  while (!cancelToken.isCancelled) {
     Map<String, dynamic> run;
     try {
-      run = await service.getRun(runId);
+      run = await service.getRun(runId, cancelToken: cancelToken);
+      consecutiveErrors = 0;
     } catch (_) {
-      run = const {};
+      consecutiveErrors++;
+      if (consecutiveErrors >= 3) rethrow;
+      await Future<void>.delayed(const Duration(seconds: 1));
+      continue;
     }
-    final status = run['status']?.toString();
-    final text = _extractRunText(
+    final status = run['status']?.toString().toLowerCase();
+    final text = extractHermesOutputText(
       run['output'] ?? run['response'] ?? run['message'],
     );
     final terminal =
-        status == 'completed' || status == 'failed' || status == 'cancelled';
+        status == 'completed' ||
+        status == 'failed' ||
+        status == 'cancelled' ||
+        status == 'canceled' ||
+        status == 'stopped';
     if (terminal) return (text: text, failed: status == 'failed');
-    if (text.isNotEmpty) return (text: text, failed: false);
-    await Future<void>.delayed(const Duration(milliseconds: 600));
+    const nonTerminalStatuses = {
+      'created',
+      'queued',
+      'pending',
+      'running',
+      'in_progress',
+      'requires_action',
+      'waiting',
+      'stopping',
+    };
+    if (status == null || !nonTerminalStatuses.contains(status)) {
+      malformedResponses++;
+      if (malformedResponses >= 3) {
+        throw StateError(
+          'Hermes getRun returned an unknown status: ${status ?? '(missing)'}',
+        );
+      }
+    } else {
+      malformedResponses = 0;
+    }
+    await Future<void>.delayed(const Duration(seconds: 1));
   }
   return null;
-}
-
-/// Best-effort text extraction from a run's `output` (string, message-item
-/// array, or nested content parts).
-String _extractRunText(dynamic output) {
-  if (output == null) return '';
-  if (output is String) return output;
-  final buffer = StringBuffer();
-  if (output is List) {
-    for (final item in output) {
-      if (item is String) {
-        buffer.write(item);
-      } else if (item is Map) {
-        final type = item['type']?.toString();
-        if (type != null && type.contains('function')) continue;
-        buffer.write(_extractRunText(item['content'] ?? item['text']));
-      }
-    }
-  } else if (output is Map) {
-    buffer.write(_extractRunText(output['text'] ?? output['content']));
-  }
-  return buffer.toString();
 }
 
 void _handleEvent(

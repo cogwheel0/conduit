@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/services/navigation_service.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
@@ -14,6 +15,7 @@ class BackendChooserPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final safePadding = MediaQuery.of(context).padding;
 
     return AdaptiveRouteShell(
@@ -33,7 +35,7 @@ class BackendChooserPage extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'Welcome to Conduit',
+                    l10n.backendChooserWelcome,
                     textAlign: TextAlign.center,
                     style: AppTypography.headlineLargeStyle.copyWith(
                       color: theme.textPrimary,
@@ -42,7 +44,7 @@ class BackendChooserPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: Spacing.sm),
                   Text(
-                    'Choose how you want to connect.',
+                    l10n.backendChooserPrompt,
                     textAlign: TextAlign.center,
                     style: AppTypography.bodyMediumStyle.copyWith(
                       color: theme.textSecondary,
@@ -51,21 +53,16 @@ class BackendChooserPage extends ConsumerWidget {
                   const SizedBox(height: Spacing.xxl),
                   _ChooserCard(
                     icon: Icons.dns_outlined,
-                    title: 'Connect to Open WebUI',
-                    subtitle:
-                        'Use your self-hosted Open WebUI server with full chat, '
-                        'notes, and more.',
+                    title: l10n.connectOpenWebUITitle,
+                    subtitle: l10n.backendChooserOpenWebUISubtitle,
                     onTap: () => context.go(Routes.serverConnection),
                   ),
                   const SizedBox(height: Spacing.md),
                   _ChooserCard(
                     icon: Icons.smart_toy_outlined,
-                    title: 'Use a Hermes Agent',
-                    subtitle:
-                        'Connect directly to a self-hosted Hermes agent — no '
-                        'Open WebUI server needed.',
-                    onTap: () =>
-                        context.go(Routes.hermesSettings, extra: true),
+                    title: l10n.backendChooserHermesTitle,
+                    subtitle: l10n.backendChooserHermesSubtitle,
+                    onTap: () => context.go(Routes.hermesSettings, extra: true),
                   ),
                 ],
               ),

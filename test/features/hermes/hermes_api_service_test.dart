@@ -74,17 +74,44 @@ void main() {
       check(models.first['id']).equals('hermes-1');
     });
 
+    test('getRun unwraps common response envelopes', () async {
+      final capture = _CaptureInterceptor({
+        'data': {'id': 'r1', 'status': 'completed', 'output': 'done'},
+      });
+
+      final run = await _service(capture).getRun('r1');
+
+      check(run['status']).equals('completed');
+      check(run['output']).equals('done');
+    });
+
+    test('getRun rejects non-object responses', () async {
+      final capture = _CaptureInterceptor('not an object');
+
+      await check(_service(capture).getRun('r1')).throws<FormatException>();
+    });
+
     test('resolveApproval posts the decision to the run', () async {
       final capture = _CaptureInterceptor({});
-      await _service(capture).resolveApproval(
-        'r1',
-        approvalId: 'a1',
-        approved: false,
-      );
+      await _service(
+        capture,
+      ).resolveApproval('r1', approvalId: 'a1', approved: false);
       final req = capture.requests.single;
       check(req.path).equals('http://host:8642/v1/runs/r1/approval');
       check((req.data as Map)['approval_id']).equals('a1');
       check((req.data as Map)['approved']).equals(false);
+    });
+
+    test('approval identifiers cannot inject URI path or fragments', () async {
+      final capture = _CaptureInterceptor({});
+      await _service(capture).resolveApproval(
+        'r1/stop#',
+        approvalId: 'approval/../evil#',
+        approved: true,
+      );
+      final req = capture.requests.single;
+      check(req.path).equals('http://host:8642/v1/runs/r1%2Fstop%23/approval');
+      check((req.data as Map)['approval_id']).equals('approval/../evil#');
     });
   });
 }

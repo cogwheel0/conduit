@@ -42,6 +42,25 @@ import '../../features/notifications/views/notification_settings_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
+/// App-local destinations that remain meaningful without an OpenWebUI account.
+/// Keep this list explicit so adding an OWUI-only profile route does not expose
+/// it to Hermes-only users by accident.
+@visibleForTesting
+bool isHermesOnlyAppLocation(String location) {
+  return location == Routes.chat ||
+      location == Routes.profile ||
+      location == Routes.audioSettings ||
+      location == Routes.appCustomization ||
+      location == Routes.hermesSettings ||
+      location == Routes.hermesJobs ||
+      location == Routes.about;
+}
+
+@visibleForTesting
+String incompleteHermesDestination({required bool secretsLoading}) {
+  return secretsLoading ? Routes.splash : Routes.hermesSettings;
+}
+
 class RouterNotifier extends ChangeNotifier {
   RouterNotifier(this.ref) {
     _subscriptions = [
@@ -58,6 +77,7 @@ class RouterNotifier extends ChangeNotifier {
       // the Hermes config becomes usable (secrets finish loading).
       ref.listen<PreferredBackend>(preferredBackendProvider, _onStateChanged),
       ref.listen<HermesConfig>(hermesConfigProvider, _onStateChanged),
+      ref.listen<bool>(hermesSecretsLoadingProvider, _onStateChanged),
     ];
   }
 
@@ -104,6 +124,7 @@ class RouterNotifier extends ChangeNotifier {
 
     final preferredBackend = ref.read(preferredBackendProvider);
     final hermesUsable = ref.read(hermesConfigProvider).isUsable;
+    final hermesSecretsLoading = ref.read(hermesSecretsLoadingProvider);
     final prefersHermes = preferredBackend == PreferredBackend.hermes;
 
     if (activeServerAsync.isLoading) {
@@ -111,7 +132,16 @@ class RouterNotifier extends ChangeNotifier {
       if (_isAuthLocation(location)) return null;
       // Hermes-only user: don't flash the OWUI splash→serverConnection path.
       if (prefersHermes && hermesUsable) {
-        return location == Routes.chat ? null : Routes.chat;
+        return isHermesOnlyAppLocation(location) ? null : Routes.chat;
+      }
+      if (prefersHermes && ref.read(hermesConfigProvider).enabled) {
+        if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+          return null;
+        }
+        final destination = incompleteHermesDestination(
+          secretsLoading: hermesSecretsLoading,
+        );
+        return location == destination ? null : destination;
       }
       // Keep splash during server loading otherwise
       return location == Routes.splash ? null : Routes.splash;
@@ -132,14 +162,19 @@ class RouterNotifier extends ChangeNotifier {
       // preferredBackend flips to owui and this branch no longer applies.
       if (_isAuthLocation(location)) return null;
       if (hermesUsable) {
-        return location == Routes.chat ? null : Routes.chat;
+        return isHermesOnlyAppLocation(location) ? null : Routes.chat;
       }
-      // Not usable yet. If Hermes is still enabled, the API key secret is just
-      // loading → hold on splash (the hermesConfigProvider subscription re-runs
-      // this once it resolves). If disabled (config cleared), fall through to
-      // the chooser so the user is never stranded.
+      // Hold the splash only while secure storage is actually loading. Once it
+      // settles without a usable key, send the user to Hermes settings so the
+      // install can recover from a deleted/unavailable secret.
       if (ref.read(hermesConfigProvider).enabled) {
-        return location == Routes.splash ? null : Routes.splash;
+        if (hermesSecretsLoading && isHermesOnlyAppLocation(location)) {
+          return null;
+        }
+        final destination = incompleteHermesDestination(
+          secretsLoading: hermesSecretsLoading,
+        );
+        return location == destination ? null : destination;
       }
     }
 

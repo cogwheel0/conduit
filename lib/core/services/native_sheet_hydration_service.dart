@@ -580,16 +580,15 @@ class NativeSheetHydrationService {
       final items = <NativeSheetItemConfig>[
         NativeSheetItemConfig(
           id: 'hermes-enabled',
-          title: 'Enable Hermes Agent',
-          subtitle:
-              'Use your self-hosted Hermes agent as a model in the picker.',
+          title: l10n.hermesEnableTitle,
+          subtitle: l10n.hermesEnableSubtitle,
           sfSymbol: 'sparkles',
           kind: NativeSheetItemKind.toggle,
           value: config.enabled,
         ),
         NativeSheetItemConfig(
           id: 'hermes-base-url',
-          title: 'Server URL',
+          title: l10n.hermesServerUrlTitle,
           sfSymbol: 'link',
           kind: NativeSheetItemKind.textField,
           value: config.baseUrl,
@@ -597,23 +596,23 @@ class NativeSheetHydrationService {
         ),
         NativeSheetItemConfig(
           id: 'hermes-api-key',
-          title: 'API key',
+          title: l10n.hermesApiKeyTitle,
           sfSymbol: 'key',
           kind: NativeSheetItemKind.secureTextField,
           value: '',
           placeholder: hasApiKey
-              ? 'Configured — enter to replace'
-              : 'Enter API_SERVER_KEY',
+              ? l10n.hermesConfiguredReplacePlaceholder
+              : l10n.hermesApiKeyPlaceholder,
         ),
         NativeSheetItemConfig(
           id: 'hermes-session-key',
-          title: 'Memory key (optional)',
+          title: l10n.hermesMemoryKeyTitle,
           sfSymbol: 'brain',
           kind: NativeSheetItemKind.secureTextField,
           value: '',
           placeholder: hasSessionKey
-              ? 'Configured — enter to replace'
-              : 'Auto-generated if left blank',
+              ? l10n.hermesConfiguredReplacePlaceholder
+              : l10n.hermesMemoryKeyPlaceholder,
         ),
       ];
 
@@ -623,16 +622,16 @@ class NativeSheetHydrationService {
           final caps = await _ref.read(hermesCapabilitiesProvider.future);
           if (!context.mounted) return;
           final supported = <String>[
-            if (caps.runApproval) 'Approval',
-            if (caps.skills) 'Skills',
-            if (caps.toolsets) 'Toolsets',
-            if (caps.jobs) 'Jobs',
-            if (caps.sessions) 'Sessions',
+            if (caps.runApproval) l10n.hermesCapabilityApproval,
+            if (caps.skills) l10n.hermesCapabilitySkills,
+            if (caps.toolsets) l10n.hermesCapabilityToolsets,
+            if (caps.jobs) l10n.hermesCapabilityJobs,
+            if (caps.sessions) l10n.hermesCapabilitySessions,
           ];
           items.add(
             NativeSheetItemConfig(
               id: 'hermes-capabilities-info',
-              title: 'Capabilities',
+              title: l10n.hermesCapabilitiesTitle,
               subtitle: supported.isEmpty ? '—' : supported.join(' · '),
               sfSymbol: 'checkmark.seal',
               kind: NativeSheetItemKind.info,
@@ -642,10 +641,10 @@ class NativeSheetHydrationService {
       }
 
       items.add(
-        const NativeSheetItemConfig(
+        NativeSheetItemConfig(
           id: 'hermes-tab-info',
-          title: 'Conversations & Scheduled Agents',
-          subtitle: 'Available in the Hermes tab once enabled.',
+          title: l10n.hermesTabInfoTitle,
+          subtitle: l10n.hermesTabInfoSubtitle,
           sfSymbol: 'sidebar.left',
           kind: NativeSheetItemKind.info,
         ),
@@ -654,8 +653,8 @@ class NativeSheetHydrationService {
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.hermes,
-          title: 'Hermes Agent',
-          subtitle: 'Connect directly to a self-hosted Hermes agent.',
+          title: l10n.hermesAgentSettingsTitle,
+          subtitle: l10n.hermesNativeSettingsSubtitle,
           items: items,
         ),
       );

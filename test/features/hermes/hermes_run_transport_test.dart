@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
@@ -9,18 +11,24 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeHermesApiService extends HermesApiService {
-  _FakeHermesApiService(this.events, {this.runResult = const {}})
-    : super(
-        config: HermesConfig(
-          enabled: true,
-          baseUrl: 'http://x',
-          apiKey: 'k',
-        ),
-        dio: Dio(),
-      );
+  _FakeHermesApiService(
+    this.events, {
+    this.runResult = const {},
+    this.runResults = const [],
+    this.eventsOverride,
+    this.createRunGate,
+  }) : super(
+         config: HermesConfig(enabled: true, baseUrl: 'http://x', apiKey: 'k'),
+         dio: Dio(),
+       );
 
   final List<HermesRunEvent> events;
   final Map<String, dynamic> runResult;
+  final List<Map<String, dynamic>> runResults;
+  final Stream<HermesRunEvent>? eventsOverride;
+  final Completer<String>? createRunGate;
+  var getRunCalls = 0;
+  final List<String> stoppedRuns = [];
 
   @override
   Future<String> createRun({
@@ -28,17 +36,32 @@ class _FakeHermesApiService extends HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
-  }) async => 'run-1';
+    CancelToken? cancelToken,
+  }) async => createRunGate?.future ?? 'run-1';
 
   @override
   Stream<HermesRunEvent> runEvents(
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
-  }) => Stream<HermesRunEvent>.fromIterable(events);
+  }) => eventsOverride ?? Stream<HermesRunEvent>.fromIterable(events);
 
   @override
-  Future<Map<String, dynamic>> getRun(String runId) async => runResult;
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    final index = getRunCalls++;
+    if (runResults.isNotEmpty) {
+      return runResults[index.clamp(0, runResults.length - 1)];
+    }
+    return runResult;
+  }
+
+  @override
+  Future<void> stopRun(String runId) async {
+    stoppedRuns.add(runId);
+  }
 }
 
 void main() {
@@ -133,6 +156,128 @@ void main() {
     check(content.toString()).equals('pong');
   });
 
+  test('appends missing suffix from authoritative terminal output', () async {
+    final fake = _FakeHermesApiService(const [
+      HermesTokenDelta('Hello'),
+      HermesFinalOutput('Hello world'),
+      HermesRunDone(),
+    ]);
+    final content = StringBuffer();
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: content.write,
+      appendStatus: (_) {},
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(content.toString()).equals('Hello world');
+  });
+
+  test(
+    'replaces streamed text when terminal output corrects its prefix',
+    () async {
+      final fake = _FakeHermesApiService(const [
+        HermesTokenDelta('Helo'),
+        HermesFinalOutput('Hello world'),
+        HermesRunDone(),
+      ]);
+      var content = '';
+
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        appendContent: (delta) => content += delta,
+        replaceContent: (value) => content = value,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(content).equals('Hello world');
+    },
+  );
+
+  test('terminal event completes dispatch while SSE remains open', () async {
+    final events = StreamController<HermesRunEvent>();
+    addTearDown(events.close);
+    final fake = _FakeHermesApiService(const [], eventsOverride: events.stream);
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    events.add(const HermesRunDone());
+    await dispatch.timeout(const Duration(seconds: 1));
+  });
+
+  test('stop during createRun stops the remote id once it arrives', () async {
+    final gate = Completer<String>();
+    final registry = HermesRunRegistry();
+    final fake = _FakeHermesApiService(const [], createRunGate: gate);
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: registry,
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    registry.cancel('m');
+    gate.complete('run-late');
+
+    await dispatch.timeout(const Duration(seconds: 1));
+    check(fake.stoppedRuns).deepEquals(['run-late']);
+  });
+
+  test('stop after registration completes dispatch cleanup', () async {
+    final events = StreamController<HermesRunEvent>();
+    addTearDown(events.close);
+    final registry = HermesRunRegistry();
+    final fake = _FakeHermesApiService(const [], eventsOverride: events.stream);
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: registry,
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    while (registry.runIdFor('m') == null) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    final stop = registry.cancel('m');
+    check(stop).isNotNull();
+    await stop!;
+
+    await dispatch.timeout(const Duration(seconds: 1));
+    check(registry.runIdFor('m')).isNull();
+    check(fake.stoppedRuns).deepEquals(['run-1']);
+  });
+
   test('recovers final output when the event stream drops', () async {
     // Stream ends with no terminal event (dropped); getRun reconciles it.
     final fake = _FakeHermesApiService(
@@ -162,4 +307,64 @@ void main() {
 
     check(content.toString()).equals('Recovered answer');
   });
+
+  test(
+    'recovery waits for terminal state and ignores running output',
+    () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResults: const [
+          {'status': 'running', 'output': 'Partial'},
+          {'status': 'completed', 'output': 'Complete answer'},
+        ],
+      );
+      final content = StringBuffer();
+
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 3));
+
+      check(fake.getRunCalls).equals(2);
+      check(content.toString()).equals('Complete answer');
+    },
+  );
+
+  test(
+    'recovery surfaces repeated successful responses with unknown status',
+    () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResult: const {'status': 'mystery', 'output': 'not final'},
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      check(fake.getRunCalls).equals(3);
+      check(message.error).isNotNull();
+    },
+  );
 }

@@ -58,6 +58,13 @@ void main() {
       check(caps.runApproval).isTrue();
       check(caps.toolsets).isTrue();
     });
+
+    test('null feature values remain optimistic', () {
+      final caps = HermesCapabilities.fromJson({
+        'features': {'skills': null},
+      });
+      check(caps.skills).isTrue();
+    });
   });
 
   group('model parsing', () {
@@ -107,8 +114,9 @@ void main() {
       final toolsets = await service.listToolsets();
       await service.getRun('r1');
 
-      check(capture.requests[0].path)
-          .equals('http://host:8642/v1/capabilities');
+      check(
+        capture.requests[0].path,
+      ).equals('http://host:8642/v1/capabilities');
       check(capture.requests[1].path).equals('http://host:8642/v1/toolsets');
       check(capture.requests[2].path).equals('http://host:8642/v1/runs/r1');
       check(toolsets.single['name']).equals('web');
@@ -129,12 +137,15 @@ void main() {
       check((capture.requests[0].data as Map)['schedule']).equals('0 9 * * *');
       check(capture.requests[1].method).equals('PATCH');
       check((capture.requests[1].data as Map)['enabled']).equals(false);
-      check(capture.requests[2].path)
-          .equals('http://host:8642/api/jobs/j1/pause');
-      check(capture.requests[3].path)
-          .equals('http://host:8642/api/jobs/j1/resume');
-      check(capture.requests[4].path)
-          .equals('http://host:8642/api/jobs/j1/run');
+      check(
+        capture.requests[2].path,
+      ).equals('http://host:8642/api/jobs/j1/pause');
+      check(
+        capture.requests[3].path,
+      ).equals('http://host:8642/api/jobs/j1/resume');
+      check(
+        capture.requests[4].path,
+      ).equals('http://host:8642/api/jobs/j1/run');
       check(capture.requests[5].method).equals('DELETE');
     });
   });

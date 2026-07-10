@@ -9,7 +9,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
-import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -226,9 +225,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveServerConfigs([config]);
     await storage.setActiveServerId(config.id);
-    await ref
-        .read(preferredBackendProvider.notifier)
-        .set(PreferredBackend.owui);
     ref.invalidate(serverConfigsProvider);
     ref.invalidate(activeServerProvider);
     ref.invalidate(apiServiceProvider);

@@ -13,6 +13,7 @@ import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_run_transport.dart';
 import '../../hermes/widgets/hermes_approval_card.dart';
 import 'enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -946,6 +947,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final approval = widget.message.metadata?['hermesApproval'];
     if (approval is! Map) return const SizedBox.shrink();
 
+    final runId = approval['runId']?.toString();
+    final messageId = widget.message.id?.toString();
+    if (widget.message.metadata?['transport'] != kHermesTransport ||
+        runId == null ||
+        messageId == null ||
+        ref.read(hermesRunRegistryProvider).runIdFor(messageId) != runId) {
+      return const SizedBox.shrink();
+    }
+
     // Belt-and-suspenders: hide the gate if the server doesn't support approval.
     final caps = ref.read(hermesCapabilitiesProvider).asData?.value;
     if (caps != null && !caps.runApproval) return const SizedBox.shrink();
@@ -971,6 +981,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final approvalId = approval['approvalId']?.toString();
     final runId = approval['runId']?.toString();
     if (approvalId == null || runId == null) return;
+    final messageId = widget.message.id?.toString();
+    if (widget.message.metadata?['transport'] != kHermesTransport ||
+        messageId == null ||
+        ref.read(hermesRunRegistryProvider).runIdFor(messageId) != runId) {
+      return;
+    }
 
     void setApprovalState(String next) {
       ref.read(chatMessagesProvider.notifier).updateMessageById(
@@ -1012,6 +1028,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         scope: 'chat/hermes_approval',
         error: error,
       );
+      if (!mounted) return;
       setApprovalState('pending');
       return;
     }

@@ -10,6 +10,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/hermes_capabilities.dart';
+import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
 
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
@@ -27,15 +28,24 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
 
 class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   late final TextEditingController _urlController;
+  late final TextEditingController _apiKeyController;
+  late final TextEditingController _sessionKeyController;
 
   bool _testing = false;
+  bool _saving = false;
+  bool _apiKeyDirty = false;
+  bool _sessionKeyDirty = false;
   bool? _testResult;
+  bool _saved = false;
+  String? _urlError;
 
   @override
   void initState() {
     super.initState();
     final config = ref.read(hermesConfigProvider);
     _urlController = TextEditingController(text: config.baseUrl);
+    _apiKeyController = TextEditingController();
+    _sessionKeyController = TextEditingController();
     if (widget.isOnboarding) {
       // Onboarding implies enabling; the toggle is hidden in this mode.
       ref.read(hermesConfigProvider.notifier).setEnabled(true);
@@ -43,6 +53,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _finishOnboarding() async {
+    if (!await _commitConnection()) return;
     final notifier = ref.read(hermesConfigProvider.notifier);
     await notifier.setEnabled(true);
     await notifier.ensureSessionKey();
@@ -56,7 +67,79 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   @override
   void dispose() {
     _urlController.dispose();
+    _apiKeyController.dispose();
+    _sessionKeyController.dispose();
     super.dispose();
+  }
+
+  bool _originChanged(HermesConfig config) =>
+      HermesConfigController.connectionOrigin(config.baseUrl) !=
+      HermesConfigController.connectionOrigin(_urlController.text);
+
+  bool _draftIsUsable(HermesConfig config) {
+    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
+      return false;
+    }
+    final apiKey = _apiKeyDirty || _originChanged(config)
+        ? _apiKeyController.text.trim()
+        : config.apiKey?.trim() ?? '';
+    return apiKey.isNotEmpty;
+  }
+
+  Future<bool> _commitConnection() async {
+    if (_saving) return false;
+    final config = ref.read(hermesConfigProvider);
+    if (HermesConfigController.connectionOrigin(_urlController.text) == null) {
+      setState(() => _urlError = 'Use a valid http:// or https:// server URL');
+      return false;
+    }
+    final originChanged = _originChanged(config);
+    if ((originChanged || _apiKeyDirty) &&
+        _apiKeyController.text.trim().isEmpty) {
+      setState(() {
+        _urlError = originChanged
+            ? 'Enter the API key for the new server'
+            : null;
+      });
+      return false;
+    }
+
+    setState(() {
+      _saving = true;
+      _saved = false;
+      _urlError = null;
+    });
+    try {
+      await ref
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            baseUrl: _urlController.text,
+            apiKeyChanged: originChanged || _apiKeyDirty,
+            apiKey: _apiKeyController.text,
+            sessionKeyChanged: _sessionKeyDirty,
+            sessionKey: _sessionKeyController.text,
+          );
+      if (!mounted) return true;
+      _apiKeyController.clear();
+      _sessionKeyController.clear();
+      setState(() {
+        _apiKeyDirty = false;
+        _sessionKeyDirty = false;
+        _saved = true;
+      });
+      return true;
+    } catch (_) {
+      if (mounted) {
+        setState(() => _urlError = 'Could not save Hermes settings');
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    await _commitConnection();
   }
 
   /// Toggle the Hermes backend. When disabling a Hermes-only backend (no OWUI
@@ -73,6 +156,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    if (!await _commitConnection()) return;
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
       setState(() => _testResult = false);
@@ -99,7 +183,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(hermesConfigProvider);
-    final notifier = ref.read(hermesConfigProvider.notifier);
     final theme = context.conduitTheme;
 
     return SettingsPageScaffold(
@@ -147,9 +230,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           hint: 'http://192.168.1.10:8642',
           controller: _urlController,
           keyboardType: TextInputType.url,
+          errorText: _urlError,
           onChanged: (value) {
-            notifier.setBaseUrl(value);
-            if (_testResult != null) setState(() => _testResult = null);
+            setState(() {
+              _urlError = null;
+              _saved = false;
+              _testResult = null;
+            });
           },
         ),
         const SizedBox(height: Spacing.md),
@@ -159,9 +246,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               ? 'Enter API_SERVER_KEY'
               : 'Configured — enter to replace',
           obscureText: true,
+          controller: _apiKeyController,
           onChanged: (value) {
-            notifier.setApiKey(value);
-            if (_testResult != null) setState(() => _testResult = null);
+            setState(() {
+              _apiKeyDirty = true;
+              _saved = false;
+              _testResult = null;
+            });
           },
         ),
         const SizedBox(height: Spacing.md),
@@ -171,7 +262,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               ? 'Auto-generated if left blank'
               : 'Configured — enter to replace',
           obscureText: true,
-          onChanged: (value) => notifier.setSessionKey(value),
+          controller: _sessionKeyController,
+          onChanged: (value) => setState(() {
+            _sessionKeyDirty = true;
+            _saved = false;
+          }),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -185,21 +280,33 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         const SizedBox(height: Spacing.lg),
         Row(
           children: [
+            if (!widget.isOnboarding) ...[
+              ConduitButton(
+                text: 'Save',
+                isLoading: _saving,
+                onPressed: _draftIsUsable(config) ? _saveSettings : null,
+              ),
+              const SizedBox(width: Spacing.md),
+            ],
             ConduitButton(
               text: 'Test connection',
               isSecondary: true,
               isLoading: _testing,
-              onPressed: config.isUsable ? _testConnection : null,
+              onPressed: _draftIsUsable(config) && !_saving
+                  ? _testConnection
+                  : null,
             ),
             const SizedBox(width: Spacing.md),
-            if (_testResult != null)
+            if (_testResult != null || _saved)
               Expanded(
                 child: Text(
-                  _testResult == true
+                  _testResult == null
+                      ? 'Saved ✓'
+                      : _testResult == true
                       ? 'Connected ✓'
                       : 'Could not reach the server',
                   style: AppTypography.standard.copyWith(
-                    color: _testResult == true ? theme.success : theme.error,
+                    color: _testResult == false ? theme.error : theme.success,
                   ),
                 ),
               ),
@@ -211,7 +318,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             text: 'Finish setup',
             icon: Icons.check,
             isFullWidth: true,
-            onPressed: config.isUsable ? _finishOnboarding : null,
+            onPressed: _draftIsUsable(config) && !_saving
+                ? _finishOnboarding
+                : null,
           ),
         ],
         if (config.isUsable) ...[

@@ -96,18 +96,22 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = resolveSidebarUser(ref);
-    if (user == null) return const SizedBox.shrink();
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    if (user == null && !hermesOnly) return const SizedBox.shrink();
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
-    final displayName = deriveUserDisplayName(
-      user,
-      fallback: l10n.userFallbackName,
-    );
-    final initial = displayName.isEmpty
+    final displayName = hermesOnly
+        ? 'Hermes Agent'
+        : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
+    final initial = hermesOnly
+        ? 'HA'
+        : displayName.isEmpty
         ? 'U'
         : displayName.characters.first.toUpperCase();
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    final avatarUrl = hermesOnly
+        ? null
+        : resolveUserAvatarUrlForUser(api, user);
     final iconColor = context.conduitTheme.textPrimary;
     final useOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final style = useOpaqueFallback
@@ -118,6 +122,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       label: l10n.manage,
       button: true,
       child: AdaptiveButton.child(
+        key: const ValueKey<String>('sidebar-profile-button'),
         onPressed: () async {
           await Navigator.of(context).maybePop();
           if (!context.mounted) return;
@@ -125,7 +130,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           if (Platform.isIOS) {
             // Pre-load the Hermes avatar bytes (the config builder is sync, and
             // avatarBytes must be supplied up front).
-            final hermesAvatarBytes = ref.read(hermesOnlyModeProvider)
+            final hermesAvatarBytes = hermesOnly
                 ? await _loadHermesAvatarBytes()
                 : null;
             if (!context.mounted) return;

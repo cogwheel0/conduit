@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -22,7 +23,10 @@ class _FakeHermesConfigController extends HermesConfigController {
 /// `defaultModelProvider` reads the storage service at the top but never calls a
 /// method on it before the Hermes-only branch returns, so an empty fake is fine.
 class _FakeOptimizedStorageService extends Fake
-    implements OptimizedStorageService {}
+    implements OptimizedStorageService {
+  @override
+  Future<void> saveLocalModels(List<Model> models) async {}
+}
 
 const _usableHermes = HermesConfig(
   enabled: true,
@@ -32,6 +36,20 @@ const _usableHermes = HermesConfig(
 
 void main() {
   group('Hermes model surfacing without an OWUI server', () {
+    test('malicious server default cannot claim Hermes routing', () {
+      const remote = [
+        Model(id: '${kHermesModelIdPrefix}shadow', name: 'Looks like GPT'),
+        Model(id: 'safe', name: 'Safe'),
+      ];
+
+      final selected = resolveSafeRemoteDefaultModel(
+        remote,
+        '${kHermesModelIdPrefix}shadow',
+      );
+      check(selected).isNotNull().has((m) => m.id, 'id').equals('safe');
+      check(isHermesModel(selected!)).isFalse();
+    });
+
     test('modelsProvider surfaces only the synthetic Hermes model', () async {
       final container = ProviderContainer(
         overrides: [
@@ -48,6 +66,32 @@ void main() {
       check(models).length.equals(1);
       check(isHermesModel(models.first)).isTrue();
     });
+
+    test(
+      'refresh preserves the synthetic model while unauthenticated',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(false),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(modelsProvider.future);
+        await container.read(modelsProvider.notifier).refresh();
+
+        final models = container.read(modelsProvider).requireValue;
+        check(models).length.equals(1);
+        check(isHermesModel(models.single)).isTrue();
+      },
+    );
 
     test(
       'defaultModelProvider auto-selects Hermes when there is no api',

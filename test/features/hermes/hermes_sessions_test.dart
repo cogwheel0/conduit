@@ -53,10 +53,15 @@ void main() {
     });
 
     test('fork hits the fork path and returns the new id', () async {
-      final capture = _CaptureInterceptor((_) => {'session': {'id': 's2'}});
+      final capture = _CaptureInterceptor(
+        (_) => {
+          'session': {'id': 's2'},
+        },
+      );
       final id = await _service(capture).forkSession('s1');
-      check(capture.requests.single.path)
-          .equals('http://host:8642/api/sessions/s1/fork');
+      check(
+        capture.requests.single.path,
+      ).equals('http://host:8642/api/sessions/s1/fork');
       check(id).equals('s2');
     });
 
@@ -66,8 +71,9 @@ void main() {
       await service.renameSession('s1', 'New');
       await service.deleteSession('s1');
       check(capture.requests[0].method).equals('PATCH');
-      check(capture.requests[0].path)
-          .equals('http://host:8642/api/sessions/s1');
+      check(
+        capture.requests[0].path,
+      ).equals('http://host:8642/api/sessions/s1');
       check((capture.requests[0].data as Map)['title']).equals('New');
       check(capture.requests[1].method).equals('DELETE');
     });
@@ -113,6 +119,18 @@ void main() {
       check(messages[1].role).equals('assistant');
       check(messages[1].content).equals('Hello there');
       check(messages[1].model).equals('hermes:agent:default');
+    });
+
+    test('preserves explicit run/response ids for regeneration branches', () {
+      final messages = hermesMessagesToChatMessages([
+        {'role': 'assistant', 'content': 'One', 'run_id': 'run-1'},
+        {'role': 'assistant', 'content': 'Two', 'response_id': 'response-2'},
+        {'role': 'assistant', 'content': 'Three', 'responseId': 'response-3'},
+      ]);
+
+      check(
+        messages.map((message) => message.metadata?['hermesRunId']).toList(),
+      ).deepEquals(['run-1', 'response-2', 'response-3']);
     });
   });
 

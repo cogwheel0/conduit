@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
@@ -61,6 +62,43 @@ void main() {
           reviewerMode: false,
           api: null,
           selectedModel: _hermesModel,
+        ),
+      ).isFalse();
+    });
+  });
+
+  group('usesHermesTransportForRegeneration', () {
+    test('routes a fresh Hermes chat with no active conversation', () {
+      check(
+        usesHermesTransportForRegeneration(
+          selectedModel: _hermesModel,
+          activeConversation: null,
+        ),
+      ).isTrue();
+    });
+
+    test('routes an opened Hermes session through the same transport', () {
+      final now = DateTime.utc(2026, 7, 11);
+      final openedSession = Conversation(
+        id: 'local:hermes_s1',
+        title: 'Hermes session',
+        createdAt: now,
+        updatedAt: now,
+        metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+      );
+      check(
+        usesHermesTransportForRegeneration(
+          selectedModel: _hermesModel,
+          activeConversation: openedSession,
+        ),
+      ).isTrue();
+    });
+
+    test('does not reroute an OpenWebUI regeneration', () {
+      check(
+        usesHermesTransportForRegeneration(
+          selectedModel: _owuiModel,
+          activeConversation: null,
         ),
       ).isFalse();
     });

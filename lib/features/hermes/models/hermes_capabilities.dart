@@ -63,7 +63,7 @@ class HermesCapabilities {
         return features[name] as bool;
       }
       if (features is Map && features.containsKey(name)) {
-        return features[name] != null;
+        return true;
       }
       if (endpoints is Map && endpoints.containsKey(name)) return true;
     }

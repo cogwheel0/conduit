@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
@@ -26,6 +27,7 @@ class HermesApprovalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final resolved =
         state == HermesApprovalState.approved ||
         state == HermesApprovalState.denied;
@@ -50,7 +52,7 @@ class HermesApprovalCard extends StatelessWidget {
               ),
               const SizedBox(width: Spacing.sm),
               Text(
-                'Approval required',
+                l10n.hermesApprovalRequired,
                 style: AppTypography.standard.copyWith(
                   fontWeight: FontWeight.w600,
                   color: theme.textPrimary,
@@ -60,7 +62,7 @@ class HermesApprovalCard extends StatelessWidget {
           ),
           const SizedBox(height: Spacing.xs),
           Text(
-            summary ?? 'The agent is requesting permission to continue.',
+            summary ?? l10n.hermesApprovalFallback,
             style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
             ),
@@ -68,7 +70,9 @@ class HermesApprovalCard extends StatelessWidget {
           const SizedBox(height: Spacing.md),
           if (resolved)
             Text(
-              state == HermesApprovalState.approved ? 'Approved ✓' : 'Denied',
+              state == HermesApprovalState.approved
+                  ? l10n.hermesApprovalApproved
+                  : l10n.hermesApprovalDenied,
               style: AppTypography.standard.copyWith(
                 color: state == HermesApprovalState.approved
                     ? theme.success
@@ -79,7 +83,7 @@ class HermesApprovalCard extends StatelessWidget {
             Row(
               children: [
                 ConduitButton(
-                  text: 'Approve',
+                  text: l10n.hermesApprovalApproveAction,
                   isCompact: true,
                   isLoading: state == HermesApprovalState.resolving,
                   onPressed: state == HermesApprovalState.pending
@@ -88,7 +92,7 @@ class HermesApprovalCard extends StatelessWidget {
                 ),
                 const SizedBox(width: Spacing.sm),
                 ConduitButton(
-                  text: 'Deny',
+                  text: l10n.hermesApprovalDenyAction,
                   isCompact: true,
                   isSecondary: true,
                   onPressed: state == HermesApprovalState.pending

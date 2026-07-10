@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -100,6 +102,48 @@ void main() {
         activeServer: null,
         reviewerMode: true,
       );
+      check(container.read(hermesOnlyModeProvider)).isFalse();
+    });
+
+    test('false while the active OWUI server is still loading', () {
+      final pendingServer = Completer<ServerConfig?>();
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableHermes),
+          ),
+          activeServerProvider.overrideWith((ref) => pendingServer.future),
+        ],
+      );
+      addTearDown(() {
+        pendingServer.complete(null);
+        container.dispose();
+      });
+
+      check(container.read(activeServerProvider).isLoading).isTrue();
+      check(container.read(hermesOnlyModeProvider)).isFalse();
+    });
+
+    test('false when loading the active OWUI server fails', () async {
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableHermes),
+          ),
+          activeServerProvider.overrideWith(
+            (ref) => Future<ServerConfig?>.error(StateError('storage failed')),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container.read(activeServerProvider.future),
+        throwsStateError,
+      );
+      check(container.read(activeServerProvider).hasError).isTrue();
       check(container.read(hermesOnlyModeProvider)).isFalse();
     });
   });

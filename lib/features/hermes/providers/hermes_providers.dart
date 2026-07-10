@@ -21,6 +21,11 @@ import '../services/hermes_api_service.dart';
 /// Owns the Hermes config: non-secret fields from shared preferences, secrets
 /// from secure storage. Exposes setters that persist and update state.
 class HermesConfigController extends Notifier<HermesConfig> {
+  Future<void> _mutationQueue = Future<void>.value();
+  Future<void>? _secretsHydration;
+  Future<String>? _sessionKeyFuture;
+  int _secretLoadEpoch = 0;
+
   @override
   HermesConfig build() {
     final enabled =
@@ -28,65 +33,222 @@ class HermesConfigController extends Notifier<HermesConfig> {
     final baseUrl =
         PreferencesStore.getString(PreferenceKeys.hermesBaseUrl) ?? '';
     // Secrets load asynchronously and patch the state in once available.
-    unawaited(_loadSecrets());
+    final epoch = ++_secretLoadEpoch;
+    final hydration = _loadSecrets(epoch);
+    _secretsHydration = hydration;
+    unawaited(hydration);
     return HermesConfig(enabled: enabled, baseUrl: baseUrl);
   }
 
   SecureCredentialStorage get _secure =>
       SecureCredentialStorage(instance: ref.read(secureStorageProvider));
 
-  Future<void> _loadSecrets() async {
-    final apiKey = await _secure.getHermesApiKey();
-    final sessionKey = await _secure.getHermesSessionKey();
-    state = HermesConfig(
-      enabled: state.enabled,
-      baseUrl: state.baseUrl,
-      apiKey: apiKey,
-      sessionKey: sessionKey,
-    );
+  Future<void> _loadSecrets(int epoch) async {
+    try {
+      final apiKey = await _secure.getHermesApiKey();
+      final sessionKey = await _secure.getHermesSessionKey();
+      if (epoch != _secretLoadEpoch || !ref.mounted) return;
+      state = HermesConfig(
+        enabled: state.enabled,
+        baseUrl: state.baseUrl,
+        apiKey: apiKey,
+        sessionKey: sessionKey,
+      );
+    } catch (_) {
+      // Secure storage helpers normally degrade to null themselves. Keep this
+      // outer guard so a platform-channel failure can never escape unawaited.
+    } finally {
+      if (ref.mounted) {
+        ref.read(hermesSecretsLoadingProvider.notifier).set(false);
+      }
+    }
   }
 
   Future<void> setEnabled(bool value) async {
-    await PreferencesStore.put(PreferenceKeys.hermesEnabled, value);
-    state = _withState(enabled: value);
+    await _serializeMutation(() async {
+      if (state.enabled && !value) {
+        await _stopActiveRuns();
+      }
+      await PreferencesStore.put(PreferenceKeys.hermesEnabled, value);
+      state = _withState(enabled: value);
+    });
   }
 
   Future<void> setBaseUrl(String value) async {
-    final trimmed = value.trim();
-    await PreferencesStore.put(PreferenceKeys.hermesBaseUrl, trimmed);
-    state = _withState(baseUrl: trimmed);
+    await saveConnection(baseUrl: value);
   }
 
   Future<void> setApiKey(String value) async {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      await _secure.deleteHermesApiKey();
-    } else {
-      await _secure.saveHermesApiKey(trimmed);
-    }
-    state = _withState(apiKey: trimmed.isEmpty ? null : trimmed);
+    await saveConnection(
+      baseUrl: state.baseUrl,
+      apiKeyChanged: true,
+      apiKey: value,
+    );
   }
 
   Future<void> setSessionKey(String value) async {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      await _secure.deleteHermesSessionKey();
-    } else {
-      await _secure.saveHermesSessionKey(trimmed);
+    await saveConnection(
+      baseUrl: state.baseUrl,
+      sessionKeyChanged: true,
+      sessionKey: value,
+    );
+  }
+
+  /// Atomically commits connection edits. Secrets are retained only when the
+  /// normalized origin (scheme + host + port) is unchanged.
+  Future<void> saveConnection({
+    required String baseUrl,
+    bool apiKeyChanged = false,
+    String? apiKey,
+    bool sessionKeyChanged = false,
+    String? sessionKey,
+  }) {
+    final trimmedUrl = baseUrl.trim();
+    final nextOrigin = connectionOrigin(trimmedUrl);
+    if (trimmedUrl.isNotEmpty && nextOrigin == null) {
+      return Future<void>.error(
+        ArgumentError.value(baseUrl, 'baseUrl', 'Use a valid http(s) URL'),
+      );
     }
-    state = _withState(sessionKey: trimmed.isEmpty ? null : trimmed);
+
+    return _serializeMutation(() async {
+      // Resolve the one cold-start read before applying edits. This prevents a
+      // same-origin save from accidentally replacing not-yet-hydrated secrets
+      // with null, while the serialized queue prevents write reordering.
+      await _secretsHydration;
+      final originChanged = connectionOrigin(state.baseUrl) != nextOrigin;
+      final endpointChanged =
+          connectionEndpoint(state.baseUrl) != connectionEndpoint(trimmedUrl);
+      final identityChanged = apiKeyChanged || sessionKeyChanged;
+      final serviceWillRotate = state.baseUrl != trimmedUrl || identityChanged;
+      var nextApiKey = state.apiKey;
+      var nextSessionKey = state.sessionKey;
+
+      if (serviceWillRotate) {
+        // Active runs retain the service that created them. Stop them through
+        // that owner before changing config, because the state update below
+        // disposes the old HermesApiService provider instance.
+        await _stopActiveRuns();
+      }
+      if (endpointChanged || identityChanged) {
+        // Endpoint and secret changes can switch servers, accounts, or memory
+        // principals. Never carry the old server-side session across them.
+        ref.read(hermesActiveSessionProvider.notifier).set(null);
+      }
+
+      if (originChanged) {
+        await _secure.deleteHermesApiKey();
+        await _secure.deleteHermesSessionKey();
+        nextApiKey = null;
+        nextSessionKey = null;
+      }
+
+      if (apiKeyChanged) {
+        final value = apiKey?.trim() ?? '';
+        if (value.isEmpty) {
+          await _secure.deleteHermesApiKey();
+          nextApiKey = null;
+        } else {
+          await _secure.saveHermesApiKey(value);
+          nextApiKey = value;
+        }
+      }
+
+      if (sessionKeyChanged) {
+        final value = sessionKey?.trim() ?? '';
+        if (value.isEmpty) {
+          await _secure.deleteHermesSessionKey();
+          nextSessionKey = null;
+        } else {
+          await _secure.saveHermesSessionKey(value);
+          nextSessionKey = value;
+        }
+      }
+
+      await PreferencesStore.put(PreferenceKeys.hermesBaseUrl, trimmedUrl);
+      state = HermesConfig(
+        enabled: state.enabled,
+        baseUrl: trimmedUrl,
+        apiKey: nextApiKey,
+        sessionKey: nextSessionKey,
+      );
+    });
+  }
+
+  Future<void> _serializeMutation(Future<void> Function() operation) {
+    final completer = Completer<void>();
+    _mutationQueue = _mutationQueue.then((_) async {
+      try {
+        await operation();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> _stopActiveRuns() async {
+    final stopFutures = ref.read(hermesRunRegistryProvider).cancelAll();
+    await Future.wait<void>([
+      for (final stop in stopFutures) stop.catchError((_) {}),
+    ]);
+  }
+
+  /// Canonical origin used to bind secrets to their intended server.
+  static String? connectionOrigin(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+    return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:$port';
+  }
+
+  /// Canonical request root used to detect when the currently configured
+  /// Hermes endpoint changes. `/v1` and a trailing slash are equivalent because
+  /// [HermesApiService] strips them before composing request paths.
+  static String? connectionEndpoint(String value) {
+    var normalized = value.trim();
+    while (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    if (normalized.endsWith('/v1')) {
+      normalized = normalized.substring(0, normalized.length - '/v1'.length);
+    }
+
+    final uri = Uri.tryParse(normalized);
+    final origin = connectionOrigin(normalized);
+    if (uri == null || origin == null) return null;
+    return '$origin${uri.path}'
+        '${uri.hasQuery ? '?${uri.query}' : ''}'
+        '${uri.hasFragment ? '#${uri.fragment}' : ''}';
   }
 
   /// Returns the long-term memory session key, generating and persisting a
   /// stable one when the user has not set their own. Keeps Hermes memory
   /// associated with this install across restarts.
   Future<String> ensureSessionKey() async {
+    await _secretsHydration;
     final existing = state.sessionKey;
     if (existing != null && existing.isNotEmpty) return existing;
-    final generated = const Uuid().v4();
-    await _secure.saveHermesSessionKey(generated);
-    state = _withState(sessionKey: generated);
-    return generated;
+    return _sessionKeyFuture ??= _generateSessionKey();
+  }
+
+  Future<String> _generateSessionKey() async {
+    try {
+      final generated = const Uuid().v4();
+      await _serializeMutation(() async {
+        await _secure.saveHermesSessionKey(generated);
+        state = _withState(sessionKey: generated);
+      });
+      return generated;
+    } finally {
+      _sessionKeyFuture = null;
+    }
   }
 
   HermesConfig _withState({
@@ -107,6 +269,17 @@ class HermesConfigController extends Notifier<HermesConfig> {
   static const String _keep = '__hermes_keep__';
 }
 
+class HermesSecretsLoading extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void set(bool value) => state = value;
+}
+
+/// True until the initial secure-storage hydration settles (success or error).
+final hermesSecretsLoadingProvider =
+    NotifierProvider<HermesSecretsLoading, bool>(HermesSecretsLoading.new);
+
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
       HermesConfigController.new,
@@ -124,8 +297,8 @@ final hermesEnabledProvider = Provider<bool>(
 final hermesOnlyModeProvider = Provider<bool>((ref) {
   if (ref.watch(reviewerModeProvider)) return false;
   if (!ref.watch(hermesConfigProvider).isUsable) return false;
-  final activeServer = ref.watch(activeServerProvider).asData?.value;
-  return activeServer == null;
+  final activeServer = ref.watch(activeServerProvider);
+  return activeServer.hasValue && activeServer.requireValue == null;
 });
 
 /// The Hermes client, or null when Hermes is disabled / not fully configured.
@@ -281,32 +454,27 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     return jobs;
   }
 
-  HermesApiService? get _service => ref.read(hermesApiServiceProvider);
+  HermesApiService get _service =>
+      ref.read(hermesApiServiceProvider) ??
+      (throw StateError('Hermes is not configured'));
 
   Future<void> create({
     required String prompt,
     required String schedule,
   }) async {
     final service = _service;
-    if (service == null) return;
     await service.createJob(prompt: prompt, schedule: schedule);
     ref.invalidateSelf();
   }
 
-  Future<void> edit(
-    String id, {
-    String? prompt,
-    String? schedule,
-  }) async {
+  Future<void> edit(String id, {String? prompt, String? schedule}) async {
     final service = _service;
-    if (service == null) return;
     await service.updateJob(id, prompt: prompt, schedule: schedule);
     ref.invalidateSelf();
   }
 
   Future<void> setEnabled(String id, bool enabled) async {
     final service = _service;
-    if (service == null) return;
     if (enabled) {
       await service.resumeJob(id);
     } else {
@@ -316,12 +484,11 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
   }
 
   Future<void> runNow(String id) async {
-    await _service?.runJob(id);
+    await _service.runJob(id);
   }
 
   Future<void> delete(String id) async {
     final service = _service;
-    if (service == null) return;
     await service.deleteJob(id);
     ref.invalidateSelf();
   }
@@ -355,47 +522,138 @@ final hermesJobsSectionExpandedProvider =
 class HermesRunRegistry {
   final Map<String, _ActiveRun> _runs = {};
 
+  CancelToken registerPending(
+    String assistantMessageId, {
+    CancelToken? cancelToken,
+    Future<void>? cancellationSettled,
+    required void Function() onCancelled,
+  }) {
+    final token = cancelToken ?? CancelToken();
+    final existing = _runs[assistantMessageId];
+    if (existing != null &&
+        !existing.cancelled &&
+        identical(existing.cancelToken, token)) {
+      existing.onCancelled.add(onCancelled);
+      existing.cancellationSettled ??= cancellationSettled;
+      return token;
+    }
+
+    final previousStop = cancel(assistantMessageId);
+    if (previousStop != null) unawaited(previousStop);
+    _runs[assistantMessageId] = _ActiveRun(
+      cancelToken: token,
+      onCancelled: [onCancelled],
+      cancellationSettled: cancellationSettled,
+    );
+    return token;
+  }
+
+  /// Attaches server state to a pending run. Returns false when the pending
+  /// entry was already cancelled, in which case the subscription is cancelled.
+  bool attachRun(
+    String assistantMessageId, {
+    required CancelToken cancelToken,
+    required String runId,
+    required StreamSubscription<void> subscription,
+    required Future<void> Function(String runId) stopRemote,
+  }) {
+    final run = _runs[assistantMessageId];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run.cancelToken, cancelToken)) {
+      unawaited(subscription.cancel());
+      return false;
+    }
+    run.runId = runId;
+    run.subscription = subscription;
+    run.stopRemote = stopRemote;
+    return true;
+  }
+
+  /// Compatibility helper for callers that already have a live run.
   void register(
     String assistantMessageId, {
     required String runId,
     required CancelToken cancelToken,
     required StreamSubscription<void> subscription,
+    required Future<void> Function(String runId) stopRemote,
   }) {
-    _runs[assistantMessageId] = _ActiveRun(
-      runId: runId,
+    registerPending(
+      assistantMessageId,
       cancelToken: cancelToken,
+      onCancelled: () {},
+    );
+    attachRun(
+      assistantMessageId,
+      cancelToken: cancelToken,
+      runId: runId,
       subscription: subscription,
+      stopRemote: stopRemote,
     );
   }
 
   String? runIdFor(String assistantMessageId) =>
       _runs[assistantMessageId]?.runId;
 
-  /// Cancels and forgets the run for [assistantMessageId], returning its run id
-  /// (so the caller can POST `/stop`).
-  String? cancel(String assistantMessageId) {
+  /// Cancels and forgets the run for [assistantMessageId]. The returned future
+  /// waits for both the owner-bound remote stop (when the run id is known) and
+  /// pending transport settlement (when create/preflight is still in flight).
+  Future<void>? cancel(String assistantMessageId) {
     final run = _runs.remove(assistantMessageId);
     if (run == null) return null;
+    run.cancelled = true;
     run.cancelToken.cancel('stopped');
-    unawaited(run.subscription.cancel());
-    return run.runId;
+    for (final callback in run.onCancelled) {
+      try {
+        callback();
+      } catch (_) {
+        // One UI cleanup callback must not prevent subscription/remote cleanup.
+      }
+    }
+    final subscription = run.subscription;
+    if (subscription != null) unawaited(subscription.cancel());
+    final pending = <Future<void>>[];
+    final cancellationSettled = run.cancellationSettled;
+    if (cancellationSettled != null) pending.add(cancellationSettled);
+    final runId = run.runId;
+    final stopRemote = run.stopRemote;
+    if (runId != null && stopRemote != null) {
+      pending.add(Future<void>.sync(() => stopRemote(runId)));
+    }
+    return Future.wait<void>(pending);
   }
 
-  void complete(String assistantMessageId) {
+  List<Future<void>> cancelAll() {
+    final stops = <Future<void>>[];
+    for (final id in _runs.keys.toList(growable: false)) {
+      final stop = cancel(id);
+      if (stop != null) stops.add(stop);
+    }
+    return stops;
+  }
+
+  bool complete(String assistantMessageId, {required CancelToken cancelToken}) {
+    final run = _runs[assistantMessageId];
+    if (run == null || !identical(run.cancelToken, cancelToken)) return false;
     _runs.remove(assistantMessageId);
+    return true;
   }
 }
 
 class _ActiveRun {
   _ActiveRun({
-    required this.runId,
     required this.cancelToken,
-    required this.subscription,
+    required this.onCancelled,
+    this.cancellationSettled,
   });
 
-  final String runId;
+  String? runId;
   final CancelToken cancelToken;
-  final StreamSubscription<void> subscription;
+  final List<void Function()> onCancelled;
+  Future<void>? cancellationSettled;
+  StreamSubscription<void>? subscription;
+  Future<void> Function(String runId)? stopRemote;
+  bool cancelled = false;
 }
 
 final hermesRunRegistryProvider = Provider<HermesRunRegistry>(

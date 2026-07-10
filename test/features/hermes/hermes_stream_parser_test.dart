@@ -111,6 +111,25 @@ void main() {
       check(events[2]).isA<HermesRunDone>();
     });
 
+    test(
+      'extracts structured terminal output without rendering tool calls',
+      () async {
+        final events = await parseHermesRunStream(
+          _sse([
+            'event: run.completed\n'
+                'data: {"output":[{"type":"output_text","text":"Hello "},'
+                '{"type":"function_call","name":"search"},'
+                '{"type":"output_text","text":"world"}]}\n\n',
+          ]),
+        ).toList();
+
+        check(
+          events.whereType<HermesFinalOutput>().single.text,
+        ).equals('Hello world');
+        check(events.last).isA<HermesRunDone>();
+      },
+    );
+
     test('surfaces errors', () async {
       final events = await parseHermesRunStream(
         _sse(['data: {"error":{"message":"boom"}}\n\n']),

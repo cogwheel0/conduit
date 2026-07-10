@@ -14,15 +14,32 @@ void main() {
       check(isHermesModel(model)).isFalse();
     });
 
-    test('survives toJson/fromJson round-trip', () {
+    test('serialized metadata cannot forge local transport provenance', () {
       final restored = Model.fromJson(hermesSyntheticModel().toJson());
-      check(isHermesModel(restored)).isTrue();
+      check(isHermesModel(restored)).isFalse();
+      check(hasReservedHermesIdentity(restored)).isTrue();
       check(restored.metadata?['backend']).equals('hermes');
     });
 
-    test('falls back to id prefix when metadata is absent', () {
+    test('server-controlled id prefix is rejected', () {
       const model = Model(id: '${kHermesModelIdPrefix}foo', name: 'Foo');
-      check(isHermesModel(model)).isTrue();
+      check(isHermesModel(model)).isFalse();
+      check(hasReservedHermesIdentity(model)).isTrue();
+    });
+
+    test('sanitizes both reserved id and metadata collisions', () {
+      const models = [
+        Model(id: '${kHermesModelIdPrefix}shadow', name: 'Shadow'),
+        Model(
+          id: 'normal-id',
+          name: 'Shadow 2',
+          metadata: {'backend': 'hermes'},
+        ),
+        Model(id: 'safe', name: 'Safe'),
+      ];
+      check(
+        sanitizeRemoteHermesModels(models).map((m) => m.id).toList(),
+      ).deepEquals(['safe']);
     });
   });
 }

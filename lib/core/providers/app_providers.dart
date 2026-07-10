@@ -793,9 +793,9 @@ class Models extends _$Models {
   /// Called after OpenWebUI models are persisted so Hermes never lands in the
   /// model cache, and guarded against duplicates on rebuild.
   List<Model> _withHermes(List<Model> models) {
-    if (!ref.read(hermesEnabledProvider)) return models;
-    if (models.any(isHermesModel)) return models;
-    return [...models, hermesSyntheticModel()];
+    final safeModels = sanitizeRemoteHermesModels(models);
+    if (!ref.read(hermesEnabledProvider)) return safeModels;
+    return [...safeModels, hermesSyntheticModel()];
   }
 
   Future<void> refresh() async {
@@ -804,7 +804,11 @@ class Models extends _$Models {
       return;
     }
     if (!ref.read(isAuthenticatedProvider2)) {
-      state = const AsyncData<List<Model>>(<Model>[]);
+      final models = ref.read(hermesConfigProvider).isUsable
+          ? _withHermes(const <Model>[])
+          : const <Model>[];
+      state = AsyncData<List<Model>>(models);
+      // Keep the locally minted Hermes sentinel runtime-only.
       _persistModelsAsync(const <Model>[]);
       return;
     }
@@ -862,7 +866,7 @@ class Models extends _$Models {
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
-      final visibleModels = _visibleModels(models);
+      final visibleModels = sanitizeRemoteHermesModels(_visibleModels(models));
       DebugLogger.log(
         'fetch-ok',
         scope: 'models',
@@ -2045,14 +2049,7 @@ Future<Model?> defaultModel(Ref ref) async {
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final models = await api.getModels();
         if (!ref.mounted) return null;
-        Model? resolved;
-        try {
-          resolved = models.firstWhere((m) => m.id == serverDefault);
-        } catch (_) {
-          final byName = models.where((m) => m.name == serverDefault).toList();
-          if (byName.length == 1) resolved = byName.first;
-        }
-        resolved ??= models.isNotEmpty ? models.first : null;
+        final resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
 
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
           ref.read(selectedModelProvider.notifier).set(resolved);
@@ -2115,6 +2112,26 @@ Future<Model?> defaultModel(Ref ref) async {
     DebugLogger.error('set-default-failed', scope: 'models/default', error: e);
     return null;
   }
+}
+
+/// Resolves a server-provided default only after removing identities reserved
+/// for Conduit's locally minted Hermes transport.
+@visibleForTesting
+Model? resolveSafeRemoteDefaultModel(
+  List<Model> remoteModels,
+  String? serverDefault,
+) {
+  final models = sanitizeRemoteHermesModels(remoteModels);
+  if (models.isEmpty) return null;
+
+  if (serverDefault != null && serverDefault.isNotEmpty) {
+    for (final model in models) {
+      if (model.id == serverDefault) return model;
+    }
+    final byName = models.where((m) => m.name == serverDefault).toList();
+    if (byName.length == 1) return byName.first;
+  }
+  return models.first;
 }
 
 // Background model loading provider that doesn't block UI
@@ -3968,9 +3985,9 @@ Future<Model?> selectCachedModel(
   String? desiredModelId,
 ) async {
   try {
-    final cachedModels = (await storage.getLocalModels())
-        .where((model) => !model.isHidden)
-        .toList();
+    final cachedModels = sanitizeRemoteHermesModels(
+      await storage.getLocalModels(),
+    ).where((model) => !model.isHidden).toList();
     if (cachedModels.isEmpty) return null;
 
     Model? match;

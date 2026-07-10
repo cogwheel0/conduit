@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -2175,6 +2176,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void clearMessages() {
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    _clearStreamingBuffer();
+    _clearStreamingContent();
     state = [];
     _finishStreamingProfile(reason: 'cleared');
   }
@@ -2427,6 +2434,48 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _syncStreamingProfileWithBufferedContent();
     _touchStreamingActivity();
   }
+
+  /// Appends a Hermes chunk to the assistant message that owns the run.
+  ///
+  /// Hermes runs can outlive a navigation transition. Never redirect a late
+  /// chunk to whichever assistant happens to be the list tail at that point.
+  void appendToMessageById(String messageId, String content) {
+    if (content.isEmpty) return;
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+    if (index == state.length - 1) {
+      appendToLastMessage(content);
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (current) => current.copyWith(content: '${current.content}$content'),
+    );
+  }
+
+  void replaceMessageContentById(String messageId, String content) {
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+    if (index == state.length - 1) {
+      replaceLastMessageContent(content);
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (current) => current.copyWith(content: content),
+    );
+  }
+
+  bool isMessageStreaming(String messageId) => state.any(
+    (message) =>
+        message.id == messageId &&
+        message.role == 'assistant' &&
+        message.isStreaming,
+  );
 
   void _scheduleStreamingContentUpdate() {
     if (_disposed || _streamingBuffer == null) {
@@ -2760,8 +2809,30 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _completeStreamingMessage(releaseTransport: false);
   }
 
+  void completeStreamingUiForMessage(String messageId) {
+    if (state.lastOrNull?.id == messageId) {
+      completeStreamingUi();
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (message) => message.copyWith(isStreaming: false),
+    );
+  }
+
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
+  }
+
+  void finishStreamingMessage(String messageId) {
+    if (state.lastOrNull?.id == messageId) {
+      finishStreaming();
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (message) => message.copyWith(isStreaming: false),
+    );
   }
 
   /// D-07 local echo: after a stream lands, write the trailing user message
@@ -3638,16 +3709,25 @@ String? resolveTerminalIdForRequestForTest(String? selectedTerminalId) {
   return _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId);
 }
 
+/// Stops the Hermes run owned by the visible assistant and clears its session
+/// binding before a navigation/reset replaces the message list.
+void resetHermesForNewChat(dynamic ref) {
+  final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  for (final stop in registry.cancelAll()) {
+    unawaited(stop);
+  }
+  ref.read(hermesActiveSessionProvider.notifier).set(null);
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref) {
+  resetHermesForNewChat(ref);
+
   // Clear active conversation
   ref.read(activeConversationProvider.notifier).clear();
 
   // Clear messages
   ref.read(chatMessagesProvider.notifier).clearMessages();
-
-  // Unbind any Hermes session so the next Hermes turn starts a fresh one.
-  ref.read(hermesActiveSessionProvider.notifier).set(null);
 
   // Clear context attachments (web pages, YouTube, knowledge base docs)
   ref.read(contextAttachmentsProvider.notifier).clear();
@@ -3668,6 +3748,8 @@ void startNewChat(dynamic ref) {
 /// this does NOT reset to the default model (which would race past and clobber
 /// the Hermes selection); it resolves and selects the Hermes model explicitly.
 Future<void> startNewHermesChat(dynamic ref) async {
+  resetHermesForNewChat(ref);
+
   // Resolve the Hermes model first so the picker lands on it.
   Model? hermesModel;
   try {
@@ -3684,7 +3766,6 @@ Future<void> startNewHermesChat(dynamic ref) async {
   ref.read(chatMessagesProvider.notifier).clearMessages();
   ref.read(contextAttachmentsProvider.notifier).clear();
   ref.read(pendingFolderIdProvider.notifier).clear();
-  ref.read(hermesActiveSessionProvider.notifier).set(null);
 
   final settings = ref.read(appSettingsProvider);
   ref
@@ -4053,6 +4134,89 @@ bool isSendBlocked({
   return !isHermesModel(selectedModel);
 }
 
+@visibleForTesting
+bool usesHermesTransportForRegeneration({
+  required Model selectedModel,
+  required Conversation? activeConversation,
+}) {
+  // Conversation presence intentionally does not participate: first-turn
+  // Hermes chats are valid before a local Conversation shell exists, while an
+  // opened server session supplies that shell and must use the same transport.
+  return isHermesModel(selectedModel);
+}
+
+Future<void> _regenerateHermesMessage(
+  dynamic ref, {
+  required Model selectedModel,
+  required String input,
+}) async {
+  final existingMessages = List<ChatMessage>.from(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+    growable: false,
+  );
+  final previousAssistant = existingMessages.reversed
+      .where((message) => message.role == 'assistant')
+      .firstOrNull;
+
+  // Regeneration branches from the history before the replayed user turn. Do
+  // not chain previous_response_id to the answer being replaced.
+  var replayedUserIndex = -1;
+  for (var index = existingMessages.length - 1; index >= 0; index--) {
+    if (existingMessages[index].role == 'user') {
+      replayedUserIndex = index;
+      break;
+    }
+  }
+  final continuityMessages = replayedUserIndex < 0
+      ? const <ChatMessage>[]
+      : existingMessages.sublist(0, replayedUserIndex);
+
+  String? previousResponseId;
+  for (final message in continuityMessages.reversed) {
+    if (message.role != 'assistant') continue;
+    final id = message.metadata?['hermesRunId'];
+    if (id is String && id.isNotEmpty) {
+      previousResponseId = id;
+      break;
+    }
+  }
+
+  final assistantMessageId = const Uuid().v4();
+  var assistant = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+    versions: previousAssistant == null
+        ? const <ChatMessageVersion>[]
+        : _buildReplayVersions(previousAssistant),
+    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
+  );
+  if (continuityMessages.isNotEmpty && previousResponseId == null) {
+    assistant = assistant.copyWith(
+      isStreaming: false,
+      error: const ChatMessageError(
+        content:
+            'This Hermes conversation does not expose the response ID needed '
+            'to regenerate from this point. Start a new branch instead.',
+      ),
+    );
+  }
+  ref.read(chatMessagesProvider.notifier).addMessage(assistant);
+  if (!assistant.isStreaming) return;
+
+  await _dispatchHermesRunFromChat(
+    ref,
+    assistantMessageId: assistantMessageId,
+    input: input,
+    existingMessages: continuityMessages,
+    forceNewSession: true,
+    previousResponseIdOverride: previousResponseId,
+  );
+}
+
 // Regenerate message function that doesn't duplicate user message
 Future<void> regenerateMessage(
   dynamic ref,
@@ -4075,6 +4239,18 @@ Future<void> regenerateMessage(
   }
 
   var activeConversation = ref.read(activeConversationProvider);
+  if (!reviewerMode &&
+      usesHermesTransportForRegeneration(
+        selectedModel: selectedModel,
+        activeConversation: activeConversation,
+      )) {
+    await _regenerateHermesMessage(
+      ref,
+      selectedModel: selectedModel,
+      input: userMessageContent,
+    );
+    return;
+  }
   if (activeConversation == null) {
     throw Exception('No active conversation');
   }
@@ -5397,15 +5573,73 @@ Future<void> _dispatchHermesRunFromChat(
   required String assistantMessageId,
   required String input,
   required List<ChatMessage> existingMessages,
+  bool forceNewSession = false,
+  String? previousResponseIdOverride,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  final cancellationSettled = Completer<void>();
+  final cancelToken = registry.registerPending(
+    assistantMessageId,
+    onCancelled: () => notifier.finishStreamingMessage(assistantMessageId),
+    cancellationSettled: cancellationSettled.future,
+  );
+
+  try {
+    await _dispatchRegisteredHermesRunFromChat(
+      ref,
+      assistantMessageId: assistantMessageId,
+      input: input,
+      existingMessages: existingMessages,
+      forceNewSession: forceNewSession,
+      previousResponseIdOverride: previousResponseIdOverride,
+      notifier: notifier,
+      registry: registry,
+      cancelToken: cancelToken,
+    );
+  } finally {
+    if (!cancellationSettled.isCompleted) cancellationSettled.complete();
+  }
+}
+
+Future<void> _dispatchRegisteredHermesRunFromChat(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+  required bool forceNewSession,
+  required String? previousResponseIdOverride,
+  required ChatMessagesNotifier notifier,
+  required HermesRunRegistry registry,
+  required CancelToken cancelToken,
+}) async {
+  bool cancelled() => cancelToken.isCancelled;
+
+  void failPreflight(Object error) {
+    registry.complete(assistantMessageId, cancelToken: cancelToken);
+    notifier.updateMessageById(
+      assistantMessageId,
+      (message) => message.copyWith(
+        error: ChatMessageError(content: chatErrorContentForException(error)),
+      ),
+    );
+    notifier.finishStreamingMessage(assistantMessageId);
+    notifier.completeStreamingUiForMessage(assistantMessageId);
+  }
 
   // Ensure a stable long-term memory key before reading the service (mutating
   // the key rebuilds hermesApiServiceProvider, so read it afterwards).
-  await ref.read(hermesConfigProvider.notifier).ensureSessionKey();
+  try {
+    await ref.read(hermesConfigProvider.notifier).ensureSessionKey();
+  } catch (error) {
+    if (!cancelled()) failPreflight(error);
+    return;
+  }
+  if (cancelled()) return;
   final service = ref.read(hermesApiServiceProvider);
   if (service == null) {
+    registry.complete(assistantMessageId, cancelToken: cancelToken);
     notifier.updateMessageById(
       assistantMessageId,
       (m) => m.copyWith(
@@ -5416,7 +5650,8 @@ Future<void> _dispatchHermesRunFromChat(
         ),
       ),
     );
-    notifier.finishStreaming();
+    notifier.finishStreamingMessage(assistantMessageId);
+    notifier.completeStreamingUiForMessage(assistantMessageId);
     return;
   }
 
@@ -5428,16 +5663,40 @@ Future<void> _dispatchHermesRunFromChat(
   if (activeConv != null && !activeIsHermes) {
     ref.read(hermesActiveSessionProvider.notifier).set(null);
   }
-  var sessionId = ref.read(hermesActiveSessionProvider);
+  var sessionId = forceNewSession
+      ? null
+      : ref.read(hermesActiveSessionProvider);
   if (sessionId == null || sessionId.isEmpty) {
     try {
       // Title the session from the first user message when this is turn one.
       final title = existingMessages.isEmpty
           ? _deriveHermesSessionTitle(input)
           : null;
-      sessionId = await service.createSession(title: title);
+      final createdSessionId = await service.createSession(
+        title: title,
+        cancelToken: cancelToken,
+      );
+      if (cancelled()) {
+        try {
+          await service.deleteSession(createdSessionId);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'late-session-cleanup-failed',
+            scope: 'hermes/transport',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+        return;
+      }
+      sessionId = createdSessionId;
       ref.read(hermesActiveSessionProvider.notifier).set(sessionId);
-    } catch (_) {
+    } catch (error) {
+      if (cancelled()) return;
+      if (forceNewSession) {
+        failPreflight(error);
+        return;
+      }
       // Session creation failed (older server / disabled): fall back to an
       // ephemeral run with no persistence rather than failing the turn.
       sessionId = null;
@@ -5445,15 +5704,19 @@ Future<void> _dispatchHermesRunFromChat(
   }
 
   // Chain to the previous Hermes turn for server-side multi-turn continuity.
-  String? previousResponseId;
-  for (final m in existingMessages.reversed) {
-    if (m.role != 'assistant') continue;
-    final rid = m.metadata?['hermesRunId'];
-    if (rid is String && rid.isNotEmpty) {
-      previousResponseId = rid;
-      break;
+  var previousResponseId = previousResponseIdOverride;
+  if (previousResponseId == null) {
+    for (final m in existingMessages.reversed) {
+      if (m.role != 'assistant') continue;
+      final rid = m.metadata?['hermesRunId'];
+      if (rid is String && rid.isNotEmpty) {
+        previousResponseId = rid;
+        break;
+      }
     }
   }
+
+  if (cancelled()) return;
 
   await dispatchHermesRun(
     service: service,
@@ -5462,14 +5725,36 @@ Future<void> _dispatchHermesRunFromChat(
     input: input,
     sessionId: sessionId,
     previousResponseId: previousResponseId,
-    appendContent: notifier.appendToLastMessage,
+    cancelToken: cancelToken,
+    appendContent: (content) =>
+        notifier.appendToMessageById(assistantMessageId, content),
+    replaceContent: (content) =>
+        notifier.replaceMessageContentById(assistantMessageId, content),
     appendStatus: (u) => notifier.appendStatusUpdate(assistantMessageId, u),
     updateMessage: (updater) =>
         notifier.updateMessageById(assistantMessageId, updater),
-    finishStreaming: notifier.finishStreaming,
-    completeStreamingUi: notifier.completeStreamingUi,
+    finishStreaming: () => notifier.finishStreamingMessage(assistantMessageId),
+    completeStreamingUi: () =>
+        notifier.completeStreamingUiForMessage(assistantMessageId),
   );
 }
+
+@visibleForTesting
+Future<void> dispatchHermesRunFromChatForTest(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+  bool forceNewSession = false,
+  String? previousResponseIdOverride,
+}) => _dispatchHermesRunFromChat(
+  ref,
+  assistantMessageId: assistantMessageId,
+  input: input,
+  existingMessages: existingMessages,
+  forceNewSession: forceNewSession,
+  previousResponseIdOverride: previousResponseIdOverride,
+);
 
 Future<void> _sendMessageInternal(
   dynamic ref,
@@ -5563,6 +5848,7 @@ Future<void> _sendMessageInternal(
     metadata: {
       'parentId': userMessageId,
       'childrenIds': const <String>[],
+      if (isHermesModel(selectedModel)) 'transport': kHermesTransport,
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
     },
@@ -6472,12 +6758,9 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
         final last = messages.last;
 
         if (last.metadata?['transport'] == kHermesTransport) {
-          // Hermes run: cancel the event subscription and POST /stop.
-          final runId = ref.read(hermesRunRegistryProvider).cancel(last.id);
-          final hermes = ref.read(hermesApiServiceProvider);
-          if (runId != null && hermes != null) {
-            unawaited(hermes.stopRun(runId));
-          }
+          // The registry owns the service/origin that created this run.
+          final stop = ref.read(hermesRunRegistryProvider).cancel(last.id);
+          if (stop != null) unawaited(stop);
         } else {
           final api = ref.read(apiServiceProvider);
 

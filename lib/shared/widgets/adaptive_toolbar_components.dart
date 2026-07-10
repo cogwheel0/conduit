@@ -426,7 +426,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     }
 
     return AdaptiveButton.child(
-      onPressed: (isLoading || !showChevron) ? () {} : onPressed,
+      onPressed: (isLoading || !showChevron) ? null : onPressed,
       style: AdaptiveButtonStyle.glass,
       size: AdaptiveButtonSize.large,
       padding: EdgeInsets.zero,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
@@ -12,11 +13,39 @@ import '../widgets/hermes_job_editor.dart';
 
 /// "Scheduled Agents" — cron-driven Hermes jobs (`/api/jobs`): create, edit,
 /// pause/resume, run-now, delete.
-class HermesJobsPage extends ConsumerWidget {
+@visibleForTesting
+Future<bool> runHermesJobMutation(
+  BuildContext context, {
+  required Future<void> Function() action,
+  required String failureMessage,
+  String? successMessage,
+}) async {
+  try {
+    await action();
+    if (context.mounted && successMessage != null) {
+      UiUtils.showMessage(context, successMessage);
+    }
+    return true;
+  } catch (_) {
+    if (context.mounted) {
+      UiUtils.showMessage(context, failureMessage, isError: true);
+    }
+    return false;
+  }
+}
+
+class HermesJobsPage extends ConsumerStatefulWidget {
   const HermesJobsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HermesJobsPage> createState() => _HermesJobsPageState();
+}
+
+class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
+  bool _creating = false;
+
+  @override
+  Widget build(BuildContext context) {
     final jobsAsync = ref.watch(hermesJobsProvider);
     final writable =
         ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
@@ -29,7 +58,8 @@ class HermesJobsPage extends ConsumerWidget {
           text: 'New scheduled job',
           icon: Icons.add,
           isFullWidth: true,
-          onPressed: writable ? () => _createJob(context, ref) : null,
+          isLoading: _creating,
+          onPressed: writable && !_creating ? _createJob : null,
         ),
         if (!writable) ...[
           const SizedBox(height: Spacing.sm),
@@ -89,25 +119,52 @@ class HermesJobsPage extends ConsumerWidget {
     );
   }
 
-  Future<void> _createJob(BuildContext context, WidgetRef ref) async {
+  Future<void> _createJob() async {
     final result = await showHermesJobEditor(context);
-    if (result == null || !context.mounted) return;
-    await ref
-        .read(hermesJobsProvider.notifier)
-        .create(prompt: result.prompt, schedule: result.schedule);
+    if (result == null || !mounted || _creating) return;
+    if (ref.read(hermesApiServiceProvider) == null) {
+      UiUtils.showMessage(
+        context,
+        'Could not create scheduled job.',
+        isError: true,
+      );
+      return;
+    }
+    setState(() => _creating = true);
+    await runHermesJobMutation(
+      context,
+      action: () => ref
+          .read(hermesJobsProvider.notifier)
+          .create(prompt: result.prompt, schedule: result.schedule),
+      failureMessage: 'Could not create scheduled job.',
+      successMessage: 'Scheduled job created.',
+    );
+    if (mounted) setState(() => _creating = false);
   }
 }
 
-class _JobCard extends ConsumerWidget {
+enum _JobMutation { toggle, run, edit, delete }
+
+class _JobCard extends ConsumerStatefulWidget {
   const _JobCard({required this.job, this.writable = true});
 
   final HermesJob job;
   final bool writable;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_JobCard> createState() => _JobCardState();
+}
+
+class _JobCardState extends ConsumerState<_JobCard> {
+  _JobMutation? _mutation;
+
+  HermesJob get job => widget.job;
+  bool get writable => widget.writable;
+  bool get _busy => _mutation != null;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final controller = ref.read(hermesJobsProvider.notifier);
 
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
@@ -133,12 +190,20 @@ class _JobCard extends ConsumerWidget {
                   ),
                 ),
               ),
-              AdaptiveSwitch(
-                value: job.enabled,
-                onChanged: writable
-                    ? (value) => controller.setEnabled(job.id, value)
-                    : null,
-              ),
+              if (_busy)
+                const Padding(
+                  padding: EdgeInsets.all(Spacing.sm),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else
+                AdaptiveSwitch(
+                  value: job.enabled,
+                  onChanged: writable ? _setEnabled : null,
+                ),
             ],
           ),
           const SizedBox(height: Spacing.xs),
@@ -169,19 +234,23 @@ class _JobCard extends ConsumerWidget {
             Row(
               children: [
                 ConduitButton(
+                  key: ValueKey<String>('hermes-job-run-${job.id}'),
                   text: 'Run now',
                   isSecondary: true,
                   isCompact: true,
-                  onPressed: () => controller.runNow(job.id),
+                  isLoading: _mutation == _JobMutation.run,
+                  onPressed: _busy ? null : _runNow,
                 ),
                 const Spacer(),
                 IconButton(
                   icon: Icon(Icons.edit_outlined, color: theme.iconSecondary),
-                  onPressed: () => _editJob(context, ref),
+                  tooltip: 'Edit scheduled job',
+                  onPressed: _busy ? null : _editJob,
                 ),
                 IconButton(
                   icon: Icon(Icons.delete_outline, color: theme.error),
-                  onPressed: () => _deleteJob(context, ref),
+                  tooltip: 'Delete scheduled job',
+                  onPressed: _busy ? null : _deleteJob,
                 ),
               ],
             ),
@@ -190,19 +259,64 @@ class _JobCard extends ConsumerWidget {
     );
   }
 
-  Future<void> _editJob(BuildContext context, WidgetRef ref) async {
+  Future<void> _runMutation({
+    required _JobMutation mutation,
+    required Future<void> Function() action,
+    required String failureMessage,
+    String? successMessage,
+  }) async {
+    if (_busy) return;
+    if (ref.read(hermesApiServiceProvider) == null) {
+      UiUtils.showMessage(context, failureMessage, isError: true);
+      return;
+    }
+    setState(() => _mutation = mutation);
+    await runHermesJobMutation(
+      context,
+      action: action,
+      failureMessage: failureMessage,
+      successMessage: successMessage,
+    );
+    if (mounted) setState(() => _mutation = null);
+  }
+
+  Future<void> _setEnabled(bool enabled) => _runMutation(
+    mutation: _JobMutation.toggle,
+    action: () =>
+        ref.read(hermesJobsProvider.notifier).setEnabled(job.id, enabled),
+    failureMessage: enabled
+        ? 'Could not resume scheduled job.'
+        : 'Could not pause scheduled job.',
+    successMessage: enabled
+        ? 'Scheduled job resumed.'
+        : 'Scheduled job paused.',
+  );
+
+  Future<void> _runNow() => _runMutation(
+    mutation: _JobMutation.run,
+    action: () => ref.read(hermesJobsProvider.notifier).runNow(job.id),
+    failureMessage: 'Could not run scheduled job.',
+    successMessage: 'Scheduled job started.',
+  );
+
+  Future<void> _editJob() async {
     final result = await showHermesJobEditor(
       context,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
     );
-    if (result == null || !context.mounted) return;
-    await ref
-        .read(hermesJobsProvider.notifier)
-        .edit(job.id, prompt: result.prompt, schedule: result.schedule);
+    if (result == null || !mounted) return;
+    await _runMutation(
+      mutation: _JobMutation.edit,
+      action: () => ref
+          .read(hermesJobsProvider.notifier)
+          .edit(job.id, prompt: result.prompt, schedule: result.schedule),
+      failureMessage: 'Could not update scheduled job.',
+      successMessage: 'Scheduled job updated.',
+    );
   }
 
-  Future<void> _deleteJob(BuildContext context, WidgetRef ref) async {
+  Future<void> _deleteJob() async {
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: 'Delete job',
@@ -210,8 +324,12 @@ class _JobCard extends ConsumerWidget {
       confirmText: 'Delete',
       isDestructive: true,
     );
-    if (confirmed && context.mounted) {
-      await ref.read(hermesJobsProvider.notifier).delete(job.id);
-    }
+    if (!confirmed || !mounted) return;
+    await _runMutation(
+      mutation: _JobMutation.delete,
+      action: () => ref.read(hermesJobsProvider.notifier).delete(job.id),
+      failureMessage: 'Could not delete scheduled job.',
+      successMessage: 'Scheduled job deleted.',
+    );
   }
 }

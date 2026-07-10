@@ -93,8 +93,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
       if (status == 'failed') {
         yield HermesRunError(_failureMessage(data['error']));
       } else {
-        final output = _str(data['output']);
-        if (output != null && output.isNotEmpty) {
+        final output = extractHermesOutputText(data['output']);
+        if (output.isNotEmpty) {
           yield HermesFinalOutput(output);
         }
       }
@@ -135,6 +135,28 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
       yield const HermesRunDone();
     }
   }
+}
+
+/// Extracts visible assistant text from a terminal/recovered Hermes output.
+/// Function-call items are deliberately omitted from the rendered answer.
+String extractHermesOutputText(dynamic output) {
+  if (output == null) return '';
+  if (output is String) return output;
+  final buffer = StringBuffer();
+  if (output is List) {
+    for (final item in output) {
+      if (item is String) {
+        buffer.write(item);
+      } else if (item is Map) {
+        final type = item['type']?.toString();
+        if (type != null && type.contains('function')) continue;
+        buffer.write(extractHermesOutputText(item['content'] ?? item['text']));
+      }
+    }
+  } else if (output is Map) {
+    buffer.write(extractHermesOutputText(output['text'] ?? output['content']));
+  }
+  return buffer.toString();
 }
 
 HermesToolProgress? _maybeToolProgress(

@@ -3635,5 +3635,133 @@
   "notificationsPermissionDenied": "Notifications are turned off in system settings.",
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."
+  },
+  "hermesAgentSettingsTitle": "Hermes Agent",
+  "@hermesAgentSettingsTitle": {
+    "description": "Title for the profile option that opens Hermes Agent settings."
+  },
+  "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
+  "@hermesAgentSettingsSubtitle": {
+    "description": "Subtitle for the profile option that opens Hermes Agent settings."
+  },
+  "connectOpenWebUITitle": "Connect to Open WebUI",
+  "@connectOpenWebUITitle": {
+    "description": "Title for the Hermes-only profile option that adds an Open WebUI server."
+  },
+  "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
+  "@connectOpenWebUISubtitle": {
+    "description": "Subtitle for the Hermes-only profile option that adds an Open WebUI server."
+  },
+  "backendChooserWelcome": "Welcome to Conduit",
+  "@backendChooserWelcome": {
+    "description": "Welcome heading on the first-run backend chooser."
+  },
+  "backendChooserPrompt": "Choose how you want to connect.",
+  "@backendChooserPrompt": {
+    "description": "Prompt on the first-run backend chooser."
+  },
+  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
+  "@backendChooserOpenWebUISubtitle": {
+    "description": "Description of the Open WebUI option on the backend chooser."
+  },
+  "backendChooserHermesTitle": "Use a Hermes Agent",
+  "@backendChooserHermesTitle": {
+    "description": "Title of the Hermes Agent option on the backend chooser."
+  },
+  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "@backendChooserHermesSubtitle": {
+    "description": "Description of the Hermes Agent option on the backend chooser."
+  },
+  "hermesApprovalRequired": "Approval required",
+  "@hermesApprovalRequired": {
+    "description": "Title of a Hermes human-approval request card."
+  },
+  "hermesApprovalFallback": "The agent is requesting permission to continue.",
+  "@hermesApprovalFallback": {
+    "description": "Fallback description for a Hermes approval request."
+  },
+  "hermesApprovalApproved": "Approved ✓",
+  "@hermesApprovalApproved": {
+    "description": "Resolved status for an approved Hermes request."
+  },
+  "hermesApprovalDenied": "Denied",
+  "@hermesApprovalDenied": {
+    "description": "Resolved status for a denied Hermes request."
+  },
+  "hermesApprovalApproveAction": "Approve",
+  "@hermesApprovalApproveAction": {
+    "description": "Button that approves a Hermes request."
+  },
+  "hermesApprovalDenyAction": "Deny",
+  "@hermesApprovalDenyAction": {
+    "description": "Button that denies a Hermes request."
+  },
+  "hermesEnableTitle": "Enable Hermes Agent",
+  "@hermesEnableTitle": {
+    "description": "Title of the Hermes enable toggle."
+  },
+  "hermesEnableSubtitle": "Use your self-hosted Hermes agent as a model in the picker.",
+  "@hermesEnableSubtitle": {
+    "description": "Description of the Hermes enable toggle."
+  },
+  "hermesServerUrlTitle": "Server URL",
+  "@hermesServerUrlTitle": {
+    "description": "Label for the Hermes server URL field."
+  },
+  "hermesApiKeyTitle": "API key",
+  "@hermesApiKeyTitle": {
+    "description": "Label for the Hermes API key field."
+  },
+  "hermesConfiguredReplacePlaceholder": "Configured — enter to replace",
+  "@hermesConfiguredReplacePlaceholder": {
+    "description": "Placeholder for a configured Hermes secret."
+  },
+  "hermesApiKeyPlaceholder": "Enter API_SERVER_KEY",
+  "@hermesApiKeyPlaceholder": {
+    "description": "Placeholder for an unconfigured Hermes API key."
+  },
+  "hermesMemoryKeyTitle": "Memory key (optional)",
+  "@hermesMemoryKeyTitle": {
+    "description": "Label for the optional Hermes memory key."
+  },
+  "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
+  "@hermesMemoryKeyPlaceholder": {
+    "description": "Placeholder for an unconfigured Hermes memory key."
+  },
+  "hermesCapabilitiesTitle": "Capabilities",
+  "@hermesCapabilitiesTitle": {
+    "description": "Title of the Hermes server capabilities summary."
+  },
+  "hermesCapabilityApproval": "Approval",
+  "@hermesCapabilityApproval": {
+    "description": "Hermes approval capability label."
+  },
+  "hermesCapabilitySkills": "Skills",
+  "@hermesCapabilitySkills": {
+    "description": "Hermes skills capability label."
+  },
+  "hermesCapabilityToolsets": "Toolsets",
+  "@hermesCapabilityToolsets": {
+    "description": "Hermes toolsets capability label."
+  },
+  "hermesCapabilityJobs": "Jobs",
+  "@hermesCapabilityJobs": {
+    "description": "Hermes jobs capability label."
+  },
+  "hermesCapabilitySessions": "Sessions",
+  "@hermesCapabilitySessions": {
+    "description": "Hermes sessions capability label."
+  },
+  "hermesTabInfoTitle": "Conversations & Scheduled Agents",
+  "@hermesTabInfoTitle": {
+    "description": "Title explaining the Hermes sidebar tab."
+  },
+  "hermesTabInfoSubtitle": "Available in the Hermes tab once enabled.",
+  "@hermesTabInfoSubtitle": {
+    "description": "Description explaining when the Hermes sidebar tab is available."
+  },
+  "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
+  "@hermesNativeSettingsSubtitle": {
+    "description": "Subtitle of the native Hermes settings sheet."
   }
 }

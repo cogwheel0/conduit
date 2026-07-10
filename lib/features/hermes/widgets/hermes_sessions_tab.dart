@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../models/hermes_job.dart';
@@ -199,19 +200,27 @@ class _JobsSection extends ConsumerWidget {
 
 /// Compact inline job row (monitoring + quick run-now). Full edit lives on the
 /// dedicated jobs page.
-class _JobRow extends ConsumerWidget {
+class _JobRow extends ConsumerStatefulWidget {
   const _JobRow({required this.job});
 
   final HermesJob job;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_JobRow> createState() => _JobRowState();
+}
+
+class _JobRowState extends ConsumerState<_JobRow> {
+  bool _running = false;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final writable =
         ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
+    final job = widget.job;
 
     return InkWell(
-      onTap: () => context.pushNamed(RouteNames.hermesJobs),
+      onTap: _running ? null : () => context.pushNamed(RouteNames.hermesJobs),
       borderRadius: BorderRadius.circular(AppBorderRadius.card),
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -255,19 +264,51 @@ class _JobRow extends ConsumerWidget {
             if (writable)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                icon: Icon(
-                  Icons.play_arrow_rounded,
-                  size: 20,
-                  color: theme.iconSecondary,
-                ),
+                icon: _running
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        Icons.play_arrow_rounded,
+                        size: 20,
+                        color: theme.iconSecondary,
+                      ),
                 tooltip: 'Run now',
-                onPressed: () =>
-                    ref.read(hermesJobsProvider.notifier).runNow(job.id),
+                onPressed: _running ? null : _runNow,
               ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _runNow() async {
+    if (_running) return;
+    if (ref.read(hermesApiServiceProvider) == null) {
+      UiUtils.showMessage(
+        context,
+        'Could not run scheduled job.',
+        isError: true,
+      );
+      return;
+    }
+    setState(() => _running = true);
+    try {
+      await ref.read(hermesJobsProvider.notifier).runNow(widget.job.id);
+      if (mounted) UiUtils.showMessage(context, 'Scheduled job started.');
+    } catch (_) {
+      if (mounted) {
+        UiUtils.showMessage(
+          context,
+          'Could not run scheduled job.',
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
   }
 }
 
