@@ -274,6 +274,34 @@ void main() {
     },
   );
 
+  test('secret read failure is exposed and can be retried', () async {
+    final storage = _FailOnceSecureStorage({
+      'hermes_api_key_v1': 'key-for-one',
+      'hermes_session_key_v1': 'memory-for-one',
+    })..failReads = true;
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    container.read(hermesConfigProvider);
+    while (container.read(hermesSecretsLoadingProvider)) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    check(container.read(hermesSecretsErrorProvider)).isNotNull();
+    check(container.read(hermesConfigProvider).apiKey).isNull();
+
+    storage.failReads = false;
+    await container.read(hermesConfigProvider.notifier).retrySecrets();
+
+    check(container.read(hermesSecretsErrorProvider)).isNull();
+    check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
+    check(
+      container.read(hermesConfigProvider).sessionKey,
+    ).equals('memory-for-one');
+  });
+
   test(
     'registry cancellation invokes the stop operation owned by the run',
     () async {
@@ -389,6 +417,7 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
 
   final Map<String, String> values;
   String? failNextWriteFor;
+  bool failReads = false;
 
   @override
   Future<String?> read({
@@ -399,7 +428,10 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async => values[key];
+  }) async {
+    if (failReads) throw StateError('secure storage unavailable');
+    return values[key];
+  }
 
   @override
   Future<void> write({

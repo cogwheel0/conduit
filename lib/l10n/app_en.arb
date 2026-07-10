@@ -8,6 +8,10 @@
   "@retry": {
     "description": "Button label to try an action again."
   },
+  "hermesSecretsUnavailable": "Could not access saved Hermes credentials. Unlock secure storage and retry.",
+  "@hermesSecretsUnavailable": {
+    "description": "Error shown when Hermes credentials cannot be read from platform secure storage."
+  },
   "back": "Back",
   "@back": {
     "description": "Back navigation label/tooltip."

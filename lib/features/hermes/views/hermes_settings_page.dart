@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/customization_tile.dart';
@@ -142,6 +143,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     await _commitConnection();
   }
 
+  Future<void> _retrySecrets() =>
+      ref.read(hermesConfigProvider.notifier).retrySecrets();
+
   /// Toggle the Hermes backend. When disabling a Hermes-only backend (no OWUI
   /// server, so the preference is still 'hermes'), reset the preference to
   /// 'unset' so the backend chooser is shown rather than leaving a stale value.
@@ -183,11 +187,45 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(hermesConfigProvider);
+    final secretsError = ref.watch(hermesSecretsErrorProvider);
+    final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return SettingsPageScaffold(
       title: 'Hermes Agent',
       children: [
+        if (secretsError != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: Spacing.lg),
+            padding: const EdgeInsets.all(Spacing.md),
+            decoration: BoxDecoration(
+              color: theme.error.withValues(alpha: 0.08),
+              border: Border.all(color: theme.error.withValues(alpha: 0.3)),
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.lock_outline, color: theme.error),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    l10n.hermesSecretsUnavailable,
+                    style: AppTypography.bodySmallStyle.copyWith(
+                      color: theme.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Spacing.sm),
+                ConduitButton(
+                  text: l10n.retry,
+                  isSecondary: true,
+                  isLoading: secretsLoading,
+                  onPressed: secretsLoading ? null : _retrySecrets,
+                ),
+              ],
+            ),
+          ),
         if (widget.isOnboarding)
           Padding(
             padding: const EdgeInsets.only(bottom: Spacing.lg),

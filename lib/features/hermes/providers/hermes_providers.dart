@@ -48,20 +48,34 @@ class HermesConfigController extends Notifier<HermesConfig> {
       final apiKey = await _secure.getHermesApiKey();
       final sessionKey = await _secure.getHermesSessionKey();
       if (epoch != _secretLoadEpoch || !ref.mounted) return;
+      ref.read(hermesSecretsErrorProvider.notifier).clear();
       state = HermesConfig(
         enabled: state.enabled,
         baseUrl: state.baseUrl,
         apiKey: apiKey,
         sessionKey: sessionKey,
       );
-    } catch (_) {
-      // Secure storage helpers normally degrade to null themselves. Keep this
-      // outer guard so a platform-channel failure can never escape unawaited.
+    } catch (error) {
+      if (epoch != _secretLoadEpoch || !ref.mounted) return;
+      // Missing secrets are represented by successful null reads. A thrown
+      // keychain/keystore failure is materially different: preserve it so the
+      // UI can explain the outage and offer a retry instead of pretending the
+      // user never configured Hermes.
+      ref.read(hermesSecretsErrorProvider.notifier).set(error);
     } finally {
-      if (ref.mounted) {
+      if (epoch == _secretLoadEpoch && ref.mounted) {
         ref.read(hermesSecretsLoadingProvider.notifier).set(false);
       }
     }
+  }
+
+  Future<void> retrySecrets() {
+    final epoch = ++_secretLoadEpoch;
+    ref.read(hermesSecretsErrorProvider.notifier).clear();
+    ref.read(hermesSecretsLoadingProvider.notifier).set(true);
+    final hydration = _loadSecrets(epoch);
+    _secretsHydration = hydration;
+    return hydration;
   }
 
   Future<void> setEnabled(bool value) async {
@@ -284,6 +298,19 @@ class HermesSecretsLoading extends Notifier<bool> {
 /// True until the initial secure-storage hydration settles (success or error).
 final hermesSecretsLoadingProvider =
     NotifierProvider<HermesSecretsLoading, bool>(HermesSecretsLoading.new);
+
+class HermesSecretsError extends Notifier<Object?> {
+  @override
+  Object? build() => null;
+
+  void set(Object error) => state = error;
+
+  void clear() => state = null;
+}
+
+/// A secure-storage access failure, distinct from successfully reading no key.
+final hermesSecretsErrorProvider =
+    NotifierProvider<HermesSecretsError, Object?>(HermesSecretsError.new);
 
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
