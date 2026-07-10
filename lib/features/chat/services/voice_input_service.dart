@@ -191,7 +191,10 @@ class VoiceInputService {
 
     try {
       final availability = await _nativeStt.checkAvailability(
-        localeId: _selectedLocaleId ?? deviceTag,
+        // A null locale asks supported native recognizers to detect/switch
+        // languages automatically instead of pinning recognition to the
+        // device UI language.
+        localeId: _selectedLocaleId,
         allowOnlineFallback: false,
       );
       _nativeLocalSttAvailable = availability.available;
@@ -311,18 +314,15 @@ class VoiceInputService {
           .toList();
       _usingFallbackLocales = false;
 
-      final systemTag = nativeLocales.systemLocaleId;
-      final tagForMatch = (systemTag != null && systemTag.isNotEmpty)
-          ? systemTag
-          : deviceTag;
-
-      final match = _matchLocale(tagForMatch);
-      _selectedLocaleId = match.localeId;
-
-      debugPrint(
-        'VoiceInputService: deviceTag=$deviceTag, '
-        'systemLocale=$systemTag, '
-        'selectedLocaleId=$_selectedLocaleId',
+      DebugLogger.info(
+        'native-stt-locales-loaded',
+        scope: 'voice/stt',
+        data: {
+          'deviceLocale': deviceTag,
+          'systemLocale': nativeLocales.systemLocaleId,
+          'localeCount': _locales.length,
+          'automaticLanguage': _selectedLocaleId == null,
+        },
       );
     } catch (_) {
       // Some engines may not support locale listing
@@ -330,37 +330,15 @@ class VoiceInputService {
   }
 
   void _ensureFallbackLocale(String deviceTag) {
-    if (_locales.isNotEmpty && _selectedLocaleId != null) {
+    if (_locales.isNotEmpty) {
       return;
     }
     _usingFallbackLocales = true;
     if (deviceTag.isEmpty) {
       _locales = const [LocaleName('en_US', 'en_US')];
-      _selectedLocaleId = 'en_US';
       return;
     }
     _locales = [LocaleName(deviceTag, deviceTag)];
-    _selectedLocaleId = deviceTag;
-  }
-
-  LocaleName _matchLocale(String deviceTag) {
-    if (_locales.isEmpty) {
-      return const LocaleName('en_US', 'en_US');
-    }
-    final normalizedDevice = deviceTag.toLowerCase();
-    for (final locale in _locales) {
-      if (locale.localeId.toLowerCase() == normalizedDevice) {
-        return locale;
-      }
-    }
-    final parts = normalizedDevice.split(RegExp('[-_]'));
-    final primary = parts.isNotEmpty ? parts.first : normalizedDevice;
-    for (final locale in _locales) {
-      if (locale.localeId.toLowerCase().startsWith('$primary-')) {
-        return locale;
-      }
-    }
-    return _locales.first;
   }
 
   void _handleLocalRecognizerError(Object? error) {

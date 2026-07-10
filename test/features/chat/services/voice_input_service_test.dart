@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,9 +37,7 @@ void main() {
       when(
         () => mockPermissions.checkPermissionStatus(Permission.microphone),
       ).thenAnswer((_) async => PermissionStatus.denied);
-      when(
-        () => mockPermissions.requestPermissions(any()),
-      ).thenAnswer(
+      when(() => mockPermissions.requestPermissions(any())).thenAnswer(
         (_) async => {Permission.microphone: PermissionStatus.granted},
       );
 
@@ -66,9 +65,7 @@ void main() {
         when(
           () => mockPermissions.checkPermissionStatus(Permission.microphone),
         ).thenAnswer((_) async => PermissionStatus.denied);
-        when(
-          () => mockPermissions.requestPermissions(any()),
-        ).thenAnswer(
+        when(() => mockPermissions.requestPermissions(any())).thenAnswer(
           (_) async => {Permission.microphone: PermissionStatus.denied},
         );
 
@@ -114,6 +111,18 @@ void main() {
       );
 
       check(language).isNull();
+    });
+  });
+
+  group('VoiceInputService automatic on-device language', () {
+    test('leaves the native locale unset for automatic recognition', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+
+      await service.initialize(forceLocalStt: true);
+
+      check(nativeStt.availabilityLocaleId).isNull();
+      check(service.selectedLocaleId).isNull();
     });
   });
 
@@ -252,3 +261,40 @@ class _FakeVoiceInputService extends VoiceInputService {
 class _MockPermissionHandlerPlatform extends Mock
     with MockPlatformInterfaceMixin
     implements PermissionHandlerPlatform {}
+
+class _SupportedVoiceInputService extends VoiceInputService {
+  _SupportedVoiceInputService({required super.nativeStt});
+
+  @override
+  bool get isSupportedPlatform => true;
+}
+
+class _FakeNativeSttService extends NativeSttService {
+  String? availabilityLocaleId;
+
+  @override
+  bool get isSupportedPlatform => true;
+
+  @override
+  Future<NativeSttLocales> getLocales({String? deviceLocaleId}) async {
+    return const NativeSttLocales(
+      systemLocaleId: 'en-US',
+      locales: [
+        NativeSttLocale(localeId: 'en-US', name: 'English'),
+        NativeSttLocale(localeId: 'pl-PL', name: 'Polish'),
+      ],
+    );
+  }
+
+  @override
+  Future<NativeSttAvailability> checkAvailability({
+    String? localeId,
+    bool allowOnlineFallback = true,
+  }) async {
+    availabilityLocaleId = localeId;
+    return const NativeSttAvailability(
+      available: true,
+      engine: 'automatic-test',
+    );
+  }
+}
