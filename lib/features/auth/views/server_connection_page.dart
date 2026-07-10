@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -366,7 +367,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
 
       // Save the server config and go directly to chat
-      await _completeAuthWithToken(configWithCookies, result.jwtToken!);
+      await _completeAuthWithToken(
+        configWithCookies,
+        result.jwtToken!,
+        backendConfig,
+      );
       return;
     }
 
@@ -389,10 +394,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _completeAuthWithToken(
     ServerConfig serverConfig,
     String token,
+    BackendConfig backendConfig,
   ) async {
     try {
       // Save the server config first (needed for auth actions)
-      await _saveServerConfig(serverConfig);
+      await _saveServerConfig(serverConfig, backendConfig: backendConfig);
 
       // Use the same auth flow as SSO - loginWithApiKey handles
       // saving credentials and updating auth state
@@ -430,12 +436,23 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   /// Saves server config (extracted from authentication_page.dart)
-  Future<void> _saveServerConfig(ServerConfig config) async {
+  Future<void> _saveServerConfig(
+    ServerConfig config, {
+    BackendConfig? backendConfig,
+  }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveServerConfigs([config]);
     await storage.setActiveServerId(config.id);
     ref.invalidate(serverConfigsProvider);
     ref.invalidate(activeServerProvider);
+
+    if (backendConfig != null) {
+      await ref.read(activeServerProvider.future);
+      await ref.read(backendConfigProvider.future);
+      await ref
+          .read(backendConfigProvider.notifier)
+          .cacheForServer(backendConfig, config.id);
+    }
   }
 
   String _validateAndFormatUrl(String input) {

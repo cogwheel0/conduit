@@ -266,6 +266,18 @@ class BackendConfigNotifier extends _$BackendConfigNotifier {
 
   Future<void> refresh() => _refreshBackendConfig();
 
+  /// Stores a configuration that was just verified while connecting to
+  /// [serverId]. This avoids a stale global cache hiding server-specific
+  /// capability state during the first authenticated frame.
+  Future<void> cacheForServer(BackendConfig config, String serverId) async {
+    final tagged = config.copyWith(serverId: serverId);
+    state = AsyncData(tagged);
+    await _storage.saveLocalBackendConfig(tagged);
+
+    final options = _resolveTransportAvailability(tagged);
+    await _storage.saveLocalTransportOptions(options);
+  }
+
   Future<void> _refreshBackendConfig() async {
     final fresh = await _loadBackendConfig(ref);
     if (fresh == null || !ref.mounted) {
