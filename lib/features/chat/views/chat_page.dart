@@ -1104,11 +1104,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    // Token growth may glide while the turn is running. Completion UI and
+    // follow-ups can resize the same measured tail, but should preserve the
+    // bottom anchor instantly instead of chaining motion after the response.
+    final shouldSmoothFollow = _shouldSmoothFollowLiveTurnSizeChange(
+      ref.read(chatMessagesProvider),
+    );
     final shouldKeepBottomAnchored = _bottomAnchorController
         .prepareForStickyContentChange(wantsPinToTop: _wantsPinToTop);
 
     if (shouldKeepBottomAnchored) {
-      _correctStickyBottomAnchor(smoothFollow: true);
+      _correctStickyBottomAnchor(smoothFollow: shouldSmoothFollow);
       return;
     }
 
@@ -3578,6 +3584,13 @@ bool _shouldTreatScrollUpdateAsUserDriven({
   return hasDragDetails || isUserInteractingWithScroll;
 }
 
+bool _shouldSmoothFollowLiveTurnSizeChange(List<ChatMessage> messages) {
+  if (messages.isEmpty) {
+    return false;
+  }
+  return chatTurnPhaseForMessage(messages.last) == ChatTurnPhase.running;
+}
+
 bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -3721,6 +3734,13 @@ bool debugShouldTreatScrollUpdateAsUserDrivenForTesting({
     hasDragDetails: hasDragDetails,
     isUserInteractingWithScroll: isUserInteractingWithScroll,
   );
+}
+
+@visibleForTesting
+bool debugShouldSmoothFollowLiveTurnSizeChangeForTesting(
+  List<ChatMessage> messages,
+) {
+  return _shouldSmoothFollowLiveTurnSizeChange(messages);
 }
 
 @visibleForTesting

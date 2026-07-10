@@ -449,6 +449,35 @@ void main() {
     );
   });
 
+  test('live turn only uses smooth bottom-follow while the response is running', () {
+    final running = ChatMessage(
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Partial',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+
+    expect(
+      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([running]),
+      isTrue,
+    );
+    expect(
+      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
+        running.copyWith(metadata: const {'responseDone': true}),
+      ]),
+      isFalse,
+      reason: 'responseDone is settled even before isStreaming flips',
+    );
+    expect(
+      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
+        running.copyWith(isStreaming: false, followUps: const ['Ask next']),
+      ]),
+      isFalse,
+      reason: 'follow-up insertion must preserve the bottom without animation',
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(

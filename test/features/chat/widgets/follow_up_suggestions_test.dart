@@ -6,13 +6,10 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _buildHarness(Widget child, {bool disableAnimations = false}) {
+Widget _buildHarness(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
-    home: MediaQuery(
-      data: MediaQueryData(disableAnimations: disableAnimations),
-      child: Scaffold(body: child),
-    ),
+    home: Scaffold(body: child),
   );
 }
 
@@ -73,7 +70,7 @@ void main() {
     expect(selected, isNull);
   });
 
-  testWidgets('reveals follow-ups with a subtle staggered settle', (
+  testWidgets('renders follow-ups immediately without entrance motion', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -86,74 +83,16 @@ void main() {
       ),
     );
 
-    final firstFade = tester.widget<FadeTransition>(
-      find.ancestor(
-        of: find.text('First'),
-        matching: find.byType(FadeTransition),
-      ),
+    final followUpBar = find.byType(FollowUpSuggestionBar);
+    expect(find.text('First'), findsOneWidget);
+    expect(find.text('Second'), findsOneWidget);
+    expect(
+      find.descendant(of: followUpBar, matching: find.byType(FadeTransition)),
+      findsNothing,
     );
-    final firstSlide = tester.widget<SlideTransition>(
-      find.ancestor(
-        of: find.text('First'),
-        matching: find.byType(SlideTransition),
-      ),
+    expect(
+      find.descendant(of: followUpBar, matching: find.byType(SlideTransition)),
+      findsNothing,
     );
-    final secondFade = tester.widget<FadeTransition>(
-      find.ancestor(
-        of: find.text('Second'),
-        matching: find.byType(FadeTransition),
-      ),
-    );
-
-    expect(firstFade.opacity.value, 0);
-    expect(firstSlide.position.value.dy, closeTo(0.12, 0.001));
-    expect(secondFade.opacity.value, 0);
-
-    await tester.pump(const Duration(milliseconds: 90));
-
-    expect(firstFade.opacity.value, greaterThan(secondFade.opacity.value));
-    expect(firstSlide.position.value.dy, lessThan(0.12));
-
-    await tester.pumpAndSettle();
-
-    expect(firstFade.opacity.value, 1);
-    expect(firstSlide.position.value, Offset.zero);
-    expect(secondFade.opacity.value, 1);
-  });
-
-  testWidgets('reduced motion keeps the fade but removes position movement', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _buildHarness(
-        FollowUpSuggestionBar(
-          suggestions: const ['Ask a follow-up'],
-          onSelected: (_) {},
-          isBusy: false,
-        ),
-        disableAnimations: true,
-      ),
-    );
-
-    final fade = tester.widget<FadeTransition>(
-      find.ancestor(
-        of: find.text('Ask a follow-up'),
-        matching: find.byType(FadeTransition),
-      ),
-    );
-    final slide = tester.widget<SlideTransition>(
-      find.ancestor(
-        of: find.text('Ask a follow-up'),
-        matching: find.byType(SlideTransition),
-      ),
-    );
-
-    expect(fade.opacity.value, 0);
-    expect(slide.position.value, Offset.zero);
-
-    await tester.pumpAndSettle();
-
-    expect(fade.opacity.value, 1);
-    expect(slide.position.value, Offset.zero);
   });
 }
