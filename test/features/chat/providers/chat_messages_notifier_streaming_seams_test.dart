@@ -813,6 +813,54 @@ void main() {
     );
 
     test(
+      'server completion cancels a tracked controller through the cleanup path',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(
+          _conversation('chat-1', [
+            _assistantMessage(content: 'Partial', isStreaming: true),
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final upstream = StreamController<String>();
+        addTearDown(upstream.close);
+        final lateChunks = <String>[];
+        final controller = StreamingResponseController(
+          stream: upstream.stream,
+          onChunk: lateChunks.add,
+          onComplete: () {},
+          onError: (_, _) {},
+        );
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessageStream('stale-transport-id', controller);
+        check(notifier.debugShouldProtectLocalStreamingState).isFalse();
+        check(controller.isActive).isTrue();
+
+        active.set(
+          _conversation('chat-1', [
+            _assistantMessage(
+              content: 'Final answer',
+              metadata: const {'responseDone': true},
+            ),
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        check(container.read(chatMessagesProvider).single.isStreaming).isFalse();
+        check(controller.isActive).isFalse();
+        upstream.add('late chunk');
+        await Future<void>.delayed(Duration.zero);
+        check(lateChunks).isEmpty();
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
       'shouldCleanupStreamingFromServer ignores a stale echo but retires real completions',
       () {
         final container = _buildContainer();
