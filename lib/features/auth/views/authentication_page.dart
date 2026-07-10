@@ -231,6 +231,17 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     await ref.read(activeServerProvider.future);
     await _waitForApiService(config.id);
+
+    final backendConfig = widget.backendConfig;
+    if (backendConfig != null) {
+      // The config was already verified for this server before sign-in. Keep it
+      // associated with the newly active server so capability warnings and
+      // transport options do not wait for another fetch after authentication.
+      await ref.read(backendConfigProvider.future);
+      await ref
+          .read(backendConfigProvider.notifier)
+          .cacheForServer(backendConfig, config.id);
+    }
   }
 
   Future<void> _waitForApiService(String serverId) async {

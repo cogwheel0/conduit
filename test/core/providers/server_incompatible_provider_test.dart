@@ -38,7 +38,7 @@ Future<ProviderContainer> _container({
 
 void main() {
   group('serverIncompatibleProvider', () {
-    test('gates when the active server\'s config is unsupported', () async {
+    test('warns when the active server\'s config is unsupported', () async {
       final container = await _container(
         activeServer: _server('A'),
         config: const BackendConfig(version: '0.11.0', serverId: 'A'),
@@ -48,7 +48,7 @@ void main() {
       expect(container.read(serverIncompatibleProvider), isTrue);
     });
 
-    test('does not gate when the active server is supported', () async {
+    test('does not warn when the active server is supported', () async {
       final container = await _container(
         activeServer: _server('A'),
         config: const BackendConfig(version: '0.10.2', serverId: 'A'),
@@ -61,8 +61,8 @@ void main() {
     test(
       'fails open when the cached config belongs to a different server',
       () async {
-        // The crux fix: after switching from unsupported server A to supported
-        // server B, the still-cached A config must not gate B.
+        // After switching from unsupported server A to supported server B,
+        // the still-cached A config must not warn for B.
         final container = await _container(
           activeServer: _server('B'),
           config: const BackendConfig(version: '0.11.0', serverId: 'A'),
@@ -75,9 +75,9 @@ void main() {
 
     test('fails open for an untagged (legacy) cached config', () async {
       // A cache written by a pre-tagging app version has a null serverId and
-      // can't be attributed to a server. The gate fails open and relies on the
+      // can't be attributed to a server. The warning stays hidden and relies on the
       // immediate refresh to produce a freshly-tagged config, rather than risk
-      // trapping a supported server on a stale unsupported cache.
+      // warning about a supported server because of a stale cache.
       final container = await _container(
         activeServer: _server('A'),
         config: const BackendConfig(version: '0.11.0'),

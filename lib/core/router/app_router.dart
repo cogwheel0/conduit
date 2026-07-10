@@ -16,11 +16,11 @@ import '../../features/auth/views/connect_signin_page.dart';
 import '../../features/auth/views/connection_issue_page.dart';
 import '../../features/auth/views/proxy_auth_page.dart';
 import '../../features/auth/views/server_connection_page.dart';
-import '../../features/auth/views/server_incompatible_page.dart';
 import '../../features/auth/views/sso_auth_page.dart';
 import '../../features/chat/views/chat_page.dart';
 import '../../features/navigation/views/folder_page.dart';
 import '../../shared/widgets/drawer_shell_page.dart';
+import '../../shared/widgets/server_version_warning_shell.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
@@ -48,7 +48,6 @@ class RouterNotifier extends ChangeNotifier {
         authNavigationStateProvider,
         _onStateChanged,
       ),
-      ref.listen<bool>(serverIncompatibleProvider, _onStateChanged),
     ];
   }
 
@@ -115,27 +114,6 @@ class RouterNotifier extends ChangeNotifier {
       return Routes.serverConnection;
     }
 
-    // Compatibility gate: when the connected server runs a version newer than
-    // this app build supports, block every in-app route and surface the
-    // incompatibility page. Reachable exceptions: the gate page itself, the
-    // server-connection form, and an in-progress connection/auth flow that
-    // targets a DIFFERENT server (the "use a different server" recovery).
-    // Re-authenticating into the same unsupported server stays gated.
-    final serverIncompatible = ref.read(serverIncompatibleProvider);
-    if (serverIncompatible) {
-      if (location == Routes.serverIncompatible ||
-          location == Routes.serverConnection ||
-          _isConnectFlowToDifferentServer(state, activeServer)) {
-        return null;
-      }
-      return Routes.serverIncompatible;
-    }
-    // Server is compatible again (e.g. user downgraded or switched servers):
-    // don't strand them on the gate page — re-enter the normal flow.
-    if (location == Routes.serverIncompatible) {
-      return Routes.splash;
-    }
-
     final authState = ref.read(authNavigationStateProvider);
 
     // Allow staying on server connection page
@@ -194,46 +172,6 @@ class RouterNotifier extends ChangeNotifier {
         location == Routes.proxyAuth;
   }
 
-  /// Whether [state] is an in-progress connection/auth flow whose target server
-  /// differs from [activeServer]. The compatibility gate uses this to permit
-  /// the "use a different server" recovery (connecting to a new, supported
-  /// server) while still blocking re-authentication into the current,
-  /// unsupported server. Returns false when the target can't be determined, so
-  /// the gate enforces by default.
-  bool _isConnectFlowToDifferentServer(
-    GoRouterState state,
-    ServerConfig? activeServer,
-  ) {
-    if (activeServer == null) return false;
-    final extra = state.extra;
-    final String? targetUrl;
-    if (extra is AuthFlowConfig) {
-      targetUrl = extra.serverConfig.url;
-    } else if (extra is ProxyAuthConfig) {
-      targetUrl = extra.serverConfig.url;
-    } else if (extra is ServerConfig) {
-      targetUrl = extra.url;
-    } else {
-      targetUrl = null;
-    }
-    if (targetUrl == null) return false;
-    // Canonicalize before comparing so a trailing slash or case difference in
-    // how the same server's URL was entered/stored doesn't read as a different
-    // server (which would loosen the gate exemption).
-    return _canonicalUrl(targetUrl) != _canonicalUrl(activeServer.url);
-  }
-
-  /// Comparison-only canonicalization of a server base URL: trims whitespace
-  /// and trailing slashes and lowercases. Used solely to decide gate
-  /// exemption, never to construct requests.
-  String _canonicalUrl(String url) {
-    var u = url.trim();
-    while (u.endsWith('/')) {
-      u = u.substring(0, u.length - 1);
-    }
-    return u.toLowerCase();
-  }
-
   @override
   void dispose() {
     _refreshDebounce?.cancel();
@@ -253,7 +191,7 @@ final routerNotifierProvider = Provider<RouterNotifier>((ref) {
 final goRouterProvider = Provider<GoRouter>((ref) {
   final notifier = ref.watch(routerNotifierProvider);
 
-  final routes = <RouteBase>[
+  final appRoutes = <RouteBase>[
     GoRoute(
       path: Routes.splash,
       name: RouteNames.splash,
@@ -332,14 +270,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.connectionIssue,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const ConnectionIssuePage()),
-    ),
-    GoRoute(
-      path: Routes.serverIncompatible,
-      name: RouteNames.serverIncompatible,
-      pageBuilder: (context, state) => _buildPlatformPage(
-        state: state,
-        child: const ServerIncompatiblePage(),
-      ),
     ),
     GoRoute(
       path: Routes.authentication,
@@ -452,7 +382,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: Routes.splash,
     refreshListenable: notifier,
     redirect: notifier.redirect,
-    routes: routes,
+    routes: [
+      ShellRoute(
+        builder: (context, state, child) =>
+            ServerVersionWarningShell(child: child),
+        routes: appRoutes,
+      ),
+    ],
     observers: [NavigationLoggingObserver()],
     errorBuilder: (context, state) {
       final l10n = AppLocalizations.of(context);

@@ -23,10 +23,8 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/server_version_compat.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
-import 'server_incompatible_page.dart';
 import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -99,36 +97,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _mtlsPrivateKeyPasswordController.dispose();
     _headerValueFocusNode.dispose();
     super.dispose();
-  }
-
-  /// Refuses to proceed when [backendConfig] reports a server version newer
-  /// than this build supports: surfaces the blocking dialog plus an inline
-  /// error and returns `true` so the caller can abort. Shared by the direct
-  /// and reverse-proxy connection flows. `_isConnecting` is intentionally left
-  /// to each caller's `finally`, which always resets it.
-  Future<bool> _refuseIfServerIncompatible(BackendConfig backendConfig) async {
-    if (backendConfig.isVersionSupported) return false;
-    DebugLogger.log(
-      'Server version ${backendConfig.version} unsupported '
-      '(max ${ServerVersionCompat.maxSupportedVersion}); blocking',
-      scope: 'auth/connection',
-    );
-    if (mounted) {
-      await showServerIncompatibleDialog(
-        context,
-        serverVersion: backendConfig.version,
-      );
-    }
-    if (mounted) {
-      setState(() {
-        _connectionError = AppLocalizations.of(
-          context,
-        )?.serverIncompatibleConnectBlocked(
-          ServerVersionCompat.maxSupportedVersion,
-        );
-      });
-    }
-    return true;
   }
 
   Future<void> _connectToServer() async {
@@ -234,13 +202,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (backendConfig == null) {
         throw Exception('This does not appear to be an Open-WebUI server.');
-      }
-
-      // Compatibility gate: refuse to proceed when the server is newer than
-      // this app build supports. The server config is not saved, so the user
-      // stays on the connection form after acknowledging.
-      if (await _refuseIfServerIncompatible(backendConfig)) {
-        return;
       }
 
       DebugLogger.log(
@@ -396,11 +357,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return;
     }
 
-    // Compatibility gate (proxy path): shares the direct flow's helper.
-    if (await _refuseIfServerIncompatible(backendConfig)) {
-      return;
-    }
-
     // Check if user is already fully authenticated via trusted headers
     // (e.g., oauth2-proxy with X-Forwarded-Email)
     if (result.isFullyAuthenticated) {
@@ -411,7 +367,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
 
       // Save the server config and go directly to chat
-      await _completeAuthWithToken(configWithCookies, result.jwtToken!);
+      await _completeAuthWithToken(
+        configWithCookies,
+        result.jwtToken!,
+        backendConfig,
+      );
       return;
     }
 
@@ -434,10 +394,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _completeAuthWithToken(
     ServerConfig serverConfig,
     String token,
+    BackendConfig backendConfig,
   ) async {
     try {
       // Save the server config first (needed for auth actions)
-      await _saveServerConfig(serverConfig);
+      await _saveServerConfig(serverConfig, backendConfig: backendConfig);
 
       // Use the same auth flow as SSO - loginWithApiKey handles
       // saving credentials and updating auth state
@@ -475,12 +436,23 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   /// Saves server config (extracted from authentication_page.dart)
-  Future<void> _saveServerConfig(ServerConfig config) async {
+  Future<void> _saveServerConfig(
+    ServerConfig config, {
+    BackendConfig? backendConfig,
+  }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveServerConfigs([config]);
     await storage.setActiveServerId(config.id);
     ref.invalidate(serverConfigsProvider);
     ref.invalidate(activeServerProvider);
+
+    if (backendConfig != null) {
+      await ref.read(activeServerProvider.future);
+      await ref.read(backendConfigProvider.future);
+      await ref
+          .read(backendConfigProvider.notifier)
+          .cacheForServer(backendConfig, config.id);
+    }
   }
 
   String _validateAndFormatUrl(String input) {
