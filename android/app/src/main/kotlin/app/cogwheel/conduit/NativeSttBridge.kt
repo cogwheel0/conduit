@@ -140,7 +140,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             return mlKitAvailability
         }
 
-        return if (AndroidSpeechRecognizer.isRecognitionAvailable(activity.applicationContext)) {
+        return if (platformRecognizerAvailable(allowOnlineFallback)) {
             available("android_speech")
         } else {
             unavailable(mlKitAvailability["reason"] as? String ?: "Android speech recognition unavailable")
@@ -220,7 +220,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             return
         }
         if (prepared == null) {
-            if (AndroidSpeechRecognizer.isRecognitionAvailable(activity.applicationContext)) {
+            if (platformRecognizerAvailable(allowOnlineFallback)) {
                 try {
                     startPlatformRecognizer(
                         localeId,
@@ -455,7 +455,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             "android_speech_auto"
         }
         platformCommittedText = ""
-        val recognizer = if (languageSwitchLanguages != null && !allowOnlineFallback) {
+        val recognizer = if (!allowOnlineFallback) {
             AndroidSpeechRecognizer.createOnDeviceSpeechRecognizer(
                 activity.applicationContext
             )
@@ -467,6 +467,21 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             it.startListening(platformRecognizerIntent())
         }
         emitStatus("listening", platformEngineName)
+    }
+
+    private fun platformRecognizerAvailable(allowOnlineFallback: Boolean): Boolean {
+        val context = activity.applicationContext
+        val recognitionAvailable = allowOnlineFallback &&
+            AndroidSpeechRecognizer.isRecognitionAvailable(context)
+        val onDeviceRecognitionAvailable = !allowOnlineFallback &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            AndroidSpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        return NativeSttLanguagePolicy.platformRecognizerAvailable(
+            allowOnlineFallback = allowOnlineFallback,
+            sdkInt = Build.VERSION.SDK_INT,
+            recognitionAvailable = recognitionAvailable,
+            onDeviceRecognitionAvailable = onDeviceRecognitionAvailable
+        )
     }
 
     private val platformRecognitionListener = object : RecognitionListener {
