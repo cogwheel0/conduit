@@ -9,6 +9,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('parseOpenWebUIStream', () {
+    test('skips explicit empty data heartbeats', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data:\n\n'
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).length.equals(2);
+      check(updates.first)
+          .isA<OpenWebUIContentDelta>()
+          .has((update) => update.content, 'content')
+          .equals('hi');
+      check(updates.last).isA<OpenWebUIStreamDone>();
+    });
+
     test('parses delta, usage, and done across split SSE frames', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([

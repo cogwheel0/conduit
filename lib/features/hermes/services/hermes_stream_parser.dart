@@ -34,23 +34,38 @@ Stream<HermesRunEvent> parseHermesRunStream(Stream<List<int>> chunks) async* {
 /// yield nothing rather than throwing.
 Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   final raw = frame.data.trim();
-  if (raw.isEmpty) return;
+  final declaredEvent = frame.event?.trim().toLowerCase();
+  final frameEventType = declaredEvent == null || declaredEvent.isEmpty
+      ? null
+      : declaredEvent;
+  // Unlike OpenWebUI heartbeats, Hermes may encode terminal lifecycle state in
+  // the SSE event field with an explicitly empty data payload.
+  if (raw.isEmpty) {
+    final emptyStatus =
+        frameEventType != null && frameEventType.startsWith('run.')
+        ? frameEventType.substring('run.'.length)
+        : _lifecycleStatus(frameEventType, const <String, dynamic>{});
+    if (emptyStatus == null || !_isTerminal(emptyStatus)) return;
+  }
   if (raw == '[DONE]') {
     yield const HermesRunDone();
     return;
   }
 
-  Map<String, dynamic> data;
-  try {
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map) return;
-    data = decoded.cast<String, dynamic>();
-  } catch (_) {
-    return;
+  Map<String, dynamic> data = const <String, dynamic>{};
+  if (raw.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      data = decoded.cast<String, dynamic>();
+    } catch (_) {
+      return;
+    }
   }
 
-  final eventType = (frame.event ?? _str(data['type']) ?? _str(data['event']))
-      ?.toLowerCase();
+  final eventType =
+      (frameEventType ?? _str(data['type']) ?? _str(data['event']))
+          ?.toLowerCase();
 
   // Documented Responses-style error events carry `type: "error"` and put
   // their code/message at the top level rather than under an `error` field.

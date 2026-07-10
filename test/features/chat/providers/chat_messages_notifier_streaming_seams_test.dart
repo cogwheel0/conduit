@@ -155,6 +155,54 @@ class _BranchingHermesApi extends HermesApiService {
   }) => Stream<HermesRunEvent>.value(const HermesRunDone());
 }
 
+class _CreateRunRaceHermesApi extends HermesApiService {
+  _CreateRunRaceHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://hermes',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  final createRunStarted = Completer<void>();
+  final createRunGate = Completer<String>();
+  final stopRunStarted = Completer<void>();
+  final stopRunGate = Completer<void>();
+  final List<String> stoppedRuns = [];
+  CancelToken? createRunToken;
+  bool closed = false;
+
+  @override
+  Future<String> createRun({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    CancelToken? cancelToken,
+  }) {
+    createRunToken = cancelToken;
+    createRunStarted.complete();
+    // Model a server that commits the run despite local cancellation while its
+    // response is in flight.
+    return createRunGate.future;
+  }
+
+  @override
+  Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
+    stoppedRuns.add(runId);
+    stopRunStarted.complete();
+    check(closed).isFalse();
+    await stopRunGate.future;
+  }
+
+  @override
+  void close() {
+    closed = true;
+  }
+}
+
 ProviderContainer _buildContainer({HermesApiService? hermesService}) {
   return ProviderContainer(
     overrides: [
@@ -435,6 +483,77 @@ void main() {
         check(
           container.read(chatMessagesProvider).single.isStreaming,
         ).isFalse();
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'cancelAll keeps the originating service live through late run cleanup',
+      () async {
+        final service = _CreateRunRaceHermesApi();
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(
+            id: 'create-race',
+            content: '',
+            isStreaming: true,
+            metadata: const {'transport': 'hermesRun'},
+          ),
+        ]);
+        container
+            .read(hermesActiveSessionProvider.notifier)
+            .set('existing-session');
+
+        final dispatch = dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: 'create-race',
+          input: 'hello',
+          existingMessages: const [],
+        );
+        await service.createRunStarted.future.timeout(
+          const Duration(seconds: 1),
+        );
+
+        var rotationSettled = false;
+        final rotation =
+            Future.wait(
+              container.read(hermesRunRegistryProvider).cancelAll(),
+            ).then((_) {
+              service.close();
+              rotationSettled = true;
+            });
+        await Future<void>.delayed(Duration.zero);
+        check(service.createRunToken!.isCancelled).isTrue();
+        check(rotationSettled).isFalse();
+        check(service.closed).isFalse();
+
+        service.createRunGate.complete('late-run');
+        await service.stopRunStarted.future.timeout(const Duration(seconds: 1));
+        await Future<void>.delayed(Duration.zero);
+        check(rotationSettled).isFalse();
+        check(service.closed).isFalse();
+
+        service.stopRunGate.complete();
+        await rotation.timeout(const Duration(seconds: 1));
+        await dispatch.timeout(const Duration(seconds: 1));
+
+        check(service.stoppedRuns).deepEquals(['late-run']);
+        check(rotationSettled).isTrue();
+        check(service.closed).isTrue();
         notifier.clearMessages();
       },
     );

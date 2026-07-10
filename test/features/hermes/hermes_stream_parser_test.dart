@@ -10,6 +10,23 @@ Stream<List<int>> _sse(List<String> chunks) =>
 
 void main() {
   group('parseHermesRunStream', () {
+    test('empty terminal lifecycle data still emits done', () async {
+      final events = await parseHermesRunStream(
+        _sse(['event: run.completed\ndata:\n\n']),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single).isA<HermesRunDone>();
+    });
+
+    test('empty non-terminal Hermes events remain ignorable', () async {
+      final events = await parseHermesRunStream(
+        _sse(['event: tool.started\ndata:\n\n']),
+      ).toList();
+
+      check(events).isEmpty();
+    });
+
     test('maps token deltas, tool start/complete, and done', () async {
       final events = await parseHermesRunStream(
         _sse([

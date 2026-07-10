@@ -111,6 +111,9 @@ Stream<OpenWebUIStreamUpdate> parseOpenWebUIStream(
 
   await for (final chunk in textChunks) {
     for (final frame in scanner.addChunk(chunk)) {
+      // OpenWebUI may send explicit empty `data:` frames as heartbeats. They
+      // carry no protocol event and must not be forwarded to jsonDecode.
+      if (frame.data.trim().isEmpty) continue;
       if (frame.data == '[DONE]') {
         yield const OpenWebUIStreamDone();
         return;
@@ -122,6 +125,7 @@ Stream<OpenWebUIStreamUpdate> parseOpenWebUIStream(
   }
 
   for (final frame in scanner.close()) {
+    if (frame.data.trim().isEmpty) continue;
     if (frame.data == '[DONE]') {
       yield const OpenWebUIStreamDone();
       return;
