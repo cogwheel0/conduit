@@ -1480,7 +1480,7 @@ packages:
     source: hosted
     version: "0.1.3+5"
   permission_handler_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: permission_handler_platform_interface
       sha256: eb99b295153abce5d683cac8c02e22faab63e50679b937fa1bf67d58bb282878
@@ -1520,7 +1520,7 @@ packages:
     source: hosted
     version: "3.1.6"
   plugin_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: plugin_platform_interface
       sha256: "4820fbfdb9478b1ebae27888254d445073732dae3d6ea81f0b7e06d5dedc3f02"
