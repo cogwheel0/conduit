@@ -41,6 +41,21 @@ HermesApiService _service(_CaptureInterceptor interceptor, {String? session}) {
 
 void main() {
   group('HermesApiService', () {
+    test('disables redirects on injected clients to protect secrets', () {
+      final dio = Dio();
+      HermesApiService(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://host:8642',
+          apiKey: 'secret',
+          sessionKey: 'memory',
+        ),
+        dio: dio,
+      );
+
+      check(dio.options.followRedirects).isFalse();
+    });
+
     test('createRun posts to normalized path with session headers', () async {
       final capture = _CaptureInterceptor({'run_id': 'r1'});
       final service = _service(capture, session: 'mem-key');

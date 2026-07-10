@@ -22,12 +22,18 @@ class HermesApiService {
               // Regular endpoints get a finite timeout so they can't hang
               // forever; the long-lived SSE stream opts out per-request below.
               receiveTimeout: const Duration(seconds: 60),
+              followRedirects: false,
               headers: {
                 if ((config.apiKey ?? '').isNotEmpty)
                   'Authorization': 'Bearer ${config.apiKey}',
               },
             ),
-          );
+          ) {
+    // Injected clients are used by tests and embedders. Enforce the same
+    // boundary there: Dio preserves custom headers across redirects, so an
+    // automatic cross-origin redirect could leak bearer/session credentials.
+    _dio.options.followRedirects = false;
+  }
 
   final HermesConfig config;
   final Dio _dio;

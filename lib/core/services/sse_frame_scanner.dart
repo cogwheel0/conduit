@@ -116,9 +116,6 @@ final class SseFrameScanner {
     _dataBuffer.clear();
     _eventField = null;
     _frameHasDataLine = false;
-    if (payload.isEmpty) {
-      return null;
-    }
     return SseFrame(event: event, data: payload);
   }
 }

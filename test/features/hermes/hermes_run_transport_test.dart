@@ -452,6 +452,36 @@ void main() {
     },
   );
 
+  test('recovery stops after the configured poll budget', () async {
+    final fake = _FakeHermesApiService(
+      const [],
+      runResult: const {'status': 'running', 'output': 'Partial'},
+    );
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      maxRecoveryPolls: 2,
+      recoveryPollInterval: Duration.zero,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(fake.getRunCalls).equals(2);
+    check(message.error).isNotNull();
+  });
+
   test(
     'recovery surfaces repeated successful responses with unknown status',
     () async {

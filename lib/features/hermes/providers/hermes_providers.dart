@@ -130,6 +130,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       // same-origin save from accidentally replacing not-yet-hydrated secrets
       // with null, while the serialized queue prevents write reordering.
       await _secretsHydration;
+      _throwIfSecretsUnavailable();
       final originChanged = connectionOrigin(state.baseUrl) != nextOrigin;
       final endpointChanged =
           connectionEndpoint(state.baseUrl) != connectionEndpoint(trimmedUrl);
@@ -252,9 +253,18 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// associated with this install across restarts.
   Future<String> ensureSessionKey() async {
     await _secretsHydration;
+    _throwIfSecretsUnavailable();
     final existing = state.sessionKey;
     if (existing != null && existing.isNotEmpty) return existing;
     return _sessionKeyFuture ??= _generateSessionKey();
+  }
+
+  void _throwIfSecretsUnavailable() {
+    if (ref.read(hermesSecretsErrorProvider) != null) {
+      throw StateError(
+        'Hermes secure storage is unavailable. Retry credential loading first.',
+      );
+    }
   }
 
   Future<String> _generateSessionKey() async {

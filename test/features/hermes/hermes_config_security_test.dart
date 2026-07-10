@@ -291,6 +291,16 @@ void main() {
 
     check(container.read(hermesSecretsErrorProvider)).isNotNull();
     check(container.read(hermesConfigProvider).apiKey).isNull();
+    await expectLater(
+      container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(baseUrl: 'https://one.example/v1'),
+      throwsStateError,
+    );
+    await expectLater(
+      container.read(hermesConfigProvider.notifier).ensureSessionKey(),
+      throwsStateError,
+    );
 
     storage.failReads = false;
     await container.read(hermesConfigProvider.notifier).retrySecrets();

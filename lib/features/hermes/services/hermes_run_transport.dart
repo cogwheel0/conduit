@@ -31,6 +31,8 @@ Future<void> dispatchHermesRun({
   String? previousResponseId,
   CancelToken? cancelToken,
   Duration remoteStopTimeout = const Duration(seconds: 5),
+  int maxRecoveryPolls = 120,
+  Duration recoveryPollInterval = const Duration(seconds: 1),
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -206,6 +208,8 @@ Future<void> dispatchHermesRun({
           service,
           runId,
           cancelToken: runCancelToken,
+          maxPolls: maxRecoveryPolls,
+          pollInterval: recoveryPollInterval,
         );
         if (recovered == null) return;
         if (recovered.text.isNotEmpty) {
@@ -328,10 +332,22 @@ Future<({String text, String status})?> _recoverRunOutput(
   HermesApiService service,
   String runId, {
   required CancelToken cancelToken,
+  required int maxPolls,
+  required Duration pollInterval,
 }) async {
+  if (maxPolls <= 0) {
+    throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
+  }
   var consecutiveErrors = 0;
   var malformedResponses = 0;
+  var polls = 0;
   while (!cancelToken.isCancelled) {
+    if (polls >= maxPolls) {
+      throw TimeoutException(
+        'Hermes run did not reach a terminal state after $maxPolls polls',
+      );
+    }
+    polls++;
     Map<String, dynamic> run;
     try {
       run = await service.getRun(runId, cancelToken: cancelToken);
@@ -339,7 +355,7 @@ Future<({String text, String status})?> _recoverRunOutput(
     } catch (_) {
       consecutiveErrors++;
       if (consecutiveErrors >= 3) rethrow;
-      await Future<void>.delayed(const Duration(seconds: 1));
+      await Future<void>.delayed(pollInterval);
       continue;
     }
     final status = run['status']?.toString().toLowerCase();
@@ -373,7 +389,7 @@ Future<({String text, String status})?> _recoverRunOutput(
     } else {
       malformedResponses = 0;
     }
-    await Future<void>.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(pollInterval);
   }
   return null;
 }

@@ -48,6 +48,17 @@ void main() {
       check(frames[0].data).equals('real');
     });
 
+    test('emits an explicitly empty data event', () {
+      final scanner = SseFrameScanner();
+      final frames = scanner
+          .addChunk('event: run.completed\ndata:\n\n')
+          .toList();
+
+      check(frames).has((f) => f.length, 'length').equals(1);
+      check(frames.single.event).equals('run.completed');
+      check(frames.single.data).isEmpty();
+    });
+
     test('discards an unterminated frame at EOF', () {
       final scanner = SseFrameScanner();
       final frames = [
