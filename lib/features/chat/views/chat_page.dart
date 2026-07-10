@@ -2044,9 +2044,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final isTouchDragStart =
             notification is ScrollStartNotification &&
             notification.dragDetails != null;
-        final isTouchDragUpdate =
+        final isUserScrollUpdate =
             notification is ScrollUpdateNotification &&
-            notification.dragDetails != null;
+            _shouldTreatScrollUpdateAsUserDriven(
+              hasDragDetails: notification.dragDetails != null,
+              isUserInteractingWithScroll: _isUserInteractingWithScroll,
+            );
         final isUserDirectionalScroll =
             notification is UserScrollNotification &&
             notification.direction != ScrollDirection.idle;
@@ -2055,7 +2058,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             notification.direction == ScrollDirection.idle;
 
         // User scrolling dismisses pin-to-top once the user takes control.
-        if (isTouchDragStart || isTouchDragUpdate || isUserDirectionalScroll) {
+        if (isTouchDragStart || isUserScrollUpdate || isUserDirectionalScroll) {
           if (!_isUserInteractingWithScroll) {
             _cancelPendingInitialBottomSettle();
             _cancelPendingStickyBottomCorrection();
@@ -3564,6 +3567,17 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   );
 }
 
+bool _shouldTreatScrollUpdateAsUserDriven({
+  required bool hasDragDetails,
+  required bool isUserInteractingWithScroll,
+}) {
+  // Touch updates carry drag details. Wheel/trackpad updates do not, but
+  // Flutter dispatches a non-idle UserScrollNotification before their update,
+  // which marks the interaction active. Programmatic updates have neither and
+  // must not detach the sticky bottom anchor.
+  return hasDragDetails || isUserInteractingWithScroll;
+}
+
 bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -3696,6 +3710,17 @@ debugBuildChatListLayoutSummaryForTesting(
         ),
       )
       .toList(growable: false);
+}
+
+@visibleForTesting
+bool debugShouldTreatScrollUpdateAsUserDrivenForTesting({
+  required bool hasDragDetails,
+  required bool isUserInteractingWithScroll,
+}) {
+  return _shouldTreatScrollUpdateAsUserDriven(
+    hasDragDetails: hasDragDetails,
+    isUserInteractingWithScroll: isUserInteractingWithScroll,
+  );
 }
 
 @visibleForTesting

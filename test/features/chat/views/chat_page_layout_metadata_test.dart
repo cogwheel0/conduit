@@ -422,6 +422,33 @@ void main() {
     );
   });
 
+  test('scroll update classifier handles touch and pointer input but ignores programmatic updates', () {
+    expect(
+      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+        hasDragDetails: true,
+        isUserInteractingWithScroll: false,
+      ),
+      isTrue,
+      reason: 'touch updates carry drag details',
+    );
+    expect(
+      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+        hasDragDetails: false,
+        isUserInteractingWithScroll: true,
+      ),
+      isTrue,
+      reason: 'wheel/trackpad updates follow a user-direction notification',
+    );
+    expect(
+      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+        hasDragDetails: false,
+        isUserInteractingWithScroll: false,
+      ),
+      isFalse,
+      reason: 'programmatic updates have neither user signal',
+    );
+  });
+
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
       ChatMessage(
