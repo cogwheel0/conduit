@@ -734,8 +734,12 @@ class VoiceInputService {
       await _stopVadRecording();
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
-      final hasActiveTextConsumer = _textStreamController?.hasListener ?? false;
-      if (samples != null && samples.isNotEmpty && hasActiveTextConsumer) {
+      final shouldProcessSamples = _shouldProcessServerSamples(
+        hasTextConsumer: _textStreamController?.hasListener ?? false,
+        hasTranscriptEventConsumer:
+            _transcriptEventController?.hasListener ?? false,
+      );
+      if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
         await _processVadSamples(samples);
       }
     } else {
@@ -1000,6 +1004,22 @@ class VoiceInputService {
     final frameDurationMs = (frameSamples / _vadSampleRate) * 1000;
     final frames = (milliseconds / frameDurationMs).ceil();
     return frames.clamp(_minVadRedemptionFrames, _maxVadRedemptionFrames);
+  }
+
+  static bool _shouldProcessServerSamples({
+    required bool hasTextConsumer,
+    required bool hasTranscriptEventConsumer,
+  }) => hasTextConsumer || hasTranscriptEventConsumer;
+
+  @visibleForTesting
+  static bool shouldProcessServerSamplesForTesting({
+    required bool hasTextConsumer,
+    required bool hasTranscriptEventConsumer,
+  }) {
+    return _shouldProcessServerSamples(
+      hasTextConsumer: hasTextConsumer,
+      hasTranscriptEventConsumer: hasTranscriptEventConsumer,
+    );
   }
 
   @visibleForTesting

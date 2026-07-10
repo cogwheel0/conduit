@@ -117,6 +117,35 @@ void main() {
     });
   });
 
+  group('VoiceInputService server STT consumers', () {
+    test('processes samples for a live-mode event-only consumer', () {
+      check(
+        VoiceInputService.shouldProcessServerSamplesForTesting(
+          hasTextConsumer: false,
+          hasTranscriptEventConsumer: true,
+        ),
+      ).isTrue();
+    });
+
+    test('processes samples for the normal text consumer', () {
+      check(
+        VoiceInputService.shouldProcessServerSamplesForTesting(
+          hasTextConsumer: true,
+          hasTranscriptEventConsumer: false,
+        ),
+      ).isTrue();
+    });
+
+    test('skips samples when every consumer has detached', () {
+      check(
+        VoiceInputService.shouldProcessServerSamplesForTesting(
+          hasTextConsumer: false,
+          hasTranscriptEventConsumer: false,
+        ),
+      ).isFalse();
+    });
+  });
+
   group('VoiceInputService.androidServerVadRecordConfig', () {
     test('uses speech recognition routing outside voice calls', () {
       final config = VoiceInputService.androidServerVadRecordConfigForTesting(
