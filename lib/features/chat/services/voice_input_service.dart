@@ -382,7 +382,14 @@ class VoiceInputService {
   Future<bool> _ensureMicrophonePermission() async {
     try {
       final status = await Permission.microphone.status;
-      return status.isGranted;
+      if (status.isGranted) {
+        return true;
+      }
+      // On a fresh install iOS reports the "not determined" state as denied.
+      // Actively request so the system permission dialog is surfaced instead
+      // of silently failing the voice flow. A permanently denied permission
+      // simply returns its current status without re-prompting.
+      return await requestMicrophonePermission();
     } catch (_) {
       return false;
     }
