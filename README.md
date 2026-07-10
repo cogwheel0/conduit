@@ -252,9 +252,9 @@ lib/
 <details>
 <summary>Platform permissions</summary>
 
-- Android asks for internet, microphone, camera, file access, and optional
-  location for chat, voice input, attachments, image capture, and location
-  sharing.
+- Android requests microphone, camera, and optional location permissions for
+  voice input, image capture, and location sharing; attachments use the system
+  photo picker, so no broad storage permission is needed.
 - iOS requests microphone, speech recognition, camera, photo library, and
   optional location-when-in-use access for voice, attachment, and location
   sharing workflows.

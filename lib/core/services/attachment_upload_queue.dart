@@ -323,10 +323,39 @@ class AttachmentUploadQueue {
   void deactivate() {
     _retryTimer?.cancel();
     _retryTimer = null;
+    // Cancel any in-flight upload bound to the previous server so it does not
+    // complete against the account we just left.
+    for (final token in _cancelTokens.values) {
+      token.cancel('attachment queue deactivated');
+    }
+    _cancelTokens.clear();
+    // Drive every still-active item to a terminal (cancelled) state and emit
+    // once. Otherwise a pending/uploading item never reaches a terminal status
+    // after processing stops, leaving any queueStream listener awaiting it
+    // (e.g. a MediaUploadController upload completer) hung forever. The
+    // broadcast controller stays open; the next initialize() reloads the active
+    // server's queue from Drift.
+    var changed = false;
+    for (var i = 0; i < _queue.length; i++) {
+      final item = _queue[i];
+      if (item.status == QueuedAttachmentStatus.pending ||
+          item.status == QueuedAttachmentStatus.uploading) {
+        _queue[i] = item.copyWith(
+          status: QueuedAttachmentStatus.cancelled,
+          nextRetryAt: null,
+          lastError: 'cancelled: server changed',
+        );
+        changed = true;
+      }
+    }
+    if (changed) _notify();
     _onUpload = null;
     _onQueueChanged = null;
     _databaseResolver = null;
-    DebugLogger.log('AttachmentUploadQueue deactivated', scope: 'attachments/queue');
+    DebugLogger.log(
+      'AttachmentUploadQueue deactivated',
+      scope: 'attachments/queue',
+    );
   }
 
   void _processSafe() {
@@ -402,7 +431,17 @@ class AttachmentUploadQueue {
     final dao = _attachmentDao;
     if (dao == null) return;
     final rows = await dao.getAll();
-    _queue.addAll(rows.map(_rowToModel));
+    // An item persisted as `uploading` means a prior session ended mid-upload
+    // (deactivate on server switch/logout, or an app crash). Reset it to
+    // `pending` on load so processQueue can retry it instead of leaving it
+    // stuck in a non-terminal status that is never reprocessed.
+    _queue.addAll(
+      rows.map(_rowToModel).map(
+            (item) => item.status == QueuedAttachmentStatus.uploading
+                ? item.copyWith(status: QueuedAttachmentStatus.pending)
+                : item,
+          ),
+    );
   }
 
   Future<void> _save() async {

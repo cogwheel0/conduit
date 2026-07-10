@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -117,6 +119,51 @@ void main() {
       queue.deactivate();
       // Second call must not throw.
       queue.deactivate();
+    });
+
+    test('deactivate terminalizes non-terminal items so awaiting listeners '
+        'resolve instead of hanging', () async {
+      final queue = AttachmentUploadQueue();
+      // Upload that never resolves on its own, so the item stays non-terminal
+      // (uploading) until deactivate() drives it to a terminal state.
+      final hang = Completer<String>();
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) => hang.future,
+        database: () => null,
+      );
+
+      final id = await queue.enqueue(
+        filePath: '/tmp/x.txt',
+        fileName: 'x.txt',
+        fileSize: 1,
+      );
+      // Let processQueue flip the item to `uploading` (then it awaits `hang`).
+      await Future<void>.delayed(Duration.zero);
+
+      // Subscribe after enqueue so we only observe events from here on.
+      final terminalEvents = <QueuedAttachmentStatus>[];
+      final sub = queue.queueStream.listen((items) {
+        for (final e in items) {
+          if (e.id == id &&
+              e.status != QueuedAttachmentStatus.pending &&
+              e.status != QueuedAttachmentStatus.uploading) {
+            terminalEvents.add(e.status);
+          }
+        }
+      });
+      addTearDown(sub.cancel);
+
+      queue.deactivate();
+      await Future<void>.delayed(Duration.zero);
+
+      // A terminal event was emitted, so a MediaUploadController completer
+      // awaiting queueStream would resolve rather than hang forever.
+      check(terminalEvents).isNotEmpty();
+      check(terminalEvents.last).equals(QueuedAttachmentStatus.cancelled);
+      // And the in-memory item is terminal.
+      check(
+        queue.queue.where((e) => e.id == id).single.status,
+      ).equals(QueuedAttachmentStatus.cancelled);
     });
   });
 }
