@@ -612,7 +612,7 @@ void main() {
         ]),
       );
 
-      check(serialized).contains('&lt;&#47;details&gt;');
+      check(serialized).contains('&lt;/details&gt;');
       check(serialized).contains('duration="1&quot; autofocus=&quot;true"');
       check(serialized).contains('id="call&quot; onmouseover=&quot;x"');
       check(serialized).contains('name="tool&lt;script&gt;"');
