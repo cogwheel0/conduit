@@ -140,6 +140,8 @@ class VoiceInputService {
   Timer? _nativeDictationSettleTimer;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
+  @protected
+  bool get usesAutomaticNativeLanguage => Platform.isAndroid;
   bool get hasServerStt => _api != null;
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
@@ -174,7 +176,7 @@ class VoiceInputService {
         forceLocalStt || _preference != SttPreference.serverOnly;
     if (shouldPrepareLocalStt && !_didAttemptLocalInitialization) {
       await _loadLocales(deviceTag);
-      await _initializeNativeLocalStt(deviceTag);
+      await _initializeNativeLocalStt();
       _localSttAvailable = _nativeLocalSttAvailable;
       _didAttemptLocalInitialization = true;
     }
@@ -183,7 +185,7 @@ class VoiceInputService {
     return true;
   }
 
-  Future<void> _initializeNativeLocalStt(String deviceTag) async {
+  Future<void> _initializeNativeLocalStt() async {
     if (!_nativeStt.isSupportedPlatform) {
       _nativeLocalSttAvailable = false;
       return;
@@ -191,9 +193,9 @@ class VoiceInputService {
 
     try {
       final availability = await _nativeStt.checkAvailability(
-        // A null locale asks supported native recognizers to detect/switch
-        // languages automatically instead of pinning recognition to the
-        // device UI language.
+        // Android treats null as an automatic-language request when the
+        // installed recognizer can prove that switching is supported. Other
+        // platforms use the closest supported system locale selected below.
         localeId: _selectedLocaleId,
         allowOnlineFallback: false,
       );
@@ -314,6 +316,16 @@ class VoiceInputService {
           .toList();
       _usingFallbackLocales = false;
 
+      if (usesAutomaticNativeLanguage) {
+        _selectedLocaleId = null;
+      } else {
+        final systemTag = nativeLocales.systemLocaleId;
+        final tagForMatch = (systemTag != null && systemTag.isNotEmpty)
+            ? systemTag
+            : deviceTag;
+        _selectedLocaleId = _matchLocale(tagForMatch).localeId;
+      }
+
       DebugLogger.info(
         'native-stt-locales-loaded',
         scope: 'voice/stt',
@@ -339,6 +351,29 @@ class VoiceInputService {
       return;
     }
     _locales = [LocaleName(deviceTag, deviceTag)];
+  }
+
+  LocaleName _matchLocale(String deviceTag) {
+    if (_locales.isEmpty) {
+      return const LocaleName('en_US', 'en_US');
+    }
+    final normalizedDevice = deviceTag.toLowerCase();
+    for (final locale in _locales) {
+      if (locale.localeId.toLowerCase() == normalizedDevice) {
+        return locale;
+      }
+    }
+    final parts = normalizedDevice.split(RegExp('[-_]'));
+    final primary = parts.isNotEmpty ? parts.first : normalizedDevice;
+    for (final locale in _locales) {
+      final normalizedLocale = locale.localeId.toLowerCase();
+      if (normalizedLocale == primary ||
+          normalizedLocale.startsWith('$primary-') ||
+          normalizedLocale.startsWith('${primary}_')) {
+        return locale;
+      }
+    }
+    return _locales.first;
   }
 
   void _handleLocalRecognizerError(Object? error) {

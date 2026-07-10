@@ -124,6 +124,22 @@ void main() {
       check(nativeStt.availabilityLocaleId).isNull();
       check(service.selectedLocaleId).isNull();
     });
+
+    test(
+      'uses a supported system-language variant when auto is unavailable',
+      () async {
+        final nativeStt = _FakeNativeSttService(systemLocaleId: 'en-IN');
+        final service = _SupportedVoiceInputService(
+          nativeStt: nativeStt,
+          usesAutomaticNativeLanguage: false,
+        );
+
+        await service.initialize(forceLocalStt: true);
+
+        check(nativeStt.availabilityLocaleId).equals('en-US');
+        check(service.selectedLocaleId).equals('en-US');
+      },
+    );
   });
 
   group('VoiceInputService server STT consumers', () {
@@ -263,13 +279,22 @@ class _MockPermissionHandlerPlatform extends Mock
     implements PermissionHandlerPlatform {}
 
 class _SupportedVoiceInputService extends VoiceInputService {
-  _SupportedVoiceInputService({required super.nativeStt});
+  _SupportedVoiceInputService({
+    required super.nativeStt,
+    this.usesAutomaticNativeLanguage = true,
+  });
+
+  @override
+  final bool usesAutomaticNativeLanguage;
 
   @override
   bool get isSupportedPlatform => true;
 }
 
 class _FakeNativeSttService extends NativeSttService {
+  _FakeNativeSttService({this.systemLocaleId = 'en-US'});
+
+  final String systemLocaleId;
   String? availabilityLocaleId;
 
   @override
@@ -277,9 +302,9 @@ class _FakeNativeSttService extends NativeSttService {
 
   @override
   Future<NativeSttLocales> getLocales({String? deviceLocaleId}) async {
-    return const NativeSttLocales(
-      systemLocaleId: 'en-US',
-      locales: [
+    return NativeSttLocales(
+      systemLocaleId: systemLocaleId,
+      locales: const [
         NativeSttLocale(localeId: 'en-US', name: 'English'),
         NativeSttLocale(localeId: 'pl-PL', name: 'Polish'),
       ],
