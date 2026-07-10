@@ -274,6 +274,51 @@ void main() {
     },
   );
 
+  test(
+    'failed server-switch replacement restores old origin credentials',
+    () async {
+      final storage = _FailOnceSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      });
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+
+      container.read(hermesConfigProvider);
+      while (container.read(hermesSecretsLoadingProvider)) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // Fail the second secure write after the replacement API key has landed,
+      // exercising rollback of a genuinely partial server switch.
+      storage.failNextWriteFor = 'hermes_session_key_v1';
+
+      await expectLater(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              baseUrl: 'https://two.example/v1',
+              apiKeyChanged: true,
+              apiKey: 'key-for-two',
+              sessionKeyChanged: true,
+              sessionKey: 'memory-for-two',
+            ),
+        throwsA(isA<StateError>()),
+      );
+
+      final config = container.read(hermesConfigProvider);
+      check(config.baseUrl).equals('https://one.example/v1');
+      check(config.apiKey).equals('key-for-one');
+      check(config.sessionKey).equals('memory-for-one');
+      check(storage.values['hermes_api_key_v1']).equals('key-for-one');
+      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
+      check(
+        PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
+      ).equals('https://one.example/v1');
+    },
+  );
+
   test('secret read failure is exposed and can be retried', () async {
     final storage = _FailOnceSecureStorage({
       'hermes_api_key_v1': 'key-for-one',

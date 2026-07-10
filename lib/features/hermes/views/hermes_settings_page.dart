@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -13,6 +14,46 @@ import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
 import '../providers/hermes_providers.dart';
+import '../services/hermes_api_service.dart';
+
+@visibleForTesting
+Future<bool> testHermesDraftConnection(
+  HermesConfig config, {
+  Future<bool> Function(HermesConfig probeConfig)? probe,
+}) async {
+  // `enabled` controls whether Hermes participates in the app, not whether a
+  // user may verify a draft. Probe an enabled copy without mutating persistence.
+  final probeConfig = config.copyWith(enabled: true);
+  if (probe != null) return probe(probeConfig);
+
+  final service = HermesApiService(config: probeConfig);
+  try {
+    return await service.health();
+  } finally {
+    service.close();
+  }
+}
+
+@visibleForTesting
+Future<({bool success, Object? error})> completeHermesOnboarding({
+  required Future<void> Function() enable,
+  required Future<void> Function() ensureSessionKey,
+  required Future<void> Function() selectHermes,
+}) async {
+  try {
+    await enable();
+    await ensureSessionKey();
+    await selectHermes();
+    return (success: true, error: null);
+  } catch (error) {
+    DebugLogger.error(
+      'onboarding-failed',
+      scope: 'hermes/onboarding',
+      error: error,
+    );
+    return (success: false, error: error);
+  }
+}
 
 /// Settings for the optional direct Hermes Agent backend: enable toggle, server
 /// URL, API key, long-term memory key, and a connection test.
@@ -34,11 +75,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   bool _testing = false;
   bool _saving = false;
+  bool _finishing = false;
   bool _apiKeyDirty = false;
   bool _sessionKeyDirty = false;
   bool? _testResult;
   bool _saved = false;
   String? _urlError;
+  String? _onboardingError;
 
   @override
   void initState() {
@@ -54,14 +97,37 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _finishOnboarding() async {
-    if (!await _commitConnection()) return;
-    final notifier = ref.read(hermesConfigProvider.notifier);
-    await notifier.setEnabled(true);
-    await notifier.ensureSessionKey();
-    await ref
-        .read(preferredBackendProvider.notifier)
-        .set(PreferredBackend.hermes);
+    if (_finishing || _testing) return;
+    setState(() {
+      _finishing = true;
+      _onboardingError = null;
+    });
+
+    if (!await _commitConnection()) {
+      if (mounted) setState(() => _finishing = false);
+      return;
+    }
     if (!mounted) return;
+
+    final notifier = ref.read(hermesConfigProvider.notifier);
+    final result = await completeHermesOnboarding(
+      enable: () => notifier.setEnabled(true),
+      ensureSessionKey: () async {
+        await notifier.ensureSessionKey();
+      },
+      selectHermes: () => ref
+          .read(preferredBackendProvider.notifier)
+          .set(PreferredBackend.hermes),
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      setState(() {
+        _finishing = false;
+        _onboardingError =
+            'Could not finish Hermes setup. Check secure storage and try again.';
+      });
+      return;
+    }
     context.go(Routes.chat);
   }
 
@@ -160,19 +226,17 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    if (_finishing) return;
     if (!await _commitConnection()) return;
-    final service = ref.read(hermesApiServiceProvider);
-    if (service == null) {
-      setState(() => _testResult = false);
-      return;
-    }
+    if (!mounted) return;
+    final config = ref.read(hermesConfigProvider);
     setState(() {
       _testing = true;
       _testResult = null;
     });
     bool ok;
     try {
-      ok = await service.health();
+      ok = await testHermesDraftConnection(config);
     } catch (_) {
       // A thrown health check (network/Dio error) must still clear the spinner.
       ok = false;
@@ -330,7 +394,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               text: 'Test connection',
               isSecondary: true,
               isLoading: _testing,
-              onPressed: _draftIsUsable(config) && !_saving
+              onPressed: _draftIsUsable(config) && !_saving && !_finishing
                   ? _testConnection
                   : null,
             ),
@@ -356,10 +420,20 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             text: 'Finish setup',
             icon: Icons.check,
             isFullWidth: true,
-            onPressed: _draftIsUsable(config) && !_saving
+            isLoading: _finishing,
+            onPressed:
+                _draftIsUsable(config) && !_saving && !_finishing && !_testing
                 ? _finishOnboarding
                 : null,
           ),
+          if (_onboardingError != null) ...[
+            const SizedBox(height: Spacing.sm),
+            Text(
+              _onboardingError!,
+              textAlign: TextAlign.center,
+              style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+            ),
+          ],
         ],
         if (config.isUsable) ...[
           const SizedBox(height: Spacing.xl),

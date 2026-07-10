@@ -11,6 +11,7 @@ import '../../../core/providers/app_providers.dart'
     show activeServerProvider, reviewerModeProvider;
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../models/hermes_capabilities.dart';
 import '../models/hermes_config.dart';
 import '../models/hermes_job.dart';
@@ -136,8 +137,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
           connectionEndpoint(state.baseUrl) != connectionEndpoint(trimmedUrl);
       final identityChanged = apiKeyChanged || sessionKeyChanged;
       final serviceWillRotate = state.baseUrl != trimmedUrl || identityChanged;
-      var nextApiKey = state.apiKey;
-      var nextSessionKey = state.sessionKey;
+      final previousApiKey = state.apiKey;
+      final previousSessionKey = state.sessionKey;
+      var nextApiKey = previousApiKey;
+      var nextSessionKey = previousSessionKey;
 
       if (serviceWillRotate) {
         // Active runs retain the service that created them. Stop them through
@@ -152,33 +155,28 @@ class HermesConfigController extends Notifier<HermesConfig> {
       }
 
       if (originChanged) {
-        await _secure.deleteHermesApiKey();
-        await _secure.deleteHermesSessionKey();
         nextApiKey = null;
         nextSessionKey = null;
       }
 
       if (apiKeyChanged) {
         final value = apiKey?.trim() ?? '';
-        if (value.isEmpty) {
-          await _secure.deleteHermesApiKey();
-          nextApiKey = null;
-        } else {
-          await _secure.saveHermesApiKey(value);
-          nextApiKey = value;
-        }
+        nextApiKey = value.isEmpty ? null : value;
       }
 
       if (sessionKeyChanged) {
         final value = sessionKey?.trim() ?? '';
-        if (value.isEmpty) {
-          await _secure.deleteHermesSessionKey();
-          nextSessionKey = null;
-        } else {
-          await _secure.saveHermesSessionKey(value);
-          nextSessionKey = value;
-        }
+        nextSessionKey = value.isEmpty ? null : value;
       }
+
+      await _persistSecretsAtomically(
+        previousApiKey: previousApiKey,
+        previousSessionKey: previousSessionKey,
+        nextApiKey: nextApiKey,
+        nextSessionKey: nextSessionKey,
+        writeApiKey: originChanged || apiKeyChanged,
+        writeSessionKey: originChanged || sessionKeyChanged,
+      );
 
       await PreferencesStore.put(PreferenceKeys.hermesBaseUrl, trimmedUrl);
       state = HermesConfig(
@@ -207,6 +205,45 @@ class HermesConfigController extends Notifier<HermesConfig> {
     );
     return result;
   }
+
+  Future<void> _persistSecretsAtomically({
+    required String? previousApiKey,
+    required String? previousSessionKey,
+    required String? nextApiKey,
+    required String? nextSessionKey,
+    required bool writeApiKey,
+    required bool writeSessionKey,
+  }) async {
+    if (!writeApiKey && !writeSessionKey) return;
+    try {
+      if (writeApiKey) await _persistApiKey(nextApiKey);
+      if (writeSessionKey) await _persistSessionKey(nextSessionKey);
+    } catch (error, stackTrace) {
+      // Secure storage has no multi-key transaction. Restore every key touched
+      // by this mutation before surfacing the original failure so the old
+      // server remains usable when a replacement write only partially lands.
+      try {
+        if (writeApiKey) await _persistApiKey(previousApiKey);
+        if (writeSessionKey) await _persistSessionKey(previousSessionKey);
+      } catch (rollbackError, rollbackStackTrace) {
+        DebugLogger.error(
+          'credential-rollback-failed',
+          scope: 'hermes/config',
+          error: rollbackError,
+          stackTrace: rollbackStackTrace,
+        );
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> _persistApiKey(String? value) => value == null
+      ? _secure.deleteHermesApiKey()
+      : _secure.saveHermesApiKey(value);
+
+  Future<void> _persistSessionKey(String? value) => value == null
+      ? _secure.deleteHermesSessionKey()
+      : _secure.saveHermesSessionKey(value);
 
   Future<void> _stopActiveRuns() async {
     final stopFutures = ref.read(hermesRunRegistryProvider).cancelAll();
