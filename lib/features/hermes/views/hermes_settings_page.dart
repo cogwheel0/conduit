@@ -35,6 +35,37 @@ Future<bool> testHermesDraftConnection(
 }
 
 @visibleForTesting
+HermesConfig buildHermesConnectionDraft({
+  required HermesConfig saved,
+  required String baseUrl,
+  required bool apiKeyChanged,
+  required String apiKey,
+  required bool sessionKeyChanged,
+  required String sessionKey,
+}) {
+  final trimmedUrl = baseUrl.trim();
+  final originChanged =
+      HermesConfigController.connectionOrigin(saved.baseUrl) !=
+      HermesConfigController.connectionOrigin(trimmedUrl);
+  final trimmedApiKey = apiKey.trim();
+  final trimmedSessionKey = sessionKey.trim();
+  return HermesConfig(
+    enabled: true,
+    baseUrl: trimmedUrl,
+    apiKey: originChanged || apiKeyChanged
+        ? (trimmedApiKey.isEmpty ? null : trimmedApiKey)
+        : saved.apiKey,
+    sessionKey: originChanged
+        ? (sessionKeyChanged && trimmedSessionKey.isNotEmpty
+              ? trimmedSessionKey
+              : null)
+        : sessionKeyChanged
+        ? (trimmedSessionKey.isEmpty ? null : trimmedSessionKey)
+        : saved.sessionKey,
+  );
+}
+
+@visibleForTesting
 Future<({bool success, Object? error})> completeHermesOnboarding({
   required Future<void> Function() enable,
   required Future<void> Function() ensureSessionKey,
@@ -227,16 +258,22 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   Future<void> _testConnection() async {
     if (_finishing) return;
-    if (!await _commitConnection()) return;
-    if (!mounted) return;
-    final config = ref.read(hermesConfigProvider);
+    final saved = ref.read(hermesConfigProvider);
+    final draft = buildHermesConnectionDraft(
+      saved: saved,
+      baseUrl: _urlController.text,
+      apiKeyChanged: _apiKeyDirty,
+      apiKey: _apiKeyController.text,
+      sessionKeyChanged: _sessionKeyDirty,
+      sessionKey: _sessionKeyController.text,
+    );
     setState(() {
       _testing = true;
       _testResult = null;
     });
     bool ok;
     try {
-      ok = await testHermesDraftConnection(config);
+      ok = await testHermesDraftConnection(draft);
     } catch (_) {
       // A thrown health check (network/Dio error) must still clear the spinner.
       ok = false;

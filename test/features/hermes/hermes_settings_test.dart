@@ -30,6 +30,32 @@ void main() {
     },
   );
 
+  test('connection draft does not mutate the saved configuration', () {
+    const saved = HermesConfig(
+      enabled: true,
+      baseUrl: 'https://one.example/v1',
+      apiKey: 'old-key',
+      sessionKey: 'old-memory',
+    );
+
+    final draft = buildHermesConnectionDraft(
+      saved: saved,
+      baseUrl: ' https://two.example/v1 ',
+      apiKeyChanged: true,
+      apiKey: 'new-key',
+      sessionKeyChanged: false,
+      sessionKey: '',
+    );
+
+    check(saved.baseUrl).equals('https://one.example/v1');
+    check(saved.apiKey).equals('old-key');
+    check(saved.sessionKey).equals('old-memory');
+    check(draft.enabled).isTrue();
+    check(draft.baseUrl).equals('https://two.example/v1');
+    check(draft.apiKey).equals('new-key');
+    check(draft.sessionKey).isNull();
+  });
+
   test(
     'onboarding surfaces session-key failure and stops completion',
     () async {

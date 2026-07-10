@@ -290,6 +290,9 @@ void main() {
       while (container.read(hermesSecretsLoadingProvider)) {
         await Future<void>.delayed(Duration.zero);
       }
+      final activeToken = container
+          .read(hermesRunRegistryProvider)
+          .registerPending('active-run', onCancelled: () {});
       // Fail the second secure write after the replacement API key has landed,
       // exercising rollback of a genuinely partial server switch.
       storage.failNextWriteFor = 'hermes_session_key_v1';
@@ -316,6 +319,7 @@ void main() {
       check(
         PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
       ).equals('https://one.example/v1');
+      check(activeToken.isCancelled).isFalse();
     },
   );
 

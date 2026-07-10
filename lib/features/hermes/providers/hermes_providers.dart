@@ -142,18 +142,6 @@ class HermesConfigController extends Notifier<HermesConfig> {
       var nextApiKey = previousApiKey;
       var nextSessionKey = previousSessionKey;
 
-      if (serviceWillRotate) {
-        // Active runs retain the service that created them. Stop them through
-        // that owner before changing config, because the state update below
-        // disposes the old HermesApiService provider instance.
-        await _stopActiveRuns();
-      }
-      if (endpointChanged || identityChanged) {
-        // Endpoint and secret changes can switch servers, accounts, or memory
-        // principals. Never carry the old server-side session across them.
-        ref.read(hermesActiveSessionProvider.notifier).set(null);
-      }
-
       if (originChanged) {
         nextApiKey = null;
         nextSessionKey = null;
@@ -179,6 +167,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
       );
 
       await PreferencesStore.put(PreferenceKeys.hermesBaseUrl, trimmedUrl);
+
+      if (serviceWillRotate) {
+        // Do not interrupt the working service until every replacement value
+        // is durable. Active runs retain their creating service and this await
+        // keeps it alive through owner-bound remote cleanup.
+        await _stopActiveRuns();
+      }
+      if (endpointChanged || identityChanged) {
+        // Endpoint and secret changes can switch servers, accounts, or memory
+        // principals. Never carry the old server-side session across them.
+        ref.read(hermesActiveSessionProvider.notifier).set(null);
+      }
+
       state = HermesConfig(
         enabled: state.enabled,
         baseUrl: trimmedUrl,
