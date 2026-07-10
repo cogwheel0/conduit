@@ -548,19 +548,11 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
     private fun platformRecognizerIntent(): Intent {
         val languageSwitchLanguages = platformLanguageSwitchLanguages
-        val requestedLocale = parseLocale(platformLocaleId).toLanguageTag()
-        val baseLocale = NativeSttLanguagePolicy.preferredBaseLocale(
-            requestedLocale,
-            languageSwitchLanguages.orEmpty()
-        )
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, baseLocale)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, baseLocale)
-            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
             if (languageSwitchLanguages != null) {
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                 putExtra(
@@ -571,6 +563,11 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES,
                     ArrayList(languageSwitchLanguages)
                 )
+            } else {
+                val locale = parseLocale(platformLocaleId).toLanguageTag()
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale)
+                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
             }
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, platformEmitPartialResults)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)

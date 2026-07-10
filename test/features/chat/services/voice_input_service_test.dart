@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
@@ -140,6 +142,40 @@ void main() {
         check(service.selectedLocaleId).equals('en-US');
       },
     );
+  });
+
+  test('forwards native failures to transcript-event listeners', () async {
+    final nativeStt = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+    await service.initialize(forceLocalStt: true);
+    await service.startListening();
+
+    final errorCompleter = Completer<Object>();
+    final subscription = service.transcriptEvents.listen(
+      (_) {},
+      onError: (Object error, StackTrace _) {
+        if (!errorCompleter.isCompleted) {
+          errorCompleter.complete(error);
+        }
+      },
+    );
+
+    nativeStt.emit(
+      const NativeSttEvent(
+        type: 'error',
+        code: 'TEST_FAILURE',
+        message: 'recognition failed',
+      ),
+    );
+
+    final error = await errorCompleter.future.timeout(
+      const Duration(seconds: 1),
+    );
+    check(error.toString()).contains('recognition failed');
+
+    await subscription.cancel();
+    await service.stopListening();
+    await nativeStt.dispose();
   });
 
   group('VoiceInputService server STT consumers', () {
@@ -295,7 +331,13 @@ class _FakeNativeSttService extends NativeSttService {
   _FakeNativeSttService({this.systemLocaleId = 'en-US'});
 
   final String systemLocaleId;
+  final StreamController<NativeSttEvent> _events =
+      StreamController<NativeSttEvent>.broadcast();
   String? availabilityLocaleId;
+
+  void emit(NativeSttEvent event) => _events.add(event);
+
+  Future<void> dispose() => _events.close();
 
   @override
   bool get isSupportedPlatform => true;
@@ -322,4 +364,18 @@ class _FakeNativeSttService extends NativeSttService {
       engine: 'automatic-test',
     );
   }
+
+  @override
+  Future<Stream<NativeSttEvent>> startListening({
+    String? localeId,
+    bool preserveAudioSession = false,
+    bool emitPartialResults = true,
+    bool accumulateResults = true,
+    bool allowOnlineFallback = true,
+  }) async {
+    return _events.stream;
+  }
+
+  @override
+  Future<void> stopListening() async {}
 }

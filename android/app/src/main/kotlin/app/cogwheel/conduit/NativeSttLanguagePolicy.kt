@@ -14,21 +14,6 @@ internal object NativeSttLanguagePolicy {
             .size >= 2
     }
 
-    fun preferredBaseLocale(requestedLocaleId: String, localeIds: List<String>): String {
-        if (localeIds.isEmpty()) {
-            return requestedLocaleId
-        }
-        val exact = localeIds.firstOrNull {
-            it.equals(requestedLocaleId, ignoreCase = true)
-        }
-        if (exact != null) {
-            return exact
-        }
-        val requestedLanguage = primaryLanguage(requestedLocaleId)
-        return localeIds.firstOrNull { primaryLanguage(it) == requestedLanguage }
-            ?: localeIds.first()
-    }
-
     private fun primaryLanguage(localeId: String): String? {
         return localeId
             .trim()

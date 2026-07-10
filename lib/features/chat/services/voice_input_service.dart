@@ -388,8 +388,19 @@ class VoiceInputService {
           ? 'Speech recognition failed'
           : message,
     );
-    _textStreamController?.addError(exception);
+    _reportRecognitionError(exception);
     unawaited(_stopListening());
+  }
+
+  void _reportRecognitionError(Object error) {
+    final textController = _textStreamController;
+    if (textController != null && !textController.isClosed) {
+      textController.addError(error);
+    }
+    final transcriptController = _transcriptEventController;
+    if (transcriptController != null && !transcriptController.isClosed) {
+      transcriptController.addError(error);
+    }
   }
 
   Future<bool> _ensureMicrophonePermission() async {
@@ -651,7 +662,7 @@ class VoiceInputService {
         if (!_isListening) {
           return _textStreamController!.stream;
         }
-        _textStreamController?.addError(error);
+        _reportRecognitionError(error);
         await _stopListening();
       }
     } else if (shouldUseServer) {
@@ -669,7 +680,7 @@ class VoiceInputService {
           );
         } catch (error) {
           if (!_isListening) return;
-          _textStreamController?.addError(error);
+          _reportRecognitionError(error);
           await _stopListening();
         }
       });
@@ -685,7 +696,7 @@ class VoiceInputService {
         error = Exception('Speech recognition not available on this device');
       }
       Future.microtask(() {
-        _textStreamController?.addError(error);
+        _reportRecognitionError(error);
         unawaited(_stopListening());
       });
     }
@@ -908,12 +919,12 @@ class VoiceInputService {
           );
           return;
         } catch (fallbackError) {
-          _textStreamController?.addError(fallbackError);
+          _reportRecognitionError(fallbackError);
           rethrow;
         }
       }
 
-      _textStreamController?.addError(error);
+      _reportRecognitionError(error);
       rethrow;
     }
   }
@@ -941,7 +952,7 @@ class VoiceInputService {
 
     await _vadErrorSub?.cancel();
     _vadErrorSub = vad.onError.listen((message) {
-      _textStreamController?.addError(Exception(message));
+      _reportRecognitionError(Exception(message));
       if (_isListening) {
         unawaited(_stopListening());
       }
@@ -1004,7 +1015,7 @@ class VoiceInputService {
         throw StateError('Empty transcription result');
       }
     } catch (error) {
-      _textStreamController?.addError(error);
+      _reportRecognitionError(error);
     }
   }
 
