@@ -310,16 +310,19 @@ class AttachmentUploadQueue {
     Timer(const Duration(milliseconds: 500), _processSafe);
   }
 
-  /// Stops background processing and detaches the current server's callbacks.
+  /// Stops background processing and releases the previous server's session.
   ///
-  /// Called when the active [ApiService] changes (server switch / logout) so a
-  /// stale [_onUpload] closure bound to the previous server can no longer fire
-  /// on a retry tick. Deliberately minimal and reusable: it cancels the periodic
-  /// timer and nulls the callbacks/db resolver, but does NOT close [queueStream]
-  /// (a shared broadcast stream reused across uploads) and does NOT cancel
-  /// in-flight [_cancelTokens] (an upload already awaiting its network call is
-  /// allowed to finish). The next [initialize] re-arms the timer and callbacks
-  /// and reloads the queue from the (new) active server's Drift table.
+  /// Called when the active [ApiService] changes (server switch / logout).
+  /// Cancels the periodic timer, aborts in-flight uploads via their
+  /// [CancelToken]s (so nothing completes against the account just left), and
+  /// drives every still-active queue item to a terminal (`cancelled`) state
+  /// with a single [_notify] so `queueStream` listeners (e.g. a
+  /// `MediaUploadController` upload completer) resolve instead of hanging. The
+  /// cancelled statuses are persisted best-effort before the db resolver is
+  /// dropped, so they do not reappear as pending on reconnect. The broadcast
+  /// [queueStream] is intentionally NOT closed (it is reused across uploads);
+  /// the next [initialize] re-arms the timer and callbacks and reloads the
+  /// active server's queue from Drift.
   void deactivate() {
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -348,7 +351,14 @@ class AttachmentUploadQueue {
         changed = true;
       }
     }
-    if (changed) _notify();
+    if (changed) {
+      _notify();
+      // Persist the cancelled statuses to the previous server's table before we
+      // drop the resolver, so they do not reappear as pending on reconnect.
+      // Best-effort: _save() captures the db synchronously (before the null
+      // below); swallow errors since the db may be closing on a server switch.
+      unawaited(_save().catchError((Object _) {}));
+    }
     _onUpload = null;
     _onQueueChanged = null;
     _databaseResolver = null;

@@ -126,9 +126,17 @@ void main() {
       final queue = AttachmentUploadQueue();
       // Upload that never resolves on its own, so the item stays non-terminal
       // (uploading) until deactivate() drives it to a terminal state.
+      final uploadStarted = Completer<void>();
       final hang = Completer<String>();
+      // Release the hanging upload during cleanup so its future does not leak.
+      addTearDown(() {
+        if (!hang.isCompleted) hang.complete('teardown');
+      });
       queue.initialize(
-        onUpload: (filePath, fileName, {cancelToken}) => hang.future,
+        onUpload: (filePath, fileName, {cancelToken}) {
+          if (!uploadStarted.isCompleted) uploadStarted.complete();
+          return hang.future;
+        },
         database: () => null,
       );
 
@@ -137,10 +145,11 @@ void main() {
         fileName: 'x.txt',
         fileSize: 1,
       );
-      // Let processQueue flip the item to `uploading` (then it awaits `hang`).
-      await Future<void>.delayed(Duration.zero);
+      // Wait until the upload actually starts (the item is now `uploading`),
+      // rather than relying on a bare microtask having elapsed.
+      await uploadStarted.future;
 
-      // Subscribe after enqueue so we only observe events from here on.
+      // Subscribe after upload start so we only observe events from here on.
       final terminalEvents = <QueuedAttachmentStatus>[];
       final sub = queue.queueStream.listen((items) {
         for (final e in items) {
