@@ -138,18 +138,33 @@ class AttachmentUploadQueue {
   Stream<List<QueuedAttachment>> get queueStream => _queueController.stream;
 
   bool _disposed = false;
+  Future<void>? _readyFuture;
 
   List<QueuedAttachment> get queue => List.unmodifiable(_queue);
+
+  /// Completes once the initial load from Drift has finished (or immediately if
+  /// [initialize] has not run). Callers `await` this before enqueueing so an
+  /// upload never races the load. It is owned by this instance (not the owning
+  /// provider), so it can never be orphaned by the provider rebuilding — unlike
+  /// a `FutureProvider.future`, awaiting it cannot hang across a server switch.
+  Future<void> get ready => _readyFuture ?? Future<void>.value();
 
   Future<void> initialize({
     required UploadCallback onUpload,
     required AppDatabase? Function() database,
     AttachmentsEventCallback? onQueueChanged,
-  }) async {
+  }) {
     _onUpload = onUpload;
     _onQueueChanged = onQueueChanged;
     _databaseResolver = database;
+    final future = _initInternal();
+    _readyFuture = future;
+    return future;
+  }
+
+  Future<void> _initInternal() async {
     await _load();
+    if (_disposed) return;
     _startPeriodicProcessing();
     DebugLogger.log(
       'AttachmentUploadQueue initialized with ${_queue.length} items',

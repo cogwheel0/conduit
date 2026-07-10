@@ -95,10 +95,14 @@ class MediaUploadController {
     // fully-initialized instance per active server); awaiting `.future` avoids
     // the enqueue-before-load race and gives a queue already wired to the
     // active server's API + Drift table.
-    final uploader = await _ref.read(attachmentUploadQueueProvider.future);
+    final uploader = _ref.read(attachmentUploadQueueProvider);
     if (uploader == null) {
       throw Exception('API not available');
     }
+    // Wait for the queue's initial Drift load before enqueueing. `ready` is
+    // owned by the queue instance, so awaiting it cannot hang if the owning
+    // provider rebuilds on a server switch (unlike a FutureProvider.future).
+    await uploader.ready;
 
     // For images: convert unsupported formats to JPEG for compatibility.
     String uploadPath = filePath;
@@ -258,8 +262,10 @@ class MediaUploadController {
       // The queue was disposed (server switch / logout) before this upload
       // reached a terminal status. Resolve the awaiting caller so it does not
       // hang; the item stays in the previous server's Drift table and resumes
-      // when that server is next active.
-      cleanupTemp();
+      // when that server is next active. Do NOT cleanupTemp() here: the kept
+      // row still points at the converted temp file, which must survive for the
+      // resume to succeed. (An interrupted-and-never-resumed upload leaks the
+      // temp dir until OS cleanup — preferable to losing the attachment.)
       removeInflight();
       if (!completer.isCompleted) completer.complete();
     });

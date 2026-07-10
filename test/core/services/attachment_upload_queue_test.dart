@@ -23,6 +23,8 @@ void main() {
           },
           database: () => null,
         );
+        // Let the initial (async) load settle before enqueueing.
+        async.flushMicrotasks();
         queue.enqueue(filePath: '/tmp/a.txt', fileName: 'a.txt', fileSize: 1);
 
         async.elapse(const Duration(seconds: 25));
@@ -81,6 +83,7 @@ void main() {
         },
         database: () => null,
       );
+      await queue.ready; // load settled before enqueue (no enqueue-vs-load race)
 
       final id = await queue.enqueue(
         filePath: '/tmp/b.txt',
@@ -119,6 +122,20 @@ void main() {
       check(resolved.isCompleted).isTrue();
       // Dispose aborts the in-flight upload so it cannot land on the old server.
       check(capturedToken?.isCancelled ?? false).isTrue();
+    });
+
+    test('ready resolves even when the queue is disposed mid-initialization',
+        () async {
+      final queue = AttachmentUploadQueue();
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: () => null,
+      );
+      // Dispose before the initial load settles. `ready` is owned by the
+      // instance (not a provider future), so awaiting it must still resolve
+      // rather than hang — the guarantee the provider read relies on.
+      queue.dispose();
+      await queue.ready.timeout(const Duration(seconds: 1));
     });
   });
 }

@@ -564,25 +564,28 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
 
 // Attachment upload queue — one instance per active server.
 //
-// Constructs the queue and awaits its initialization against the active
-// server's API + Drift table, so consumers that `await .future` get a
-// fully-loaded queue (no enqueue-before-load race). When the active server
-// changes (server switch / logout), this keepAlive provider rebuilds and
-// `ref.onDispose` tears the previous instance down — cancelling in-flight
-// uploads and closing its stream so awaiting upload completers resolve — before
-// a fresh instance takes over the new server. Null in reviewer mode / when
-// there is no active server.
-final attachmentUploadQueueProvider =
-    FutureProvider<AttachmentUploadQueue?>((ref) async {
+// Constructs the queue and kicks off its (async) initialization against the
+// active server's API + Drift table. Consumers `await queue.ready` before
+// enqueueing so an upload never races the load; `ready` is owned by the queue
+// instance, so — unlike a `FutureProvider.future` — awaiting it cannot hang if
+// this provider rebuilds mid-initialization. When the active server changes
+// (server switch / logout), this keepAlive provider rebuilds and `ref.onDispose`
+// tears the previous instance down (cancelling in-flight uploads and closing its
+// stream so awaiting upload completers resolve via `onDone`) before a fresh
+// instance takes over. Null in reviewer mode / when there is no active server.
+final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
 
   final queue = AttachmentUploadQueue();
   ref.onDispose(queue.dispose);
-  await queue.initialize(
-    onUpload: (filePath, fileName, {cancelToken}) =>
-        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
-    database: () => ref.read(appDatabaseProvider),
+  // Fire-and-forget: readiness is exposed via `queue.ready`, awaited by callers.
+  unawaited(
+    queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) =>
+          api.uploadFile(filePath, fileName, cancelToken: cancelToken),
+      database: () => ref.read(appDatabaseProvider),
+    ),
   );
   return queue;
 });
