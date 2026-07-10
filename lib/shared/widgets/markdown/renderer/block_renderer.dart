@@ -1357,6 +1357,9 @@ class BlockRenderer {
       return StreamingMarkdownWidget(
         content: data.bodyMarkdown,
         isStreaming: true,
+        // Nested pending details inherit the parent renderer's decision rather
+        // than silently re-enabling a per-update fade.
+        enableStreamingTextFade: streamingFade != null,
         stateScopeId: nestedStateScopeId,
         onTapLink: onLinkTap,
         sources: inlineRenderer.sources,

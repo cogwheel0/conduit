@@ -62,7 +62,7 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.onSourceTap,
     this.askConduitComposerTargetId,
     this.stateScopeId,
-    this.enableStreamingTextFade = false,
+    this.enableStreamingTextFade = true,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
@@ -92,11 +92,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
 
-  /// Opts into fading newly appended visible text while streaming.
+  /// Controls fading newly appended visible text while streaming.
   ///
-  /// Live chat leaves this disabled so token updates remain immediate. The
-  /// option remains available for low-frequency preview surfaces that choose a
-  /// decorative reveal deliberately.
+  /// This stays enabled by default for existing standalone callers. Live chat
+  /// explicitly disables it so token updates remain immediate; low-frequency
+  /// preview surfaces can retain the decorative reveal.
   final bool enableStreamingTextFade;
 
   @visibleForTesting
@@ -691,6 +691,7 @@ extension StreamingMarkdownExtension on String {
   Widget toMarkdown({
     required BuildContext context,
     bool isStreaming = false,
+    bool enableStreamingTextFade = true,
     MarkdownLinkTapCallback? onTapLink,
     List<ChatSourceReference>? sources,
     void Function(int sourceIndex)? onSourceTap,
@@ -700,6 +701,7 @@ extension StreamingMarkdownExtension on String {
     return StreamingMarkdownWidget(
       content: this,
       isStreaming: isStreaming,
+      enableStreamingTextFade: enableStreamingTextFade,
       onTapLink: onTapLink,
       sources: sources,
       onSourceTap: onSourceTap,
@@ -710,10 +712,16 @@ extension StreamingMarkdownExtension on String {
 }
 
 class MarkdownWithLoading extends StatelessWidget {
-  const MarkdownWithLoading({super.key, this.content, required this.isLoading});
+  const MarkdownWithLoading({
+    super.key,
+    this.content,
+    required this.isLoading,
+    this.enableStreamingTextFade = true,
+  });
 
   final String? content;
   final bool isLoading;
+  final bool enableStreamingTextFade;
 
   @override
   Widget build(BuildContext context) {
@@ -722,6 +730,10 @@ class MarkdownWithLoading extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
-    return StreamingMarkdownWidget(content: value, isStreaming: isLoading);
+    return StreamingMarkdownWidget(
+      content: value,
+      isStreaming: isLoading,
+      enableStreamingTextFade: enableStreamingTextFade,
+    );
   }
 }

@@ -6,6 +6,7 @@ import 'package:conduit/features/chat/providers/queued_completion_provider.dart'
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
+import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/features/chat/widgets/streaming_status_widget.dart';
 import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
@@ -66,6 +67,7 @@ Widget _buildAssistantHarness(
   bool showFollowUps = false,
   bool isStreaming = false,
   bool? isChatStreaming,
+  bool disableAnimations = false,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
 }) {
@@ -82,6 +84,12 @@ Widget _buildAssistantHarness(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(disableAnimations: disableAnimations),
+        child: child!,
+      ),
       home: Scaffold(
         body: AssistantMessageWidget(
           message: message,
@@ -921,6 +929,35 @@ void main() {
         firstAttachment,
       ),
       isTrue,
+    );
+  });
+
+  testWidgets('reduced motion preserves generated image reveal', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-reduced-motion-generated-image',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: false,
+      metadata: const {'responseDone': true},
+      files: const [
+        {'type': 'image', 'url': 'https://example.com/generated.png'},
+      ],
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, disableAnimations: true),
+    );
+    await tester.pump();
+
+    expect(find.byType(EnhancedImageAttachment), findsOneWidget);
+    expect(
+      tester
+          .widget<EnhancedImageAttachment>(find.byType(EnhancedImageAttachment))
+          .disableAnimation,
+      isFalse,
     );
   });
 

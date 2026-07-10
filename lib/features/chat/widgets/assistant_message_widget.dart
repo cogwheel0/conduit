@@ -1501,7 +1501,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           attachmentId: widget.message.attachmentIds![0],
           isMarkdownFormat: true,
           constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-          disableAnimation: _uiTreatsAsStreaming || _disableAnimations,
+          disableAnimation: _uiTreatsAsStreaming,
         ),
       );
     }
@@ -1519,7 +1519,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             maxWidth: imageCount == 2 ? 245 : 160,
             maxHeight: imageCount == 2 ? 245 : 160,
           ),
-          disableAnimation: _uiTreatsAsStreaming || _disableAnimations,
+          disableAnimation: _uiTreatsAsStreaming,
         );
       }).toList(),
     );
@@ -1612,7 +1612,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             attachmentId: imageUrl,
             isMarkdownFormat: true,
             constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-            disableAnimation: _disableAnimations,
+            // Keep the opacity-only image reveal under Reduce Motion. It is
+            // functional feedback and avoids a placeholder-to-image black
+            // frame without introducing spatial movement.
+            disableAnimation: false,
             httpHeaders: _headersForFile(imageFiles.first),
           ),
         ),
@@ -1636,7 +1639,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               maxWidth: imageCount == 2 ? 245 : 160,
               maxHeight: imageCount == 2 ? 245 : 160,
             ),
-            disableAnimation: _disableAnimations,
+            disableAnimation: false,
             httpHeaders: _headersForFile(file),
           ),
         );

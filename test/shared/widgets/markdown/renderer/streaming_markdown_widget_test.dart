@@ -1139,7 +1139,7 @@ graph TD
     expect(baseRenders, greaterThan(before));
   });
 
-  testWidgets('streaming text fade stays disabled by default for every part', (
+  testWidgets('streaming text fade opt-out applies to every display part', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1153,6 +1153,15 @@ graph TD
     expect(markdownWidgets.length, greaterThanOrEqualTo(2));
     expect(markdownWidgets.first.enableStreamingTextFade, isFalse);
     expect(markdownWidgets.last.enableStreamingTextFade, isFalse);
+  });
+
+  test('standalone streaming markdown preserves its fade default', () {
+    const widget = StreamingMarkdownWidget(
+      content: 'Hello',
+      isStreaming: true,
+    );
+
+    expect(widget.enableStreamingTextFade, isTrue);
   });
 
   testWidgets('streaming markdown fades newly appended rendered text', (

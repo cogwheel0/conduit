@@ -973,10 +973,13 @@ class _EnhancedImageAttachmentState
       memCacheHeight: dimensions.height,
       maxWidthDiskCache: dimensions.width,
       maxHeightDiskCache: dimensions.height,
-      fadeInDuration: widget.disableAnimation || context.reduceMotion
+      // A short opacity reveal remains safe under Reduce Motion and avoids an
+      // abrupt placeholder swap in OctoImage. Spatial Hero motion is disabled
+      // separately below.
+      fadeInDuration: widget.disableAnimation
           ? Duration.zero
           : const Duration(milliseconds: 200),
-      fadeOutDuration: widget.disableAnimation || context.reduceMotion
+      fadeOutDuration: widget.disableAnimation
           ? Duration.zero
           : const Duration(milliseconds: 200),
       placeholder: (context, url) => _buildSkeletonPlaceholder(),
