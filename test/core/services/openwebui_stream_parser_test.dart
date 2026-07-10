@@ -165,7 +165,7 @@ void main() {
         final updates = await parseOpenWebUIStream(
           Stream<List<int>>.fromIterable([
             utf8.encode('data: {"choices":[{"delta":{"content":"done"}}]}\n\n'),
-            utf8.encode('data: [DONE]'),
+            utf8.encode('data: [DONE]\n\n'),
           ]),
         ).toList();
 
@@ -236,19 +236,18 @@ void main() {
       check(updates[1]).isA<OpenWebUIStreamDone>();
     });
 
-    test('flushes trailing unterminated data payloads at stream end', () async {
-      final updates = await parseOpenWebUIStream(
-        Stream<List<int>>.fromIterable([
-          utf8.encode('data: {"choices":[{"delta":{"content":"tail"}}]}'),
-        ]),
-      ).toList();
+    test(
+      'discards trailing unterminated data payloads at stream end',
+      () async {
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode('data: {"choices":[{"delta":{"content":"tail"}}]}'),
+          ]),
+        ).toList();
 
-      check(updates).has((it) => it.length, 'length').equals(1);
-      check(updates[0])
-          .isA<OpenWebUIContentDelta>()
-          .has((u) => u.content, 'content')
-          .equals('tail');
-    });
+        check(updates).isEmpty();
+      },
+    );
 
     test('handles a multibyte UTF-8 character split across chunks', () async {
       final bytes = utf8.encode(

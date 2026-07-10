@@ -2814,10 +2814,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       completeStreamingUi();
       return;
     }
-    updateMessageById(
-      messageId,
-      (message) => message.copyWith(isStreaming: false),
-    );
+    _completeNonTailStreamingMessage(messageId);
   }
 
   void finishStreaming() {
@@ -2829,10 +2826,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       finishStreaming();
       return;
     }
-    updateMessageById(
-      messageId,
-      (message) => message.copyWith(isStreaming: false),
+    _completeNonTailStreamingMessage(messageId);
+  }
+
+  void _completeNonTailStreamingMessage(String messageId) {
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+
+    final completed = message.copyWith(
+      isStreaming: false,
+      content: _stripStreamingPlaceholders(message.content),
     );
+    state = [
+      ...state.sublist(0, index),
+      completed,
+      ...state.sublist(index + 1),
+    ];
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(index);
   }
 
   /// D-07 local echo: after a stream lands, write the trailing user message
@@ -2859,6 +2872,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    unawaited(
+      _writeTurnEcho(
+        db: db,
+        locks: locks,
+        chatId: activeId,
+        trailingUser: trailingUser,
+        assistant: assistant,
+      ),
+    );
+  }
+
+  void _persistCompletedTurnForMessage(int assistantIndex) {
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    if (assistantIndex < 0 || assistantIndex >= state.length) return;
+    final assistant = state[assistantIndex];
+    if (assistant.role != 'assistant' || assistant.isStreaming) return;
+
+    ChatMessage? trailingUser;
+    for (var index = assistantIndex - 1; index >= 0; index--) {
+      if (state[index].role == 'user') {
+        trailingUser = state[index];
+        break;
+      }
+    }
+    final db = _maybeDatabase();
+    if (db == null) return;
     final ChatLocks locks;
     try {
       locks = ref.read(chatLocksProvider);
@@ -3750,18 +3798,6 @@ void startNewChat(dynamic ref) {
 Future<void> startNewHermesChat(dynamic ref) async {
   resetHermesForNewChat(ref);
 
-  // Resolve the Hermes model first so the picker lands on it.
-  Model? hermesModel;
-  try {
-    final models = await ref.read(modelsProvider.future);
-    for (final model in models) {
-      if (isHermesModel(model)) {
-        hermesModel = model;
-        break;
-      }
-    }
-  } catch (_) {}
-
   ref.read(activeConversationProvider.notifier).clear();
   ref.read(chatMessagesProvider.notifier).clearMessages();
   ref.read(contextAttachmentsProvider.notifier).clear();
@@ -3772,10 +3808,10 @@ Future<void> startNewHermesChat(dynamic ref) async {
       .read(temporaryChatEnabledProvider.notifier)
       .set(settings.temporaryChatByDefault);
 
-  if (hermesModel != null) {
-    ref.read(isManualModelSelectionProvider.notifier).set(true);
-    ref.read(selectedModelProvider.notifier).set(hermesModel);
-  }
+  // Hermes is app-owned runtime state; starting it must never wait on an
+  // unrelated OpenWebUI model request in mixed-backend setups.
+  ref.read(isManualModelSelectionProvider.notifier).set(true);
+  ref.read(selectedModelProvider.notifier).set(hermesSyntheticModel());
 }
 
 /// Restores the selected model to the user's configured default model.
@@ -4139,10 +4175,11 @@ bool usesHermesTransportForRegeneration({
   required Model selectedModel,
   required Conversation? activeConversation,
 }) {
-  // Conversation presence intentionally does not participate: first-turn
-  // Hermes chats are valid before a local Conversation shell exists, while an
-  // opened server session supplies that shell and must use the same transport.
-  return isHermesModel(selectedModel);
+  // A fresh chat has no transport-bearing conversation shell yet, so its
+  // trusted runtime model selects the backend. Once a conversation is open,
+  // its transport binding wins over stale global model selection.
+  if (activeConversation == null) return isHermesModel(selectedModel);
+  return activeConversation.metadata['backend'] == 'hermes';
 }
 
 Future<void> _regenerateHermesMessage(
@@ -5701,6 +5738,27 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // ephemeral run with no persistence rather than failing the turn.
       sessionId = null;
     }
+  }
+
+  if (forceNewSession &&
+      sessionId != null &&
+      activeConv != null &&
+      activeIsHermes) {
+    final nextConversationId = 'local:hermes_$sessionId';
+    final updatedConversation = activeConv.copyWith(
+      id: nextConversationId,
+      updatedAt: DateTime.now(),
+      messages: List<ChatMessage>.unmodifiable(ref.read(chatMessagesProvider)),
+      metadata: <String, dynamic>{
+        ...activeConv.metadata,
+        'backend': 'hermes',
+        'hermesSessionId': sessionId,
+      },
+    );
+    ref
+        .read(activeConversationInPlaceRemapProvider.notifier)
+        .mark(fromId: activeConv.id, toId: nextConversationId);
+    ref.read(activeConversationProvider.notifier).set(updatedConversation);
   }
 
   // Chain to the previous Hermes turn for server-side multi-turn continuity.

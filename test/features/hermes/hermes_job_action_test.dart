@@ -130,6 +130,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey<String>('job-1')), findsOneWidget);
     final runButton = find.byKey(
       const ValueKey<String>('hermes-job-run-job-1'),
     );

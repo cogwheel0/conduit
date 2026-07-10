@@ -4,6 +4,7 @@ import '../../../core/models/user.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/debug_logger.dart';
 
 /// Unified auth providers using the new auth state manager
 /// These replace the old auth providers for better efficiency
@@ -18,7 +19,19 @@ Future<bool> completeOpenWebUiAuthentication({
   required Future<void> Function() persistPreference,
 }) async {
   final success = await authenticate();
-  if (success) await persistPreference();
+  if (success) {
+    try {
+      await persistPreference();
+    } catch (error) {
+      // The session is already authenticated. A best-effort routing preference
+      // write must not make the sign-in UI report that authentication failed.
+      DebugLogger.warning(
+        'preferred-backend-persist-failed',
+        scope: 'auth/backend',
+        data: {'error': error.toString()},
+      );
+    }
+  }
   return success;
 }
 

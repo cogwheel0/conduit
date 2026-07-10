@@ -37,6 +37,18 @@ void main() {
     });
 
     test(
+      'preference failure does not turn auth success into failure',
+      () async {
+        final result = await completeOpenWebUiAuthentication(
+          authenticate: () async => true,
+          persistPreference: () async => throw StateError('disk full'),
+        );
+
+        check(result).isTrue();
+      },
+    );
+
+    test(
       'does not persist the preference when authentication throws',
       () async {
         var persistCalls = 0;

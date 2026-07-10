@@ -57,8 +57,13 @@ bool isHermesOnlyAppLocation(String location) {
 }
 
 @visibleForTesting
-String incompleteHermesDestination({required bool secretsLoading}) {
-  return secretsLoading ? Routes.splash : Routes.hermesSettings;
+String incompleteHermesDestination({
+  required bool secretsLoading,
+  bool activeServerLoading = false,
+}) {
+  return secretsLoading || activeServerLoading
+      ? Routes.splash
+      : Routes.hermesSettings;
 }
 
 class RouterNotifier extends ChangeNotifier {
@@ -140,6 +145,7 @@ class RouterNotifier extends ChangeNotifier {
         }
         final destination = incompleteHermesDestination(
           secretsLoading: hermesSecretsLoading,
+          activeServerLoading: true,
         );
         return location == destination ? null : destination;
       }

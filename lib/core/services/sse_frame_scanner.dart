@@ -24,9 +24,8 @@ final class SseFrame {
 ///   runs API) can route without re-implementing the scanner
 ///
 /// A frame is only emitted once a blank-line boundary is reached and the frame
-/// contained at least one `data:` line. This matches the long-standing
-/// OpenWebUI parser behavior (event-only frames are skipped), so existing
-/// consumers see no change.
+/// contained at least one `data:` line. Event-only and unterminated EOF frames
+/// are discarded, as required by the SSE processing model.
 final class SseFrameScanner {
   final StringBuffer _lineBuffer = StringBuffer();
   final StringBuffer _dataBuffer = StringBuffer();
@@ -66,16 +65,13 @@ final class SseFrameScanner {
   }
 
   Iterable<SseFrame> close() sync* {
+    // EOF is not an implicit blank-line boundary. Discard the unfinished event
+    // rather than feeding a potentially truncated JSON payload to consumers.
     _skipLeadingLineFeed = false;
-    if (_lineBuffer.length > 0) {
-      _consumeLine(_lineBuffer.toString());
-      _lineBuffer.clear();
-    }
-
-    final frame = _finishFrame();
-    if (frame != null) {
-      yield frame;
-    }
+    _lineBuffer.clear();
+    _dataBuffer.clear();
+    _eventField = null;
+    _frameHasDataLine = false;
   }
 
   SseFrame? _finishLine() {

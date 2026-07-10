@@ -176,16 +176,21 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {
-    final completer = Completer<void>();
-    _mutationQueue = _mutationQueue.then((_) async {
-      try {
-        await operation();
-        completer.complete();
-      } catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
-      }
-    });
-    return completer.future;
+    // Keep the caller-visible result separate from the internal queue tail. The
+    // result must preserve this operation's error, while the tail must always
+    // settle successfully so one failed secure-storage/preferences write cannot
+    // prevent every later mutation from running.
+    final result = _mutationQueue.then<void>(
+      (_) => operation(),
+      // Defensive recovery if an older implementation or unexpected callback
+      // ever left the internal tail in an error state.
+      onError: (Object _, StackTrace _) => operation(),
+    );
+    _mutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
   }
 
   Future<void> _stopActiveRuns() async {

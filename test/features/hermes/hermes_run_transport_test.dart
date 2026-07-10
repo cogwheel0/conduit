@@ -17,6 +17,8 @@ class _FakeHermesApiService extends HermesApiService {
     this.runResults = const [],
     this.eventsOverride,
     this.createRunGate,
+    this.stopRunGate,
+    this.stopRunError,
   }) : super(
          config: HermesConfig(enabled: true, baseUrl: 'http://x', apiKey: 'k'),
          dio: Dio(),
@@ -27,8 +29,11 @@ class _FakeHermesApiService extends HermesApiService {
   final List<Map<String, dynamic>> runResults;
   final Stream<HermesRunEvent>? eventsOverride;
   final Completer<String>? createRunGate;
+  final Completer<void>? stopRunGate;
+  final Object? stopRunError;
   var getRunCalls = 0;
   final List<String> stoppedRuns = [];
+  CancelToken? lastStopCancelToken;
 
   @override
   Future<String> createRun({
@@ -59,8 +64,12 @@ class _FakeHermesApiService extends HermesApiService {
   }
 
   @override
-  Future<void> stopRun(String runId) async {
+  Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
     stoppedRuns.add(runId);
+    lastStopCancelToken = cancelToken;
+    await stopRunGate?.future;
+    final error = stopRunError;
+    if (error != null) throw error;
   }
 }
 
@@ -249,6 +258,41 @@ void main() {
     check(fake.stoppedRuns).deepEquals(['run-late']);
   });
 
+  test('late create cleanup uses a fresh bounded stop token', () async {
+    final createGate = Completer<String>();
+    final stopGate = Completer<void>();
+    final runToken = CancelToken();
+    final registry = HermesRunRegistry();
+    final fake = _FakeHermesApiService(
+      const [],
+      createRunGate: createGate,
+      stopRunGate: stopGate,
+    );
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: registry,
+      assistantMessageId: 'm',
+      input: 'hi',
+      cancelToken: runToken,
+      remoteStopTimeout: const Duration(milliseconds: 10),
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    registry.cancel('m');
+    createGate.complete('run-late');
+    await dispatch.timeout(const Duration(seconds: 1));
+
+    check(fake.stoppedRuns).deepEquals(['run-late']);
+    check(fake.lastStopCancelToken).isNotNull();
+    check(identical(fake.lastStopCancelToken, runToken)).isFalse();
+    check(fake.lastStopCancelToken!.isCancelled).isTrue();
+    stopGate.complete();
+  });
+
   test('stop after registration completes dispatch cleanup', () async {
     final events = StreamController<HermesRunEvent>();
     addTearDown(events.close);
@@ -278,6 +322,48 @@ void main() {
     check(fake.stoppedRuns).deepEquals(['run-1']);
   });
 
+  test(
+    'remote stop failure is surfaced without poisoning cancellation',
+    () async {
+      final events = StreamController<HermesRunEvent>();
+      addTearDown(events.close);
+      final registry = HermesRunRegistry();
+      final fake = _FakeHermesApiService(
+        const [],
+        eventsOverride: events.stream,
+        stopRunError: StateError('offline'),
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      final dispatch = dispatchHermesRun(
+        service: fake,
+        registry: registry,
+        assistantMessageId: 'm',
+        input: 'hi',
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      while (registry.runIdFor('m') == null) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final cancellation = registry.cancel('m');
+      check(cancellation).isNotNull();
+      await cancellation;
+      await dispatch.timeout(const Duration(seconds: 1));
+
+      check(message.error).isNotNull();
+      expect(message.error!.content, contains('may still be running'));
+    },
+  );
+
   test('recovers final output when the event stream drops', () async {
     // Stream ends with no terminal event (dropped); getRun reconciles it.
     final fake = _FakeHermesApiService(
@@ -306,6 +392,35 @@ void main() {
     );
 
     check(content.toString()).equals('Recovered answer');
+  });
+
+  test('recovered remote cancellation is not reported as success', () async {
+    for (final status in const ['cancelled', 'canceled', 'stopped']) {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResult: {'status': status, 'output': 'Partial answer'},
+      );
+      var message = ChatMessage(
+        id: 'm-$status',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: message.id,
+        input: 'hi',
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(message.error).isNotNull();
+    }
   });
 
   test(

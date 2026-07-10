@@ -241,6 +241,40 @@ void main() {
   });
 
   test(
+    'failed mutation does not prevent the next mutation from running',
+    () async {
+      final storage = _FailOnceSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      });
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+
+      container.read(hermesConfigProvider);
+      while (container.read(hermesSecretsLoadingProvider)) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      storage.failNextWriteFor = 'hermes_api_key_v1';
+      final controller = container.read(hermesConfigProvider.notifier);
+
+      await expectLater(
+        controller.setApiKey('first-replacement'),
+        throwsA(isA<StateError>()),
+      );
+      await controller
+          .setApiKey('second-replacement')
+          .timeout(const Duration(seconds: 1));
+
+      check(
+        container.read(hermesConfigProvider).apiKey,
+      ).equals('second-replacement');
+      check(storage.values['hermes_api_key_v1']).equals('second-replacement');
+    },
+  );
+
+  test(
     'registry cancellation invokes the stop operation owned by the run',
     () async {
       final registry = HermesRunRegistry();
@@ -347,4 +381,61 @@ void main() {
     check(registry.complete('message-one', cancelToken: newToken)).isTrue();
     check(registry.runIdFor('message-one')).isNull();
   });
+}
+
+class _FailOnceSecureStorage implements FlutterSecureStorage {
+  _FailOnceSecureStorage(Map<String, String> initialValues)
+    : values = Map<String, String>.from(initialValues);
+
+  final Map<String, String> values;
+  String? failNextWriteFor;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => values[key];
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (failNextWriteFor == key) {
+      failNextWriteFor = null;
+      throw StateError('write failed for $key');
+    }
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
+    }
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    values.remove(key);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

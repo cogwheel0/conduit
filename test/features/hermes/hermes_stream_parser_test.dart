@@ -139,5 +139,16 @@ void main() {
         events[0],
       ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
     });
+
+    test('surfaces top-level type error messages', () async {
+      final events = await parseHermesRunStream(
+        _sse(['data: {"type":"error","code":"bad","message":"boom"}\n\n']),
+      ).toList();
+
+      check(events).has((e) => e.length, 'length').equals(1);
+      check(
+        events.single,
+      ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
+    });
   });
 }

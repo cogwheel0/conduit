@@ -91,7 +91,11 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
             return Column(
               children: [
                 for (final job in jobs) ...[
-                  _JobCard(job: job, writable: writable),
+                  _JobCard(
+                    key: ValueKey<String>(job.id),
+                    job: job,
+                    writable: writable,
+                  ),
                   const SizedBox(height: Spacing.sm),
                 ],
               ],
@@ -146,7 +150,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 enum _JobMutation { toggle, run, edit, delete }
 
 class _JobCard extends ConsumerStatefulWidget {
-  const _JobCard({required this.job, this.writable = true});
+  const _JobCard({super.key, required this.job, this.writable = true});
 
   final HermesJob job;
   final bool writable;

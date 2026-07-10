@@ -174,15 +174,19 @@ class HermesApiService {
   }
 
   /// Stops a run (`POST /v1/runs/{id}/stop`).
-  Future<void> stopRun(String runId) async {
+  Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
     try {
-      await _dio.post<dynamic>('$_root/v1/runs/$runId/stop');
+      await _dio.post<dynamic>(
+        '$_root/v1/runs/$runId/stop',
+        cancelToken: cancelToken,
+      );
     } catch (e) {
       DebugLogger.warning(
         'stop-run-failed',
         scope: 'hermes/api',
         data: {'runId': runId, 'error': e.toString()},
       );
+      rethrow;
     }
   }
 

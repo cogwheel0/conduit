@@ -91,6 +91,35 @@ void main() {
       await check(_service(capture).getRun('r1')).throws<FormatException>();
     });
 
+    test(
+      'stopRun forwards cancellation and propagates request errors',
+      () async {
+        final cancelToken = CancelToken();
+        final capture = _CaptureInterceptor({});
+        await _service(capture).stopRun('r1', cancelToken: cancelToken);
+        check(capture.requests.single.cancelToken).identicalTo(cancelToken);
+
+        final dio = Dio();
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) => handler.reject(
+              DioException(requestOptions: options, error: 'offline'),
+            ),
+          ),
+        );
+        final failing = HermesApiService(
+          config: const HermesConfig(
+            enabled: true,
+            baseUrl: 'http://host:8642',
+            apiKey: 'secret',
+          ),
+          dio: dio,
+        );
+
+        await expectLater(failing.stopRun('r1'), throwsA(isA<DioException>()));
+      },
+    );
+
     test('resolveApproval posts the decision to the run', () async {
       final capture = _CaptureInterceptor({});
       await _service(

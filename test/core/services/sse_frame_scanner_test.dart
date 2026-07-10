@@ -47,5 +47,15 @@ void main() {
       check(frames).has((f) => f.length, 'length').equals(1);
       check(frames[0].data).equals('real');
     });
+
+    test('discards an unterminated frame at EOF', () {
+      final scanner = SseFrameScanner();
+      final frames = [
+        ...scanner.addChunk('event: message\ndata: {"partial":'),
+        ...scanner.close(),
+      ];
+
+      check(frames).isEmpty();
+    });
   });
 }

@@ -988,20 +988,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return;
     }
 
+    final messagesNotifier = ref.read(chatMessagesProvider.notifier);
+
     void setApprovalState(String next) {
-      ref.read(chatMessagesProvider.notifier).updateMessageById(
-        widget.message.id,
-        (m) {
-          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-          final current = meta['hermesApproval'];
-          if (current is! Map) return m;
-          meta['hermesApproval'] = {
-            ...current.cast<String, dynamic>(),
-            'state': next,
-          };
-          return m.copyWith(metadata: meta);
-        },
-      );
+      messagesNotifier.updateMessageById(widget.message.id, (m) {
+        final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+        final current = meta['hermesApproval'];
+        if (current is! Map) return m;
+        meta['hermesApproval'] = {
+          ...current.cast<String, dynamic>(),
+          'state': next,
+        };
+        return m.copyWith(metadata: meta);
+      });
     }
 
     // If Hermes was disabled/invalidated between display and tap, the service is
@@ -1028,11 +1027,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         scope: 'chat/hermes_approval',
         error: error,
       );
-      if (!mounted) return;
       setApprovalState('pending');
       return;
     }
-    if (!mounted) return;
     setApprovalState(approved ? 'approved' : 'denied');
   }
 

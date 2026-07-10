@@ -7,6 +7,7 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/streaming_response_controller.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:dio/dio.dart';
@@ -56,7 +57,7 @@ class _StoppingHermesApi extends HermesApiService {
   final List<String> stopped = [];
 
   @override
-  Future<void> stopRun(String runId) async {
+  Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
     stopped.add(runId);
   }
 }
@@ -118,6 +119,40 @@ class _PreflightHermesApi extends HermesApiService {
     createRunCalls++;
     return 'unexpected-run';
   }
+}
+
+class _BranchingHermesApi extends HermesApiService {
+  _BranchingHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://hermes',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  @override
+  Future<String> createSession({
+    String? title,
+    CancelToken? cancelToken,
+  }) async => 'branch-session';
+
+  @override
+  Future<String> createRun({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    CancelToken? cancelToken,
+  }) async => 'branch-run';
+
+  @override
+  Stream<HermesRunEvent> runEvents(
+    String runId, {
+    String? sessionId,
+    CancelToken? cancelToken,
+  }) => Stream<HermesRunEvent>.value(const HermesRunDone());
 }
 
 ProviderContainer _buildContainer({HermesApiService? hermesService}) {
@@ -233,6 +268,107 @@ void main() {
       check(messages[1].content).equals('new:');
       check(messages[1].isStreaming).isTrue();
       notifier.clearMessages();
+    });
+
+    test(
+      'non-tail completion syncs the active conversation snapshot',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final user = ChatMessage(
+          id: 'user-old',
+          role: 'user',
+          content: 'old question',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final messages = [
+          user,
+          _assistantMessage(
+            id: 'old',
+            content: 'old answer',
+            isStreaming: true,
+          ),
+          ChatMessage(
+            id: 'user-new',
+            role: 'user',
+            content: 'new question',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+          _assistantMessage(id: 'new', content: '', isStreaming: true),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', messages));
+        await Future<void>.delayed(Duration.zero);
+
+        container
+            .read(chatMessagesProvider.notifier)
+            .finishStreamingMessage('old');
+
+        final active = container.read(activeConversationProvider)!;
+        check(active.messages[1].id).equals('old');
+        check(active.messages[1].isStreaming).isFalse();
+        check(active.messages.last.id).equals('new');
+        check(active.messages.last.isStreaming).isTrue();
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test('Hermes regeneration rebinds the active session shell', () async {
+      final service = _BranchingHermesApi();
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      final assistant = _assistantMessage(
+        id: 'branch-assistant',
+        content: '',
+        isStreaming: true,
+        metadata: const {'transport': 'hermesRun'},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            Conversation(
+              id: 'local:hermes_old-session',
+              title: 'Hermes session',
+              createdAt: DateTime(2024, 1, 1),
+              updatedAt: DateTime(2024, 1, 1),
+              messages: [assistant],
+              metadata: const {
+                'backend': 'hermes',
+                'hermesSessionId': 'old-session',
+              },
+            ),
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      await dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: 'branch-assistant',
+        input: 'regenerate',
+        existingMessages: const [],
+        forceNewSession: true,
+      );
+
+      final active = container.read(activeConversationProvider)!;
+      check(active.id).equals('local:hermes_branch-session');
+      check(active.metadata['backend']).equals('hermes');
+      check(active.metadata['hermesSessionId']).equals('branch-session');
+      check(
+        container.read(hermesActiveSessionProvider),
+      ).equals('branch-session');
+      container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
     test(

@@ -39,5 +39,14 @@ void main() {
         incompleteHermesDestination(secretsLoading: true),
       ).equals(Routes.splash);
     });
+
+    test('incomplete Hermes waits while the active server is loading', () {
+      check(
+        incompleteHermesDestination(
+          secretsLoading: false,
+          activeServerLoading: true,
+        ),
+      ).equals(Routes.splash);
+    });
   });
 }

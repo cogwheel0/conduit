@@ -30,6 +30,7 @@ Future<void> dispatchHermesRun({
   String? sessionId,
   String? previousResponseId,
   CancelToken? cancelToken,
+  Duration remoteStopTimeout = const Duration(seconds: 5),
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -40,6 +41,18 @@ Future<void> dispatchHermesRun({
 }) async {
   final runCancelToken = cancelToken ?? CancelToken();
   final completer = Completer<void>();
+  void reportStopFailure() {
+    updateMessage(
+      (message) => message.copyWith(
+        error: const ChatMessageError(
+          content:
+              'Could not confirm that Hermes stopped this run. It may still '
+              'be running on the server.',
+        ),
+      ),
+    );
+  }
+
   if (runCancelToken.isCancelled) {
     finishStreaming();
     completeStreamingUi();
@@ -85,10 +98,15 @@ Future<void> dispatchHermesRun({
   // A Stop/New Chat can race a server that commits the run just before Dio
   // observes cancellation. Stop the newly-known remote id before subscribing.
   if (runCancelToken.isCancelled) {
-    await service.stopRun(runId);
-    registry.complete(assistantMessageId, cancelToken: runCancelToken);
     finishStreaming();
     completeStreamingUi();
+    await _bestEffortStopRemote(
+      service,
+      runId,
+      timeout: remoteStopTimeout,
+      onFailure: reportStopFailure,
+    );
+    registry.complete(assistantMessageId, cancelToken: runCancelToken);
     return;
   }
 
@@ -144,13 +162,23 @@ Future<void> dispatchHermesRun({
     cancelToken: runCancelToken,
     runId: runId,
     subscription: sub,
-    stopRemote: service.stopRun,
+    stopRemote: (runId) => _bestEffortStopRemote(
+      service,
+      runId,
+      timeout: remoteStopTimeout,
+      onFailure: reportStopFailure,
+    ),
   );
   if (!attached) {
     await sub.cancel();
-    await service.stopRun(runId);
     finishStreaming();
     completeStreamingUi();
+    await _bestEffortStopRemote(
+      service,
+      runId,
+      timeout: remoteStopTimeout,
+      onFailure: reportStopFailure,
+    );
     return;
   }
 
@@ -189,11 +217,14 @@ Future<void> dispatchHermesRun({
             replaceContent: replaceContent,
           );
         }
-        if (recovered.failed) {
+        if (recovered.status != 'completed') {
+          final errorMessage = switch (recovered.status) {
+            'cancelled' || 'canceled' => 'Hermes run was cancelled.',
+            'stopped' => 'Hermes run was stopped.',
+            _ => 'Hermes run failed.',
+          };
           updateMessage(
-            (m) => m.copyWith(
-              error: const ChatMessageError(content: 'Hermes run failed.'),
-            ),
+            (m) => m.copyWith(error: ChatMessageError(content: errorMessage)),
           );
         }
       } catch (recoveryError, recoveryStack) {
@@ -216,6 +247,55 @@ Future<void> dispatchHermesRun({
     registry.complete(assistantMessageId, cancelToken: runCancelToken);
     finishStreaming();
     completeStreamingUi();
+  }
+}
+
+Future<void> _stopRemote(
+  HermesApiService service,
+  String runId, {
+  required Duration timeout,
+}) async {
+  // The run token is already cancelled in the create/stop race. A fresh token
+  // is required or Dio will reject this cleanup request before sending it.
+  final stopToken = CancelToken();
+  try {
+    await service
+        .stopRun(runId, cancelToken: stopToken)
+        .timeout(
+          timeout,
+          onTimeout: () {
+            stopToken.cancel('Hermes stop request timed out');
+            throw TimeoutException('Hermes stop request timed out', timeout);
+          },
+        );
+  } catch (_) {
+    if (!stopToken.isCancelled) stopToken.cancel('Hermes stop request failed');
+    rethrow;
+  }
+}
+
+Future<void> _bestEffortStopRemote(
+  HermesApiService service,
+  String runId, {
+  required Duration timeout,
+  void Function()? onFailure,
+}) async {
+  try {
+    await _stopRemote(service, runId, timeout: timeout);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'stop-run-cleanup-failed',
+      scope: 'hermes/transport',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'runId': runId},
+    );
+    try {
+      onFailure?.call();
+    } catch (_) {
+      // The owning chat may already have been cleared or disposed. Reporting
+      // failure must not turn best-effort remote cleanup into an uncaught error.
+    }
   }
 }
 
@@ -244,7 +324,7 @@ void _appendAuthoritativeOutput(
 /// A running run may expose partial output; that is never treated as final. The
 /// user can cancel this loop through [cancelToken]. Repeated polling failures
 /// become an observable error instead of silently completing a truncated turn.
-Future<({String text, bool failed})?> _recoverRunOutput(
+Future<({String text, String status})?> _recoverRunOutput(
   HermesApiService service,
   String runId, {
   required CancelToken cancelToken,
@@ -272,7 +352,7 @@ Future<({String text, bool failed})?> _recoverRunOutput(
         status == 'cancelled' ||
         status == 'canceled' ||
         status == 'stopped';
-    if (terminal) return (text: text, failed: status == 'failed');
+    if (terminal) return (text: text, status: status!);
     const nonTerminalStatuses = {
       'created',
       'queued',

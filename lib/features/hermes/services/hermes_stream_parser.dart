@@ -52,6 +52,16 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   final eventType = (frame.event ?? _str(data['type']) ?? _str(data['event']))
       ?.toLowerCase();
 
+  // Documented Responses-style error events carry `type: "error"` and put
+  // their code/message at the top level rather than under an `error` field.
+  if (eventType == 'error') {
+    final error = data['error'] ?? data['message'] ?? data['detail'];
+    yield HermesRunError(
+      _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.',
+    );
+    return;
+  }
+
   // Errors first — terminal. Guard against falsy `error` fields that appear on
   // non-error events (e.g. `tool.completed` carries `error: "False"`).
   final error = data['error'];

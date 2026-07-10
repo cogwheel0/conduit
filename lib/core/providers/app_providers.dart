@@ -715,6 +715,17 @@ final refreshAuthStateProvider = Provider<void>((ref) {
 });
 
 // Model providers
+@visibleForTesting
+List<Model> appendHermesModelIfUsable(
+  List<Model> models, {
+  required bool hermesUsable,
+}) {
+  final safeModels = sanitizeRemoteHermesModels(models);
+  return hermesUsable
+      ? <Model>[...safeModels, hermesSyntheticModel()]
+      : safeModels;
+}
+
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
   @override
@@ -735,9 +746,9 @@ class Models extends _$Models {
       return const [];
     }
 
-    // Re-run when the Hermes toggle flips so the synthetic model appears or
-    // disappears from the picker.
-    ref.watch(hermesEnabledProvider);
+    // Re-run whenever Hermes connection usability changes so the synthetic
+    // model cannot outlive (or appear before) its configured service.
+    ref.watch(hermesConfigProvider);
 
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
@@ -789,13 +800,14 @@ class Models extends _$Models {
     return _withHermes(fresh);
   }
 
-  /// Appends the synthetic Hermes agent model when the feature is enabled.
+  /// Appends the synthetic Hermes agent model when the connection is usable.
   /// Called after OpenWebUI models are persisted so Hermes never lands in the
   /// model cache, and guarded against duplicates on rebuild.
   List<Model> _withHermes(List<Model> models) {
-    final safeModels = sanitizeRemoteHermesModels(models);
-    if (!ref.read(hermesEnabledProvider)) return safeModels;
-    return [...safeModels, hermesSyntheticModel()];
+    return appendHermesModelIfUsable(
+      models,
+      hermesUsable: ref.read(hermesConfigProvider).isUsable,
+    );
   }
 
   Future<void> refresh() async {

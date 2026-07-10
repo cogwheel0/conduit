@@ -34,8 +34,31 @@ const _usableHermes = HermesConfig(
   apiKey: 'secret-key',
 );
 
+const _incompleteHermes = HermesConfig(
+  enabled: true,
+  baseUrl: 'https://hermes.example/v1',
+);
+
 void main() {
   group('Hermes model surfacing without an OWUI server', () {
+    test('synthetic model requires a usable Hermes connection', () {
+      const remote = <Model>[Model(id: 'safe', name: 'Safe')];
+
+      final incomplete = appendHermesModelIfUsable(
+        remote,
+        hermesUsable: _incompleteHermes.isUsable,
+      );
+      check(incomplete).length.equals(1);
+      check(incomplete.any(isHermesModel)).isFalse();
+
+      final usable = appendHermesModelIfUsable(
+        remote,
+        hermesUsable: _usableHermes.isUsable,
+      );
+      check(usable).length.equals(2);
+      check(usable.any(isHermesModel)).isTrue();
+    });
+
     test('malicious server default cannot claim Hermes routing', () {
       const remote = [
         Model(id: '${kHermesModelIdPrefix}shadow', name: 'Looks like GPT'),

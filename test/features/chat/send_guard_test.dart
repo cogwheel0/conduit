@@ -95,12 +95,36 @@ void main() {
     });
 
     test('does not reroute an OpenWebUI regeneration', () {
+      final now = DateTime.utc(2026, 7, 11);
+      final openWebUiConversation = Conversation(
+        id: 'owui-1',
+        title: 'OpenWebUI chat',
+        createdAt: now,
+        updatedAt: now,
+      );
+      check(
+        usesHermesTransportForRegeneration(
+          selectedModel: _hermesModel,
+          activeConversation: openWebUiConversation,
+        ),
+      ).isFalse();
+    });
+
+    test('an opened Hermes session keeps its bound transport', () {
+      final now = DateTime.utc(2026, 7, 11);
+      final openedSession = Conversation(
+        id: 'local:hermes_s1',
+        title: 'Hermes session',
+        createdAt: now,
+        updatedAt: now,
+        metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+      );
       check(
         usesHermesTransportForRegeneration(
           selectedModel: _owuiModel,
-          activeConversation: null,
+          activeConversation: openedSession,
         ),
-      ).isFalse();
+      ).isTrue();
     });
   });
 }

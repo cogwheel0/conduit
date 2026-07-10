@@ -228,12 +228,33 @@ class SecureCredentialStorage {
   }
 
   /// Get the Hermes Agent API key, or null when none is stored.
-  Future<String?> getHermesApiKey() async {
+  Future<String?> getHermesApiKey() =>
+      _readHermesSecret(_hermesApiKeyKey, scope: 'hermes/api-key');
+
+  Future<String?> _readHermesSecret(String key, {required String scope}) async {
     try {
-      return await _secureStorage.read(key: _hermesApiKeyKey);
-    } catch (e) {
-      DebugLogger.error('read-failed', scope: 'hermes/api-key', error: e);
-      return null;
+      return await _secureStorage.read(key: key);
+    } catch (error) {
+      // Keychain/keystore access can fail transiently while the platform is
+      // unlocking. Retry once rather than treating a configured backend as if
+      // its secret were absent for the remainder of this app session.
+      DebugLogger.warning(
+        'read-retrying',
+        scope: scope,
+        data: {'error': error.toString()},
+      );
+    }
+
+    try {
+      return await _secureStorage.read(key: key);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'read-failed',
+        scope: scope,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -258,14 +279,8 @@ class SecureCredentialStorage {
   }
 
   /// Get the Hermes long-term memory session key, or null when none is stored.
-  Future<String?> getHermesSessionKey() async {
-    try {
-      return await _secureStorage.read(key: _hermesSessionKeyKey);
-    } catch (e) {
-      DebugLogger.error('read-failed', scope: 'hermes/session-key', error: e);
-      return null;
-    }
-  }
+  Future<String?> getHermesSessionKey() =>
+      _readHermesSecret(_hermesSessionKeyKey, scope: 'hermes/session-key');
 
   /// Delete the Hermes long-term memory session key.
   Future<void> deleteHermesSessionKey() async {
