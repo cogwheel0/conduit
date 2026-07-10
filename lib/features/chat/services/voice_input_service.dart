@@ -911,20 +911,14 @@ class VoiceInputService {
         try {
           await _stopVadRecording();
         } catch (_) {}
-        try {
-          await _startLocalRecognition(
-            allowOnlineFallback: !prefersDeviceOnly,
-            iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-            nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
-          );
-          return;
-        } catch (fallbackError) {
-          _reportRecognitionError(fallbackError);
-          rethrow;
-        }
+        await _startLocalRecognition(
+          allowOnlineFallback: !prefersDeviceOnly,
+          iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+          nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
+        );
+        return;
       }
 
-      _reportRecognitionError(error);
       rethrow;
     }
   }
