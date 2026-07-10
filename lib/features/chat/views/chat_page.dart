@@ -2066,11 +2066,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               _scrollController.hasClients &&
               _distanceFromBottom() <= _scrollButtonHideThreshold;
           final scrollDelta = notification is ScrollUpdateNotification
-              ? notification.scrollDelta ?? 0
-              // Non-update user-scroll signals (drag start / directional) have
-              // no delta; treat them as an intentional scroll-away so the sticky
-              // latch can break once the user takes control.
-              : -_bottomAnchorController.userScrollAwayThreshold;
+              ? notification.scrollDelta
+              : null;
           if (_bottomAnchorController.shouldDetachForUserScrollAway(
             nearBottom: nearBottom,
             scrollDelta: scrollDelta,

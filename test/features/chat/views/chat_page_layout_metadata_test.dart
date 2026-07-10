@@ -316,7 +316,7 @@ void main() {
     expect(controller.isAnchoredToBottom, isTrue);
   });
 
-  test('bottom anchor controller keeps the anchor on a small mid-drag and detaches past the threshold', () {
+  test('bottom anchor waits for movement, keeps a small drag, and detaches past the threshold', () {
     final controller = ChatBottomAnchorController(
       showThreshold: 300,
       hideThreshold: 150,
@@ -341,6 +341,15 @@ void main() {
       isTrue,
     );
     expect(controller.isAnchoredToBottom, isTrue);
+    // Drag-start / directional notifications carry no delta. They must not
+    // synthesize movement and detach before the user's actual drag is measured.
+    expect(
+      controller.shouldDetachForUserScrollAway(
+        nearBottom: false,
+        scrollDelta: null,
+      ),
+      isFalse,
+    );
     expect(
       controller.shouldDetachForUserScrollAway(nearBottom: false, scrollDelta: -4),
       isFalse,

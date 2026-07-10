@@ -80,9 +80,16 @@ class ChatBottomAnchorController {
 
   bool shouldDetachForUserScrollAway({
     required bool nearBottom,
-    required double scrollDelta,
+    required double? scrollDelta,
   }) {
     if (nearBottom || !isAnchoredToBottom) {
+      return false;
+    }
+    // Drag-start and directional notifications do not carry movement. Wait for
+    // the first real ScrollUpdateNotification before deciding that the user
+    // scrolled away; otherwise the handler defeats the threshold below by
+    // inventing a synthetic delta at gesture start.
+    if (scrollDelta == null) {
       return false;
     }
     if (!_hasUnverifiedStickyContentChange) {
