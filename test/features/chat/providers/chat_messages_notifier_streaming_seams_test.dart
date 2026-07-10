@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/streaming_response_controller.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -761,6 +764,49 @@ void main() {
         final merged = container.read(chatMessagesProvider).last;
         check(merged.isStreaming).isFalse();
         check(merged.content).equals('Final answer');
+
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'server adoption cancels a tracked controller when no streaming tail remains',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final active = container.read(activeConversationProvider.notifier);
+        active.set(
+          _conversation('chat-1', [
+            _assistantMessage(content: 'Local settled answer'),
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final upstream = StreamController<String>();
+        addTearDown(upstream.close);
+        final lateChunks = <String>[];
+        final controller = StreamingResponseController(
+          stream: upstream.stream,
+          onChunk: lateChunks.add,
+          onComplete: () {},
+          onError: (_, _) {},
+        );
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessageStream('stale-transport-id', controller);
+        check(controller.isActive).isTrue();
+
+        active.set(
+          _conversation('chat-1', [
+            _assistantMessage(content: 'Server replacement'),
+          ]),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        check(controller.isActive).isFalse();
+        upstream.add('late chunk');
+        await Future<void>.delayed(Duration.zero);
+        check(lateChunks).isEmpty();
 
         notifier.clearMessages();
       },

@@ -822,9 +822,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Only tear down transport when this adopt ends the stream. A preserved
     // still-streaming echo must keep the resume monitor / socket binding /
     // bound remote id intact for later polls and socket deltas.
-    // Cancel before drop: `_dropStreamingTransportState` nulls `_messageStream`
-    // without canceling the controller, so `_cancelMessageStream` must run
-    // first while the controller is still attached.
+    // Genuine completion uses the full cancellation path so streaming profile
+    // state is finalized. The fallback below only retires stale transport
+    // ownership after adoption leaves no streaming assistant.
     if (needsCleanup) {
       _cancelMessageStream();
     } else if (!_hasStreamingAssistant) {
@@ -1597,9 +1597,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       scope: 'chat/providers',
     );
 
+    // Cancel before releasing the only controller reference so late transport
+    // callbacks cannot mutate state after its transport has been retired.
+    final controller = _messageStream;
     _messageStream = null;
     _activeStreamingTransportMessageId = null;
     _boundRemoteMessageId = null;
+    if (controller != null && controller.isActive) {
+      unawaited(controller.cancel());
+    }
     cancelSocketSubscriptions();
     _clearStreamingBuffer();
     _streamingSyncTimer?.cancel();
