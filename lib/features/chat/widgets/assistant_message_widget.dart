@@ -206,8 +206,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _disableAnimations =
-        MediaQuery.maybeDisableAnimationsOf(context) ?? _disableAnimations;
+    _disableAnimations = context.reduceMotion;
     _updateRouteVisibility();
     if (!_shouldAnimateOnMount && !_hasAnimated) {
       _fadeController.value = 1.0;
@@ -1028,26 +1027,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 else
                   // Content streams in here. Empty content renders as
                   // SizedBox.shrink, and the footer indicator covers that
-                  // waiting state until visible content arrives.
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    transitionBuilder: (child, anim) {
-                      return FadeTransition(
-                        opacity: CurvedAnimation(
-                          parent: anim,
-                          curve: Curves.easeOutCubic,
-                          reverseCurve: Curves.easeInCubic,
-                        ),
-                        child: child,
-                      );
-                    },
-                    child: KeyedSubtree(
-                      key: const ValueKey('content'),
-                      child: _buildStreamingContentBody(),
-                    ),
-                  ),
+                  // waiting state until visible content arrives. Keep this
+                  // subtree direct: a stable-key AnimatedSwitcher never
+                  // switched and only obscured the one-shot content fade.
+                  _buildStreamingContentBody(),
 
                 if (showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),
@@ -1366,7 +1349,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return StreamingMarkdownWidget(
         content: processedContent,
         isStreaming: bodyTreatsAsStreaming,
-        enableStreamingTextFade: bodyTreatsAsStreaming && !_disableAnimations,
+        // Tokens should appear on the frame they arrive. The surrounding body
+        // already owns the single first-content reveal; re-fading every suffix
+        // makes streaming trail the model.
+        enableStreamingTextFade: false,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
         onTapLink: (url, _) => launchExternalLink(url, scope: 'chat/assistant'),
@@ -1506,45 +1492,36 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final imageCount = widget.message.attachmentIds!.length;
 
-    // Display images in a clean, modern layout for assistant messages
-    // Use AnimatedSwitcher for smooth transitions when loading
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      switchInCurve: Curves.easeInOut,
-      child: imageCount == 1
-          ? Container(
-              key: ValueKey('single_item_${widget.message.attachmentIds![0]}'),
-              child: EnhancedAttachment(
-                attachmentId: widget.message.attachmentIds![0],
-                isMarkdownFormat: true,
-                constraints: const BoxConstraints(
-                  maxWidth: 500,
-                  maxHeight: 400,
-                ),
-                disableAnimation: _uiTreatsAsStreaming,
-              ),
-            )
-          : Wrap(
-              key: ValueKey(
-                'multi_items_${widget.message.attachmentIds!.join('_')}',
-              ),
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              children: widget.message.attachmentIds!.map<Widget>((
-                attachmentId,
-              ) {
-                return EnhancedAttachment(
-                  key: ValueKey('attachment_$attachmentId'),
-                  attachmentId: attachmentId,
-                  isMarkdownFormat: true,
-                  constraints: BoxConstraints(
-                    maxWidth: imageCount == 2 ? 245 : 160,
-                    maxHeight: imageCount == 2 ? 245 : 160,
-                  ),
-                  disableAnimation: _uiTreatsAsStreaming,
-                );
-              }).toList(),
-            ),
+    // Preserve stable attachments when another item arrives. Crossfading the
+    // whole grid made already-loaded images disappear and re-enter.
+    if (imageCount == 1) {
+      return Container(
+        key: ValueKey('single_item_${widget.message.attachmentIds![0]}'),
+        child: EnhancedAttachment(
+          attachmentId: widget.message.attachmentIds![0],
+          isMarkdownFormat: true,
+          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+          disableAnimation: _uiTreatsAsStreaming || _disableAnimations,
+        ),
+      );
+    }
+
+    return Wrap(
+      key: const ValueKey('assistant-attachment-grid'),
+      spacing: Spacing.sm,
+      runSpacing: Spacing.sm,
+      children: widget.message.attachmentIds!.map<Widget>((attachmentId) {
+        return EnhancedAttachment(
+          key: ValueKey('attachment_$attachmentId'),
+          attachmentId: attachmentId,
+          isMarkdownFormat: true,
+          constraints: BoxConstraints(
+            maxWidth: imageCount == 2 ? 245 : 160,
+            maxHeight: imageCount == 2 ? 245 : 160,
+          ),
+          disableAnimation: _uiTreatsAsStreaming || _disableAnimations,
+        );
+      }).toList(),
     );
   }
 
@@ -1623,62 +1600,47 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget _buildImagesFromFiles(List<dynamic> imageFiles) {
     final imageCount = imageFiles.length;
 
-    // Display images using EnhancedImageAttachment for consistency
-    // Use AnimatedSwitcher for smooth transitions
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      switchInCurve: Curves.easeInOut,
-      child: imageCount == 1
-          ? Container(
-              key: ValueKey('file_single_${imageFiles[0]['url']}'),
-              child: Builder(
-                builder: (context) {
-                  final imageUrl = getFileUrl(imageFiles[0]);
-                  if (imageUrl == null) return const SizedBox.shrink();
+    // Preserve stable image children instead of crossfading the full grid.
+    if (imageCount == 1) {
+      final imageUrl = getFileUrl(imageFiles.first);
+      if (imageUrl == null) return const SizedBox.shrink();
 
-                  return RepaintBoundary(
-                    child: EnhancedImageAttachment(
-                      attachmentId:
-                          imageUrl, // Pass URL directly as it handles URLs
-                      isMarkdownFormat: true,
-                      constraints: const BoxConstraints(
-                        maxWidth: 500,
-                        maxHeight: 400,
-                      ),
-                      disableAnimation:
-                          false, // Keep animations enabled to prevent black display
-                      httpHeaders: _headersForFile(imageFiles[0]),
-                    ),
-                  );
-                },
-              ),
-            )
-          : Wrap(
-              key: ValueKey(
-                'file_multi_${imageFiles.map((f) => f['url']).join('_')}',
-              ),
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              children: imageFiles.map<Widget>((file) {
-                final imageUrl = getFileUrl(file);
-                if (imageUrl == null) return const SizedBox.shrink();
+      return Container(
+        key: ValueKey('file_single_$imageUrl'),
+        child: RepaintBoundary(
+          child: EnhancedImageAttachment(
+            attachmentId: imageUrl,
+            isMarkdownFormat: true,
+            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+            disableAnimation: _disableAnimations,
+            httpHeaders: _headersForFile(imageFiles.first),
+          ),
+        ),
+      );
+    }
 
-                return RepaintBoundary(
-                  child: EnhancedImageAttachment(
-                    key: ValueKey('gen_attachment_$imageUrl'),
-                    attachmentId: imageUrl, // Pass URL directly
-                    isMarkdownFormat: true,
-                    constraints: BoxConstraints(
-                      maxWidth: imageCount == 2 ? 245 : 160,
-                      maxHeight: imageCount == 2 ? 245 : 160,
-                    ),
-                    disableAnimation:
-                        false, // Keep animations enabled to prevent black display
-                    httpHeaders: _headersForFile(file),
-                  ),
-                );
-              }).toList(),
+    return Wrap(
+      key: const ValueKey('assistant-file-image-grid'),
+      spacing: Spacing.sm,
+      runSpacing: Spacing.sm,
+      children: imageFiles.map<Widget>((file) {
+        final imageUrl = getFileUrl(file);
+        if (imageUrl == null) return const SizedBox.shrink();
+
+        return RepaintBoundary(
+          child: EnhancedImageAttachment(
+            key: ValueKey('gen_attachment_$imageUrl'),
+            attachmentId: imageUrl,
+            isMarkdownFormat: true,
+            constraints: BoxConstraints(
+              maxWidth: imageCount == 2 ? 245 : 160,
+              maxHeight: imageCount == 2 ? 245 : 160,
             ),
+            disableAnimation: _disableAnimations,
+            httpHeaders: _headersForFile(file),
+          ),
+        );
+      }).toList(),
     );
   }
 

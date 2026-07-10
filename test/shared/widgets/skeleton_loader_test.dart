@@ -38,6 +38,39 @@ void main() {
       expect(find.byType(SkeletonLoader), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('reduced motion renders a static placeholder', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: MediaQuery(
+              data: MediaQueryData(disableAnimations: true),
+              child: SkeletonLoader(width: 100, height: 16),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(SkeletonLoader),
+          matching: find.byType(AnimatedBuilder),
+        ),
+        findsNothing,
+      );
+      final container = tester.widget<Container>(
+        find.descendant(
+          of: find.byType(SkeletonLoader),
+          matching: find.byType(Container),
+        ),
+      );
+      final decoration = container.decoration! as BoxDecoration;
+      expect(decoration.color, isNotNull);
+      expect(decoration.gradient, isNull);
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('SkeletonChatMessage', () {

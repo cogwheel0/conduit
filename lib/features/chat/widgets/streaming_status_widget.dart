@@ -439,35 +439,39 @@ class _MinimalQueryChips extends StatelessWidget {
         final query = entry.value;
         return GestureDetector(
           onTap: () => _launchSearch(query),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            decoration: BoxDecoration(
-              color: theme.surfaceContainer.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.search_rounded,
-                  size: 11,
-                  color: theme.textSecondary,
-                ),
-                const SizedBox(width: 3),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 150),
-                  child: Text(
-                    query,
-                    style: AppTypography.labelMediumStyle.copyWith(
-                      color: theme.textSecondary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+          child: _statusItemEntrance(
+            context,
+            index: index,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: theme.surfaceContainer.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.search_rounded,
+                    size: 11,
+                    color: theme.textSecondary,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 3),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: Text(
+                      query,
+                      style: AppTypography.labelMediumStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ).animate().fadeIn(duration: 150.ms, delay: (30 * index).ms),
+          ),
         );
       }).toList(),
     );
@@ -502,54 +506,59 @@ class _MinimalSourceLinks extends StatelessWidget {
 
           return GestureDetector(
             onTap: () => launchExternalLink(link.url, scope: 'status'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: theme.surfaceContainer.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: Image.network(
-                      'https://www.google.com/s2/favicons?sz=16&domain=$domain',
-                      width: 12,
-                      height: 12,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        Icons.public_rounded,
-                        size: 12,
-                        color: theme.textSecondary,
+            child: _statusItemEntrance(
+              context,
+              index: index,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: theme.surfaceContainer.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: Image.network(
+                        'https://www.google.com/s2/favicons?sz=16&domain=$domain',
+                        width: 12,
+                        height: 12,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          Icons.public_rounded,
+                          size: 12,
+                          color: theme.textSecondary,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 100),
-                    child: Text(
-                      link.title ?? domain,
-                      style: AppTypography.labelMediumStyle.copyWith(
-                        color: theme.textSecondary,
+                    const SizedBox(width: 4),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 100),
+                      child: Text(
+                        link.title ?? domain,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ).animate().fadeIn(duration: 150.ms, delay: (30 * index).ms),
+            ),
           );
         }),
         if (remaining > 0)
-          Text(
-            '+$remaining',
-            style: AppTypography.labelMediumStyle.copyWith(
-              color: theme.textSecondary,
+          _statusItemEntrance(
+            context,
+            index: displayLinks.length,
+            child: Text(
+              '+$remaining',
+              style: AppTypography.labelMediumStyle.copyWith(
+                color: theme.textSecondary,
+              ),
             ),
-          ).animate().fadeIn(
-            duration: 150.ms,
-            delay: (30 * displayLinks.length).ms,
           ),
       ],
     );
@@ -562,6 +571,17 @@ class _MinimalSourceLinks extends StatelessWidget {
     if (host.startsWith('www.')) host = host.substring(4);
     return host;
   }
+}
+
+Widget _statusItemEntrance(
+  BuildContext context, {
+  required int index,
+  required Widget child,
+}) {
+  if (context.reduceMotion) {
+    return child;
+  }
+  return child.animate().fadeIn(duration: 150.ms, delay: (30 * index).ms);
 }
 
 // Helper classes and functions

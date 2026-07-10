@@ -471,7 +471,7 @@ void main() {
     },
   );
 
-  testWidgets('errored streaming message shows the action footer, not the typing footer', (
+  testWidgets('errored streaming message shows the action footer and error', (
     tester,
   ) async {
     final message = ChatMessage(
@@ -489,9 +489,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // error -> failed phase takes precedence over the still-set isStreaming
-    // flag: the action row surfaces, the typing footer is suppressed, and the
-    // error banner renders.
-    expect(find.byKey(const ValueKey('typing')), findsNothing);
+    // flag: the action row and error banner surface.
     expect(find.byKey(const ValueKey('actions')), findsOneWidget);
     expect(find.text('boom'), findsOneWidget);
   });
@@ -554,12 +552,10 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const ValueKey('actions')), findsNothing);
-    expect(find.byKey(const ValueKey('typing')), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.byKey(const ValueKey('actions')), findsNothing);
-    expect(find.byKey(const ValueKey('typing')), findsNothing);
   });
 
   testWidgets('streaming assistant skips hidden action provider work', (
@@ -599,7 +595,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
 
-    expect(find.byKey(const ValueKey('typing')), findsNothing);
     expect(ttsBuilds, 0);
   });
 
@@ -619,12 +614,8 @@ void main() {
     );
     await tester.pump();
 
-    final typingFinder = find.byKey(const ValueKey('typing'));
-    expect(typingFinder, findsNothing);
-
     await tester.pump(const Duration(milliseconds: 150));
 
-    expect(typingFinder, findsNothing);
     expect(find.byKey(const ValueKey('actions')), findsNothing);
 
     final done = streaming.copyWith(
@@ -636,7 +627,6 @@ void main() {
     await tester.pump();
 
     final actionsFinder = find.byKey(const ValueKey('actions'));
-    expect(typingFinder, findsNothing);
     expect(actionsFinder, findsOneWidget);
     expect(_hasInProgressFadeAncestor(tester, actionsFinder), isFalse);
   });
@@ -896,6 +886,43 @@ void main() {
       );
     },
   );
+
+  testWidgets('existing attachment elements survive additions to the grid', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'assistant-growing-attachments',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: false,
+      metadata: const {'responseDone': true},
+      attachmentIds: const ['attachment-1', 'attachment-2'],
+    );
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pump();
+    final firstAttachment = tester.element(
+      find.byKey(const ValueKey('attachment_attachment-1')),
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message.copyWith(
+          attachmentIds: const ['attachment-1', 'attachment-2', 'attachment-3'],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      identical(
+        tester.element(find.byKey(const ValueKey('attachment_attachment-1'))),
+        firstAttachment,
+      ),
+      isTrue,
+    );
+  });
 
   testWidgets('completed response-done metadata enables regenerate', (
     tester,

@@ -17,7 +17,6 @@ import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
-import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/foundation.dart';
@@ -586,6 +585,103 @@ void main() {
     expect(part.document.normalizedContent, contains('browser'));
   });
 
+  test(
+    'partially resolved details groups fall back to complete block data',
+    () {
+      const firstDetails = CompiledMarkdownDetailsBlock(
+        blockId: 'details:first',
+        detailsData: CompiledMarkdownDetailsData(
+          summaryText: 'search',
+          bodyMarkdown: 'First body.',
+          bodyStartIndex: 0,
+          hasBody: true,
+          kind: CompiledMarkdownDetailsKind.generic,
+          type: 'generic',
+          name: 'search',
+          isDone: true,
+          isPending: false,
+          durationSeconds: 0,
+        ),
+      );
+      const secondDetails = CompiledMarkdownDetailsBlock(
+        blockId: 'details:second',
+        detailsData: CompiledMarkdownDetailsData(
+          summaryText: 'browser',
+          bodyMarkdown: 'Second body with [1].',
+          bodyStartIndex: 0,
+          hasBody: true,
+          kind: CompiledMarkdownDetailsKind.generic,
+          type: 'generic',
+          name: 'browser',
+          isDone: true,
+          isPending: false,
+          durationSeconds: 0,
+        ),
+      );
+      final group = CompiledMarkdownDetailsGroup(
+        blockId: 'details:group',
+        items: const <CompiledMarkdownDetailsBlock>[
+          firstDetails,
+          secondDetails,
+        ],
+      );
+      final firstNode = CompiledMarkdownText(
+        'Only the first node resolved',
+        nodeId: firstDetails.blockId,
+      );
+      final partiallyResolved = CompiledMarkdownDocument(
+        normalizedContent:
+            'search\n\nFirst body.\n\nbrowser\n\nSecond body with [1].',
+        renderTier: MarkdownRenderTier.blocks,
+        containsCitations: true,
+        heavyBlockCount: 2,
+        blocks: <CompiledMarkdownBlock>[group],
+        nodes: <CompiledMarkdownNode>[firstNode],
+        blockLatexExpressions: const <String, String>{},
+        inlineLatexExpressions: const <String, String>{},
+      );
+
+      final part = buildMarkdownDisplayParts(
+        partiallyResolved,
+        isStreaming: true,
+      ).single;
+
+      expect(part.document.normalizedContent, contains('First body.'));
+      expect(
+        part.document.normalizedContent,
+        contains('Second body with [1].'),
+      );
+      expect(part.document.nodes, isEmpty);
+      expect(part.document.containsCitations, isTrue);
+      expect(part.document.heavyBlockCount, 2);
+    },
+  );
+
+  test('latex filtering does not retain prefix-colliding placeholder keys', () {
+    final node = CompiledMarkdownText('LATEX_10', nodeId: 'n0');
+    final document = CompiledMarkdownDocument(
+      normalizedContent: 'LATEX_10',
+      renderTier: MarkdownRenderTier.blocks,
+      containsCitations: false,
+      heavyBlockCount: 0,
+      blocks: <CompiledMarkdownBlock>[
+        CompiledMarkdownNodeBlock.fromNode(blockId: 'n0', node: node),
+      ],
+      nodes: <CompiledMarkdownNode>[node],
+      blockLatexExpressions: const <String, String>{},
+      inlineLatexExpressions: const <String, String>{
+        'LATEX_1': 'one',
+        'LATEX_10': 'ten',
+      },
+    );
+
+    final part = buildMarkdownDisplayParts(document, isStreaming: false).single;
+
+    expect(part.document.inlineLatexExpressions, const <String, String>{
+      'LATEX_10': 'ten',
+    });
+  });
+
   test('display part ids dedupe blocks that share the same block id', () {
     final node = CompiledMarkdownText('Repeated', nodeId: 'n0');
     final block = CompiledMarkdownNodeBlock.fromNode(blockId: 'dup', node: node);
@@ -621,6 +717,7 @@ void main() {
     VoidCallback? onStreamingRefreshFrame,
     VoidCallback? onBaseRender,
     MarkdownLinkTapCallback? onTapLink,
+    bool enableStreamingTextFade = false,
   }) {
     return ProviderScope(
       child: MaterialApp(
@@ -636,6 +733,7 @@ void main() {
               stateScopeId: stateScopeId,
               sources: sources,
               onTapLink: onTapLink,
+              enableStreamingTextFade: enableStreamingTextFade,
               debugRenderInterval: debugRenderInterval,
               debugOnCompiledViewMounted: onCompiledViewMounted,
               debugOnCompiledViewDisposed: onCompiledViewDisposed,
@@ -899,18 +997,12 @@ graph TD
       await tester.pumpWidget(buildHarness(content, isStreaming: true));
       await tester.pumpAndSettle();
 
-      // While streaming, the loose list-item inline run is rendered through a
-      // FadableRichText (so its suffix can fade), which builds a Text.rich
-      // internally. Locate that rendered Text regardless of the wrapper.
       final textWidget = tester.widget<Text>(
-        find.descendant(
-          of: find.byType(FadableRichText),
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Text &&
-                widget.textSpan?.toPlainText() ==
-                    '$firstParagraph $secondParagraph',
-          ),
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.textSpan?.toPlainText() ==
+                  '$firstParagraph $secondParagraph',
         ),
       );
 
@@ -1047,7 +1139,7 @@ graph TD
     expect(baseRenders, greaterThan(before));
   });
 
-  testWidgets('only the mutable tail part enables streaming text fade', (
+  testWidgets('streaming text fade stays disabled by default for every part', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1059,19 +1151,29 @@ graph TD
         .widgetList<ConduitMarkdownWidget>(find.byType(ConduitMarkdownWidget))
         .toList();
     expect(markdownWidgets.length, greaterThanOrEqualTo(2));
-    // The frozen leading block must not fade; only the trailing mutable tail
-    // does — locking the isMutableTail gate end-to-end into ConduitMarkdownWidget.
     expect(markdownWidgets.first.enableStreamingTextFade, isFalse);
-    expect(markdownWidgets.last.enableStreamingTextFade, isTrue);
+    expect(markdownWidgets.last.enableStreamingTextFade, isFalse);
   });
 
   testWidgets('streaming markdown fades newly appended rendered text', (
     tester,
   ) async {
-    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        'Hello',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
-    await tester.pumpWidget(buildHarness('Hello **world**', isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        'Hello **world**',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
     Text renderedText() {
@@ -1103,10 +1205,22 @@ graph TD
   testWidgets('streaming markdown fades newly appended plain text', (
     tester,
   ) async {
-    await tester.pumpWidget(buildHarness('Hello', isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        'Hello',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
-    await tester.pumpWidget(buildHarness('Hello world', isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        'Hello world',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
     Text renderedText() {
@@ -1141,6 +1255,7 @@ graph TD
       Widget harness(String content) => buildHarness(
         content,
         isStreaming: true,
+        enableStreamingTextFade: true,
         onBaseRender: () => baseRenders += 1,
       );
 
@@ -1190,6 +1305,7 @@ graph TD
       buildHarness(
         'See [docs](https://a.test)',
         isStreaming: true,
+        enableStreamingTextFade: true,
         onTapLink: onTap,
         onBaseRender: () => baseRenders += 1,
       ),
@@ -1200,6 +1316,7 @@ graph TD
       buildHarness(
         'See [docs](https://a.test) and **more**',
         isStreaming: true,
+        enableStreamingTextFade: true,
         onTapLink: onTap,
         onBaseRender: () => baseRenders += 1,
       ),
@@ -1295,11 +1412,21 @@ graph TD
     tester,
   ) async {
     const prefix = 'Intro\n\n```\ncode body\n```\n\nTail';
-    await tester.pumpWidget(buildHarness(prefix, isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        prefix,
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
     await tester.pumpWidget(
-      buildHarness('$prefix appended', isStreaming: true),
+      buildHarness(
+        '$prefix appended',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
     );
     await tester.pump();
 
@@ -1331,11 +1458,21 @@ graph TD
   ) async {
     // Append text right after a non-BMP emoji; the fade split must snap off the
     // surrogate pair so no lone-surrogate/replacement glyph appears.
-    await tester.pumpWidget(buildHarness('Hi \u{1F600}', isStreaming: true));
+    await tester.pumpWidget(
+      buildHarness(
+        'Hi \u{1F600}',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
+    );
     await tester.pump();
 
     await tester.pumpWidget(
-      buildHarness('Hi \u{1F600} there', isStreaming: true),
+      buildHarness(
+        'Hi \u{1F600} there',
+        isStreaming: true,
+        enableStreamingTextFade: true,
+      ),
     );
     await tester.pump();
 
@@ -2065,6 +2202,14 @@ Tail keeps growing
 
         expect(find.text('Hello', findRichText: true), findsOneWidget);
         expect(find.byType(ShaderMask), findsNothing);
+        expect(
+          tester
+              .widgetList<ConduitMarkdownWidget>(
+                find.byType(ConduitMarkdownWidget),
+              )
+              .every((widget) => !widget.enableStreamingTextFade),
+          isTrue,
+        );
 
         container.read(streamingContentProvider.notifier).set('Hello world');
         await tester.pump();
@@ -2743,72 +2888,6 @@ Tail keeps growing
   );
 
   testWidgets(
-    'assistant message does not own typing indicator when status row flips to done',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          appSettingsProvider.overrideWithValue(
-            const AppSettings(disableHapticsWhileStreaming: true),
-          ),
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-        ],
-      );
-      final pendingMessage = ChatMessage(
-        id: 'streaming-status-message',
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime(2026),
-        statusHistory: const [
-          ChatStatusUpdate(
-            action: 'search',
-            description: 'Searching',
-            done: false,
-          ),
-        ],
-      );
-      final completedStatusMessage = pendingMessage.copyWith(
-        statusHistory: const [
-          ChatStatusUpdate(
-            action: 'search',
-            description: 'Searching',
-            done: true,
-          ),
-        ],
-      );
-
-      try {
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: pendingMessage,
-            isStreaming: true,
-            disableAnimations: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
-
-        await tester.pumpWidget(
-          buildAssistantHarness(
-            container: container,
-            message: completedStatusMessage,
-            isStreaming: true,
-            disableAnimations: true,
-          ),
-        );
-        await tester.pump();
-
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
-      } finally {
-        container.dispose();
-      }
-    },
-  );
-
-  testWidgets(
     'assistant message keeps its own footer empty while streaming, then actions '
     'show on completion',
     (tester) async {
@@ -2839,11 +2918,6 @@ Tail keeps growing
         );
 
         await tester.pump();
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
-        expect(find.byKey(const ValueKey('actions')), findsNothing);
-
-        await tester.pump();
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsNothing);
 
         // Completion swaps the indicator for the action row.
@@ -2857,7 +2931,6 @@ Tail keeps growing
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsOneWidget);
       } finally {
         container.dispose();
@@ -2894,7 +2967,6 @@ Tail keeps growing
           ),
         );
         await tester.pump();
-        expect(find.byKey(const ValueKey('typing')), findsNothing);
         expect(find.byKey(const ValueKey('actions')), findsOneWidget);
       } finally {
         container.dispose();

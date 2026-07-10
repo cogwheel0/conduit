@@ -52,17 +52,15 @@ class FiveRotatingDots extends StatefulWidget {
 
 class _FiveRotatingDotsState extends State<FiveRotatingDots>
     with SingleTickerProviderStateMixin {
-  static const int _dotCount = 5;
-  static const double _startAngle = -math.pi / 2;
-  static const double _quarterStepAngle = math.pi / 10;
-  static const double _halfStepAngle = math.pi / 5;
-  static const double _nearFullTurnAngle = 2 * math.pi - _halfStepAngle;
-
-  AnimationController? _animationController;
+  late final AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
     _syncAnimationController();
   }
 
@@ -76,284 +74,83 @@ class _FiveRotatingDotsState extends State<FiveRotatingDots>
 
   void _syncAnimationController() {
     if (!widget.animate) {
-      _animationController?.dispose();
-      _animationController = null;
+      _animationController
+        ..stop()
+        ..value = 0;
       return;
     }
 
-    _animationController ??= AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    )..repeat();
+    if (!_animationController.isAnimating) {
+      _animationController.repeat();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final size = widget.size;
-    final dotMaxSize = size * 0.30;
-    final dotMinSize = size * 0.14;
-    final maxOffset = size * 0.35;
-    final controller = _animationController;
+    final ring = RepaintBoundary(
+      child: _DotRing(color: widget.color, size: size),
+    );
 
-    if (controller == null) {
-      return SizedBox(
-        width: size,
-        height: size,
-        child: _dotStack(
-          offsets: _pentagonOffsets(maxOffset),
-          dotSize: dotMaxSize,
-          color: widget.color,
-        ),
-      );
+    if (!widget.animate) {
+      return ring;
     }
 
     return SizedBox(
       width: size,
       height: size,
       child: AnimatedBuilder(
-        animation: controller,
-        builder: (_, _) {
-          return Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              Transform.rotate(
-                angle: controller._evalDouble(
-                  to: _quarterStepAngle,
-                  begin: 0.0,
-                  end: 0.18,
-                ),
-                child: _animatingDots(
-                  controller: controller,
-                  visible: controller.value <= 0.18,
-                  fixedSize: true,
-                  color: widget.color,
-                  dotInitialSize: dotMaxSize,
-                  initialOffset: maxOffset,
-                  finalOffset: 0,
-                  interval: const Interval(
-                    0.0,
-                    0.18,
-                    curve: Curves.easeInQuart,
-                  ),
-                ),
-              ),
-              Transform.rotate(
-                angle: controller._evalDouble(
-                  from: _quarterStepAngle,
-                  to: _halfStepAngle,
-                  begin: 0.18,
-                  end: 0.36,
-                ),
-                child: _animatingDots(
-                  controller: controller,
-                  visible: controller.value >= 0.18 && controller.value <= 0.36,
-                  fixedSize: false,
-                  color: widget.color,
-                  dotInitialSize: dotMaxSize,
-                  dotFinalSize: dotMinSize,
-                  initialOffset: 0,
-                  finalOffset: maxOffset,
-                  interval: const Interval(
-                    0.18,
-                    0.36,
-                    curve: Curves.easeOutQuart,
-                  ),
-                ),
-              ),
-              _rotatingDots(
-                controller: controller,
-                visible: controller.value >= 0.36 && controller.value <= 0.60,
-                color: widget.color,
-                dotSize: dotMinSize,
-                initialAngle: _halfStepAngle,
-                finalAngle: _nearFullTurnAngle,
-                interval: const Interval(
-                  0.36,
-                  0.60,
-                  curve: Curves.easeInOutSine,
-                ),
-                offset: maxOffset,
-              ),
-              Transform.rotate(
-                angle: controller._evalDouble(
-                  from: _nearFullTurnAngle,
-                  to: 2 * math.pi,
-                  begin: 0.60,
-                  end: 0.78,
-                ),
-                child: _animatingDots(
-                  controller: controller,
-                  visible: controller.value >= 0.60 && controller.value <= 0.78,
-                  fixedSize: false,
-                  color: widget.color,
-                  dotInitialSize: dotMinSize,
-                  dotFinalSize: dotMaxSize,
-                  initialOffset: maxOffset,
-                  finalOffset: 0,
-                  interval: const Interval(
-                    0.60,
-                    0.78,
-                    curve: Curves.easeInQuart,
-                  ),
-                ),
-              ),
-              _animatingDots(
-                controller: controller,
-                visible: controller.value >= 0.78 && controller.value <= 1.0,
-                fixedSize: true,
-                color: widget.color,
-                dotInitialSize: dotMaxSize,
-                initialOffset: 0,
-                finalOffset: maxOffset,
-                interval: const Interval(
-                  0.78,
-                  0.96,
-                  curve: Curves.easeOutQuart,
-                ),
-              ),
-            ],
+        animation: _animationController,
+        child: ring,
+        builder: (_, child) {
+          return Transform.rotate(
+            angle: _animationController.value * math.pi * 2,
+            child: child,
           );
         },
       ),
     );
   }
 
-  Widget _rotatingDots({
-    required AnimationController controller,
-    required bool visible,
-    required Color color,
-    required double dotSize,
-    required double offset,
-    required double initialAngle,
-    required double finalAngle,
-    required Interval interval,
-  }) {
-    if (!visible) {
-      return const SizedBox.shrink();
-    }
-
-    final angle = controller._eval(
-      Tween<double>(begin: initialAngle, end: finalAngle),
-      curve: interval,
-    );
-
-    return Transform.rotate(
-      angle: angle,
-      child: _dotStack(
-        offsets: _pentagonOffsets(offset),
-        dotSize: dotSize,
-        color: color,
-      ),
-    );
-  }
-
-  Widget _animatingDots({
-    required AnimationController controller,
-    required bool fixedSize,
-    required Color color,
-    required double dotInitialSize,
-    required double initialOffset,
-    required double finalOffset,
-    required Interval interval,
-    required bool visible,
-    double? dotFinalSize,
-  }) {
-    if (!visible) {
-      return const SizedBox.shrink();
-    }
-
-    final dotSize = fixedSize
-        ? dotInitialSize
-        : controller._eval(
-            Tween<double>(
-              begin: dotInitialSize,
-              end: dotFinalSize ?? dotInitialSize,
-            ),
-            curve: interval,
-          );
-
-    return _dotStack(
-      offsets: List<Offset>.generate(_dotCount, (index) {
-        return controller._eval(
-          Tween<Offset>(
-            begin: _pentagonOffset(initialOffset, index),
-            end: _pentagonOffset(finalOffset, index),
-          ),
-          curve: interval,
-        );
-      }),
-      dotSize: dotSize,
-      color: color,
-    );
-  }
-
-  Widget _dotStack({
-    required List<Offset> offsets,
-    required double dotSize,
-    required Color color,
-  }) {
-    return Stack(
-      alignment: Alignment.center,
-      children: <Widget>[
-        for (final offset in offsets)
-          Transform.translate(
-            offset: offset,
-            child: _RotatingDot(dotSize: dotSize, color: color),
-          ),
-      ],
-    );
-  }
-
-  List<Offset> _pentagonOffsets(double radius) {
-    return List<Offset>.generate(
-      _dotCount,
-      (index) => _pentagonOffset(radius, index),
-    );
-  }
-
-  Offset _pentagonOffset(double radius, int index) {
-    final angle = _startAngle + (2 * math.pi * index / _dotCount);
-    return Offset(math.cos(angle) * radius, math.sin(angle) * radius);
-  }
-
   @override
   void dispose() {
-    _animationController?.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 }
 
-class _RotatingDot extends StatelessWidget {
-  const _RotatingDot({required this.dotSize, required this.color});
+class _DotRing extends StatelessWidget {
+  const _DotRing({required this.color, required this.size});
 
-  final double dotSize;
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: dotSize,
-      height: dotSize,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-  }
-}
+    const dotCount = 5;
+    const startAngle = -math.pi / 2;
+    final radius = size * 0.34;
+    final dotSize = size * 0.22;
 
-extension _AnimationControllerEval on AnimationController {
-  T _eval<T>(Tween<T> tween, {Curve curve = Curves.linear}) {
-    return tween.transform(curve.transform(value));
-  }
-
-  double _evalDouble({
-    double from = 0,
-    double to = 1,
-    double begin = 0,
-    double end = 1,
-    Curve curve = Curves.linear,
-  }) {
-    return _eval(
-      Tween<double>(begin: from, end: to),
-      curve: Interval(begin, end, curve: curve),
+    return SizedBox.square(
+      dimension: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          for (var index = 0; index < dotCount; index += 1)
+            Transform.translate(
+              offset: Offset(
+                math.cos(startAngle + 2 * math.pi * index / dotCount) * radius,
+                math.sin(startAngle + 2 * math.pi * index / dotCount) * radius,
+              ),
+              child: Container(
+                width: dotSize,
+                height: dotSize,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -29,20 +29,60 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
       left: Spacing.inputPadding,
       right: Spacing.inputPadding,
       bottom: bottom,
-      child: AnimatedSwitcher(
-        duration: AnimationDuration.microInteraction,
-        switchInCurve: AnimationCurves.microInteraction,
-        switchOutCurve: AnimationCurves.microInteraction,
-        child: snapshot.isCollapsed
-            ? _CollapsedVoicePill(snapshot: snapshot)
-            : _ExpandedVoicePanel(snapshot: snapshot),
+      child: AnimatedSize(
+        key: const ValueKey('voice-mode-surface-size'),
+        duration: context.motionDuration(const Duration(milliseconds: 180)),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.bottomCenter,
+        clipBehavior: Clip.none,
+        child: AnimatedSwitcher(
+          key: const ValueKey('voice-mode-surface-switcher'),
+          duration: context.motionDuration(AnimationDuration.microInteraction),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (currentChild, previousChildren) {
+            return Stack(
+              alignment: Alignment.bottomCenter,
+              children: <Widget>[...previousChildren, ?currentChild],
+            );
+          },
+          transitionBuilder: (child, animation) {
+            if (context.reduceMotion) {
+              return child;
+            }
+            final scale = Tween<double>(begin: 0.98, end: 1).animate(
+              CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              ),
+            );
+            return FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: scale,
+                alignment: Alignment.bottomCenter,
+                child: child,
+              ),
+            );
+          },
+          child: snapshot.isCollapsed
+              ? _CollapsedVoicePill(
+                  key: const ValueKey('voice-mode-collapsed'),
+                  snapshot: snapshot,
+                )
+              : _ExpandedVoicePanel(
+                  key: const ValueKey('voice-mode-expanded'),
+                  snapshot: snapshot,
+                ),
+        ),
       ),
     );
   }
 }
 
 class _ExpandedVoicePanel extends ConsumerWidget {
-  const _ExpandedVoicePanel({required this.snapshot});
+  const _ExpandedVoicePanel({super.key, required this.snapshot});
 
   final ChatVoiceModeSnapshot snapshot;
 
@@ -163,7 +203,7 @@ class _ExpandedVoicePanel extends ConsumerWidget {
 }
 
 class _CollapsedVoicePill extends ConsumerWidget {
-  const _CollapsedVoicePill({required this.snapshot});
+  const _CollapsedVoicePill({super.key, required this.snapshot});
 
   final ChatVoiceModeSnapshot snapshot;
 
@@ -247,12 +287,30 @@ class _StatusDot extends StatelessWidget {
       ChatVoiceModePhase.error => Theme.of(context).colorScheme.error,
       _ => context.conduitTheme.textSecondary,
     };
-    final size = compact ? 10.0 : 14.0 + snapshot.intensity.clamp(0, 10) * 0.8;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    const baseSize = 14.0;
+    const maxSize = 22.0;
+    final intensityScale =
+        1.0 +
+        (snapshot.intensity.clamp(0, 10).toDouble() / 10.0) *
+            (maxSize / baseSize - 1.0);
+    final coreSize = compact ? 10.0 : baseSize;
+    final envelopeSize = compact ? coreSize : maxSize;
+
+    return SizedBox.square(
+      key: const ValueKey('voice-status-dot'),
+      dimension: envelopeSize,
+      child: Center(
+        child: Transform.scale(
+          key: const ValueKey('voice-status-dot-scale'),
+          scale: compact || context.reduceMotion ? 1 : intensityScale,
+          child: SizedBox.square(
+            dimension: coreSize,
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -333,23 +391,17 @@ class _KaraokeResponseBar extends StatelessWidget {
             horizontal: Spacing.sm,
             vertical: Spacing.xs,
           ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeOutCubic,
-            child: RichText(
-              key: ValueKey<String>(text),
-              text: _karaokeTextSpan(
-                text: text,
-                baseStyle: baseStyle,
-                highlightStyle: highlightStyle,
-                start: adjustedStart,
-                end: adjustedEnd,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textScaler: MediaQuery.textScalerOf(context),
+          child: RichText(
+            text: _karaokeTextSpan(
+              text: text,
+              baseStyle: baseStyle,
+              highlightStyle: highlightStyle,
+              start: adjustedStart,
+              end: adjustedEnd,
             ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textScaler: MediaQuery.textScalerOf(context),
           ),
         ),
       ),

@@ -6,10 +6,15 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _buildHarness(Widget child) {
+Widget _buildHarness(Widget child, {bool disableAnimations = false}) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
-    home: Scaffold(body: child),
+    home: Scaffold(
+      body: MediaQuery(
+        data: MediaQueryData(disableAnimations: disableAnimations),
+        child: child,
+      ),
+    ),
   );
 }
 
@@ -94,5 +99,58 @@ void main() {
       find.descendant(of: followUpBar, matching: find.byType(SlideTransition)),
       findsNothing,
     );
+  });
+
+  testWidgets('responds on press-down and reverses on release', (tester) async {
+    await tester.pumpWidget(
+      _buildHarness(
+        FollowUpSuggestionBar(
+          suggestions: const ['First'],
+          onSelected: (_) {},
+          isBusy: false,
+        ),
+      ),
+    );
+
+    final scaleFinder = find.byKey(
+      const ValueKey<String>('follow-up-press-scale:First'),
+    );
+    expect(tester.widget<AnimatedScale>(scaleFinder).scale, 1);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('First')),
+    );
+    await tester.pump();
+    expect(tester.widget<AnimatedScale>(scaleFinder).scale, 0.98);
+
+    await gesture.up();
+    await tester.pump();
+    expect(tester.widget<AnimatedScale>(scaleFinder).scale, 1);
+  });
+
+  testWidgets('reduced motion keeps press feedback spatially static', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _buildHarness(
+        FollowUpSuggestionBar(
+          suggestions: const ['First'],
+          onSelected: (_) {},
+          isBusy: false,
+        ),
+        disableAnimations: true,
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('First')),
+    );
+    await tester.pump();
+    final scale = tester.widget<AnimatedScale>(
+      find.byKey(const ValueKey<String>('follow-up-press-scale:First')),
+    );
+    expect(scale.scale, 1);
+    expect(scale.duration, Duration.zero);
+    await gesture.up();
   });
 }

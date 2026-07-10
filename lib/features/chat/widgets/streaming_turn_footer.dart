@@ -42,8 +42,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _disableAnimations =
-        MediaQuery.maybeDisableAnimationsOf(context) ?? _disableAnimations;
+    _disableAnimations = context.reduceMotion;
   }
 
   void _syncRunningHaptic(bool shouldShow) {

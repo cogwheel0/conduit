@@ -76,6 +76,12 @@ class CompiledMarkdownDocument {
   final List<CompiledMarkdownNode> nodes;
   final Map<String, String> blockLatexExpressions;
   final Map<String, String> inlineLatexExpressions;
+
+  /// Index of the first root block that may still be replaced by streaming.
+  ///
+  /// A negative value means the document has no mutable-tail metadata. When
+  /// segments are combined, [compose] rebases this boundary to the composed
+  /// block list so every block at or after it remains mutable.
   final int mutableBlockStartIndex;
 
   bool get isEmpty =>
@@ -93,6 +99,7 @@ class CompiledMarkdownDocument {
   bool get hasMutableBlockMetadata =>
       mutableBlockStartIndex >= 0 && mutableBlockStartIndex < blocks.length;
 
+  /// Whether [index] lies on or after the streaming mutation boundary.
   bool isMutableRootBlock(int index) {
     if (!hasMutableBlockMetadata) {
       return false;

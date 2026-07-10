@@ -62,7 +62,7 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.onSourceTap,
     this.askConduitComposerTargetId,
     this.stateScopeId,
-    this.enableStreamingTextFade = true,
+    this.enableStreamingTextFade = false,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
@@ -92,7 +92,11 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// Optional scope used to preserve state for remounted markdown blocks.
   final String? stateScopeId;
 
-  /// Fades newly appended visible text while streaming without moving layout.
+  /// Opts into fading newly appended visible text while streaming.
+  ///
+  /// Live chat leaves this disabled so token updates remain immediate. The
+  /// option remains available for low-frequency preview surfaces that choose a
+  /// decorative reveal deliberately.
   final bool enableStreamingTextFade;
 
   @visibleForTesting

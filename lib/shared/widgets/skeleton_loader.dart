@@ -30,6 +30,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
@@ -45,8 +46,37 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
         ).animate(
           CurvedAnimation(parent: _controller, curve: AnimationCurves.linear),
         );
+  }
 
-    _controller.repeat();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = context.reduceMotion;
+    if (_reduceMotion == reduceMotion && _controller.isAnimating) {
+      return;
+    }
+    _reduceMotion = reduceMotion;
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(SkeletonLoader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.duration != oldWidget.duration) {
+      _controller.duration =
+          widget.duration ?? AnimationDuration.typingIndicator;
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation() {
+    if (_reduceMotion) {
+      _controller.stop();
+      return;
+    }
+    if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -65,7 +95,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
   @override
   void activate() {
     super.activate();
-    if (!_controller.isAnimating) {
+    if (!_reduceMotion && !_controller.isAnimating) {
       // Resume shimmer after re-activation
       _controller.repeat();
     }
@@ -73,6 +103,21 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
 
   @override
   Widget build(BuildContext context) {
+    if (_reduceMotion) {
+      return Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: widget.baseColor ?? context.conduitTheme.shimmerBase,
+          borderRadius:
+              widget.borderRadius ??
+              BorderRadius.circular(
+                widget.isCompact ? AppBorderRadius.xs : AppBorderRadius.sm,
+              ),
+        ),
+      );
+    }
+
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {

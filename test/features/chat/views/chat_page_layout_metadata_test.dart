@@ -1178,4 +1178,40 @@ void main() {
     expect(whilePinnedToTop, isFalse);
     expect(whileUserScrolling, isFalse);
   });
+
+  test('long scrolls animate only their final viewport', () {
+    expect(
+      debugScrollAnimationStartOffsetForTesting(
+        currentOffset: 0,
+        targetOffset: 2000,
+        viewportDimension: 600,
+        minScrollExtent: 0,
+        maxScrollExtent: 2000,
+      ),
+      1400,
+    );
+    expect(
+      debugScrollAnimationStartOffsetForTesting(
+        currentOffset: 2000,
+        targetOffset: 200,
+        viewportDimension: 600,
+        minScrollExtent: 0,
+        maxScrollExtent: 2000,
+      ),
+      800,
+    );
+  });
+
+  test('nearby scroll targets animate from the current position', () {
+    expect(
+      debugScrollAnimationStartOffsetForTesting(
+        currentOffset: 900,
+        targetOffset: 1300,
+        viewportDimension: 600,
+        minScrollExtent: 0,
+        maxScrollExtent: 2000,
+      ),
+      900,
+    );
+  });
 }

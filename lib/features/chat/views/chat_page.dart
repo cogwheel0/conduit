@@ -1296,14 +1296,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
     final maxScroll = _bottomScrollOffset();
     if (!maxScroll.isFinite || maxScroll <= 0) return;
+    final shouldAnimate = smooth && !context.reduceMotion;
 
     PerformanceProfiler.instance.instant(
       'chat_auto_scroll',
       scope: 'chat',
-      data: {'smooth': smooth, 'targetOffset': maxScroll.toStringAsFixed(1)},
+      data: {
+        'smooth': shouldAnimate,
+        'targetOffset': maxScroll.toStringAsFixed(1),
+      },
     );
 
-    if (smooth) {
+    if (shouldAnimate) {
+      final position = _scrollController.position;
+      final animationStart = _scrollAnimationStartOffset(
+        currentOffset: _scrollController.offset,
+        targetOffset: maxScroll,
+        viewportDimension: position.viewportDimension,
+        minScrollExtent: position.minScrollExtent,
+        maxScrollExtent: position.maxScrollExtent,
+      );
+      if ((animationStart - _scrollController.offset).abs() >= 1) {
+        _scrollController.jumpTo(animationStart);
+      }
       _scrollController.animateTo(
         maxScroll,
         duration: duration,
@@ -1629,10 +1644,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    if (context.reduceMotion) {
+      _scrollController.jumpTo(targetOffset);
+      return;
+    }
+
+    final position = _scrollController.position;
+    final animationStart = _scrollAnimationStartOffset(
+      currentOffset: currentOffset,
+      targetOffset: targetOffset,
+      viewportDimension: position.viewportDimension,
+      minScrollExtent: position.minScrollExtent,
+      maxScrollExtent: position.maxScrollExtent,
+    );
+    if ((animationStart - currentOffset).abs() >= 1) {
+      _scrollController.jumpTo(animationStart);
+    }
     _scrollController.animateTo(
       targetOffset,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
     );
   }
 
@@ -1811,7 +1842,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       phantomExtent: _pinToTopPhantomScrollExtent(),
     );
 
-    if (instant || (currentOffset - targetOffset).abs() < 1.0) {
+    if (instant ||
+        context.reduceMotion ||
+        (currentOffset - targetOffset).abs() < 1.0) {
       // Jump instantly and remove padding
       if ((currentOffset - targetOffset).abs() >= 1.0) {
         _scrollController.jumpTo(targetOffset);
@@ -2679,7 +2712,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ConstrainedBox(
                       constraints: BoxConstraints(minHeight: greetingHeight),
                       child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 260),
+                        duration: context.motionDuration(
+                          const Duration(milliseconds: 260),
+                        ),
                         curve: Curves.easeOutCubic,
                         opacity: _greetingReady ? 1 : 0,
                         child: Align(
@@ -2893,12 +2928,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 child: AnimatedSwitcher(
-                  duration: AnimationDuration.microInteraction,
+                  duration: context.motionDuration(
+                    AnimationDuration.microInteraction,
+                  ),
                   switchInCurve: AnimationCurves.microInteraction,
                   switchOutCurve: AnimationCurves.microInteraction,
                   transitionBuilder: (child, animation) {
                     final slideAnimation = Tween<Offset>(
-                      begin: const Offset(0, 0.15),
+                      begin: context.reduceMotion
+                          ? Offset.zero
+                          : const Offset(0, 0.15),
                       end: Offset.zero,
                     ).animate(animation);
                     return FadeTransition(
@@ -3584,6 +3623,27 @@ bool _shouldTreatScrollUpdateAsUserDriven({
   return hasDragDetails || isUserInteractingWithScroll;
 }
 
+double _scrollAnimationStartOffset({
+  required double currentOffset,
+  required double targetOffset,
+  required double viewportDimension,
+  required double minScrollExtent,
+  required double maxScrollExtent,
+}) {
+  final distance = (targetOffset - currentOffset).abs();
+  if (!distance.isFinite ||
+      !viewportDimension.isFinite ||
+      viewportDimension <= 0 ||
+      distance <= viewportDimension) {
+    return currentOffset;
+  }
+
+  final direction = (targetOffset - currentOffset).sign;
+  return (targetOffset - direction * viewportDimension)
+      .clamp(minScrollExtent, maxScrollExtent)
+      .toDouble();
+}
+
 bool _shouldSmoothFollowLiveTurnSizeChange(List<ChatMessage> messages) {
   if (messages.isEmpty) {
     return false;
@@ -3733,6 +3793,23 @@ bool debugShouldTreatScrollUpdateAsUserDrivenForTesting({
   return _shouldTreatScrollUpdateAsUserDriven(
     hasDragDetails: hasDragDetails,
     isUserInteractingWithScroll: isUserInteractingWithScroll,
+  );
+}
+
+@visibleForTesting
+double debugScrollAnimationStartOffsetForTesting({
+  required double currentOffset,
+  required double targetOffset,
+  required double viewportDimension,
+  required double minScrollExtent,
+  required double maxScrollExtent,
+}) {
+  return _scrollAnimationStartOffset(
+    currentOffset: currentOffset,
+    targetOffset: targetOffset,
+    viewportDimension: viewportDimension,
+    minScrollExtent: minScrollExtent,
+    maxScrollExtent: maxScrollExtent,
   );
 }
 

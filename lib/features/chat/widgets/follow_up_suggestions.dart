@@ -43,7 +43,7 @@ class FollowUpSuggestionBar extends StatelessWidget {
   }
 }
 
-class _MinimalFollowUpButton extends StatelessWidget {
+class _MinimalFollowUpButton extends StatefulWidget {
   const _MinimalFollowUpButton({
     required this.label,
     this.onPressed,
@@ -55,10 +55,32 @@ class _MinimalFollowUpButton extends StatelessWidget {
   final bool enabled;
 
   @override
+  State<_MinimalFollowUpButton> createState() => _MinimalFollowUpButtonState();
+}
+
+class _MinimalFollowUpButtonState extends State<_MinimalFollowUpButton> {
+  bool _isPressed = false;
+
+  @override
+  void didUpdateWidget(_MinimalFollowUpButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled && _isPressed) {
+      _isPressed = false;
+    }
+  }
+
+  void _setPressed(bool value) {
+    if (_isPressed == value || !widget.enabled) {
+      return;
+    }
+    setState(() => _isPressed = value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final textStyle = AppTypography.chatMessageStyle.copyWith(
-      color: enabled
+      color: widget.enabled
           ? theme.buttonPrimary.withValues(alpha: 0.75)
           : theme.textSecondary.withValues(alpha: 0.45),
     );
@@ -69,34 +91,43 @@ class _MinimalFollowUpButton extends StatelessWidget {
     return Semantics(
       container: true,
       button: true,
-      enabled: enabled,
-      label: label,
+      enabled: widget.enabled,
+      label: widget.label,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onPressed : null,
-        child: ExcludeSemantics(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.subdirectory_arrow_right_rounded,
-                  size: iconSize,
-                  color: enabled
-                      ? theme.buttonPrimary.withValues(alpha: 0.7)
-                      : theme.textSecondary.withValues(alpha: 0.4),
-                ),
-                const SizedBox(width: Spacing.xs),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: textStyle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+        onTapDown: widget.enabled ? (_) => _setPressed(true) : null,
+        onTapUp: widget.enabled ? (_) => _setPressed(false) : null,
+        onTapCancel: widget.enabled ? () => _setPressed(false) : null,
+        onTap: widget.enabled ? widget.onPressed : null,
+        child: AnimatedScale(
+          key: ValueKey<String>('follow-up-press-scale:${widget.label}'),
+          scale: context.reduceMotion || !_isPressed ? 1 : 0.98,
+          duration: context.motionDuration(const Duration(milliseconds: 90)),
+          curve: Curves.easeOutCubic,
+          child: ExcludeSemantics(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.subdirectory_arrow_right_rounded,
+                    size: iconSize,
+                    color: widget.enabled
+                        ? theme.buttonPrimary.withValues(alpha: 0.7)
+                        : theme.textSecondary.withValues(alpha: 0.4),
                   ),
-                ),
-              ],
+                  const SizedBox(width: Spacing.xs),
+                  Flexible(
+                    child: Text(
+                      widget.label,
+                      style: textStyle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
