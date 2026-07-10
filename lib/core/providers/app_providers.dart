@@ -220,35 +220,34 @@ final serverConnectionStateProvider = Provider<bool>((ref) {
 /// Whether the *active* server reports a version newer than this app build is
 /// known to support (see [ServerVersionCompat]).
 ///
-/// The cached backend config is global, not per-server, so this gates only
+/// The cached backend config is global, not per-server, so this warns only
 /// when the config was fetched from the currently-active server
 /// ([BackendConfig.serverId] matches). That makes the decision robust against
 /// a stale config from a previously-active server — whether left over after a
 /// server switch, an out-of-order refresh, or restored from disk on a cold
-/// start — which would otherwise trap a supported server on the gate.
+/// start — which would otherwise warn for a supported server.
 ///
 /// Fails open while the active server or backend config is still loading, when
 /// the config belongs to a different server, or when the version is unknown, so
-/// the gate never flashes during startup and never locks users out of a server
-/// whose version we can't parse.
+/// the warning never flashes during startup or appears for a server whose
+/// version we can't parse.
 final serverIncompatibleProvider = Provider<bool>((ref) {
   final activeId = ref.watch(activeServerProvider).asData?.value?.id;
   final config = ref.watch(backendConfigProvider).asData?.value;
   if (activeId == null || config == null) return false;
-  // Gate only on a config confirmed to belong to the active server — i.e. one
+  // Warn only on a config confirmed to belong to the active server — i.e. one
   // tagged (in _loadBackendConfig) with the active server id. Anything else
   // fails open:
   //  - a config tagged for a *different* server is stale after a switch and
-  //    must not trap the (possibly supported) new server;
+  //    must not warn for the (possibly supported) new server;
   //  - a null serverId is a legacy cache written before tagging existed, or a
   //    not-yet-tagged fetch — we can't attribute it to a server, so we don't
   //    act on it.
   // The trade-off is that, right after upgrading the app while connected to an
-  // unsupported server, the gate stays open until the refresh kicked off in
-  // BackendConfigNotifier.build() returns a freshly-tagged config (~one
-  // round-trip). That's intentional: gating off a possibly-stale cache and
-  // risking locking a user out of a valid server is worse than a brief,
-  // self-healing delay before gating an unsupported one.
+  // unsupported server, the warning stays hidden until the refresh kicked off
+  // in BackendConfigNotifier.build() returns a freshly-tagged config (~one
+  // round-trip). That's intentional: a stale warning is more confusing than a
+  // brief delay before showing a confirmed warning.
   if (config.serverId != activeId) return false;
   return ServerVersionCompat.isUnsupported(config.version);
 });
@@ -310,7 +309,7 @@ Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
       }
     }
     // Tag the config with the server it was fetched from so the compatibility
-    // gate can ignore a globally-cached config that belongs to a different
+    // warning can ignore a globally-cached config that belongs to a different
     // server (e.g. after a server switch, or a stale config restored on a
     // cold start). See serverIncompatibleProvider.
     return config?.copyWith(serverId: server.id);

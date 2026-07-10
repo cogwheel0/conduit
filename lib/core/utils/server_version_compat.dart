@@ -4,8 +4,8 @@
 /// submodule. When the upstream server jumps ahead of what this build has been
 /// validated against, endpoints and payloads can drift in ways that silently
 /// break the app. Rather than fail in confusing ways deep in a feature, the app
-/// refuses to operate against servers newer than [maxSupportedVersion] and
-/// surfaces a clear "downgrade or wait for an update" message.
+/// surfaces a clear compatibility warning for servers newer than
+/// [maxSupportedVersion] while still allowing the user to continue.
 ///
 /// This is a pure leaf utility with no Flutter dependencies so it can be unit
 /// tested in isolation and reused from models, providers, and views alike.
@@ -15,8 +15,8 @@ class ServerVersionCompat {
   /// The newest Open WebUI server version this app build is known to support.
   ///
   /// Servers reporting a `/api/config` `version` strictly greater than this are
-  /// gated off. Bump this (and re-verify against `openwebui-src/`) whenever a
-  /// newer server release is validated.
+  /// shown a compatibility warning. Bump this (and re-verify against
+  /// `openwebui-src/`) whenever a newer server release is validated.
   static const String maxSupportedVersion = '0.10.2';
 
   /// Parsed [maxSupportedVersion] components: `[major, minor, patch]`.
@@ -25,9 +25,9 @@ class ServerVersionCompat {
   /// Whether [rawVersion] is within the supported range (<= [maxSupportedVersion]).
   ///
   /// Fails open: a `null`, empty, or unparseable version is treated as
-  /// supported so the gate never locks users out of a server whose version
-  /// string we simply don't understand. The gate only triggers when we can
-  /// confidently determine the server is newer than we support.
+  /// supported so no warning is shown for a server whose version string we
+  /// simply don't understand. A warning is only shown when we can confidently
+  /// determine the server is newer than we support.
   static bool isSupported(String? rawVersion) {
     final parsed = _parse(rawVersion);
     if (parsed == null) return true; // fail open on unknown versions
