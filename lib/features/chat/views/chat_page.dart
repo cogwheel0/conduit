@@ -2091,12 +2091,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _endScrollProfile(reason: 'idle');
           final wasInteracting = _isUserInteractingWithScroll;
           _isUserInteractingWithScroll = false;
-          // During a drag, `_dismissPinToTopAfterUserScroll` may bail when
-          // removing the phantom spacer would jump the viewport. Retry the
-          // compensated dismiss once the gesture ends so pin-to-top cannot
-          // stay stuck with the extra bottom spacer.
+          // Re-check after the final drag update, but keep the same no-jump
+          // guard used during the gesture. For short conversations, removing
+          // the phantom spacer here would clamp the second prompt's offset to
+          // zero and visibly animate back to the first message.
           if (wasInteracting && _wantsPinToTop) {
-            _endPinToTop(preserveStreamingId: true);
+            _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
           }
         }
         return false; // Allow notification to continue bubbling

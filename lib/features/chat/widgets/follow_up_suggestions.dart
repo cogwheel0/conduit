@@ -4,7 +4,7 @@ import '../../../shared/theme/theme_extensions.dart';
 
 /// A bar displaying follow-up suggestion buttons for the user to continue
 /// a conversation with pre-suggested prompts.
-class FollowUpSuggestionBar extends StatelessWidget {
+class FollowUpSuggestionBar extends StatefulWidget {
   const FollowUpSuggestionBar({
     super.key,
     required this.suggestions,
@@ -17,8 +17,52 @@ class FollowUpSuggestionBar extends StatelessWidget {
   final bool isBusy;
 
   @override
+  State<FollowUpSuggestionBar> createState() => _FollowUpSuggestionBarState();
+}
+
+class _FollowUpSuggestionBarState extends State<FollowUpSuggestionBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _entranceController;
+  bool _hasStartedEntrance = false;
+  bool _disableEntranceMotion = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: AnimationDuration.fast,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final disableEntranceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ??
+        WidgetsBinding
+            .instance
+            .platformDispatcher
+            .accessibilityFeatures
+            .disableAnimations;
+    if (_hasStartedEntrance) {
+      _disableEntranceMotion = disableEntranceMotion;
+      return;
+    }
+    _hasStartedEntrance = true;
+    _disableEntranceMotion = disableEntranceMotion;
+    _entranceController.forward();
+  }
+
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final trimmedSuggestions = suggestions
+    final trimmedSuggestions = widget.suggestions
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .take(3)
@@ -32,13 +76,39 @@ class FollowUpSuggestionBar extends StatelessWidget {
       spacing: Spacing.xs,
       runSpacing: Spacing.xs,
       children: [
-        for (final suggestion in trimmedSuggestions)
-          _MinimalFollowUpButton(
-            label: suggestion,
-            onPressed: isBusy ? null : () => onSelected(suggestion),
-            enabled: !isBusy,
-          ),
+        for (var index = 0; index < trimmedSuggestions.length; index++)
+          _buildAnimatedSuggestion(trimmedSuggestions[index], index),
       ],
+    );
+  }
+
+  Widget _buildAnimatedSuggestion(String suggestion, int index) {
+    final start = index * 0.18;
+    final animation = CurvedAnimation(
+      parent: _entranceController,
+      curve: Interval(
+        start,
+        (0.78 + start).clamp(0.0, 1.0).toDouble(),
+        curve: AnimationCurves.messageSlide,
+      ),
+    );
+
+    return FadeTransition(
+      opacity: animation,
+      alwaysIncludeSemantics: true,
+      child: SlideTransition(
+        position: _disableEntranceMotion
+            ? const AlwaysStoppedAnimation<Offset>(Offset.zero)
+            : Tween<Offset>(
+                begin: const Offset(0, 0.12),
+                end: Offset.zero,
+              ).animate(animation),
+        child: _MinimalFollowUpButton(
+          label: suggestion,
+          onPressed: widget.isBusy ? null : () => widget.onSelected(suggestion),
+          enabled: !widget.isBusy,
+        ),
+      ),
     );
   }
 }

@@ -994,6 +994,26 @@ void main() {
   });
 
   test('pin-to-top user scroll keeps phantom until removal is stable', () {
+    // Two short turns can leave the second prompt pinned beyond the real
+    // (phantom-free) scroll range. Ending the first drag must not force this
+    // offset to zero, which would jump back to the first message (#560).
+    expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 500,
+        maxScrollExtent: 800,
+        phantomExtent: 800,
+      ),
+      isFalse,
+    );
+    expect(
+      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
+        currentOffset: 500,
+        maxScrollExtent: 800,
+        phantomExtent: 800,
+      ),
+      0,
+    );
+
     expect(
       debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
         currentOffset: 920,

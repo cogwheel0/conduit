@@ -2033,30 +2033,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget _buildFollowUpSuggestions(List<String> suggestions) {
     final shouldShow = widget.showFollowUps && suggestions.isNotEmpty;
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        return FadeTransition(
-          opacity: CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          ),
-          child: child,
-        );
-      },
-      child: shouldShow
-          ? KeyedSubtree(
-              key: ValueKey<String>(_followUpStateScopeId()),
-              child: FollowUpSuggestionBar(
-                suggestions: suggestions,
-                onSelected: _handleFollowUpTap,
-                isBusy: _uiTreatsAsStreaming,
-              ),
-            )
-          : const SizedBox.shrink(key: ValueKey('follow-ups-empty')),
+    if (!shouldShow) {
+      return const SizedBox.shrink(key: ValueKey('follow-ups-empty'));
+    }
+
+    return KeyedSubtree(
+      key: ValueKey<String>(_followUpStateScopeId()),
+      child: FollowUpSuggestionBar(
+        suggestions: suggestions,
+        onSelected: _handleFollowUpTap,
+        isBusy: _uiTreatsAsStreaming,
+      ),
     );
   }
 }
