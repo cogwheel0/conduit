@@ -86,5 +86,20 @@ void main() {
       expect(find.text('Server not supported'), findsNothing);
       expect(find.text('Authenticated content'), findsOneWidget);
     });
+
+    testWidgets('hides the warning before authentication completes', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildShell(
+          authState: AuthNavigationState.needsLogin,
+          config: const BackendConfig(version: '0.11.0', serverId: 'A'),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Server not supported'), findsNothing);
+      expect(find.text('Authenticated content'), findsOneWidget);
+    });
   });
 }

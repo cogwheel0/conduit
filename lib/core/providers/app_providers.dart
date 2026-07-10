@@ -270,6 +270,9 @@ class BackendConfigNotifier extends _$BackendConfigNotifier {
   /// [serverId]. This avoids a stale global cache hiding server-specific
   /// capability state during the first authenticated frame.
   Future<void> cacheForServer(BackendConfig config, String serverId) async {
+    final activeId = ref.read(activeServerProvider).asData?.value?.id;
+    if (activeId != serverId) return;
+
     final tagged = config.copyWith(serverId: serverId);
     state = AsyncData(tagged);
     await _storage.saveLocalBackendConfig(tagged);
