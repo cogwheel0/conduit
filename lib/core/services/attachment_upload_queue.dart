@@ -109,11 +109,12 @@ typedef UploadCallback =
 typedef AttachmentsEventCallback = void Function(List<QueuedAttachment> queue);
 
 /// A lightweight background queue to upload attachments when back online.
+///
+/// One instance per active server, owned by `attachmentUploadQueueProvider`,
+/// which constructs it, awaits [initialize], and [dispose]s it (closing the
+/// stream and cancelling in-flight uploads) when the server changes.
 class AttachmentUploadQueue {
-  static final AttachmentUploadQueue _instance =
-      AttachmentUploadQueue._internal();
-  factory AttachmentUploadQueue() => _instance;
-  AttachmentUploadQueue._internal();
+  AttachmentUploadQueue();
 
   static const int _maxRetries = 4;
   static const Duration _baseRetryDelay = Duration(seconds: 5);
@@ -135,6 +136,8 @@ class AttachmentUploadQueue {
   // Streams
   final _queueController = StreamController<List<QueuedAttachment>>.broadcast();
   Stream<List<QueuedAttachment>> get queueStream => _queueController.stream;
+
+  bool _disposed = false;
 
   List<QueuedAttachment> get queue => List.unmodifiable(_queue);
 
@@ -310,65 +313,37 @@ class AttachmentUploadQueue {
     Timer(const Duration(milliseconds: 500), _processSafe);
   }
 
-  /// Stops background processing and releases the previous server's session.
+  /// Tears down this per-server queue instance.
   ///
-  /// Called when the active [ApiService] changes (server switch / logout).
-  /// Cancels the periodic timer, aborts in-flight uploads via their
-  /// [CancelToken]s (so nothing completes against the account just left), and
-  /// drives every still-active queue item to a terminal (`cancelled`) state
-  /// with a single [_notify] so `queueStream` listeners (e.g. a
-  /// `MediaUploadController` upload completer) resolve instead of hanging. The
-  /// cancelled statuses are persisted best-effort before the db resolver is
-  /// dropped, so they do not reappear as pending on reconnect. The broadcast
-  /// [queueStream] is intentionally NOT closed (it is reused across uploads);
-  /// the next [initialize] re-arms the timer and callbacks and reloads the
-  /// active server's queue from Drift.
-  void deactivate() {
+  /// The owning `attachmentUploadQueueProvider` calls this via `ref.onDispose`
+  /// when the active server changes (server switch / logout). Cancels the
+  /// periodic timer, aborts in-flight uploads via their [CancelToken]s (so
+  /// nothing completes against the account just left), and closes [queueStream]
+  /// so any listener awaiting an upload (e.g. a `MediaUploadController`
+  /// completer) resolves via `onDone` instead of hanging. Persisted queue rows
+  /// are left untouched: the next server-scoped instance reloads and resumes
+  /// them from that server's Drift table. Idempotent.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _retryTimer?.cancel();
     _retryTimer = null;
-    // Cancel any in-flight upload bound to the previous server so it does not
-    // complete against the account we just left.
     for (final token in _cancelTokens.values) {
-      token.cancel('attachment queue deactivated');
+      token.cancel('attachment queue disposed');
     }
     _cancelTokens.clear();
-    // Drive every still-active item to a terminal (cancelled) state and emit
-    // once. Otherwise a pending/uploading item never reaches a terminal status
-    // after processing stops, leaving any queueStream listener awaiting it
-    // (e.g. a MediaUploadController upload completer) hung forever. The
-    // broadcast controller stays open; the next initialize() reloads the active
-    // server's queue from Drift.
-    var changed = false;
-    for (var i = 0; i < _queue.length; i++) {
-      final item = _queue[i];
-      if (item.status == QueuedAttachmentStatus.pending ||
-          item.status == QueuedAttachmentStatus.uploading) {
-        _queue[i] = item.copyWith(
-          status: QueuedAttachmentStatus.cancelled,
-          nextRetryAt: null,
-          lastError: 'cancelled: server changed',
-        );
-        changed = true;
-      }
-    }
-    if (changed) {
-      _notify();
-      // Persist the cancelled statuses to the previous server's table before we
-      // drop the resolver, so they do not reappear as pending on reconnect.
-      // Best-effort: _save() captures the db synchronously (before the null
-      // below); swallow errors since the db may be closing on a server switch.
-      unawaited(_save().catchError((Object _) {}));
-    }
     _onUpload = null;
     _onQueueChanged = null;
     _databaseResolver = null;
+    _queueController.close();
     DebugLogger.log(
-      'AttachmentUploadQueue deactivated',
+      'AttachmentUploadQueue disposed',
       scope: 'attachments/queue',
     );
   }
 
   void _processSafe() {
+    if (_disposed) return;
     // Fire and forget
     unawaited(processQueue());
   }
@@ -513,6 +488,7 @@ class AttachmentUploadQueue {
   }
 
   void _notify() {
+    if (_disposed) return;
     _onQueueChanged?.call(queue);
     _queueController.add(queue);
   }

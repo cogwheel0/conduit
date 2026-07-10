@@ -7,7 +7,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
-import '../database/database_provider.dart';
 import '../models/file_info.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -92,17 +91,14 @@ class MediaUploadController {
 
     // Upload all files (including images) to the server — mirrors OpenWebUI:
     // images go to /api/v1/files/ and the server resolves them when sending to
-    // the LLM.
-    final uploader = AttachmentUploadQueue();
-    final api = _ref.read(apiServiceProvider);
-    if (api == null) {
+    // the LLM. The queue is owned by attachmentUploadQueueProvider (one
+    // fully-initialized instance per active server); awaiting `.future` avoids
+    // the enqueue-before-load race and gives a queue already wired to the
+    // active server's API + Drift table.
+    final uploader = await _ref.read(attachmentUploadQueueProvider.future);
+    if (uploader == null) {
       throw Exception('API not available');
     }
-    await uploader.initialize(
-      onUpload: (path, name, {cancelToken}) =>
-          api.uploadFile(path, name, cancelToken: cancelToken),
-      database: () => _ref.read(appDatabaseProvider),
-    );
 
     // For images: convert unsupported formats to JPEG for compatibility.
     String uploadPath = filePath;
@@ -258,6 +254,14 @@ class MediaUploadController {
         default:
           break;
       }
+    }, onDone: () {
+      // The queue was disposed (server switch / logout) before this upload
+      // reached a terminal status. Resolve the awaiting caller so it does not
+      // hang; the item stays in the previous server's Drift table and resumes
+      // when that server is next active.
+      cleanupTemp();
+      removeInflight();
+      if (!completer.isCompleted) completer.complete();
     });
 
     // Wire the cancel path: stop listening + temp cleanup, then complete so the
@@ -382,13 +386,5 @@ class _InflightUpload {
 /// rebuilds (an upload can outlive the widget that started it). Every former
 /// `enqueueUploadMedia` call site reads this instead.
 @Riverpod(keepAlive: true)
-MediaUploadController mediaUploadController(Ref ref) {
-  // When the active server / ApiService changes (server switch or logout),
-  // stop the shared upload queue's timer and drop its stale onUpload closure.
-  // The next upload re-initializes it against the new server. `ref.listen`
-  // does not fire for the current value, so this is inert until a real change.
-  ref.listen(apiServiceProvider, (previous, next) {
-    AttachmentUploadQueue().deactivate();
-  });
-  return MediaUploadController(ref);
-}
+MediaUploadController mediaUploadController(Ref ref) =>
+    MediaUploadController(ref);

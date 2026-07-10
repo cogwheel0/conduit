@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
+import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../models/server_config.dart';
@@ -559,6 +560,31 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
     orElse: () =>
         ref.read(socketServiceManagerProvider.notifier).currentService,
   );
+});
+
+// Attachment upload queue — one instance per active server.
+//
+// Constructs the queue and awaits its initialization against the active
+// server's API + Drift table, so consumers that `await .future` get a
+// fully-loaded queue (no enqueue-before-load race). When the active server
+// changes (server switch / logout), this keepAlive provider rebuilds and
+// `ref.onDispose` tears the previous instance down — cancelling in-flight
+// uploads and closing its stream so awaiting upload completers resolve — before
+// a fresh instance takes over the new server. Null in reviewer mode / when
+// there is no active server.
+final attachmentUploadQueueProvider =
+    FutureProvider<AttachmentUploadQueue?>((ref) async {
+  final api = ref.watch(apiServiceProvider);
+  if (api == null) return null;
+
+  final queue = AttachmentUploadQueue();
+  ref.onDispose(queue.dispose);
+  await queue.initialize(
+    onUpload: (filePath, fileName, {cancelToken}) =>
+        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
+    database: () => ref.read(appDatabaseProvider),
+  );
+  return queue;
 });
 
 // Auth providers
