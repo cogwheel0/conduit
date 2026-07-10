@@ -140,6 +140,8 @@ class VoiceInputService {
   Timer? _nativeDictationSettleTimer;
 
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
+  @protected
+  bool get usesAutomaticNativeLanguage => Platform.isAndroid;
   bool get hasServerStt => _api != null;
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
@@ -174,7 +176,7 @@ class VoiceInputService {
         forceLocalStt || _preference != SttPreference.serverOnly;
     if (shouldPrepareLocalStt && !_didAttemptLocalInitialization) {
       await _loadLocales(deviceTag);
-      await _initializeNativeLocalStt(deviceTag);
+      await _initializeNativeLocalStt();
       _localSttAvailable = _nativeLocalSttAvailable;
       _didAttemptLocalInitialization = true;
     }
@@ -183,7 +185,7 @@ class VoiceInputService {
     return true;
   }
 
-  Future<void> _initializeNativeLocalStt(String deviceTag) async {
+  Future<void> _initializeNativeLocalStt() async {
     if (!_nativeStt.isSupportedPlatform) {
       _nativeLocalSttAvailable = false;
       return;
@@ -191,7 +193,10 @@ class VoiceInputService {
 
     try {
       final availability = await _nativeStt.checkAvailability(
-        localeId: _selectedLocaleId ?? deviceTag,
+        // Android treats null as an automatic-language request when the
+        // installed recognizer can prove that switching is supported. Other
+        // platforms use the closest supported system locale selected below.
+        localeId: _selectedLocaleId,
         allowOnlineFallback: false,
       );
       _nativeLocalSttAvailable = availability.available;
@@ -311,18 +316,25 @@ class VoiceInputService {
           .toList();
       _usingFallbackLocales = false;
 
-      final systemTag = nativeLocales.systemLocaleId;
-      final tagForMatch = (systemTag != null && systemTag.isNotEmpty)
-          ? systemTag
-          : deviceTag;
+      if (usesAutomaticNativeLanguage) {
+        _selectedLocaleId = null;
+      } else {
+        final systemTag = nativeLocales.systemLocaleId;
+        final tagForMatch = (systemTag != null && systemTag.isNotEmpty)
+            ? systemTag
+            : deviceTag;
+        _selectedLocaleId = _matchLocale(tagForMatch).localeId;
+      }
 
-      final match = _matchLocale(tagForMatch);
-      _selectedLocaleId = match.localeId;
-
-      debugPrint(
-        'VoiceInputService: deviceTag=$deviceTag, '
-        'systemLocale=$systemTag, '
-        'selectedLocaleId=$_selectedLocaleId',
+      DebugLogger.info(
+        'native-stt-locales-loaded',
+        scope: 'voice/stt',
+        data: {
+          'deviceLocale': deviceTag,
+          'systemLocale': nativeLocales.systemLocaleId,
+          'localeCount': _locales.length,
+          'automaticLanguage': _selectedLocaleId == null,
+        },
       );
     } catch (_) {
       // Some engines may not support locale listing
@@ -330,17 +342,15 @@ class VoiceInputService {
   }
 
   void _ensureFallbackLocale(String deviceTag) {
-    if (_locales.isNotEmpty && _selectedLocaleId != null) {
+    if (_locales.isNotEmpty) {
       return;
     }
     _usingFallbackLocales = true;
     if (deviceTag.isEmpty) {
       _locales = const [LocaleName('en_US', 'en_US')];
-      _selectedLocaleId = 'en_US';
       return;
     }
     _locales = [LocaleName(deviceTag, deviceTag)];
-    _selectedLocaleId = deviceTag;
   }
 
   LocaleName _matchLocale(String deviceTag) {
@@ -356,7 +366,10 @@ class VoiceInputService {
     final parts = normalizedDevice.split(RegExp('[-_]'));
     final primary = parts.isNotEmpty ? parts.first : normalizedDevice;
     for (final locale in _locales) {
-      if (locale.localeId.toLowerCase().startsWith('$primary-')) {
+      final normalizedLocale = locale.localeId.toLowerCase();
+      if (normalizedLocale == primary ||
+          normalizedLocale.startsWith('$primary-') ||
+          normalizedLocale.startsWith('${primary}_')) {
         return locale;
       }
     }
@@ -375,8 +388,19 @@ class VoiceInputService {
           ? 'Speech recognition failed'
           : message,
     );
-    _textStreamController?.addError(exception);
+    _reportRecognitionError(exception);
     unawaited(_stopListening());
+  }
+
+  void _reportRecognitionError(Object error) {
+    final textController = _textStreamController;
+    if (textController != null && !textController.isClosed) {
+      textController.addError(error);
+    }
+    final transcriptController = _transcriptEventController;
+    if (transcriptController != null && !transcriptController.isClosed) {
+      transcriptController.addError(error);
+    }
   }
 
   Future<bool> _ensureMicrophonePermission() async {
@@ -638,7 +662,7 @@ class VoiceInputService {
         if (!_isListening) {
           return _textStreamController!.stream;
         }
-        _textStreamController?.addError(error);
+        _reportRecognitionError(error);
         await _stopListening();
       }
     } else if (shouldUseServer) {
@@ -656,7 +680,7 @@ class VoiceInputService {
           );
         } catch (error) {
           if (!_isListening) return;
-          _textStreamController?.addError(error);
+          _reportRecognitionError(error);
           await _stopListening();
         }
       });
@@ -672,7 +696,7 @@ class VoiceInputService {
         error = Exception('Speech recognition not available on this device');
       }
       Future.microtask(() {
-        _textStreamController?.addError(error);
+        _reportRecognitionError(error);
         unawaited(_stopListening());
       });
     }
@@ -734,8 +758,12 @@ class VoiceInputService {
       await _stopVadRecording();
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
-      final hasActiveTextConsumer = _textStreamController?.hasListener ?? false;
-      if (samples != null && samples.isNotEmpty && hasActiveTextConsumer) {
+      final shouldProcessSamples = _shouldProcessServerSamples(
+        hasTextConsumer: _textStreamController?.hasListener ?? false,
+        hasTranscriptEventConsumer:
+            _transcriptEventController?.hasListener ?? false,
+      );
+      if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
         await _processVadSamples(samples);
       }
     } else {
@@ -883,20 +911,14 @@ class VoiceInputService {
         try {
           await _stopVadRecording();
         } catch (_) {}
-        try {
-          await _startLocalRecognition(
-            allowOnlineFallback: !prefersDeviceOnly,
-            iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-            nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
-          );
-          return;
-        } catch (fallbackError) {
-          _textStreamController?.addError(fallbackError);
-          rethrow;
-        }
+        await _startLocalRecognition(
+          allowOnlineFallback: !prefersDeviceOnly,
+          iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+          nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
+        );
+        return;
       }
 
-      _textStreamController?.addError(error);
       rethrow;
     }
   }
@@ -924,7 +946,7 @@ class VoiceInputService {
 
     await _vadErrorSub?.cancel();
     _vadErrorSub = vad.onError.listen((message) {
-      _textStreamController?.addError(Exception(message));
+      _reportRecognitionError(Exception(message));
       if (_isListening) {
         unawaited(_stopListening());
       }
@@ -987,7 +1009,7 @@ class VoiceInputService {
         throw StateError('Empty transcription result');
       }
     } catch (error) {
-      _textStreamController?.addError(error);
+      _reportRecognitionError(error);
     }
   }
 
@@ -1000,6 +1022,22 @@ class VoiceInputService {
     final frameDurationMs = (frameSamples / _vadSampleRate) * 1000;
     final frames = (milliseconds / frameDurationMs).ceil();
     return frames.clamp(_minVadRedemptionFrames, _maxVadRedemptionFrames);
+  }
+
+  static bool _shouldProcessServerSamples({
+    required bool hasTextConsumer,
+    required bool hasTranscriptEventConsumer,
+  }) => hasTextConsumer || hasTranscriptEventConsumer;
+
+  @visibleForTesting
+  static bool shouldProcessServerSamplesForTesting({
+    required bool hasTextConsumer,
+    required bool hasTranscriptEventConsumer,
+  }) {
+    return _shouldProcessServerSamples(
+      hasTextConsumer: hasTextConsumer,
+      hasTranscriptEventConsumer: hasTranscriptEventConsumer,
+    );
   }
 
   @visibleForTesting

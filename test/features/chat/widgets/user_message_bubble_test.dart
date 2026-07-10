@@ -153,6 +153,29 @@ void main() {
     expect(find.text('brief.pdf'), findsOneWidget);
     expect(find.byType(EnhancedImageAttachment), findsNothing);
   });
+
+  for (final attachmentCount in <int>[2, 3]) {
+    testWidgets(
+      'renders $attachmentCount uploaded attachments without a type error',
+      (WidgetTester tester) async {
+        final message = ChatMessage(
+          id: 'user-images-$attachmentCount',
+          role: 'user',
+          content: "what's this",
+          timestamp: DateTime.utc(2026, 7, 3, 19, 29),
+          attachmentIds: List<String>.generate(
+            attachmentCount,
+            (index) => 'image-${index + 1}',
+          ),
+        );
+
+        await tester.pumpWidget(buildHarness(message));
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(EnhancedAttachment), findsNWidgets(attachmentCount));
+      },
+    );
+  }
 }
 
 class _FakeAttachmentInfoApiService extends ApiService {
