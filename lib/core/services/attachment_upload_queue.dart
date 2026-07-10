@@ -163,13 +163,26 @@ class AttachmentUploadQueue {
   }
 
   Future<void> _initInternal() async {
-    await _load();
-    if (_disposed) return;
-    _startPeriodicProcessing();
-    DebugLogger.log(
-      'AttachmentUploadQueue initialized with ${_queue.length} items',
-      scope: 'attachments/queue',
-    );
+    try {
+      await _load();
+      if (_disposed) return;
+      _startPeriodicProcessing();
+      DebugLogger.log(
+        'AttachmentUploadQueue initialized with ${_queue.length} items',
+        scope: 'attachments/queue',
+      );
+    } catch (error, stackTrace) {
+      // Swallow init failures (e.g. a Drift load error) so the fire-and-forget
+      // initialize() future never surfaces as an uncaught async error and
+      // `ready` always completes. The queue degrades to empty; the next
+      // server-scoped instance re-loads.
+      DebugLogger.error(
+        'attachment-queue-init-failed',
+        scope: 'attachments/queue',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   AttachmentQueueDao? get _attachmentDao =>
@@ -182,6 +195,12 @@ class AttachmentUploadQueue {
     String? mimeType,
     String? checksum,
   }) async {
+    if (_disposed) {
+      // The queue was torn down (server switch / logout). Fail loudly rather
+      // than adding an item that _save/_notify/_processSafe all skip, which
+      // would look enqueued but silently never persist or upload.
+      throw StateError('Cannot enqueue on a disposed AttachmentUploadQueue');
+    }
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final item = QueuedAttachment(
       id: id,

@@ -137,5 +137,27 @@ void main() {
       queue.dispose();
       await queue.ready.timeout(const Duration(seconds: 1));
     });
+
+    test('enqueue after dispose throws instead of silently dropping', () async {
+      final queue = AttachmentUploadQueue();
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: () => null,
+      );
+      await queue.ready;
+      queue.dispose();
+
+      var threw = false;
+      try {
+        await queue.enqueue(
+          filePath: '/tmp/c.txt',
+          fileName: 'c.txt',
+          fileSize: 1,
+        );
+      } on StateError {
+        threw = true;
+      }
+      check(threw).isTrue();
+    });
   });
 }
