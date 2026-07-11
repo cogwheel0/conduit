@@ -109,11 +109,12 @@ typedef UploadCallback =
 typedef AttachmentsEventCallback = void Function(List<QueuedAttachment> queue);
 
 /// A lightweight background queue to upload attachments when back online.
+///
+/// One instance per active server, owned by `attachmentUploadQueueProvider`,
+/// which constructs it, awaits [initialize], and [dispose]s it (closing the
+/// stream and cancelling in-flight uploads) when the server changes.
 class AttachmentUploadQueue {
-  static final AttachmentUploadQueue _instance =
-      AttachmentUploadQueue._internal();
-  factory AttachmentUploadQueue() => _instance;
-  AttachmentUploadQueue._internal();
+  AttachmentUploadQueue();
 
   static const int _maxRetries = 4;
   static const Duration _baseRetryDelay = Duration(seconds: 5);
@@ -136,22 +137,52 @@ class AttachmentUploadQueue {
   final _queueController = StreamController<List<QueuedAttachment>>.broadcast();
   Stream<List<QueuedAttachment>> get queueStream => _queueController.stream;
 
+  bool _disposed = false;
+  Future<void>? _readyFuture;
+
   List<QueuedAttachment> get queue => List.unmodifiable(_queue);
+
+  /// Completes once the initial load from Drift has finished (or immediately if
+  /// [initialize] has not run). Callers `await` this before enqueueing so an
+  /// upload never races the load. It is owned by this instance (not the owning
+  /// provider), so it can never be orphaned by the provider rebuilding — unlike
+  /// a `FutureProvider.future`, awaiting it cannot hang across a server switch.
+  Future<void> get ready => _readyFuture ?? Future<void>.value();
 
   Future<void> initialize({
     required UploadCallback onUpload,
     required AppDatabase? Function() database,
     AttachmentsEventCallback? onQueueChanged,
-  }) async {
+  }) {
     _onUpload = onUpload;
     _onQueueChanged = onQueueChanged;
     _databaseResolver = database;
-    await _load();
-    _startPeriodicProcessing();
-    DebugLogger.log(
-      'AttachmentUploadQueue initialized with ${_queue.length} items',
-      scope: 'attachments/queue',
-    );
+    final future = _initInternal();
+    _readyFuture = future;
+    return future;
+  }
+
+  Future<void> _initInternal() async {
+    try {
+      await _load();
+      if (_disposed) return;
+      _startPeriodicProcessing();
+      DebugLogger.log(
+        'AttachmentUploadQueue initialized with ${_queue.length} items',
+        scope: 'attachments/queue',
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'attachment-queue-init-failed',
+        scope: 'attachments/queue',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      // Preserve the failure on `ready`: callers must abort before enqueueing,
+      // otherwise a load failure followed by _save() could rewrite the Drift
+      // table from an incomplete in-memory snapshot.
+      rethrow;
+    }
   }
 
   AttachmentQueueDao? get _attachmentDao =>
@@ -164,6 +195,12 @@ class AttachmentUploadQueue {
     String? mimeType,
     String? checksum,
   }) async {
+    if (_disposed) {
+      // The queue was torn down (server switch / logout). Fail loudly rather
+      // than adding an item that _save/_notify/_processSafe all skip, which
+      // would look enqueued but silently never persist or upload.
+      throw StateError('Cannot enqueue on a disposed AttachmentUploadQueue');
+    }
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final item = QueuedAttachment(
       id: id,
@@ -310,7 +347,37 @@ class AttachmentUploadQueue {
     Timer(const Duration(milliseconds: 500), _processSafe);
   }
 
+  /// Tears down this per-server queue instance.
+  ///
+  /// The owning `attachmentUploadQueueProvider` calls this via `ref.onDispose`
+  /// when the active server changes (server switch / logout). Cancels the
+  /// periodic timer, aborts in-flight uploads via their [CancelToken]s (so
+  /// nothing completes against the account just left), and closes [queueStream]
+  /// so any listener awaiting an upload (e.g. a `MediaUploadController`
+  /// completer) resolves via `onDone` instead of hanging. Persisted queue rows
+  /// are left untouched: the next server-scoped instance reloads and resumes
+  /// them from that server's Drift table. Idempotent.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    for (final token in _cancelTokens.values) {
+      token.cancel('attachment queue disposed');
+    }
+    _cancelTokens.clear();
+    _onUpload = null;
+    _onQueueChanged = null;
+    _databaseResolver = null;
+    _queueController.close();
+    DebugLogger.log(
+      'AttachmentUploadQueue disposed',
+      scope: 'attachments/queue',
+    );
+  }
+
   void _processSafe() {
+    if (_disposed) return;
     // Fire and forget
     unawaited(processQueue());
   }
@@ -379,11 +446,24 @@ class AttachmentUploadQueue {
 
   // Utilities
   Future<void> _load() async {
-    _queue.clear();
     final dao = _attachmentDao;
     if (dao == null) return;
     final rows = await dao.getAll();
-    _queue.addAll(rows.map(_rowToModel));
+    // Stage the full conversion before replacing the in-memory queue. If the
+    // read or JSON conversion fails, `ready` rejects and the existing snapshot
+    // remains intact — a later enqueue cannot mirror a partial/empty snapshot
+    // over the persisted table.
+    final loaded = rows
+        .map(_rowToModel)
+        .map(
+          (item) => item.status == QueuedAttachmentStatus.uploading
+              ? item.copyWith(status: QueuedAttachmentStatus.pending)
+              : item,
+        )
+        .toList(growable: false);
+    _queue
+      ..clear()
+      ..addAll(loaded);
   }
 
   Future<void> _save() async {
@@ -445,6 +525,7 @@ class AttachmentUploadQueue {
   }
 
   void _notify() {
+    if (_disposed) return;
     _onQueueChanged?.call(queue);
     _queueController.add(queue);
   }

@@ -11,6 +11,8 @@ import '../models/conversation.dart';
 import '../persistence/persistence_providers.dart';
 import '../providers/app_providers.dart';
 import '../services/connectivity_service.dart';
+import '../services/conversation_parsing.dart';
+import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import 'backoff.dart';
 import 'chat_adapter.dart';
@@ -503,11 +505,17 @@ class SyncEngine extends _$SyncEngine {
     if (db == null || client == null || chatLocks == null) return null;
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
+    final workerManager = ref.read(workerManagerProvider);
     return PullSync(
       client: client,
       db: db,
       locks: chatLocks,
       remapper: remapper,
+      parseOffload: (envelope) => workerManager.schedule(
+        parseFullConversationModelWorker,
+        envelope,
+        debugLabel: 'pull.assembleConversation',
+      ),
     );
   }
 

@@ -26,7 +26,7 @@ Run `dart run build_runner build` after `flutter pub get` and after switching br
 
 Top-level Dart code is split into `lib/core/` for app-wide services, models, routing, auth, storage, networking, and platform glue; `lib/features/` for product areas; `lib/shared/` for reusable widgets and utilities; and `lib/l10n/` for localization ARB files and generated localization output configured by `l10n.yaml`. Do not hand-edit generated localization Dart; edit ARB inputs and regenerate.
 
-State management uses Riverpod 3 with generated providers. Navigation uses `go_router`. HTTP and realtime transport use Dio and `socket_io_client`. Local persistence uses Hive CE, `shared_preferences`, and `flutter_secure_storage`.
+State management uses Riverpod 3 with generated providers. Navigation uses `go_router`. HTTP and realtime transport use Dio and `socket_io_client`. Local persistence uses Drift for structured data (chats, notes, caches, outbox), `shared_preferences` for preferences, and `flutter_secure_storage` for credentials; residual Hive CE code is staged for removal.
 
 # Conventions
 

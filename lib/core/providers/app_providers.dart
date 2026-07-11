@@ -9,9 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
+import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../services/attachment_upload_queue.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
 import '../models/model.dart';
@@ -562,20 +562,36 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
   );
 });
 
-// Attachment upload queue provider
+// Attachment upload queue — one instance per active server.
+//
+// Constructs the queue and kicks off its (async) initialization against the
+// active server's API + Drift table. Consumers `await queue.ready` before
+// enqueueing so an upload never races the load; `ready` is owned by the queue
+// instance, so — unlike a `FutureProvider.future` — awaiting it cannot hang if
+// this provider rebuilds mid-initialization. The provider is also gated on the
+// authenticated state: logout flips `isAuthenticatedProvider2` false before its
+// first await, disposing the previous queue immediately even though the active
+// server (and ApiService object) is deliberately preserved. On server switch or
+// logout, `ref.onDispose` cancels in-flight uploads and closes the stream so
+// awaiting upload completers resolve via `onDone`. Null while unauthenticated,
+// in reviewer mode, or when there is no active server.
 final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
+  if (!ref.watch(isAuthenticatedProvider2)) return null;
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
 
   final queue = AttachmentUploadQueue();
-  // Re-runs when the API (and thus active server) changes, reloading the queue
-  // from the active server's Drift table.
-  queue.initialize(
+  ref.onDispose(queue.dispose);
+  // Readiness is exposed via `queue.ready`, awaited by callers. Attach an
+  // immediate error-consuming branch so a Drift load failure cannot surface as
+  // an uncaught fire-and-forget error; `queue.ready` retains the ORIGINAL
+  // future and still rejects, aborting the upload before enqueue.
+  final initialization = queue.initialize(
     onUpload: (filePath, fileName, {cancelToken}) =>
         api.uploadFile(filePath, fileName, cancelToken: cancelToken),
     database: () => ref.read(appDatabaseProvider),
   );
-
+  unawaited(initialization.catchError((Object _, StackTrace _) {}));
   return queue;
 });
 

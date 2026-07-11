@@ -1,6 +1,6 @@
 # Conduit Privacy Policy
 
-Effective date: 2025-08-09
+Effective date: 2026-07-03
 
 Conduit is an open‑source mobile client for Open‑WebUI. This app acts as a client to a server you choose and configure. This policy describes how the app itself handles data on your device. Your configured server may collect, process, and store data under its own policies; please review your server's privacy terms separately.
 
@@ -24,6 +24,12 @@ Depending on how you use Conduit, the app may request:
 - Microphone: to capture voice input when you opt in.
 - Photos/Files: to let you pick and upload attachments.
 - Network access: to connect to your configured server.
+- Location: to optionally attach your approximate location to chat requests
+  when you enable the location feature; requested only when you opt in and
+  sent only to your configured server.
+- Camera: to capture photos for attachments when you choose the camera option.
+- Speech recognition: to transcribe voice input on-device when you use voice
+  features; your speech is converted to text on your device when available.
 
 ## Third‑Party Services
 The app does not include third‑party analytics or advertising SDKs. Your configured server or extensions you use may rely on third‑party services subject to their own terms.

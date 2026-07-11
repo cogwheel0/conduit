@@ -33,6 +33,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/services/socket_service.dart';
 import '../../../core/services/streaming_response_controller.dart';
 import '../../../core/services/performance_profiler.dart';
+import '../../../core/services/conversation_parsing.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
@@ -529,7 +530,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (chat == null || !chat.bodySynced) {
         return;
       }
-      final conversation = assembleConversation(chat, rows);
+      final conversation = await assembleConversationGuarded(
+        chat,
+        rows,
+        offload: (envelope) => ref
+            .read(workerManagerProvider)
+            .schedule(
+              parseFullConversationModelWorker,
+              envelope,
+              debugLabel: 'chat.dbWatch.assembleConversation',
+            ),
+      );
       if (_disposed ||
           !ref.mounted ||
           generation != _dbMessagesGeneration ||

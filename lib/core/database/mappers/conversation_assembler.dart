@@ -16,6 +16,12 @@ import '../daos/chats_dao.dart';
 import '../daos/search_dao.dart';
 import 'chat_blob_mapper.dart';
 
+/// Message count above which assembly MUST be offloaded to a worker isolate.
+/// (`ApiService` uses a separate payload byte-size heuristic for the same
+/// purpose.) Single source of truth — `local_conversation_loader.dart`
+/// re-exports this constant for callers that already import from there.
+const int kLocalConversationWorkerThreshold = 100;
+
 /// Inverse of `ChatsDao.upsertServerChat`'s decomposition: rebuilds
 /// [ChatRows] from a [ChatRow] + its [MessageRow]s (payload jsonDecoded per
 /// row; bookkeeping from `blobMeta` per amendment A3; `'{}'` blobMeta -> all
@@ -83,10 +89,36 @@ Map<String, dynamic> buildChatResponseEnvelope(
 /// `parseFullConversationModel(buildChatResponseEnvelope(...))` — the parse
 /// entry point in `conversation_parsing.dart`.
 ///
-/// Call sites MUST offload via the existing WorkerManager worker entrypoint
-/// (`parseFullConversationModelWorker`) when `messages.length > 100`.
+/// **New call sites MUST use [assembleConversationGuarded] instead.**
+/// Raw calls here violate the worker contract when `messages.length >
+/// [kLocalConversationWorkerThreshold]` and will block the UI isolate on large
+/// conversations.
 Conversation assembleConversation(ChatRow chat, List<MessageRow> messages) {
   return parseFullConversationModel(buildChatResponseEnvelope(chat, messages));
+}
+
+/// Closure type for offloading a pre-built envelope to a worker isolate.
+/// The caller is responsible for routing through [parseFullConversationModelWorker]
+/// via [WorkerManager.schedule].
+typedef ConversationParseOffload = Future<Conversation> Function(
+  Object? envelope,
+);
+
+/// Contract-enforcing wrapper around [assembleConversation]: offloads via
+/// [offload] when `messages.length` exceeds [kLocalConversationWorkerThreshold],
+/// otherwise parses synchronously inline.
+///
+/// Callers that cannot supply an offload pass `null` and accept the documented
+/// jank risk (equivalent to the old raw [assembleConversation] call).
+Future<Conversation> assembleConversationGuarded(
+  ChatRow chat,
+  List<MessageRow> messages, {
+  required ConversationParseOffload? offload,
+}) {
+  if (offload != null && messages.length > kLocalConversationWorkerThreshold) {
+    return offload(buildChatResponseEnvelope(chat, messages));
+  }
+  return Future.value(assembleConversation(chat, messages));
 }
 
 /// Shared body-less summary builder. Timestamps are epoch SECONDS (scaled to
