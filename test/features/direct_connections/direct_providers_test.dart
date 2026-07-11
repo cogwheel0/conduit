@@ -386,6 +386,72 @@ void main() {
     );
   });
 
+  for (final disableProfile in [false, true]) {
+    test(
+      '${disableProfile ? 'disabled' : 'removed'} profile models disappear while other profiles rediscover',
+      () async {
+        final removed = _profile(id: 'profile-one', name: 'Removed');
+        final retained = _profile(id: 'profile-two', name: 'Retained');
+        final adapter = _RediscoveryGateAdapter();
+        FlutterSecureStorage.setMockInitialValues({
+          'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+            removed,
+            retained,
+          ]).encode(),
+        });
+        final container = _container(adapter);
+        addTearDown(container.dispose);
+        final discoverySubscription = container.listen(
+          directModelDiscoveryProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(discoverySubscription.close);
+
+        final initial = await container.read(
+          directModelDiscoveryProvider.future,
+        );
+        expect(initial.models, hasLength(2));
+        adapter.blockProfile(retained.id);
+
+        final profilesController = container.read(
+          directConnectionProfilesProvider.notifier,
+        );
+        if (disableProfile) {
+          await profilesController.setEnabled(removed.id, false);
+        } else {
+          await profilesController.remove(removed.id);
+        }
+        await adapter.rediscoveryStarted.future.timeout(
+          const Duration(seconds: 5),
+        );
+
+        final interim = container.read(directModelDiscoveryProvider).value;
+        expect(interim, isNotNull);
+        expect(interim!.models.map((item) => item.metadata?['profileId']), [
+          retained.id,
+        ]);
+        expect(interim.isRefreshing, isTrue);
+        expect(
+          container
+              .read(directModelRegistryProvider)
+              .resolveRegisteredId(
+                DirectModelId.encode(removed.id, 'model-${removed.id}'),
+              ),
+          isNull,
+        );
+
+        adapter.finishRediscovery();
+        final settled = await container.read(
+          directModelDiscoveryProvider.future,
+        );
+        expect(settled.models.map((item) => item.metadata?['profileId']), [
+          retained.id,
+        ]);
+      },
+    );
+  }
+
   test(
     'disposing during discovery does not read disposed notifier state',
     () async {
@@ -504,6 +570,43 @@ final class _OverlappingAdapter implements DirectProviderAdapter {
     listCalls++;
     if (listCalls == 1) return first.future;
     return Future.value([DirectRemoteModel(id: 'new-model')]);
+  }
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
+}
+
+final class _RediscoveryGateAdapter implements DirectProviderAdapter {
+  final Completer<void> rediscoveryStarted = Completer<void>();
+  final Completer<List<DirectRemoteModel>> _rediscovery = Completer();
+  String? _blockedProfileId;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  void blockProfile(String profileId) => _blockedProfileId = profileId;
+
+  void finishRediscovery() {
+    final profileId = _blockedProfileId;
+    if (!_rediscovery.isCompleted && profileId != null) {
+      _rediscovery.complete([DirectRemoteModel(id: 'model-$profileId')]);
+    }
+  }
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(DirectConnectionProfile profile) {
+    if (profile.id == _blockedProfileId) {
+      if (!rediscoveryStarted.isCompleted) rediscoveryStarted.complete();
+      return _rediscovery.future;
+    }
+    return Future.value([DirectRemoteModel(id: 'model-${profile.id}')]);
   }
 
   @override

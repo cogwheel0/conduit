@@ -248,59 +248,62 @@ class DirectConnectionProfilesController
     DirectRunRegistry registry,
     String profileId,
   ) async {
-    try {
-      await Future.wait(registry.cancelProfile(profileId));
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'Failed to finish direct-run cancellation after profile persistence',
-        scope: 'direct/profiles',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'profileId': profileId},
-      );
-    }
+    await _bestEffort(
+      () async {
+        await Future.wait(registry.cancelProfile(profileId));
+      },
+      'Failed to finish direct-run cancellation after profile persistence',
+      data: {'profileId': profileId},
+    );
   }
 
   Future<void> _cancelAllRunsBestEffort(DirectRunRegistry registry) async {
-    try {
-      await Future.wait(registry.cancelAll());
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'Failed to finish direct-run cancellation after clearing profiles',
-        scope: 'direct/profiles',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+    await _bestEffort(
+      () async => Future.wait(registry.cancelAll()),
+      'Failed to finish direct-run cancellation after clearing profiles',
+    );
   }
 
   void _removeProfileModelsBestEffort(
     DirectModelRegistry registry,
     String profileId,
   ) {
-    try {
-      registry.removeProfile(profileId);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'Failed to invalidate direct-model bindings after profile persistence',
-        scope: 'direct/profiles',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'profileId': profileId},
-      );
-    }
+    _bestEffort(
+      () => registry.removeProfile(profileId),
+      'Failed to invalidate direct-model bindings after profile persistence',
+      data: {'profileId': profileId},
+    );
   }
 
   void _clearModelsBestEffort(DirectModelRegistry registry) {
-    try {
-      registry.clear();
-    } catch (error, stackTrace) {
+    _bestEffort(
+      registry.clear,
+      'Failed to clear direct-model bindings after profile persistence',
+    );
+  }
+
+  FutureOr<void> _bestEffort(
+    FutureOr<void> Function() operation,
+    String message, {
+    Map<String, Object?>? data,
+  }) {
+    void logFailure(Object error, StackTrace stackTrace) {
       DebugLogger.error(
-        'Failed to clear direct-model bindings after profile persistence',
+        message,
         scope: 'direct/profiles',
         error: error,
         stackTrace: stackTrace,
+        data: data,
       );
+    }
+
+    try {
+      final result = operation();
+      if (result is Future<void>) {
+        return result.then<void>((_) {}, onError: logFailure);
+      }
+    } catch (error, stackTrace) {
+      logFailure(error, stackTrace);
     }
   }
 
@@ -353,7 +356,17 @@ class DirectModelDiscoveryController
   @override
   Future<DirectModelDiscoveryState> build() async {
     final generation = ++_discoveryGeneration;
-    final profiles = await ref.watch(directConnectionProfilesProvider.future);
+    // `.future` alone does not react to controller-owned data -> data
+    // publications. Invalidate on later profile transitions, but do not watch
+    // the initial loading -> data edge: this build is already awaiting that
+    // future and a second rebuild would duplicate provider discovery calls.
+    ref.listen<AsyncValue<List<DirectConnectionProfile>>>(
+      directConnectionProfilesProvider,
+      (previous, _) {
+        if (previous?.asData != null) ref.invalidateSelf();
+      },
+    );
+    final profiles = await ref.read(directConnectionProfilesProvider.future);
     return _discover(profiles, generation: generation);
   }
 
@@ -382,6 +395,14 @@ class DirectModelDiscoveryController
   }) async {
     final profiles = allProfiles.where((profile) => profile.enabled).toList();
     final activeIds = profiles.map((profile) => profile.id).toSet();
+    final registry = ref.read(directModelRegistryProvider)
+      ..retainProfiles(activeIds);
+
+    // Profile persistence invalidates route bindings before it publishes the
+    // new profile list. Hide models whose exact binding is no longer current
+    // before waiting for the remaining profiles to finish rediscovery; an
+    // unrelated slow provider must not keep a removed/disabled model visible.
+    _pruneStaleDiscoveryState(activeIds, registry);
 
     final outcomes = await Future.wait([
       for (final profile in profiles)
@@ -392,12 +413,6 @@ class DirectModelDiscoveryController
       return state.value ?? DirectModelDiscoveryState();
     }
 
-    final registry = ref.read(directModelRegistryProvider)
-      ..retainProfiles(activeIds);
-    _cache.removeWhere((id, _) => !activeIds.contains(id));
-    _profileSignatures.removeWhere((id, _) => !activeIds.contains(id));
-    _mintedModels.removeWhere((id, _) => !activeIds.contains(id));
-    _mintedModelProfiles.removeWhere((id, _) => !activeIds.contains(id));
     final models = <model.Model>[];
     final errors = <String, String>{};
     for (final outcome in outcomes) {
@@ -435,6 +450,37 @@ class DirectModelDiscoveryController
     return DirectModelDiscoveryState._withStableModels(
       models: stableModels,
       errorsByProfile: errors,
+    );
+  }
+
+  void _pruneStaleDiscoveryState(
+    Set<String> activeIds,
+    DirectModelRegistry registry,
+  ) {
+    _cache.removeWhere((id, _) => !activeIds.contains(id));
+    _profileSignatures.removeWhere((id, _) => !activeIds.contains(id));
+    _mintedModels.removeWhere((id, _) => !activeIds.contains(id));
+    _mintedModelProfiles.removeWhere((id, _) => !activeIds.contains(id));
+
+    final previous = state.value;
+    if (previous == null) return;
+    final retainedModels = previous.models
+        .where((item) => registry.resolve(item) != null)
+        .toList(growable: false);
+    final retainedErrors = <String, String>{
+      for (final entry in previous.errorsByProfile.entries)
+        if (activeIds.contains(entry.key)) entry.key: entry.value,
+    };
+    if (retainedModels.length == previous.models.length &&
+        retainedErrors.length == previous.errorsByProfile.length) {
+      return;
+    }
+    state = AsyncValue.data(
+      DirectModelDiscoveryState._withStableModels(
+        models: List<model.Model>.unmodifiable(retainedModels),
+        errorsByProfile: retainedErrors,
+        isRefreshing: true,
+      ),
     );
   }
 
