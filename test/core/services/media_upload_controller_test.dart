@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/attachment_upload_queue.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
@@ -300,6 +302,90 @@ void main() {
       expect(uploadQueue.queue, isEmpty);
     },
   );
+
+  test('queued image follows a model switch to OpenWebUI', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_media_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final first = File('${directory.path}/first.png');
+    final second = File('${directory.path}/second.png');
+    await first.writeAsBytes([1]);
+    await second.writeAsBytes([2]);
+
+    final registry = DirectModelRegistry();
+    final directModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'switch-media-profile',
+        name: 'Switch media provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      ),
+      [DirectRemoteModel(id: 'vision', isMultimodal: true)],
+    ).single;
+    const openWebUiModel = Model(id: 'server-model', name: 'Server model');
+
+    final firstEncodingStarted = Completer<void>();
+    final allowFirstEncoding = Completer<void>();
+    var encodeCalls = 0;
+    var uploadCalls = 0;
+    final uploadQueue = AttachmentUploadQueue();
+    await uploadQueue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploadCalls++;
+        return 'server-file-$uploadCalls';
+      },
+      database: () => null,
+    );
+    addTearDown(uploadQueue.dispose);
+
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directImageDataUrlEncoderProvider.overrideWithValue((file) async {
+          encodeCalls++;
+          if (encodeCalls == 1) {
+            firstEncodingStarted.complete();
+            await allowFirstEncoding.future;
+          }
+          return 'data:image/png;base64,AQ==';
+        }),
+        attachmentUploadQueueProvider.overrideWithValue(uploadQueue),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(first, reportedBytes: 1),
+            _pendingImage(second, reportedBytes: 1),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(directModel);
+
+    final firstUpload = container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: first.path, fileName: 'first.png', fileSize: 1);
+    await firstEncodingStarted.future;
+    final secondUpload = container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: second.path, fileName: 'second.png', fileSize: 1);
+    await Future<void>.delayed(Duration.zero);
+
+    container.read(selectedModelProvider.notifier).set(openWebUiModel);
+    allowFirstEncoding.complete();
+    await Future.wait([firstUpload, secondUpload]);
+
+    expect(encodeCalls, 1);
+    expect(uploadCalls, 1);
+    final byPath = {
+      for (final attachment in container.read(attachedFilesProvider))
+        attachment.file.path: attachment,
+    };
+    expect(byPath[first.path]?.fileId, startsWith('data:image/'));
+    expect(byPath[second.path]?.fileId, 'server-file-1');
+    expect(byPath[second.path]?.base64DataUrl, isNull);
+  });
 }
 
 ProviderContainer _directContainer({

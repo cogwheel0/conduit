@@ -142,25 +142,34 @@ class MediaUploadController {
     final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
 
     final selectedModel = _ref.read(selectedModelProvider);
-    final directBinding = selectedModel == null
-        ? null
-        : _ref.read(directModelRegistryProvider).resolve(selectedModel);
-    final reservedDirectIdentity =
-        selectedModel != null && hasReservedDirectIdentity(selectedModel);
-    if (reservedDirectIdentity) {
-      if (directBinding == null) {
-        throw const DirectChatInputException(
-          'The selected direct model is no longer available.',
-        );
-      }
-      await _directImagePreparationLock.synchronized(
-        () => _prepareDirectImage(
-          filePath: filePath,
-          isImage: isImage,
-          selectedModelSupportsImages: selectedModel.isMultimodal == true,
-        ),
+    if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+      final preparedDirect = await _directImagePreparationLock.synchronized(
+        () async {
+          // Waiting for an earlier image can outlive a model switch. Resolve
+          // the route only after this upload owns the preparation lock so a
+          // queued item cannot write a direct data URL into an OpenWebUI send.
+          final currentModel = _ref.read(selectedModelProvider);
+          if (currentModel == null ||
+              !hasReservedDirectIdentity(currentModel)) {
+            return false;
+          }
+          final directBinding = _ref
+              .read(directModelRegistryProvider)
+              .resolve(currentModel);
+          if (directBinding == null) {
+            throw const DirectChatInputException(
+              'The selected direct model is no longer available.',
+            );
+          }
+          await _prepareDirectImage(
+            filePath: filePath,
+            isImage: isImage,
+            selectedModelSupportsImages: currentModel.isMultimodal == true,
+          );
+          return true;
+        },
       );
-      return;
+      if (preparedDirect) return;
     }
 
     // Upload all files (including images) to the server — mirrors OpenWebUI:
