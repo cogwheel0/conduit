@@ -35,6 +35,56 @@ void main() {
     expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
     expect(find.byKey(const Key('workspace-tab-tools')), findsOneWidget);
     expect(find.byKey(const Key('workspace-tab-skills')), findsNothing);
+    // The permission-gated create affordance renders for a manageable section.
+    expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
+  });
+
+  testWidgets('compact shell switches sections through the segmented control', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: WorkspaceSection.models.path,
+      routes: [
+        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+          GoRoute(
+            path: section.path,
+            builder: (_, _) => WorkspacePage(section: section),
+          ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => _capabilities,
+          ),
+          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('workspace-tab-tools')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-list-models')), findsNothing);
   });
 
   testWidgets('tablet shell keeps section rail, list, and detail placeholder', (
@@ -181,6 +231,27 @@ class _TestWorkspaceModels extends WorkspaceModels {
     return const WorkspaceCollectionState(
       items: [
         WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
+      ],
+      total: 1,
+    );
+  }
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<void> loadMore() async {}
+
+  @override
+  Future<void> setQuery(String query) async {}
+}
+
+class _TestWorkspaceTools extends WorkspaceTools {
+  @override
+  Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {
+    return const WorkspaceCollectionState(
+      items: [
+        WorkspaceToolSummary(id: 'tool-1', name: 'Tool 1', userId: 'user-1'),
       ],
       total: 1,
     );
