@@ -8,6 +8,8 @@ import '../../shared/theme/tweakcn_themes.dart';
 import '../models/model.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
 import '../utils/debug_logger.dart';
 import '../utils/model_icon_utils.dart';
 import '../utils/model_sort_utils.dart';
@@ -61,9 +63,11 @@ class NativeSheetHydrationService {
     final pinnedModelIds = allowsPinning
         ? _ref.read(effectivePinnedModelIdsProvider)
         : const <String>[];
+    // The Hermes agent has its own dedicated tab; never list it in the picker.
+    final pickerModels = models.where((m) => !isHermesModel(m)).toList();
     final orderedModels = allowsPinning
-        ? sortModelsWithPinnedOrder(models, pinnedModelIds)
-        : List<Model>.of(models, growable: false);
+        ? sortModelsWithPinnedOrder(pickerModels, pinnedModelIds)
+        : List<Model>.of(pickerModels, growable: false);
     final canTogglePinnedModels =
         allowsPinning && _ref.read(canTogglePinnedModelsProvider);
 
@@ -126,6 +130,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.aiMemory:
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
         return;
+      case NativeSheetRoutes.hermes:
+        await _hydrateNativeHermesDetail(ctx, l10n);
+        return;
       case NativeSheetRoutes.voice:
         await _hydrateNativeVoiceDetail(l10n);
         return;
@@ -175,10 +182,13 @@ class NativeSheetHydrationService {
     String detailId = NativeSheetRoutes.about,
   }) async {
     try {
-      final packageInfoFuture = _ref.read(packageInfoProvider.future);
-      final aboutFuture = _ref.read(serverAboutInfoProvider.future);
-      final packageInfo = await packageInfoFuture;
-      final about = await aboutFuture;
+      // Hermes-only has no Open WebUI server, so skip the server lookup and omit
+      // the server name/version rows entirely.
+      final hermesOnly = _ref.read(hermesOnlyModeProvider);
+      final packageInfo = await _ref.read(packageInfoProvider.future);
+      final about = hermesOnly
+          ? null
+          : await _ref.read(serverAboutInfoProvider.future);
       if (!context.mounted) return;
 
       final appVersionLabel = packageInfo.buildNumber.isEmpty
@@ -205,20 +215,22 @@ class NativeSheetHydrationService {
               sfSymbol: 'app.badge',
               kind: NativeSheetItemKind.info,
             ),
-            NativeSheetItemConfig(
-              id: 'server-name',
-              title: l10n.serverNameLabel,
-              subtitle: serverName,
-              sfSymbol: 'server.rack',
-              kind: NativeSheetItemKind.info,
-            ),
-            NativeSheetItemConfig(
-              id: 'server-version',
-              title: l10n.serverVersionLabel,
-              subtitle: serverVersion,
-              sfSymbol: 'number',
-              kind: NativeSheetItemKind.info,
-            ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: 'server-name',
+                title: l10n.serverNameLabel,
+                subtitle: serverName,
+                sfSymbol: 'server.rack',
+                kind: NativeSheetItemKind.info,
+              ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: 'server-version',
+                title: l10n.serverVersionLabel,
+                subtitle: serverVersion,
+                sfSymbol: 'number',
+                kind: NativeSheetItemKind.info,
+              ),
             NativeSheetItemConfig(
               id: 'github',
               title: l10n.githubRepository,
@@ -551,6 +563,110 @@ class NativeSheetHydrationService {
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.notificationSettings,
+        l10n.unableToLoadOpenWebuiSettings,
+      );
+    }
+  }
+
+  Future<void> _hydrateNativeHermesDetail(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    try {
+      final config = _ref.read(hermesConfigProvider);
+      final hasApiKey = config.apiKey?.isNotEmpty ?? false;
+      final hasSessionKey = config.sessionKey?.isNotEmpty ?? false;
+
+      final items = <NativeSheetItemConfig>[
+        NativeSheetItemConfig(
+          id: 'hermes-enabled',
+          title: l10n.hermesEnableTitle,
+          subtitle: l10n.hermesEnableSubtitle,
+          sfSymbol: 'sparkles',
+          kind: NativeSheetItemKind.toggle,
+          value: config.enabled,
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-base-url',
+          title: l10n.hermesServerUrlTitle,
+          sfSymbol: 'link',
+          kind: NativeSheetItemKind.textField,
+          value: config.baseUrl,
+          placeholder: 'http://192.168.1.10:8642',
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-api-key',
+          title: l10n.hermesApiKeyTitle,
+          sfSymbol: 'key',
+          kind: NativeSheetItemKind.secureTextField,
+          value: '',
+          placeholder: hasApiKey
+              ? l10n.hermesConfiguredReplacePlaceholder
+              : l10n.hermesApiKeyPlaceholder,
+        ),
+        NativeSheetItemConfig(
+          id: 'hermes-session-key',
+          title: l10n.hermesMemoryKeyTitle,
+          sfSymbol: 'brain',
+          kind: NativeSheetItemKind.secureTextField,
+          value: '',
+          placeholder: hasSessionKey
+              ? l10n.hermesConfiguredReplacePlaceholder
+              : l10n.hermesMemoryKeyPlaceholder,
+        ),
+      ];
+
+      // Best-effort capabilities summary once the server is reachable.
+      if (config.isUsable) {
+        try {
+          final caps = await _ref.read(hermesCapabilitiesProvider.future);
+          if (!context.mounted) return;
+          final supported = <String>[
+            if (caps.runApproval) l10n.hermesCapabilityApproval,
+            if (caps.skills) l10n.hermesCapabilitySkills,
+            if (caps.toolsets) l10n.hermesCapabilityToolsets,
+            if (caps.jobs) l10n.hermesCapabilityJobs,
+            if (caps.sessions) l10n.hermesCapabilitySessions,
+          ];
+          items.add(
+            NativeSheetItemConfig(
+              id: 'hermes-capabilities-info',
+              title: l10n.hermesCapabilitiesTitle,
+              subtitle: supported.isEmpty ? '—' : supported.join(' · '),
+              sfSymbol: 'checkmark.seal',
+              kind: NativeSheetItemKind.info,
+            ),
+          );
+        } catch (_) {}
+      }
+
+      items.add(
+        NativeSheetItemConfig(
+          id: 'hermes-tab-info',
+          title: l10n.hermesTabInfoTitle,
+          subtitle: l10n.hermesTabInfoSubtitle,
+          sfSymbol: 'sidebar.left',
+          kind: NativeSheetItemKind.info,
+        ),
+      );
+
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.hermes,
+          title: l10n.hermesAgentSettingsTitle,
+          subtitle: l10n.hermesNativeSettingsSubtitle,
+          items: items,
+        ),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-hermes-hydration-failed',
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await _patchNativeDetailError(
+        NativeSheetRoutes.hermes,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }

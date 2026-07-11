@@ -24,6 +24,8 @@ import '../providers/knowledge_cache_provider.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
+import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -682,12 +684,32 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!wasShowing && shouldShow) {
       // Trigger data fetch lazily when overlay first appears.
       if (_currentPromptCommand.startsWith('/')) {
-        ref.read(promptsListProvider.future);
+        if (_hermesCommandsActive) {
+          ref.read(hermesSkillPromptsProvider.future);
+        } else {
+          ref.read(promptsListProvider.future);
+        }
       } else if (_currentPromptCommand.startsWith('@')) {
         ref.read(modelsProvider.future);
       }
     }
   }
+
+  /// Whether the active model routes `/` commands to Hermes skills instead of
+  /// OpenWebUI prompts. Requires the server to advertise the skills capability
+  /// (optimistic default while capabilities load).
+  bool get _hermesCommandsActive {
+    final model = ref.read(selectedModelProvider);
+    if (model == null || !isHermesModel(model)) return false;
+    final caps = ref.read(hermesCapabilitiesProvider).asData?.value;
+    return caps?.skills ?? true;
+  }
+
+  /// The current base prompt list for the `/` overlay, from the source matching
+  /// the active model (Hermes skills or OpenWebUI prompts).
+  List<Prompt>? get _activePromptListValue => _hermesCommandsActive
+      ? ref.read(hermesSkillPromptsProvider).value
+      : ref.read(promptsListProvider).value;
 
   PromptCommandMatch? _resolvePromptCommand(
     String text,
@@ -1103,7 +1125,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (models == null || models.isEmpty) return;
       filteredLength = _filterModels(models).length;
     } else {
-      final List<Prompt>? prompts = ref.read(promptsListProvider).value;
+      final List<Prompt>? prompts = _activePromptListValue;
       if (prompts == null || prompts.isEmpty) return;
       filteredLength = _filterPrompts(prompts).length;
     }
@@ -1147,8 +1169,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
 
-    final AsyncValue<List<Prompt>> promptsAsync = ref.read(promptsListProvider);
-    final List<Prompt>? prompts = promptsAsync.value;
+    final List<Prompt>? prompts = _activePromptListValue;
     if (prompts == null || prompts.isEmpty) return;
 
     final List<Prompt> filtered = _filterPrompts(prompts);
@@ -1521,6 +1542,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final borderColor = context.conduitTheme.cardBorder.withValues(
       alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
     );
+    final selectedModel = ref.watch(selectedModelProvider);
+    final hermesCapabilities = ref
+        .watch(hermesCapabilitiesProvider)
+        .asData
+        ?.value;
+    final useHermesSkills =
+        selectedModel != null &&
+        isHermesModel(selectedModel) &&
+        (hermesCapabilities?.skills ?? true);
 
     if (_currentPromptCommand.startsWith('#')) {
       return _buildContextSuggestionOverlay(context, overlayColor, borderColor);
@@ -1533,6 +1563,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
     return PromptSuggestionOverlay(
+      useHermesSkills: useHermesSkills,
       filteredPrompts: _filterPrompts,
       selectionIndex: _promptSelectionIndex,
       onPromptSelected: _applyPrompt,
@@ -1776,6 +1807,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
+    // Hermes is a single-agent backend with no OWUI tools/web-search/attachments;
+    // suppress the OWUI keyboard-accessory actions for it.
+    final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null && isHermesModel(selectedModel)) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
+
     return buildComposerOverflowItems(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
@@ -1840,6 +1878,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
       final actions = _currentNativeKeyboardAttachmentActions(l10n: l10n);
       if (actions.isEmpty) {
+        // An empty configuration is intentionally ignored by the bridge. Hide
+        // an already-open panel when the newly selected model (for example,
+        // Hermes) supports no native attachment actions.
+        unawaited(IosKeyboardAttachmentBridge.instance.hide());
         return;
       }
 
@@ -1954,6 +1996,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen<Model?>(selectedModelProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
 
     // Use dedicated streaming provider to avoid rebuilding on every message change
     final isGenerating = ref.watch(isChatStreamingProvider);
@@ -2014,6 +2059,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         (model) => model?.filters ?? const <ToggleFilter>[],
       ),
     );
+    // Hermes is a single-agent backend with no OWUI tools/web-search/image-gen/
+    // attachments; it uses its own `/` skills. Hide the OWUI composer affordances
+    // (the "+" overflow button and the quick pills) when a Hermes model is active.
+    final bool isHermesComposer = ref.watch(
+      selectedModelProvider.select((m) => m != null && isHermesModel(m)),
+    );
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -2050,6 +2101,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
+      if (isHermesComposer) break; // Hermes has no OWUI quick pills.
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2248,15 +2300,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
           child: Row(
             children: [
-              if (_isRecording)
-                _buildDictationStopButton(size: 36.0)
-              else
+              if (_isRecording) ...[
+                _buildDictationStopButton(size: 36.0),
+                const SizedBox(width: Spacing.xs),
+              ] else if (!isHermesComposer) ...[
                 _buildOverflowButton(
                   tooltip: l10n.more,
                   dense: true,
                   nativeActions: nativeAttachmentActions,
                 ),
-              const SizedBox(width: Spacing.xs),
+                const SizedBox(width: Spacing.xs),
+              ],
               Expanded(
                 child: ClipRect(
                   child: SingleChildScrollView(
@@ -2417,14 +2471,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.center,
               children: [
-                if (_isRecording)
-                  _buildDictationStopButton()
-                else
+                if (_isRecording) ...[
+                  _buildDictationStopButton(),
+                  const SizedBox(width: Spacing.sm),
+                ] else if (!isHermesComposer) ...[
                   _buildOverflowButton(
                     tooltip: l10n.more,
                     nativeActions: nativeAttachmentActions,
                   ),
-                const SizedBox(width: Spacing.sm),
+                  const SizedBox(width: Spacing.sm),
+                ],
                 Expanded(
                   child: _wrapIosSurfaceShadow(
                     textFieldShell,

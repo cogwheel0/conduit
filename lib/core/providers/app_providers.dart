@@ -9,9 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
+import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
-import '../services/attachment_upload_queue.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
 import '../models/model.dart';
@@ -39,6 +39,8 @@ import '../services/worker_manager.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
@@ -562,20 +564,36 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
   );
 });
 
-// Attachment upload queue provider
+// Attachment upload queue — one instance per active server.
+//
+// Constructs the queue and kicks off its (async) initialization against the
+// active server's API + Drift table. Consumers `await queue.ready` before
+// enqueueing so an upload never races the load; `ready` is owned by the queue
+// instance, so — unlike a `FutureProvider.future` — awaiting it cannot hang if
+// this provider rebuilds mid-initialization. The provider is also gated on the
+// authenticated state: logout flips `isAuthenticatedProvider2` false before its
+// first await, disposing the previous queue immediately even though the active
+// server (and ApiService object) is deliberately preserved. On server switch or
+// logout, `ref.onDispose` cancels in-flight uploads and closes the stream so
+// awaiting upload completers resolve via `onDone`. Null while unauthenticated,
+// in reviewer mode, or when there is no active server.
 final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
+  if (!ref.watch(isAuthenticatedProvider2)) return null;
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
 
   final queue = AttachmentUploadQueue();
-  // Re-runs when the API (and thus active server) changes, reloading the queue
-  // from the active server's Drift table.
-  queue.initialize(
+  ref.onDispose(queue.dispose);
+  // Readiness is exposed via `queue.ready`, awaited by callers. Attach an
+  // immediate error-consuming branch so a Drift load failure cannot surface as
+  // an uncaught fire-and-forget error; `queue.ready` retains the ORIGINAL
+  // future and still rejects, aborting the upload before enqueue.
+  final initialization = queue.initialize(
     onUpload: (filePath, fileName, {cancelToken}) =>
         api.uploadFile(filePath, fileName, cancelToken: cancelToken),
     database: () => ref.read(appDatabaseProvider),
   );
-
+  unawaited(initialization.catchError((Object _, StackTrace _) {}));
   return queue;
 });
 
@@ -697,6 +715,17 @@ final refreshAuthStateProvider = Provider<void>((ref) {
 });
 
 // Model providers
+@visibleForTesting
+List<Model> appendHermesModelIfUsable(
+  List<Model> models, {
+  required bool hermesUsable,
+}) {
+  final safeModels = sanitizeRemoteHermesModels(models);
+  return hermesUsable
+      ? <Model>[...safeModels, hermesSyntheticModel()]
+      : safeModels;
+}
+
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
   @override
@@ -706,12 +735,40 @@ class Models extends _$Models {
       return _demoModels();
     }
 
-    if (!ref.watch(isAuthenticatedProvider2)) {
-      DebugLogger.log('skip-unauthed', scope: 'models');
-      _persistModelsAsync(const <Model>[]);
-      return const [];
+    final hermesUsable = ref.watch(
+      hermesConfigProvider.select((config) => config.isUsable),
+    );
+    ref.listen<bool>(hermesConfigProvider.select((config) => config.isUsable), (
+      previous,
+      next,
+    ) {
+      if (!next) _clearHermesSelection();
+    });
+    if (!hermesUsable) {
+      // A build cannot synchronously mutate another provider. Queue the clear
+      // before any model fetch so a failed cache/API load still fails closed.
+      unawaited(
+        Future<void>(() {
+          if (ref.mounted && !ref.read(hermesConfigProvider).isUsable) {
+            _clearHermesSelection();
+          }
+        }),
+      );
     }
 
+    if (!ref.watch(isAuthenticatedProvider2)) {
+      // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
+      // just the synthetic Hermes model so the picker/composer work.
+      if (hermesUsable) {
+        return _withHermes(const <Model>[]);
+      }
+      DebugLogger.log('skip-unauthed', scope: 'models');
+      _persistModelsAsync(const <Model>[]);
+      return const <Model>[];
+    }
+
+    // Re-run whenever Hermes connection usability changes so the synthetic
+    // model cannot outlive (or appear before) its configured service.
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
       final cached = await storage.getLocalModels();
@@ -740,7 +797,7 @@ class Models extends _$Models {
             );
           }
         });
-        return visibleCached;
+        return _withHermes(visibleCached);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -755,37 +812,87 @@ class Models extends _$Models {
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return const [];
+      return _withHermes(const <Model>[]);
     }
 
     final fresh = await _load(api);
-    return fresh;
+    return _withHermes(fresh);
+  }
+
+  /// Appends the synthetic Hermes agent model when the connection is usable.
+  /// Called after OpenWebUI models are persisted so Hermes never lands in the
+  /// model cache, and guarded against duplicates on rebuild.
+  List<Model> _withHermes(List<Model> models) {
+    return appendHermesModelIfUsable(
+      models,
+      hermesUsable: ref.read(hermesConfigProvider).isUsable,
+    );
+  }
+
+  /// Prevents a disabled or incomplete Hermes connection from leaving the
+  /// composer bound to a transport that can no longer handle the selection.
+  /// Prefer the first available OpenWebUI model; Hermes-only mode clears it.
+  List<Model> _reconcileHermesSelection(List<Model> models) {
+    final currentSelected = ref.read(selectedModelProvider);
+    if (currentSelected == null ||
+        !isHermesModel(currentSelected) ||
+        models.any(isHermesModel)) {
+      return models;
+    }
+
+    final replacement = models.isNotEmpty ? models.first : null;
+    ref.read(isManualModelSelectionProvider.notifier).set(false);
+    ref.read(selectedModelProvider.notifier).set(replacement);
+    DebugLogger.warning(
+      'hermes-selection-unavailable',
+      scope: 'models',
+      data: {'replacement': replacement?.id},
+    );
+    return models;
+  }
+
+  void _clearHermesSelection() {
+    final currentSelected = ref.read(selectedModelProvider);
+    if (currentSelected == null || !isHermesModel(currentSelected)) return;
+
+    ref.read(isManualModelSelectionProvider.notifier).set(false);
+    ref.read(selectedModelProvider.notifier).clear();
+    DebugLogger.warning('hermes-selection-unavailable', scope: 'models');
   }
 
   Future<void> refresh() async {
     if (ref.read(reviewerModeProvider)) {
-      state = AsyncData<List<Model>>(_demoModels());
+      state = AsyncData<List<Model>>(_reconcileHermesSelection(_demoModels()));
       return;
     }
     if (!ref.read(isAuthenticatedProvider2)) {
-      state = const AsyncData<List<Model>>(<Model>[]);
+      final models = ref.read(hermesConfigProvider).isUsable
+          ? _withHermes(const <Model>[])
+          : const <Model>[];
+      state = AsyncData<List<Model>>(_reconcileHermesSelection(models));
+      // Keep the locally minted Hermes sentinel runtime-only.
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      state = const AsyncData<List<Model>>(<Model>[]);
+      state = AsyncData<List<Model>>(
+        _reconcileHermesSelection(_withHermes(const <Model>[])),
+      );
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
-    state = result;
+    final withHermes = result.whenData(
+      (models) => _reconcileHermesSelection(_withHermes(models)),
+    );
+    state = withHermes;
 
     // Update selected model with fresh data (e.g., filters) if it exists
     // in the new models list
-    if (result.hasValue) {
-      final freshModels = result.value!;
+    if (withHermes.hasValue) {
+      final freshModels = withHermes.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
         if (currentSelected.isHidden) {
@@ -825,7 +932,7 @@ class Models extends _$Models {
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
-      final visibleModels = _visibleModels(models);
+      final visibleModels = sanitizeRemoteHermesModels(_visibleModels(models));
       DebugLogger.log(
         'fetch-ok',
         scope: 'models',
@@ -849,8 +956,10 @@ class Models extends _$Models {
       if (e.toString().contains('403')) {
         DebugLogger.warning('endpoint-403', scope: 'models');
       }
-
-      return const [];
+      // Preserve an existing selection on transient refresh failures. Returning
+      // an empty list here makes the synthetic Hermes model look like the only
+      // successful result and can silently switch an OpenWebUI conversation.
+      rethrow;
     }
   }
 
@@ -1925,6 +2034,22 @@ Future<Model?> defaultModel(Ref ref) async {
 
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
+    // Hermes-only mode: auto-select the synthetic Hermes agent model.
+    if (ref.watch(hermesConfigProvider.select((config) => config.isUsable))) {
+      final models = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      Model? hermes;
+      for (final model in models) {
+        if (isHermesModel(model)) {
+          hermes = model;
+          break;
+        }
+      }
+      if (hermes != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(hermes);
+      }
+      return hermes;
+    }
     DebugLogger.warning('no-api', scope: 'models/default');
     return null;
   }
@@ -1993,14 +2118,7 @@ Future<Model?> defaultModel(Ref ref) async {
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final models = await api.getModels();
         if (!ref.mounted) return null;
-        Model? resolved;
-        try {
-          resolved = models.firstWhere((m) => m.id == serverDefault);
-        } catch (_) {
-          final byName = models.where((m) => m.name == serverDefault).toList();
-          if (byName.length == 1) resolved = byName.first;
-        }
-        resolved ??= models.isNotEmpty ? models.first : null;
+        final resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
 
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
           ref.read(selectedModelProvider.notifier).set(resolved);
@@ -2063,6 +2181,26 @@ Future<Model?> defaultModel(Ref ref) async {
     DebugLogger.error('set-default-failed', scope: 'models/default', error: e);
     return null;
   }
+}
+
+/// Resolves a server-provided default only after removing identities reserved
+/// for Conduit's locally minted Hermes transport.
+@visibleForTesting
+Model? resolveSafeRemoteDefaultModel(
+  List<Model> remoteModels,
+  String? serverDefault,
+) {
+  final models = sanitizeRemoteHermesModels(remoteModels);
+  if (models.isEmpty) return null;
+
+  if (serverDefault != null && serverDefault.isNotEmpty) {
+    for (final model in models) {
+      if (model.id == serverDefault) return model;
+    }
+    final byName = models.where((m) => m.name == serverDefault).toList();
+    if (byName.length == 1) return byName.first;
+  }
+  return models.first;
 }
 
 // Background model loading provider that doesn't block UI
@@ -3916,9 +4054,9 @@ Future<Model?> selectCachedModel(
   String? desiredModelId,
 ) async {
   try {
-    final cachedModels = (await storage.getLocalModels())
-        .where((model) => !model.isHidden)
-        .toList();
+    final cachedModels = sanitizeRemoteHermesModels(
+      await storage.getLocalModels(),
+    ).where((model) => !model.isHidden).toList();
     if (cachedModels.isEmpty) return null;
 
     Model? match;

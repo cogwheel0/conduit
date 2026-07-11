@@ -9,10 +9,10 @@ import '../utils/debug_logger.dart';
 import 'database_provider.dart';
 import 'mappers/conversation_assembler.dart';
 
-/// Message count above which assembly is offloaded to the worker isolate.
-/// (`ApiService` uses a separate payload byte-size heuristic for the same
-/// purpose.)
-const int kLocalConversationWorkerThreshold = 100;
+// kLocalConversationWorkerThreshold is defined in
+// mappers/conversation_assembler.dart and re-exported here for callers that
+// already import local_conversation_loader.dart. Do NOT redeclare it.
+export 'mappers/conversation_assembler.dart' show kLocalConversationWorkerThreshold;
 
 /// Fire-and-forget background pull for one chat. Best-effort freshening:
 /// swallows every failure (engine unavailable, network down) so DB-first

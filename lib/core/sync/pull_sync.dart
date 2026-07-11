@@ -75,20 +75,28 @@ class PullSync {
   /// pull completes the remap (folding the `local:` row into the server row)
   /// instead of inserting a duplicate. When null (read-path-only tests) the
   /// heal is skipped and merges proceed verbatim.
+  ///
+  /// [parseOffload] enables worker-isolate offloading for large conversations
+  /// (see [assembleConversationGuarded]). When null, assembly runs synchronously
+  /// on the calling isolate — safe for tests, jank-risk for production pulls
+  /// with large message counts.
   PullSync({
     required SyncApiClient client,
     required AppDatabase db,
     required ConversationLocks locks,
     IdRemapper? remapper,
+    ConversationParseOffload? parseOffload,
   }) : _client = client,
        _db = db,
        _locks = locks,
-       _remapper = remapper;
+       _remapper = remapper,
+       _parseOffload = parseOffload;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final ConversationLocks _locks;
   final IdRemapper? _remapper;
+  final ConversationParseOffload? _parseOffload;
 
   /// Runs one pull cycle. The watermark advances only when every list page
   /// and every chat fetch succeeded (REQ 5); on any failure it stays frozen
@@ -348,7 +356,11 @@ class PullSync {
       final chat = await _db.chatsDao.getChat(id);
       if (chat == null) return null;
       final messages = await _db.messagesDao.getForChat(id);
-      return assembleConversation(chat, messages);
+      return assembleConversationGuarded(
+        chat,
+        messages,
+        offload: _parseOffload,
+      );
     });
   }
 

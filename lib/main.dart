@@ -26,6 +26,7 @@ import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 import 'features/auth/providers/unified_auth_providers.dart';
+import 'features/hermes/providers/hermes_providers.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -334,6 +335,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   ) async {
     final value = event.value;
     try {
+      // Hermes-only: "Connect to Open WebUI" switch entry. Dismiss the native
+      // sheet and route into the OWUI connect flow (the router allows the
+      // serverConnection route for Hermes-only users).
+      if (event.id == 'add-owui-server') {
+        await NativeSheetBridge.instance.dismiss();
+        await NavigationService.navigateTo(Routes.serverConnection);
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;
@@ -457,6 +467,22 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(personalizationSettingsProvider.notifier)
                 .setMemoryEnabled(value);
+          }
+        case 'hermes-enabled':
+          if (value is bool) {
+            await ref.read(hermesConfigProvider.notifier).setEnabled(value);
+          }
+        case 'hermes-base-url':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setBaseUrl(value);
+          }
+        case 'hermes-api-key':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setApiKey(value);
+          }
+        case 'hermes-session-key':
+          if (value is String) {
+            await ref.read(hermesConfigProvider.notifier).setSessionKey(value);
           }
         case 'system-prompt':
           if (value is String) {

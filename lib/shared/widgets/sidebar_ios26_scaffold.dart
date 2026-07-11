@@ -17,14 +17,14 @@ import 'package:flutter/widgets.dart';
 class SidebarIos26Scaffold extends StatelessWidget {
   const SidebarIos26Scaffold({
     super.key,
-    required this.bottomNavigationBar,
+    this.bottomNavigationBar,
     required this.body,
     this.leading,
     this.actions,
     this.minimizeBehavior = TabBarMinimizeBehavior.never,
   });
 
-  final AdaptiveBottomNavigationBar bottomNavigationBar;
+  final AdaptiveBottomNavigationBar? bottomNavigationBar;
   final Widget body;
   final Widget? leading;
   final List<AdaptiveAppBarAction>? actions;

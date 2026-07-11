@@ -20,13 +20,18 @@ import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/models/hermes_job.dart';
+import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +44,12 @@ Finder _sidebarBottomNavTabLabel(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
 void main() {
+  test('Hermes profile host fallback comes from localizations', () {
+    check(
+      AppLocalizationsEn().hermesSelfHostedAgentLabel,
+    ).equals('Self-hosted agent');
+  });
+
   testWidgets(
     'renders without TabBarView and shows chats as active by default',
     (tester) async {
@@ -203,6 +214,72 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesOnly: true,
+        hermesEnabled: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HermesSessionsTab), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets(
+    'Hermes-only mode keeps its sole tab while enabled state is settling',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          hermesOnly: true,
+          hermesEnabled: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HermesSessionsTab), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Hermes sidebar uses one scheduled-agents launcher tile', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesOnly: true,
+        hermesEnabled: true,
+        hermesJobs: const [
+          HermesJob(
+            id: 'daily-summary',
+            name: 'Daily summary',
+            prompt: 'Summarize updates',
+            schedule: '0 9 * * *',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('hermes-scheduled-agents-tile')),
+      findsOneWidget,
+    );
+    expect(find.text('1 active · 1 schedule'), findsOneWidget);
+    expect(find.text('Daily summary'), findsNothing);
+    expect(find.text('0 9 * * *'), findsNothing);
   });
 
   testWidgets('hides terminal tab when no terminal servers are available', (
@@ -420,6 +497,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
+  });
+
+  testWidgets('Hermes-only profile entry renders without an OpenWebUI user', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+      findsOneWidget,
+    );
+    expect(find.byType(UserAvatar), findsOneWidget);
   });
 
   testWidgets('sidebar material app bar uses the compact toolbar height', (
@@ -805,6 +909,9 @@ Widget _buildSidebarHarness({
   List<TerminalServerInfo>? terminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  bool hermesOnly = false,
+  bool hermesEnabled = false,
+  List<HermesJob> hermesJobs = const [],
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -873,6 +980,12 @@ Widget _buildSidebarHarness({
       showRecentProvider.overrideWith(_TestShowRecentNotifier.new),
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
+      hermesOnlyModeProvider.overrideWithValue(hermesOnly),
+      hermesEnabledProvider.overrideWithValue(hermesEnabled),
+      hermesApiServiceProvider.overrideWithValue(null),
+      hermesJobsProvider.overrideWith(
+        () => _TestHermesJobsController(hermesJobs),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       notesFeatureEnabledProvider.overrideWith(() => controllers.notesNotifier),
       // ignore: scoped_providers_should_specify_dependencies
@@ -915,6 +1028,15 @@ List<TerminalServerInfo> _defaultTerminalServers() {
       name: 'Test Terminal 2',
     ),
   ];
+}
+
+class _TestHermesJobsController extends HermesJobsController {
+  _TestHermesJobsController(this.jobs);
+
+  final List<HermesJob> jobs;
+
+  @override
+  Future<List<HermesJob>> build() async => jobs;
 }
 
 class _SidebarHarnessControllers {

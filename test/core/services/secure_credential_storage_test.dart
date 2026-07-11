@@ -8,6 +8,8 @@ const _credentialsKey = 'user_credentials_v2';
 const _authTokenKey = 'auth_token_v2';
 const _serverConfigsKey = 'server_configs_v2';
 const _availabilityKey = 'test_availability';
+const _hermesApiKey = 'hermes_api_key_v1';
+const _hermesSessionKey = 'hermes_session_key_v1';
 
 void main() {
   late _FakeSecureStorage fake;
@@ -189,6 +191,30 @@ void main() {
     });
   });
 
+  group('Hermes keys', () {
+    test('reads stored API and session keys', () async {
+      fake.store[_hermesApiKey] = 'api-key';
+      fake.store[_hermesSessionKey] = 'session-key';
+
+      expect(await storage.getHermesApiKey(), 'api-key');
+      expect(await storage.getHermesSessionKey(), 'session-key');
+    });
+
+    test('does not mask keychain read failures as missing keys', () async {
+      fake.failReadsFor.addAll({_hermesApiKey, _hermesSessionKey});
+
+      await expectLater(storage.getHermesApiKey(), throwsStateError);
+      await expectLater(storage.getHermesSessionKey(), throwsStateError);
+    });
+
+    test('retries a transient keychain read failure once', () async {
+      fake.store[_hermesApiKey] = 'api-key';
+      fake.remainingReadFailures[_hermesApiKey] = 1;
+
+      expect(await storage.getHermesApiKey(), 'api-key');
+    });
+  });
+
   group('clearAll', () {
     test(
       'clearAll removes stored data and swallows deleteAll errors',
@@ -231,6 +257,7 @@ String _storedCredentialsJson({String deviceId = 'device'}) {
 class _FakeSecureStorage implements FlutterSecureStorage {
   final Map<String, String> store = {};
   final Set<String> failReadsFor = {};
+  final Map<String, int> remainingReadFailures = {};
   final Set<String> failWritesFor = {};
   bool failDeleteAll = false;
 
@@ -244,6 +271,11 @@ class _FakeSecureStorage implements FlutterSecureStorage {
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
+    final remainingFailures = remainingReadFailures[key] ?? 0;
+    if (remainingFailures > 0) {
+      remainingReadFailures[key] = remainingFailures - 1;
+      throw StateError('transient read failed for $key');
+    }
     if (failReadsFor.contains(key)) {
       throw StateError('read failed for $key');
     }
