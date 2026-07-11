@@ -568,25 +568,30 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
 // active server's API + Drift table. Consumers `await queue.ready` before
 // enqueueing so an upload never races the load; `ready` is owned by the queue
 // instance, so — unlike a `FutureProvider.future` — awaiting it cannot hang if
-// this provider rebuilds mid-initialization. When the active server changes
-// (server switch / logout), this keepAlive provider rebuilds and `ref.onDispose`
-// tears the previous instance down (cancelling in-flight uploads and closing its
-// stream so awaiting upload completers resolve via `onDone`) before a fresh
-// instance takes over. Null in reviewer mode / when there is no active server.
+// this provider rebuilds mid-initialization. The provider is also gated on the
+// authenticated state: logout flips `isAuthenticatedProvider2` false before its
+// first await, disposing the previous queue immediately even though the active
+// server (and ApiService object) is deliberately preserved. On server switch or
+// logout, `ref.onDispose` cancels in-flight uploads and closes the stream so
+// awaiting upload completers resolve via `onDone`. Null while unauthenticated,
+// in reviewer mode, or when there is no active server.
 final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
+  if (!ref.watch(isAuthenticatedProvider2)) return null;
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
 
   final queue = AttachmentUploadQueue();
   ref.onDispose(queue.dispose);
-  // Fire-and-forget: readiness is exposed via `queue.ready`, awaited by callers.
-  unawaited(
-    queue.initialize(
-      onUpload: (filePath, fileName, {cancelToken}) =>
-          api.uploadFile(filePath, fileName, cancelToken: cancelToken),
-      database: () => ref.read(appDatabaseProvider),
-    ),
+  // Readiness is exposed via `queue.ready`, awaited by callers. Attach an
+  // immediate error-consuming branch so a Drift load failure cannot surface as
+  // an uncaught fire-and-forget error; `queue.ready` retains the ORIGINAL
+  // future and still rejects, aborting the upload before enqueue.
+  final initialization = queue.initialize(
+    onUpload: (filePath, fileName, {cancelToken}) =>
+        api.uploadFile(filePath, fileName, cancelToken: cancelToken),
+    database: () => ref.read(appDatabaseProvider),
   );
+  unawaited(initialization.catchError((Object _, StackTrace _) {}));
   return queue;
 });
 

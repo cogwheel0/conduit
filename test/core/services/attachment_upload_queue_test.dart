@@ -159,5 +159,38 @@ void main() {
       }
       check(threw).isTrue();
     });
+
+    test('ready rejects on load failure and preserves the existing snapshot',
+        () async {
+      final queue = AttachmentUploadQueue();
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: () => null,
+      );
+      await queue.ready;
+      await queue.enqueue(
+        filePath: '/tmp/kept.txt',
+        fileName: 'kept.txt',
+        fileSize: 1,
+      );
+      final before = queue.queue.map((e) => e.id).toList();
+
+      // Re-initialize with a resolver that fails before the DAO read. The
+      // failure must remain visible through `ready`, and staging the load means
+      // the previous in-memory snapshot is not cleared on the failed attempt.
+      queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'id',
+        database: () => throw StateError('load failed'),
+      );
+      var threw = false;
+      try {
+        await queue.ready;
+      } on StateError {
+        threw = true;
+      }
+      check(threw).isTrue();
+      check(queue.queue.map((e) => e.id).toList()).deepEquals(before);
+      queue.dispose();
+    });
   });
 }

@@ -172,16 +172,16 @@ class AttachmentUploadQueue {
         scope: 'attachments/queue',
       );
     } catch (error, stackTrace) {
-      // Swallow init failures (e.g. a Drift load error) so the fire-and-forget
-      // initialize() future never surfaces as an uncaught async error and
-      // `ready` always completes. The queue degrades to empty; the next
-      // server-scoped instance re-loads.
       DebugLogger.error(
         'attachment-queue-init-failed',
         scope: 'attachments/queue',
         error: error,
         stackTrace: stackTrace,
       );
+      // Preserve the failure on `ready`: callers must abort before enqueueing,
+      // otherwise a load failure followed by _save() could rewrite the Drift
+      // table from an incomplete in-memory snapshot.
+      rethrow;
     }
   }
 
@@ -446,21 +446,24 @@ class AttachmentUploadQueue {
 
   // Utilities
   Future<void> _load() async {
-    _queue.clear();
     final dao = _attachmentDao;
     if (dao == null) return;
     final rows = await dao.getAll();
-    // An item persisted as `uploading` means a prior session ended mid-upload
-    // (deactivate on server switch/logout, or an app crash). Reset it to
-    // `pending` on load so processQueue can retry it instead of leaving it
-    // stuck in a non-terminal status that is never reprocessed.
-    _queue.addAll(
-      rows.map(_rowToModel).map(
-            (item) => item.status == QueuedAttachmentStatus.uploading
-                ? item.copyWith(status: QueuedAttachmentStatus.pending)
-                : item,
-          ),
-    );
+    // Stage the full conversion before replacing the in-memory queue. If the
+    // read or JSON conversion fails, `ready` rejects and the existing snapshot
+    // remains intact — a later enqueue cannot mirror a partial/empty snapshot
+    // over the persisted table.
+    final loaded = rows
+        .map(_rowToModel)
+        .map(
+          (item) => item.status == QueuedAttachmentStatus.uploading
+              ? item.copyWith(status: QueuedAttachmentStatus.pending)
+              : item,
+        )
+        .toList(growable: false);
+    _queue
+      ..clear()
+      ..addAll(loaded);
   }
 
   Future<void> _save() async {
