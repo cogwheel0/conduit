@@ -427,6 +427,47 @@ void main() {
       },
     );
 
+    test(
+      'late Hermes completion cannot overwrite a newly active conversation',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        final oldMessages = [
+          _assistantMessage(id: 'old', content: 'old', isStreaming: true),
+          _assistantMessage(id: 'new', content: 'new', isStreaming: true),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', oldMessages));
+        await Future<void>.delayed(Duration.zero);
+
+        final activeMessages = [
+          _assistantMessage(id: 'active', content: 'active chat'),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-2', activeMessages));
+        await Future<void>.delayed(Duration.zero);
+
+        // Model a retained late-run snapshot after navigation. Completion must
+        // reject the old owner before mutating state or syncing chat-2.
+        notifier.setMessages(oldMessages);
+        notifier.finishStreamingMessage(
+          'old',
+          ownerConversationId: 'chat-1',
+          requireConversationOwner: true,
+        );
+
+        check(container.read(chatMessagesProvider).first.isStreaming).isTrue();
+        final active = container.read(activeConversationProvider)!;
+        check(active.id).equals('chat-2');
+        check(active.messages).length.equals(1);
+        check(active.messages.single.id).equals('active');
+        notifier.clearMessages();
+      },
+    );
+
     test('Hermes regeneration rebinds the active session shell', () async {
       final service = _BranchingHermesApi();
       final container = ProviderContainer(

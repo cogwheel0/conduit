@@ -2815,27 +2815,64 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _completeStreamingMessage(releaseTransport: false);
   }
 
-  void completeStreamingUiForMessage(String messageId) {
+  void completeStreamingUiForMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
     if (state.lastOrNull?.id == messageId) {
       completeStreamingUi();
       return;
     }
-    _completeNonTailStreamingMessage(messageId);
+    _completeNonTailStreamingMessage(
+      messageId,
+      ownerConversationId: ownerConversationId,
+      requireConversationOwner: requireConversationOwner,
+    );
   }
 
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
   }
 
-  void finishStreamingMessage(String messageId) {
+  void finishStreamingMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
     if (state.lastOrNull?.id == messageId) {
       finishStreaming();
       return;
     }
-    _completeNonTailStreamingMessage(messageId);
+    _completeNonTailStreamingMessage(
+      messageId,
+      ownerConversationId: ownerConversationId,
+      requireConversationOwner: requireConversationOwner,
+    );
   }
 
-  void _completeNonTailStreamingMessage(String messageId) {
+  bool _isActiveConversationOwner(String? ownerConversationId) =>
+      ref.read(activeConversationProvider)?.id == ownerConversationId;
+
+  void _completeNonTailStreamingMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    // A Hermes run can finish after navigation. Its callbacks own the chat
+    // that launched the run, never whichever conversation is active now.
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
     final index = state.indexWhere((message) => message.id == messageId);
     if (index < 0) return;
     final message = state[index];
@@ -5648,6 +5685,12 @@ String _deriveHermesSessionTitle(String input) {
   return trimmed.length <= 60 ? trimmed : '${trimmed.substring(0, 60)}…';
 }
 
+class _HermesConversationOwner {
+  _HermesConversationOwner(this.conversationId);
+
+  String? conversationId;
+}
+
 Future<void> _dispatchHermesRunFromChat(
   dynamic ref, {
   required String assistantMessageId,
@@ -5659,10 +5702,17 @@ Future<void> _dispatchHermesRunFromChat(
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  final owner = _HermesConversationOwner(
+    ref.read(activeConversationProvider)?.id,
+  );
   final cancellationSettled = Completer<void>();
   final cancelToken = registry.registerPending(
     assistantMessageId,
-    onCancelled: () => notifier.finishStreamingMessage(assistantMessageId),
+    onCancelled: () => notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
     cancellationSettled: cancellationSettled.future,
   );
 
@@ -5677,6 +5727,7 @@ Future<void> _dispatchHermesRunFromChat(
       notifier: notifier,
       registry: registry,
       cancelToken: cancelToken,
+      owner: owner,
     );
   } finally {
     if (!cancellationSettled.isCompleted) cancellationSettled.complete();
@@ -5693,6 +5744,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required ChatMessagesNotifier notifier,
   required HermesRunRegistry registry,
   required CancelToken cancelToken,
+  required _HermesConversationOwner owner,
 }) async {
   bool cancelled() => cancelToken.isCancelled;
 
@@ -5704,8 +5756,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         error: ChatMessageError(content: chatErrorContentForException(error)),
       ),
     );
-    notifier.finishStreamingMessage(assistantMessageId);
-    notifier.completeStreamingUiForMessage(assistantMessageId);
+    notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+    notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
   }
 
   // Ensure a stable long-term memory key before reading the service (mutating
@@ -5730,8 +5790,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         ),
       ),
     );
-    notifier.finishStreamingMessage(assistantMessageId);
-    notifier.completeStreamingUiForMessage(assistantMessageId);
+    notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+    notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
     return;
   }
 
@@ -5801,6 +5869,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     ref
         .read(activeConversationInPlaceRemapProvider.notifier)
         .mark(fromId: activeConv.id, toId: nextConversationId);
+    owner.conversationId = nextConversationId;
     ref.read(activeConversationProvider.notifier).set(updatedConversation);
   }
 
@@ -5834,9 +5903,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     appendStatus: (u) => notifier.appendStatusUpdate(assistantMessageId, u),
     updateMessage: (updater) =>
         notifier.updateMessageById(assistantMessageId, updater),
-    finishStreaming: () => notifier.finishStreamingMessage(assistantMessageId),
-    completeStreamingUi: () =>
-        notifier.completeStreamingUiForMessage(assistantMessageId),
+    finishStreaming: () => notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
+    completeStreamingUi: () => notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
   );
 }
 
