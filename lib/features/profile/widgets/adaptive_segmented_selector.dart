@@ -34,7 +34,8 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
     final platform = Theme.of(context).platform;
     final isCupertino =
         platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-    final selectedValue = options.any((option) => option.value == value)
+    final selectedValue =
+        options.any((option) => option.value == value && option.enabled)
         ? value
         : null;
 

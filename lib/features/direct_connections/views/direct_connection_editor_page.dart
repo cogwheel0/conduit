@@ -346,6 +346,15 @@ class _DirectConnectionEditorPageState
     return _addCustomHeader();
   }
 
+  void _markHeadersChanged() {
+    _headersDirty = true;
+    _originSecretsConfirmed = false;
+    _headersError = null;
+    _formError = null;
+    _testSucceeded = null;
+    _testMessage = null;
+  }
+
   bool _addCustomHeader() {
     if (!_canAddCustomHeader) return false;
     final name = _headerNameController.text.trim();
@@ -363,12 +372,7 @@ class _DirectConnectionEditorPageState
       _customHeaders[name] = value;
       _headerNameController.clear();
       _headerValueController.clear();
-      _headersDirty = true;
-      _originSecretsConfirmed = false;
-      _headersError = null;
-      _formError = null;
-      _testSucceeded = null;
-      _testMessage = null;
+      _markHeadersChanged();
     });
     return true;
   }
@@ -376,12 +380,7 @@ class _DirectConnectionEditorPageState
   void _removeCustomHeader(String name) {
     setState(() {
       _customHeaders.remove(name);
-      _headersDirty = true;
-      _originSecretsConfirmed = false;
-      _headersError = null;
-      _formError = null;
-      _testSucceeded = null;
-      _testMessage = null;
+      _markHeadersChanged();
     });
   }
 
@@ -482,7 +481,7 @@ class _DirectConnectionEditorPageState
     }
   }
 
-  Future<void> _delete(List<DirectConnectionProfile> profiles) async {
+  Future<void> _delete() async {
     if (_busy) return;
     final saved = _savedProfile;
     if (saved == null) return;
@@ -500,7 +499,11 @@ class _DirectConnectionEditorPageState
         if (mounted) setState(() => _deleting = false);
         return;
       }
-      final hasAnotherUsable = profiles.any(
+      // Another editor can update the provider while confirmation is open.
+      final currentProfiles = ref
+          .read(directConnectionProfilesProvider)
+          .requireValue;
+      final hasAnotherUsable = currentProfiles.any(
         (profile) => profile.id != saved.id && profile.isUsable,
       );
       final profilesController = ref.read(
@@ -604,7 +607,7 @@ class _DirectConnectionEditorPageState
           );
         }
         _hydrate(profile);
-        return _buildForm(context, items);
+        return _buildForm(context);
       },
     );
   }
@@ -635,10 +638,7 @@ class _DirectConnectionEditorPageState
     return SettingsPageScaffold(title: title, children: children);
   }
 
-  Widget _buildForm(
-    BuildContext context,
-    List<DirectConnectionProfile> profiles,
-  ) {
+  Widget _buildForm(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final isOllama = _adapterKey == kOllamaAdapterKey;
@@ -871,7 +871,7 @@ class _DirectConnectionEditorPageState
           icon: Icons.delete_outline,
           isDestructive: true,
           isLoading: _deleting,
-          onPressed: _saving || _testing ? null : () => _delete(profiles),
+          onPressed: _saving || _testing ? null : _delete,
         ),
       ],
     ];

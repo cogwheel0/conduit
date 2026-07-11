@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 void main() {
   group('direct connection form parsing', () {
@@ -243,6 +244,97 @@ void main() {
     );
     expect(restoredDelete.isLoading, isFalse);
     expect(restoredDelete.onPressed, isNotNull);
+  });
+
+  testWidgets('delete checks profiles added while confirmation is open', (
+    tester,
+  ) async {
+    final profile = DirectConnectionProfile(
+      id: 'home',
+      name: 'Home provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      apiKey: 'secret',
+    );
+    final alternate = DirectConnectionProfile(
+      id: 'backup',
+      name: 'Backup provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://backup.example/v1',
+      apiKey: 'backup-secret',
+    );
+    final backendController = _TrackingPreferredBackendController();
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+    final router = GoRouter(
+      initialLocation: '/edit',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const SizedBox.shrink(),
+          routes: [
+            GoRoute(
+              path: 'edit',
+              builder: (_, _) =>
+                  const DirectConnectionEditorPage(profileId: 'home'),
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          preferredBackendProvider.overrideWith(() => backendController),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(DirectConnectionEditorPage)),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Delete connection'),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Delete connection'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await container
+        .read(directConnectionProfilesProvider.notifier)
+        .upsert(alternate);
+    await tester.pump();
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue,
+      hasLength(2),
+    );
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(
+      container
+          .read(directConnectionProfilesProvider)
+          .requireValue
+          .map((item) => item.id),
+      ['backup'],
+    );
+    expect(container.read(preferredBackendProvider), PreferredBackend.direct);
+    expect(backendController.writes, isEmpty);
   });
 
   testWidgets('backend preference failure preserves the last direct profile', (

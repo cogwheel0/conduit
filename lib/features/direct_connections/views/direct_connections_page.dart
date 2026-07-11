@@ -16,6 +16,32 @@ import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../providers/direct_connection_providers.dart';
 
+Widget _buildDirectConnectionsScaffold(
+  BuildContext context, {
+  required bool isOnboarding,
+  required List<Widget> children,
+  Widget bottomAction = const SizedBox.shrink(),
+}) {
+  final l10n = AppLocalizations.of(context)!;
+  if (isOnboarding) {
+    return AdaptiveAuthScaffold(
+      title: l10n.backendChooserDirectTitle,
+      backLabel: l10n.back,
+      backButtonKey: const ValueKey<String>('direct-onboarding-back-button'),
+      onBack: () => context.go(Routes.backendChooser),
+      bottomAction: bottomAction,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+  return SettingsPageScaffold(
+    title: l10n.directConnectionsTitle,
+    children: children,
+  );
+}
+
 class DirectConnectionsPage extends ConsumerWidget {
   const DirectConnectionsPage({super.key, this.isOnboarding = false});
 
@@ -27,33 +53,10 @@ class DirectConnectionsPage extends ConsumerWidget {
     final profiles = ref.watch(directConnectionProfilesProvider);
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
 
-    Widget buildPendingScaffold({
-      required List<Widget> children,
-      Widget bottomAction = const SizedBox.shrink(),
-    }) {
-      if (isOnboarding) {
-        return AdaptiveAuthScaffold(
-          title: l10n.backendChooserDirectTitle,
-          backLabel: l10n.back,
-          backButtonKey: const ValueKey<String>(
-            'direct-onboarding-back-button',
-          ),
-          onBack: () => context.go(Routes.backendChooser),
-          bottomAction: bottomAction,
-          body: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
-        );
-      }
-      return SettingsPageScaffold(
-        title: l10n.directConnectionsTitle,
-        children: children,
-      );
-    }
-
     return profiles.when(
-      loading: () => buildPendingScaffold(
+      loading: () => _buildDirectConnectionsScaffold(
+        context,
+        isOnboarding: isOnboarding,
         children: const [
           SizedBox(height: Spacing.xxl),
           Center(child: CircularProgressIndicator.adaptive()),
@@ -65,7 +68,9 @@ class DirectConnectionsPage extends ConsumerWidget {
           useNativeLabel: true,
         ),
       ),
-      error: (error, _) => buildPendingScaffold(
+      error: (error, _) => _buildDirectConnectionsScaffold(
+        context,
+        isOnboarding: isOnboarding,
         children: [
           DirectConnectionsError(
             message: _friendlyLoadError(l10n, error),
@@ -205,42 +210,30 @@ class DirectConnectionsContent extends StatelessWidget {
       ],
     ];
 
-    if (isOnboarding) {
-      return AdaptiveAuthScaffold(
-        title: l10n.backendChooserDirectTitle,
-        backLabel: l10n.back,
-        backButtonKey: const ValueKey<String>('direct-onboarding-back-button'),
-        onBack: () => context.go(Routes.backendChooser),
-        bottomAction: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (onFinishOnboarding == null) ...[
-              Text(
-                l10n.directSetupRequiresConnection,
-                textAlign: TextAlign.center,
-                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-              ),
-              const SizedBox(height: Spacing.sm),
-            ],
-            ConduitButton(
-              key: const ValueKey<String>('finish-direct-onboarding-button'),
-              text: l10n.finishDirectSetup,
-              isFullWidth: true,
-              useNativeLabel: true,
-              onPressed: onFinishOnboarding,
-            ),
-          ],
-        ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: content,
-        ),
-      );
-    }
-
-    return SettingsPageScaffold(
-      title: l10n.directConnectionsTitle,
+    return _buildDirectConnectionsScaffold(
+      context,
+      isOnboarding: isOnboarding,
       children: content,
+      bottomAction: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onFinishOnboarding == null) ...[
+            Text(
+              l10n.directSetupRequiresConnection,
+              textAlign: TextAlign.center,
+              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+            ),
+            const SizedBox(height: Spacing.sm),
+          ],
+          ConduitButton(
+            key: const ValueKey<String>('finish-direct-onboarding-button'),
+            text: l10n.finishDirectSetup,
+            isFullWidth: true,
+            useNativeLabel: true,
+            onPressed: onFinishOnboarding,
+          ),
+        ],
+      ),
     );
   }
 }

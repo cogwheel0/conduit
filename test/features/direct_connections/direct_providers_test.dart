@@ -476,6 +476,30 @@ void main() {
       await expectLater(discovery, completes);
     },
   );
+
+  test(
+    'disposing while discovery awaits profiles does not publish stale state',
+    () async {
+      final profiles = Completer<List<DirectConnectionProfile>>();
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => _GatedProfilesController(profiles.future),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      final discovery = container.read(directModelDiscoveryProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      container.dispose();
+      profiles.complete([_profile()]);
+
+      await expectLater(discovery, completes);
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>
@@ -556,6 +580,16 @@ final class _QueuedAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) => throw UnimplementedError();
+}
+
+final class _GatedProfilesController
+    extends DirectConnectionProfilesController {
+  _GatedProfilesController(this.profiles);
+
+  final Future<List<DirectConnectionProfile>> profiles;
+
+  @override
+  Future<List<DirectConnectionProfile>> build() => profiles;
 }
 
 final class _OverlappingAdapter implements DirectProviderAdapter {

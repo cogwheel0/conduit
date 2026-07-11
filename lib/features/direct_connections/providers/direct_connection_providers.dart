@@ -393,6 +393,7 @@ class DirectModelDiscoveryController
     List<DirectConnectionProfile> allProfiles, {
     required int generation,
   }) async {
+    if (!ref.mounted) return DirectModelDiscoveryState();
     final profiles = allProfiles.where((profile) => profile.enabled).toList();
     final activeIds = profiles.map((profile) => profile.id).toSet();
     final registry = ref.read(directModelRegistryProvider)
@@ -475,6 +476,7 @@ class DirectModelDiscoveryController
         retainedErrors.length == previous.errorsByProfile.length) {
       return;
     }
+    if (!ref.mounted) return;
     state = AsyncValue.data(
       DirectModelDiscoveryState._withStableModels(
         models: List<model.Model>.unmodifiable(retainedModels),
