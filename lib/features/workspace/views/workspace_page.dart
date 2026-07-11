@@ -204,6 +204,13 @@ class WorkspaceScaffold extends ConsumerWidget {
         );
     final wide = MediaQuery.sizeOf(context).width >= 600;
     final theme = context.conduitTheme;
+    // The adaptive iOS nav bar is a translucent overlay, so the body renders
+    // behind it. Mirror SettingsPageScaffold and inset the top by the status
+    // bar + nav bar height so the section tabs and title clear it; Android's
+    // Material app bar reserves its own space, so no extra inset is needed.
+    final topInset = Theme.of(context).platform == TargetPlatform.iOS
+        ? MediaQuery.paddingOf(context).top + kTextTabBarHeight
+        : 0.0;
 
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
@@ -212,11 +219,14 @@ class WorkspaceScaffold extends ConsumerWidget {
       ),
       body: Material(
         color: Colors.transparent,
-        child: SafeArea(
-          top: false,
-          child: wide
-              ? _buildWide(context, permitted)
-              : _buildCompact(context, permitted),
+        child: Padding(
+          padding: EdgeInsets.only(top: topInset),
+          child: SafeArea(
+            top: false,
+            child: wide
+                ? _buildWide(context, permitted)
+                : _buildCompact(context, permitted),
+          ),
         ),
       ),
     );
