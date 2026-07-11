@@ -214,6 +214,38 @@ void main() {
       );
     });
 
+    test('a repeated Hermes tool keeps its completed history row', () {
+      final container = buildContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(
+          statusHistory: const [
+            ChatStatusUpdate(
+              action: 'hermes_tool_web_search',
+              description: 'web_search',
+              done: true,
+            ),
+          ],
+        ),
+      ]);
+
+      notifier.appendStatusUpdate(
+        'assistant-1',
+        const ChatStatusUpdate(
+          action: 'hermes_tool_web_search',
+          description: 'web_search',
+          done: false,
+        ),
+      );
+
+      final history = container.read(chatMessagesProvider).single.statusHistory;
+      expect(history, hasLength(2));
+      expect(history.first.done, isTrue);
+      expect(history.last.done, isFalse);
+    });
+
     test('chatMessageByIdProvider only notifies the changed message', () async {
       final container = buildContainer();
       addTearDown(container.dispose);
