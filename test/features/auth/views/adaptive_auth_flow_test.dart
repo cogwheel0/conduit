@@ -4,22 +4,31 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
+import 'package:conduit/features/auth/widgets/adaptive_auth_scaffold.dart';
+import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
+import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
+import 'package:conduit/features/profile/widgets/settings_page_scaffold.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   const server = ServerConfig(
@@ -327,6 +336,223 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets(
+    'Hermes onboarding has explicit back navigation and adaptive fields',
+    (tester) async {
+      _usePhoneViewport(tester);
+      await _initializeBackendOnboardingStorage();
+      addTearDown(PreferencesStore.debugReset);
+      final harness = _BackendOnboardingHarness();
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.backendChooser),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Hermes Agent'));
+      await tester.pumpAndSettle();
+
+      check(
+        harness.router.routeInformationProvider.value.uri.path,
+      ).equals(Routes.hermesSettings);
+      check(harness.router.canPop()).isFalse();
+      expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
+      expect(find.byType(SettingsPageScaffold), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('hermes-onboarding-back-button')),
+        findsOneWidget,
+      );
+      expect(find.byType(AccessibleFormField), findsNWidgets(3));
+      expect(find.byType(ConduitInput), findsNothing);
+      for (final field in tester.widgetList<AdaptiveTextFormField>(
+        find.byType(AdaptiveTextFormField),
+      )) {
+        check(field.cupertinoDecoration).isNotNull();
+        check(field.cupertinoDecoration!.border).isNull();
+      }
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HermesSettingsPage)),
+      );
+      check(container.read(hermesConfigProvider).enabled).isFalse();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('hermes-onboarding-back-button')),
+      );
+      await tester.pumpAndSettle();
+
+      check(
+        harness.router.routeInformationProvider.value.uri.path,
+      ).equals(Routes.backendChooser);
+      expect(find.byType(BackendChooserPage), findsOneWidget);
+      check(container.read(hermesConfigProvider).enabled).isFalse();
+      await harness.unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'Direct onboarding has explicit back navigation and a sticky action',
+    (tester) async {
+      _usePhoneViewport(tester);
+      await _initializeBackendOnboardingStorage();
+      addTearDown(PreferencesStore.debugReset);
+      final harness = _BackendOnboardingHarness();
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.backendChooser),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Connect directly'));
+      await tester.pumpAndSettle();
+
+      final route = harness.router.routeInformationProvider.value.uri;
+      check(route.path).equals(Routes.directConnections);
+      check(route.queryParameters['onboarding']).equals('true');
+      check(harness.router.canPop()).isFalse();
+      expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
+      expect(find.byType(SettingsPageScaffold), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
+        findsOneWidget,
+      );
+      final startButton = tester.widget<ConduitButton>(
+        find.byKey(const ValueKey<String>('finish-direct-onboarding-button')),
+      );
+      check(startButton.onPressed).isNull();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
+      );
+      await tester.pumpAndSettle();
+
+      check(
+        harness.router.routeInformationProvider.value.uri.path,
+      ).equals(Routes.backendChooser);
+      expect(find.byType(BackendChooserPage), findsOneWidget);
+      await harness.unmount(tester);
+    },
+  );
+
+  testWidgets('Direct onboarding editor uses adaptive fields and navigation', (
+    tester,
+  ) async {
+    _usePhoneViewport(tester);
+    await _initializeBackendOnboardingStorage();
+    addTearDown(PreferencesStore.debugReset);
+    final harness = _BackendOnboardingHarness();
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(
+        initialLocation: '${Routes.directConnections}/new?onboarding=true',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    expect(find.byType(AdaptiveAuthScaffold), findsOneWidget);
+    expect(find.byType(SettingsPageScaffold), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('direct-editor-back-button')),
+      findsOneWidget,
+    );
+    expect(find.byType(AccessibleFormField), findsNWidgets(6));
+    expect(find.byType(ConduitInput), findsNothing);
+    check(
+      tester
+          .widget<AnimatedCrossFade>(find.byType(AnimatedCrossFade))
+          .crossFadeState,
+    ).equals(CrossFadeState.showFirst);
+    for (final selector in tester.widgetList<AdaptiveSegmentedSelector<Object>>(
+      find.byType(AdaptiveSegmentedSelector),
+    )) {
+      check(selector.showIcons).isFalse();
+    }
+    for (final field in tester.widgetList<AdaptiveTextFormField>(
+      find.byType(AdaptiveTextFormField),
+    )) {
+      check(field.cupertinoDecoration).isNotNull();
+      check(field.cupertinoDecoration!.border).isNull();
+    }
+
+    final advancedToggle = find.byKey(
+      const ValueKey<String>('direct-advanced-settings-toggle'),
+    );
+    await tester.scrollUntilVisible(
+      advancedToggle,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(advancedToggle);
+    await tester.pumpAndSettle();
+
+    check(
+      tester
+          .widget<AnimatedCrossFade>(find.byType(AnimatedCrossFade))
+          .crossFadeState,
+    ).equals(CrossFadeState.showSecond);
+    final addHeaderFinder = find.byKey(
+      const ValueKey<String>('add-direct-custom-header-button'),
+    );
+    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNull();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('direct-custom-header-name-field'),
+        ),
+        matching: find.byType(EditableText),
+      ),
+      'X.Test+Header',
+    );
+    await tester.pump();
+    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNotNull();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('direct-custom-header-value-field'),
+        ),
+        matching: find.byType(EditableText),
+      ),
+      'test-value',
+    );
+    await tester.pump();
+    check(tester.widget<ConduitButton>(addHeaderFinder).onPressed).isNotNull();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('direct-editor-save-button')),
+    );
+    await tester.pump();
+
+    expect(find.text('X.Test+Header'), findsOneWidget);
+    expect(find.text('test-value'), findsOneWidget);
+    expect(
+      find.text('Enter an API key or choose no authentication.'),
+      findsOneWidget,
+    );
+    final apiKeyField = tester.widget<AdaptiveTextFormField>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('direct-api-key-field')),
+        matching: find.byType(AdaptiveTextFormField),
+      ),
+    );
+    check(apiKeyField.cupertinoDecoration!.border).isNotNull();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('direct-editor-back-button')),
+    );
+    await tester.pumpAndSettle();
+
+    final route = harness.router.routeInformationProvider.value.uri;
+    check(route.path).equals(Routes.directConnections);
+    check(route.queryParameters['onboarding']).equals('true');
+    await harness.unmount(tester);
+  });
+
   testWidgets('sign-in displays a sanitized Open WebUI address', (
     tester,
   ) async {
@@ -468,3 +694,81 @@ class _AuthHarness {
 
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}
+
+Future<void> _initializeBackendOnboardingStorage() async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugReset();
+  PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  FlutterSecureStorage.setMockInitialValues({});
+}
+
+void _usePhoneViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(375, 812);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+class _BackendOnboardingHarness {
+  _BackendOnboardingHarness() {
+    router = GoRouter(
+      routes: [
+        GoRoute(
+          path: Routes.backendChooser,
+          name: RouteNames.backendChooser,
+          builder: (_, _) => const BackendChooserPage(),
+        ),
+        GoRoute(
+          path: Routes.hermesSettings,
+          name: RouteNames.hermesSettings,
+          builder: (_, state) =>
+              HermesSettingsPage(isOnboarding: state.extra == true),
+        ),
+        GoRoute(
+          path: Routes.directConnections,
+          name: RouteNames.directConnections,
+          builder: (_, state) => DirectConnectionsPage(
+            isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+          ),
+        ),
+        GoRoute(
+          path: Routes.directConnectionEditor,
+          name: RouteNames.directConnectionEditor,
+          builder: (_, state) => DirectConnectionEditorPage(
+            profileId: state.pathParameters['id']!,
+            isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+          ),
+        ),
+      ],
+    );
+  }
+
+  late final GoRouter router;
+  bool _disposed = false;
+
+  Widget build({required String initialLocation}) {
+    router.go(initialLocation);
+    return ProviderScope(
+      overrides: [
+        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+      ],
+      child: MaterialApp.router(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        routerConfig: router,
+      ),
+    );
+  }
+
+  Future<void> unmount(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    dispose();
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    router.dispose();
+  }
+}

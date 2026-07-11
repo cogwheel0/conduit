@@ -9,6 +9,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/hermes_capabilities.dart';
@@ -103,10 +104,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     _urlController = TextEditingController(text: config.baseUrl);
     _apiKeyController = TextEditingController();
     _sessionKeyController = TextEditingController();
-    if (widget.isOnboarding) {
-      // Onboarding implies enabling; the toggle is hidden in this mode.
-      ref.read(hermesConfigProvider.notifier).setEnabled(true);
-    }
   }
 
   Future<void> _finishOnboarding() async {
@@ -275,193 +272,207 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return SettingsPageScaffold(
-      title: 'Hermes Agent',
-      children: [
-        if (secretsError != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: Spacing.lg),
-            padding: const EdgeInsets.all(Spacing.md),
-            decoration: BoxDecoration(
-              color: theme.error.withValues(alpha: 0.08),
-              border: Border.all(color: theme.error.withValues(alpha: 0.3)),
-              borderRadius: BorderRadius.circular(AppBorderRadius.md),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.lock_outline, color: theme.error),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Text(
-                    l10n.hermesSecretsUnavailable,
-                    style: AppTypography.bodySmallStyle.copyWith(
-                      color: theme.textPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                ConduitButton(
-                  text: l10n.retry,
-                  isSecondary: true,
-                  isLoading: secretsLoading,
-                  onPressed: secretsLoading ? null : _retrySecrets,
-                ),
-              ],
-            ),
+    final content = <Widget>[
+      if (secretsError != null)
+        Container(
+          margin: const EdgeInsets.only(bottom: Spacing.lg),
+          padding: const EdgeInsets.all(Spacing.md),
+          decoration: BoxDecoration(
+            color: theme.error.withValues(alpha: 0.08),
+            border: Border.all(color: theme.error.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
           ),
-        if (widget.isOnboarding)
-          Padding(
-            padding: const EdgeInsets.only(bottom: Spacing.lg),
-            child: Text(
-              'Enter your self-hosted Hermes agent\'s address and API key to '
-              'start using it. You can add an Open WebUI server later in '
-              'settings.',
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            ),
-          )
-        else ...[
-          CustomizationTile(
-            title: 'Enable Hermes Agent',
-            subtitle:
-                'Connect directly to your self-hosted Hermes agent and use it '
-                'as a model in the picker.',
-            trailing: AdaptiveSwitch(
-              value: config.enabled,
-              onChanged: (value) => _setHermesEnabled(value),
-            ),
-            showChevron: false,
-            onTap: () => _setHermesEnabled(!config.enabled),
-          ),
-          if (config.enabled && _capabilities.jobs) ...[
-            const SizedBox(height: Spacing.sm),
-            CustomizationTile(
-              leading: _badge(context, Icons.schedule),
-              title: 'Scheduled Agents',
-              subtitle: 'Run prompts on a cron schedule.',
-              onTap: () => context.pushNamed(RouteNames.hermesJobs),
-            ),
-          ],
-          const SizedBox(height: Spacing.lg),
-        ],
-        ConduitInput(
-          label: 'Server URL',
-          hint: 'http://192.168.1.10:8642',
-          controller: _urlController,
-          keyboardType: TextInputType.url,
-          errorText: _urlError,
-          onChanged: (value) {
-            setState(() {
-              _urlError = null;
-              _saved = false;
-              _testResult = null;
-            });
-          },
-        ),
-        const SizedBox(height: Spacing.md),
-        ConduitInput(
-          label: 'API key',
-          hint: config.apiKey == null || config.apiKey!.isEmpty
-              ? 'Enter API_SERVER_KEY'
-              : 'Configured — enter to replace',
-          obscureText: true,
-          controller: _apiKeyController,
-          onChanged: (value) {
-            setState(() {
-              _apiKeyDirty = true;
-              _saved = false;
-              _testResult = null;
-            });
-          },
-        ),
-        const SizedBox(height: Spacing.md),
-        ConduitInput(
-          label: 'Memory key (optional)',
-          hint: config.sessionKey == null || config.sessionKey!.isEmpty
-              ? 'Auto-generated if left blank'
-              : 'Configured — enter to replace',
-          obscureText: true,
-          controller: _sessionKeyController,
-          onChanged: (value) => setState(() {
-            _sessionKeyDirty = true;
-            _saved = false;
-          }),
-        ),
-        const SizedBox(height: Spacing.sm),
-        Text(
-          'The memory key scopes the agent\'s long-term memory to you '
-          '(X-Hermes-Session-Key). A stable key is generated automatically the '
-          'first time you chat if you leave this blank.',
-          style: AppTypography.captionStyle.copyWith(
-            color: theme.textSecondary,
-          ),
-        ),
-        const SizedBox(height: Spacing.lg),
-        Row(
-          children: [
-            if (!widget.isOnboarding) ...[
-              ConduitButton(
-                text: 'Save',
-                isLoading: _saving,
-                onPressed: _draftIsUsable(config) ? _saveSettings : null,
-              ),
-              const SizedBox(width: Spacing.md),
-            ],
-            ConduitButton(
-              text: 'Test connection',
-              isSecondary: true,
-              isLoading: _testing,
-              onPressed: _draftIsUsable(config) && !_saving && !_finishing
-                  ? _testConnection
-                  : null,
-            ),
-            const SizedBox(width: Spacing.md),
-            if (_testResult != null || _saved)
+          child: Row(
+            children: [
+              Icon(Icons.lock_outline, color: theme.error),
+              const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Text(
-                  _testResult == null
-                      ? 'Saved ✓'
-                      : _testResult == true
-                      ? 'Connected ✓'
-                      : 'Could not reach the server',
-                  style: AppTypography.standard.copyWith(
-                    color: _testResult == false ? theme.error : theme.success,
+                  l10n.hermesSecretsUnavailable,
+                  style: AppTypography.bodySmallStyle.copyWith(
+                    color: theme.textPrimary,
                   ),
                 ),
               ),
-          ],
-        ),
-        if (widget.isOnboarding) ...[
-          const SizedBox(height: Spacing.lg),
-          ConduitButton(
-            text: 'Finish setup',
-            icon: Icons.check,
-            isFullWidth: true,
-            isLoading: _finishing,
-            onPressed:
-                _draftIsUsable(config) && !_saving && !_finishing && !_testing
-                ? _finishOnboarding
-                : null,
+              const SizedBox(width: Spacing.sm),
+              ConduitButton(
+                text: l10n.retry,
+                isSecondary: true,
+                isLoading: secretsLoading,
+                onPressed: secretsLoading ? null : _retrySecrets,
+              ),
+            ],
           ),
-          if (_onboardingError != null) ...[
-            const SizedBox(height: Spacing.sm),
-            Text(
-              _onboardingError!,
-              textAlign: TextAlign.center,
-              style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+        ),
+      if (widget.isOnboarding)
+        Padding(
+          padding: const EdgeInsets.only(bottom: Spacing.lg),
+          child: Text(
+            l10n.backendChooserHermesSubtitle,
+            style: AppTypography.bodyMediumStyle.copyWith(
+              color: theme.textSecondary,
+            ),
+          ),
+        )
+      else ...[
+        CustomizationTile(
+          title: l10n.hermesEnableTitle,
+          subtitle: l10n.hermesEnableSubtitle,
+          trailing: AdaptiveSwitch(
+            value: config.enabled,
+            onChanged: (value) => _setHermesEnabled(value),
+          ),
+          showChevron: false,
+          onTap: () => _setHermesEnabled(!config.enabled),
+        ),
+        if (config.enabled && _capabilities.jobs) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: _badge(context, Icons.schedule),
+            title: l10n.hermesScheduledAgentsTitle,
+            subtitle: 'Run prompts on a cron schedule.',
+            onTap: () => context.pushNamed(RouteNames.hermesJobs),
+          ),
+        ],
+        const SizedBox(height: Spacing.lg),
+      ],
+      AccessibleFormField(
+        label: l10n.hermesServerUrlTitle,
+        hint: 'http://192.168.1.10:8642',
+        controller: _urlController,
+        keyboardType: TextInputType.url,
+        textInputAction: TextInputAction.next,
+        autocorrect: false,
+        errorText: _urlError,
+        onChanged: (value) {
+          setState(() {
+            _urlError = null;
+            _saved = false;
+            _testResult = null;
+          });
+        },
+      ),
+      const SizedBox(height: Spacing.md),
+      AccessibleFormField(
+        label: l10n.hermesApiKeyTitle,
+        hint: config.apiKey == null || config.apiKey!.isEmpty
+            ? l10n.hermesApiKeyPlaceholder
+            : l10n.hermesConfiguredReplacePlaceholder,
+        obscureText: true,
+        controller: _apiKeyController,
+        keyboardType: TextInputType.visiblePassword,
+        textInputAction: TextInputAction.next,
+        autocorrect: false,
+        onChanged: (value) {
+          setState(() {
+            _apiKeyDirty = true;
+            _saved = false;
+            _testResult = null;
+          });
+        },
+      ),
+      const SizedBox(height: Spacing.md),
+      AccessibleFormField(
+        label: l10n.hermesMemoryKeyTitle,
+        hint: config.sessionKey == null || config.sessionKey!.isEmpty
+            ? l10n.hermesMemoryKeyPlaceholder
+            : l10n.hermesConfiguredReplacePlaceholder,
+        obscureText: true,
+        controller: _sessionKeyController,
+        keyboardType: TextInputType.visiblePassword,
+        textInputAction: TextInputAction.done,
+        autocorrect: false,
+        onChanged: (value) => setState(() {
+          _sessionKeyDirty = true;
+          _saved = false;
+        }),
+      ),
+      const SizedBox(height: Spacing.sm),
+      Text(
+        'The memory key scopes the agent\'s long-term memory to you '
+        '(X-Hermes-Session-Key). A stable key is generated automatically the '
+        'first time you chat if you leave this blank.',
+        style: AppTypography.captionStyle.copyWith(color: theme.textSecondary),
+      ),
+      const SizedBox(height: Spacing.lg),
+      Wrap(
+        spacing: Spacing.md,
+        runSpacing: Spacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (!widget.isOnboarding) ...[
+            ConduitButton(
+              text: l10n.save,
+              isLoading: _saving,
+              onPressed: _draftIsUsable(config) ? _saveSettings : null,
             ),
           ],
+          ConduitButton(
+            text: l10n.testDirectConnection,
+            isSecondary: true,
+            isLoading: _testing,
+            useNativeLabel: true,
+            onPressed: _draftIsUsable(config) && !_saving && !_finishing
+                ? _testConnection
+                : null,
+          ),
+          if (_testResult != null || _saved)
+            Text(
+              _testResult == null
+                  ? '${l10n.saved} ✓'
+                  : _testResult == true
+                  ? '${l10n.connectedToServer} ✓'
+                  : l10n.couldNotConnectGeneric,
+              style: AppTypography.standard.copyWith(
+                color: _testResult == false ? theme.error : theme.success,
+              ),
+            ),
         ],
-        if (config.isUsable) ...[
-          const SizedBox(height: Spacing.xl),
-          _capabilitiesSection(),
-          const SizedBox(height: Spacing.lg),
-          _toolsetsSection(),
-          const SizedBox(height: Spacing.lg),
-          _serverStatusSection(),
-        ],
+      ),
+      if (widget.isOnboarding && _onboardingError != null) ...[
+        const SizedBox(height: Spacing.sm),
+        Text(
+          _onboardingError!,
+          textAlign: TextAlign.center,
+          style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+        ),
       ],
+      if (config.isUsable) ...[
+        const SizedBox(height: Spacing.xl),
+        _capabilitiesSection(),
+        const SizedBox(height: Spacing.lg),
+        _toolsetsSection(),
+        const SizedBox(height: Spacing.lg),
+        _serverStatusSection(),
+      ],
+    ];
+
+    if (widget.isOnboarding) {
+      return AdaptiveAuthScaffold(
+        title: l10n.backendChooserHermesTitle,
+        backLabel: l10n.back,
+        backButtonKey: const ValueKey<String>('hermes-onboarding-back-button'),
+        onBack: () => context.go(Routes.backendChooser),
+        bottomAction: ConduitButton(
+          text: l10n.finishDirectSetup,
+          isFullWidth: true,
+          isLoading: _finishing,
+          useNativeLabel: true,
+          onPressed:
+              _draftIsUsable(config) && !_saving && !_finishing && !_testing
+              ? _finishOnboarding
+              : null,
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: content,
+        ),
+      );
+    }
+
+    return SettingsPageScaffold(
+      title: l10n.hermesAgentSettingsTitle,
+      children: content,
     );
   }
 

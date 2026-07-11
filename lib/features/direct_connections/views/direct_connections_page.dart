@@ -10,6 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../auth/widgets/adaptive_auth_scaffold.dart';
 import '../../profile/widgets/customization_tile.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
@@ -26,16 +27,45 @@ class DirectConnectionsPage extends ConsumerWidget {
     final profiles = ref.watch(directConnectionProfilesProvider);
     final historyPolicy = ref.watch(directHistoryPolicyProvider);
 
-    return profiles.when(
-      loading: () => SettingsPageScaffold(
+    Widget buildPendingScaffold({
+      required List<Widget> children,
+      Widget bottomAction = const SizedBox.shrink(),
+    }) {
+      if (isOnboarding) {
+        return AdaptiveAuthScaffold(
+          title: l10n.backendChooserDirectTitle,
+          backLabel: l10n.back,
+          backButtonKey: const ValueKey<String>(
+            'direct-onboarding-back-button',
+          ),
+          onBack: () => context.go(Routes.backendChooser),
+          bottomAction: bottomAction,
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        );
+      }
+      return SettingsPageScaffold(
         title: l10n.directConnectionsTitle,
+        children: children,
+      );
+    }
+
+    return profiles.when(
+      loading: () => buildPendingScaffold(
         children: const [
           SizedBox(height: Spacing.xxl),
           Center(child: CircularProgressIndicator.adaptive()),
         ],
+        bottomAction: ConduitButton(
+          text: l10n.finishDirectSetup,
+          isFullWidth: true,
+          isLoading: true,
+          useNativeLabel: true,
+        ),
       ),
-      error: (error, _) => SettingsPageScaffold(
-        title: l10n.directConnectionsTitle,
+      error: (error, _) => buildPendingScaffold(
         children: [
           DirectConnectionsError(
             message: _friendlyLoadError(l10n, error),
@@ -105,33 +135,49 @@ class DirectConnectionsContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    return SettingsPageScaffold(
-      title: l10n.directConnectionsTitle,
-      children: [
-        Text(
-          l10n.directConnectionsDescription,
-          style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
-        ),
-        const SizedBox(height: Spacing.lg),
-        CustomizationTile(
-          leading: SettingsIconBadge(
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.arrow_2_circlepath,
-              android: Icons.sync_outlined,
+    final content = <Widget>[
+      Text(
+        l10n.directConnectionsDescription,
+        style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
+      ),
+      const SizedBox(height: Spacing.lg),
+      ConduitCard(
+        onTap: () => onSyncChanged(!syncWithOpenWebUi),
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.syncDirectHistory,
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: Spacing.xxs),
+                  Text(
+                    syncWithOpenWebUi
+                        ? l10n.syncDirectHistorySubtitle
+                        : l10n.directHistoryLocalOnlySubtitle,
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            color: theme.buttonPrimary,
-          ),
-          title: l10n.syncDirectHistory,
-          subtitle: syncWithOpenWebUi
-              ? l10n.syncDirectHistorySubtitle
-              : l10n.directHistoryLocalOnlySubtitle,
-          trailing: AdaptiveSwitch(
-            value: syncWithOpenWebUi,
-            onChanged: onSyncChanged,
-          ),
-          showChevron: false,
+            const SizedBox(width: Spacing.md),
+            AdaptiveSwitch(value: syncWithOpenWebUi, onChanged: onSyncChanged),
+          ],
         ),
-        const SizedBox(height: Spacing.lg),
+      ),
+      const SizedBox(height: Spacing.lg),
+      if (profiles.isEmpty)
+        _DirectConnectionsEmptyState(onAdd: onAdd)
+      else ...[
         Row(
           children: [
             Expanded(
@@ -149,35 +195,52 @@ class DirectConnectionsContent extends StatelessWidget {
           ],
         ),
         const SizedBox(height: Spacing.sm),
-        if (profiles.isEmpty)
-          _DirectConnectionsEmptyState(onAdd: onAdd)
-        else
-          for (var index = 0; index < profiles.length; index++) ...[
-            _DirectConnectionTile(
-              profile: profiles[index],
-              onTap: () => onEdit(profiles[index].id),
-            ),
-            if (index != profiles.length - 1)
-              const SizedBox(height: Spacing.md),
-          ],
-        if (isOnboarding) ...[
-          const SizedBox(height: Spacing.xl),
-          ConduitButton(
-            text: l10n.finishDirectSetup,
-            icon: Icons.arrow_forward,
-            isFullWidth: true,
-            onPressed: onFinishOnboarding,
+        for (var index = 0; index < profiles.length; index++) ...[
+          _DirectConnectionTile(
+            profile: profiles[index],
+            onTap: () => onEdit(profiles[index].id),
           ),
-          if (onFinishOnboarding == null) ...[
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.directSetupRequiresConnection,
-              textAlign: TextAlign.center,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
+          if (index != profiles.length - 1) const SizedBox(height: Spacing.md),
         ],
       ],
+    ];
+
+    if (isOnboarding) {
+      return AdaptiveAuthScaffold(
+        title: l10n.backendChooserDirectTitle,
+        backLabel: l10n.back,
+        backButtonKey: const ValueKey<String>('direct-onboarding-back-button'),
+        onBack: () => context.go(Routes.backendChooser),
+        bottomAction: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onFinishOnboarding == null) ...[
+              Text(
+                l10n.directSetupRequiresConnection,
+                textAlign: TextAlign.center,
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
+              const SizedBox(height: Spacing.sm),
+            ],
+            ConduitButton(
+              key: const ValueKey<String>('finish-direct-onboarding-button'),
+              text: l10n.finishDirectSetup,
+              isFullWidth: true,
+              useNativeLabel: true,
+              onPressed: onFinishOnboarding,
+            ),
+          ],
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: content,
+        ),
+      );
+    }
+
+    return SettingsPageScaffold(
+      title: l10n.directConnectionsTitle,
+      children: content,
     );
   }
 }
@@ -247,7 +310,8 @@ class _DirectConnectionsEmptyState extends StatelessWidget {
           const SizedBox(height: Spacing.md),
           ConduitButton(
             text: l10n.addDirectConnection,
-            icon: Icons.add,
+            isFullWidth: true,
+            useNativeLabel: true,
             onPressed: onAdd,
           ),
         ],

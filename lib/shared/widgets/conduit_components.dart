@@ -1396,6 +1396,7 @@ class AccessibleFormField extends StatelessWidget {
   final bool enabled;
   final String? errorText;
   final int? maxLines;
+  final int? minLines;
   final Widget? suffixIcon;
   final Widget? prefixIcon;
   final TextInputType? keyboardType;
@@ -1421,6 +1422,7 @@ class AccessibleFormField extends StatelessWidget {
     this.enabled = true,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
@@ -1437,6 +1439,11 @@ class AccessibleFormField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final platform = Theme.of(context).platform;
+    final usesCupertinoChrome =
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    final hasExternalError = errorText?.trim().isNotEmpty ?? false;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1481,6 +1488,7 @@ class AccessibleFormField extends StatelessWidget {
             obscureText: obscureText,
             enabled: enabled,
             maxLines: maxLines,
+            minLines: minLines,
             keyboardType: keyboardType,
             textInputAction: textInputAction,
             autocorrect: autocorrect,
@@ -1547,7 +1555,7 @@ class AccessibleFormField extends StatelessWidget {
               ),
               suffixIcon: suffixIcon,
               prefixIcon: prefixIcon,
-              errorText: errorText,
+              errorText: usesCupertinoChrome ? null : errorText,
               errorStyle: AppTypography.small.copyWith(
                 color: context.conduitTheme.error,
               ),
@@ -1556,10 +1564,35 @@ class AccessibleFormField extends StatelessWidget {
               color: enabled
                   ? CupertinoColors.tertiarySystemFill.resolveFrom(context)
                   : CupertinoColors.quaternarySystemFill.resolveFrom(context),
+              border: hasExternalError
+                  ? Border.all(
+                      color: CupertinoColors.systemRed.resolveFrom(context),
+                      width: BorderWidth.standard,
+                    )
+                  : null,
               borderRadius: BorderRadius.circular(AppBorderRadius.input),
             ),
           ),
         ),
+        if (usesCupertinoChrome && hasExternalError)
+          Semantics(
+            liveRegion: true,
+            label: errorText,
+            child: ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  top: Spacing.xs,
+                  left: Spacing.inputPadding,
+                ),
+                child: Text(
+                  errorText!,
+                  style: AppTypography.small.copyWith(
+                    color: context.conduitTheme.error,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
