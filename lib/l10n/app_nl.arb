@@ -2420,5 +2420,6 @@
   "hermesNoSchedulesYet": "No schedules yet",
   "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
   "hermesReviewSchedules": "Review schedules",
-  "hermesScheduledAgentsTitle": "Scheduled agents"
+  "hermesScheduledAgentsTitle": "Scheduled agents",
+  "workspaceToolImportUrlHost": "Only GitHub tool URLs can be imported."
 }

@@ -57,11 +57,17 @@ class _WorkspaceToolUrlImportSheetState
       setState(() => _errorKey = 'invalid');
       return;
     }
+    final normalized = WorkspaceToolContent.githubUrlToRawUrl(raw);
+    // Only forward GitHub tool URLs to the server's fetch endpoint; reject
+    // internal/link-local/metadata hosts before any network call.
+    if (!WorkspaceToolContent.isAllowedImportUrl(normalized)) {
+      setState(() => _errorKey = 'host');
+      return;
+    }
     setState(() {
       _loading = true;
       _errorKey = null;
     });
-    final normalized = WorkspaceToolContent.githubUrlToRawUrl(raw);
     try {
       final tool = await widget.loader(normalized);
       if (!mounted) return;
@@ -138,9 +144,11 @@ class _WorkspaceToolUrlImportSheetState
                 const SizedBox(width: Spacing.sm),
                 Expanded(
                   child: Text(
-                    _errorKey == 'invalid'
-                        ? l10n.workspaceToolImportUrlInvalid
-                        : l10n.workspaceToolImportUrlFailed,
+                    switch (_errorKey) {
+                      'invalid' => l10n.workspaceToolImportUrlInvalid,
+                      'host' => l10n.workspaceToolImportUrlHost,
+                      _ => l10n.workspaceToolImportUrlFailed,
+                    },
                     style: theme.bodySmall?.copyWith(color: theme.error),
                   ),
                 ),

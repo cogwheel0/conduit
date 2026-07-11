@@ -81,6 +81,33 @@ abstract final class WorkspaceToolContent {
     return token.isNotEmpty && _validId.hasMatch(token);
   }
 
+  // GitHub hosts the admin-only URL import is allowed to hand to the server's
+  // `/tools/load/url` fetch. Restricting to these hosts keeps the import scoped
+  // to the documented GitHub tool sources and prevents the request from being
+  // pointed at internal/link-local/metadata endpoints (SSRF defence-in-depth).
+  static const Set<String> _allowedImportHosts = {
+    'github.com',
+    'www.github.com',
+    'raw.githubusercontent.com',
+    'gist.github.com',
+    'gist.githubusercontent.com',
+    'codeload.github.com',
+    'objects.githubusercontent.com',
+  };
+
+  /// Whether [url] is a well-formed `https` GitHub URL the tool importer may
+  /// forward to the server. Rejects non-`https` schemes and any host outside
+  /// [_allowedImportHosts] (e.g. `http://169.254.169.254/...` or internal
+  /// hosts), so the server never fetches a non-GitHub target on the admin's
+  /// behalf. Apply this to the already-normalized URL.
+  static bool isAllowedImportUrl(String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.isAbsolute) return false;
+    if (uri.scheme.toLowerCase() != 'https') return false;
+    if (uri.userInfo.isNotEmpty) return false;
+    return _allowedImportHosts.contains(uri.host.toLowerCase());
+  }
+
   /// Normalizes a GitHub `tree`/`blob` URL into its `raw.githubusercontent.com`
   /// equivalent so the import matches what the admin-only `/tools/load/url`
   /// endpoint fetches. Non-GitHub URLs are returned unchanged.

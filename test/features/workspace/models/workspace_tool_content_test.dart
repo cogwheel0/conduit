@@ -79,6 +79,46 @@ class Tools:
     });
   });
 
+  group('isAllowedImportUrl', () {
+    test('accepts normalized GitHub raw and github.com hosts', () {
+      check(
+        WorkspaceToolContent.isAllowedImportUrl(
+          'https://raw.githubusercontent.com/acme/tools/refs/heads/main/tool.py',
+        ),
+      ).isTrue();
+      check(
+        WorkspaceToolContent.isAllowedImportUrl(
+          'https://github.com/acme/tools/blob/main/tool.py',
+        ),
+      ).isTrue();
+    });
+
+    test('rejects link-local metadata and internal hosts (SSRF guard)', () {
+      for (final url in const [
+        'http://169.254.169.254/latest/meta-data/',
+        'https://169.254.169.254/latest/meta-data/',
+        'http://localhost/tool.py',
+        'https://internal.corp/tool.py',
+        'https://example.com/tool.py',
+        'file:///etc/passwd',
+        'https://user:pass@raw.githubusercontent.com/x/y/z.py',
+      ]) {
+        check(
+          because: url,
+          WorkspaceToolContent.isAllowedImportUrl(url),
+        ).isFalse();
+      }
+    });
+
+    test('rejects non-https GitHub URLs', () {
+      check(
+        WorkspaceToolContent.isAllowedImportUrl(
+          'http://raw.githubusercontent.com/acme/tools/main/tool.py',
+        ),
+      ).isFalse();
+    });
+  });
+
   group('meetsRequiredVersion', () {
     test('is compatible when required is missing or 0.0.0', () {
       check(
