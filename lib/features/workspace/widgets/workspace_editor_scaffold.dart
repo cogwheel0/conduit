@@ -174,11 +174,14 @@ class WorkspaceEditorScaffold extends StatelessWidget {
                           ),
                           const SizedBox(width: Spacing.sm),
                         ],
-                        Text(
-                          action.label,
-                          style: action.isDestructive
-                              ? TextStyle(color: theme.error)
-                              : null,
+                        Flexible(
+                          child: Text(
+                            action.label,
+                            overflow: TextOverflow.ellipsis,
+                            style: action.isDestructive
+                                ? TextStyle(color: theme.error)
+                                : null,
+                          ),
                         ),
                       ],
                     ),

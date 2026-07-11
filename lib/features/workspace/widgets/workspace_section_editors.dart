@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit/features/workspace/views/models/workspace_model_editor.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 
 /// Arguments handed to a section editor when the shell resolves a create,
@@ -27,12 +28,11 @@ typedef WorkspaceSectionEditorBuilder =
 /// Registry mapping a [WorkspaceSection] to the widget that renders its
 /// create/detail/edit editor.
 ///
-/// This slice ships the infrastructure only; the map is empty by default, so
-/// the shell falls back to the "coming soon" placeholder for every section.
-/// Later milestones register their editor by overriding
-/// [workspaceSectionEditorsProvider] (or extending the default map) without
-/// touching the shell dispatch logic.
+/// Sections register their editor here; unregistered sections fall back to the
+/// shell's "coming soon" placeholder without touching the shell dispatch logic.
 final workspaceSectionEditorsProvider =
     Provider<Map<WorkspaceSection, WorkspaceSectionEditorBuilder>>((ref) {
-      return const <WorkspaceSection, WorkspaceSectionEditorBuilder>{};
+      return <WorkspaceSection, WorkspaceSectionEditorBuilder>{
+        WorkspaceSection.models: buildWorkspaceModelEditor,
+      };
     });

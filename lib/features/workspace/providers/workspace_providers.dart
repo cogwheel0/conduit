@@ -217,6 +217,15 @@ class WorkspaceModels extends _$WorkspaceModels {
     return true;
   }
 
+  /// Returns every readable model for export. Read-only: does not mutate state
+  /// and respects the stale-session guard.
+  Future<List<WorkspaceModelDetail>> exportAll() async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.exportWorkspaceModels();
+    session.ensureCurrent(ref);
+    return result;
+  }
+
   Future<List<WorkspaceModelDetail>> sync() async {
     final session = WorkspaceSessionIdentity.read(ref);
     final result = await session.api.syncWorkspaceModels();

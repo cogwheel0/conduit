@@ -4915,6 +4915,37 @@ class ApiService {
     return workspaceStringList(response.data);
   }
 
+  /// Base models available to compose custom workspace models from. Open WebUI
+  /// serves these at `/api/v1/models/base` (the raw connections/pipelines,
+  /// distinct from the user-facing `/models/list`).
+  Future<List<WorkspaceModelSummary>> getWorkspaceBaseModels() async {
+    final response = await _dio.get('/api/v1/models/base');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+  }
+
+  /// Fetches a model's profile image bytes from the dedicated
+  /// `/api/v1/models/model/profile/image` endpoint. Returns null when the
+  /// server has no stored image (or serves a redirect to a remote URL).
+  Future<List<int>?> getWorkspaceModelProfileImage(String id) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        '/api/v1/models/model/profile/image',
+        queryParameters: {'id': id},
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      final data = response.data;
+      return data == null || data.isEmpty ? null : data;
+    } on DioException {
+      return null;
+    }
+  }
+
   Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
     final response = await _dio.post(
       '/api/v1/models/model/toggle',
