@@ -78,9 +78,11 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   }
 
   // Errors first — terminal. Guard against falsy `error` fields that appear on
-  // non-error events (e.g. `tool.completed` carries `error: "False"`).
+  // non-error events (e.g. `tool.completed` carries `error: "False"`). Tool
+  // failures remain scoped to their tool row; they do not fail the whole run.
   final error = data['error'];
-  if (_isTruthyError(error)) {
+  final isToolLifecycle = eventType?.contains('tool') ?? false;
+  if (_isTruthyError(error) && !isToolLifecycle) {
     yield HermesRunError(_errorMessage(error));
     return;
   }
@@ -241,7 +243,8 @@ HermesToolProgress? _maybeToolProgress(
         _str(data['detail']) ??
         _str(data['summary']) ??
         _str(data['message']) ??
-        _str(data['arguments']),
+        _str(data['arguments']) ??
+        (_isTruthyError(data['error']) ? _errorMessage(data['error']) : null),
   );
 }
 

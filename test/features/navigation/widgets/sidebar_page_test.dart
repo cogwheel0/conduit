@@ -29,6 +29,7 @@ import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:flutter/cupertino.dart';
@@ -43,6 +44,12 @@ Finder _sidebarBottomNavTabLabel(String label) =>
     find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
 
 void main() {
+  test('Hermes profile host fallback comes from localizations', () {
+    check(
+      AppLocalizationsEn().hermesSelfHostedAgentLabel,
+    ).equals('Self-hosted agent');
+  });
+
   testWidgets(
     'renders without TabBarView and shows chats as active by default',
     (tester) async {

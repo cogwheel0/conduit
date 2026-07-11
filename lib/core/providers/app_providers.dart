@@ -795,7 +795,7 @@ class Models extends _$Models {
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return const [];
+      return _withHermes(const <Model>[]);
     }
 
     final fresh = await _load(api);
@@ -828,7 +828,7 @@ class Models extends _$Models {
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      state = const AsyncData<List<Model>>(<Model>[]);
+      state = AsyncData<List<Model>>(_withHermes(const <Model>[]));
       _persistModelsAsync(const <Model>[]);
       return;
     }
@@ -1985,6 +1985,7 @@ Future<Model?> defaultModel(Ref ref) async {
     // Hermes-only mode: auto-select the synthetic Hermes agent model.
     if (ref.watch(hermesConfigProvider.select((config) => config.isUsable))) {
       final models = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
       Model? hermes;
       for (final model in models) {
         if (isHermesModel(model)) {

@@ -3768,6 +3768,10 @@
   "@hermesNativeSettingsSubtitle": {
     "description": "Subtitle of the native Hermes settings sheet."
   },
+  "hermesSelfHostedAgentLabel": "Self-hosted agent",
+  "@hermesSelfHostedAgentLabel": {
+    "description": "Fallback host label in the Hermes-only native profile sheet."
+  },
   "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
   "@hermesNoConversationsMessage": {
     "description": "Empty-state message in the Hermes conversations sidebar."

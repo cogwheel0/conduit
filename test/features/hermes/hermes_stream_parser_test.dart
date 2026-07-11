@@ -96,6 +96,39 @@ void main() {
       ).has((e) => e.done, 'done').isTrue();
     });
 
+    test('tool.failed keeps a string error scoped to the tool', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: tool.failed\n'
+              'data: {"tool":"terminal","error":"command failed"}\n\n',
+        ]),
+      ).toList();
+
+      check(events).has((e) => e.length, 'length').equals(1);
+      check(events.single).isA<HermesToolProgress>()
+        ..has((e) => e.toolName, 'toolName').equals('terminal')
+        ..has((e) => e.done, 'done').isTrue()
+        ..has((e) => e.detail, 'detail').equals('command failed');
+      check(events.whereType<HermesRunError>()).isEmpty();
+    });
+
+    test('tool.failed keeps a structured error scoped to the tool', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: tool.failed\n'
+              'data: {"tool":"web_search",'
+              '"error":{"message":"provider unavailable"}}\n\n',
+        ]),
+      ).toList();
+
+      check(events).has((e) => e.length, 'length').equals(1);
+      check(events.single).isA<HermesToolProgress>()
+        ..has((e) => e.toolName, 'toolName').equals('web_search')
+        ..has((e) => e.done, 'done').isTrue()
+        ..has((e) => e.detail, 'detail').equals('provider unavailable');
+      check(events.whereType<HermesRunError>()).isEmpty();
+    });
+
     for (final eventType in [
       'tool.cancelled',
       'tool.canceled',

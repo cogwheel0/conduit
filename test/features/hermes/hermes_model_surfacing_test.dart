@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
@@ -64,6 +66,15 @@ class _ModelsApiService extends ApiService {
     if (fail) throw StateError('temporary models outage');
     return const <Model>[Model(id: 'owui-model', name: 'OpenWebUI model')];
   }
+}
+
+class _PendingModels extends Models {
+  _PendingModels(this.models);
+
+  final Future<List<Model>> models;
+
+  @override
+  Future<List<Model>> build() => models;
 }
 
 const _usableHermes = HermesConfig(
@@ -155,6 +166,58 @@ void main() {
     );
 
     test(
+      'authenticated build preserves Hermes while the api is unavailable',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            apiServiceProvider.overrideWithValue(null),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final models = await container.read(modelsProvider.future);
+
+        check(models).length.equals(1);
+        check(isHermesModel(models.single)).isTrue();
+      },
+    );
+
+    test(
+      'authenticated refresh preserves Hermes while the api is unavailable',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            apiServiceProvider.overrideWithValue(null),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(modelsProvider.future);
+        await container.read(modelsProvider.notifier).refresh();
+
+        final models = container.read(modelsProvider).requireValue;
+        check(models).length.equals(1);
+        check(isHermesModel(models.single)).isTrue();
+      },
+    );
+
+    test(
       'defaultModelProvider auto-selects Hermes when there is no api',
       () async {
         final container = ProviderContainer(
@@ -180,6 +243,34 @@ void main() {
         final selected = container.read(selectedModelProvider);
         check(selected).isNotNull();
         check(isHermesModel(selected!)).isTrue();
+      },
+    );
+
+    test(
+      'default model stops safely when disposed during Hermes model loading',
+      () async {
+        final modelsCompleter = Completer<List<Model>>();
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+            modelsProvider.overrideWith(
+              () => _PendingModels(modelsCompleter.future),
+            ),
+          ],
+        );
+
+        final pendingDefault = container.read(defaultModelProvider.future);
+        container.dispose();
+        modelsCompleter.complete(<Model>[hermesSyntheticModel()]);
+
+        check(await pendingDefault).isNull();
       },
     );
 

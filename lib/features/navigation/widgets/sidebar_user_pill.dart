@@ -214,7 +214,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       profile: hermesOnly
           ? NativeProfileSheetUser(
               displayName: 'Hermes Agent',
-              email: _hermesHostLabel(ref),
+              email: _hermesHostLabel(
+                ref,
+                fallback: l10n.hermesSelfHostedAgentLabel,
+              ),
               initials: 'HA',
               avatarBytes: hermesAvatarBytes,
             )
@@ -476,10 +479,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
   /// Header subtitle for the Hermes-only profile sheet: the configured agent's
   /// host, falling back to a generic label.
-  String _hermesHostLabel(WidgetRef ref) {
+  String _hermesHostLabel(WidgetRef ref, {required String fallback}) {
     final baseUrl = ref.read(hermesConfigProvider).baseUrl;
     final host = Uri.tryParse(baseUrl)?.host;
-    return host != null && host.isNotEmpty ? host : 'Self-hosted agent';
+    return host != null && host.isNotEmpty ? host : fallback;
   }
 
   Uint8List? _decodeDataImage(String? dataUrl) {
