@@ -217,7 +217,9 @@ class DirectConnectionProfilesController
         .probe(profile);
   }
 
-  Future<void> reload() async {
+  Future<void> reload() => _serializeMutation(_reload);
+
+  Future<void> _reload() async {
     final previous = state.value;
     state = const AsyncValue.loading();
     final next = await AsyncValue.guard(_store.load);

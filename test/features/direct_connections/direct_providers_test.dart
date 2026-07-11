@@ -175,6 +175,48 @@ void main() {
     expect(saved.enabled, isFalse);
   });
 
+  test('reload is serialized with profile mutations', () async {
+    final original = _profile();
+    final storage = _ReloadGateSecureStorage(
+      DirectConnectionProfilesDocument([original]).encode(),
+    );
+    final store = DirectConnectionProfileStore(
+      SecureCredentialStorage(instance: storage),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        directConnectionProfileStoreProvider.overrideWithValue(store),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([_QueuedAdapter()]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+
+    final reload = controller.reload();
+    await storage.reloadReadStarted.future;
+    final rename = controller.upsert(original.copyWith(name: 'Renamed'));
+
+    // Let all queued microtasks drain. A mutation that bypasses reload would
+    // have started another secure-storage read while the captured reload is
+    // still blocked.
+    await Future<void>.delayed(Duration.zero);
+    expect(storage.profileReadCalls, 2);
+
+    storage.allowReloadRead.complete();
+    await Future.wait([reload, rename]);
+
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue.single.name,
+      'Renamed',
+    );
+    expect((await store.load()).single.name, 'Renamed');
+  });
+
   test(
     'transport edit commits and invalidates stale models when cancellation fails',
     () async {
@@ -473,4 +515,66 @@ final class _OverlappingAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) => throw UnimplementedError();
+}
+
+final class _ReloadGateSecureStorage implements FlutterSecureStorage {
+  _ReloadGateSecureStorage(String initialDocument)
+    : _profileDocument = initialDocument;
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final Completer<void> reloadReadStarted = Completer<void>();
+  final Completer<void> allowReloadRead = Completer<void>();
+  String? _profileDocument;
+  int profileReadCalls = 0;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    profileReadCalls++;
+    final captured = _profileDocument;
+    if (profileReadCalls == 2) {
+      reloadReadStarted.complete();
+      await allowReloadRead.future;
+    }
+    return captured;
+  }
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key == _profilesKey) _profileDocument = value;
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
