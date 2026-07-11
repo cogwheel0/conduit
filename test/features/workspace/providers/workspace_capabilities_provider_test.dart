@@ -41,6 +41,7 @@ void main() {
   test('admin is all-capable without an ApiService', () async {
     final container = ProviderContainer(
       overrides: [
+        reviewerModeProvider.overrideWithValue(false),
         currentUserProvider2.overrideWithValue(
           const User(
             id: 'admin-1',
@@ -73,6 +74,7 @@ void main() {
   test('non-admin without an ApiService fails closed', () async {
     final container = ProviderContainer(
       overrides: [
+        reviewerModeProvider.overrideWithValue(false),
         currentUserProvider2.overrideWithValue(
           const User(
             id: 'user-1',

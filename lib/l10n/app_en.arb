@@ -3635,5 +3635,22 @@
   "notificationsPermissionDenied": "Notifications are turned off in system settings.",
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."
-  }
+  },
+  "workspaceTitle": "Workspace",
+  "workspaceSubtitle": "Manage server resources and access.",
+  "workspaceModels": "Models",
+  "workspaceKnowledge": "Knowledge",
+  "workspacePrompts": "Prompts",
+  "workspaceTools": "Tools",
+  "workspaceSkills": "Skills",
+  "workspaceCreate": "Create",
+  "workspaceEmpty": "No resources yet.",
+  "workspaceDenied": "You do not have permission to manage this workspace section.",
+  "workspaceUnsupported": "This server does not support Workspace management.",
+  "workspaceLoadFailed": "Workspace could not be loaded.",
+  "workspaceRetry": "Retry",
+  "workspaceSelectItem": "Select an item to view its details.",
+  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
+  "workspaceSearchHint": "Search workspace resources",
+  "workspaceLoadMore": "Load more"
 }

@@ -3149,5 +3149,22 @@
   "terminalNothingToCopy": "コピーする選択範囲がありません",
   "terminalCopied": "クリップボードにコピーしました",
   "terminalPasteWhileDisconnected": "ペーストするには接続してください",
-  "terminalPortsToggle": "待ち受けポート"
+  "terminalPortsToggle": "待ち受けポート",
+  "workspaceTitle": "Workspace",
+  "workspaceSubtitle": "Manage server resources and access.",
+  "workspaceModels": "Models",
+  "workspaceKnowledge": "Knowledge",
+  "workspacePrompts": "Prompts",
+  "workspaceTools": "Tools",
+  "workspaceSkills": "Skills",
+  "workspaceCreate": "Create",
+  "workspaceEmpty": "No resources yet.",
+  "workspaceDenied": "You do not have permission to manage this workspace section.",
+  "workspaceUnsupported": "This server does not support Workspace management.",
+  "workspaceLoadFailed": "Workspace could not be loaded.",
+  "workspaceRetry": "Retry",
+  "workspaceSelectItem": "Select an item to view its details.",
+  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
+  "workspaceSearchHint": "Search workspace resources",
+  "workspaceLoadMore": "Load more"
 }

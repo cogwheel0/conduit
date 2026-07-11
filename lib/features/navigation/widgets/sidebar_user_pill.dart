@@ -23,6 +23,8 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
+import '../../workspace/providers/workspace_capabilities_provider.dart';
+import '../../workspace/workspace_navigation.dart';
 import '../providers/sidebar_providers.dart';
 
 /// Resolves the best available current user for sidebar UI.
@@ -78,6 +80,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
+    final canManageWorkspace = ref
+        .watch(workspaceCapabilitiesProvider)
+        .maybeWhen(
+          data: (value) => permittedWorkspaceSections(value).isNotEmpty,
+          orElse: () => false,
+        );
     final displayName = deriveUserDisplayName(
       user,
       fallback: l10n.userFallbackName,
@@ -108,6 +116,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               api: api,
               displayName: displayName,
               initials: initial,
+              canManageWorkspace: canManageWorkspace,
             );
             final presented = await NativeSheetBridge.instance
                 .presentProfileMenu(config);
@@ -143,6 +152,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required dynamic api,
     required String displayName,
     required String initials,
+    required bool canManageWorkspace,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final avatarUrl = resolveUserAvatarUrlForUser(api, user);
@@ -218,6 +228,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ),
         NativeSheetSectionConfig(
           items: [
+            if (canManageWorkspace)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.workspace,
+                title: l10n.workspaceTitle,
+                subtitle: l10n.workspaceSubtitle,
+                sfSymbol: 'square.grid.2x2',
+                dismissOnSelect: true,
+                actionId: NativeSheetRoutes.workspace,
+                actionValue: true,
+              ),
             NativeSheetItemConfig(
               id: NativeSheetRoutes.appearance,
               title: appearanceTitle,

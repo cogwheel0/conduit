@@ -1587,5 +1587,22 @@
   "terminalNothingToCopy": "복사할 항목이 선택되지 않았습니다",
   "terminalCopied": "클립보드에 복사됨",
   "terminalPasteWhileDisconnected": "붙여넣으려면 연결하세요",
-  "terminalPortsToggle": "수신 대기 포트"
+  "terminalPortsToggle": "수신 대기 포트",
+  "workspaceTitle": "Workspace",
+  "workspaceSubtitle": "Manage server resources and access.",
+  "workspaceModels": "Models",
+  "workspaceKnowledge": "Knowledge",
+  "workspacePrompts": "Prompts",
+  "workspaceTools": "Tools",
+  "workspaceSkills": "Skills",
+  "workspaceCreate": "Create",
+  "workspaceEmpty": "No resources yet.",
+  "workspaceDenied": "You do not have permission to manage this workspace section.",
+  "workspaceUnsupported": "This server does not support Workspace management.",
+  "workspaceLoadFailed": "Workspace could not be loaded.",
+  "workspaceRetry": "Retry",
+  "workspaceSelectItem": "Select an item to view its details.",
+  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
+  "workspaceSearchHint": "Search workspace resources",
+  "workspaceLoadMore": "Load more"
 }

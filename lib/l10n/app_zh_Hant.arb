@@ -1809,5 +1809,22 @@
   "terminalNothingToCopy": "沒有選取可複製的內容",
   "terminalCopied": "已複製到剪貼簿",
   "terminalPasteWhileDisconnected": "連線後貼上",
-  "terminalPortsToggle": "監聽連接埠"
+  "terminalPortsToggle": "監聽連接埠",
+  "workspaceTitle": "Workspace",
+  "workspaceSubtitle": "Manage server resources and access.",
+  "workspaceModels": "Models",
+  "workspaceKnowledge": "Knowledge",
+  "workspacePrompts": "Prompts",
+  "workspaceTools": "Tools",
+  "workspaceSkills": "Skills",
+  "workspaceCreate": "Create",
+  "workspaceEmpty": "No resources yet.",
+  "workspaceDenied": "You do not have permission to manage this workspace section.",
+  "workspaceUnsupported": "This server does not support Workspace management.",
+  "workspaceLoadFailed": "Workspace could not be loaded.",
+  "workspaceRetry": "Retry",
+  "workspaceSelectItem": "Select an item to view its details.",
+  "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
+  "workspaceSearchHint": "Search workspace resources",
+  "workspaceLoadMore": "Load more"
 }

@@ -18,6 +18,7 @@ import 'core/persistence/preferences_store.dart';
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
 import 'core/services/native_sheet_hydration_service.dart';
+import 'core/services/navigation_service.dart';
 import 'core/services/performance_profiler.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/settings_service.dart';
@@ -402,6 +403,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       }
 
       switch (event.id) {
+        case NativeSheetRoutes.workspace:
+          NavigationService.router.go(Routes.workspace);
         case 'default-model':
           if (value is String) {
             final modelId = value == 'auto-select' ? null : value;

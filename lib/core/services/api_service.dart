@@ -3307,10 +3307,21 @@ class ApiService {
 
   // Knowledge Base
   Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
-  getWorkspaceKnowledge({int page = 1}) async {
+  getWorkspaceKnowledge({
+    String? query,
+    String? viewOption,
+    int page = 1,
+  }) async {
+    final normalizedQuery = query?.trim() ?? '';
+    final normalizedView = viewOption?.trim() ?? '';
+    final isFiltered = normalizedQuery.isNotEmpty || normalizedView.isNotEmpty;
     final response = await _dio.get(
-      '/api/v1/knowledge/',
-      queryParameters: {'page': page},
+      isFiltered ? '/api/v1/knowledge/search' : '/api/v1/knowledge/',
+      queryParameters: {
+        'page': page,
+        if (normalizedQuery.isNotEmpty) 'query': normalizedQuery,
+        if (normalizedView.isNotEmpty) 'view_option': normalizedView,
+      },
     );
     return WorkspacePagedResponse.fromJson(
       response.data,

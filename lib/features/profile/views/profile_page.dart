@@ -16,6 +16,8 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../workspace/providers/workspace_capabilities_provider.dart';
+import '../../workspace/workspace_navigation.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
@@ -326,7 +328,26 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final canManageWorkspace = ref
+        .watch(workspaceCapabilitiesProvider)
+        .maybeWhen(
+          data: (value) => permittedWorkspaceSections(value).isNotEmpty,
+          orElse: () => false,
+        );
     final items = [
+      if (canManageWorkspace)
+        _buildAccountOption(
+          context,
+          key: const Key('workspace-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.square_grid_2x2,
+            android: Icons.dashboard_customize_outlined,
+          ),
+          title: l10n.workspaceTitle,
+          subtitle: l10n.workspaceSubtitle,
+          onTap: () => context.pushNamed(RouteNames.workspace),
+        ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -402,6 +423,7 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildAccountOption(
     BuildContext context, {
+    Key? key,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -411,6 +433,7 @@ class ProfilePage extends ConsumerWidget {
     final theme = context.conduitTheme;
     final color = theme.buttonPrimary;
     return ProfileSettingTile(
+      key: key,
       onTap: onTap,
       leading: _buildIconBadge(context, icon, color: color),
       title: title,

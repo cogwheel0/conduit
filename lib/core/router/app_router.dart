@@ -33,6 +33,9 @@ import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
+import '../../features/workspace/providers/workspace_capabilities_provider.dart';
+import '../../features/workspace/views/workspace_page.dart';
+import '../../features/workspace/workspace_navigation.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
@@ -48,6 +51,7 @@ class RouterNotifier extends ChangeNotifier {
         authNavigationStateProvider,
         _onStateChanged,
       ),
+      ref.listen(workspaceCapabilitiesProvider, _onStateChanged),
     ];
   }
 
@@ -159,8 +163,31 @@ class RouterNotifier extends ChangeNotifier {
             location == Routes.connectionIssue) {
           return Routes.chat;
         }
-        return null;
+        return _workspaceRedirect(location);
     }
+  }
+
+  String? _workspaceRedirect(String location) {
+    if (location != Routes.workspace &&
+        !location.startsWith('${Routes.workspace}/')) {
+      return null;
+    }
+
+    final capabilities = ref.read(workspaceCapabilitiesProvider);
+    // Fail closed in the page gate while permissions are loading or errored.
+    if (!capabilities.hasValue) return null;
+
+    final permitted = permittedWorkspaceSections(capabilities.requireValue);
+    if (permitted.isEmpty) {
+      return location == Routes.workspace ? null : Routes.workspace;
+    }
+
+    if (location == Routes.workspace) return permitted.first.path;
+    final requested = workspaceSectionForPath(location);
+    if (requested == null || !permitted.contains(requested)) {
+      return permitted.first.path;
+    }
+    return null;
   }
 
   bool _isAuthLocation(String location) {
@@ -369,6 +396,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AboutPage()),
     ),
+    ..._workspaceRoutes(),
     GoRoute(
       path: Routes.notes,
       name: RouteNames.notes,
@@ -404,6 +432,57 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   NavigationService.attachRouter(router);
   return router;
 });
+
+List<GoRoute> _workspaceRoutes() {
+  GoRoute route({
+    required String path,
+    required String name,
+    required WorkspaceSection? section,
+    WorkspaceRouteMode mode = WorkspaceRouteMode.collection,
+  }) {
+    return GoRoute(
+      path: path,
+      name: name,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: WorkspacePage(
+          section: section,
+          mode: mode,
+          resourceId: state.pathParameters['id'],
+        ),
+      ),
+    );
+  }
+
+  return [
+    route(path: Routes.workspace, name: RouteNames.workspace, section: null),
+    for (final descriptor in workspaceRouteDescriptors) ...[
+      route(
+        path: descriptor.collectionPath,
+        name: descriptor.collectionName,
+        section: descriptor.section,
+      ),
+      route(
+        path: descriptor.createPattern,
+        name: descriptor.createName,
+        section: descriptor.section,
+        mode: WorkspaceRouteMode.create,
+      ),
+      route(
+        path: descriptor.detailPattern,
+        name: descriptor.detailName,
+        section: descriptor.section,
+        mode: WorkspaceRouteMode.detail,
+      ),
+      route(
+        path: descriptor.editPattern,
+        name: descriptor.editName,
+        section: descriptor.section,
+        mode: WorkspaceRouteMode.edit,
+      ),
+    ],
+  ];
+}
 
 class NavigationLoggingObserver extends NavigatorObserver {
   @override

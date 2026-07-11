@@ -112,6 +112,9 @@ private struct NativeSheetItem {
     let subtitle: String?
     let sfSymbol: String
     let destructive: Bool
+    let dismissOnSelect: Bool
+    let actionId: String?
+    let actionValue: Any?
     let url: URL?
     let kind: String
     let value: Any?
@@ -144,6 +147,9 @@ private struct NativeSheetItem {
         subtitle = payload["subtitle"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
         destructive = payload["destructive"] as? Bool ?? false
+        dismissOnSelect = payload["dismissOnSelect"] as? Bool ?? false
+        actionId = payload["actionId"] as? String
+        actionValue = payload["actionValue"]
         if let urlString = payload["url"] as? String {
             url = URL(string: urlString)
         } else {
@@ -802,6 +808,7 @@ private extension PlatformNativeSheetItem {
             "title": title,
             "sfSymbol": sfSymbol,
             "destructive": destructive,
+            "dismissOnSelect": dismissOnSelect,
             "kind": kind.payloadName,
             "options": options.map { $0.asPayload() },
             "queries": queries,
@@ -809,6 +816,8 @@ private extension PlatformNativeSheetItem {
             "pending": pending,
         ]
         payload["subtitle"] = subtitle
+        payload["actionId"] = actionId
+        payload["actionValue"] = actionValue
         payload["url"] = url
         payload["value"] = value
         payload["placeholder"] = placeholder
@@ -1809,6 +1818,15 @@ final class NativeSheetBridge: NativeSheetHostApi {
             return
         }
 
+        if item.dismissOnSelect {
+            let actionId = (item.actionId?.isEmpty == false ? item.actionId : nil) ?? item.id
+            let actionValue = item.actionValue ?? item.value ?? true
+            dismissActive { [weak self] in
+                self?.sendControlChanged(id: actionId, value: actionValue)
+            }
+            return
+        }
+
         switch item.id {
         case "profile-photo":
             presentProfilePhotoEditor()
@@ -1897,9 +1915,13 @@ final class NativeSheetBridge: NativeSheetHostApi {
         activeNavigationController?.view.endEditing(true)
     }
 
-    private func dismissActive() {
+    private func dismissActive(completion: (() -> Void)? = nil) {
         flushActiveSheetEditing()
-        activeController?.dismiss(animated: true)
+        let controller = activeController
+        controller?.dismiss(animated: true, completion: completion)
+        if controller == nil {
+            completion?()
+        }
         activeController = nil
         presentationDelegate = nil
         activeDetailTableController = nil

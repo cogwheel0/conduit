@@ -267,6 +267,9 @@ class PlatformNativeSheetItem {
     this.subtitle,
     required this.sfSymbol,
     required this.destructive,
+    required this.dismissOnSelect,
+    this.actionId,
+    this.actionValue,
     this.url,
     required this.kind,
     this.value,
@@ -290,6 +293,9 @@ class PlatformNativeSheetItem {
   String? subtitle;
   String sfSymbol;
   bool destructive;
+  bool dismissOnSelect;
+  String? actionId;
+  Object? actionValue;
   String? url;
   PlatformNativeSheetItemKind kind;
   Object? value;
