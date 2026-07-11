@@ -254,7 +254,17 @@ class WorkspaceModels extends _$WorkspaceModels {
     final session = WorkspaceSessionIdentity.read(ref);
     final result = await session.api.syncWorkspaceModels();
     session.ensureCurrent(ref);
-    await refresh();
+    // The server-side sync already succeeded; a failure while reloading the
+    // collection must not surface as a failed sync. Isolate the refresh.
+    try {
+      await refresh();
+    } catch (refreshError) {
+      DebugLogger.warning(
+        'post-sync refresh failed',
+        scope: 'workspace/models',
+        data: {'error': refreshError.toString()},
+      );
+    }
     return result;
   }
 
