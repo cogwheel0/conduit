@@ -386,6 +386,9 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
         onRefresh: ref.read(workspaceKnowledgeProvider.notifier).refresh,
         onLoadMore: ref.read(workspaceKnowledgeProvider.notifier).loadMore,
         onSearch: ref.read(workspaceKnowledgeProvider.notifier).setQuery,
+        filterBar: const _KnowledgeFilterBar(),
+        trailingOf: (item) =>
+            item.isExternal ? const _KnowledgeExternalBadge() : null,
       ),
       WorkspaceSection.prompts => _buildCollection<WorkspacePromptSummary>(
         context,
@@ -429,6 +432,8 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
     required Future<void> Function() onRefresh,
     required Future<void> Function() onLoadMore,
     required Future<void> Function(String) onSearch,
+    Widget? filterBar,
+    Widget? Function(T)? trailingOf,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
@@ -468,6 +473,16 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                 ],
               ),
             ),
+            if (filterBar != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Spacing.md,
+                  0,
+                  Spacing.md,
+                  Spacing.sm,
+                ),
+                child: filterBar,
+              ),
             if (collection.isLoading)
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
@@ -506,6 +521,7 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                           final item = collection.items[index];
                           final id = idOf(item);
                           final subtitle = subtitleOf(item);
+                          final trailing = trailingOf?.call(item);
                           return ListTile(
                             key: Key('workspace-item-${section.name}-$id'),
                             selected: selectedId == id,
@@ -517,7 +533,15 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            trailing: const Icon(Icons.chevron_right),
+                            trailing: trailing == null
+                                ? const Icon(Icons.chevron_right)
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      trailing,
+                                      const Icon(Icons.chevron_right),
+                                    ],
+                                  ),
                             onTap: () =>
                                 context.push(section.routes.detailLocation(id)),
                           );
@@ -703,6 +727,106 @@ class _EditorPlaceholder extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Created/shared (view) + local/external (source) filters for the Knowledge
+/// collection. Both map to server-side filters on `/knowledge/search`.
+class _KnowledgeFilterBar extends ConsumerWidget {
+  const _KnowledgeFilterBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final state = ref
+        .watch(workspaceKnowledgeProvider)
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => const WorkspaceCollectionState<WorkspaceKnowledgeSummary>(),
+        );
+    final view = (state.view == 'created' || state.view == 'shared')
+        ? state.view
+        : '';
+    final notifier = ref.read(workspaceKnowledgeProvider.notifier);
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: const Key('workspace-knowledge-view-filter'),
+            initialValue: view,
+            isExpanded: true,
+            isDense: true,
+            decoration: const InputDecoration(isDense: true),
+            items: [
+              DropdownMenuItem(value: '', child: Text(l10n.workspaceKnowledgeViewAll)),
+              DropdownMenuItem(
+                value: 'created',
+                child: Text(l10n.workspaceKnowledgeViewCreated),
+              ),
+              DropdownMenuItem(
+                value: 'shared',
+                child: Text(l10n.workspaceKnowledgeViewShared),
+              ),
+            ],
+            onChanged: (value) => notifier.setView(value ?? ''),
+          ),
+        ),
+        const SizedBox(width: Spacing.sm),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: const Key('workspace-knowledge-source-filter'),
+            initialValue: state.source,
+            isExpanded: true,
+            isDense: true,
+            decoration: const InputDecoration(isDense: true),
+            items: [
+              DropdownMenuItem(
+                value: '',
+                child: Text(l10n.workspaceKnowledgeSourceAll),
+              ),
+              DropdownMenuItem(
+                value: 'local',
+                child: Text(l10n.workspaceKnowledgeSourceLocal),
+              ),
+              DropdownMenuItem(
+                value: 'external',
+                child: Text(l10n.workspaceKnowledgeSourceExternal),
+              ),
+            ],
+            onChanged: (value) => notifier.setSource(value ?? ''),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Compact "Connected" chip marking an external (read-only) knowledge base.
+class _KnowledgeExternalBadge extends StatelessWidget {
+  const _KnowledgeExternalBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: Spacing.xs),
+      child: Container(
+        key: const Key('workspace-knowledge-external-badge'),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.xs,
+          vertical: Spacing.xxs,
+        ),
+        decoration: BoxDecoration(
+          color: theme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(AppBorderRadius.badge),
+        ),
+        child: Text(
+          l10n.workspaceKnowledgeExternalBadge,
+          style: theme.caption?.copyWith(color: theme.textSecondary),
         ),
       ),
     );

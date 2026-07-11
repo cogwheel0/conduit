@@ -3310,17 +3310,23 @@ class ApiService {
   getWorkspaceKnowledge({
     String? query,
     String? viewOption,
+    String? source,
     int page = 1,
   }) async {
     final normalizedQuery = query?.trim() ?? '';
     final normalizedView = viewOption?.trim() ?? '';
-    final isFiltered = normalizedQuery.isNotEmpty || normalizedView.isNotEmpty;
+    final normalizedSource = source?.trim() ?? '';
+    final isFiltered =
+        normalizedQuery.isNotEmpty ||
+        normalizedView.isNotEmpty ||
+        normalizedSource.isNotEmpty;
     final response = await _dio.get(
       isFiltered ? '/api/v1/knowledge/search' : '/api/v1/knowledge/',
       queryParameters: {
         'page': page,
         if (normalizedQuery.isNotEmpty) 'query': normalizedQuery,
         if (normalizedView.isNotEmpty) 'view_option': normalizedView,
+        if (normalizedSource.isNotEmpty) 'source': normalizedSource,
       },
     );
     return WorkspacePagedResponse.fromJson(
@@ -3577,6 +3583,43 @@ class ApiService {
       options: Options(responseType: ResponseType.bytes),
     );
     return response.data ?? const <int>[];
+  }
+
+  /// Removes every file (and optionally directories) from a knowledge base while
+  /// keeping the base itself. Owner/write-access or admin only, server-enforced.
+  Future<WorkspaceKnowledgeDetail?> resetWorkspaceKnowledge(
+    String id, {
+    bool includeDirectories = true,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/reset',
+      queryParameters: {'include_directories': includeDirectories},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  /// Uploads an in-memory file to `/files/` and returns the new file id. Used by
+  /// the workspace knowledge browser for both binary uploads and generated text
+  /// files. Mirrors [uploadFileWithProgress] but takes bytes directly.
+  Future<String> uploadFileBytes(
+    String fileName,
+    List<int> bytes, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    _traceApi('Uploading file bytes: $fileName (${bytes.length} bytes)');
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: fileName),
+    });
+    final response = await _dio.post(
+      '/api/v1/files/',
+      data: formData,
+      onSendProgress: onProgress,
+    );
+    return response.data['id'] as String;
   }
 
   Future<List<KnowledgeBase>> getKnowledgeBases() async {

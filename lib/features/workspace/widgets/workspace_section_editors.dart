@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_editor.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 
@@ -34,5 +35,6 @@ final workspaceSectionEditorsProvider =
     Provider<Map<WorkspaceSection, WorkspaceSectionEditorBuilder>>((ref) {
       return <WorkspaceSection, WorkspaceSectionEditorBuilder>{
         WorkspaceSection.models: buildWorkspaceModelEditor,
+        WorkspaceSection.knowledge: buildWorkspaceKnowledgeEditor,
       };
     });

@@ -111,6 +111,22 @@ void main() {
       ]);
     },
   );
+
+  test('knowledge source filter threads to the search endpoint', () async {
+    final api = _WorkspaceKnowledgeApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+    await container.read(workspaceKnowledgeProvider.future);
+
+    await container
+        .read(workspaceKnowledgeProvider.notifier)
+        .setSource('external');
+    final state = container.read(workspaceKnowledgeProvider).requireValue;
+
+    check(state.source).equals('external');
+    check(api.sources).contains('external');
+    check(state.items.single.isExternal).isTrue();
+  });
 }
 
 ProviderContainer _container(ApiService api) {
@@ -189,16 +205,21 @@ class _WorkspaceKnowledgeApi extends ApiService {
       );
 
   final requests = <({String? query, String? view, int page})>[];
+  final sources = <String?>[];
 
   @override
   Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
   getWorkspaceKnowledge({
     String? query,
     String? viewOption,
+    String? source,
     int page = 1,
   }) async {
     requests.add((query: query, view: viewOption, page: page));
-    if (query == null || query.isEmpty) {
+    sources.add(source);
+    final filtered = (query != null && query.isNotEmpty) ||
+        (source != null && source.isNotEmpty);
+    if (!filtered) {
       return const WorkspacePagedResponse(items: [], total: 0);
     }
     return WorkspacePagedResponse(
@@ -207,6 +228,7 @@ class _WorkspaceKnowledgeApi extends ApiService {
           id: 'knowledge-$page',
           name: 'Knowledge $page',
           userId: 'user-1',
+          meta: source == 'external' ? const {'source': 'external'} : const {},
         ),
       ],
       total: 2,

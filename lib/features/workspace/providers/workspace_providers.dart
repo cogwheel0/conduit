@@ -16,6 +16,7 @@ class WorkspaceCollectionState<T> {
   const WorkspaceCollectionState({
     this.query = '',
     this.view = 'all',
+    this.source = '',
     this.page = 1,
     this.items = const [],
     this.total = 0,
@@ -27,6 +28,11 @@ class WorkspaceCollectionState<T> {
 
   final String query;
   final String view;
+
+  /// Secondary filter dimension used by the Knowledge section to separate local
+  /// vs external (connected) sources. Empty means "all sources". Other sections
+  /// leave this unset.
+  final String source;
   final int page;
   final List<T> items;
   final int total;
@@ -41,6 +47,7 @@ class WorkspaceCollectionState<T> {
   WorkspaceCollectionState<T> copyWith({
     String? query,
     String? view,
+    String? source,
     int? page,
     List<T>? items,
     int? total,
@@ -53,6 +60,7 @@ class WorkspaceCollectionState<T> {
     return WorkspaceCollectionState<T>(
       query: query ?? this.query,
       view: view ?? this.view,
+      source: source ?? this.source,
       page: page ?? this.page,
       items: items ?? this.items,
       total: total ?? this.total,
@@ -310,6 +318,13 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
     await refresh();
   }
 
+  /// Sets the local/external source filter (`''`, `'local'`, or `'external'`).
+  Future<void> setSource(String source) async {
+    final current = state.asData?.value ?? const WorkspaceCollectionState();
+    state = AsyncData(current.copyWith(source: source, clearError: true));
+    await refresh();
+  }
+
   Future<void> refresh() => _fetch(append: false);
   Future<void> loadMore() => _fetch(append: true);
 
@@ -319,6 +334,7 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
     final generation = ++_requestGeneration;
     final query = current.query;
     final view = current.view;
+    final source = current.source;
     final nextPage = append ? current.page + 1 : 1;
     state = AsyncData(
       current.copyWith(
@@ -332,6 +348,7 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
       final response = await session.api.getWorkspaceKnowledge(
         query: query,
         viewOption: view,
+        source: source,
         page: nextPage,
       );
       if (generation != _requestGeneration || !session.isCurrent(ref)) return;
@@ -386,6 +403,26 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
       }
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  /// Removes every file from the knowledge base (optionally directories too)
+  /// while keeping the base itself. Reconciles chat knowledge consumers.
+  Future<WorkspaceKnowledgeDetail> reset(
+    String id, {
+    bool includeDirectories = true,
+  }) => _mutate(
+    (api) =>
+        api.resetWorkspaceKnowledge(id, includeDirectories: includeDirectories),
+    id: id,
+  );
+
+  /// Read-only export of a knowledge base as a downloadable archive. Does not
+  /// mutate provider state; still honours the stale-session guard.
+  Future<List<int>> export(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final bytes = await session.api.exportWorkspaceKnowledge(id);
+    session.ensureCurrent(ref);
+    return bytes;
   }
 
   Future<WorkspaceKnowledgeDetail> _mutate(

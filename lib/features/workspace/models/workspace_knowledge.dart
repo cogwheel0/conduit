@@ -28,6 +28,20 @@ class WorkspaceKnowledgeSummary {
   final int createdAt;
   final int updatedAt;
 
+  /// External (connected) knowledge bases are backed by a remote source and are
+  /// read-only in this client: no local file/directory mutation is permitted.
+  bool get isExternal => meta['source']?.toString() == 'external';
+
+  /// Provider label for a connected knowledge base, when advertised.
+  String? get externalProvider {
+    final external = meta['external'];
+    if (external is Map) {
+      final provider = external['provider']?.toString();
+      if (provider != null && provider.isNotEmpty) return provider;
+    }
+    return null;
+  }
+
   factory WorkspaceKnowledgeSummary.fromJson(Map<String, dynamic> json) =>
       WorkspaceKnowledgeSummary(
         id: json['id']?.toString() ?? '',
@@ -120,6 +134,17 @@ class WorkspaceKnowledgeFile {
   final int createdAt;
   final int updatedAt;
 
+  /// Ingestion status carried inline on the file record, when present. The file
+  /// browser primarily derives status from the dedicated pending endpoint, but
+  /// this covers servers that annotate the file row directly.
+  String? get status {
+    final metaStatus = meta['status']?.toString();
+    if (metaStatus != null && metaStatus.isNotEmpty) return metaStatus;
+    final dataStatus = data['status']?.toString();
+    if (dataStatus != null && dataStatus.isNotEmpty) return dataStatus;
+    return null;
+  }
+
   factory WorkspaceKnowledgeFile.fromJson(Map<String, dynamic> json) =>
       WorkspaceKnowledgeFile(
         id: json['id']?.toString() ?? json['file_id']?.toString() ?? '',
@@ -207,6 +232,8 @@ class WorkspaceKnowledgeDetail {
 
   final WorkspaceKnowledgeSummary summary;
   final List<WorkspaceKnowledgeFile> files;
+
+  bool get isExternal => summary.isExternal;
 
   factory WorkspaceKnowledgeDetail.fromJson(Map<String, dynamic> json) =>
       WorkspaceKnowledgeDetail(
