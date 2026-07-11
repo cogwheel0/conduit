@@ -1,7 +1,9 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
@@ -242,4 +244,181 @@ void main() {
     expect(restoredDelete.isLoading, isFalse);
     expect(restoredDelete.onPressed, isNotNull);
   });
+
+  testWidgets('backend preference failure preserves the last direct profile', (
+    tester,
+  ) async {
+    final profile = DirectConnectionProfile(
+      id: 'home',
+      name: 'Home provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      apiKey: 'secret',
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+          preferredBackendProvider.overrideWith(
+            _FailingPreferredBackendController.new,
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'home'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(DirectConnectionEditorPage)),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Delete connection'),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Delete connection'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not delete this connection.'), findsOneWidget);
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue.single.id,
+      'home',
+    );
+    expect(container.read(preferredBackendProvider), PreferredBackend.direct);
+    final durable = await const FlutterSecureStorage().read(
+      key: 'direct_connection_profiles_v1',
+    );
+    expect(durable, contains('secret'));
+  });
+
+  testWidgets(
+    'profile write failure restores a pre-cleared direct preference',
+    (tester) async {
+      final profile = DirectConnectionProfile(
+        id: 'home',
+        name: 'Home provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example/v1',
+        apiKey: 'secret',
+      );
+      final backendController = _TrackingPreferredBackendController();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            secureStorageProvider.overrideWithValue(
+              _RejectingProfileWriteSecureStorage(
+                DirectConnectionProfilesDocument([profile]).encode(),
+              ),
+            ),
+            preferredBackendProvider.overrideWith(() => backendController),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const DirectConnectionEditorPage(profileId: 'home'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Delete connection'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not delete this connection.'), findsOneWidget);
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue.single.id,
+        'home',
+      );
+      expect(container.read(preferredBackendProvider), PreferredBackend.direct);
+      expect(backendController.writes, [
+        PreferredBackend.unset,
+        PreferredBackend.direct,
+      ]);
+    },
+  );
+}
+
+final class _FailingPreferredBackendController
+    extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
+
+  @override
+  Future<void> set(PreferredBackend backend) async {
+    throw StateError('preference write failed');
+  }
+}
+
+final class _TrackingPreferredBackendController
+    extends PreferredBackendController {
+  final List<PreferredBackend> writes = [];
+
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
+
+  @override
+  Future<void> set(PreferredBackend backend) async {
+    writes.add(backend);
+    state = backend;
+  }
+}
+
+final class _RejectingProfileWriteSecureStorage
+    implements FlutterSecureStorage {
+  _RejectingProfileWriteSecureStorage(this.raw);
+
+  final String raw;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => raw;
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    throw StateError('profile write failed');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

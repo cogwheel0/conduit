@@ -9,6 +9,7 @@ import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../services/direct_adapter_helpers.dart';
@@ -158,6 +159,8 @@ class DirectConnectionProfilesController
     } else {
       updated[index] = safeProfile;
     }
+    final runRegistry = ref.read(directRunRegistryProvider);
+    final modelRegistry = ref.read(directModelRegistryProvider);
     final persisted = await _store.save(
       updated,
       secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin
@@ -167,12 +170,18 @@ class DirectConnectionProfilesController
     final persistedProfile = persisted
         .where((item) => item.id == profile.id)
         .single;
-    if (previous != null && _transportChanged(previous, persistedProfile)) {
-      await Future.wait(
-        ref.read(directRunRegistryProvider).cancelProfile(profile.id),
-      );
+    final transportChanged =
+        previous != null && _transportChanged(previous, persistedProfile);
+    if (transportChanged) {
+      // The secure-store write is authoritative. Invalidate old routing
+      // authority before publishing the new state so no watcher can target the
+      // previous endpoint while discovery catches up.
+      _removeProfileModelsBestEffort(modelRegistry, profile.id);
     }
     if (ref.mounted) state = AsyncValue.data(persisted);
+    if (transportChanged) {
+      await _cancelProfileRunsBestEffort(runRegistry, profile.id);
+    }
   }
 
   Future<void> remove(String profileId) => _serializeMutation(() async {
@@ -181,12 +190,12 @@ class DirectConnectionProfilesController
         .where((profile) => profile.id != profileId)
         .toList(growable: false);
     if (updated.length == current.length) return;
+    final runRegistry = ref.read(directRunRegistryProvider);
+    final modelRegistry = ref.read(directModelRegistryProvider);
     final persisted = await _store.save(updated);
-    await Future.wait(
-      ref.read(directRunRegistryProvider).cancelProfile(profileId),
-    );
-    ref.read(directModelRegistryProvider).removeProfile(profileId);
+    _removeProfileModelsBestEffort(modelRegistry, profileId);
     if (ref.mounted) state = AsyncValue.data(persisted);
+    await _cancelProfileRunsBestEffort(runRegistry, profileId);
   });
 
   Future<void> setEnabled(String profileId, bool enabled) => _serializeMutation(
@@ -225,11 +234,73 @@ class DirectConnectionProfilesController
   }
 
   Future<void> clear() => _serializeMutation(() async {
+    final runRegistry = ref.read(directRunRegistryProvider);
+    final modelRegistry = ref.read(directModelRegistryProvider);
     await _store.clear();
-    await Future.wait(ref.read(directRunRegistryProvider).cancelAll());
-    ref.read(directModelRegistryProvider).clear();
+    _clearModelsBestEffort(modelRegistry);
     if (ref.mounted) state = const AsyncValue.data([]);
+    await _cancelAllRunsBestEffort(runRegistry);
   });
+
+  Future<void> _cancelProfileRunsBestEffort(
+    DirectRunRegistry registry,
+    String profileId,
+  ) async {
+    try {
+      await Future.wait(registry.cancelProfile(profileId));
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Failed to finish direct-run cancellation after profile persistence',
+        scope: 'direct/profiles',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'profileId': profileId},
+      );
+    }
+  }
+
+  Future<void> _cancelAllRunsBestEffort(DirectRunRegistry registry) async {
+    try {
+      await Future.wait(registry.cancelAll());
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Failed to finish direct-run cancellation after clearing profiles',
+        scope: 'direct/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  void _removeProfileModelsBestEffort(
+    DirectModelRegistry registry,
+    String profileId,
+  ) {
+    try {
+      registry.removeProfile(profileId);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Failed to invalidate direct-model bindings after profile persistence',
+        scope: 'direct/profiles',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'profileId': profileId},
+      );
+    }
+  }
+
+  void _clearModelsBestEffort(DirectModelRegistry registry) {
+    try {
+      registry.clear();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Failed to clear direct-model bindings after profile persistence',
+        scope: 'direct/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {
     final result = _mutationQueue.then<void>(
@@ -258,6 +329,12 @@ final class DirectModelDiscoveryState {
   }) : models = List.unmodifiable(models),
        errorsByProfile = Map.unmodifiable(errorsByProfile);
 
+  DirectModelDiscoveryState._withStableModels({
+    required this.models,
+    Map<String, String> errorsByProfile = const {},
+    this.isRefreshing = false,
+  }) : errorsByProfile = Map.unmodifiable(errorsByProfile);
+
   final List<model.Model> models;
   final Map<String, String> errorsByProfile;
   final bool isRefreshing;
@@ -267,6 +344,8 @@ class DirectModelDiscoveryController
     extends AsyncNotifier<DirectModelDiscoveryState> {
   final Map<String, List<DirectRemoteModel>> _cache = {};
   final Map<String, int> _profileSignatures = {};
+  final Map<String, List<model.Model>> _mintedModels = {};
+  final Map<String, DirectConnectionProfile> _mintedModelProfiles = {};
   int _discoveryGeneration = 0;
 
   @override
@@ -281,7 +360,7 @@ class DirectModelDiscoveryController
     final previous = state.value;
     if (previous != null) {
       state = AsyncValue.data(
-        DirectModelDiscoveryState(
+        DirectModelDiscoveryState._withStableModels(
           models: previous.models,
           errorsByProfile: previous.errorsByProfile,
           isRefreshing: true,
@@ -315,9 +394,12 @@ class DirectModelDiscoveryController
       ..retainProfiles(activeIds);
     _cache.removeWhere((id, _) => !activeIds.contains(id));
     _profileSignatures.removeWhere((id, _) => !activeIds.contains(id));
+    _mintedModels.removeWhere((id, _) => !activeIds.contains(id));
+    _mintedModelProfiles.removeWhere((id, _) => !activeIds.contains(id));
     final models = <model.Model>[];
     final errors = <String, String>{};
     for (final outcome in outcomes) {
+      final previousCached = _cache[outcome.profile.id];
       if (_profileSignatures[outcome.profile.id] != outcome.signature) {
         _cache.remove(outcome.profile.id);
       }
@@ -326,10 +408,32 @@ class DirectModelDiscoveryController
         _cache[outcome.profile.id] = outcome.models!;
       }
       final cached = _cache[outcome.profile.id] ?? const <DirectRemoteModel>[];
-      models.addAll(registry.replaceProfileModels(outcome.profile, cached));
+      final previousMinted = _mintedModels[outcome.profile.id];
+      final previousProfile = _mintedModelProfiles[outcome.profile.id];
+      final canReuseMinted =
+          previousMinted != null &&
+          previousProfile != null &&
+          previousCached != null &&
+          listEquals(previousCached, cached) &&
+          _sameDirectProfile(previousProfile, outcome.profile) &&
+          previousMinted.every((item) => registry.resolve(item) != null);
+      final profileModels = canReuseMinted
+          ? previousMinted
+          : registry.replaceProfileModels(outcome.profile, cached);
+      _mintedModels[outcome.profile.id] = profileModels;
+      _mintedModelProfiles[outcome.profile.id] = outcome.profile;
+      models.addAll(profileModels);
       if (outcome.error != null) errors[outcome.profile.id] = outcome.error!;
     }
-    return DirectModelDiscoveryState(models: models, errorsByProfile: errors);
+    final previousModels = state.value?.models;
+    final stableModels =
+        previousModels != null && _sameModelIdentities(previousModels, models)
+        ? previousModels
+        : List<model.Model>.unmodifiable(models);
+    return DirectModelDiscoveryState._withStableModels(
+      models: stableModels,
+      errorsByProfile: errors,
+    );
   }
 
   Future<_DiscoveryOutcome> _discoverProfile(
@@ -419,3 +523,31 @@ bool _transportChanged(
     _profileSignature(previous) != _profileSignature(next) ||
     previous.enabled != next.enabled ||
     !listEquals(previous.manualModelIds, next.manualModelIds);
+
+bool _sameModelIdentities(List<model.Model> left, List<model.Model> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (!identical(left[index], right[index])) return false;
+  }
+  return true;
+}
+
+bool _sameDirectProfile(
+  DirectConnectionProfile left,
+  DirectConnectionProfile right,
+) =>
+    left.schemaVersion == right.schemaVersion &&
+    left.id == right.id &&
+    left.name == right.name &&
+    left.adapterKey == right.adapterKey &&
+    left.baseUrl == right.baseUrl &&
+    left.enabled == right.enabled &&
+    left.apiKey == right.apiKey &&
+    mapEquals(left.customHeaders, right.customHeaders) &&
+    listEquals(left.manualModelIds, right.manualModelIds) &&
+    left.allowSelfSignedCertificates == right.allowSelfSignedCertificates &&
+    left.mtlsCertificateChainPem == right.mtlsCertificateChainPem &&
+    left.mtlsCertificateLabel == right.mtlsCertificateLabel &&
+    left.mtlsPrivateKeyPem == right.mtlsPrivateKeyPem &&
+    left.mtlsPrivateKeyLabel == right.mtlsPrivateKeyLabel &&
+    left.mtlsPrivateKeyPassword == right.mtlsPrivateKeyPassword;

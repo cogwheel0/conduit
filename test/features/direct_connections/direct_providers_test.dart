@@ -3,12 +3,16 @@ import 'dart:async';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -171,6 +175,125 @@ void main() {
     expect(saved.enabled, isFalse);
   });
 
+  test(
+    'transport edit commits and invalidates stale models when cancellation fails',
+    () async {
+      final original = _profile();
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          original,
+        ]).encode(),
+      });
+      final container = _container(_QueuedAdapter());
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+
+      final modelRegistry = container.read(directModelRegistryProvider);
+      final staleModel = modelRegistry.replaceProfileModels(original, [
+        DirectRemoteModel(id: 'stale-model'),
+      ]).single;
+      final cancellation = _registerPendingRun(
+        container.read(directRunRegistryProvider),
+        profileId: original.id,
+      );
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final mutation = controller.upsert(
+        original.copyWith(baseUrl: 'https://new.example.test/v1'),
+      );
+      await cancellation.token.whenCancel.timeout(const Duration(seconds: 5));
+
+      expect(
+        container
+            .read(directConnectionProfilesProvider)
+            .requireValue
+            .single
+            .baseUrl,
+        'https://new.example.test/v1',
+      );
+      expect(modelRegistry.resolve(staleModel), isNull);
+      expect(modelRegistry.resolveRegisteredId(staleModel.id), isNull);
+
+      cancellation.done.completeError(StateError('cancel failed'));
+      await expectLater(mutation, completes);
+
+      await controller.setEnabled(original.id, false);
+      final durable = await _loadDurableProfiles();
+      expect(durable.single.baseUrl, 'https://new.example.test/v1');
+      expect(durable.single.enabled, isFalse);
+    },
+  );
+
+  test('remove cannot resurrect a profile when cancellation fails', () async {
+    final original = _profile();
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final cancellation = _registerPendingRun(
+      container.read(directRunRegistryProvider),
+      profileId: original.id,
+    );
+
+    final removal = controller.remove(original.id);
+    await cancellation.token.whenCancel.timeout(const Duration(seconds: 5));
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue,
+      isEmpty,
+    );
+
+    cancellation.done.completeError(StateError('cancel failed'));
+    await expectLater(removal, completes);
+
+    final replacement = _profile(id: 'profile-two', name: 'Replacement');
+    await controller.upsert(replacement);
+    final durable = await _loadDurableProfiles();
+    expect(durable.map((profile) => profile.id), ['profile-two']);
+  });
+
+  test('clear cannot resurrect profiles when cancellation fails', () async {
+    final original = _profile();
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final cancellation = _registerPendingRun(
+      container.read(directRunRegistryProvider),
+      profileId: original.id,
+    );
+
+    final clear = controller.clear();
+    await cancellation.token.whenCancel.timeout(const Duration(seconds: 5));
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue,
+      isEmpty,
+    );
+
+    cancellation.done.completeError(StateError('cancel failed'));
+    await expectLater(clear, completes);
+
+    final replacement = _profile(id: 'profile-two', name: 'Replacement');
+    await controller.upsert(replacement);
+    final durable = await _loadDurableProfiles();
+    expect(durable.map((profile) => profile.id), ['profile-two']);
+  });
+
   test('an older discovery cannot overwrite a newer refresh', () async {
     final adapter = _OverlappingAdapter();
     final profile = _profile();
@@ -258,16 +381,45 @@ ProviderContainer _container(DirectProviderAdapter adapter) =>
     );
 
 DirectConnectionProfile _profile({
+  String id = 'profile-one',
+  String name = 'Direct',
   String? apiKey,
   List<String> manualModelIds = const [],
 }) => DirectConnectionProfile(
-  id: 'profile-one',
-  name: 'Direct',
+  id: id,
+  name: name,
   adapterKey: kOpenAiCompatibleAdapterKey,
   baseUrl: 'https://example.test/v1',
   apiKey: apiKey,
   manualModelIds: manualModelIds,
 );
+
+({CancelToken token, Completer<void> done}) _registerPendingRun(
+  DirectRunRegistry registry, {
+  required String profileId,
+}) {
+  final token = CancelToken();
+  final done = Completer<void>();
+  final reservation = registry.reserve('assistant-$profileId', profileId);
+  final registered = registry.register(
+    reservation,
+    DirectCompletionRun(
+      id: 'run-$profileId',
+      profileId: profileId,
+      remoteModelId: 'model-one',
+      events: const Stream<DirectStreamEvent>.empty(),
+      cancelToken: token,
+      done: done.future,
+    ),
+  );
+  expect(registered, isTrue);
+  return (token: token, done: done);
+}
+
+Future<List<DirectConnectionProfile>> _loadDurableProfiles() =>
+    DirectConnectionProfileStore(
+      SecureCredentialStorage(instance: const FlutterSecureStorage()),
+    ).load();
 
 final class _QueuedAdapter implements DirectProviderAdapter {
   final List<List<DirectRemoteModel>> responses = [];

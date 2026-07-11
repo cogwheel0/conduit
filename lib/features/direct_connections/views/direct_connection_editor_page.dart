@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -409,22 +410,62 @@ class _DirectConnectionEditorPageState
         if (mounted) setState(() => _deleting = false);
         return;
       }
-      await ref
-          .read(directConnectionProfilesProvider.notifier)
-          .remove(saved.id);
-      if (!mounted) return;
       final hasAnotherUsable = profiles.any(
         (profile) => profile.id != saved.id && profile.isUsable,
       );
-      if (!hasAnotherUsable &&
-          ref.read(preferredBackendProvider) == PreferredBackend.direct) {
-        await ref
-            .read(preferredBackendProvider.notifier)
-            .set(PreferredBackend.unset);
+      final profilesController = ref.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      final preferredBackendController = ref.read(
+        preferredBackendProvider.notifier,
+      );
+      final clearDirectPreference =
+          !hasAnotherUsable &&
+          ref.read(preferredBackendProvider) == PreferredBackend.direct;
+      var clearedDirectPreference = false;
+      if (clearDirectPreference) {
+        try {
+          await preferredBackendController.set(PreferredBackend.unset);
+          clearedDirectPreference = true;
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'Failed to clear the direct backend before profile deletion',
+            scope: 'direct/editor',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'profileId': saved.id},
+          );
+          rethrow;
+        }
+      }
+      try {
+        await profilesController.remove(saved.id);
+      } catch (error, stackTrace) {
+        if (clearedDirectPreference) {
+          try {
+            await preferredBackendController.set(PreferredBackend.direct);
+          } catch (restoreError, restoreStackTrace) {
+            DebugLogger.error(
+              'Failed to restore the direct backend after profile deletion failed',
+              scope: 'direct/editor',
+              error: restoreError,
+              stackTrace: restoreStackTrace,
+              data: {'profileId': saved.id},
+            );
+          }
+        }
+        Error.throwWithStackTrace(error, stackTrace);
       }
       if (!mounted) return;
       context.pop(true);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'Direct profile deletion failed',
+        scope: 'direct/editor',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'profileId': saved.id},
+      );
       if (!mounted) return;
       setState(() {
         _deleting = false;
