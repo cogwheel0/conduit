@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
@@ -215,10 +216,12 @@ class WorkspaceEditorScaffold extends StatelessWidget {
             ),
           ),
           if (onRetry != null)
-            TextButton(
+            ConduitButton(
               key: const Key('workspace-editor-error-retry'),
+              text: l10n.retry,
               onPressed: onRetry,
-              child: Text(l10n.retry),
+              isSecondary: true,
+              isCompact: true,
             ),
         ],
       ),
@@ -245,25 +248,14 @@ class _SaveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return AdaptiveTooltip(
       message: tooltip,
-      child: FilledButton(
+      child: ConduitButton(
         key: const Key('workspace-editor-save'),
+        text: isSaving ? savingLabel : saveLabel,
+        isLoading: isSaving,
+        isCompact: true,
         onPressed: enabled ? () => onSave() : null,
-        child: isSaving
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: IconSize.small,
-                    height: IconSize.small,
-                    child: ConduitLoading.button(context: context),
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Text(savingLabel),
-                ],
-              )
-            : Text(saveLabel),
       ),
     );
   }

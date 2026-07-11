@@ -1,7 +1,9 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 
 /// Compact badge that marks a workspace resource as read-only.
 ///
@@ -21,41 +23,37 @@ class WorkspaceReadOnlyBadge extends StatelessWidget {
     final theme = context.conduitTheme;
     final label = l10n.workspaceReadOnlyBadge;
 
-    return Tooltip(
+    return AdaptiveTooltip(
       message: l10n.workspaceReadOnlyExplanation,
       child: Semantics(
         label: '$label. ${l10n.workspaceReadOnlyExplanation}',
         readOnly: true,
         container: true,
-        child: Container(
-          key: const Key('workspace-read-only-badge'),
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? Spacing.xs : Spacing.sm,
-            vertical: Spacing.xxs,
-          ),
-          decoration: BoxDecoration(
-            color: theme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(AppBorderRadius.badge),
-            border: Border.all(color: theme.dividerColor),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.lock_outline,
-                size: IconSize.small,
-                color: theme.iconSecondary,
-              ),
-              if (!compact) ...[
-                const SizedBox(width: Spacing.xxs),
-                Text(
-                  label,
-                  style: theme.caption?.copyWith(color: theme.textSecondary),
+        child: compact
+            ? Container(
+                key: const Key('workspace-read-only-badge'),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.xs,
+                  vertical: Spacing.xxs,
                 ),
-              ],
-            ],
-          ),
-        ),
+                decoration: BoxDecoration(
+                  color: theme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.badge),
+                  border: Border.all(color: theme.dividerColor),
+                ),
+                child: Icon(
+                  Icons.lock_outline,
+                  size: IconSize.small,
+                  color: theme.iconSecondary,
+                ),
+              )
+            : ConduitBadge(
+                key: const Key('workspace-read-only-badge'),
+                text: label,
+                isCompact: true,
+                backgroundColor: theme.surfaceContainerHighest,
+                textColor: theme.textSecondary,
+              ),
       ),
     );
   }

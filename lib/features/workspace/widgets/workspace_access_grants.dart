@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -470,9 +471,9 @@ class _WorkspaceAccessGrantSheetState
     bool canToggle,
   ) {
     final theme = context.conduitTheme;
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-access-public'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(
         isPublic ? Icons.public : Icons.public_off,
         color: isPublic ? theme.buttonPrimary : theme.iconSecondary,
@@ -482,7 +483,7 @@ class _WorkspaceAccessGrantSheetState
         l10n.workspaceAccessVisibilityDescription,
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
-      trailing: Switch.adaptive(
+      trailing: AdaptiveSwitch(
         value: isPublic,
         onChanged: canToggle
             ? (value) => _update(setWorkspacePublicGrant(_grants, value))
@@ -499,9 +500,9 @@ class _WorkspaceAccessGrantSheetState
     final theme = context.conduitTheme;
     final isGroup = principal.type == WorkspacePrincipalType.group;
     final canEdit = !_isReadOnly;
-    return ListTile(
+    return AdaptiveListTile(
       key: Key('workspace-access-principal-${principal.type.name}-${principal.id}'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(
         isGroup ? Icons.groups_outlined : Icons.person_outline,
         color: theme.iconSecondary,
@@ -514,7 +515,7 @@ class _WorkspaceAccessGrantSheetState
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Tooltip(
+          AdaptiveTooltip(
             message: l10n.workspaceAccessCanEdit,
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -525,7 +526,7 @@ class _WorkspaceAccessGrantSheetState
                     color: theme.textSecondary,
                   ),
                 ),
-                Switch.adaptive(
+                AdaptiveSwitch(
                   key: Key(
                     'workspace-access-write-${principal.type.name}-${principal.id}',
                   ),
@@ -813,7 +814,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
       itemBuilder: (context, index) {
         final principal = _results[index];
         final isGroup = principal.type == WorkspacePrincipalType.group;
-        return ListTile(
+        return AdaptiveListTile(
           key: Key('workspace-principal-${principal.type.name}-${principal.id}'),
           leading: Icon(
             isGroup ? Icons.groups_outlined : Icons.person_outline,

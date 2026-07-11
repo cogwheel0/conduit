@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -20,6 +21,7 @@ import 'package:conduit/features/workspace/widgets/workspace_section_editors.dar
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
@@ -584,13 +586,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
             if (_isDetail && _writeAccess)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: FilledButton.icon(
+                child: ConduitButton(
                   key: const Key('workspace-prompt-edit'),
+                  text: l10n.edit,
+                  icon: Icons.edit_outlined,
                   onPressed: () => context.push(
                     WorkspaceSection.prompts.routes.editLocation(summary!.id),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.edit),
                 ),
               ),
             _nameField(l10n),
@@ -628,33 +630,34 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
-    return TextField(
+    return ConduitInput(
       key: const Key('workspace-prompt-name'),
       controller: _nameController,
+      label: l10n.workspacePromptName,
       enabled: !_fieldsReadOnly,
       onChanged: _onNameChanged,
       textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: l10n.workspacePromptName,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
     );
   }
 
   Widget _commandField(AppLocalizations l10n) {
-    return TextField(
-      key: const Key('workspace-prompt-command'),
-      controller: _commandController,
-      enabled: !_fieldsReadOnly,
-      onChanged: _onCommandChanged,
-      decoration: InputDecoration(
-        labelText: l10n.workspacePromptCommand,
-        helperText: l10n.workspacePromptCommandHint,
+    final theme = context.conduitTheme;
+    return WorkspaceLabeledField(
+      helperText: l10n.workspacePromptCommandHint,
+      child: ConduitInput(
+        key: const Key('workspace-prompt-command'),
+        controller: _commandController,
+        label: l10n.workspacePromptCommand,
+        enabled: !_fieldsReadOnly,
+        onChanged: _onCommandChanged,
         errorText: _commandError ? l10n.workspacePromptCommandInvalid : null,
-        prefixText: '/',
-        isDense: true,
-        border: const OutlineInputBorder(),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: Spacing.md, right: Spacing.xs),
+          child: Text(
+            '/',
+            style: AppTypography.standard.copyWith(color: theme.textSecondary),
+          ),
+        ),
       ),
     );
   }
@@ -702,24 +705,23 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         Row(
           children: [
             Expanded(child: Text(l10n.workspacePromptContent, style: theme.label)),
-            SegmentedButton<bool>(
-              key: const Key('workspace-prompt-preview-toggle'),
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  label: Text(l10n.workspacePromptWriteTab),
-                  icon: const Icon(Icons.edit_outlined, size: IconSize.small),
-                ),
-                ButtonSegment(
-                  value: true,
-                  label: Text(l10n.workspacePromptPreviewTab),
-                  icon: const Icon(Icons.visibility_outlined, size: IconSize.small),
-                ),
-              ],
-              selected: {_previewMode},
-              onSelectionChanged: (value) =>
-                  setState(() => _previewMode = value.first),
+            // The adaptive segmented control renders a native platform view on
+            // iOS 26; a non-flex child in a Row is measured with unbounded
+            // width, which makes the native layer's frame infinite (NaN) and
+            // crashes. Give it a definite width.
+            SizedBox(
+              width: 200,
+              child: AdaptiveSegmentedControl(
+                key: const Key('workspace-prompt-preview-toggle'),
+                shrinkWrap: true,
+                labels: [
+                  l10n.workspacePromptWriteTab,
+                  l10n.workspacePromptPreviewTab,
+                ],
+                selectedIndex: _previewMode ? 1 : 0,
+                onValueChanged: (index) =>
+                    setState(() => _previewMode = index == 1),
+              ),
             ),
           ],
         ),
@@ -727,7 +729,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         if (_previewMode)
           _previewPane(l10n)
         else
-          TextField(
+          AdaptiveTextField(
             key: const Key('workspace-prompt-content'),
             controller: _contentController,
             enabled: !_fieldsReadOnly,
@@ -735,11 +737,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
             maxLines: 20,
             onChanged: (_) => _markDirty(),
             style: theme.code?.copyWith(color: theme.textPrimary),
-            decoration: InputDecoration(
-              hintText: l10n.workspacePromptContentHint,
-              isDense: true,
-              border: const OutlineInputBorder(),
-            ),
+            placeholder: l10n.workspacePromptContentHint,
           ),
       ],
     );
@@ -774,30 +772,29 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       children: [
         Text(l10n.workspacePromptVersionSection, style: theme.label),
         const SizedBox(height: Spacing.xs),
-        TextField(
+        ConduitInput(
           key: const Key('workspace-prompt-commit-message'),
           controller: _commitController,
+          label: l10n.workspacePromptCommitMessage,
+          hint: l10n.workspacePromptCommitMessageHint,
           enabled: !_fieldsReadOnly,
           onChanged: (_) => _markDirty(),
-          decoration: InputDecoration(
-            labelText: l10n.workspacePromptCommitMessage,
-            hintText: l10n.workspacePromptCommitMessageHint,
-            isDense: true,
-            border: const OutlineInputBorder(),
-          ),
         ),
-        SwitchListTile.adaptive(
+        const SizedBox(height: Spacing.xs),
+        AdaptiveListTile(
           key: const Key('workspace-prompt-production-toggle'),
-          contentPadding: EdgeInsets.zero,
+          padding: EdgeInsets.zero,
           title: Text(l10n.workspacePromptSetProduction),
           subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
-          value: _isProduction,
-          onChanged: _fieldsReadOnly
-              ? null
-              : (value) => setState(() {
-                  _isProduction = value;
-                  _dirty = true;
-                }),
+          trailing: AdaptiveSwitch(
+            value: _isProduction,
+            onChanged: _fieldsReadOnly
+                ? null
+                : (value) => setState(() {
+                    _isProduction = value;
+                    _dirty = true;
+                  }),
+          ),
         ),
       ],
     );
@@ -806,9 +803,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-prompt-access'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
       title: Text(l10n.workspacePromptManageAccess),
       subtitle: Text(
@@ -899,32 +896,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   // --- Interactions ---------------------------------------------------------
 
   Future<void> _addTag(AppLocalizations l10n) async {
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        final dialogL10n = AppLocalizations.of(dialogContext)!;
-        return AlertDialog(
-          title: Text(dialogL10n.workspacePromptTagAdd),
-          content: TextField(
-            key: const Key('workspace-prompt-tag-input'),
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(dialogL10n.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-              child: Text(dialogL10n.save),
-            ),
-          ],
-        );
-      },
+    final value = await ThemedDialogs.promptTextInput(
+      context,
+      title: l10n.workspacePromptTagAdd,
+      hintText: l10n.workspacePromptTagAdd,
     );
     final tag = value?.trim() ?? '';
     // Guard against the editor being disposed while the tag dialog was open

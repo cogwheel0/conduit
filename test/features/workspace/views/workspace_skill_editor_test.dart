@@ -13,6 +13,15 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+TextField _textFieldByKey(WidgetTester tester, String key) {
+  return tester.widget<TextField>(
+    find.descendant(
+      of: find.byKey(Key(key)),
+      matching: find.byType(TextField),
+    ),
+  );
+}
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   final view = binding.platformDispatcher.views.first;
@@ -89,15 +98,9 @@ void main() {
     );
     await tester.pump();
 
-    final name = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-name')),
-    );
-    final id = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-id')),
-    );
-    final description = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-description')),
-    );
+    final name = _textFieldByKey(tester, 'workspace-skill-name');
+    final id = _textFieldByKey(tester, 'workspace-skill-id');
+    final description = _textFieldByKey(tester, 'workspace-skill-description');
     expect(name.controller!.text, 'Code Review Guidelines');
     expect(id.controller!.text, 'code_review_guidelines');
     expect(description.controller!.text, 'Review checklist');
@@ -116,9 +119,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The id is immutable in edit mode.
-    final id = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-id')),
-    );
+    final id = _textFieldByKey(tester, 'workspace-skill-id');
     expect(id.enabled, isFalse);
 
     await tester.enterText(
@@ -225,12 +226,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final name = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-name')),
-    );
-    final content = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-content')),
-    );
+    final name = _textFieldByKey(tester, 'workspace-skill-name');
+    final content = _textFieldByKey(tester, 'workspace-skill-content');
     expect(name.controller!.text, 'Imported Skill');
     expect(content.controller!.text, contains('Body text.'));
     // Markdown import does not persist — it opens an unsaved editor.
@@ -330,9 +327,7 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-editor-save')));
     await tester.pump();
 
-    final idField = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-id')),
-    );
+    final idField = _textFieldByKey(tester, 'workspace-skill-id');
     expect(skills.created, isEmpty);
     expect(idField.decoration!.errorText, 'Skill ID is required.');
   });
@@ -359,9 +354,7 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-editor-save')));
     await tester.pump();
 
-    final idField = tester.widget<TextField>(
-      find.byKey(const Key('workspace-skill-id')),
-    );
+    final idField = _textFieldByKey(tester, 'workspace-skill-id');
     expect(skills.created, isEmpty);
     expect(
       idField.decoration!.errorText,

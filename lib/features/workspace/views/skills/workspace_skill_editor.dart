@@ -16,6 +16,7 @@ import 'package:conduit/features/workspace/models/workspace_skill_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -23,6 +24,7 @@ import 'package:conduit/features/workspace/widgets/workspace_section_editors.dar
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
@@ -628,13 +630,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             if (_isDetail && _writeAccess)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: FilledButton.icon(
+                child: ConduitButton(
                   key: const Key('workspace-skill-edit'),
+                  text: l10n.edit,
+                  icon: Icons.edit_outlined,
                   onPressed: () => context.push(
                     WorkspaceSection.skills.routes.editLocation(summary!.id),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.edit),
                 ),
               ),
             _nameField(l10n),
@@ -654,50 +656,40 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
-    return TextField(
+    return ConduitInput(
       key: const Key('workspace-skill-name'),
       controller: _nameController,
+      label: l10n.workspaceSkillName,
+      hint: l10n.workspaceSkillNameHint,
       enabled: !_fieldsReadOnly,
       onChanged: _onNameChanged,
       textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceSkillName,
-        hintText: l10n.workspaceSkillNameHint,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
     );
   }
 
   Widget _idField(AppLocalizations l10n) {
-    return TextField(
-      key: const Key('workspace-skill-id'),
-      controller: _idController,
-      enabled: !_idReadOnly,
-      onChanged: _onIdChanged,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceSkillId,
-        helperText: l10n.workspaceSkillIdHint,
+    return WorkspaceLabeledField(
+      helperText: l10n.workspaceSkillIdHint,
+      child: ConduitInput(
+        key: const Key('workspace-skill-id'),
+        controller: _idController,
+        label: l10n.workspaceSkillId,
+        enabled: !_idReadOnly,
+        onChanged: _onIdChanged,
         errorText: _idErrorText,
-        isDense: true,
-        border: const OutlineInputBorder(),
       ),
     );
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
-    return TextField(
+    return ConduitInput(
       key: const Key('workspace-skill-description'),
       controller: _descriptionController,
+      label: l10n.workspaceSkillDescription,
+      hint: l10n.workspaceSkillDescriptionHint,
       enabled: !_fieldsReadOnly,
       onChanged: (_) => _markDirty(),
       textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceSkillDescription,
-        hintText: l10n.workspaceSkillDescriptionHint,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
     );
   }
 
@@ -711,27 +703,22 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             Expanded(
               child: Text(l10n.workspaceSkillContent, style: theme.label),
             ),
-            SegmentedButton<bool>(
-              key: const Key('workspace-skill-preview-toggle'),
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  label: Text(l10n.workspaceSkillWriteTab),
-                  icon: const Icon(Icons.edit_outlined, size: IconSize.small),
-                ),
-                ButtonSegment(
-                  value: true,
-                  label: Text(l10n.workspaceSkillPreviewTab),
-                  icon: const Icon(
-                    Icons.visibility_outlined,
-                    size: IconSize.small,
-                  ),
-                ),
-              ],
-              selected: {_previewMode},
-              onSelectionChanged: (value) =>
-                  setState(() => _previewMode = value.first),
+            // Bound the width: on iOS 26 this is a native platform view and an
+            // unbounded Row constraint makes its layer frame infinite (NaN),
+            // which crashes the app.
+            SizedBox(
+              width: 200,
+              child: AdaptiveSegmentedControl(
+                key: const Key('workspace-skill-preview-toggle'),
+                shrinkWrap: true,
+                labels: [
+                  l10n.workspaceSkillWriteTab,
+                  l10n.workspaceSkillPreviewTab,
+                ],
+                selectedIndex: _previewMode ? 1 : 0,
+                onValueChanged: (index) =>
+                    setState(() => _previewMode = index == 1),
+              ),
             ),
           ],
         ),
@@ -739,7 +726,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         if (_previewMode)
           _previewPane(l10n)
         else
-          TextField(
+          AdaptiveTextField(
             key: const Key('workspace-skill-content'),
             controller: _contentController,
             enabled: !_fieldsReadOnly,
@@ -747,11 +734,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             maxLines: 28,
             onChanged: _onContentChanged,
             style: theme.code?.copyWith(color: theme.textPrimary),
-            decoration: InputDecoration(
-              hintText: l10n.workspaceSkillContentHint,
-              isDense: true,
-              border: const OutlineInputBorder(),
-            ),
+            placeholder: l10n.workspaceSkillContentHint,
           ),
       ],
     );
@@ -782,9 +765,9 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-skill-access'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
       title: Text(l10n.workspaceSkillManageAccess),
       subtitle: Text(

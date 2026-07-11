@@ -1,8 +1,10 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 
 /// Renders a dynamic valve form from a server-provided valve [spec] (a JSON
 /// schema). Mirrors Open WebUI's `Valves.svelte`: each property can be left at
@@ -34,10 +36,30 @@ class WorkspaceValveForm extends StatefulWidget {
 class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
   late Map<String, dynamic> _values;
 
+  /// Text controllers for free-text/number valve controls, created lazily when
+  /// a property is in its custom state and disposed when it returns to default.
+  final Map<String, TextEditingController> _controllers = {};
+
   @override
   void initState() {
     super.initState();
     _values = Map<String, dynamic>.from(widget.initialValues);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    _controllers.clear();
+    super.dispose();
+  }
+
+  TextEditingController _controllerFor(String property) {
+    return _controllers.putIfAbsent(
+      property,
+      () => TextEditingController(text: _values[property]?.toString() ?? ''),
+    );
   }
 
   Map<String, dynamic> _propertySpec(String property) {
@@ -78,6 +100,9 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
     } else {
       next = null;
     }
+    // Reset any text controller so the control reseeds from [next] on rebuild
+    // (or is torn down when returning to the server default).
+    _controllers.remove(property)?.dispose();
     _setValue(property, next);
   }
 
@@ -141,18 +166,19 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
                   ),
                 ),
               ),
-              TextButton(
+              AdaptiveButton(
                 key: Key('workspace-tool-valve-toggle-$property'),
                 onPressed: widget.enabled
                     ? () => _toggleDefault(property)
                     : null,
-                child: Text(
-                  isDefault
-                      ? (isRequired
-                            ? l10n.workspaceValveNone
-                            : l10n.workspaceValveDefault)
-                      : l10n.workspaceValveCustom,
-                ),
+                enabled: widget.enabled,
+                style: AdaptiveButtonStyle.plain,
+                size: AdaptiveButtonSize.small,
+                label: isDefault
+                    ? (isRequired
+                          ? l10n.workspaceValveNone
+                          : l10n.workspaceValveDefault)
+                    : l10n.workspaceValveCustom,
               ),
             ],
           ),
@@ -184,26 +210,32 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
 
     if (enumValues is List && enumValues.isNotEmpty) {
       final current = _values[property]?.toString();
-      return DropdownButtonFormField<String>(
-        key: controlKey,
-        initialValue: enumValues.map((e) => e.toString()).contains(current)
-            ? current
-            : null,
-        isDense: true,
-        decoration: const InputDecoration(
-          isDense: true,
-          border: OutlineInputBorder(),
+      final hasCurrent = enumValues
+          .map((e) => e.toString())
+          .contains(current);
+      // KeyedSubtree preserves [controlKey] because AdaptivePopupMenuButton.text
+      // does not forward its own `key`. Tapping the subtree hits the trigger.
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: KeyedSubtree(
+          key: controlKey,
+          child: AdaptivePopupMenuButton.text<String>(
+            label: hasCurrent ? current! : title,
+            tint: theme.buttonPrimary,
+            buttonStyle: PopupButtonStyle.tinted,
+            items: [
+              for (final option in enumValues)
+                AdaptivePopupMenuItem<String>(
+                  label: option.toString(),
+                  value: option.toString(),
+                ),
+            ],
+            onSelected: widget.enabled
+                ? (index, entry) =>
+                      _setValue(property, _enumValueFor(enumValues, entry.value))
+                : (_, _) {},
+          ),
         ),
-        items: [
-          for (final option in enumValues)
-            DropdownMenuItem<String>(
-              value: option.toString(),
-              child: Text(option.toString()),
-            ),
-        ],
-        onChanged: widget.enabled
-            ? (value) => _setValue(property, _enumValueFor(enumValues, value))
-            : null,
       );
     }
 
@@ -216,7 +248,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
             current ? l10n.workspaceValveEnabled : l10n.workspaceValveDisabled,
             style: theme.bodySmall?.copyWith(color: theme.textSecondary),
           ),
-          Switch(
+          AdaptiveSwitch(
             key: controlKey,
             value: current,
             onChanged: widget.enabled
@@ -234,9 +266,9 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
         inputSpec['type']?.toString() == 'password';
     final isNumber = type == 'integer' || type == 'number';
 
-    return TextFormField(
+    return ConduitInput(
       key: controlKey,
-      initialValue: _values[property]?.toString() ?? '',
+      controller: _controllerFor(property),
       enabled: widget.enabled,
       obscureText: isPassword,
       keyboardType: isNumber
@@ -244,12 +276,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
           : TextInputType.text,
       minLines: 1,
       maxLines: isPassword ? 1 : 3,
-      style: theme.bodyMedium,
-      decoration: InputDecoration(
-        hintText: title,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
+      hint: title,
       onChanged: (value) =>
           _setValue(property, _coerce(type, value, _values[property])),
     );

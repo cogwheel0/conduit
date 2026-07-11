@@ -1,3 +1,4 @@
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
 
 import 'package:conduit/core/utils/debug_logger.dart';
@@ -116,7 +117,7 @@ class _WorkspaceToolUrlImportSheetState
             style: theme.label?.copyWith(color: theme.textSecondary),
           ),
           const SizedBox(height: Spacing.xs),
-          TextField(
+          AdaptiveTextField(
             key: const Key('workspace-tool-url-field'),
             controller: _controller,
             enabled: !_loading,
@@ -125,11 +126,7 @@ class _WorkspaceToolUrlImportSheetState
             textInputAction: TextInputAction.go,
             onSubmitted: (_) => _loading ? null : _run(),
             style: theme.code?.copyWith(color: theme.textPrimary),
-            decoration: InputDecoration(
-              hintText: l10n.workspaceToolImportUrlHint,
-              isDense: true,
-              border: const OutlineInputBorder(),
-            ),
+            placeholder: l10n.workspaceToolImportUrlHint,
           ),
           if (_errorKey != null) ...[
             const SizedBox(height: Spacing.sm),

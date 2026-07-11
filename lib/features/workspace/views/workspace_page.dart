@@ -170,10 +170,10 @@ class _WorkspaceStatusContent extends StatelessWidget {
                 ),
                 if (onRetry != null) ...[
                   const SizedBox(height: Spacing.lg),
-                  FilledButton(
+                  ConduitButton(
                     key: const Key('workspace-retry'),
+                    text: l10n.workspaceRetry,
                     onPressed: onRetry,
-                    child: Text(l10n.workspaceRetry),
                   ),
                 ],
               ],
@@ -919,7 +919,7 @@ Widget _resourceTile<T>(
   final id = binding.idOf(item);
   final subtitle = binding.subtitleOf(item);
   final trailing = binding.trailingOf?.call(item);
-  return ListTile(
+  return AdaptiveListTile(
     key: Key('workspace-resource-${section.name}-$id'),
     selected: selectedId == id,
     title: Text(binding.titleOf(item)),
@@ -961,9 +961,11 @@ Widget _loadMoreFooter(
     child: Center(
       child: isLoadingMore
           ? ConduitLoading.inline(context: context)
-          : TextButton(
+          : AdaptiveButton(
               onPressed: onLoadMore,
-              child: Text(l10n.workspaceLoadMore),
+              style: AdaptiveButtonStyle.plain,
+              size: AdaptiveButtonSize.small,
+              label: l10n.workspaceLoadMore,
             ),
     ),
   );
@@ -1165,7 +1167,7 @@ class _CollectionError extends StatelessWidget {
             const SizedBox(height: Spacing.md),
             Text(l10n.workspaceLoadFailed, textAlign: TextAlign.center),
             const SizedBox(height: Spacing.md),
-            FilledButton(onPressed: onRetry, child: Text(l10n.workspaceRetry)),
+            ConduitButton(text: l10n.workspaceRetry, onPressed: onRetry),
           ],
         ),
       ),
@@ -1304,11 +1306,11 @@ class _EditorPlaceholder extends StatelessWidget {
                 ),
                 if (showEdit && onEdit != null) ...[
                   const SizedBox(height: Spacing.lg),
-                  FilledButton.icon(
+                  ConduitButton(
                     key: const Key('workspace-edit-action'),
+                    text: l10n.edit,
+                    icon: Icons.edit_outlined,
                     onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: Text(l10n.edit),
                   ),
                 ],
               ],
@@ -1341,52 +1343,73 @@ class _KnowledgeFilterBar extends ConsumerWidget {
     return Row(
       children: [
         Expanded(
-          child: DropdownButtonFormField<String>(
-            key: const Key('workspace-knowledge-view-filter'),
-            initialValue: view,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(isDense: true),
-            items: [
-              DropdownMenuItem(value: '', child: Text(l10n.workspaceKnowledgeViewAll)),
-              DropdownMenuItem(
-                value: 'created',
-                child: Text(l10n.workspaceKnowledgeViewCreated),
-              ),
-              DropdownMenuItem(
-                value: 'shared',
-                child: Text(l10n.workspaceKnowledgeViewShared),
-              ),
-            ],
-            onChanged: (value) => notifier.setView(value ?? ''),
+          child: _WorkspaceFilterMenu(
+            menuKey: const Key('workspace-knowledge-view-filter'),
+            currentValue: view,
+            options: {
+              '': l10n.workspaceKnowledgeViewAll,
+              'created': l10n.workspaceKnowledgeViewCreated,
+              'shared': l10n.workspaceKnowledgeViewShared,
+            },
+            onSelected: notifier.setView,
           ),
         ),
         const SizedBox(width: Spacing.sm),
         Expanded(
-          child: DropdownButtonFormField<String>(
-            key: const Key('workspace-knowledge-source-filter'),
-            initialValue: state.source,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(isDense: true),
-            items: [
-              DropdownMenuItem(
-                value: '',
-                child: Text(l10n.workspaceKnowledgeSourceAll),
-              ),
-              DropdownMenuItem(
-                value: 'local',
-                child: Text(l10n.workspaceKnowledgeSourceLocal),
-              ),
-              DropdownMenuItem(
-                value: 'external',
-                child: Text(l10n.workspaceKnowledgeSourceExternal),
-              ),
-            ],
-            onChanged: (value) => notifier.setSource(value ?? ''),
+          child: _WorkspaceFilterMenu(
+            menuKey: const Key('workspace-knowledge-source-filter'),
+            currentValue: state.source,
+            options: {
+              '': l10n.workspaceKnowledgeSourceAll,
+              'local': l10n.workspaceKnowledgeSourceLocal,
+              'external': l10n.workspaceKnowledgeSourceExternal,
+            },
+            onSelected: notifier.setSource,
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Inline value picker for the knowledge filter bar, presented as a native
+/// adaptive menu. Wrapped in a [KeyedSubtree] because
+/// [AdaptivePopupMenuButton.text] does not forward its own `key`; the subtree
+/// keeps the stable test key on the trigger.
+class _WorkspaceFilterMenu extends StatelessWidget {
+  const _WorkspaceFilterMenu({
+    required this.menuKey,
+    required this.currentValue,
+    required this.options,
+    required this.onSelected,
+  });
+
+  final Key menuKey;
+  final String currentValue;
+  final Map<String, String> options;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = options[currentValue] ?? options.values.first;
+    return KeyedSubtree(
+      key: menuKey,
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: AdaptivePopupMenuButton.text<String>(
+          label: label,
+          tint: context.conduitTheme.buttonPrimary,
+          buttonStyle: PopupButtonStyle.bordered,
+          items: [
+            for (final entry in options.entries)
+              AdaptivePopupMenuItem<String>(
+                label: entry.value,
+                value: entry.key,
+              ),
+          ],
+          onSelected: (_, entry) => onSelected(entry.value ?? ''),
+        ),
+      ),
     );
   }
 }
@@ -1401,20 +1424,12 @@ class _KnowledgeExternalBadge extends StatelessWidget {
     final theme = context.conduitTheme;
     return Padding(
       padding: const EdgeInsets.only(right: Spacing.xs),
-      child: Container(
+      child: ConduitBadge(
         key: const Key('workspace-knowledge-external-badge'),
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.xs,
-          vertical: Spacing.xxs,
-        ),
-        decoration: BoxDecoration(
-          color: theme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(AppBorderRadius.badge),
-        ),
-        child: Text(
-          l10n.workspaceKnowledgeExternalBadge,
-          style: theme.caption?.copyWith(color: theme.textSecondary),
-        ),
+        text: l10n.workspaceKnowledgeExternalBadge,
+        isCompact: true,
+        backgroundColor: theme.surfaceContainerHighest,
+        textColor: theme.textSecondary,
       ),
     );
   }

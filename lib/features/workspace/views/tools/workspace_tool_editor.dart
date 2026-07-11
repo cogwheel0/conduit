@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/models/workspace_tool_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -22,6 +23,7 @@ import 'package:conduit/features/workspace/widgets/workspace_tool_valves_sheet.d
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// Default Python scaffold for a new tool, mirroring Open WebUI's boilerplate.
@@ -599,13 +601,13 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
             if (_isDetail && _writeAccess)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: FilledButton.icon(
+                child: ConduitButton(
                   key: const Key('workspace-tool-edit'),
+                  text: l10n.edit,
+                  icon: Icons.edit_outlined,
                   onPressed: () => context.push(
                     WorkspaceSection.tools.routes.editLocation(summary!.id),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.edit),
                 ),
               ),
             _nameField(l10n),
@@ -632,50 +634,40 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   }
 
   Widget _nameField(AppLocalizations l10n) {
-    return TextField(
+    return ConduitInput(
       key: const Key('workspace-tool-name'),
       controller: _nameController,
+      label: l10n.workspaceToolName,
+      hint: l10n.workspaceToolNameHint,
       enabled: !_fieldsReadOnly,
       onChanged: _onNameChanged,
       textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceToolName,
-        hintText: l10n.workspaceToolNameHint,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
     );
   }
 
   Widget _idField(AppLocalizations l10n) {
-    return TextField(
-      key: const Key('workspace-tool-id'),
-      controller: _idController,
-      enabled: !_idReadOnly,
-      onChanged: _onIdChanged,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceToolId,
-        helperText: l10n.workspaceToolIdHint,
+    return WorkspaceLabeledField(
+      helperText: l10n.workspaceToolIdHint,
+      child: ConduitInput(
+        key: const Key('workspace-tool-id'),
+        controller: _idController,
+        label: l10n.workspaceToolId,
+        enabled: !_idReadOnly,
+        onChanged: _onIdChanged,
         errorText: _idError ? l10n.workspaceToolIdInvalid : null,
-        isDense: true,
-        border: const OutlineInputBorder(),
       ),
     );
   }
 
   Widget _descriptionField(AppLocalizations l10n) {
-    return TextField(
+    return ConduitInput(
       key: const Key('workspace-tool-description'),
       controller: _descriptionController,
+      label: l10n.workspaceToolDescription,
+      hint: l10n.workspaceToolDescriptionHint,
       enabled: !_fieldsReadOnly,
       onChanged: (_) => _markDirty(),
       textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: l10n.workspaceToolDescription,
-        hintText: l10n.workspaceToolDescriptionHint,
-        isDense: true,
-        border: const OutlineInputBorder(),
-      ),
     );
   }
 
@@ -686,7 +678,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       children: [
         Text(l10n.workspaceToolContent, style: theme.label),
         const SizedBox(height: Spacing.xs),
-        TextField(
+        AdaptiveTextField(
           key: const Key('workspace-tool-content'),
           controller: _contentController,
           enabled: !_fieldsReadOnly,
@@ -694,11 +686,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
           maxLines: 32,
           onChanged: _onContentChanged,
           style: theme.code?.copyWith(color: theme.textPrimary),
-          decoration: InputDecoration(
-            hintText: l10n.workspaceToolContentHint,
-            isDense: true,
-            border: const OutlineInputBorder(),
-          ),
+          placeholder: l10n.workspaceToolContentHint,
         ),
       ],
     );
@@ -839,9 +827,9 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-tool-access'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
       title: Text(l10n.workspaceToolManageAccess),
       subtitle: Text(

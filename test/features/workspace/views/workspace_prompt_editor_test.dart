@@ -13,6 +13,15 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+TextField _textFieldByKey(WidgetTester tester, String key) {
+  return tester.widget<TextField>(
+    find.descendant(
+      of: find.byKey(Key(key)),
+      matching: find.byType(TextField),
+    ),
+  );
+}
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   final view = binding.platformDispatcher.views.first;
@@ -296,12 +305,8 @@ void main() {
     await tester.tap(find.byKey(const Key('prompt-history-restore-h2')));
     await tester.pumpAndSettle();
 
-    final content = tester.widget<TextField>(
-      find.byKey(const Key('workspace-prompt-content')),
-    );
-    final command = tester.widget<TextField>(
-      find.byKey(const Key('workspace-prompt-command')),
-    );
+    final content = _textFieldByKey(tester, 'workspace-prompt-content');
+    final command = _textFieldByKey(tester, 'workspace-prompt-command');
     expect(content.controller!.text, 'older body');
     // Command is identity and must be preserved by a restore.
     expect(command.controller!.text, 'summary');

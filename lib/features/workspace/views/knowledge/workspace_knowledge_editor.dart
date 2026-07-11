@@ -19,6 +19,7 @@ import 'package:conduit/features/workspace/widgets/workspace_section_editors.dar
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// Section-registry entry point for the Knowledge editor.
@@ -402,39 +403,31 @@ class _WorkspaceKnowledgeFormState
             if (_isDetail && _writeAccess && !_isExternal)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: FilledButton.icon(
+                child: ConduitButton(
                   key: const Key('workspace-knowledge-edit'),
+                  text: l10n.edit,
+                  icon: Icons.edit_outlined,
                   onPressed: () => context.push(
                     WorkspaceSection.knowledge.routes.editLocation(summary!.id),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.edit),
                 ),
               ),
-            TextField(
+            ConduitInput(
               key: const Key('workspace-knowledge-name'),
               controller: _nameController,
+              label: l10n.workspaceKnowledgeName,
               enabled: !_fieldsReadOnly,
               onChanged: (_) => _markDirty(),
-              decoration: InputDecoration(
-                labelText: l10n.workspaceKnowledgeName,
-                isDense: true,
-                border: const OutlineInputBorder(),
-              ),
             ),
             const SizedBox(height: Spacing.sm),
-            TextField(
+            ConduitInput(
               key: const Key('workspace-knowledge-description'),
               controller: _descriptionController,
+              label: l10n.workspaceKnowledgeDescription,
               enabled: !_fieldsReadOnly,
               minLines: 2,
               maxLines: 4,
               onChanged: (_) => _markDirty(),
-              decoration: InputDecoration(
-                labelText: l10n.workspaceKnowledgeDescription,
-                isDense: true,
-                border: const OutlineInputBorder(),
-              ),
             ),
             const SizedBox(height: Spacing.md),
             _accessTile(l10n),
@@ -457,9 +450,9 @@ class _WorkspaceKnowledgeFormState
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-knowledge-access'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
       title: Text(l10n.workspaceKnowledgeManageAccess),
       subtitle: Text(

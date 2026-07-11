@@ -6,7 +6,9 @@ import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -263,12 +265,21 @@ class _WorkspacePromptHistorySectionState
                 if (_hasMore)
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: TextButton(
+                    child: AdaptiveButton.child(
                       key: const Key('workspace-prompt-history-load-more'),
                       onPressed: _loadingMore ? null : _loadMore,
+                      enabled: !_loadingMore,
+                      style: AdaptiveButtonStyle.plain,
+                      size: AdaptiveButtonSize.small,
                       child: _loadingMore
                           ? ConduitLoading.inline(context: context)
-                          : Text(l10n.workspaceLoadMore),
+                          : Text(
+                              l10n.workspaceLoadMore,
+                              style: AppTypography.standard.copyWith(
+                                color: context.conduitTheme.buttonPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                     ),
                   ),
               ],
@@ -291,10 +302,12 @@ class _WorkspacePromptHistorySectionState
             style: theme.bodySmall?.copyWith(color: theme.error),
           ),
         ),
-        TextButton(
+        AdaptiveButton(
           key: const Key('workspace-prompt-history-retry'),
           onPressed: _loadInitial,
-          child: Text(l10n.retry),
+          style: AdaptiveButtonStyle.plain,
+          size: AdaptiveButtonSize.small,
+          label: l10n.retry,
         ),
       ],
     );
@@ -309,10 +322,9 @@ class _WorkspacePromptHistorySectionState
       key: Key('prompt-history-${entry.id}'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ListTile(
-          dense: true,
+        AdaptiveListTile(
           selected: selected,
-          contentPadding: EdgeInsets.zero,
+          padding: EdgeInsets.zero,
           title: Row(
             children: [
               Flexible(
@@ -326,20 +338,12 @@ class _WorkspacePromptHistorySectionState
               ),
               if (isProduction) ...[
                 const SizedBox(width: Spacing.sm),
-                Container(
+                ConduitBadge(
                   key: Key('prompt-history-live-${entry.id}'),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.xs,
-                    vertical: Spacing.xxs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.success.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.badge),
-                  ),
-                  child: Text(
-                    l10n.workspacePromptHistoryLive,
-                    style: theme.caption?.copyWith(color: theme.success),
-                  ),
+                  text: l10n.workspacePromptHistoryLive,
+                  isCompact: true,
+                  backgroundColor: theme.success.withValues(alpha: 0.15),
+                  textColor: theme.success,
                 ),
               ],
             ],
@@ -392,39 +396,33 @@ class _WorkspacePromptHistorySectionState
             runSpacing: Spacing.xs,
             children: [
               if (_productionVersionId != null && !isProduction)
-                TextButton.icon(
-                  key: Key('prompt-history-diff-${entry.id}'),
+                WorkspacePlainIconButton(
+                  buttonKey: Key('prompt-history-diff-${entry.id}'),
                   onPressed: () => _diff(entry),
-                  icon: const Icon(Icons.difference_outlined, size: IconSize.small),
-                  label: Text(l10n.workspacePromptHistoryDiff),
+                  icon: Icons.difference_outlined,
+                  label: l10n.workspacePromptHistoryDiff,
                 ),
               if (widget.canRestore)
-                TextButton.icon(
-                  key: Key('prompt-history-restore-${entry.id}'),
+                WorkspacePlainIconButton(
+                  buttonKey: Key('prompt-history-restore-${entry.id}'),
                   onPressed: () => widget.onRestore(entry.snapshot),
-                  icon: const Icon(Icons.restore, size: IconSize.small),
-                  label: Text(l10n.workspacePromptHistoryRestore),
+                  icon: Icons.restore,
+                  label: l10n.workspacePromptHistoryRestore,
                 ),
               if (widget.canMutate && !isProduction)
-                TextButton.icon(
-                  key: Key('prompt-history-production-${entry.id}'),
+                WorkspacePlainIconButton(
+                  buttonKey: Key('prompt-history-production-${entry.id}'),
                   onPressed: () => _setProduction(entry),
-                  icon: const Icon(Icons.verified_outlined, size: IconSize.small),
-                  label: Text(l10n.workspacePromptHistorySetProduction),
+                  icon: Icons.verified_outlined,
+                  label: l10n.workspacePromptHistorySetProduction,
                 ),
               if (widget.canMutate && !isProduction)
-                TextButton.icon(
-                  key: Key('prompt-history-delete-${entry.id}'),
+                WorkspacePlainIconButton(
+                  buttonKey: Key('prompt-history-delete-${entry.id}'),
                   onPressed: () => _deleteEntry(entry),
-                  icon: Icon(
-                    Icons.delete_outline,
-                    size: IconSize.small,
-                    color: theme.error,
-                  ),
-                  label: Text(
-                    l10n.workspacePromptHistoryDelete,
-                    style: TextStyle(color: theme.error),
-                  ),
+                  icon: Icons.delete_outline,
+                  label: l10n.workspacePromptHistoryDelete,
+                  isDestructive: true,
                 ),
             ],
           ),

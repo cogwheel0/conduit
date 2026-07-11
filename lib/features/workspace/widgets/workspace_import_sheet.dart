@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -321,7 +322,7 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
           style: theme.label?.copyWith(color: theme.textSecondary),
         ),
         const SizedBox(height: Spacing.xs),
-        TextField(
+        AdaptiveTextField(
           key: const Key('workspace-import-json-field'),
           controller: _controller,
           minLines: 4,
@@ -330,11 +331,7 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
           textInputAction: TextInputAction.newline,
           keyboardType: TextInputType.multiline,
           style: theme.code?.copyWith(color: theme.textPrimary),
-          decoration: InputDecoration(
-            hintText: l10n.workspaceImportPasteHint,
-            isDense: true,
-            border: const OutlineInputBorder(),
-          ),
+          placeholder: l10n.workspaceImportPasteHint,
         ),
         if (_errorKey != null) ...[
           const SizedBox(height: Spacing.sm),
@@ -393,12 +390,13 @@ class _WorkspaceImportSheetState extends State<WorkspaceImportSheet> {
             itemCount: report.results.length,
             itemBuilder: (context, index) {
               final result = report.results[index];
-              return ListTile(
+              return AdaptiveListTile(
                 key: Key('workspace-import-result-${result.index}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
+                padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
                 leading: Icon(
-                  result.succeeded ? Icons.check_circle_outline : Icons.error_outline,
+                  result.succeeded
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
                   color: result.succeeded ? theme.success : theme.error,
                 ),
                 title: Text(

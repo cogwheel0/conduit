@@ -13,6 +13,7 @@ import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
@@ -204,10 +205,12 @@ class _Browser extends ConsumerWidget {
               child: Center(
                 child: state.isLoadingMore
                     ? ConduitLoading.inline(context: context)
-                    : TextButton(
+                    : AdaptiveButton(
                         key: const Key('knowledge-files-load-more'),
                         onPressed: () => _notifier(ref).loadMore(),
-                        child: Text(l10n.workspaceLoadMore),
+                        style: AdaptiveButtonStyle.plain,
+                        size: AdaptiveButtonSize.small,
+                        label: l10n.workspaceLoadMore,
                       ),
               ),
             ),
@@ -471,28 +474,30 @@ Future<String?> _promptText(
   String? initial,
 }) {
   final controller = TextEditingController(text: initial ?? '');
-  return showDialog<String>(
+  return ThemedDialogs.showCustom<String>(
     context: context,
     builder: (dialogContext) {
       final l10n = AppLocalizations.of(dialogContext)!;
-      return AlertDialog(
-        title: Text(title),
-        content: TextField(
+      return ThemedDialogs.buildBase(
+        context: dialogContext,
+        title: title,
+        content: ConduitInput(
           key: const Key('knowledge-text-prompt'),
           controller: controller,
+          label: label,
           autofocus: true,
-          decoration: InputDecoration(labelText: label),
           onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
         ),
         actions: [
-          TextButton(
+          ConduitTextButton(
+            text: l10n.cancel,
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.cancel),
           ),
-          FilledButton(
+          ConduitTextButton(
             key: const Key('knowledge-text-prompt-confirm'),
+            text: l10n.save,
+            isPrimary: true,
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: Text(l10n.save),
           ),
         ],
       );
@@ -585,17 +590,25 @@ class _Breadcrumbs extends StatelessWidget {
         key: const Key('knowledge-breadcrumbs'),
         scrollDirection: Axis.horizontal,
         children: [
-          TextButton(
+          AdaptiveButton(
             key: const Key('knowledge-breadcrumb-root'),
             onPressed: () => onOpen(''),
-            child: Text(l10n.workspaceKnowledgeRoot),
+            style: AdaptiveButtonStyle.plain,
+            size: AdaptiveButtonSize.small,
+            label: l10n.workspaceKnowledgeRoot,
           ),
           for (final crumb in breadcrumbs) ...[
-            Icon(Icons.chevron_right, size: IconSize.small, color: theme.iconSecondary),
-            TextButton(
+            Icon(
+              Icons.chevron_right,
+              size: IconSize.small,
+              color: theme.iconSecondary,
+            ),
+            AdaptiveButton(
               key: Key('knowledge-breadcrumb-${crumb.id}'),
               onPressed: () => onOpen(crumb.id),
-              child: Text(crumb.name),
+              style: AdaptiveButtonStyle.plain,
+              size: AdaptiveButtonSize.small,
+              label: crumb.name,
             ),
           ],
         ],
@@ -624,9 +637,8 @@ class _DirectoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
+    return AdaptiveListTile(
+      padding: EdgeInsets.zero,
       leading: Icon(Icons.folder_outlined, color: theme.iconSecondary),
       title: MiddleEllipsisText(directory.name),
       onTap: onOpen,
@@ -663,9 +675,8 @@ class _PendingTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final failed =
         (pending.status ?? '').toLowerCase() == 'failed' || pending.error != null;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
+    return AdaptiveListTile(
+      padding: EdgeInsets.zero,
       leading: failed
           ? Icon(Icons.error_outline, color: theme.error)
           : SizedBox(
@@ -706,10 +717,12 @@ class _FileTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(Icons.insert_drive_file_outlined, color: theme.iconSecondary),
+    return AdaptiveListTile(
+      padding: EdgeInsets.zero,
+      leading: Icon(
+        Icons.insert_drive_file_outlined,
+        color: theme.iconSecondary,
+      ),
       title: MiddleEllipsisText(file.filename),
       subtitle: file.size == null
           ? null
@@ -845,10 +858,11 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: Spacing.sm),
           Text(l10n.workspaceKnowledgeFilesLoadFailed),
           const SizedBox(height: Spacing.sm),
-          FilledButton(
+          ConduitButton(
             key: const Key('knowledge-files-retry'),
+            text: l10n.workspaceRetry,
+            isCompact: true,
             onPressed: onRetry,
-            child: Text(l10n.workspaceRetry),
           ),
         ],
       ),
@@ -862,41 +876,40 @@ class _AddTextDialog {
   static Future<(String, String)?> show(BuildContext context) {
     final nameController = TextEditingController();
     final contentController = TextEditingController();
-    return showDialog<(String, String)>(
+    return ThemedDialogs.showCustom<(String, String)>(
       context: context,
       builder: (dialogContext) {
         final l10n = AppLocalizations.of(dialogContext)!;
-        return AlertDialog(
-          title: Text(l10n.workspaceKnowledgeAddText),
+        return ThemedDialogs.buildBase(
+          context: dialogContext,
+          title: l10n.workspaceKnowledgeAddText,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
+              ConduitInput(
                 key: const Key('knowledge-add-text-name'),
                 controller: nameController,
-                decoration: InputDecoration(
-                  labelText: l10n.workspaceKnowledgeAddTextName,
-                ),
+                label: l10n.workspaceKnowledgeAddTextName,
               ),
               const SizedBox(height: Spacing.sm),
-              TextField(
+              ConduitInput(
                 key: const Key('knowledge-add-text-content'),
                 controller: contentController,
+                label: l10n.workspaceKnowledgeAddTextContent,
                 minLines: 3,
                 maxLines: 6,
-                decoration: InputDecoration(
-                  labelText: l10n.workspaceKnowledgeAddTextContent,
-                ),
               ),
             ],
           ),
           actions: [
-            TextButton(
+            ConduitTextButton(
+              text: l10n.cancel,
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.cancel),
             ),
-            FilledButton(
+            ConduitTextButton(
               key: const Key('knowledge-add-text-confirm'),
+              text: l10n.save,
+              isPrimary: true,
               onPressed: () {
                 final name = nameController.text.trim();
                 if (name.isEmpty) return;
@@ -904,7 +917,6 @@ class _AddTextDialog {
                   dialogContext,
                 ).pop((name, contentController.text));
               },
-              child: Text(l10n.save),
             ),
           ],
         );
@@ -921,39 +933,46 @@ class _DetachDialog {
     required bool canDeleteUnderlying,
   }) {
     var deleteUnderlying = false;
-    return showDialog<bool>(
+    return ThemedDialogs.showCustom<bool>(
       context: context,
       builder: (dialogContext) {
         final l10n = AppLocalizations.of(dialogContext)!;
         return StatefulBuilder(
-          builder: (context, setState) => AlertDialog(
-            title: Text(l10n.workspaceKnowledgeFileDetachTitle),
+          builder: (context, setState) => ThemedDialogs.buildBase(
+            context: dialogContext,
+            title: l10n.workspaceKnowledgeFileDetachTitle,
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(l10n.workspaceKnowledgeFileDetachMessage(filename)),
                 if (canDeleteUnderlying)
-                  CheckboxListTile(
+                  AdaptiveListTile(
                     key: const Key('knowledge-detach-delete-underlying'),
-                    contentPadding: EdgeInsets.zero,
-                    value: deleteUnderlying,
+                    padding: EdgeInsets.zero,
                     title: Text(l10n.workspaceKnowledgeFileDeleteUnderlying),
-                    onChanged: (value) =>
-                        setState(() => deleteUnderlying = value ?? false),
+                    trailing: AdaptiveCheckbox(
+                      value: deleteUnderlying,
+                      onChanged: (value) =>
+                          setState(() => deleteUnderlying = value ?? false),
+                    ),
+                    onTap: () => setState(
+                      () => deleteUnderlying = !deleteUnderlying,
+                    ),
                   ),
               ],
             ),
             actions: [
-              TextButton(
+              ConduitTextButton(
+                text: l10n.cancel,
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: Text(l10n.cancel),
               ),
-              FilledButton(
+              ConduitTextButton(
                 key: const Key('knowledge-detach-confirm'),
+                text: l10n.workspaceKnowledgeFileDetach,
+                isPrimary: true,
                 onPressed: () =>
                     Navigator.of(dialogContext).pop(deleteUnderlying),
-                child: Text(l10n.workspaceKnowledgeFileDetach),
               ),
             ],
           ),
@@ -990,13 +1009,13 @@ class _MoveSheet {
             key: const Key('knowledge-move-sheet'),
             shrinkWrap: true,
             children: [
-              ListTile(
+              AdaptiveListTile(
                 title: Text(
                   l10n.workspaceKnowledgeMoveTitle,
                   style: context.conduitTheme.label,
                 ),
               ),
-              ListTile(
+              AdaptiveListTile(
                 key: const Key('knowledge-move-root'),
                 leading: const Icon(Icons.home_outlined),
                 title: Text(l10n.workspaceKnowledgeMoveRoot),
@@ -1010,7 +1029,7 @@ class _MoveSheet {
                 ),
               ),
               for (final dir in unique)
-                ListTile(
+                AdaptiveListTile(
                   key: Key('knowledge-move-${dir.id}'),
                   leading: const Icon(Icons.folder_outlined),
                   title: Text(dir.name),

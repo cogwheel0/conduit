@@ -17,6 +17,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
+import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
@@ -24,6 +25,7 @@ import 'package:conduit/features/workspace/widgets/workspace_section_editors.dar
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 import 'workspace_model_relationship_sheet.dart';
@@ -596,13 +598,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
             if (_isDetail && widget.writeAccess)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.md),
-                child: FilledButton.icon(
+                child: ConduitButton(
                   key: const Key('workspace-model-edit'),
+                  text: l10n.edit,
+                  icon: Icons.edit_outlined,
                   onPressed: () => context.push(
                     WorkspaceSection.models.routes.editLocation(_draft.id),
                   ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.edit),
                 ),
               ),
             _profileImage(l10n),
@@ -838,18 +840,16 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: TextField(
-        key: Key(key),
-        controller: controller,
-        enabled: enabled,
-        minLines: minLines,
-        maxLines: maxLines < minLines ? minLines : maxLines,
-        onChanged: onChanged,
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: helperText,
-          isDense: true,
-          border: const OutlineInputBorder(),
+      child: WorkspaceLabeledField(
+        helperText: helperText,
+        child: ConduitInput(
+          key: Key(key),
+          controller: controller,
+          label: label,
+          enabled: enabled,
+          minLines: minLines,
+          maxLines: maxLines < minLines ? minLines : maxLines,
+          onChanged: onChanged,
         ),
       ),
     );
@@ -865,22 +865,20 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     final theme = context.conduitTheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: TextField(
-        key: Key(key),
-        controller: controller,
-        enabled: !_readOnly,
-        minLines: 2,
-        maxLines: 8,
-        style: theme.code?.copyWith(color: theme.textPrimary),
-        onChanged: (_) => _markDirty(),
-        decoration: InputDecoration(
-          labelText: label,
-          helperText: helperText,
+      child: WorkspaceLabeledField(
+        helperText: helperText,
+        child: ConduitInput(
+          key: Key(key),
+          controller: controller,
+          label: label,
+          enabled: !_readOnly,
+          minLines: 2,
+          maxLines: 8,
+          style: theme.code?.copyWith(color: theme.textPrimary),
           errorText: hasError
               ? AppLocalizations.of(context)!.workspaceModelInvalidJson
               : null,
-          isDense: true,
-          border: const OutlineInputBorder(),
+          onChanged: (_) => _markDirty(),
         ),
       ),
     );
@@ -906,21 +904,21 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
                 Wrap(
                   spacing: Spacing.sm,
                   children: [
-                    TextButton.icon(
-                      key: const Key('workspace-model-image-pick'),
+                    WorkspacePlainIconButton(
+                      buttonKey: const Key('workspace-model-image-pick'),
                       onPressed: _pickImage,
-                      icon: const Icon(Icons.image_outlined, size: IconSize.small),
-                      label: Text(l10n.workspaceModelChangeImage),
+                      icon: Icons.image_outlined,
+                      label: l10n.workspaceModelChangeImage,
                     ),
                     if (_draft.profileImageUrl != null)
-                      TextButton.icon(
-                        key: const Key('workspace-model-image-remove'),
+                      WorkspacePlainIconButton(
+                        buttonKey: const Key('workspace-model-image-remove'),
                         onPressed: () => _update(() {
                           _draft.profileImageUrl = null;
                           _avatarRemoved = true;
                         }),
-                        icon: const Icon(Icons.close, size: IconSize.small),
-                        label: Text(l10n.workspaceModelRemoveImage),
+                        icon: Icons.close,
+                        label: l10n.workspaceModelRemoveImage,
                       ),
                   ],
                 ),
@@ -1030,10 +1028,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
           const SizedBox(height: Spacing.xs),
           for (var i = 0; i < _draft.suggestionPrompts.length; i++)
-            ListTile(
+            AdaptiveListTile(
               key: Key('workspace-model-suggestion-$i'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
+              padding: EdgeInsets.zero,
               title: Text(_draft.suggestionPrompts[i]),
               trailing: _readOnly
                   ? null
@@ -1048,11 +1045,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           if (!_readOnly)
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                key: const Key('workspace-model-suggestion-add'),
+              child: WorkspacePlainIconButton(
+                buttonKey: const Key('workspace-model-suggestion-add'),
                 onPressed: () => _addSuggestion(l10n),
-                icon: const Icon(Icons.add, size: IconSize.small),
-                label: Text(l10n.workspaceModelAddSuggestion),
+                icon: Icons.add,
+                label: l10n.workspaceModelAddSuggestion,
               ),
             ),
         ],
@@ -1068,16 +1065,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         children: [
           Text(l10n.workspaceModelCapabilities, style: context.conduitTheme.label),
           for (final key in _draft.capabilities.keys)
-            SwitchListTile.adaptive(
+            AdaptiveListTile(
               key: Key('workspace-model-capability-$key'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
+              padding: EdgeInsets.zero,
               title: Text(key),
-              value: _draft.capabilities[key] ?? false,
-              onChanged: _readOnly
-                  ? null
-                  : (value) =>
-                        _update(() => _draft.capabilities[key] = value),
+              trailing: AdaptiveSwitch(
+                value: _draft.capabilities[key] ?? false,
+                onChanged: _readOnly
+                    ? null
+                    : (value) =>
+                          _update(() => _draft.capabilities[key] = value),
+              ),
             ),
         ],
       ),
@@ -1091,9 +1089,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     VoidCallback? onTap,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    return ListTile(
+    return AdaptiveListTile(
       key: Key(keyId),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       title: Text(label),
       subtitle: Text(
         count == 0
@@ -1117,9 +1115,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_draft.normalizedAccessGrants);
     final isPublic = workspaceGrantsArePublic(_draft.normalizedAccessGrants);
-    return ListTile(
+    return AdaptiveListTile(
       key: const Key('workspace-model-access'),
-      contentPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
       leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
       title: Text(l10n.workspaceModelManageAccess),
       subtitle: Text(
@@ -1404,33 +1402,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Future<String?> _promptText(String label) {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        final l10n = AppLocalizations.of(dialogContext)!;
-        return AlertDialog(
-          title: Text(label),
-          content: TextField(
-            key: const Key('workspace-model-text-prompt'),
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.cancel),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text),
-              child: Text(l10n.workspaceModelAddAction),
-            ),
-          ],
-        );
-      },
+    final l10n = AppLocalizations.of(context)!;
+    return ThemedDialogs.promptTextInput(
+      context,
+      title: label,
+      hintText: label,
+      confirmText: l10n.workspaceModelAddAction,
     );
   }
 

@@ -14,6 +14,16 @@ import 'package:conduit/features/workspace/views/tools/workspace_tool_editor.dar
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+
+TextField _textFieldByKey(WidgetTester tester, String key) {
+  return tester.widget<TextField>(
+    find.descendant(
+      of: find.byKey(Key(key)),
+      matching: find.byType(TextField),
+    ),
+  );
+}
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -100,7 +110,7 @@ void main() {
 
     // The incompatibility banner is shown and the save affordance is disabled.
     expect(find.byKey(const Key('workspace-tool-incompatible')), findsOneWidget);
-    final saveButton = tester.widget<FilledButton>(
+    final saveButton = tester.widget<ConduitButton>(
       find.byKey(const Key('workspace-editor-save')),
     );
     expect(saveButton.onPressed, isNull);
@@ -126,9 +136,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The id is immutable in edit mode.
-    final id = tester.widget<TextField>(
-      find.byKey(const Key('workspace-tool-id')),
-    );
+    final id = _textFieldByKey(tester, 'workspace-tool-id');
     expect(id.enabled, isFalse);
 
     await tester.enterText(
