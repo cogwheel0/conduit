@@ -259,7 +259,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     if (uri == null ||
         (uri.scheme != 'http' && uri.scheme != 'https') ||
         uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty) {
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment) {
       return null;
     }
     final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);

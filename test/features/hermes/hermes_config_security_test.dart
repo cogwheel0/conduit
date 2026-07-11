@@ -26,6 +26,42 @@ void main() {
 
   tearDown(PreferencesStore.debugReset);
 
+  test('connection URLs reject query strings and fragments', () async {
+    check(
+      HermesConfigController.connectionOrigin(
+        'https://one.example/v1?api_key=secret',
+      ),
+    ).isNull();
+    check(
+      HermesConfigController.connectionOrigin(
+        'https://one.example/v1#credentials',
+      ),
+    ).isNull();
+
+    final container = ProviderContainer(
+      overrides: [
+        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+
+    await expectLater(
+      controller.saveConnection(
+        baseUrl: 'https://one.example/v1?api_key=secret',
+      ),
+      throwsArgumentError,
+    );
+    await expectLater(
+      controller.saveConnection(baseUrl: 'https://one.example/v1#credentials'),
+      throwsArgumentError,
+    );
+
+    check(
+      container.read(hermesConfigProvider).baseUrl,
+    ).equals('https://one.example/v1');
+  });
+
   test(
     'changing origin stops owner-bound runs before rotating credentials',
     () async {

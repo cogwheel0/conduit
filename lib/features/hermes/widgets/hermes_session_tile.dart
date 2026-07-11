@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/conversation.dart';
-import '../../../core/models/model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -186,8 +185,28 @@ class HermesSessionTile extends ConsumerWidget {
     await _runSessionAction(
       context,
       'Could not delete conversation.',
-      () => ref.read(hermesSessionsProvider.notifier).delete(session.id),
+      () => deleteHermesSession(ref, session.id),
     );
+  }
+}
+
+/// Deletes a Hermes session and tears down its active chat binding.
+///
+/// Clearing both providers prevents the next send from reusing a server-side
+/// session id that no longer exists. Unrelated active chats are left intact.
+Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
+  await ref.read(hermesSessionsProvider.notifier).delete(sessionId);
+
+  if (ref.read(hermesActiveSessionProvider) == sessionId) {
+    ref.read(hermesActiveSessionProvider.notifier).set(null);
+  }
+
+  final activeConversation = ref.read(activeConversationProvider);
+  final belongsToDeletedSession =
+      activeConversation?.id == 'local:hermes_$sessionId' ||
+      activeConversation?.metadata['hermesSessionId'] == sessionId;
+  if (belongsToDeletedSession) {
+    ref.read(activeConversationProvider.notifier).clear();
   }
 }
 
@@ -223,7 +242,7 @@ Future<void> openHermesSession(
     return;
   }
 
-  Model? hermesModel;
+  var hermesModel = hermesSyntheticModel();
   try {
     final models = await ref.read(modelsProvider.future);
     for (final model in models) {
@@ -233,19 +252,18 @@ Future<void> openHermesSession(
       }
     }
   } catch (_) {
-    // Picker not ready; the chat still routes via the bound session.
+    // The model list may not be ready in Hermes-only or degraded startup.
+    // Keep the locally minted fallback so transport routing stays Hermes-safe.
   }
 
-  final messages = hermesMessagesToChatMessages(raw, modelId: hermesModel?.id);
+  final messages = hermesMessagesToChatMessages(raw, modelId: hermesModel.id);
 
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
-  if (hermesModel != null) {
-    // Mark as a manual selection (same as startNewHermesChat) so the default-
-    // model restoration that fires on conversation-open can't race past this
-    // and overwrite the Hermes model with the user's OWUI default.
-    ref.read(isManualModelSelectionProvider.notifier).set(true);
-    ref.read(selectedModelProvider.notifier).set(hermesModel);
-  }
+  // Mark as a manual selection (same as startNewHermesChat) so the default-
+  // model restoration that fires on conversation-open can't race past this
+  // and overwrite the Hermes model with the user's OWUI default.
+  ref.read(isManualModelSelectionProvider.notifier).set(true);
+  ref.read(selectedModelProvider.notifier).set(hermesModel);
 
   final now = DateTime.now();
   // `local:` prefix keeps the OpenWebUI socket/Drift machinery out of this chat
@@ -256,7 +274,7 @@ Future<void> openHermesSession(
     title: session.title,
     createdAt: now,
     updatedAt: session.updatedAt ?? now,
-    model: hermesModel?.id,
+    model: hermesModel.id,
     messages: messages,
     metadata: {'backend': 'hermes', 'hermesSessionId': session.id},
   );

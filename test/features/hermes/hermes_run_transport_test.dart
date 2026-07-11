@@ -17,6 +17,7 @@ class _FakeHermesApiService extends HermesApiService {
     this.runResults = const [],
     this.eventsOverride,
     this.createRunGate,
+    this.getRunGate,
     this.stopRunGate,
     this.stopRunError,
   }) : super(
@@ -29,6 +30,7 @@ class _FakeHermesApiService extends HermesApiService {
   final List<Map<String, dynamic>> runResults;
   final Stream<HermesRunEvent>? eventsOverride;
   final Completer<String>? createRunGate;
+  final Completer<Map<String, dynamic>>? getRunGate;
   final Completer<void>? stopRunGate;
   final Object? stopRunError;
   var getRunCalls = 0;
@@ -57,6 +59,7 @@ class _FakeHermesApiService extends HermesApiService {
     CancelToken? cancelToken,
   }) async {
     final index = getRunCalls++;
+    if (getRunGate != null) return getRunGate!.future;
     if (runResults.isNotEmpty) {
       return runResults[index.clamp(0, runResults.length - 1)];
     }
@@ -392,6 +395,82 @@ void main() {
     );
 
     check(content.toString()).equals('Recovered answer');
+  });
+
+  test(
+    'recovery discards a getRun result that arrives after cancellation',
+    () async {
+      final getRunGate = Completer<Map<String, dynamic>>();
+      final runToken = CancelToken();
+      final fake = _FakeHermesApiService(const [], getRunGate: getRunGate);
+      final content = StringBuffer();
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      final dispatch = dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        cancelToken: runToken,
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+      while (fake.getRunCalls == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      runToken.cancel('stopped');
+      getRunGate.complete(const {
+        'status': 'completed',
+        'output': 'Late answer',
+      });
+      await dispatch.timeout(const Duration(seconds: 1));
+
+      check(content.toString()).isEmpty();
+      check(message.error).isNull();
+    },
+  );
+
+  test('recovery suppresses getRun errors caused by cancellation', () async {
+    final getRunGate = Completer<Map<String, dynamic>>();
+    final runToken = CancelToken();
+    final fake = _FakeHermesApiService(const [], getRunGate: getRunGate);
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    final dispatch = dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      cancelToken: runToken,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+    while (fake.getRunCalls == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    runToken.cancel('stopped');
+    getRunGate.completeError(StateError('request cancelled'));
+    await dispatch.timeout(const Duration(seconds: 1));
+
+    check(message.error).isNull();
   });
 
   test('recovered remote cancellation is not reported as success', () async {

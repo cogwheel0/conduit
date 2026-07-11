@@ -1542,6 +1542,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final borderColor = context.conduitTheme.cardBorder.withValues(
       alpha: Theme.of(context).brightness == Brightness.dark ? 0.6 : 0.4,
     );
+    final selectedModel = ref.watch(selectedModelProvider);
+    final hermesCapabilities = ref
+        .watch(hermesCapabilitiesProvider)
+        .asData
+        ?.value;
+    final useHermesSkills =
+        selectedModel != null &&
+        isHermesModel(selectedModel) &&
+        (hermesCapabilities?.skills ?? true);
 
     if (_currentPromptCommand.startsWith('#')) {
       return _buildContextSuggestionOverlay(context, overlayColor, borderColor);
@@ -1554,7 +1563,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
     }
     return PromptSuggestionOverlay(
-      useHermesSkills: _hermesCommandsActive,
+      useHermesSkills: useHermesSkills,
       filteredPrompts: _filterPrompts,
       selectionIndex: _promptSelectionIndex,
       onPromptSelected: _applyPrompt,

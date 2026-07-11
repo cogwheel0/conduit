@@ -957,7 +957,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     // Belt-and-suspenders: hide the gate if the server doesn't support approval.
-    final caps = ref.read(hermesCapabilitiesProvider).asData?.value;
+    final caps = ref.watch(hermesCapabilitiesProvider).asData?.value;
     if (caps != null && !caps.runApproval) return const SizedBox.shrink();
 
     final stateStr = approval['state']?.toString() ?? 'pending';

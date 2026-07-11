@@ -902,8 +902,10 @@ class Models extends _$Models {
       if (e.toString().contains('403')) {
         DebugLogger.warning('endpoint-403', scope: 'models');
       }
-
-      return const [];
+      // Preserve an existing selection on transient refresh failures. Returning
+      // an empty list here makes the synthetic Hermes model look like the only
+      // successful result and can silently switch an OpenWebUI conversation.
+      rethrow;
     }
   }
 
@@ -1979,7 +1981,7 @@ Future<Model?> defaultModel(Ref ref) async {
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
     // Hermes-only mode: auto-select the synthetic Hermes agent model.
-    if (ref.read(hermesConfigProvider).isUsable) {
+    if (ref.watch(hermesConfigProvider).isUsable) {
       final models = await ref.read(modelsProvider.future);
       Model? hermes;
       for (final model in models) {

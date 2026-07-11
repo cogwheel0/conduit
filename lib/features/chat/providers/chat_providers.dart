@@ -4170,6 +4170,35 @@ bool isSendBlocked({
   return !isHermesModel(selectedModel);
 }
 
+/// Raised when a Hermes run would silently discard composer attachments.
+class HermesAttachmentsUnsupportedException implements Exception {
+  const HermesAttachmentsUnsupportedException();
+
+  String get message =>
+      'Hermes Agent does not support file or context attachments yet. '
+      'Remove the attachments before sending.';
+
+  @override
+  String toString() => message;
+}
+
+/// Hermes' Runs API currently accepts a plain string input only. Reject file
+/// and OpenWebUI context attachments instead of silently dropping them.
+@visibleForTesting
+void ensureHermesSendSupportsAttachments({
+  required Model selectedModel,
+  required List<String>? attachments,
+  required List<ChatContextAttachment> contextAttachments,
+}) {
+  if (!isHermesModel(selectedModel)) return;
+  if ((attachments == null || attachments.isEmpty) &&
+      contextAttachments.isEmpty) {
+    return;
+  }
+
+  throw const HermesAttachmentsUnsupportedException();
+}
+
 @visibleForTesting
 bool usesHermesTransportForRegeneration({
   required Model selectedModel,
@@ -5920,6 +5949,20 @@ Future<void> _sendMessageInternal(
   // OpenWebUI chat-completions pipeline. Hermes chats are local/ephemeral in
   // v1 (no OpenWebUI chat resource); durable memory is handled server-side.
   if (isHermesModel(selectedModel)) {
+    try {
+      ensureHermesSendSupportsAttachments(
+        selectedModel: selectedModel,
+        attachments: attachments,
+        contextAttachments: contextAttachments,
+      );
+    } on HermesAttachmentsUnsupportedException catch (error) {
+      final notifier = ref.read(chatMessagesProvider.notifier);
+      notifier.failLastStreamingAssistant(
+        error,
+        assistantMessageId: assistantMessageId,
+      );
+      rethrow;
+    }
     await _dispatchHermesRunFromChat(
       ref,
       assistantMessageId: assistantMessageId,
@@ -6440,6 +6483,8 @@ Future<void> _sendMessageInternal(
 
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
+  if (e is HermesAttachmentsUnsupportedException) return e.message;
+
   final msg = e.toString();
   if (msg.contains('400')) {
     return 'There was an issue with the message format. This might be '

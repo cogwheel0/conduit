@@ -1,7 +1,10 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
@@ -25,7 +28,42 @@ class _FakeHermesConfigController extends HermesConfigController {
 class _FakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
   @override
+  Future<List<Model>> getLocalModels() async => const <Model>[];
+
+  @override
   Future<void> saveLocalModels(List<Model> models) async {}
+}
+
+class _MutableHermesConfigController extends HermesConfigController {
+  _MutableHermesConfigController(this._initial);
+
+  final HermesConfig _initial;
+
+  @override
+  HermesConfig build() => _initial;
+
+  void setConfig(HermesConfig config) => state = config;
+}
+
+class _ModelsApiService extends ApiService {
+  _ModelsApiService(this.workerManager)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'models-test',
+          name: 'Models test',
+          url: 'https://openwebui.example',
+        ),
+        workerManager: workerManager,
+      );
+
+  final WorkerManager workerManager;
+  bool fail = false;
+
+  @override
+  Future<List<Model>> getModels({bool includeHidden = false}) async {
+    if (fail) throw StateError('temporary models outage');
+    return const <Model>[Model(id: 'owui-model', name: 'OpenWebUI model')];
+  }
 }
 
 const _usableHermes = HermesConfig(
@@ -144,5 +182,63 @@ void main() {
         check(isHermesModel(selected!)).isTrue();
       },
     );
+
+    test('default model reacts when Hermes becomes usable', () async {
+      final hermesController = _MutableHermesConfigController(
+        _incompleteHermes,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(() => hermesController),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(await container.read(defaultModelProvider.future)).isNull();
+
+      hermesController.setConfig(_usableHermes);
+      final model = await container.read(defaultModelProvider.future);
+
+      check(model).isNotNull();
+      check(isHermesModel(model!)).isTrue();
+    });
+
+    test('failed model refresh preserves the OpenWebUI selection', () async {
+      final workerManager = WorkerManager();
+      final api = _ModelsApiService(workerManager);
+      addTearDown(workerManager.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          apiServiceProvider.overrideWithValue(api),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_usableHermes),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final initialModels = await container.read(modelsProvider.future);
+      final openWebUiModel = initialModels.firstWhere(
+        (model) => model.id == 'owui-model',
+      );
+      container.read(selectedModelProvider.notifier).set(openWebUiModel);
+
+      api.fail = true;
+      await container.read(modelsProvider.notifier).refresh();
+
+      check(container.read(modelsProvider).hasError).isTrue();
+      check(container.read(selectedModelProvider)?.id).equals('owui-model');
+    });
   });
 }

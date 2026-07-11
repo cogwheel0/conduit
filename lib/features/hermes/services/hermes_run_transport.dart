@@ -232,6 +232,7 @@ Future<void> dispatchHermesRun({
           );
         }
       } catch (recoveryError, recoveryStack) {
+        if (runCancelToken.isCancelled) return;
         final error = streamError ?? recoveryError;
         DebugLogger.error(
           'run-stream-error',
@@ -351,8 +352,10 @@ Future<({String text, String status})?> _recoverRunOutput(
     Map<String, dynamic> run;
     try {
       run = await service.getRun(runId, cancelToken: cancelToken);
+      if (cancelToken.isCancelled) return null;
       consecutiveErrors = 0;
     } catch (_) {
+      if (cancelToken.isCancelled) return null;
       consecutiveErrors++;
       if (consecutiveErrors >= 3) rethrow;
       await Future<void>.delayed(pollInterval);

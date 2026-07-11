@@ -6,7 +6,9 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/streaming_response_controller.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
@@ -209,6 +211,7 @@ ProviderContainer _buildContainer({HermesApiService? hermesService}) {
       activeConversationProvider.overrideWith(
         () => _TestActiveConversationNotifier(),
       ),
+      reviewerModeProvider.overrideWithValue(false),
       apiServiceProvider.overrideWithValue(null),
       hermesApiServiceProvider.overrideWithValue(hermesService),
       socketServiceProvider.overrideWithValue(null),
@@ -220,6 +223,68 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ChatMessagesNotifier streaming seams', () {
+    test('Hermes rejects file attachments with an in-chat error', () async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(hermesSyntheticModel());
+
+      await expectLater(
+        sendMessageWithContainer(container, 'inspect this', ['file-1']),
+        throwsA(
+          isA<HermesAttachmentsUnsupportedException>().having(
+            (error) => error.message,
+            'message',
+            contains('does not support file or context attachments'),
+          ),
+        ),
+      );
+
+      final messages = container.read(chatMessagesProvider);
+      check(messages).has((it) => it.length, 'length').equals(2);
+      expect(messages.first.attachmentIds, ['file-1']);
+      expect(
+        messages.last.error?.content,
+        contains('does not support file or context attachments'),
+      );
+    });
+
+    test(
+      'Hermes leaves rejected context attachments in the composer',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        container
+            .read(contextAttachmentsProvider.notifier)
+            .addWeb(
+              displayName: 'Reference',
+              content: 'Important context',
+              url: 'https://example.com/reference',
+            );
+
+        await expectLater(
+          sendMessageWithContainer(container, 'use this context', null),
+          throwsA(isA<HermesAttachmentsUnsupportedException>()),
+        );
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).has((it) => it.length, 'length').equals(2);
+        check(messages.first.files).isNotNull();
+        check(messages.first.files!).isNotEmpty();
+        expect(
+          messages.last.error?.content,
+          contains('does not support file or context attachments'),
+        );
+        check(container.read(contextAttachmentsProvider)).single
+            .has((attachment) => attachment.displayName, 'displayName')
+            .equals('Reference');
+      },
+    );
+
     test('conversation switch cancels active stream subscriptions', () async {
       final container = _buildContainer();
       addTearDown(container.dispose);
