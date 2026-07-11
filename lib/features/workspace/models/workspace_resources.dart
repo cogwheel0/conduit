@@ -302,6 +302,15 @@ class WorkspaceValveSpec {
 
   factory WorkspaceValveSpec.fromJson(Map<String, dynamic> json) =>
       WorkspaceValveSpec(schema: json);
+
+  /// The JSON-schema `properties` map (one entry per valve field).
+  Map<String, dynamic> get properties => workspaceJsonMap(schema['properties']);
+
+  /// Property keys marked `required` in the schema.
+  List<String> get required => workspaceStringList(schema['required']);
+
+  /// Whether the spec declares no valve fields.
+  bool get isEmpty => properties.isEmpty;
 }
 
 @immutable

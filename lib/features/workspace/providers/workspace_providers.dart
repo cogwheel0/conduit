@@ -1,7 +1,9 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit/features/prompts/providers/prompts_providers.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
@@ -11,6 +13,16 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
 
 part 'workspace_providers.g.dart';
+
+/// The active server's reported Open WebUI version, or null when unknown.
+///
+/// Surfaced as a standalone provider so the tools editor can gate saves on the
+/// `required_open_webui_version` a tool declares without reaching into the
+/// backend config plumbing, and so tests can pin a version cheaply. Fails open
+/// (null) while the config is loading or belongs to another server.
+final workspaceServerVersionProvider = Provider<String?>((ref) {
+  return ref.watch(backendConfigProvider).asData?.value?.version;
+});
 
 class WorkspaceCollectionState<T> {
   const WorkspaceCollectionState({
@@ -96,10 +108,6 @@ void _syncKnowledge(Ref ref) {
 
 void _syncPrompts(Ref ref) {
   ref.invalidate(promptsListProvider);
-}
-
-void _syncTools(Ref ref) {
-  ref.invalidate(toolsListProvider);
 }
 
 void _syncSkills(Ref ref) {
@@ -729,7 +737,11 @@ class WorkspaceTools extends _$WorkspaceTools {
       if (generation != _requestGeneration || !session.isCurrent(ref)) return;
       if (query.isNotEmpty) {
         items = items
-            .where((item) => item.name.toLowerCase().contains(query))
+            .where(
+              (item) =>
+                  item.name.toLowerCase().contains(query) ||
+                  item.id.toLowerCase().contains(query),
+            )
             .toList(growable: false);
       }
       state = AsyncData(
@@ -742,7 +754,7 @@ class WorkspaceTools extends _$WorkspaceTools {
           clearError: true,
         ),
       );
-      _syncTools(ref);
+      await _reconcileChatConsumers();
     } catch (error, stackTrace) {
       if (generation != _requestGeneration || !session.isCurrent(ref)) return;
       state = AsyncData(current.copyWith(isLoading: false, error: error));
@@ -771,19 +783,104 @@ class WorkspaceTools extends _$WorkspaceTools {
       await session.api.deleteTool(id);
       session.ensureCurrent(ref);
       ref.invalidate(workspaceToolDetailProvider(id));
+      // refresh() reconciles chat consumers (cache + selected/auto-selected
+      // tool ids), which prunes the just-deleted id.
       await refresh();
-      final selected = ref.read(selectedToolIdsProvider);
-      if (selected.contains(id)) {
-        ref
-            .read(selectedToolIdsProvider.notifier)
-            .set(selected.where((toolId) => toolId != id).toList());
-      }
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
         state = AsyncData(current.copyWith(isBusy: false, error: error));
       }
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  /// Imports a single tool definition by creating it. Fail-closed: throws when
+  /// the server does not confirm the create. Does not refresh the collection —
+  /// the caller batches a single [refresh] after the import run so chat tool
+  /// consumers reconcile once.
+  Future<void> importTool(WorkspaceToolForm form) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.createWorkspaceTool(form);
+    session.ensureCurrent(ref);
+    if (result == null) {
+      throw StateError('Tool import returned no record.');
+    }
+  }
+
+  /// Returns every readable tool via the dedicated `/tools/export` endpoint as
+  /// raw maps (full detail, including content/specs). Read-only: does not mutate
+  /// state and respects the stale-session guard.
+  Future<List<Map<String, dynamic>>> exportAll() async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.exportTools();
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  /// Fetches one tool's full detail (content, specs, manifest) for a per-item
+  /// export. Read-only.
+  Future<Map<String, dynamic>> exportOne(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getTool(id);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  /// Admin-only: fetches a tool definition from a URL, normalizing GitHub
+  /// `tree`/`blob` URLs to their raw form first. The result prefills an unsaved
+  /// create editor. Read-only: does not mutate provider state.
+  Future<Map<String, dynamic>> loadFromUrl(String url) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.loadToolFromUrl(url);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  // --- Valves ---------------------------------------------------------------
+  // Valve reads/writes are per-tool configuration and never touch the
+  // collection state, but still honour the stale-session guard.
+
+  Future<Map<String, dynamic>> toolValves(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getToolValves(id);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  Future<WorkspaceValveSpec?> toolValvesSpec(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getToolValvesSpec(id);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  Future<void> updateToolValves(String id, Map<String, dynamic> valves) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    await session.api.updateToolValves(id, valves);
+    session.ensureCurrent(ref);
+  }
+
+  Future<Map<String, dynamic>> userToolValves(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getUserToolValves(id);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  Future<WorkspaceValveSpec?> userToolValvesSpec(String id) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getUserToolValvesSpec(id);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  Future<void> updateUserToolValves(
+    String id,
+    Map<String, dynamic> valves,
+  ) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    await session.api.updateUserToolValves(id, valves);
+    session.ensureCurrent(ref);
   }
 
   Future<WorkspaceToolDetail> _mutate(
@@ -805,6 +902,36 @@ class WorkspaceTools extends _$WorkspaceTools {
         state = AsyncData(current.copyWith(isBusy: false, error: error));
       }
       Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// Reconciles the chat-side tool consumers after the workspace list changes:
+  /// re-fetches and re-persists the [toolsListProvider] cache (replacing the
+  /// stale [OptimizedStorageService] snapshot) and prunes any selected /
+  /// auto-selected tool ids that no longer resolve to a live tool. Never throws
+  /// — a chat-cache hiccup must not fail a workspace mutation.
+  Future<void> _reconcileChatConsumers() async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    try {
+      await ref.read(toolsListProvider.notifier).refresh();
+      if (!session.isCurrent(ref)) return;
+      final available = (ref.read(toolsListProvider).asData?.value ?? const [])
+          .map((tool) => tool.id)
+          .toSet();
+      final selected = ref.read(selectedToolIdsProvider);
+      final pruned = selected
+          .where(available.contains)
+          .toList(growable: false);
+      if (pruned.length != selected.length) {
+        ref.read(selectedToolIdsProvider.notifier).set(pruned);
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'tool chat-consumer reconcile failed',
+        scope: 'workspace/tools',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 }

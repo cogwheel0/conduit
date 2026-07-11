@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
@@ -127,6 +129,81 @@ void main() {
     check(api.sources).contains('external');
     check(state.items.single.isExternal).isTrue();
   });
+
+  test('tools list filters by name or id on search', () async {
+    final api = _WorkspaceToolsApi();
+    final container = _toolsContainer(api, cacheTools: const []);
+    addTearDown(container.dispose);
+
+    final initial = await container.read(workspaceToolsProvider.future);
+    check(initial.items.map((t) => t.id)).deepEquals(['alpha', 'beta_tool']);
+
+    await container.read(workspaceToolsProvider.notifier).setQuery('beta');
+    final byName = container.read(workspaceToolsProvider).requireValue;
+    check(byName.items.map((t) => t.id)).deepEquals(['beta_tool']);
+
+    // Search also matches the id token, not just the display name.
+    await container.read(workspaceToolsProvider.notifier).setQuery('alph');
+    final byId = container.read(workspaceToolsProvider).requireValue;
+    check(byId.items.map((t) => t.id)).deepEquals(['alpha']);
+  });
+
+  test('deleting a tool prunes it from the selected tool ids', () async {
+    final api = _WorkspaceToolsApi();
+    // After delete the server list no longer contains 'alpha'; the chat cache
+    // reflects only the surviving tool.
+    final container = _toolsContainer(
+      api,
+      cacheTools: [
+        const Tool(id: 'beta_tool', name: 'Beta'),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(workspaceToolsProvider.future);
+    container
+        .read(selectedToolIdsProvider.notifier)
+        .set(['alpha', 'beta_tool']);
+
+    api.remaining = [
+      const WorkspaceToolSummary(id: 'beta_tool', name: 'Beta', userId: 'u'),
+    ];
+    await container.read(workspaceToolsProvider.notifier).delete('alpha');
+
+    check(api.deleted).deepEquals(['alpha']);
+    // The deleted tool is pruned; the surviving selection is kept.
+    check(container.read(selectedToolIdsProvider)).deepEquals(['beta_tool']);
+  });
+}
+
+ProviderContainer _toolsContainer(
+  _WorkspaceToolsApi api, {
+  required List<Tool> cacheTools,
+}) {
+  return ProviderContainer(
+    overrides: [
+      reviewerModeProvider.overrideWithValue(false),
+      apiServiceProvider.overrideWithValue(api),
+      isAuthenticatedProvider2.overrideWithValue(true),
+      toolsListProvider.overrideWith(() => _FakeToolsList(cacheTools)),
+      activeServerProvider.overrideWith(
+        (ref) => const ServerConfig(
+          id: 'workspace-server',
+          name: 'Workspace Server',
+          url: 'https://example.com',
+        ),
+      ),
+      currentUserProvider2.overrideWithValue(
+        const User(
+          id: 'user-1',
+          username: 'user',
+          email: 'user@example.com',
+          role: 'user',
+        ),
+      ),
+      authTokenProvider3.overrideWithValue('token-1'),
+    ],
+  );
 }
 
 ProviderContainer _container(ApiService api) {
@@ -278,5 +355,45 @@ class _WorkspaceModelsApi extends ApiService {
       ],
       total: 2,
     );
+  }
+}
+
+class _WorkspaceToolsApi extends ApiService {
+  _WorkspaceToolsApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'workspace-server',
+          name: 'Workspace Server',
+          url: 'https://example.com',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final deleted = <String>[];
+  List<WorkspaceToolSummary> remaining = const [
+    WorkspaceToolSummary(id: 'alpha', name: 'Alpha', userId: 'u'),
+    WorkspaceToolSummary(id: 'beta_tool', name: 'Beta', userId: 'u'),
+  ];
+
+  @override
+  Future<List<WorkspaceToolSummary>> getWorkspaceTools() async => remaining;
+
+  @override
+  Future<void> deleteTool(String toolId) async {
+    deleted.add(toolId);
+  }
+}
+
+class _FakeToolsList extends ToolsList {
+  _FakeToolsList(this._tools);
+
+  final List<Tool> _tools;
+
+  @override
+  Future<List<Tool>> build() async => _tools;
+
+  @override
+  Future<void> refresh() async {
+    state = AsyncData(_tools);
   }
 }
