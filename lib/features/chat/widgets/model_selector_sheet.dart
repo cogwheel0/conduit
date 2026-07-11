@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
+import '../../hermes/models/hermes_model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/model_sort_utils.dart';
@@ -36,10 +37,15 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   List<Model> _filteredModels = [];
   Timer? _searchDebounce;
 
+  /// The Hermes agent has its own dedicated tab, so it is never offered in the
+  /// normal model picker.
+  List<Model> get _selectableModels =>
+      widget.models.where((m) => !isHermesModel(m)).toList();
+
   @override
   void initState() {
     super.initState();
-    _filteredModels = widget.models;
+    _filteredModels = _selectableModels;
   }
 
   @override
@@ -57,7 +63,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       if (!mounted) return;
 
       final normalized = query.trim().toLowerCase();
-      Iterable<Model> list = widget.models;
+      Iterable<Model> list = _selectableModels;
 
       if (normalized.isNotEmpty) {
         list = list.where((model) {

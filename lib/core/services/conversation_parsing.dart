@@ -412,6 +412,15 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     ..._coerceJsonMap(historyMsg?['metadata']),
   };
 
+  // Hermes transport/approval metadata is app-owned runtime provenance. Never
+  // let an OpenWebUI payload manufacture authenticated Hermes actions.
+  metadata.removeWhere(
+    (key, _) => key.toString().toLowerCase().startsWith('hermes'),
+  );
+  if (metadata['transport'] == 'hermesRun') {
+    metadata.remove('transport');
+  }
+
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];
   if (rawParentId != null) {
     final parentId = rawParentId.toString().trim();

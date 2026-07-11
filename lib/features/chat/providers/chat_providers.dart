@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -39,6 +40,9 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
+import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_run_transport.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -2172,6 +2176,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void clearMessages() {
+    _streamingContentTimer?.cancel();
+    _streamingContentTimer = null;
+    _streamingSyncTimer?.cancel();
+    _streamingSyncTimer = null;
+    _clearStreamingBuffer();
+    _clearStreamingContent();
     state = [];
     _finishStreamingProfile(reason: 'cleared');
   }
@@ -2332,7 +2342,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         final sameDescription =
             (withTimestamp.description?.isNotEmpty ?? false) &&
             withTimestamp.description == last.description;
-        if (sameAction && sameDescription) {
+        final isHermesTool =
+            withTimestamp.action?.startsWith('hermes_tool_') ?? false;
+        final updatesHermesTool =
+            sameAction && isHermesTool && last.done != true;
+        final updatesMatchingStatus =
+            sameAction && sameDescription && !isHermesTool;
+        if (updatesMatchingStatus || updatesHermesTool) {
           history[history.length - 1] = withTimestamp;
           return current.copyWith(statusHistory: history);
         }
@@ -2424,6 +2440,48 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _syncStreamingProfileWithBufferedContent();
     _touchStreamingActivity();
   }
+
+  /// Appends a Hermes chunk to the assistant message that owns the run.
+  ///
+  /// Hermes runs can outlive a navigation transition. Never redirect a late
+  /// chunk to whichever assistant happens to be the list tail at that point.
+  void appendToMessageById(String messageId, String content) {
+    if (content.isEmpty) return;
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+    if (index == state.length - 1) {
+      appendToLastMessage(content);
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (current) => current.copyWith(content: '${current.content}$content'),
+    );
+  }
+
+  void replaceMessageContentById(String messageId, String content) {
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+    if (index == state.length - 1) {
+      replaceLastMessageContent(content);
+      return;
+    }
+    updateMessageById(
+      messageId,
+      (current) => current.copyWith(content: content),
+    );
+  }
+
+  bool isMessageStreaming(String messageId) => state.any(
+    (message) =>
+        message.id == messageId &&
+        message.role == 'assistant' &&
+        message.isStreaming,
+  );
 
   void _scheduleStreamingContentUpdate() {
     if (_disposed || _streamingBuffer == null) {
@@ -2757,8 +2815,80 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _completeStreamingMessage(releaseTransport: false);
   }
 
+  void completeStreamingUiForMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
+    if (state.lastOrNull?.id == messageId) {
+      completeStreamingUi();
+      return;
+    }
+    _completeNonTailStreamingMessage(
+      messageId,
+      ownerConversationId: ownerConversationId,
+      requireConversationOwner: requireConversationOwner,
+    );
+  }
+
   void finishStreaming() {
     _completeStreamingMessage(releaseTransport: true);
+  }
+
+  void finishStreamingMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
+    if (state.lastOrNull?.id == messageId) {
+      finishStreaming();
+      return;
+    }
+    _completeNonTailStreamingMessage(
+      messageId,
+      ownerConversationId: ownerConversationId,
+      requireConversationOwner: requireConversationOwner,
+    );
+  }
+
+  bool _isActiveConversationOwner(String? ownerConversationId) =>
+      ref.read(activeConversationProvider)?.id == ownerConversationId;
+
+  void _completeNonTailStreamingMessage(
+    String messageId, {
+    String? ownerConversationId,
+    bool requireConversationOwner = false,
+  }) {
+    // A Hermes run can finish after navigation. Its callbacks own the chat
+    // that launched the run, never whichever conversation is active now.
+    if (requireConversationOwner &&
+        !_isActiveConversationOwner(ownerConversationId)) {
+      return;
+    }
+    final index = state.indexWhere((message) => message.id == messageId);
+    if (index < 0) return;
+    final message = state[index];
+    if (message.role != 'assistant' || !message.isStreaming) return;
+
+    final completed = message.copyWith(
+      isStreaming: false,
+      content: _stripStreamingPlaceholders(message.content),
+    );
+    state = [
+      ...state.sublist(0, index),
+      completed,
+      ...state.sublist(index + 1),
+    ];
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(index);
   }
 
   /// D-07 local echo: after a stream lands, write the trailing user message
@@ -2785,6 +2915,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     final trailingUser = _trailingUserMessage(messages);
+    final ChatLocks locks;
+    try {
+      locks = ref.read(chatLocksProvider);
+    } catch (_) {
+      return;
+    }
+    unawaited(
+      _writeTurnEcho(
+        db: db,
+        locks: locks,
+        chatId: activeId,
+        trailingUser: trailingUser,
+        assistant: assistant,
+      ),
+    );
+  }
+
+  void _persistCompletedTurnForMessage(int assistantIndex) {
+    final activeId = ref.read(activeConversationProvider)?.id;
+    if (activeId == null || activeId.isEmpty || isTemporaryChat(activeId)) {
+      return;
+    }
+    if (assistantIndex < 0 || assistantIndex >= state.length) return;
+    final assistant = state[assistantIndex];
+    if (assistant.role != 'assistant' || assistant.isStreaming) return;
+
+    ChatMessage? trailingUser;
+    for (var index = assistantIndex - 1; index >= 0; index--) {
+      if (state[index].role == 'user') {
+        trailingUser = state[index];
+        break;
+      }
+    }
+    final db = _maybeDatabase();
+    if (db == null) return;
     final ChatLocks locks;
     try {
       locks = ref.read(chatLocksProvider);
@@ -3635,8 +3800,20 @@ String? resolveTerminalIdForRequestForTest(String? selectedTerminalId) {
   return _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId);
 }
 
+/// Stops the Hermes run owned by the visible assistant and clears its session
+/// binding before a navigation/reset replaces the message list.
+void resetHermesForNewChat(dynamic ref) {
+  final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  for (final stop in registry.cancelAll()) {
+    unawaited(stop);
+  }
+  ref.read(hermesActiveSessionProvider.notifier).set(null);
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref) {
+  resetHermesForNewChat(ref);
+
   // Clear active conversation
   ref.read(activeConversationProvider.notifier).clear();
 
@@ -3656,6 +3833,28 @@ void startNewChat(dynamic ref) {
   ref
       .read(temporaryChatEnabledProvider.notifier)
       .set(settings.temporaryChatByDefault);
+}
+
+/// Starts a new chat pinned to the Hermes agent model. Unlike [startNewChat],
+/// this does NOT reset to the default model (which would race past and clobber
+/// the Hermes selection); it resolves and selects the Hermes model explicitly.
+Future<void> startNewHermesChat(dynamic ref) async {
+  resetHermesForNewChat(ref);
+
+  ref.read(activeConversationProvider.notifier).clear();
+  ref.read(chatMessagesProvider.notifier).clearMessages();
+  ref.read(contextAttachmentsProvider.notifier).clear();
+  ref.read(pendingFolderIdProvider.notifier).clear();
+
+  final settings = ref.read(appSettingsProvider);
+  ref
+      .read(temporaryChatEnabledProvider.notifier)
+      .set(settings.temporaryChatByDefault);
+
+  // Hermes is app-owned runtime state; starting it must never wait on an
+  // unrelated OpenWebUI model request in mixed-backend setups.
+  ref.read(isManualModelSelectionProvider.notifier).set(true);
+  ref.read(selectedModelProvider.notifier).set(hermesSyntheticModel());
 }
 
 /// Restores the selected model to the user's configured default model.
@@ -3996,6 +4195,145 @@ List<Map<String, dynamic>> _contextAttachmentsToFiles(
   }).toList();
 }
 
+/// Whether a send/regenerate should be blocked given the current backend state.
+///
+/// A send needs one of: an OpenWebUI [api], reviewer mode, or a Hermes model
+/// (which routes to the direct Hermes transport and doesn't use [api]). A null
+/// [selectedModel] always blocks. Extracted so the Hermes-only relaxation is
+/// unit-testable independent of the large send pipelines.
+@visibleForTesting
+bool isSendBlocked({
+  required bool reviewerMode,
+  required Object? api,
+  required Model? selectedModel,
+}) {
+  if (selectedModel == null) return true;
+  if (reviewerMode) return false;
+  if (api != null) return false;
+  return !isHermesModel(selectedModel);
+}
+
+/// Raised when a Hermes run would silently discard composer attachments.
+class HermesAttachmentsUnsupportedException implements Exception {
+  const HermesAttachmentsUnsupportedException();
+
+  String get message =>
+      'Hermes Agent does not support file or context attachments yet. '
+      'Remove the attachments before sending.';
+
+  @override
+  String toString() => message;
+}
+
+/// Hermes' Runs API currently accepts a plain string input only. Reject file
+/// and OpenWebUI context attachments instead of silently dropping them.
+@visibleForTesting
+void ensureHermesSendSupportsAttachments({
+  required Model selectedModel,
+  required List<String>? attachments,
+  required List<ChatContextAttachment> contextAttachments,
+}) {
+  if (!isHermesModel(selectedModel)) return;
+  if ((attachments == null || attachments.isEmpty) &&
+      contextAttachments.isEmpty) {
+    return;
+  }
+
+  throw const HermesAttachmentsUnsupportedException();
+}
+
+@visibleForTesting
+bool usesHermesTransportForRegeneration({
+  required Model selectedModel,
+  required Conversation? activeConversation,
+}) {
+  // A fresh chat has no transport-bearing conversation shell yet, so its
+  // trusted runtime model selects the backend. Once a conversation is open,
+  // its transport binding wins over stale global model selection.
+  if (activeConversation == null) return isHermesModel(selectedModel);
+  return activeConversation.metadata['backend'] == 'hermes';
+}
+
+Future<void> _regenerateHermesMessage(
+  dynamic ref, {
+  required Model selectedModel,
+  required String input,
+}) async {
+  final existingMessages = List<ChatMessage>.from(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+    growable: false,
+  );
+  final previousAssistant = existingMessages.lastOrNull?.role == 'assistant'
+      ? existingMessages.last
+      : null;
+
+  // Regeneration branches from the history before the replayed user turn. Do
+  // not chain previous_response_id to the answer being replaced.
+  var replayedUserIndex = -1;
+  for (var index = existingMessages.length - 1; index >= 0; index--) {
+    if (existingMessages[index].role == 'user') {
+      replayedUserIndex = index;
+      break;
+    }
+  }
+  final continuityMessages = replayedUserIndex < 0
+      ? const <ChatMessage>[]
+      : existingMessages.sublist(0, replayedUserIndex);
+
+  String? previousResponseId;
+  for (final message in continuityMessages.reversed) {
+    if (message.role != 'assistant') continue;
+    final id = message.metadata?['hermesRunId'];
+    if (id is String && id.isNotEmpty) {
+      previousResponseId = id;
+      break;
+    }
+  }
+
+  // Historical regeneration leaves the selected assistant at the tail. Reuse
+  // that message rather than retaining an archived record plus a second
+  // placeholder; its previous content remains available through [versions].
+  final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
+  var assistant = ChatMessage(
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: selectedModel.id,
+    isStreaming: true,
+    versions: previousAssistant == null
+        ? const <ChatMessageVersion>[]
+        : _buildReplayVersions(previousAssistant),
+    metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
+  );
+  if (continuityMessages.isNotEmpty && previousResponseId == null) {
+    assistant = assistant.copyWith(
+      isStreaming: false,
+      error: const ChatMessageError(
+        content:
+            'This Hermes conversation does not expose the response ID needed '
+            'to regenerate from this point. Start a new branch instead.',
+      ),
+    );
+  }
+  final notifier = ref.read(chatMessagesProvider.notifier);
+  if (previousAssistant == null) {
+    notifier.addMessage(assistant);
+  } else {
+    notifier.updateLastMessageWithFunction((_) => assistant);
+  }
+  if (!assistant.isStreaming) return;
+
+  await _dispatchHermesRunFromChat(
+    ref,
+    assistantMessageId: assistantMessageId,
+    input: input,
+    existingMessages: continuityMessages,
+    forceNewSession: true,
+    previousResponseIdOverride: previousResponseId,
+  );
+}
+
 // Regenerate message function that doesn't duplicate user message
 Future<void> regenerateMessage(
   dynamic ref,
@@ -4007,11 +4345,29 @@ Future<void> regenerateMessage(
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
 
-  if ((!reviewerMode && api == null) || selectedModel == null) {
+  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
+  // the Hermes transport and don't need it.
+  if (isSendBlocked(
+    reviewerMode: reviewerMode,
+    api: api,
+    selectedModel: selectedModel,
+  )) {
     throw Exception('No API service or model selected');
   }
 
   var activeConversation = ref.read(activeConversationProvider);
+  if (!reviewerMode &&
+      usesHermesTransportForRegeneration(
+        selectedModel: selectedModel,
+        activeConversation: activeConversation,
+      )) {
+    await _regenerateHermesMessage(
+      ref,
+      selectedModel: selectedModel,
+      input: userMessageContent,
+    );
+    return;
+  }
   if (activeConversation == null) {
     throw Exception('No active conversation');
   }
@@ -4848,6 +5204,20 @@ Future<void> durableSend(
   final selectedModel = ref.read(selectedModelProvider);
   final temporary = ref.read(temporaryChatEnabledProvider);
 
+  // Hermes agent chats never touch the OpenWebUI outbox/sync engine — route
+  // them through the inline path, which dispatches to the Hermes runs transport.
+  if (selectedModel != null && isHermesModel(selectedModel)) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+
   // No durable backend (reviewer mode, no active server) OR a temporary chat
   // (never persisted): fall back to the legacy inline send path unchanged.
   if (db == null || reviewerMode || selectedModel == null || temporary) {
@@ -5306,6 +5676,263 @@ Future<void> sendMessageWithContainer(
 }
 
 // Internal send message implementation
+/// Bridges the chat send pipeline to the direct Hermes runs transport, wiring
+/// the chat notifier callbacks and resolving multi-turn / memory continuity.
+/// Derives a short session title from the first user message.
+String _deriveHermesSessionTitle(String input) {
+  final trimmed = input.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (trimmed.isEmpty) return 'New Hermes chat';
+  return trimmed.length <= 60 ? trimmed : '${trimmed.substring(0, 60)}…';
+}
+
+class _HermesConversationOwner {
+  _HermesConversationOwner(this.conversationId);
+
+  String? conversationId;
+}
+
+Future<void> _dispatchHermesRunFromChat(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+  bool forceNewSession = false,
+  String? previousResponseIdOverride,
+}) async {
+  final ChatMessagesNotifier notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
+  final owner = _HermesConversationOwner(
+    ref.read(activeConversationProvider)?.id,
+  );
+  final cancellationSettled = Completer<void>();
+  final cancelToken = registry.registerPending(
+    assistantMessageId,
+    onCancelled: () => notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
+    cancellationSettled: cancellationSettled.future,
+  );
+
+  try {
+    await _dispatchRegisteredHermesRunFromChat(
+      ref,
+      assistantMessageId: assistantMessageId,
+      input: input,
+      existingMessages: existingMessages,
+      forceNewSession: forceNewSession,
+      previousResponseIdOverride: previousResponseIdOverride,
+      notifier: notifier,
+      registry: registry,
+      cancelToken: cancelToken,
+      owner: owner,
+    );
+  } finally {
+    if (!cancellationSettled.isCompleted) cancellationSettled.complete();
+  }
+}
+
+Future<void> _dispatchRegisteredHermesRunFromChat(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+  required bool forceNewSession,
+  required String? previousResponseIdOverride,
+  required ChatMessagesNotifier notifier,
+  required HermesRunRegistry registry,
+  required CancelToken cancelToken,
+  required _HermesConversationOwner owner,
+}) async {
+  bool cancelled() => cancelToken.isCancelled;
+
+  void failPreflight(Object error) {
+    registry.complete(assistantMessageId, cancelToken: cancelToken);
+    notifier.updateMessageById(
+      assistantMessageId,
+      (message) => message.copyWith(
+        error: ChatMessageError(content: chatErrorContentForException(error)),
+      ),
+    );
+    notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+    notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+  }
+
+  // Ensure a stable long-term memory key before reading the service (mutating
+  // the key rebuilds hermesApiServiceProvider, so read it afterwards).
+  try {
+    await ref.read(hermesConfigProvider.notifier).ensureSessionKey();
+  } catch (error) {
+    if (!cancelled()) failPreflight(error);
+    return;
+  }
+  if (cancelled()) return;
+  final service = ref.read(hermesApiServiceProvider);
+  if (service == null) {
+    registry.complete(assistantMessageId, cancelToken: cancelToken);
+    notifier.updateMessageById(
+      assistantMessageId,
+      (m) => m.copyWith(
+        error: ChatMessageError(
+          content:
+              'Hermes is not configured. Add the server URL and API key in '
+              'Settings → Hermes Agent.',
+        ),
+      ),
+    );
+    notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+    notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+    return;
+  }
+
+  // Bind a server-side Hermes session so the transcript persists and is
+  // reloadable from the sessions browser. If the active conversation is an
+  // OpenWebUI chat, drop any stale Hermes session so we start a fresh one.
+  final activeConv = ref.read(activeConversationProvider);
+  final activeIsHermes = activeConv?.metadata['backend'] == 'hermes';
+  if (activeConv != null && !activeIsHermes) {
+    ref.read(hermesActiveSessionProvider.notifier).set(null);
+  }
+  var sessionId = forceNewSession
+      ? null
+      : ref.read(hermesActiveSessionProvider);
+  if (sessionId == null || sessionId.isEmpty) {
+    try {
+      // Title the session from the first user message when this is turn one.
+      final title = existingMessages.isEmpty
+          ? _deriveHermesSessionTitle(input)
+          : null;
+      final createdSessionId = await service.createSession(
+        title: title,
+        cancelToken: cancelToken,
+      );
+      if (cancelled()) {
+        try {
+          await service.deleteSession(createdSessionId);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'late-session-cleanup-failed',
+            scope: 'hermes/transport',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+        return;
+      }
+      sessionId = createdSessionId;
+      ref.read(hermesActiveSessionProvider.notifier).set(sessionId);
+    } catch (error) {
+      if (cancelled()) return;
+      if (forceNewSession) {
+        failPreflight(error);
+        return;
+      }
+      // Session creation failed (older server / disabled): fall back to an
+      // ephemeral run with no persistence rather than failing the turn.
+      sessionId = null;
+    }
+  }
+
+  if (forceNewSession &&
+      sessionId != null &&
+      activeConv != null &&
+      activeIsHermes) {
+    final nextConversationId = 'local:hermes_$sessionId';
+    final updatedConversation = activeConv.copyWith(
+      id: nextConversationId,
+      updatedAt: DateTime.now(),
+      messages: List<ChatMessage>.unmodifiable(ref.read(chatMessagesProvider)),
+      metadata: <String, dynamic>{
+        ...activeConv.metadata,
+        'backend': 'hermes',
+        'hermesSessionId': sessionId,
+      },
+    );
+    ref
+        .read(activeConversationInPlaceRemapProvider.notifier)
+        .mark(fromId: activeConv.id, toId: nextConversationId);
+    owner.conversationId = nextConversationId;
+    ref.read(activeConversationProvider.notifier).set(updatedConversation);
+  }
+
+  // Chain to the previous Hermes turn for server-side multi-turn continuity.
+  var previousResponseId = previousResponseIdOverride;
+  if (previousResponseId == null) {
+    for (final m in existingMessages.reversed) {
+      if (m.role != 'assistant') continue;
+      final rid = m.metadata?['hermesRunId'];
+      if (rid is String && rid.isNotEmpty) {
+        previousResponseId = rid;
+        break;
+      }
+    }
+  }
+
+  if (cancelled()) return;
+
+  await dispatchHermesRun(
+    service: service,
+    registry: ref.read(hermesRunRegistryProvider),
+    assistantMessageId: assistantMessageId,
+    input: input,
+    sessionId: sessionId,
+    previousResponseId: previousResponseId,
+    cancelToken: cancelToken,
+    appendContent: (content) =>
+        notifier.appendToMessageById(assistantMessageId, content),
+    replaceContent: (content) =>
+        notifier.replaceMessageContentById(assistantMessageId, content),
+    appendStatus: (u) => notifier.appendStatusUpdate(assistantMessageId, u),
+    updateMessage: (updater) =>
+        notifier.updateMessageById(assistantMessageId, updater),
+    finishStreaming: () => notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
+    completeStreamingUi: () => notifier.completeStreamingUiForMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    ),
+  );
+}
+
+@visibleForTesting
+Future<void> dispatchHermesRunFromChatForTest(
+  dynamic ref, {
+  required String assistantMessageId,
+  required String input,
+  required List<ChatMessage> existingMessages,
+  bool forceNewSession = false,
+  String? previousResponseIdOverride,
+}) => _dispatchHermesRunFromChat(
+  ref,
+  assistantMessageId: assistantMessageId,
+  input: input,
+  existingMessages: existingMessages,
+  forceNewSession: forceNewSession,
+  previousResponseIdOverride: previousResponseIdOverride,
+);
+
 Future<void> _sendMessageInternal(
   dynamic ref,
   String message,
@@ -5318,7 +5945,13 @@ Future<void> _sendMessageInternal(
   final api = ref.read(apiServiceProvider);
   final selectedModel = ref.read(selectedModelProvider);
 
-  if ((!reviewerMode && api == null) || selectedModel == null) {
+  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
+  // the Hermes transport and don't need it.
+  if (isSendBlocked(
+    reviewerMode: reviewerMode,
+    api: api,
+    selectedModel: selectedModel,
+  )) {
     throw Exception('No API service or model selected');
   }
 
@@ -5392,6 +6025,7 @@ Future<void> _sendMessageInternal(
     metadata: {
       'parentId': userMessageId,
       'childrenIds': const <String>[],
+      if (isHermesModel(selectedModel)) 'transport': kHermesTransport,
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
     },
@@ -5400,6 +6034,36 @@ Future<void> _sendMessageInternal(
     userMessage,
     assistantPlaceholder,
   ]);
+
+  // Hermes agent: route to the direct Hermes runs transport instead of the
+  // OpenWebUI chat-completions pipeline. Hermes chats are local/ephemeral in
+  // v1 (no OpenWebUI chat resource); durable memory is handled server-side.
+  if (isHermesModel(selectedModel)) {
+    try {
+      ensureHermesSendSupportsAttachments(
+        selectedModel: selectedModel,
+        attachments: attachments,
+        contextAttachments: contextAttachments,
+      );
+    } on HermesAttachmentsUnsupportedException catch (error) {
+      final notifier = ref.read(chatMessagesProvider.notifier);
+      notifier.failLastStreamingAssistant(
+        error,
+        assistantMessageId: assistantMessageId,
+      );
+      rethrow;
+    }
+    await _dispatchHermesRunFromChat(
+      ref,
+      assistantMessageId: assistantMessageId,
+      input: message,
+      existingMessages: existingMessages,
+    );
+    try {
+      ref.read(contextAttachmentsProvider.notifier).clear();
+    } catch (_) {}
+    return;
+  }
 
   // Now do async work in parallel: user settings + server file info
   String? userSystemPrompt;
@@ -5909,6 +6573,8 @@ Future<void> _sendMessageInternal(
 
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
+  if (e is HermesAttachmentsUnsupportedException) return e.message;
+
   final msg = e.toString();
   if (msg.contains('400')) {
     return 'There was an issue with the message format. This might be '
@@ -6282,12 +6948,20 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
       if (messages.isNotEmpty &&
           messages.last.role == 'assistant' &&
           messages.last.isStreaming) {
-        final api = ref.read(apiServiceProvider);
+        final last = messages.last;
 
-        // Use transport-aware stop which inspects message metadata to
-        // choose the right cancellation path (abort handle, task stop, or
-        // both).
-        stopActiveTransport(messages.last, api);
+        if (last.metadata?['transport'] == kHermesTransport) {
+          // The registry owns the service/origin that created this run.
+          final stop = ref.read(hermesRunRegistryProvider).cancel(last.id);
+          if (stop != null) unawaited(stop);
+        } else {
+          final api = ref.read(apiServiceProvider);
+
+          // Use transport-aware stop which inspects message metadata to
+          // choose the right cancellation path (abort handle, task stop, or
+          // both).
+          stopActiveTransport(last, api);
+        }
 
         // Cancel local stream subscription to stop propagating further chunks
         ref

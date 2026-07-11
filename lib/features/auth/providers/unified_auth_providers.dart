@@ -2,10 +2,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/user.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/debug_logger.dart';
 
 /// Unified auth providers using the new auth state manager
 /// These replace the old auth providers for better efficiency
+
+/// Runs an Open WebUI authentication attempt and persists the backend choice
+/// only after the attempt has been confirmed successful.
+///
+/// Keeping this boundary shared prevents server discovery/config persistence
+/// from being mistaken for completed authentication by individual UI flows.
+Future<bool> completeOpenWebUiAuthentication({
+  required Future<bool> Function() authenticate,
+  required Future<void> Function() persistPreference,
+}) async {
+  final success = await authenticate();
+  if (success) {
+    try {
+      await persistPreference();
+    } catch (error) {
+      // The session is already authenticated. A best-effort routing preference
+      // write must not make the sign-in UI report that authentication failed.
+      DebugLogger.warning(
+        'preferred-backend-persist-failed',
+        scope: 'auth/backend',
+        data: {'error': error.toString()},
+      );
+    }
+  }
+  return success;
+}
 
 /// Imperative auth actions wrapper to avoid side-effects during provider build
 class AuthActions {
@@ -14,15 +42,25 @@ class AuthActions {
 
   AuthStateManager get _auth => _ref.read(authStateManagerProvider.notifier);
 
+  Future<bool> _completeOpenWebUiAuth(Future<bool> Function() authenticate) =>
+      completeOpenWebUiAuthentication(
+        authenticate: authenticate,
+        persistPreference: () => _ref
+            .read(preferredBackendProvider.notifier)
+            .set(PreferredBackend.owui),
+      );
+
   Future<bool> login(
     String username,
     String password, {
     bool rememberCredentials = false,
   }) {
-    return _auth.login(
-      username,
-      password,
-      rememberCredentials: rememberCredentials,
+    return _completeOpenWebUiAuth(
+      () => _auth.login(
+        username,
+        password,
+        rememberCredentials: rememberCredentials,
+      ),
     );
   }
 
@@ -31,10 +69,12 @@ class AuthActions {
     bool rememberCredentials = false,
     String authType = 'token',
   }) {
-    return _auth.loginWithApiKey(
-      apiKey,
-      rememberCredentials: rememberCredentials,
-      authType: authType,
+    return _completeOpenWebUiAuth(
+      () => _auth.loginWithApiKey(
+        apiKey,
+        rememberCredentials: rememberCredentials,
+        authType: authType,
+      ),
     );
   }
 
@@ -43,10 +83,12 @@ class AuthActions {
     String password, {
     bool rememberCredentials = false,
   }) {
-    return _auth.ldapLogin(
-      username,
-      password,
-      rememberCredentials: rememberCredentials,
+    return _completeOpenWebUiAuth(
+      () => _auth.ldapLogin(
+        username,
+        password,
+        rememberCredentials: rememberCredentials,
+      ),
     );
   }
 

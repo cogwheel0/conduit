@@ -6,7 +6,8 @@ import '../../../core/persistence/preferences_store.dart';
 
 part 'sidebar_providers.g.dart';
 
-/// Index of the active sidebar tab (0=Chats, 1=Terminal, 2=Notes, 3=Channels).
+/// Index of the active entry within the currently visible sidebar tabs.
+/// Five tabs can be visible when every optional integration is enabled.
 /// Persisted to shared_preferences so reopening the sidebar remembers the last
 /// tab.
 @Riverpod(keepAlive: true)
@@ -14,11 +15,11 @@ class SidebarActiveTab extends _$SidebarActiveTab {
   @override
   int build() {
     return (PreferencesStore.getInt(PreferenceKeys.sidebarActiveTab) ?? 0)
-        .clamp(0, 3);
+        .clamp(0, 4);
   }
 
   void set(int index) {
-    state = index.clamp(0, 3);
+    state = index.clamp(0, 4);
     PreferencesStore.put(PreferenceKeys.sidebarActiveTab, state);
   }
 }

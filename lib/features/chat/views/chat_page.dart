@@ -26,6 +26,8 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
+import '../../hermes/models/hermes_model.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -68,6 +70,16 @@ import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
+
+@visibleForTesting
+bool shouldShowChatModelDropdown({
+  required Model? selectedModel,
+  required bool isHermesOnly,
+}) {
+  return selectedModel == null ||
+      !isHermesModel(selectedModel) ||
+      !isHermesOnly;
+}
 
 class _PendingChatScrollAction {
   const _PendingChatScrollAction._(this.kind, {this.restoreOffset = 0});
@@ -257,6 +269,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void startNewChat() {
+    resetHermesForNewChat(ref);
+
     // Clear current conversation
     ref.read(chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).clear();
@@ -3053,12 +3067,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       trailingActionCount: trailingActionCount,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
+    // Hide the picker only for a true single-agent Hermes-only install. Mixed
+    // setups must retain a way to switch back to an OpenWebUI model.
+    final selectedModel = ref.watch(selectedModelProvider);
+    final showModelDropdown = shouldShowChatModelDropdown(
+      selectedModel: selectedModel,
+      isHermesOnly: ref.watch(hermesOnlyModeProvider),
+    );
     final leading = _buildNativeToolbarLeading(
       context: context,
       isLoadingConversation: isLoadingConversation,
       modelLabel: modelLabel,
       leadingGap: leadingGap,
       maxModelWidth: maxModelWidth,
+      showModelDropdown: showModelDropdown,
     );
     final actions = _buildAdaptiveToolbarActionWidgets(
       context: context,
@@ -3110,6 +3132,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String modelLabel,
     required double leadingGap,
     required double maxModelWidth,
+    required bool showModelDropdown,
   }) {
     return buildConduitAdaptiveToolbarLeadingRow(
       children: [
@@ -3124,6 +3147,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: modelLabel,
           maxWidth: maxModelWidth,
           isLoading: isLoadingConversation,
+          showChevron: showModelDropdown,
           onPressed: () => _openModelSelector(context),
         ),
       ],

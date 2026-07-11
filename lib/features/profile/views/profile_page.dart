@@ -15,6 +15,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
@@ -89,6 +90,7 @@ class ProfilePage extends ConsumerWidget {
   ) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -101,8 +103,10 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
-        _buildProfileHeader(context, userData, api),
-        const SizedBox(height: Spacing.xl),
+        if (!hermesOnly) ...[
+          _buildProfileHeader(context, userData, api),
+          const SizedBox(height: Spacing.xl),
+        ],
         _buildAccountSection(context, ref),
         const SizedBox(height: Spacing.xl),
         _buildSupportSection(context),
@@ -326,19 +330,23 @@ class ProfilePage extends ConsumerWidget {
   }
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
+    // In Hermes-only mode there's no Open WebUI account to sign out of; instead
+    // surface a "Connect to Open WebUI" entry so the user can add a server.
+    final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final items = [
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.person_crop_circle_badge_checkmark,
-          android: Icons.auto_awesome,
+      if (!hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+            android: Icons.auto_awesome,
+          ),
+          title: AppLocalizations.of(context)!.personalization,
+          subtitle: AppLocalizations.of(context)!.personalizationSubtitle,
+          onTap: () {
+            context.pushNamed(RouteNames.personalization);
+          },
         ),
-        title: AppLocalizations.of(context)!.personalization,
-        subtitle: AppLocalizations.of(context)!.personalizationSubtitle,
-        onTap: () {
-          context.pushNamed(RouteNames.personalization);
-        },
-      ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -363,30 +371,57 @@ class ProfilePage extends ConsumerWidget {
           context.pushNamed(RouteNames.appCustomization);
         },
       ),
+      if (!hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.bell,
+            android: Icons.notifications_outlined,
+          ),
+          title: AppLocalizations.of(context)!.notificationsTitle,
+          subtitle: AppLocalizations.of(context)!.notificationsSubtitle,
+          onTap: () {
+            context.pushNamed(RouteNames.notificationSettings);
+          },
+        ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.bell,
-          android: Icons.notifications_outlined,
+          ios: CupertinoIcons.bolt_horizontal_circle,
+          android: Icons.smart_toy_outlined,
         ),
-        title: AppLocalizations.of(context)!.notificationsTitle,
-        subtitle: AppLocalizations.of(context)!.notificationsSubtitle,
+        title: AppLocalizations.of(context)!.hermesAgentSettingsTitle,
+        subtitle: AppLocalizations.of(context)!.hermesAgentSettingsSubtitle,
         onTap: () {
-          context.pushNamed(RouteNames.notificationSettings);
+          context.pushNamed(RouteNames.hermesSettings);
         },
       ),
-      _buildAboutTile(context),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.square_arrow_left,
-          android: Icons.logout,
+      if (hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.add_circled,
+            android: Icons.add_circle_outline,
+          ),
+          title: AppLocalizations.of(context)!.connectOpenWebUITitle,
+          subtitle: AppLocalizations.of(context)!.connectOpenWebUISubtitle,
+          onTap: () {
+            context.goNamed(RouteNames.serverConnection);
+          },
         ),
-        title: AppLocalizations.of(context)!.signOut,
-        subtitle: AppLocalizations.of(context)!.endYourSession,
-        onTap: () => _signOut(context, ref),
-        showChevron: false,
-      ),
+      _buildAboutTile(context),
+      if (!hermesOnly)
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.square_arrow_left,
+            android: Icons.logout,
+          ),
+          title: AppLocalizations.of(context)!.signOut,
+          subtitle: AppLocalizations.of(context)!.endYourSession,
+          onTap: () => _signOut(context, ref),
+          showChevron: false,
+        ),
     ];
 
     return Column(

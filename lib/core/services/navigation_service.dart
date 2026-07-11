@@ -121,6 +121,7 @@ class Routes {
   static const String chat = '/chat';
   static const String folder = '/folder/:id';
   static const String login = '/login';
+  static const String backendChooser = '/backend-chooser';
   static const String serverConnection = '/server-connection';
   static const String connectionIssue = '/connection-issue';
   static const String authentication = '/authentication';
@@ -132,6 +133,8 @@ class Routes {
   static const String accountSettings = '/profile/account';
   static const String notificationSettings = '/profile/notifications';
   static const String appCustomization = '/profile/customization';
+  static const String hermesSettings = '/profile/hermes';
+  static const String hermesJobs = '/profile/hermes/jobs';
   static const String about = '/profile/about';
   static const String notes = '/notes';
   static const String noteEditor = '/notes/:id';
@@ -146,6 +149,7 @@ class RouteNames {
   static const String chat = 'chat';
   static const String folder = 'folder';
   static const String login = 'login';
+  static const String backendChooser = 'backend-chooser';
   static const String serverConnection = 'server-connection';
   static const String connectionIssue = 'connection-issue';
   static const String authentication = 'authentication';
@@ -157,6 +161,8 @@ class RouteNames {
   static const String accountSettings = 'account-settings';
   static const String notificationSettings = 'notification-settings';
   static const String appCustomization = 'app-customization';
+  static const String hermesSettings = 'hermes-settings';
+  static const String hermesJobs = 'hermes-jobs';
   static const String about = 'about';
   static const String notes = 'notes';
   static const String noteEditor = 'note-editor';

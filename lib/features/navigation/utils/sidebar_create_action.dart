@@ -12,11 +12,12 @@ import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../channels/providers/channel_providers.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
+import '../../hermes/providers/hermes_providers.dart';
 import '../../notes/providers/notes_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../providers/sidebar_providers.dart';
 
-enum _SidebarCreateActionKind { chat, note, channel }
+enum _SidebarCreateActionKind { chat, hermesChat, note, channel }
 
 class SidebarCreateActionSpec {
   const SidebarCreateActionSpec({required this.icon, required this.sfSymbol});
@@ -28,6 +29,8 @@ class SidebarCreateActionSpec {
 SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.watch(sidebarActiveTabProvider),
+    hermesOnly: ref.watch(hermesOnlyModeProvider),
+    hermesOn: ref.watch(hermesEnabledProvider),
     notesOn: ref.watch(notesFeatureEnabledProvider),
     terminalOn: _watchTerminalTabVisible(ref),
     channelsOn: ref.watch(channelsFeatureEnabledProvider),
@@ -36,7 +39,8 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
     return null;
   }
   return switch (kind) {
-    _SidebarCreateActionKind.chat => SidebarCreateActionSpec(
+    _SidebarCreateActionKind.chat ||
+    _SidebarCreateActionKind.hermesChat => SidebarCreateActionSpec(
       icon: UiUtils.newChatIcon,
       sfSymbol: 'square.and.pencil',
     ),
@@ -54,6 +58,8 @@ SidebarCreateActionSpec? sidebarCreateActionForActiveTab(WidgetRef ref) {
 Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
   final kind = _resolveSidebarCreateActionKind(
     tabIndex: ref.read(sidebarActiveTabProvider),
+    hermesOnly: ref.read(hermesOnlyModeProvider),
+    hermesOn: ref.read(hermesEnabledProvider),
     notesOn: ref.read(notesFeatureEnabledProvider),
     terminalOn: _readTerminalTabVisible(ref),
     channelsOn: ref.read(channelsFeatureEnabledProvider),
@@ -63,6 +69,9 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
       return;
     case _SidebarCreateActionKind.chat:
       await _startNewChat(context, ref);
+      break;
+    case _SidebarCreateActionKind.hermesChat:
+      await _startNewHermesChat(context, ref);
       break;
     case _SidebarCreateActionKind.note:
       await _createNote(context, ref);
@@ -75,15 +84,30 @@ Future<void> runSidebarCreateAction(BuildContext context, WidgetRef ref) async {
 
 _SidebarCreateActionKind? _resolveSidebarCreateActionKind({
   required int tabIndex,
+  required bool hermesOnly,
+  required bool hermesOn,
   required bool notesOn,
   required bool terminalOn,
   required bool channelsOn,
 }) {
+  // Hermes-only: the Hermes tab is the only tab, so "+" always starts a new
+  // Hermes chat.
+  if (hermesOnly) {
+    return _SidebarCreateActionKind.hermesChat;
+  }
+
   var currentIndex = 0;
   if (tabIndex == currentIndex) {
     return _SidebarCreateActionKind.chat;
   }
   currentIndex++;
+
+  if (hermesOn) {
+    if (tabIndex == currentIndex) {
+      return _SidebarCreateActionKind.hermesChat;
+    }
+    currentIndex++;
+  }
 
   if (notesOn) {
     if (tabIndex == currentIndex) {
@@ -122,6 +146,14 @@ bool _readTerminalTabVisible(WidgetRef ref) {
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
   chat.startNewChat(ref);
+  NavigationService.router.go(Routes.chat);
+  _closeSidebarIfNeeded(context);
+}
+
+Future<void> _startNewHermesChat(BuildContext context, WidgetRef ref) async {
+  ConduitHaptics.selectionClick();
+  await chat.startNewHermesChat(ref);
+  if (!context.mounted) return;
   NavigationService.router.go(Routes.chat);
   _closeSidebarIfNeeded(context);
 }
