@@ -9,6 +9,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/hermes_job.dart';
 import '../providers/hermes_providers.dart';
+import '../utils/hermes_schedule_format.dart';
 import '../widgets/hermes_job_editor.dart';
 
 /// "Scheduled Agents" — cron-driven Hermes jobs (`/api/jobs`): create, edit,
@@ -212,14 +213,37 @@ class _JobCardState extends ConsumerState<_JobCard> {
           ),
           const SizedBox(height: Spacing.xs),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.schedule, size: 14, color: theme.textSecondary),
-              const SizedBox(width: Spacing.xs),
-              Text(
-                job.schedule.isEmpty ? '—' : job.schedule,
-                style: AppTypography.bodySmallStyle.copyWith(
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.schedule,
+                  size: 14,
                   color: theme.textSecondary,
-                  fontFeatures: const [],
+                ),
+              ),
+              const SizedBox(width: Spacing.xs),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      describeHermesCronSchedule(job.schedule),
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (hermesScheduleNeedsRawDisplay(job.schedule))
+                      Text(
+                        job.schedule,
+                        style: AppTypography.codeStyle.copyWith(
+                          color: theme.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               if (!job.enabled) ...[

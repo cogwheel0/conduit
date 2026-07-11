@@ -53,7 +53,6 @@ final class PreferenceKeys {
   // long-term memory session key are secrets and live in SecureCredentialStorage.
   static const String hermesEnabled = 'hermes_enabled_v1';
   static const String hermesBaseUrl = 'hermes_base_url_v1';
-  static const String hermesShowJobs = 'hermes_show_jobs_v1';
 
   /// Which backend onboarding completed against ('owui' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.

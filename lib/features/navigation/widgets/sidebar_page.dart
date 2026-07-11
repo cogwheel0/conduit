@@ -222,8 +222,8 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
                 selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
                     ? const _HermesTabImage()
                     : Icon(
-                  _materialTabIcon(item.tabDefinition.id, selected: true),
-                ),
+                        _materialTabIcon(item.tabDefinition.id, selected: true),
+                      ),
                 label: item.label,
               ),
           ],
@@ -446,8 +446,11 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     );
   }
 
-  Widget _buildSidebarBodyWithBottomFade(Widget sidebarBody) {
-    if (Platform.isAndroid) {
+  Widget _buildSidebarBodyWithBottomFade(
+    Widget sidebarBody, {
+    required bool hasBottomNavigationBar,
+  }) {
+    if (Platform.isAndroid || !hasBottomNavigationBar) {
       return sidebarBody;
     }
 
@@ -488,6 +491,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       if (showTerminalTab) _SidebarTabId.terminal,
       if (channelsEnabled) _SidebarTabId.channels,
     ];
+    final hasBottomNavigationBar = visibleTabIds.length > 1;
     final persistedIndex = ref.watch(sidebarActiveTabProvider);
     final activeIndex = _clampIndex(persistedIndex, visibleTabIds.length);
     if (activeIndex != persistedIndex) {
@@ -503,10 +507,12 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           body: const ChatsDrawer(),
         ),
       if (hermesEnabled)
-        const _SidebarTabDefinition(
+        _SidebarTabDefinition(
           id: _SidebarTabId.hermes,
           label: 'Hermes',
-          body: HermesSessionsTab(),
+          body: HermesSessionsTab(
+            showBottomNavigationBar: hasBottomNavigationBar,
+          ),
         ),
       if (notesEnabled)
         _SidebarTabDefinition(
@@ -567,6 +573,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     );
     final sidebarBodyWithBottomFade = _buildSidebarBodyWithBottomFade(
       sidebarBody,
+      hasBottomNavigationBar: hasBottomNavigationBar,
     );
 
     return KeyedSubtree(
@@ -599,12 +606,14 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
                 )
               : appBarLeading;
 
-          final bottomNavigationBar = _sidebarBottomNavigationBar(
-            navigationItems,
-            conduitTheme,
-            activeIndex,
-            onTap,
-          );
+          final bottomNavigationBar = hasBottomNavigationBar
+              ? _sidebarBottomNavigationBar(
+                  navigationItems,
+                  conduitTheme,
+                  activeIndex,
+                  onTap,
+                )
+              : null;
 
           if (useNativeIos26Chrome) {
             return SidebarIos26Scaffold(

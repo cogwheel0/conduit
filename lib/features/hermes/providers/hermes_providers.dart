@@ -579,24 +579,6 @@ final hermesJobsProvider =
       HermesJobsController.new,
     );
 
-/// Persisted expand/collapse state for the "Scheduled Agents" section in the
-/// Hermes sidebar tab (default expanded).
-class HermesJobsSectionExpanded extends Notifier<bool> {
-  @override
-  bool build() =>
-      PreferencesStore.getBool(PreferenceKeys.hermesShowJobs) ?? true;
-
-  void toggle() {
-    state = !state;
-    PreferencesStore.put(PreferenceKeys.hermesShowJobs, state);
-  }
-}
-
-final hermesJobsSectionExpandedProvider =
-    NotifierProvider<HermesJobsSectionExpanded, bool>(
-      HermesJobsSectionExpanded.new,
-    );
-
 /// Tracks the live event subscription + run id for each streaming Hermes
 /// assistant message so a stop request can cancel the right run.
 class HermesRunRegistry {

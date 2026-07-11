@@ -40,13 +40,19 @@ double sidebarRefreshIndicatorEdgeOffset(BuildContext context) {
 }
 
 /// Bottom inset so sidebar tab content clears native sidebar chrome.
-double sidebarTabContentBottomPadding(BuildContext context) {
+double sidebarTabContentBottomPadding(
+  BuildContext context, {
+  bool includeNativeBottomBar = true,
+}) {
   if (!_usesNativeSidebarChrome(context)) {
     return Spacing.md;
   }
 
   final bottomPadding = MediaQuery.viewPaddingOf(context).bottom;
-  return bottomPadding + _kSidebarNativeBottomBarContentHeight + Spacing.md;
+  final navigationBarHeight = includeNativeBottomBar
+      ? _kSidebarNativeBottomBarContentHeight
+      : 0.0;
+  return bottomPadding + navigationBarHeight + Spacing.md;
 }
 
 /// Height excluded from drawer drag gestures above the native sidebar tab bar.

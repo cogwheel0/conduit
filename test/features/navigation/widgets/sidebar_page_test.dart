@@ -21,6 +21,8 @@ import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dar
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/models/hermes_job.dart';
+import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
@@ -205,6 +207,53 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesOnly: true,
+        hermesEnabled: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HermesSessionsTab), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets('Hermes sidebar uses one scheduled-agents launcher tile', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesOnly: true,
+        hermesEnabled: true,
+        hermesJobs: const [
+          HermesJob(
+            id: 'daily-summary',
+            name: 'Daily summary',
+            prompt: 'Summarize updates',
+            schedule: '0 9 * * *',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('hermes-scheduled-agents-tile')),
+      findsOneWidget,
+    );
+    expect(find.text('1 active · 1 schedule'), findsOneWidget);
+    expect(find.text('Daily summary'), findsNothing);
+    expect(find.text('0 9 * * *'), findsNothing);
   });
 
   testWidgets('hides terminal tab when no terminal servers are available', (
@@ -834,6 +883,9 @@ Widget _buildSidebarHarness({
   List<TerminalServerInfo>? terminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  bool hermesOnly = false,
+  bool hermesEnabled = false,
+  List<HermesJob> hermesJobs = const [],
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -902,6 +954,12 @@ Widget _buildSidebarHarness({
       showRecentProvider.overrideWith(_TestShowRecentNotifier.new),
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
+      hermesOnlyModeProvider.overrideWithValue(hermesOnly),
+      hermesEnabledProvider.overrideWithValue(hermesEnabled),
+      hermesApiServiceProvider.overrideWithValue(null),
+      hermesJobsProvider.overrideWith(
+        () => _TestHermesJobsController(hermesJobs),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       notesFeatureEnabledProvider.overrideWith(() => controllers.notesNotifier),
       // ignore: scoped_providers_should_specify_dependencies
@@ -944,6 +1002,15 @@ List<TerminalServerInfo> _defaultTerminalServers() {
       name: 'Test Terminal 2',
     ),
   ];
+}
+
+class _TestHermesJobsController extends HermesJobsController {
+  _TestHermesJobsController(this.jobs);
+
+  final List<HermesJob> jobs;
+
+  @override
+  Future<List<HermesJob>> build() async => jobs;
 }
 
 class _SidebarHarnessControllers {

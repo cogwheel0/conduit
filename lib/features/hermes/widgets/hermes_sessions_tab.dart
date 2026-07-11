@@ -1,23 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../core/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/responsive_drawer_layout.dart';
-import '../models/hermes_job.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
+import 'hermes_jobs_sheet.dart';
 import 'hermes_session_tile.dart';
 
-/// Sidebar tab listing the user's Hermes server-side conversations — the
-/// Hermes-backend analogue of the Chats tab — with a collapsible "Scheduled
-/// Agents" section on top (when the server exposes jobs).
+/// Sidebar tab listing the user's Hermes server-side conversations, with one
+/// compact entry point for scheduled agents when the server exposes jobs.
 class HermesSessionsTab extends ConsumerWidget {
-  const HermesSessionsTab({super.key});
+  const HermesSessionsTab({super.key, this.showBottomNavigationBar = true});
+
+  final bool showBottomNavigationBar;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -44,10 +42,16 @@ class HermesSessionsTab extends ConsumerWidget {
             SliverToBoxAdapter(
               child: SizedBox(height: sidebarTabContentTopPadding(context)),
             ),
-            if (showJobs) const SliverToBoxAdapter(child: _JobsSection()),
+            if (showJobs)
+              const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
             ..._sessionSlivers(context, sessionsAsync),
             SliverToBoxAdapter(
-              child: SizedBox(height: sidebarTabContentBottomPadding(context)),
+              child: SizedBox(
+                height: sidebarTabContentBottomPadding(
+                  context,
+                  includeNativeBottomBar: showBottomNavigationBar,
+                ),
+              ),
             ),
           ],
         ),
@@ -140,194 +144,125 @@ class HermesSessionsTab extends ConsumerWidget {
   }
 }
 
-/// Collapsible "Scheduled Agents" section showing jobs inline, mirroring the
-/// chats drawer's folders section.
-class _JobsSection extends ConsumerWidget {
-  const _JobsSection();
+class _ScheduledAgentsTile extends ConsumerWidget {
+  const _ScheduledAgentsTile();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final expanded = ref.watch(hermesJobsSectionExpandedProvider);
     final jobsAsync = ref.watch(hermesJobsProvider);
-    final count = jobsAsync.asData?.value.length;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(
-          title: 'Scheduled Agents',
-          count: count,
-          expanded: expanded,
-          onToggle: () =>
-              ref.read(hermesJobsSectionExpandedProvider.notifier).toggle(),
-          onManage: () => context.pushNamed(RouteNames.hermesJobs),
-        ),
-        if (expanded)
-          jobsAsync.when(
-            data: (jobs) {
-              if (jobs.isEmpty) {
-                return _hint(context, 'No scheduled jobs.');
-              }
-              return Column(
-                children: [for (final job in jobs) _JobRow(job: job)],
-              );
-            },
-            loading: () => _hint(context, 'Loading…'),
-            error: (_, _) => _hint(context, 'Unavailable.'),
-          ),
-      ],
-    );
-  }
-
-  Widget _hint(BuildContext context, String text) {
+    final jobs = jobsAsync.value;
+    final count = jobs?.length;
+    final activeCount = jobs?.where((job) => job.enabled).length;
     final theme = context.conduitTheme;
+    final subtitle = switch ((count, activeCount, jobsAsync)) {
+      (null, _, AsyncLoading()) => 'Loading schedules…',
+      (null, _, AsyncError()) => 'Schedules unavailable',
+      (0, _, _) => 'No schedules yet',
+      (final int total, final int active, _) =>
+        '$active active · $total ${total == 1 ? 'schedule' : 'schedules'}',
+      _ => 'Review schedules',
+    };
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        Spacing.md,
-        Spacing.xs,
+        Spacing.sm,
         Spacing.md,
         Spacing.sm,
+        Spacing.xs,
       ),
-      child: Text(
-        text,
-        style: AppTypography.bodySmallStyle.copyWith(
-          color: theme.textSecondary,
-        ),
-      ),
-    );
-  }
-}
-
-/// Compact inline job row (monitoring + quick run-now). Full edit lives on the
-/// dedicated jobs page.
-class _JobRow extends ConsumerStatefulWidget {
-  const _JobRow({required this.job});
-
-  final HermesJob job;
-
-  @override
-  ConsumerState<_JobRow> createState() => _JobRowState();
-}
-
-class _JobRowState extends ConsumerState<_JobRow> {
-  bool _running = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    final writable =
-        ref.watch(hermesCapabilitiesProvider).asData?.value.jobsAdmin ?? true;
-    final job = widget.job;
-
-    return InkWell(
-      onTap: _running ? null : () => context.pushNamed(RouteNames.hermesJobs),
-      borderRadius: BorderRadius.circular(AppBorderRadius.card),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.sm,
-          vertical: Spacing.sm,
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: job.enabled ? theme.success : theme.textSecondary,
+      child: InkWell(
+        key: const ValueKey<String>('hermes-scheduled-agents-tile'),
+        onTap: () => showHermesJobsSheet(context),
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: theme.surfaceBackground,
+            borderRadius: BorderRadius.circular(AppBorderRadius.card),
+            border: Border.all(color: theme.cardBorder),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: theme.buttonPrimary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.button),
+                ),
+                child: Icon(
+                  Icons.event_repeat_rounded,
+                  size: IconSize.listItem,
+                  color: theme.buttonPrimary,
+                ),
               ),
-            ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    job.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    job.enabled ? job.schedule : '${job.schedule} · paused',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.captionStyle.copyWith(
-                      color: theme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (writable)
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: _running
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        Icons.play_arrow_rounded,
-                        size: 20,
-                        color: theme.iconSecondary,
+              const SizedBox(width: Spacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Scheduled agents',
+                      style: AppTypography.bodyMediumStyle.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
                       ),
-                tooltip: 'Run now',
-                onPressed: _running ? null : _runNow,
+                    ),
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.captionStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-          ],
+              if (count != null && count > 0) ...[
+                const SizedBox(width: Spacing.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: Spacing.xxs,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.buttonPrimary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: AppTypography.labelMediumStyle.copyWith(
+                      color: theme.buttonPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: Spacing.xs),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: IconSize.listItem,
+                color: theme.iconSecondary,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
-
-  Future<void> _runNow() async {
-    if (_running) return;
-    if (ref.read(hermesApiServiceProvider) == null) {
-      UiUtils.showMessage(
-        context,
-        'Could not run scheduled job.',
-        isError: true,
-      );
-      return;
-    }
-    setState(() => _running = true);
-    try {
-      await ref.read(hermesJobsProvider.notifier).runNow(widget.job.id);
-      if (mounted) UiUtils.showMessage(context, 'Scheduled job started.');
-    } catch (_) {
-      if (mounted) {
-        UiUtils.showMessage(
-          context,
-          'Could not run scheduled job.',
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _running = false);
-    }
-  }
 }
 
-/// Section header with optional disclosure chevron, count badge, and a
-/// trailing "manage" affordance.
+/// Section header with an optional count badge.
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    this.count,
-    this.expanded,
-    this.onToggle,
-    this.onManage,
-  });
+  const _SectionHeader({required this.title, this.count});
 
   final String title;
   final int? count;
-  final bool? expanded;
-  final VoidCallback? onToggle;
-  final VoidCallback? onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -347,63 +282,22 @@ class _SectionHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onToggle,
-              child: Row(
-                children: [
-                  if (expanded != null) ...[
-                    Icon(
-                      expanded!
-                          ? Icons.expand_more
-                          : Icons.chevron_right_rounded,
-                      color: theme.iconSecondary,
-                      size: IconSize.listItem,
+            child: Row(
+              children: [
+                Text(title, style: titleStyle),
+                if (count != null) ...[
+                  const SizedBox(width: Spacing.sm),
+                  Text(
+                    '$count',
+                    style: AppTypography.labelMediumStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(width: Spacing.xxs),
-                  ],
-                  Text(title, style: titleStyle),
-                  if (count != null) ...[
-                    const SizedBox(width: Spacing.sm),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.buttonPrimary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(
-                          AppBorderRadius.pill,
-                        ),
-                      ),
-                      child: Text(
-                        '$count',
-                        style: AppTypography.labelMediumStyle.copyWith(
-                          color: theme.buttonPrimary.withValues(alpha: 0.9),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
-          if (onManage != null)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onManage,
-              child: Padding(
-                padding: const EdgeInsets.all(Spacing.xs),
-                child: Text(
-                  'Manage',
-                  style: AppTypography.captionStyle.copyWith(
-                    color: theme.buttonPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
