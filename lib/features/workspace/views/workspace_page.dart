@@ -10,6 +10,7 @@ import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -586,6 +587,21 @@ class _WorkspaceDetailPanel extends ConsumerWidget {
         ),
       );
     }
+
+    // Resolve a real section editor when one is registered; otherwise fall
+    // through to the placeholder so unbuilt sections degrade gracefully.
+    final editorBuilder = ref.watch(workspaceSectionEditorsProvider)[section];
+    if (editorBuilder != null) {
+      return editorBuilder(
+        context,
+        WorkspaceEditorArgs(
+          section: section,
+          mode: mode,
+          resourceId: resourceId,
+        ),
+      );
+    }
+
     if (mode == WorkspaceRouteMode.create) {
       return _EditorPlaceholder(
         key: Key('workspace-${section.name}-create-placeholder'),
