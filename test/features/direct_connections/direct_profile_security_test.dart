@@ -162,6 +162,44 @@ void main() {
       expect(safe.mtlsPrivateKeyPem, isNull);
     });
 
+    test('explicit confirmation covers the complete bearer/header set', () {
+      final previous = _profile(
+        apiKey: 'old-secret',
+        customHeaders: const {
+          'X-Api-Key': 'old-header',
+          'X-Tenant': 'tenant-a',
+        },
+        allowSelfSignedCertificates: true,
+        mtlsCertificateChainPem: 'CERT',
+        mtlsPrivateKeyPem: 'KEY',
+        mtlsPrivateKeyPassword: 'password',
+      );
+      final edited = previous.copyWith(
+        baseUrl: 'https://other.test/v1',
+        apiKey: 'new-secret',
+        customHeaders: const {
+          'X-Api-Key': 'new-header',
+          'X-Tenant': 'tenant-a',
+        },
+      );
+
+      final safe = DirectConnectionProfile.secureUpdate(
+        previous: previous,
+        next: edited,
+        secretsConfirmedForNewOrigin: true,
+      );
+
+      expect(safe.apiKey, 'new-secret');
+      expect(safe.customHeaders, {
+        'X-Api-Key': 'new-header',
+        'X-Tenant': 'tenant-a',
+      });
+      expect(safe.allowSelfSignedCertificates, isFalse);
+      expect(safe.mtlsCertificateChainPem, isNull);
+      expect(safe.mtlsPrivateKeyPem, isNull);
+      expect(safe.mtlsPrivateKeyPassword, isNull);
+    });
+
     test('HTTP factory scopes auth and disables redirects', () {
       final profile = _profile(
         apiKey: 'secret',

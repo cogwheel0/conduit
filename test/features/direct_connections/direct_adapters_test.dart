@@ -124,6 +124,170 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
+  test(
+    'OpenAI adapter rejects JSON without usable completion content',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'content': ''},
+            },
+          ],
+          'usage': {'total_tokens': 4},
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final run = adapter.startCompletion(
+        _openAiProfile(),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+        ),
+      );
+
+      final events = await run.events.toList();
+
+      expect(events.whereType<DirectContentDelta>(), isEmpty);
+      expect(
+        events.whereType<DirectStreamError>().single.message,
+        contains('invalid response'),
+      );
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+    },
+  );
+
+  test('manual model ids bypass both adapter HTTP factories', () async {
+    var openAiFactoryCalls = 0;
+    var ollamaFactoryCalls = 0;
+    final openAi = OpenAiCompatibleAdapter(
+      dioFactory: (_) {
+        openAiFactoryCalls++;
+        return Dio();
+      },
+    );
+    final ollama = OllamaAdapter(
+      dioFactory: (_) {
+        ollamaFactoryCalls++;
+        return Dio();
+      },
+    );
+
+    final openAiModels = await openAi.listModels(
+      _openAiProfile(manualModelIds: const ['manual-a', 'manual-b']),
+    );
+    final ollamaModels = await ollama.listModels(
+      _ollamaProfile(manualModelIds: const ['manual-vision']),
+    );
+
+    expect(openAiFactoryCalls, 0);
+    expect(ollamaFactoryCalls, 0);
+    expect(openAiModels.map((model) => model.id), ['manual-a', 'manual-b']);
+    expect(ollamaModels.single.id, 'manual-vision');
+    expect(openAiModels.every((model) => model.isMultimodal), isTrue);
+    expect(ollamaModels.single.isMultimodal, isTrue);
+  });
+
+  test(
+    'manual OpenAI probe performs a non-generative liveness request',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream(
+          const [],
+          contentType: 'application/json',
+          statusCode: 405,
+        ),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final result = await adapter.probe(
+        _openAiProfile(manualModelIds: const ['manual-a', 'manual-b']),
+      );
+
+      expect(result.reachable, isTrue);
+      expect(result.modelCount, 2);
+      expect(http.requests, hasLength(1));
+      expect(http.requests.single.method, 'HEAD');
+      expect(
+        http.requests.single.uri.toString(),
+        'https://api.test/v1/chat/completions',
+      );
+      expect(http.requests.single.data, isNull);
+    },
+  );
+
+  test('manual OpenAI probe reports authentication failure', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream(const [], contentType: 'application/json', statusCode: 401),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final result = await adapter.probe(
+      _openAiProfile(manualModelIds: const ['manual-a']),
+    );
+
+    expect(result.reachable, isFalse);
+    expect(result.message, contains('HTTP 401'));
+    expect(http.requests, hasLength(1));
+  });
+
+  test('manual Ollama probe uses api/version liveness endpoint', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({'version': '0.6.0'}),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final result = await adapter.probe(
+      _ollamaProfile(manualModelIds: const ['manual-vision']),
+    );
+
+    expect(result.reachable, isTrue);
+    expect(result.modelCount, 1);
+    expect(http.requests, hasLength(1));
+    expect(http.requests.single.method, 'GET');
+    expect(
+      http.requests.single.uri.toString(),
+      'http://localhost:11434/api/version',
+    );
+  });
+
+  test(
+    'manual Ollama probe cannot succeed on an unreachable provider',
+    () async {
+      final http = _ThrowingAdapter(
+        DioException(
+          requestOptions: RequestOptions(path: 'api/version'),
+          type: DioExceptionType.connectionError,
+          message: 'connection refused',
+        ),
+      );
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final result = await adapter.probe(
+        _ollamaProfile(manualModelIds: const ['manual-vision']),
+      );
+
+      expect(result.reachable, isFalse);
+      expect(result.message, contains('connect'));
+      expect(http.requests, hasLength(1));
+    },
+  );
+
   test('OpenAI adapter treats SSE EOF without DONE as an error', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
@@ -223,6 +387,9 @@ void main() {
           },
         ],
       }),
+      _Reply.json({
+        'capabilities': ['completion', 'vision'],
+      }),
       _Reply.stream([
         utf8.encode(
           '{"thinking":"duplicate","message":{"thinking":"hmm","content":"Hi"}}\n',
@@ -261,6 +428,8 @@ void main() {
       http.requests.first.uri.toString(),
       'http://localhost:11434/api/tags',
     );
+    expect(http.requests[1].uri.toString(), 'http://localhost:11434/api/show');
+    expect((http.requests[1].data as Map)['model'], 'llava:latest');
     expect(
       http.requests.last.uri.toString(),
       'http://localhost:11434/api/chat',
@@ -283,7 +452,7 @@ void main() {
     expect(message['images'], ['aW1hZ2U=']);
   });
 
-  test('Ollama only advertises images for vision-capable models', () async {
+  test('Ollama uses api/show capabilities for gemma3 vision support', () async {
     final http = _QueuedAdapter([
       _Reply.json({
         'models': [
@@ -291,16 +460,21 @@ void main() {
             'name': 'text-only',
             'details': {
               'families': ['llama'],
-              'capabilities': ['completion'],
             },
           },
           {
-            'name': 'vision-capable',
+            'name': 'gemma3:latest',
             'details': {
-              'capabilities': ['VISION'],
+              'families': ['gemma3'],
             },
           },
         ],
+      }),
+      _Reply.json({
+        'capabilities': ['completion'],
+      }),
+      _Reply.json({
+        'capabilities': ['completion', 'VISION'],
       }),
     ]);
     final adapter = OllamaAdapter(
@@ -315,9 +489,120 @@ void main() {
       isFalse,
     );
     expect(
-      models.firstWhere((model) => model.id == 'vision-capable').isMultimodal,
+      models.firstWhere((model) => model.id == 'gemma3:latest').isMultimodal,
       isTrue,
     );
+    expect(
+      http.requests.where((request) => request.path == 'api/show'),
+      hasLength(2),
+    );
+  });
+
+  test(
+    'Ollama enriches deduped models concurrently without reordering them',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'models': [
+            {
+              'name': 'slow-vision',
+              'details': {
+                'families': ['llama'],
+              },
+            },
+            {
+              'name': 'fallback-text',
+              'details': {
+                'capabilities': ['completion'],
+              },
+            },
+            {
+              'name': 'slow-vision',
+              'details': {
+                'families': ['clip'],
+              },
+            },
+          ],
+        }),
+        _Reply.json({
+          'capabilities': ['completion', 'vision'],
+        }, delay: const Duration(milliseconds: 40)),
+        _Reply.stream(
+          [utf8.encode('[]')],
+          contentType: 'application/json',
+          delay: const Duration(milliseconds: 5),
+        ),
+      ]);
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final models = await adapter.listModels(_ollamaProfile());
+
+      expect(models.map((model) => model.id), ['slow-vision', 'fallback-text']);
+      expect(models.first.isMultimodal, isTrue);
+      expect(models.last.isMultimodal, isFalse);
+      final showRequests = http.requests
+          .where((request) => request.path == 'api/show')
+          .toList(growable: false);
+      expect(showRequests.map((request) => (request.data as Map)['model']), [
+        'slow-vision',
+        'fallback-text',
+      ]);
+      expect(http.maxConcurrentShowRequests, 2);
+    },
+  );
+
+  test('Ollama keeps catalog when one api/show response is invalid', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'models': [
+          {
+            'name': 'text-only',
+            'details': {
+              'families': ['llama'],
+            },
+          },
+        ],
+      }),
+      _Reply.stream([utf8.encode('[]')], contentType: 'application/json'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(_ollamaProfile());
+
+    expect(models.single.id, 'text-only');
+    expect(models.single.isMultimodal, isFalse);
+  });
+
+  test('Ollama recognizes older show vision metadata', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'models': [
+          {
+            'name': 'legacy-vision',
+            'details': {
+              'families': ['llama'],
+            },
+          },
+        ],
+      }),
+      _Reply.json({
+        'model_info': {'legacy.vision.embedding_length': 1024},
+      }),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(_ollamaProfile());
+
+    expect(models.single.isMultimodal, isTrue);
   });
 
   test('Ollama adapter treats NDJSON EOF without done as an error', () async {
@@ -349,19 +634,25 @@ void main() {
   });
 }
 
-DirectConnectionProfile _openAiProfile() => DirectConnectionProfile(
+DirectConnectionProfile _openAiProfile({
+  List<String> manualModelIds = const [],
+}) => DirectConnectionProfile(
   id: 'openai-one',
   name: 'OpenAI compatible',
   adapterKey: kOpenAiCompatibleAdapterKey,
   baseUrl: 'https://api.test/v1',
   apiKey: 'secret',
+  manualModelIds: manualModelIds,
 );
 
-DirectConnectionProfile _ollamaProfile() => DirectConnectionProfile(
+DirectConnectionProfile _ollamaProfile({
+  List<String> manualModelIds = const [],
+}) => DirectConnectionProfile(
   id: 'ollama-one',
   name: 'Ollama',
   adapterKey: kOllamaAdapterKey,
   baseUrl: 'http://localhost:11434',
+  manualModelIds: manualModelIds,
 );
 
 Dio _dio(HttpClientAdapter adapter) {
@@ -375,6 +666,8 @@ final class _QueuedAdapter implements HttpClientAdapter {
 
   final List<_Reply> _replies;
   final List<RequestOptions> requests = [];
+  int _activeShowRequests = 0;
+  int maxConcurrentShowRequests = 0;
 
   @override
   Future<ResponseBody> fetch(
@@ -384,7 +677,40 @@ final class _QueuedAdapter implements HttpClientAdapter {
   ) async {
     requests.add(options);
     if (_replies.isEmpty) throw StateError('No fake response remains.');
-    return _replies.removeAt(0).toBody();
+    final reply = _replies.removeAt(0);
+    final isShowRequest = options.path == 'api/show';
+    if (isShowRequest) {
+      _activeShowRequests++;
+      if (_activeShowRequests > maxConcurrentShowRequests) {
+        maxConcurrentShowRequests = _activeShowRequests;
+      }
+    }
+    try {
+      if (reply.delay > Duration.zero) await Future<void>.delayed(reply.delay);
+      return reply.toBody();
+    } finally {
+      if (isShowRequest) _activeShowRequests--;
+    }
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _ThrowingAdapter implements HttpClientAdapter {
+  _ThrowingAdapter(this.error);
+
+  final Object error;
+  final List<RequestOptions> requests = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    throw error;
   }
 
   @override
@@ -392,25 +718,36 @@ final class _QueuedAdapter implements HttpClientAdapter {
 }
 
 final class _Reply {
-  const _Reply(this.chunks, this.contentType);
+  const _Reply(this.chunks, this.contentType, this.statusCode, this.delay);
 
-  factory _Reply.json(Map<String, dynamic> value) => _Reply([
-    utf8.encode(jsonEncode(value)),
-  ], 'application/json; charset=utf-8');
+  factory _Reply.json(
+    Map<String, dynamic> value, {
+    int statusCode = 200,
+    Duration delay = Duration.zero,
+  }) => _Reply(
+    [utf8.encode(jsonEncode(value))],
+    'application/json; charset=utf-8',
+    statusCode,
+    delay,
+  );
 
   factory _Reply.stream(
     List<List<int>> chunks, {
     required String contentType,
-  }) => _Reply(chunks, contentType);
+    int statusCode = 200,
+    Duration delay = Duration.zero,
+  }) => _Reply(chunks, contentType, statusCode, delay);
 
   final List<List<int>> chunks;
   final String contentType;
+  final int statusCode;
+  final Duration delay;
 
   ResponseBody toBody() => ResponseBody(
     Stream<Uint8List>.fromIterable([
       for (final chunk in chunks) Uint8List.fromList(chunk),
     ]),
-    200,
+    statusCode,
     headers: {
       'content-type': [contentType],
     },

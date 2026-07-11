@@ -70,6 +70,20 @@ DirectConnectionProfile secureDirectDraftForEditedOrigin({
   );
 }
 
+@visibleForTesting
+bool requiresDirectOriginCredentialConfirmation({
+  required DirectConnectionProfile? previous,
+  required DirectConnectionProfile draft,
+}) {
+  if (previous == null || previous.origin == draft.origin) return false;
+  final previousHasCredentials =
+      (previous.apiKey?.isNotEmpty ?? false) ||
+      previous.customHeaders.isNotEmpty;
+  final draftHasCredentials =
+      (draft.apiKey?.isNotEmpty ?? false) || draft.customHeaders.isNotEmpty;
+  return previousHasCredentials && draftHasCredentials;
+}
+
 class DirectConnectionEditorPage extends ConsumerStatefulWidget {
   const DirectConnectionEditorPage({
     super.key,
@@ -105,6 +119,8 @@ class _DirectConnectionEditorPageState
   bool _showApiKey = false;
   bool _saving = false;
   bool _testing = false;
+  bool _deleting = false;
+  bool _originSecretsConfirmed = false;
   bool? _testSucceeded;
   String? _testMessage;
   String? _nameError;
@@ -166,6 +182,8 @@ class _DirectConnectionEditorPageState
     return saved != null &&
         ((saved.apiKey?.isNotEmpty ?? false) || saved.customHeaders.isNotEmpty);
   }
+
+  bool get _busy => _saving || _testing || _deleting;
 
   bool get _originBoundSecretsReviewed {
     final saved = _savedProfile;
@@ -273,11 +291,48 @@ class _DirectConnectionEditorPageState
     });
   }
 
+  void _invalidateOriginSecretConfirmation() {
+    _originSecretsConfirmed = false;
+    _clearTransientState();
+  }
+
+  Future<bool> _confirmOriginSecretTransfer(
+    DirectConnectionProfile draft,
+  ) async {
+    if (_originSecretsConfirmed ||
+        !requiresDirectOriginCredentialConfirmation(
+          previous: _savedProfile,
+          draft: draft,
+        )) {
+      return true;
+    }
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: 'Use credentials with new server?',
+      message:
+          'This sends the API key and complete custom-header map to the new server. Only continue if you trust it.',
+      confirmText: 'Use credentials',
+      barrierDismissible: false,
+    );
+    if (confirmed && mounted) {
+      setState(() => _originSecretsConfirmed = true);
+    }
+    return confirmed;
+  }
+
   Future<void> _save() async {
-    if (_saving || _testing) return;
-    final draft = _buildDraft(validateFields: true);
-    if (draft == null) return;
+    if (_busy) return;
     setState(() => _saving = true);
+    final draft = _buildDraft(validateFields: true);
+    if (draft == null) {
+      if (mounted) setState(() => _saving = false);
+      return;
+    }
+    final originConfirmed = await _confirmOriginSecretTransfer(draft);
+    if (!mounted || !originConfirmed) {
+      if (mounted) setState(() => _saving = false);
+      return;
+    }
     try {
       await ref
           .read(directConnectionProfilesProvider.notifier)
@@ -286,7 +341,7 @@ class _DirectConnectionEditorPageState
             secretsConfirmedForNewOrigin:
                 !_originChanged ||
                 !_savedHasOriginBoundSecrets ||
-                _originBoundSecretsReviewed,
+                _originSecretsConfirmed,
           );
       if (!mounted) return;
       context.pop(true);
@@ -300,11 +355,19 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _testConnection() async {
-    if (_saving || _testing) return;
+    if (_busy) return;
+    setState(() => _testing = true);
     final draft = _buildDraft(validateFields: true);
-    if (draft == null) return;
+    if (draft == null) {
+      if (mounted) setState(() => _testing = false);
+      return;
+    }
+    final originConfirmed = await _confirmOriginSecretTransfer(draft);
+    if (!mounted || !originConfirmed) {
+      if (mounted) setState(() => _testing = false);
+      return;
+    }
     setState(() {
-      _testing = true;
       _testSucceeded = null;
       _testMessage = null;
     });
@@ -329,30 +392,45 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _delete(List<DirectConnectionProfile> profiles) async {
+    if (_busy) return;
     final saved = _savedProfile;
     if (saved == null) return;
-    final confirmed = await ThemedDialogs.confirm(
-      context,
-      title: 'Delete connection?',
-      message:
-          'This removes ${saved.name} and its credentials from this device.',
-      confirmText: 'Delete',
-      isDestructive: true,
-    );
-    if (!confirmed || !mounted) return;
-    await ref.read(directConnectionProfilesProvider.notifier).remove(saved.id);
-    if (!mounted) return;
-    final hasAnotherUsable = profiles.any(
-      (profile) => profile.id != saved.id && profile.isUsable,
-    );
-    if (!hasAnotherUsable &&
-        ref.read(preferredBackendProvider) == PreferredBackend.direct) {
+    setState(() => _deleting = true);
+    try {
+      final confirmed = await ThemedDialogs.confirm(
+        context,
+        title: 'Delete connection?',
+        message:
+            'This removes ${saved.name} and its credentials from this device.',
+        confirmText: 'Delete',
+        isDestructive: true,
+      );
+      if (!confirmed || !mounted) {
+        if (mounted) setState(() => _deleting = false);
+        return;
+      }
       await ref
-          .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.unset);
+          .read(directConnectionProfilesProvider.notifier)
+          .remove(saved.id);
+      if (!mounted) return;
+      final hasAnotherUsable = profiles.any(
+        (profile) => profile.id != saved.id && profile.isUsable,
+      );
+      if (!hasAnotherUsable &&
+          ref.read(preferredBackendProvider) == PreferredBackend.direct) {
+        await ref
+            .read(preferredBackendProvider.notifier)
+            .set(PreferredBackend.unset);
+      }
+      if (!mounted) return;
+      context.pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _deleting = false;
+        _headersError = 'Could not delete this connection.';
+      });
     }
-    if (!mounted) return;
-    context.pop(true);
   }
 
   @override
@@ -472,7 +550,7 @@ class _DirectConnectionEditorPageState
           keyboardType: TextInputType.url,
           errorText: _urlError,
           isRequired: true,
-          onChanged: (_) => _clearTransientState(),
+          onChanged: (_) => _invalidateOriginSecretConfirmation(),
         ),
         const SizedBox(height: Spacing.sm),
         Text(
@@ -489,6 +567,7 @@ class _DirectConnectionEditorPageState
           onChanged: (value) => setState(() {
             _authentication = value;
             _apiKeyDirty = true;
+            _originSecretsConfirmed = false;
             _apiKeyError = null;
             _testSucceeded = null;
             _testMessage = null;
@@ -528,7 +607,7 @@ class _DirectConnectionEditorPageState
             ),
             onChanged: (_) {
               _apiKeyDirty = true;
-              _clearTransientState();
+              _invalidateOriginSecretConfirmation();
             },
           ),
         ],
@@ -543,7 +622,7 @@ class _DirectConnectionEditorPageState
           errorText: _headersError,
           onChanged: (_) {
             _headersDirty = true;
-            _clearTransientState();
+            _invalidateOriginSecretConfirmation();
           },
         ),
         const SizedBox(height: Spacing.sm),
@@ -576,14 +655,14 @@ class _DirectConnectionEditorPageState
               text: 'Save',
               icon: Icons.check,
               isLoading: _saving,
-              onPressed: _testing ? null : _save,
+              onPressed: _testing || _deleting ? null : _save,
             ),
             ConduitButton(
               text: 'Test connection',
               icon: Icons.wifi_tethering,
               isSecondary: true,
               isLoading: _testing,
-              onPressed: _saving ? null : _testConnection,
+              onPressed: _saving || _deleting ? null : _testConnection,
             ),
             if (_testMessage != null)
               Text(
@@ -600,7 +679,8 @@ class _DirectConnectionEditorPageState
             text: 'Delete connection',
             icon: Icons.delete_outline,
             isDestructive: true,
-            onPressed: () => _delete(profiles),
+            isLoading: _deleting,
+            onPressed: _saving || _testing ? null : () => _delete(profiles),
           ),
         ],
       ],

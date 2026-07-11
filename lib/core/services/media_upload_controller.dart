@@ -3,7 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
@@ -15,6 +17,32 @@ import 'attachment_upload_queue.dart';
 import 'share_staging_cleanup.dart';
 
 part 'media_upload_controller.g.dart';
+
+typedef DirectImageDataUrlEncoder = Future<String?> Function(File file);
+
+/// Encoding seam used to prove oversized files are rejected before base64
+/// allocation. Production keeps the existing compatibility conversion path.
+final directImageDataUrlEncoderProvider = Provider<DirectImageDataUrlEncoder>(
+  (ref) => convertImageFileToDataUrl,
+);
+
+/// Validates an encoder result without allocating a second decoded image.
+/// Returns the current image's decoded byte count for persisted UI metadata.
+int validatePreparedDirectImageDataUrl(
+  String dataUrl, {
+  required int otherImageBytes,
+  int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
+}) {
+  final decodedBytes = decodedImageByteLength(dataUrl);
+  if (otherImageBytes + decodedBytes > maxDecodedImageBytes) {
+    throw DirectChatInputException(
+      maxDecodedImageBytes == kDirectMaxDecodedImageBytes
+          ? 'Direct chat images must be 20 MB or less in total.'
+          : 'Direct chat images exceed the decoded byte limit.',
+    );
+  }
+  return decodedBytes;
+}
 
 /// Shared media-upload controller (CDT-RFC-001 §7.2, Group 2 of the task_queue
 /// retirement).
@@ -35,6 +63,7 @@ class MediaUploadController {
   MediaUploadController(this._ref);
 
   final Ref _ref;
+  final Lock _directImagePreparationLock = Lock();
 
   /// In-flight uploads keyed by the ORIGINAL source [filePath] (the key the UI
   /// + cancellation reference, never the converted temp path). Multiple callers
@@ -116,65 +145,21 @@ class MediaUploadController {
     final directBinding = selectedModel == null
         ? null
         : _ref.read(directModelRegistryProvider).resolve(selectedModel);
-    if (directBinding != null) {
-      if (selectedModel!.isMultimodal != true) {
+    final reservedDirectIdentity =
+        selectedModel != null && hasReservedDirectIdentity(selectedModel);
+    if (reservedDirectIdentity) {
+      if (directBinding == null) {
         throw const DirectChatInputException(
-          'This direct model does not support image attachments.',
+          'The selected direct model is no longer available.',
         );
       }
-      if (!isImage) {
-        throw const DirectChatInputException(
-          'Direct chats support image attachments only.',
-        );
-      }
-      final attachments = _ref.read(attachedFilesProvider);
-      final imageAttachments = attachments
-          .where((attachment) => attachment.isImage == true)
-          .toList(growable: false);
-      if (imageAttachments.length > kDirectMaxImages) {
-        throw const DirectChatInputException(
-          'Direct chats support up to 4 images per request.',
-        );
-      }
-      final totalBytes = imageAttachments.fold<int>(
-        0,
-        (total, attachment) => total + attachment.fileSize,
+      await _directImagePreparationLock.synchronized(
+        () => _prepareDirectImage(
+          filePath: filePath,
+          isImage: isImage,
+          selectedModelSupportsImages: selectedModel.isMultimodal == true,
+        ),
       );
-      if (totalBytes > kDirectMaxDecodedImageBytes) {
-        throw const DirectChatInputException(
-          'Direct chat images must be 20 MB or less in total.',
-        );
-      }
-      final dataUrl = await convertImageFileToDataUrl(File(filePath));
-      if (dataUrl == null) {
-        throw const DirectChatInputException(
-          'The selected image could not be prepared for this direct model.',
-        );
-      }
-      final current = _ref.read(attachedFilesProvider);
-      final existing = current
-          .where((attachment) => attachment.file.path == filePath)
-          .firstOrNull;
-      if (existing != null) {
-        _ref
-            .read(attachedFilesProvider.notifier)
-            .updateFileState(
-              filePath,
-              FileUploadState(
-                file: existing.file,
-                fileName: existing.fileName,
-                fileSize: existing.fileSize,
-                progress: 1,
-                status: FileUploadStatus.completed,
-                fileId: dataUrl,
-                isImage: true,
-                base64DataUrl: dataUrl,
-              ),
-            );
-      }
-      // Shared-intent and camera staging files are no longer needed once the
-      // direct attachment owns an in-memory data URL.
-      unawaited(deleteShareStagingFile(filePath));
       return;
     }
 
@@ -375,6 +360,94 @@ class MediaUploadController {
 
     unawaited(uploader.processQueue());
     await completer.future;
+  }
+
+  Future<void> _prepareDirectImage({
+    required String filePath,
+    required bool isImage,
+    required bool selectedModelSupportsImages,
+  }) async {
+    if (!selectedModelSupportsImages) {
+      throw const DirectChatInputException(
+        'This direct model does not support image attachments.',
+      );
+    }
+    if (!isImage) {
+      throw const DirectChatInputException(
+        'Direct chats support image attachments only.',
+      );
+    }
+
+    final attachments = _ref.read(attachedFilesProvider);
+    final imagesByPath = <String, FileUploadState>{
+      for (final attachment in attachments)
+        if (attachment.isImage == true) attachment.file.path: attachment,
+    };
+    final imagePaths = <String>{...imagesByPath.keys, filePath};
+    if (imagePaths.length > kDirectMaxImages) {
+      throw const DirectChatInputException(
+        'Direct chats support up to 4 images per request.',
+      );
+    }
+
+    var measuredTotalBytes = 0;
+    var currentSourceBytes = 0;
+    for (final path in imagePaths) {
+      final attachment = imagesByPath[path];
+      final preparedDataUrl =
+          attachment?.base64DataUrl ??
+          ((attachment?.fileId?.startsWith('data:image/') ?? false)
+              ? attachment!.fileId
+              : null);
+      final bytes = preparedDataUrl != null
+          ? decodedImageByteLength(preparedDataUrl)
+          : await File(path).length();
+      measuredTotalBytes += bytes;
+      if (path == filePath) currentSourceBytes = bytes;
+      if (measuredTotalBytes > kDirectMaxDecodedImageBytes) {
+        throw const DirectChatInputException(
+          'Direct chat images must be 20 MB or less in total.',
+        );
+      }
+    }
+
+    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+      File(filePath),
+    );
+    if (dataUrl == null) {
+      throw const DirectChatInputException(
+        'The selected image could not be prepared for this direct model.',
+      );
+    }
+    final decodedBytes = validatePreparedDirectImageDataUrl(
+      dataUrl,
+      otherImageBytes: measuredTotalBytes - currentSourceBytes,
+    );
+
+    final current = _ref.read(attachedFilesProvider);
+    final existing = current
+        .where((attachment) => attachment.file.path == filePath)
+        .firstOrNull;
+    if (existing != null) {
+      _ref
+          .read(attachedFilesProvider.notifier)
+          .updateFileState(
+            filePath,
+            FileUploadState(
+              file: existing.file,
+              fileName: existing.fileName,
+              fileSize: decodedBytes,
+              progress: 1,
+              status: FileUploadStatus.completed,
+              fileId: dataUrl,
+              isImage: true,
+              base64DataUrl: dataUrl,
+            ),
+          );
+    }
+    // Shared-intent and camera staging files are no longer needed once the
+    // direct attachment owns an in-memory data URL.
+    unawaited(deleteShareStagingFile(filePath));
   }
 
   Future<void> _syncUploadedFile(String fileId) async {

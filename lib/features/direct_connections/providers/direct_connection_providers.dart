@@ -306,7 +306,8 @@ class DirectModelDiscoveryController
       for (final profile in profiles)
         _discoverProfile(profile, signature: _profileSignature(profile)),
     ]);
-    if (!ref.mounted || generation != _discoveryGeneration) {
+    if (!ref.mounted) return DirectModelDiscoveryState();
+    if (generation != _discoveryGeneration) {
       return state.value ?? DirectModelDiscoveryState();
     }
 
@@ -348,10 +349,7 @@ class DirectModelDiscoveryController
       return _DiscoveryOutcome(
         profile: profile,
         signature: signature,
-        models: [
-          for (final id in profile.manualModelIds)
-            DirectRemoteModel(id: id, isMultimodal: true),
-        ],
+        models: directManualModels(profile),
       );
     }
     final adapter = ref

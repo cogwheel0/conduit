@@ -26,6 +26,9 @@ void main() {
         ProviderScope(
           overrides: [
             directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              _FixedDiscoveryController.new,
+            ),
             selectedModelProvider.overrideWithValue(directModel),
             apiServiceProvider.overrideWithValue(null),
             webSearchAvailableProvider.overrideWithValue(false),
@@ -48,6 +51,9 @@ void main() {
         ),
       );
       await tester.pump();
+
+      final textField = tester.widget<TextField>(find.byType(TextField));
+      expect(textField.contentInsertionConfiguration, isNotNull);
 
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
@@ -64,7 +70,7 @@ void main() {
   );
 
   testWidgets(
-    'fallback overflow sheet hides image actions for text-only direct models',
+    'text-only direct models hide overflow and image content insertion',
     (tester) async {
       final registry = DirectModelRegistry();
       final directModel = registry.replaceProfileModels(
@@ -81,6 +87,9 @@ void main() {
         ProviderScope(
           overrides: [
             directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              _FixedDiscoveryController.new,
+            ),
             selectedModelProvider.overrideWithValue(directModel),
             apiServiceProvider.overrideWithValue(null),
             webSearchAvailableProvider.overrideWithValue(false),
@@ -104,14 +113,66 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-
-      final sheet = tester.widget<ComposerOverflowSheet>(
-        find.byType(ComposerOverflowSheet),
+      expect(directModelAcceptsImageInput(directModel, registry), isFalse);
+      expect(
+        shouldShowComposerOverflowButton(
+          isHermesComposer: false,
+          isDirectComposer: true,
+          directSupportsImages: false,
+        ),
+        isFalse,
       );
-      expect(sheet.onImageAttachment, isNull);
-      expect(sheet.onCameraCapture, isNull);
+      final textField = tester.widget<TextField>(find.byType(TextField));
+      expect(textField.contentInsertionConfiguration, isNull);
+      expect(find.byIcon(Icons.add), findsNothing);
+      expect(find.byType(ComposerOverflowSheet), findsNothing);
     },
   );
+
+  testWidgets(
+    'vision direct model with no image callbacks hides empty overflow',
+    (tester) async {
+      final registry = DirectModelRegistry();
+      final directModel = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'local-no-callbacks',
+          name: 'Local Ollama',
+          adapterKey: kOllamaAdapterKey,
+          baseUrl: 'http://localhost:11434',
+        ),
+        [DirectRemoteModel(id: 'llava', isMultimodal: true)],
+      ).single;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              _FixedDiscoveryController.new,
+            ),
+            selectedModelProvider.overrideWithValue(directModel),
+            apiServiceProvider.overrideWithValue(null),
+            webSearchAvailableProvider.overrideWithValue(false),
+            imageGenerationAvailableProvider.overrideWithValue(false),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(directModelAcceptsImageInput(directModel, registry), isTrue);
+      expect(find.byIcon(Icons.add), findsNothing);
+      expect(find.byType(ComposerOverflowSheet), findsNothing);
+    },
+  );
+}
+
+final class _FixedDiscoveryController extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
 }

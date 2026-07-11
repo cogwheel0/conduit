@@ -106,7 +106,10 @@ final class DirectModelRegistry {
     final minted = _trustedBindings[model];
     if (minted == null) return null;
     final registered = _registered[model.id];
-    return registered == minted ? registered : null;
+    // Value equality is not sufficient here. If a profile is deleted and then
+    // recreated with the same id/model, an old Model object has the same
+    // binding values but must not gain authority over the new endpoint.
+    return identical(registered, minted) ? registered : null;
   }
 
   /// Resolves only ids that were registered from current local profiles. A

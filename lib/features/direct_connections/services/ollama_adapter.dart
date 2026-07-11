@@ -13,6 +13,8 @@ import 'direct_provider_adapter.dart';
 import 'ollama_stream_parser.dart';
 
 final class OllamaAdapter implements DirectProviderAdapter {
+  static const int _maxShowConcurrency = 4;
+
   OllamaAdapter({
     DirectDioFactory? dioFactory,
     this.closeClients = true,
@@ -38,6 +40,9 @@ final class OllamaAdapter implements DirectProviderAdapter {
   Future<List<DirectRemoteModel>> listModels(
     DirectConnectionProfile profile,
   ) async {
+    final manualModels = directManualModels(profile);
+    if (manualModels != null) return manualModels;
+
     final dio = _client(profile);
     try {
       final response = await dio.get<ResponseBody>(
@@ -53,7 +58,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
       if (raw is! List) {
         throw const FormatException('Ollama model list is missing.');
       }
-      final models = <DirectRemoteModel>[];
+      final candidates = <_OllamaModelCandidate>[];
       final seen = <String>{};
       for (final item in raw.whereType<Map>()) {
         final map = item.cast<String, dynamic>();
@@ -66,21 +71,18 @@ final class OllamaAdapter implements DirectProviderAdapter {
         final capabilities = details is Map
             ? _lowercaseStringList(details['capabilities'])
             : const <String>[];
-        models.add(
-          DirectRemoteModel(
+        candidates.add(
+          _OllamaModelCandidate(
             id: id,
-            name: id,
-            isMultimodal:
-                families.contains('clip') || capabilities.contains('vision'),
-            capabilities: {
-              if (details is Map) 'details': details,
-              if (map['size'] != null) 'size': map['size'],
-              if (map['modified_at'] != null) 'modified_at': map['modified_at'],
-            },
+            details: details is Map ? details : null,
+            families: families,
+            capabilities: capabilities,
+            size: map['size'],
+            modifiedAt: map['modified_at'],
           ),
         );
       }
-      return models;
+      return await _enrichModels(dio, profile, candidates);
     } catch (error, stackTrace) {
       final normalized = normalizeDirectProviderError(error);
       DebugLogger.error(
@@ -96,13 +98,141 @@ final class OllamaAdapter implements DirectProviderAdapter {
     }
   }
 
+  Future<List<DirectRemoteModel>> _enrichModels(
+    Dio dio,
+    DirectConnectionProfile profile,
+    List<_OllamaModelCandidate> candidates,
+  ) async {
+    final models = List<DirectRemoteModel?>.filled(candidates.length, null);
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (nextIndex < candidates.length) {
+        final index = nextIndex++;
+        models[index] = await _enrichModel(dio, profile, candidates[index]);
+      }
+    }
+
+    // `/api/show` can be noticeably slow for larger catalogs. A small worker
+    // pool overlaps independent probes without flooding a local Ollama server;
+    // indexed writes retain the first-seen order from `/api/tags`.
+    final workerCount = candidates.length < _maxShowConcurrency
+        ? candidates.length
+        : _maxShowConcurrency;
+    await Future.wait([for (var i = 0; i < workerCount; i++) worker()]);
+    return List.generate(candidates.length, (index) => models[index]!);
+  }
+
+  Future<DirectRemoteModel> _enrichModel(
+    Dio dio,
+    DirectConnectionProfile profile,
+    _OllamaModelCandidate candidate,
+  ) async {
+    // `api/tags` does not reliably expose modalities. Each deduplicated model
+    // is enriched once per discovery pass via Ollama's `api/show`. Avoid a
+    // cross-refresh cache so model replacement, auth/header edits, and older
+    // servers cannot leave stale capability authority behind.
+    final shown = await _fetchShowDetails(dio, profile, candidate.id);
+    final effectiveCapabilities = shown == null || shown.capabilities.isEmpty
+        ? candidate.capabilities
+        : shown.capabilities;
+    return DirectRemoteModel(
+      id: candidate.id,
+      name: candidate.id,
+      isMultimodal:
+          candidate.families.contains('clip') ||
+          effectiveCapabilities.contains('vision') ||
+          (shown?.advertisesVision ?? false),
+      capabilities: {
+        if (candidate.details != null) 'details': candidate.details!,
+        if (effectiveCapabilities.isNotEmpty)
+          'capabilities': effectiveCapabilities,
+        if (candidate.size != null) 'size': candidate.size,
+        if (candidate.modifiedAt != null) 'modified_at': candidate.modifiedAt,
+      },
+    );
+  }
+
+  Future<_OllamaShowDetails?> _fetchShowDetails(
+    Dio dio,
+    DirectConnectionProfile profile,
+    String modelId,
+  ) async {
+    try {
+      final response = await dio.post<ResponseBody>(
+        'api/show',
+        data: {'model': modelId},
+        options: Options(responseType: ResponseType.stream),
+      );
+      final responseBody = response.data;
+      if (responseBody == null) return null;
+      final body = await decodeDirectJsonBody(responseBody);
+      final rawCapabilities = body['capabilities'];
+      final capabilities = rawCapabilities is Iterable
+          ? _lowercaseStringList(rawCapabilities)
+          : const <String>[];
+      return _OllamaShowDetails(
+        capabilities: capabilities,
+        advertisesVision:
+            capabilities.contains('vision') || _hasVisionMetadata(body),
+      );
+    } catch (_) {
+      // A single old/broken model must not hide the entire catalog. Retain the
+      // conservative /api/tags heuristic and retry on the next refresh.
+      DebugLogger.warning(
+        'model-capabilities-unavailable',
+        scope: 'direct-connections/ollama',
+        data: {'profileId': profile.id, 'modelId': modelId},
+      );
+      return null;
+    }
+  }
+
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    if (profile.manualModelIds.isNotEmpty) {
+      return _probeManualConnection(profile);
+    }
     try {
       final models = await listModels(profile);
       return DirectConnectionProbe(reachable: true, modelCount: models.length);
     } on DirectProviderException catch (error) {
       return DirectConnectionProbe(reachable: false, message: error.message);
+    }
+  }
+
+  Future<DirectConnectionProbe> _probeManualConnection(
+    DirectConnectionProfile profile,
+  ) async {
+    final dio = _client(profile);
+    try {
+      // Ollama exposes this non-generative endpoint independently of model
+      // discovery, making it suitable for profiles with manual model IDs.
+      final response = await dio.get<ResponseBody>(
+        'api/version',
+        options: Options(responseType: ResponseType.stream),
+      );
+      final responseBody = response.data;
+      if (responseBody == null) {
+        throw const FormatException('Ollama version response is empty.');
+      }
+      final body = await decodeDirectJsonBody(responseBody);
+      final version = body['version']?.toString().trim();
+      if (version == null || version.isEmpty) {
+        throw const FormatException('Ollama version response is invalid.');
+      }
+      return DirectConnectionProbe(
+        reachable: true,
+        modelCount: profile.manualModelIds.length,
+      );
+    } catch (error) {
+      final normalized = normalizeDirectProviderError(error);
+      return DirectConnectionProbe(
+        reachable: false,
+        message: normalized.message,
+      );
+    } finally {
+      if (closeClients) dio.close(force: true);
     }
   }
 
@@ -232,6 +362,46 @@ List<String> _lowercaseStringList(Object? value) {
       .map((item) => item.toString().trim().toLowerCase())
       .where((item) => item.isNotEmpty)
       .toList(growable: false);
+}
+
+bool _hasVisionMetadata(Map<String, dynamic> body) {
+  final projectorInfo = body['projector_info'];
+  if (projectorInfo is Map && projectorInfo.isNotEmpty) return true;
+  final modelInfo = body['model_info'];
+  if (modelInfo is! Map) return false;
+  return modelInfo.keys.any((key) {
+    final normalized = key.toString().toLowerCase();
+    return normalized.contains('.vision.') ||
+        normalized.contains('.projector.');
+  });
+}
+
+final class _OllamaShowDetails {
+  const _OllamaShowDetails({
+    required this.capabilities,
+    required this.advertisesVision,
+  });
+
+  final List<String> capabilities;
+  final bool advertisesVision;
+}
+
+final class _OllamaModelCandidate {
+  const _OllamaModelCandidate({
+    required this.id,
+    required this.details,
+    required this.families,
+    required this.capabilities,
+    required this.size,
+    required this.modifiedAt,
+  });
+
+  final String id;
+  final Map<dynamic, dynamic>? details;
+  final List<String> families;
+  final List<String> capabilities;
+  final Object? size;
+  final Object? modifiedAt;
 }
 
 Map<String, dynamic> _ollamaMessage(DirectChatMessage message) {

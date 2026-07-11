@@ -261,6 +261,40 @@ void main() {
     });
 
     test(
+      'can search direct-local independently of a cached server limit',
+      () async {
+        await serverDatabase.buildFtsIfNeeded();
+        for (var index = 0; index < 55; index++) {
+          await serverDatabase.chatsDao.upsertServerChat(
+            rows: _chatRows(
+              id: 'server-$index',
+              updatedAt: 1000 + index,
+              content: 'needle needle needle server $index',
+            ),
+          );
+        }
+        await localDatabase.chatsDao.upsertLocalOnlyChat(
+          rows: _chatRows(
+            id: 'direct-result',
+            updatedAt: 1,
+            content: 'needle on device',
+          ),
+        );
+
+        final hits = await repository.searchChatsInStorage(
+          'needle',
+          storage: ChatStorageKind.directLocal,
+          limit: 50,
+        );
+
+        check(
+          hits.map((hit) => hit.hit.chatId).toList(),
+        ).deepEquals(['direct-result']);
+        check(hits.single.storage).equals(ChatStorageKind.directLocal);
+      },
+    );
+
+    test(
       'keeps colliding raw ids distinct in list and search results',
       () async {
         await serverDatabase.buildFtsIfNeeded();

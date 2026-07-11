@@ -38,6 +38,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   Future<List<DirectRemoteModel>> listModels(
     DirectConnectionProfile profile,
   ) async {
+    final manualModels = directManualModels(profile);
+    if (manualModels != null) return manualModels;
+
     final dio = _client(profile);
     try {
       final response = await dio.get<ResponseBody>(
@@ -106,11 +109,56 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    if (profile.manualModelIds.isNotEmpty) {
+      return _probeManualConnection(profile);
+    }
     try {
       final models = await listModels(profile);
       return DirectConnectionProbe(reachable: true, modelCount: models.length);
     } on DirectProviderException catch (error) {
       return DirectConnectionProbe(reachable: false, message: error.message);
+    }
+  }
+
+  Future<DirectConnectionProbe> _probeManualConnection(
+    DirectConnectionProfile profile,
+  ) async {
+    final dio = _client(profile);
+    try {
+      // HEAD cannot create a completion or consume model quota. A 2xx status
+      // confirms the route directly; 405 also confirms that the provider has
+      // the route but does not implement HEAD. Authentication failures, a
+      // missing route, redirects (disabled above), rate limits, and 5xx
+      // responses remain failed probes.
+      final response = await dio.head<ResponseBody>(
+        'chat/completions',
+        options: Options(
+          responseType: ResponseType.stream,
+          validateStatus: (status) => status != null,
+        ),
+      );
+      final status = response.statusCode;
+      if (status != null &&
+          ((status >= 200 && status < 300) || status == 405)) {
+        return DirectConnectionProbe(
+          reachable: true,
+          modelCount: profile.manualModelIds.length,
+        );
+      }
+      return DirectConnectionProbe(
+        reachable: false,
+        message: status == null
+            ? 'The provider returned an invalid HTTP response.'
+            : 'The provider returned HTTP $status.',
+      );
+    } catch (error) {
+      final normalized = normalizeDirectProviderError(error);
+      return DirectConnectionProbe(
+        reachable: false,
+        message: normalized.message,
+      );
+    } finally {
+      if (closeClients) dio.close(force: true);
     }
   }
 
@@ -276,32 +324,51 @@ bool _emitOpenAiPayload(
     controller.add(DirectStreamError(directErrorMessage(payload['error'])));
     return false;
   }
+  var emittedCompletion = false;
   final choices = payload['choices'];
   if (choices is List && choices.isNotEmpty && choices.first is Map) {
     final choice = (choices.first as Map).cast<String, dynamic>();
     final rawMessage = choice['message'] ?? choice['delta'];
     if (rawMessage is Map) {
       final message = rawMessage.cast<String, dynamic>();
-      final reasoning =
-          message['reasoning_content'] ??
-          message['reasoning'] ??
-          message['thinking'];
-      if (reasoning != null && reasoning.toString().isNotEmpty) {
-        final value = reasoning.toString();
-        budget.add(value);
-        controller.add(DirectReasoningDelta(value));
+      final reasoning = _openAiCompletionText(
+        message['reasoning_content'] ??
+            message['reasoning'] ??
+            message['thinking'],
+      );
+      if (reasoning != null) {
+        budget.add(reasoning);
+        controller.add(DirectReasoningDelta(reasoning));
+        emittedCompletion = true;
       }
-      final content = message['content'];
-      if (content != null && content.toString().isNotEmpty) {
-        final value = content.toString();
-        budget.add(value);
-        controller.add(DirectContentDelta(value));
+      final content = _openAiCompletionText(message['content']);
+      if (content != null) {
+        budget.add(content);
+        controller.add(DirectContentDelta(content));
+        emittedCompletion = true;
       }
     }
+  }
+  if (!emittedCompletion) {
+    throw const FormatException(
+      'OpenAI-compatible response has no usable completion content.',
+    );
   }
   final usage = payload['usage'];
   if (usage is Map) {
     controller.add(DirectUsageUpdate(usage.cast<String, dynamic>()));
   }
   return true;
+}
+
+String? _openAiCompletionText(Object? value) {
+  if (value is String) return value.isEmpty ? null : value;
+  if (value is! Iterable) return null;
+  final buffer = StringBuffer();
+  for (final part in value) {
+    if (part is! Map) continue;
+    final text = part['text'];
+    if (text is String) buffer.write(text);
+  }
+  return buffer.isEmpty ? null : buffer.toString();
 }

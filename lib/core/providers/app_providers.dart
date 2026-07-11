@@ -724,16 +724,19 @@ List<Model> appendHermesModelIfUsable(
   List<Model> models, {
   required bool hermesUsable,
 }) {
+  final directModels = models.where(isLocallyMintedDirectModel);
   final safeModels = sanitizeRemoteHermesModels(
     sanitizeRemoteDirectModels(models),
   );
   return hermesUsable
-      ? <Model>[...safeModels, hermesSyntheticModel()]
-      : safeModels;
+      ? <Model>[...safeModels, ...directModels, hermesSyntheticModel()]
+      : <Model>[...safeModels, ...directModels];
 }
 
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
+  bool _terminalDirectDiscoveryNeedsReconciliation = false;
+
   @override
   Future<List<Model>> build() async {
     // Reviewer mode returns mock models
@@ -752,6 +755,16 @@ class Models extends _$Models {
         // modelsProvider rebuild and leave callers awaiting its old future.
         return models == null || models.isEmpty ? const <Model>[] : models;
       }),
+    );
+    // Initial discovery loading is reconciliation context, not a model-list
+    // dependency. Watching it would turn loading -> empty into an otherwise
+    // spurious rebuild and could cancel a concurrent Hermes/auth rebuild.
+    final directDiscovery = ref.read(directModelDiscoveryProvider);
+    final deferDirectSelectionReconciliation =
+        directDiscovery.isLoading && !directDiscovery.hasValue;
+    ref.listen<AsyncValue<DirectModelDiscoveryState>>(
+      directModelDiscoveryProvider,
+      _handleDirectDiscoveryTransition,
     );
     ref.listen<bool>(hermesConfigProvider.select((config) => config.isUsable), (
       previous,
@@ -779,11 +792,17 @@ class Models extends _$Models {
         directModels: directModels,
       );
       if (localModels.isNotEmpty) {
-        return _returnWithSelectionReconciliation(localModels);
+        return _returnWithSelectionReconciliation(
+          localModels,
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return _returnWithSelectionReconciliation(const <Model>[]);
+      return _returnWithSelectionReconciliation(
+        const <Model>[],
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
     }
 
     // Re-run whenever Hermes connection usability changes so the synthetic
@@ -820,6 +839,7 @@ class Models extends _$Models {
         });
         return _returnWithSelectionReconciliation(
           _withLocalModels(visibleCached, directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
         );
       }
     } catch (error, stackTrace) {
@@ -837,6 +857,7 @@ class Models extends _$Models {
       _persistModelsAsync(const <Model>[]);
       return _returnWithSelectionReconciliation(
         _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
       );
     }
 
@@ -844,6 +865,7 @@ class Models extends _$Models {
       final fresh = await _load(api);
       return _returnWithSelectionReconciliation(
         _withLocalModels(fresh, directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
       );
     } catch (_) {
       final localModels = _withLocalModels(
@@ -851,20 +873,73 @@ class Models extends _$Models {
         directModels: directModels,
       );
       if (localModels.isNotEmpty) {
-        return _returnWithSelectionReconciliation(localModels);
+        return _returnWithSelectionReconciliation(
+          localModels,
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
       }
-      _returnWithSelectionReconciliation(localModels);
+      _returnWithSelectionReconciliation(
+        localModels,
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
       rethrow;
     }
   }
 
-  List<Model> _returnWithSelectionReconciliation(List<Model> models) {
+  List<Model> _returnWithSelectionReconciliation(
+    List<Model> models, {
+    bool deferDirectSelection = false,
+  }) {
     unawaited(
       Future<void>(() {
-        if (ref.mounted) _reconcileLocalSelection(models);
+        if (ref.mounted) {
+          final reconcileTerminalDiscovery =
+              _terminalDirectDiscoveryNeedsReconciliation;
+          if (reconcileTerminalDiscovery) {
+            _terminalDirectDiscoveryNeedsReconciliation = false;
+          }
+          _reconcileLocalSelection(
+            models,
+            deferDirectSelection:
+                deferDirectSelection && !reconcileTerminalDiscovery,
+          );
+        }
       }),
     );
     return models;
+  }
+
+  void _handleDirectDiscoveryTransition(
+    AsyncValue<DirectModelDiscoveryState>? previous,
+    AsyncValue<DirectModelDiscoveryState> next,
+  ) {
+    final isInitialLoading = next.isLoading && !next.hasValue;
+    if (isInitialLoading) {
+      _terminalDirectDiscoveryNeedsReconciliation = false;
+      return;
+    }
+    final wasInitialLoading =
+        previous?.isLoading == true && previous?.hasValue == false;
+    if (!wasInitialLoading) return;
+
+    final discoveredModels = next.value?.models ?? const <Model>[];
+    if (discoveredModels.isNotEmpty) {
+      _terminalDirectDiscoveryNeedsReconciliation = false;
+      return;
+    }
+
+    _terminalDirectDiscoveryNeedsReconciliation = true;
+    unawaited(
+      Future<void>(() {
+        if (!ref.mounted ||
+            !_terminalDirectDiscoveryNeedsReconciliation ||
+            (state.isLoading && !state.hasValue)) {
+          return;
+        }
+        _terminalDirectDiscoveryNeedsReconciliation = false;
+        _reconcileLocalSelection(state.value ?? const <Model>[]);
+      }),
+    );
   }
 
   /// Appends locally minted direct/Hermes models after the OpenWebUI list has
@@ -889,13 +964,19 @@ class Models extends _$Models {
   /// Prevents a disabled or incomplete Hermes connection from leaving the
   /// composer bound to a transport that can no longer handle the selection.
   /// Prefer the first available OpenWebUI model; Hermes-only mode clears it.
-  List<Model> _reconcileLocalSelection(List<Model> models) {
+  List<Model> _reconcileLocalSelection(
+    List<Model> models, {
+    bool deferDirectSelection = false,
+  }) {
     final currentSelected = ref.read(selectedModelProvider);
     final isLocalTransport =
         currentSelected != null &&
         (isHermesModel(currentSelected) ||
             isLocallyMintedDirectModel(currentSelected));
     if (currentSelected == null || !isLocalTransport) {
+      return models;
+    }
+    if (deferDirectSelection && isLocallyMintedDirectModel(currentSelected)) {
       return models;
     }
 
@@ -2664,11 +2745,20 @@ class SearchQuery extends _$SearchQuery {
 /// active database (no server / reviewer mode) or before the index is built
 /// (the DAO short-circuits on the `fts_built` gate). Results are already bm25
 /// ascending (most relevant first); order is preserved.
-Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
+Future<List<Conversation>> _offlineSearch(
+  Ref ref,
+  String query, {
+  ChatStorageKind? storage,
+}) async {
   try {
-    final hits = await ref
-        .read(chatDatabaseRepositoryProvider)
-        .searchMergedChats(query, limit: 50);
+    final repository = ref.read(chatDatabaseRepositoryProvider);
+    final hits = storage == null
+        ? await repository.searchMergedChats(query, limit: 50)
+        : await repository.searchChatsInStorage(
+            query,
+            storage: storage,
+            limit: 50,
+          );
     return hits
         .map((located) {
           return withChatStorageProvenance(
@@ -2723,7 +2813,11 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
     );
 
     // Use the new server-side search API
-    final localResultsFuture = _offlineSearch(ref, trimmedQuery);
+    final localResultsFuture = _offlineSearch(
+      ref,
+      trimmedQuery,
+      storage: ChatStorageKind.directLocal,
+    );
     final chatHits = await api.searchChats(
       query: trimmedQuery,
       archived: false, // Only search non-archived conversations

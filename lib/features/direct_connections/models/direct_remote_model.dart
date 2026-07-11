@@ -8,7 +8,9 @@ final class DirectRemoteModel {
     this.isMultimodal = false,
     Map<String, dynamic> capabilities = const {},
   }) : name = (name == null || name.trim().isEmpty) ? id : name,
-       capabilities = UnmodifiableMapView(Map.of(capabilities)) {
+       capabilities = UnmodifiableMapView(
+         capabilities.map((key, value) => MapEntry(key, _deepFreeze(value))),
+       ) {
     if (id.trim().isEmpty) throw ArgumentError.value(id, 'id');
   }
 
@@ -31,6 +33,20 @@ final class DirectRemoteModel {
   @override
   int get hashCode =>
       Object.hash(id, name, description, isMultimodal, _deepHash(capabilities));
+}
+
+Object? _deepFreeze(Object? value) {
+  if (value is Map) {
+    return UnmodifiableMapView(
+      value.map(
+        (key, nested) => MapEntry(_deepFreeze(key), _deepFreeze(nested)),
+      ),
+    );
+  }
+  if (value is Iterable) {
+    return UnmodifiableListView(value.map(_deepFreeze).toList(growable: false));
+  }
+  return value;
 }
 
 bool _deepEquals(Object? left, Object? right) {

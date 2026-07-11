@@ -51,7 +51,10 @@ import '../models/server_config.dart';
 /// Keep this list explicit so adding an OWUI-only profile route does not expose
 /// it to Hermes-only users by accident.
 @visibleForTesting
-bool isHermesOnlyAppLocation(String location) {
+bool isHermesOnlyAppLocation(String location) =>
+    _isAccountlessBackendLocation(location);
+
+bool _isAccountlessBackendLocation(String location) {
   return location == Routes.chat ||
       location == Routes.profile ||
       location == Routes.audioSettings ||
@@ -72,18 +75,8 @@ bool isDirectConnectionsLocation(String location) {
 
 /// App-local surfaces available when direct APIs are the primary backend.
 @visibleForTesting
-bool isDirectOnlyAppLocation(String location) {
-  return location == Routes.chat ||
-      location == Routes.profile ||
-      location == Routes.audioSettings ||
-      location == Routes.appearanceSettings ||
-      location == Routes.chatSettings ||
-      location == Routes.dataConnectionSettings ||
-      isDirectConnectionsLocation(location) ||
-      location == Routes.hermesSettings ||
-      location == Routes.hermesJobs ||
-      location == Routes.about;
-}
+bool isDirectOnlyAppLocation(String location) =>
+    _isAccountlessBackendLocation(location);
 
 @visibleForTesting
 String incompleteHermesDestination({

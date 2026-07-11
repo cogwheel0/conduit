@@ -331,7 +331,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   VoidCallback? _socketTeardown;
   SocketEventSubscription? _passiveConversationSocketSubscription;
   StreamSubscription<List<MessageRow>>? _dbMessagesSubscription;
-  String? _dbWatchedChatId;
+  String? _dbWatchedConversationKey;
   int _dbMessagesGeneration = 0;
   DateTime? _lastStreamingActivity;
   StringBuffer? _streamingBuffer;
@@ -384,10 +384,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
 
         _configurePassiveConversationSync(next);
-        _configureDbMessagesWatch(next?.id);
+        _configureDbMessagesWatch(next);
 
         // Only react when the conversation actually changes
-        if (previous?.id == next?.id ||
+        if (isSameStoredConversation(previous, next) ||
             isActiveConversationInPlaceRemap(ref, previous?.id, next?.id)) {
           final serverMessages = next?.messages ?? const [];
           // While resuming a reopened, server-active chat the progressive poll
@@ -420,7 +420,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           // Update selected model if conversation has a different model
           _updateModelForConversation(next);
 
-          if (_hasStreamingAssistant) {
+          if (_hasStreamingAssistant && !isDirectLocalConversation(next)) {
             _ensureRemoteTaskMonitor();
           } else {
             // The opened chat may still be generating on the server; the server
@@ -458,35 +458,45 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final activeConversation = ref.read(activeConversationProvider);
     _configurePassiveConversationSync(activeConversation);
-    _configureDbMessagesWatch(activeConversation?.id);
+    _configureDbMessagesWatch(activeConversation);
     return activeConversation?.messages ?? const [];
   }
 
   /// One narrow Drift watch over the active chat's message rows
   /// (CDT-RFC-001 §10.2: always `WHERE chatId = ?`). Resubscribed on
   /// conversation change, cancelled on null/dispose.
-  void _configureDbMessagesWatch(String? conversationId) {
-    if (conversationId == null ||
+  void _configureDbMessagesWatch(Conversation? conversation) {
+    final conversationId = conversation?.id;
+    if (conversation == null ||
+        conversationId == null ||
         conversationId.isEmpty ||
         isTemporaryChat(conversationId)) {
       _cancelDbMessagesWatch();
       return;
     }
-    if (_dbWatchedChatId == conversationId && _dbMessagesSubscription != null) {
+    final storage =
+        chatStorageKindOf(conversation) ?? ChatStorageKind.openWebUi;
+    final conversationKey = ChatStorageIdentity(
+      rawId: conversationId,
+      storage: storage,
+    ).scopedId;
+    if (_dbWatchedConversationKey == conversationKey &&
+        _dbMessagesSubscription != null) {
       return;
     }
     _cancelDbMessagesWatch();
-    final db = _maybeDatabase();
+    final db = _databaseForStorage(storage);
     if (db == null) {
       return;
     }
-    _dbWatchedChatId = conversationId;
+    _dbWatchedConversationKey = conversationKey;
     _dbMessagesSubscription = db.messagesDao
         .watchForChat(conversationId)
         .listen(
           (rows) {
+            if (_dbWatchedConversationKey != conversationKey) return;
             final generation = ++_dbMessagesGeneration;
-            unawaited(_onDbMessagesChanged(conversationId, rows, generation));
+            unawaited(_onDbMessagesChanged(conversation, db, rows, generation));
           },
           onError: (Object error, StackTrace stackTrace) {
             DebugLogger.error(
@@ -503,7 +513,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void _cancelDbMessagesWatch() {
     _dbMessagesSubscription?.cancel();
     _dbMessagesSubscription = null;
-    _dbWatchedChatId = null;
+    _dbWatchedConversationKey = null;
     _dbMessagesGeneration++;
   }
 
@@ -512,21 +522,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// [_shouldProtectLocalStreamingState] or [_isResumeStreamingActive] holds,
   /// and all dedupe/protection lives in [_adoptServerMessages].
   Future<void> _onDbMessagesChanged(
-    String conversationId,
+    Conversation watchedConversation,
+    AppDatabase db,
     List<MessageRow> rows,
     int generation,
   ) async {
+    final conversationId = watchedConversation.id;
     if (_disposed ||
         generation != _dbMessagesGeneration ||
         _shouldProtectLocalStreamingState ||
         _isResumeStreamingActive) {
       return;
     }
-    if (ref.read(activeConversationProvider)?.id != conversationId) {
-      return;
-    }
-    final db = _maybeDatabase();
-    if (db == null) {
+    if (!isSameStoredConversation(
+      ref.read(activeConversationProvider),
+      watchedConversation,
+    )) {
       return;
     }
     try {
@@ -555,7 +566,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _isResumeStreamingActive) {
         return;
       }
-      if (ref.read(activeConversationProvider)?.id != conversationId) {
+      if (!isSameStoredConversation(
+        ref.read(activeConversationProvider),
+        watchedConversation,
+      )) {
         return;
       }
       _adoptServerMessages(conversation.messages, source: 'database watch');
@@ -570,10 +584,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  AppDatabase? _maybeDatabase() {
+  AppDatabase? _databaseForStorage(ChatStorageKind storage) {
+    if (storage == ChatStorageKind.directLocal) {
+      try {
+        return ref.read(directLocalDatabaseProvider);
+      } catch (_) {
+        return null;
+      }
+    }
     // Database dependencies unavailable (e.g. teardown or test harness
     // without an active server) resolve to null.
     return _readAppDatabaseOrNull(ref);
+  }
+
+  AppDatabase? _maybeDatabase() {
+    final active = ref.read(activeConversationProvider);
+    return _databaseForStorage(
+      chatStorageKindOf(active) ?? ChatStorageKind.openWebUi,
+    );
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -865,6 +893,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (conversationId == null ||
         conversationId.isEmpty ||
         isTemporaryChat(conversationId) ||
+        isDirectLocalConversation(conversation) ||
         socket == null) {
       _teardownPassiveConversationSync();
       return;
@@ -1220,7 +1249,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation == null || activeConversation.id != conversationId) {
+    if (activeConversation == null ||
+        isDirectLocalConversation(activeConversation) ||
+        activeConversation.id != conversationId) {
       return;
     }
 
@@ -1239,7 +1270,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
 
       final currentActive = ref.read(activeConversationProvider);
-      if (currentActive == null || currentActive.id != conversationId) {
+      if (currentActive == null ||
+          isDirectLocalConversation(currentActive) ||
+          currentActive.id != conversationId) {
         return;
       }
 
@@ -1543,6 +1576,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     final lastMessageId = state.last.id;
+    // Direct-provider reservations/runs do not use the notifier's HTTP/socket
+    // transport fields. Their streaming placeholder is nevertheless locally
+    // authoritative until dispatch finalizes it; a Drift echo emitted during
+    // preflight must not roll the optimistic turn back to the previous tip.
+    if (state.last.metadata?['transport'] == kDirectTransport) {
+      return true;
+    }
     if (_activeStreamingTransportMessageId != lastMessageId) {
       return false;
     }
@@ -1647,7 +1687,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// in-flight chat would otherwise render as an empty/partial response.
   Future<void> _detectActiveOnOpen(Conversation conversation) async {
     final chatId = conversation.id;
-    if (_disposed || isTemporaryChat(chatId)) {
+    if (_disposed ||
+        isTemporaryChat(chatId) ||
+        isDirectLocalConversation(conversation)) {
       return;
     }
     // A genuine local stream, or an already-streaming message, owns this chat.
@@ -1693,7 +1735,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     // The active chat may have changed, or a real stream may have started,
     // while we awaited the probe.
-    if (ref.read(activeConversationProvider)?.id != chatId) {
+    if (!isSameStoredConversation(
+      ref.read(activeConversationProvider),
+      conversation,
+    )) {
       return;
     }
     if (_shouldProtectLocalStreamingState || _hasStreamingAssistant) {
@@ -1733,7 +1778,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ChatMessage last, {
     String? taskId,
   }) {
-    if (_disposed || isTemporaryChat(conversation.id)) {
+    if (_disposed ||
+        isTemporaryChat(conversation.id) ||
+        isDirectLocalConversation(conversation)) {
       return;
     }
     // A genuine local stream already owns this chat — never overwrite it.
@@ -1839,7 +1886,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final api = ref.read(apiServiceProvider);
     final activeConversation = ref.read(activeConversationProvider);
-    if (api == null || activeConversation == null) {
+    if (api == null ||
+        activeConversation == null ||
+        isDirectLocalConversation(activeConversation)) {
       _stopRemoteTaskMonitor();
       return;
     }
@@ -1848,6 +1897,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     try {
       // Check both task status and server message state
       final taskIds = await api.getTaskIdsByChat(activeConversation.id);
+      if (!isSameStoredConversation(
+        ref.read(activeConversationProvider),
+        activeConversation,
+      )) {
+        return;
+      }
       final hasActiveTasks = taskIds.isNotEmpty;
 
       if (hasActiveTasks) {
@@ -1886,8 +1941,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           // Bail if we switched chats or a real stream started during the await.
           if (refreshed == null ||
               _disposed ||
-              ref.read(activeConversationProvider)?.id !=
-                  activeConversation.id ||
+              !isSameStoredConversation(
+                ref.read(activeConversationProvider),
+                activeConversation,
+              ) ||
               !_hasStreamingAssistant ||
               _shouldProtectLocalStreamingState) {
             return;
@@ -1943,6 +2000,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           final serverConversation = await api.getConversation(
             activeConversation.id,
           );
+          if (!isSameStoredConversation(
+            ref.read(activeConversationProvider),
+            activeConversation,
+          )) {
+            return;
+          }
           final serverMessages = serverConversation.messages;
 
           if (serverMessages.isNotEmpty && state.isNotEmpty) {
@@ -2734,7 +2797,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           conversationsAsync.maybeWhen(
             data: (conversations) {
               for (final conversation in conversations) {
-                if (conversation.id == updatedActive.id) {
+                if (isSameStoredConversation(conversation, updatedActive)) {
                   summary = conversation;
                   break;
                 }
@@ -2755,14 +2818,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     // Skip server cache refresh for temporary or no-active-conversation chats.
-    if (activeConversation != null && !isTemporaryChat(activeConversation.id)) {
+    if (activeConversation != null &&
+        !isTemporaryChat(activeConversation.id) &&
+        !isDirectLocalConversation(activeConversation)) {
       try {
         refreshConversationsCache(ref);
       } catch (_) {}
     }
   }
 
-  void _completeStreamingMessage({required bool releaseTransport}) {
+  void _completeStreamingMessage({
+    required bool releaseTransport,
+    bool persistTurn = true,
+  }) {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
     _flushStreamingContentUpdate();
@@ -2814,7 +2882,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     _syncConversationStateAfterStreamingUpdate();
-    _persistCompletedTurn();
+    if (persistTurn) {
+      _persistCompletedTurn();
+    }
+  }
+
+  /// Ends a direct-provider run in memory without invoking the generic
+  /// Open WebUI local-echo writer. The direct completion owner persists the
+  /// stopped assistant in its recorded store once preflight/dispatch unwinds.
+  void completeStoppedDirectStreamingUi(String messageId) {
+    if (state.lastOrNull?.id != messageId) return;
+    _completeStreamingMessage(releaseTransport: true, persistTurn: false);
   }
 
   void completeStreamingUi() {
@@ -2849,29 +2927,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     String messageId, {
     String? ownerConversationId,
     bool requireConversationOwner = false,
+    bool persistTurn = true,
   }) {
     if (requireConversationOwner &&
         !_isActiveConversationOwner(ownerConversationId)) {
       return;
     }
     if (state.lastOrNull?.id == messageId) {
-      finishStreaming();
+      _completeStreamingMessage(
+        releaseTransport: true,
+        persistTurn: persistTurn,
+      );
       return;
     }
     _completeNonTailStreamingMessage(
       messageId,
       ownerConversationId: ownerConversationId,
       requireConversationOwner: requireConversationOwner,
+      persistTurn: persistTurn,
     );
   }
 
-  bool _isActiveConversationOwner(String? ownerConversationId) =>
-      ref.read(activeConversationProvider)?.id == ownerConversationId;
+  bool _isActiveConversationOwner(String? ownerConversationId) {
+    final active = ref.read(activeConversationProvider);
+    if (ownerConversationId == null) return active == null;
+    return active != null &&
+        conversationMatchesScopedId(active, ownerConversationId);
+  }
 
   void _completeNonTailStreamingMessage(
     String messageId, {
     String? ownerConversationId,
     bool requireConversationOwner = false,
+    bool persistTurn = true,
   }) {
     // A Hermes run can finish after navigation. Its callbacks own the chat
     // that launched the run, never whichever conversation is active now.
@@ -2894,7 +2982,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       ...state.sublist(index + 1),
     ];
     _syncConversationStateAfterStreamingUpdate();
-    _persistCompletedTurnForMessage(index);
+    if (persistTurn) {
+      _persistCompletedTurnForMessage(index);
+    }
   }
 
   /// D-07 local echo: after a stream lands, write the trailing user message
@@ -6194,6 +6284,30 @@ final class _DirectConversationOwner {
 
   String conversationId;
   final ChatDatabaseLocation? location;
+
+  String get scopedConversationId => ChatStorageIdentity(
+    rawId: conversationId,
+    storage: location?.storage,
+  ).scopedId;
+}
+
+bool _isDirectConversationOwnerActive(
+  dynamic ref,
+  _DirectConversationOwner owner,
+) {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  return active != null &&
+      conversationMatchesScopedId(active, owner.scopedConversationId);
+}
+
+bool _isDirectSendConversationOwnerActive(
+  dynamic ref,
+  String? ownerConversationId,
+) {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (ownerConversationId == null) return active == null;
+  return active != null &&
+      conversationMatchesScopedId(active, ownerConversationId);
 }
 
 /// Keeps a direct completion's durable owner aligned with a synchronous
@@ -6376,15 +6490,20 @@ Map<String, dynamic> _directNewChatBlob({
   };
 }
 
-Future<_DirectConversationOwner> _persistDirectTurnStart(
+Future<_DirectConversationOwner?> _persistDirectTurnStart(
   dynamic ref, {
   required _ResolvedDirectRoute route,
+  required Conversation? expectedConversation,
+  required String? expectedConversationId,
   required ChatMessage userMessage,
   required ChatMessage assistantMessage,
   required List<ChatMessage> allMessages,
   String? pendingFolderId,
 }) async {
-  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (!_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+    return null;
+  }
+  final active = expectedConversation;
   final storedActive = active != null && chatStorageKindOf(active) != null;
   final isTemporary =
       ref.read(temporaryChatEnabledProvider) ||
@@ -6427,6 +6546,9 @@ Future<_DirectConversationOwner> _persistDirectTurnStart(
       active.id,
       preferred: chatStorageKindOf(active),
     );
+    if (!_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+      return null;
+    }
   }
 
   if (active == null || location == null) {
@@ -6454,15 +6576,24 @@ Future<_DirectConversationOwner> _persistDirectTurnStart(
       updatedAt: now,
     );
     final locks = ref.read(chatLocksProvider) as ChatLocks;
-    await locks.runExclusive(id, () {
-      return repository.persistNewDirectChat(
+    var persisted = false;
+    await locks.runExclusive(id, () async {
+      if (!_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+        return;
+      }
+      await repository.persistNewDirectChat(
         newLocation,
         rows,
         openWebUiContentHash: newLocation.storage == ChatStorageKind.openWebUi
             ? createChatContentHash(rows)
             : null,
       );
+      persisted = true;
     });
+    if (!persisted ||
+        !_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+      return null;
+    }
     var conversation = Conversation(
       id: id,
       title: title,
@@ -6485,6 +6616,20 @@ Future<_DirectConversationOwner> _persistDirectTurnStart(
   final existingLocation = location;
   final chatId = active.id;
   final parentId = userMessage.metadata?['parentId']?.toString();
+  final parentMessage = parentId == null
+      ? null
+      : allMessages.where((message) => message.id == parentId).firstOrNull;
+  final parentRow = parentMessage == null
+      ? null
+      : _directMessageRow(
+          chatId: chatId,
+          message: parentMessage,
+          parentId: message_tree.chatMessageParentId(parentMessage),
+          childrenIds: message_tree
+              .chatMessageChildrenIds(parentMessage)
+              .toList(growable: false),
+          orderIndex: 0,
+        );
   final userRow = _directMessageRow(
     chatId: chatId,
     message: userMessage,
@@ -6500,15 +6645,24 @@ Future<_DirectConversationOwner> _persistDirectTurnStart(
     orderIndex: 1,
   );
   final locks = ref.read(chatLocksProvider) as ChatLocks;
-  await locks.runExclusive(chatId, () {
-    return repository.persistDirectMessages(
+  var persisted = false;
+  await locks.runExclusive(chatId, () async {
+    if (!_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+      return;
+    }
+    await repository.persistDirectMessages(
       existingLocation,
       chatId: chatId,
-      messages: <MessageRowData>[userRow, assistantRow],
+      messages: <MessageRowData>[?parentRow, userRow, assistantRow],
       currentMessageId: assistantMessage.id,
       updatedAt: now,
     );
+    persisted = true;
   });
+  if (!persisted ||
+      !_isDirectSendConversationOwnerActive(ref, expectedConversationId)) {
+    return null;
+  }
   final updated = withChatStorageProvenance(
     active.copyWith(
       model: route.model.id,
@@ -6687,43 +6841,56 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     await for (final event in run.events) {
       accumulator.apply(event);
       if (event is DirectUsageUpdate) {
-        notifier.updateMessageById(
-          assistantMessageId,
-          (current) => current.copyWith(usage: accumulator.usage),
-        );
+        if (_isDirectConversationOwnerActive(ref, owner)) {
+          notifier.updateMessageById(
+            assistantMessageId,
+            (current) => current.copyWith(usage: accumulator.usage),
+          );
+        }
       } else if (event is DirectStreamError) {
-        notifier.updateMessageById(
-          assistantMessageId,
-          (current) =>
-              current.copyWith(error: ChatMessageError(content: event.message)),
-        );
+        if (_isDirectConversationOwnerActive(ref, owner)) {
+          notifier.updateMessageById(
+            assistantMessageId,
+            (current) => current.copyWith(
+              error: ChatMessageError(content: event.message),
+            ),
+          );
+        }
       } else if (event is DirectContentDelta || event is DirectReasoningDelta) {
-        notifier.replaceMessageContentById(
-          assistantMessageId,
-          accumulator.render(done: false),
-        );
+        if (_isDirectConversationOwnerActive(ref, owner)) {
+          notifier.replaceMessageContentById(
+            assistantMessageId,
+            accumulator.render(done: false),
+          );
+        }
       }
     }
-    notifier.updateMessageById(
-      assistantMessageId,
-      (current) => current.copyWith(
-        content: accumulator.render(done: true),
-        usage: accumulator.usage,
-        error: accumulator.error == null
-            ? current.error
-            : ChatMessageError(content: accumulator.error!.message),
-      ),
-    );
+    final ownerIsActive = _isDirectConversationOwnerActive(ref, owner);
+    if (ownerIsActive) {
+      notifier.updateMessageById(
+        assistantMessageId,
+        (current) => current.copyWith(
+          content: accumulator.render(done: true),
+          usage: accumulator.usage,
+          error: accumulator.error == null
+              ? current.error
+              : ChatMessageError(content: accumulator.error!.message),
+        ),
+      );
+    }
     notifier.finishStreamingMessage(
       assistantMessageId,
-      ownerConversationId: owner.conversationId,
+      ownerConversationId: owner.scopedConversationId,
       requireConversationOwner: true,
+      persistTurn: false,
     );
 
     final completed =
-        (ref.read(chatMessagesProvider) as List<ChatMessage>)
-            .where((message) => message.id == assistantMessageId)
-            .firstOrNull ??
+        (ownerIsActive
+            ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                  .where((message) => message.id == assistantMessageId)
+                  .firstOrNull
+            : null) ??
         assistantSeed.copyWith(
           content: accumulator.render(done: true),
           usage: accumulator.usage,
@@ -6769,6 +6936,17 @@ Future<void> _sendMessageInternal(
 
   final isLoadingConversation = ref.read(isLoadingConversationProvider);
   final currentConversation = ref.read(activeConversationProvider);
+  final directSendConversationId = currentConversation == null
+      ? null
+      : ChatStorageIdentity(
+          rawId: currentConversation.id,
+          // Unannotated conversations retain their historical OpenWebUI
+          // meaning. Scope that default explicitly so a colliding direct-local
+          // id cannot satisfy the ownership check during attachment preflight.
+          storage:
+              chatStorageKindOf(currentConversation) ??
+              ChatStorageKind.openWebUi,
+        ).scopedId;
   // Guard against a race where the user opens an existing chat and sends
   // before its history loads, which would otherwise create a new chat.
   if (isLoadingConversation && currentConversation == null) {
@@ -6851,10 +7029,24 @@ Future<void> _sendMessageInternal(
         'modelName': selectedModel.name.trim(),
     },
   );
-  ref.read(chatMessagesProvider.notifier).addMessages([
-    userMessage,
-    assistantPlaceholder,
-  ]);
+  final messagesNotifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  if (directRoute != null && openWebUiParentId != null) {
+    messagesNotifier.updateMessageById(openWebUiParentId, (parent) {
+      final childrenIds = message_tree
+          .chatMessageChildrenIds(parent)
+          .toList(growable: true);
+      if (childrenIds.contains(userMessageId)) return parent;
+      childrenIds.add(userMessageId);
+      return parent.copyWith(
+        metadata: <String, dynamic>{
+          ...?parent.metadata,
+          'childrenIds': childrenIds,
+        },
+      );
+    });
+  }
+  messagesNotifier.addMessages([userMessage, assistantPlaceholder]);
   final DirectRunRegistry? directRegistry = directRoute == null
       ? null
       : ref.read(directRunRegistryProvider);
@@ -6923,6 +7115,12 @@ Future<void> _sendMessageInternal(
         ref,
         attachments ?? const <String>[],
       );
+      if (!_isDirectSendConversationOwnerActive(
+        ref,
+        directSendConversationId,
+      )) {
+        return;
+      }
       userMessage = userMessage.copyWith(
         files: durableFiles.isEmpty ? null : durableFiles,
       );
@@ -6936,12 +7134,15 @@ Future<void> _sendMessageInternal(
       owner = await _persistDirectTurnStart(
         ref,
         route: directRoute,
+        expectedConversation: currentConversation,
+        expectedConversationId: directSendConversationId,
         userMessage: userMessage,
         assistantMessage: assistantPlaceholder,
         allMessages: allMessages,
         pendingFolderId:
             pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
       );
+      if (owner == null) return;
 
       final requestMessages = withDirectConversationSystemPrompt(
         messages: <ChatMessage>[...existingMessages, userMessage],
@@ -8097,6 +8298,11 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
         ref
             .read(chatMessagesProvider.notifier)
             .cancelActiveMessageStreamPreservingContent();
+        if (stoppedDirectRun) {
+          ref
+              .read(chatMessagesProvider.notifier)
+              .completeStoppedDirectStreamingUi(last.id);
+        }
       }
     } catch (_) {}
 

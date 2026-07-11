@@ -220,6 +220,31 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'disposing during discovery does not read disposed notifier state',
+    () async {
+      final adapter = _OverlappingAdapter();
+      final profile = _profile();
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          profile,
+        ]).encode(),
+      });
+      final container = _container(adapter);
+      final discovery = container.read(directModelDiscoveryProvider.future);
+      await Future.doWhile(() async {
+        if (adapter.listCalls > 0) return false;
+        await Future<void>.delayed(Duration.zero);
+        return true;
+      }).timeout(const Duration(seconds: 5));
+
+      container.dispose();
+      adapter.first.complete([DirectRemoteModel(id: 'late-model')]);
+
+      await expectLater(discovery, completes);
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>

@@ -48,6 +48,30 @@ void main() {
     );
   });
 
+  test('remote model capabilities are recursively copied and frozen', () {
+    final source = <String, dynamic>{
+      'families': <String>['clip'],
+      'limits': <String, dynamic>{'context': 4096},
+    };
+    final model = DirectRemoteModel(id: 'model', capabilities: source);
+    final initialHash = model.hashCode;
+
+    (source['families'] as List<String>).add('mutated');
+    (source['limits'] as Map<String, dynamic>)['context'] = 1;
+
+    expect(model.capabilities['families'], ['clip']);
+    expect((model.capabilities['limits'] as Map)['context'], 4096);
+    expect(model.hashCode, initialHash);
+    expect(
+      () => (model.capabilities['families'] as List).add('blocked'),
+      throwsUnsupportedError,
+    );
+    expect(
+      () => (model.capabilities['limits'] as Map)['context'] = 2,
+      throwsUnsupportedError,
+    );
+  });
+
   test('only locally minted and currently registered models resolve', () {
     final registry = DirectModelRegistry();
     final profile = DirectConnectionProfile(
@@ -73,6 +97,28 @@ void main() {
     registry.removeProfile(profile.id);
     expect(registry.resolve(minted), isNull);
     expect(registry.resolveRegisteredId(minted.id), isNull);
+  });
+
+  test('stale model cannot resolve through a recreated equal binding', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final stale = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+
+    registry.removeProfile(profile.id);
+    final current = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+
+    expect(stale.id, current.id);
+    expect(registry.resolve(stale), isNull);
+    expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
   test('display reconciliation removes remote reserved identities', () {

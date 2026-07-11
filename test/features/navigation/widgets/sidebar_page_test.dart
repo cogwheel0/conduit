@@ -4,6 +4,7 @@ import 'dart:ui' show Tristate;
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/channel.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -50,6 +51,23 @@ void main() {
     check(
       AppLocalizationsEn().hermesSelfHostedAgentLabel,
     ).equals('Self-hosted agent');
+  });
+
+  test('accountless direct native fallback targets direct connections', () {
+    expect(
+      sidebarProfileFallbackRouteName(
+        directPrimary: true,
+        hasOpenWebUiUser: false,
+      ),
+      RouteNames.directConnections,
+    );
+    expect(
+      sidebarProfileFallbackRouteName(
+        directPrimary: true,
+        hasOpenWebUiUser: true,
+      ),
+      RouteNames.profile,
+    );
   });
 
   testWidgets(
@@ -528,6 +546,60 @@ void main() {
     expect(find.byType(UserAvatar), findsOneWidget);
   });
 
+  testWidgets('accountless direct profile click opens direct connections', (
+    tester,
+  ) async {
+    var nativePresentationCalls = 0;
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) =>
+              const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+        GoRoute(
+          path: Routes.directConnections,
+          name: RouteNames.directConnections,
+          builder: (_, _) => const Scaffold(body: Text('Direct destination')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(
+            _DirectPreferredBackendController.new,
+          ),
+          sidebarNativeProfilePresenterProvider.overrideWithValue((_) async {
+            nativePresentationCalls++;
+            return false;
+          }),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Direct destination'), findsOneWidget);
+    expect(nativePresentationCalls, 1);
+  });
+
   testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
@@ -891,6 +963,13 @@ void main() {
     expect(active?.messages, hasLength(1));
     expect(active?.messages.single.content, 'Loaded from the direct database');
     expect(chatStorageKindOf(active), ChatStorageKind.directLocal);
+
+    // The provenance-aware message watch now correctly subscribes to the
+    // direct-local Drift database. Dispose it inside the test and give Drift's
+    // zero-delay stream cleanup a frame before the binding checks timers.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
   });
 
   testWidgets('colliding chat ids render and select as distinct rows', (
@@ -1182,6 +1261,12 @@ List<TerminalServerInfo> _defaultTerminalServers() {
       name: 'Test Terminal 2',
     ),
   ];
+}
+
+final class _DirectPreferredBackendController
+    extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
 }
 
 class _TestHermesJobsController extends HermesJobsController {

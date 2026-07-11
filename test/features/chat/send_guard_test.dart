@@ -224,12 +224,48 @@ void main() {
         overrides: [
           selectedModelProvider.overrideWithValue(textModel),
           directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(
+            _DiscoveryPulseController.new,
+          ),
         ],
       );
       addTearDown(container.dispose);
 
       check(container.read(visionCapableModelsProvider)).isEmpty();
     });
+
+    test(
+      'direct discovery invalidates vision after registry removal',
+      () async {
+        final registry = DirectModelRegistry();
+        final visionModel = registry.replaceProfileModels(_directProfile, [
+          DirectRemoteModel(id: 'vision', isMultimodal: true),
+        ]).single;
+        final container = ProviderContainer(
+          overrides: [
+            selectedModelProvider.overrideWithValue(visionModel),
+            directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              _DiscoveryPulseController.new,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(
+          container.read(visionCapableModelsProvider),
+        ).deepEquals([visionModel.id]);
+
+        registry.removeProfile(_directProfile.id);
+        final discovery =
+            container.read(directModelDiscoveryProvider.notifier)
+                as _DiscoveryPulseController;
+        discovery.pulse();
+        await Future<void>.delayed(Duration.zero);
+
+        check(container.read(visionCapableModelsProvider)).isEmpty();
+      },
+    );
 
     test('text-only direct models reject historical images at dispatch', () {
       expect(
@@ -280,3 +316,20 @@ final _directProfile = DirectConnectionProfile(
   adapterKey: kOllamaAdapterKey,
   baseUrl: 'http://localhost:11434',
 );
+
+final class _DiscoveryPulseController extends DirectModelDiscoveryController {
+  var _revision = 0;
+
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
+
+  void pulse() {
+    _revision++;
+    state = AsyncValue.data(
+      DirectModelDiscoveryState(
+        errorsByProfile: {'revision': _revision.toString()},
+      ),
+    );
+  }
+}

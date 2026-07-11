@@ -350,6 +350,34 @@ class ChatDatabaseRepository {
     return merged.skip(normalizedOffset).take(limit).toList(growable: false);
   }
 
+  /// Searches one explicitly selected store. Online search uses this for the
+  /// direct-local store because Open WebUI already supplies its own ranked
+  /// server results; applying a merged local top-N first could otherwise let
+  /// cached server rows consume the entire budget before any on-device hit is
+  /// considered.
+  Future<List<LocatedSearchHit>> searchChatsInStorage(
+    String raw, {
+    required ChatStorageKind storage,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    if (limit <= 0) return const [];
+    final normalizedOffset = offset < 0 ? 0 : offset;
+    final location = _locationForOrNull(storage);
+    if (location == null) return const [];
+    if (storage == ChatStorageKind.directLocal) {
+      await _directLocalDatabase.buildFtsIfNeeded();
+    }
+    final hits = await location.database.searchDao.search(
+      raw,
+      limit: limit,
+      offset: normalizedOffset,
+    );
+    return hits
+        .map((hit) => LocatedSearchHit(storage: storage, hit: hit))
+        .toList(growable: false);
+  }
+
   /// Persists a newly-created direct-provider chat. Local-only storage stays
   /// clean and enqueue-free. Open WebUI storage queues only a `createChat`
   /// sync operation; it never queues `requestCompletion`, because the direct

@@ -30,6 +30,17 @@ import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 
+typedef SidebarNativeProfilePresenter =
+    Future<bool> Function(NativeProfileSheetConfig config);
+
+/// Nullable platform seam so the iOS native-sheet failure fallback is
+/// deterministic in widget tests.
+final sidebarNativeProfilePresenterProvider =
+    Provider<SidebarNativeProfilePresenter?>((ref) {
+      if (!Platform.isIOS) return null;
+      return NativeSheetBridge.instance.presentProfileMenu;
+    });
+
 /// Cached bytes of the Hermes agent icon, used as the native profile-sheet
 /// avatar in Hermes-only mode (loaded once, then reused).
 Uint8List? _hermesAvatarBytesCache;
@@ -58,6 +69,15 @@ dynamic resolveSidebarUser(WidgetRef ref) {
     orElse: () => authUser,
   );
 }
+
+/// Route used when the native profile sheet is unavailable or not presented.
+/// Accountless direct-primary installs have no Open WebUI profile surface.
+String sidebarProfileFallbackRouteName({
+  required bool directPrimary,
+  required bool hasOpenWebUiUser,
+}) => directPrimary && !hasOpenWebUiUser
+    ? RouteNames.directConnections
+    : RouteNames.profile;
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
@@ -105,6 +125,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = resolveSidebarUser(ref);
+    final nativeProfilePresenter = ref.watch(
+      sidebarNativeProfilePresenterProvider,
+    );
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
@@ -146,7 +169,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           await Navigator.of(context).maybePop();
           if (!context.mounted) return;
 
-          if (Platform.isIOS) {
+          if (nativeProfilePresenter != null) {
             // Pre-load the Hermes avatar bytes (the config builder is sync, and
             // avatarBytes must be supplied up front).
             final hermesAvatarBytes = hermesOnly
@@ -163,13 +186,17 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               canManageWorkspace: canManageWorkspace,
               hermesAvatarBytes: hermesAvatarBytes,
             );
-            final presented = await NativeSheetBridge.instance
-                .presentProfileMenu(config);
+            final presented = await nativeProfilePresenter(config);
             if (presented) return;
           }
 
           if (context.mounted) {
-            context.pushNamed(RouteNames.profile);
+            context.pushNamed(
+              sidebarProfileFallbackRouteName(
+                directPrimary: directPrimary,
+                hasOpenWebUiUser: user != null,
+              ),
+            );
           }
         },
         style: style,
