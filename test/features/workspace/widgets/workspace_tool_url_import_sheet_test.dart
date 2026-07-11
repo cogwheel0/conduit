@@ -104,5 +104,26 @@ void main() {
       });
       expect(tool['id'], 'custom_id');
     });
+
+    test(
+      'falls back to the title id when a punctuation-only name slugifies to ""',
+      () {
+        final tool = normalizeImportedTool(const {
+          'name': '!!!',
+          'content': '"""\ntitle: Web Search\n"""\n',
+        });
+        // '!!!' is non-empty but nameToId('!!!') == '', so the id must fall back
+        // to the front-matter title rather than end up empty/invalid.
+        expect(tool['id'], 'web_search');
+      },
+    );
+
+    test('falls back to a safe default when no name or title yields an id', () {
+      final tool = normalizeImportedTool(const {
+        'name': '!!!',
+        'content': '"""\n"""\n',
+      });
+      expect(tool['id'], 'tool');
+    });
   });
 }

@@ -298,7 +298,23 @@ class WorkspaceModels extends _$WorkspaceModels {
       final confirmed = await action(session.api);
       session.ensureCurrent(ref);
       if (!confirmed) throw StateError('Model mutation was not confirmed.');
-      await refresh();
+      // The write already succeeded; a failure while reloading the collection
+      // must not surface as a failed mutation. Isolate the refresh so the write
+      // outcome is preserved.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/models',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
         state = AsyncData(current.copyWith(isBusy: false, error: error));
@@ -528,6 +544,36 @@ class WorkspacePrompts extends _$WorkspacePrompts {
 
   Future<void> refresh() => _fetch(append: false);
   Future<void> loadMore() => _fetch(append: true);
+
+  /// Loads every readable prompt across all pages for an export/backup, without
+  /// disturbing the paginated list state shown in the UI. The in-UI list only
+  /// holds the pages the user has scrolled, so exports must page the full list
+  /// themselves to avoid producing a truncated backup.
+  Future<List<WorkspacePromptSummary>> loadAllForExport() async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final all = <WorkspacePromptSummary>[];
+    final seen = <String>{};
+    var page = 1;
+    while (true) {
+      final response = await session.api.getWorkspacePrompts(page: page);
+      session.ensureCurrent(ref);
+      if (response.items.isEmpty) break;
+      var addedAny = false;
+      for (final item in response.items) {
+        if (seen.add(item.id)) {
+          all.add(item);
+          addedAny = true;
+        }
+      }
+      // Stop once the server's reported total is covered, or a page adds nothing
+      // new (defensive against a server that ignores the `page` parameter and
+      // would otherwise loop forever).
+      if (!addedAny) break;
+      if (response.total > 0 && all.length >= response.total) break;
+      page++;
+    }
+    return all;
+  }
 
   Future<void> _fetch({required bool append}) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
@@ -980,8 +1026,13 @@ class WorkspaceTools extends _$WorkspaceTools {
           .map((tool) => tool.id)
           .toSet();
       final selected = ref.read(selectedToolIdsProvider);
+      // `direct_server:` selections resolve to MCP / direct-server tools that
+      // intentionally never appear in the regular tool list, so they must be
+      // preserved here — only genuinely-removed regular tools should be pruned.
       final pruned = selected
-          .where(available.contains)
+          .where(
+            (id) => id.startsWith('direct_server:') || available.contains(id),
+          )
           .toList(growable: false);
       if (pruned.length != selected.length) {
         ref.read(selectedToolIdsProvider.notifier).set(pruned);
@@ -1168,7 +1219,23 @@ class WorkspaceSkills extends _$WorkspaceSkills {
       final confirmed = await action(session.api);
       session.ensureCurrent(ref);
       if (!confirmed) throw StateError('Skill mutation was not confirmed.');
-      await refresh();
+      // The write already succeeded; a failure while reloading the collection
+      // must not surface as a failed mutation. Isolate the refresh so the write
+      // outcome is preserved.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/skills',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
         state = AsyncData(current.copyWith(isBusy: false, error: error));

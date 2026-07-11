@@ -58,9 +58,16 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
     final isDefault = (_values[property]) == null;
     dynamic next;
     if (isDefault) {
+      final enumValues = spec['enum'];
       if (spec['type'] == 'array') {
         final defaultArray = spec['default'];
         next = defaultArray is List ? defaultArray.join(', ') : '';
+      } else if (enumValues is List && enumValues.isNotEmpty) {
+        // Enum valves must start on an allowed option of the correct runtime
+        // type. Prefer the declared default; otherwise seed the first option so
+        // an untouched custom control never submits a value outside the schema
+        // (and never the empty string for a numeric/boolean enum).
+        next = spec['default'] ?? enumValues.first;
       } else {
         // Fall back to a type-appropriate empty value when the schema omits a
         // default, so a boolean valve becomes `false` (not `''`) and a numeric
@@ -195,7 +202,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
             ),
         ],
         onChanged: widget.enabled
-            ? (value) => _setValue(property, value)
+            ? (value) => _setValue(property, _enumValueFor(enumValues, value))
             : null,
       );
     }
@@ -243,8 +250,20 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
         isDense: true,
         border: const OutlineInputBorder(),
       ),
-      onChanged: (value) => _setValue(property, _coerce(type, value)),
+      onChanged: (value) =>
+          _setValue(property, _coerce(type, value, _values[property])),
     );
+  }
+
+  /// Maps a dropdown's stringified selection back to the original enum entry so
+  /// numeric/boolean enums keep their runtime type (e.g. `1`, not `"1"`). The
+  /// string form is only ever a display label.
+  static dynamic _enumValueFor(List<dynamic> enumValues, String? selection) {
+    if (selection == null) return null;
+    for (final option in enumValues) {
+      if (option.toString() == selection) return option;
+    }
+    return selection;
   }
 
   /// The type-appropriate empty value used when toggling a property to custom
@@ -266,12 +285,17 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
   /// Coerces raw text into the schema type where it is unambiguous. Numbers are
   /// parsed when valid; `array` stays a string here (split on submit); anything
   /// else is stored verbatim.
-  dynamic _coerce(String? type, String value) {
+  ///
+  /// For numeric schema types a cleared or malformed field ([value] that fails
+  /// to parse) must never be stored — that would submit a `String` where the
+  /// server expects a number. In that case the last valid value ([previous]) is
+  /// retained so the submit path only ever sends a number.
+  dynamic _coerce(String? type, String value, dynamic previous) {
     if (type == 'integer') {
-      return int.tryParse(value.trim()) ?? value;
+      return int.tryParse(value.trim()) ?? previous;
     }
     if (type == 'number') {
-      return num.tryParse(value.trim()) ?? value;
+      return num.tryParse(value.trim()) ?? previous;
     }
     return value;
   }

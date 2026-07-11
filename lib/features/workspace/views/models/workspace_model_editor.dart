@@ -141,6 +141,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   bool _saving = false;
   String? _errorMessage;
   String? _paramsError;
+  // True once the user explicitly removes the avatar, so the editor renders the
+  // placeholder instead of re-fetching the still-persisted server image (which
+  // would silently undo the removal on screen until the model is saved).
+  bool _avatarRemoved = false;
 
   bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
   bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
@@ -304,7 +308,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _clone() async {
     final l10n = AppLocalizations.of(context)!;
     final router = GoRouter.of(context);
-    _syncTextIntoDraft();
+    // Abort on invalid params/builtin-tools JSON so the clone is built from the
+    // form's actual contents, not stale draft values — matching _save and
+    // _toggleHidden.
+    if (!_syncTextIntoDraft()) return;
     final clone = WorkspaceModelDraft.fromSummary(
       WorkspaceModelSummary(
         id: '${_draft.id}-copy',
@@ -345,12 +352,29 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _toggleActive() async {
     final id = _draft.id;
     if (id.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    // Toggling active-state hits a dedicated endpoint that does not persist form
+    // edits, then invalidates the detail provider — which rebuilds the editor
+    // from the server response and discards any unsaved edits. Honour the same
+    // discard-changes guard the navigation paths use before proceeding.
+    if (_dirty) {
+      final discard = await ThemedDialogs.confirm(
+        context,
+        title: l10n.workspaceEditorDiscardTitle,
+        message: l10n.workspaceEditorDiscardMessage,
+        confirmText: l10n.workspaceEditorDiscardConfirm,
+        cancelText: l10n.workspaceEditorKeepEditing,
+        isDestructive: true,
+      );
+      if (!discard || !mounted) return;
+    }
     setState(() => _saving = true);
     try {
       await ref.read(workspaceModelsProvider.notifier).toggle(id);
       if (!mounted) return;
+      _dirty = false;
       ref.invalidate(workspaceModelDetailProvider(id));
-      _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
+      _showSnack(l10n.workspaceModelSaved);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'model toggle failed',
@@ -869,6 +893,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         _ModelAvatar(
           draftImage: _draft.profileImageUrl,
           modelId: _draft.id,
+          removed: _avatarRemoved,
         ),
         const SizedBox(width: Spacing.md),
         Expanded(
@@ -890,8 +915,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
                     if (_draft.profileImageUrl != null)
                       TextButton.icon(
                         key: const Key('workspace-model-image-remove'),
-                        onPressed: () =>
-                            _update(() => _draft.profileImageUrl = null),
+                        onPressed: () => _update(() {
+                          _draft.profileImageUrl = null;
+                          _avatarRemoved = true;
+                        }),
                         icon: const Icon(Icons.close, size: IconSize.small),
                         label: Text(l10n.workspaceModelRemoveImage),
                       ),
@@ -1116,7 +1143,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         mime = 'image/png';
       }
       final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
-      _update(() => _draft.profileImageUrl = dataUrl);
+      _update(() {
+        _draft.profileImageUrl = dataUrl;
+        _avatarRemoved = false;
+      });
     } catch (error, stackTrace) {
       DebugLogger.error(
         'model image pick failed',
@@ -1140,31 +1170,37 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   static const int _avatarMaxEdge = 512;
 
   Future<Uint8List> _boundAvatarBytes(Uint8List bytes) async {
+    ui.ImmutableBuffer? buffer;
+    ui.ImageDescriptor? descriptor;
+    ui.Codec? codec;
+    ui.Image? image;
     try {
-      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      descriptor = await ui.ImageDescriptor.encoded(buffer);
       final width = descriptor.width;
       final height = descriptor.height;
       final longest = width > height ? width : height;
       if (longest <= _avatarMaxEdge) {
-        descriptor.dispose();
         return bytes;
       }
       final scale = _avatarMaxEdge / longest;
-      final codec = await descriptor.instantiateCodec(
+      codec = await descriptor.instantiateCodec(
         targetWidth: (width * scale).round(),
         targetHeight: (height * scale).round(),
       );
       final frame = await codec.getNextFrame();
-      final data = await frame.image.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
-      frame.image.dispose();
-      codec.dispose();
-      descriptor.dispose();
+      image = frame.image;
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
       return data?.buffer.asUint8List() ?? bytes;
     } catch (_) {
       return bytes;
+    } finally {
+      // Release every native handle even when a step above throws, disposing
+      // the image/codec/descriptor before the backing buffer.
+      image?.dispose();
+      codec?.dispose();
+      descriptor?.dispose();
+      buffer?.dispose();
     }
   }
 
@@ -1368,10 +1404,18 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 /// Renders the model's current profile image: from an inline draft data/URL, or
 /// lazily fetched from the dedicated profile-image endpoint for saved models.
 class _ModelAvatar extends ConsumerStatefulWidget {
-  const _ModelAvatar({required this.draftImage, required this.modelId});
+  const _ModelAvatar({
+    required this.draftImage,
+    required this.modelId,
+    this.removed = false,
+  });
 
   final String? draftImage;
   final String modelId;
+
+  /// When true the user has explicitly removed the avatar this session, so the
+  /// persisted server image must not be re-fetched until the model is saved.
+  final bool removed;
 
   @override
   ConsumerState<_ModelAvatar> createState() => _ModelAvatarState();
@@ -1419,7 +1463,9 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
         Image.network(inline, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder),
       );
     }
-    if (modelId.isEmpty) return placeholder;
+    // A fresh model or an explicit removal both render the placeholder without
+    // reaching for the persisted server image.
+    if (modelId.isEmpty || widget.removed) return placeholder;
 
     if (_fetchedModelId != modelId) {
       _fetchedModelId = modelId;

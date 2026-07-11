@@ -307,6 +307,115 @@ void main() {
     expect(command.controller!.text, 'summary');
   });
 
+  testWidgets('restoring a tagless snapshot clears the current tags', (
+    tester,
+  ) async {
+    final prompts = _FakePrompts(historyEntries: _history());
+    await tester.pumpWidget(
+      _harness(
+        prompts,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'p-1',
+        // Current prompt carries tags; the restored h2 snapshot has none.
+        detail: const WorkspacePromptSummary(
+          id: 'p-1',
+          command: 'summary',
+          name: 'Summary',
+          content: 'Summarize the text.',
+          userId: 'owner',
+          writeAccess: true,
+          versionId: 'h1',
+          tags: ['keep-me'],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('prompt-history-h2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('prompt-history-restore-h2')));
+    await tester.pumpAndSettle();
+
+    // Saving after the restore must persist the cleared tag list, not the stale
+    // tags from before the restore.
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(prompts.updated, hasLength(1));
+    expect(prompts.updated.single.$2.tags, isEmpty);
+  });
+
+  testWidgets('successful edit pops the editor even when the form is disposed', (
+    tester,
+  ) async {
+    final prompts = _InvalidatingFakePrompts();
+    const detail = WorkspacePromptSummary(
+      id: 'p-1',
+      command: 'summary',
+      name: 'Summary',
+      content: 'body',
+      userId: 'owner',
+      writeAccess: true,
+      versionId: 'h1',
+    );
+    final router = GoRouter(
+      initialLocation: '/list',
+      routes: [
+        GoRoute(
+          path: '/list',
+          builder: (_, _) => const Scaffold(body: Text('list-page')),
+        ),
+        GoRoute(
+          path: '/editor',
+          builder: (_, _) => const Scaffold(
+            body: WorkspacePromptEditorView(
+              mode: WorkspaceRouteMode.edit,
+              promptId: 'p-1',
+            ),
+          ),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => WorkspaceCapabilities.all,
+          ),
+          workspacePromptsProvider.overrideWith(() => prompts),
+          workspacePromptDetailProvider(
+            'p-1',
+          ).overrideWith((ref) async => detail),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Push the editor so the successful save has somewhere to pop back to.
+    router.push('/editor');
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-prompt-content')),
+      'Updated body',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pumpAndSettle();
+
+    // The edit was recorded and the editor popped back to the list even though
+    // the detail-provider invalidation disposed the form mid-save.
+    expect(prompts.updated, hasLength(1));
+    expect(prompts.updated.single.$2.content, 'Updated body');
+    expect(find.text('list-page'), findsOneWidget);
+  });
+
   testWidgets('import gates on capability and captures per-item failures', (
     tester,
   ) async {
@@ -550,4 +659,22 @@ class _FakePrompts extends WorkspacePrompts {
 
   @override
   Future<void> refresh() async {}
+}
+
+/// Reproduces the real notifier's behaviour: `updateItem` invalidates the detail
+/// provider the parent view watches, which rebuilds into its loading branch and
+/// disposes the form before the save future resolves.
+class _InvalidatingFakePrompts extends _FakePrompts {
+  @override
+  Future<WorkspacePromptDetail> updateItem(
+    String id,
+    WorkspacePromptForm form,
+  ) async {
+    updated.add((id, form));
+    ref.invalidate(workspacePromptDetailProvider(id));
+    // Yield so the parent can rebuild and dispose the form (matching the real
+    // notifier, which awaits a collection refresh after invalidating).
+    await Future<void>.delayed(Duration.zero);
+    return _detail(id, command: form.command);
+  }
 }

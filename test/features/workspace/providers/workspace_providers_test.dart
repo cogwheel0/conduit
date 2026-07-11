@@ -79,6 +79,74 @@ void main() {
     check(state.items.map((item) => item.id)).deepEquals(['model-1']);
   });
 
+  test('bool mutation (delete) succeeds when the post-write refresh fails', () async {
+    final api = _WorkspaceModelsApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+
+    await container.read(workspaceModelsProvider.future);
+    // The delete endpoint confirms, but reloading the collection afterwards
+    // throws. The deletion must not surface as a failure (the record is gone).
+    api.refreshError = StateError('refresh failed');
+
+    await container.read(workspaceModelsProvider.notifier).delete('model-1');
+    check(api.deleted).deepEquals(['model-1']);
+
+    final state = container.read(workspaceModelsProvider).requireValue;
+    // The busy flag is released and the prior items are preserved.
+    check(state.isBusy).isFalse();
+    check(state.items.map((item) => item.id)).deepEquals(['model-1']);
+  });
+
+  test('exporting prompts pages the full list beyond the first page', () async {
+    final api = _WorkspacePromptsApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+
+    // The in-UI list only loads page 1, but the export must include every page.
+    await container.read(workspacePromptsProvider.future);
+    api.pagesRequested.clear();
+    final all = await container
+        .read(workspacePromptsProvider.notifier)
+        .loadAllForExport();
+
+    check(all.map((item) => item.id)).deepEquals([
+      'prompt-1',
+      'prompt-2',
+      'prompt-3',
+    ]);
+    // The export paged past the first page rather than stopping at it.
+    check(api.pagesRequested).deepEquals([1, 2]);
+  });
+
+  test('changing the tool query keeps direct_server selections', () async {
+    final api = _WorkspaceToolsApi();
+    // The chat cache reflects only the regular tool 'beta_tool'; 'alpha' was
+    // removed and 'direct_server:mcp-1' never appears in the regular list.
+    final container = _toolsContainer(
+      api,
+      cacheTools: [const Tool(id: 'beta_tool', name: 'Beta')],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(workspaceToolsProvider.future);
+    container.read(selectedToolIdsProvider.notifier).set([
+      'alpha',
+      'beta_tool',
+      'direct_server:mcp-1',
+    ]);
+
+    // A plain refresh (e.g. a search-query change) reconciles chat consumers.
+    await container.read(workspaceToolsProvider.notifier).refresh();
+
+    // The removed regular tool is pruned; the surviving regular tool and the
+    // direct-server selection are both preserved.
+    check(container.read(selectedToolIdsProvider)).deepEquals([
+      'beta_tool',
+      'direct_server:mcp-1',
+    ]);
+  });
+
   test('newer model query wins when responses complete out of order', () async {
     final api = _OutOfOrderModelsApi();
     final container = _container(api);
@@ -346,10 +414,17 @@ class _WorkspaceModelsApi extends ApiService {
       );
 
   Object? refreshError;
+  final deleted = <String>[];
 
   @override
   Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
     return WorkspaceModelSummary(id: id, name: 'Model 1', userId: 'user-1');
+  }
+
+  @override
+  Future<bool> deleteWorkspaceModel(String id) async {
+    deleted.add(id);
+    return true;
   }
 
   @override
@@ -380,6 +455,66 @@ class _WorkspaceModelsApi extends ApiService {
         WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
       ],
       total: 2,
+    );
+  }
+}
+
+class _WorkspacePromptsApi extends ApiService {
+  _WorkspacePromptsApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'workspace-server',
+          name: 'Workspace Server',
+          url: 'https://example.com',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final pagesRequested = <int>[];
+
+  @override
+  Future<WorkspacePagedResponse<WorkspacePromptSummary>> getWorkspacePrompts({
+    String? query,
+    String? viewOption,
+    String? tag,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) async {
+    pagesRequested.add(page);
+    // Three prompts spread across two pages; the second page completes the set.
+    if (page == 1) {
+      return const WorkspacePagedResponse(
+        items: [
+          WorkspacePromptSummary(
+            id: 'prompt-1',
+            command: '/one',
+            name: 'One',
+            content: '',
+            userId: 'user-1',
+          ),
+          WorkspacePromptSummary(
+            id: 'prompt-2',
+            command: '/two',
+            name: 'Two',
+            content: '',
+            userId: 'user-1',
+          ),
+        ],
+        total: 3,
+      );
+    }
+    return const WorkspacePagedResponse(
+      items: [
+        WorkspacePromptSummary(
+          id: 'prompt-3',
+          command: '/three',
+          name: 'Three',
+          content: '',
+          userId: 'user-1',
+        ),
+      ],
+      total: 3,
     );
   }
 }

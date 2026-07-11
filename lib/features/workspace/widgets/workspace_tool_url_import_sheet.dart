@@ -186,9 +186,20 @@ Map<String, dynamic> normalizeImportedTool(Map<String, dynamic> tool) {
   // override (matching upstream's ImportModal), so a payload like
   // `{name: 'main', content: '---\ntitle: Web Search\n---'}` keeps id `main`
   // rather than retargeting to `web_search`.
-  result['id'] = rawId.isNotEmpty
-      ? rawId
-      : WorkspaceToolContent.nameToId(name.isNotEmpty ? name : resolvedName);
+  var derivedId = rawId;
+  if (derivedId.isEmpty) {
+    derivedId = WorkspaceToolContent.nameToId(name);
+  }
+  // A whitespace-/punctuation-only name is non-empty but slugifies to '', so
+  // fall back to the front-matter title (then a safe default) — otherwise the
+  // id would be empty/invalid and rejected by the server.
+  if (derivedId.isEmpty) {
+    derivedId = WorkspaceToolContent.nameToId(resolvedName);
+  }
+  if (derivedId.isEmpty) {
+    derivedId = 'tool';
+  }
+  result['id'] = derivedId;
 
   final meta = workspaceJsonMap(result['meta']);
   final fmDescription = frontmatter['description']?.trim();

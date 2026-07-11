@@ -234,26 +234,35 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       commitMessage: commit.isEmpty ? null : commit,
       isProduction: _isProduction,
     );
+    // Capture the router and a root overlay context *before* the await: on the
+    // edit path `updateItem` invalidates `workspacePromptDetailProvider`, which
+    // the parent view watches — the parent rebuilds into its loading branch and
+    // disposes this form before the future resolves, so `mounted` is false by
+    // the time we get here. Driving navigation/snackbar off these captured
+    // references (instead of gating the whole success path on `mounted`) ensures
+    // a successful edit still pops and releases the saving lock.
+    final router = GoRouter.of(context);
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
     try {
       final WorkspacePromptDetail result = _isCreate
           ? await notifier.create(form)
           : await notifier.updateItem(widget.summary!.id, form);
-      if (!mounted) return;
       _dirty = false;
       DebugLogger.log(
         'prompt saved',
         scope: 'workspace/prompts',
         data: {'id': result.id, 'create': _isCreate},
       );
-      _showSnack(l10n.workspacePromptSaved);
-      final router = GoRouter.of(context);
+      if (rootContext.mounted) {
+        _showSnack(l10n.workspacePromptSaved, overlayContext: rootContext);
+      }
       if (_isCreate) {
         router.pushReplacement(
           WorkspaceSection.prompts.routes.detailLocation(result.id),
         );
       } else if (router.canPop()) {
         router.pop();
-      } else {
+      } else if (mounted) {
         // Edit saved with nothing to pop (deep-linked into /edit): release the
         // saving lock so the form does not stay stuck behind AbsorbPointer.
         setState(() => _saving = false);
@@ -498,9 +507,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Future<void> _export() async {
     final l10n = AppLocalizations.of(context)!;
     try {
-      final state = await ref.read(workspacePromptsProvider.future);
+      // Export the full list (all pages), not just the pages currently loaded
+      // into the paginated in-UI state, so the backup is complete.
+      final items = await ref
+          .read(workspacePromptsProvider.notifier)
+          .loadAllForExport();
       if (!mounted) return;
-      final payload = [for (final item in state.items) _exportMap(item)];
+      final payload = [for (final item in items) _exportMap(item)];
       await WorkspaceExportController().shareJson(
         filename: 'prompts',
         data: payload,
@@ -524,8 +537,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     setState(() {
       if (content != null) _contentController.text = content;
       if (name != null && name.isNotEmpty) _nameController.text = name;
-      final tags = workspaceStringList(snapshot['tags']);
-      if (tags.isNotEmpty) _tags = tags;
+      // Always assign — a restored version that cleared its tags must clear the
+      // current tags too, otherwise stale tags survive the restore.
+      _tags = workspaceStringList(snapshot['tags']);
       _previewMode = false;
       _dirty = true;
     });
@@ -920,9 +934,16 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     });
   }
 
-  void _showSnack(String message, {bool isError = false}) {
+  void _showSnack(
+    String message, {
+    bool isError = false,
+    BuildContext? overlayContext,
+  }) {
+    // Callers may pass a root overlay context so a snackbar can still be shown
+    // after this form's own element has been disposed (e.g. a successful edit
+    // that pops the editor).
     AdaptiveSnackBar.show(
-      context,
+      overlayContext ?? context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );

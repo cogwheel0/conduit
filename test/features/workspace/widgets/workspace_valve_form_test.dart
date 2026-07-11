@@ -148,4 +148,104 @@ void main() {
 
     expect(find.byType(Switch), findsOneWidget);
   });
+
+  testWidgets(
+    'string enum without a default seeds the first option (not "") on custom',
+    (tester) async {
+      final spec = WorkspaceValveSpec.fromJson(const {
+        'properties': {
+          'mode': {
+            'type': 'string',
+            'title': 'Mode',
+            'enum': ['fast', 'safe'],
+          },
+        },
+      });
+      Map<String, dynamic>? emitted;
+      await tester.pumpWidget(harness(spec, onChanged: (v) => emitted = v));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('workspace-tool-valve-toggle-mode')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(emitted, isNotNull);
+      expect(emitted!['mode'], 'fast');
+    },
+  );
+
+  testWidgets(
+    'numeric enum keeps the original int type when toggled and when selected',
+    (tester) async {
+      final spec = WorkspaceValveSpec.fromJson(const {
+        'properties': {
+          'level': {
+            'type': 'integer',
+            'title': 'Level',
+            'enum': [1, 2],
+          },
+        },
+      });
+      Map<String, dynamic>? emitted;
+      await tester.pumpWidget(harness(spec, onChanged: (v) => emitted = v));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('workspace-tool-valve-toggle-level')),
+      );
+      await tester.pumpAndSettle();
+
+      // Seeded with the first enum option as an int, not the string "1".
+      expect(emitted!['level'], 1);
+      expect(emitted!['level'], isA<int>());
+
+      // Selecting the second option stores the int 2, not "2".
+      await tester.tap(find.byKey(const Key('workspace-tool-valve-input-level')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2').last);
+      await tester.pumpAndSettle();
+
+      expect(emitted!['level'], 2);
+      expect(emitted!['level'], isA<int>());
+    },
+  );
+
+  testWidgets(
+    'numeric field keeps the last valid value on empty/malformed input',
+    (tester) async {
+      final spec = WorkspaceValveSpec.fromJson(const {
+        'properties': {
+          'count': {'type': 'integer', 'title': 'Count'},
+        },
+      });
+      Map<String, dynamic>? emitted;
+      await tester.pumpWidget(
+        harness(
+          spec,
+          initialValues: const {'count': 5},
+          onChanged: (v) => emitted = v,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final field = find.byKey(const Key('workspace-tool-valve-input-count'));
+
+      // Malformed text must not be emitted as a String for a numeric schema.
+      await tester.enterText(field, 'abc');
+      await tester.pumpAndSettle();
+      expect(emitted!['count'], 5);
+      expect(emitted!['count'], isA<int>());
+
+      // Clearing the field likewise retains the last valid numeric value.
+      await tester.enterText(field, '');
+      await tester.pumpAndSettle();
+      expect(emitted!['count'], 5);
+
+      // A valid entry updates as before.
+      await tester.enterText(field, '7');
+      await tester.pumpAndSettle();
+      expect(emitted!['count'], 7);
+    },
+  );
 }

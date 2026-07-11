@@ -232,6 +232,84 @@ void main() {
     final report = await fake.runImport();
     expect(report, isFalse);
   });
+
+  testWidgets('clone aborts when the advanced params JSON is invalid', (
+    tester,
+  ) async {
+    final fake = _FakeWorkspaceModels();
+    await tester.pumpWidget(
+      _harness(
+        models: fake,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'model-1',
+        detail: _writableModel(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _scrollTo(tester, const Key('workspace-model-params'));
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-params')),
+      'not valid json {',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-model-action-clone')));
+    await tester.pump();
+    await tester.pump();
+
+    // Invalid params JSON must abort the clone rather than persist a clone built
+    // from stale draft values.
+    expect(fake.createdForms, isEmpty);
+  });
+
+  testWidgets('activate toggle prompts to discard when the form is dirty', (
+    tester,
+  ) async {
+    final fake = _FakeWorkspaceModels();
+    await tester.pumpWidget(
+      _harness(
+        models: fake,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'model-1',
+        detail: _writableModel(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Make an unsaved edit, then invoke the activate/deactivate action.
+    await tester.enterText(
+      find.byKey(const Key('workspace-model-name')),
+      'Edited name',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-model-action-toggle')));
+    await tester.pumpAndSettle();
+
+    // The discard-changes guard is shown; nothing is toggled yet.
+    expect(find.text('Discard changes?'), findsOneWidget);
+    expect(fake.toggledIds, isEmpty);
+
+    // Keeping the edits cancels the toggle.
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(fake.toggledIds, isEmpty);
+
+    // Re-invoking and discarding proceeds with the toggle.
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-model-action-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pump();
+    await tester.pump();
+    expect(fake.toggledIds, ['model-1']);
+  });
 }
 
 // ---------------------------------------------------------------------------
