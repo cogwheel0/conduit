@@ -551,6 +551,29 @@ class WorkspacePrompts extends _$WorkspacePrompts {
   Future<WorkspacePromptDetail> toggle(String id) =>
       _mutate((api) => api.toggleWorkspacePrompt(id), id: id);
 
+  /// Metadata-only update (name/command/tags). Does not create a history entry
+  /// on the server, unlike [updateItem].
+  Future<WorkspacePromptDetail> updateMetadata(
+    String id, {
+    required String name,
+    required String command,
+    List<String> tags = const [],
+  }) => _mutate(
+    (api) => api.updateWorkspacePromptMetadata(
+      id,
+      name: name,
+      command: command,
+      tags: tags,
+    ),
+    id: id,
+  );
+
+  /// Pins [versionId] as the active production version for the prompt.
+  Future<WorkspacePromptDetail> setProductionVersion(
+    String id,
+    String versionId,
+  ) => _mutate((api) => api.setWorkspacePromptVersion(id, versionId), id: id);
+
   Future<void> delete(String id) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
     state = AsyncData(current.copyWith(isBusy: true, clearError: true));
@@ -565,6 +588,77 @@ class WorkspacePrompts extends _$WorkspacePrompts {
         state = AsyncData(current.copyWith(isBusy: false, error: error));
       }
       Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// Reads one page of version history. Read-only: does not mutate provider
+  /// state but still honours the stale-session guard.
+  Future<List<WorkspacePromptHistoryEntry>> history(
+    String id, {
+    int page = 0,
+  }) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getWorkspacePromptHistory(id, page: page);
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  /// Reads a single history snapshot. Read-only.
+  Future<WorkspacePromptHistoryEntry> historyEntry(
+    String id,
+    String historyId,
+  ) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getWorkspacePromptHistoryEntry(
+      id,
+      historyId,
+    );
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  /// Computes the diff between two history entries. Read-only.
+  Future<Map<String, dynamic>> historyDiff(
+    String id, {
+    required String fromId,
+    required String toId,
+  }) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.getWorkspacePromptHistoryDiff(
+      id,
+      fromId: fromId,
+      toId: toId,
+    );
+    session.ensureCurrent(ref);
+    return result;
+  }
+
+  /// Deletes a history entry. The server refuses to delete the active
+  /// production version. Refreshes the detail so the production marker stays
+  /// accurate.
+  Future<void> deleteHistoryEntry(String id, String historyId) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final confirmed = await session.api.deleteWorkspacePromptHistoryEntry(
+      id,
+      historyId,
+    );
+    session.ensureCurrent(ref);
+    if (!confirmed) {
+      throw StateError('Prompt history deletion was not confirmed.');
+    }
+    ref.invalidate(workspacePromptDetailProvider(id));
+  }
+
+  /// Imports a single prompt definition by creating it. Fail-closed: throws
+  /// when the server does not confirm the create. Does not refresh the
+  /// collection — the caller batches a single [refresh] after the import run so
+  /// slash suggestions update once.
+  Future<void> importPrompt(WorkspacePromptForm form) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.createWorkspacePrompt(form);
+    session.ensureCurrent(ref);
+    if (result == null) {
+      throw StateError('Prompt import returned no record.');
     }
   }
 

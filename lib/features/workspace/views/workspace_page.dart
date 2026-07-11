@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -395,7 +396,9 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
         value: ref.watch(workspacePromptsProvider),
         idOf: (item) => item.id,
         titleOf: (item) => item.name,
-        subtitleOf: (item) => item.command,
+        subtitleOf: (item) => item.command.isEmpty
+            ? null
+            : WorkspacePromptCommand.display(item.command),
         onRefresh: ref.read(workspacePromptsProvider.notifier).refresh,
         onLoadMore: ref.read(workspacePromptsProvider.notifier).loadMore,
         onSearch: ref.read(workspacePromptsProvider.notifier).setQuery,

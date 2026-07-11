@@ -5280,9 +5280,13 @@ class ApiService {
   }
 
   Future<List<WorkspacePromptHistoryEntry>> getWorkspacePromptHistory(
-    String id,
-  ) async {
-    final response = await _dio.get('/api/v1/prompts/id/$id/history');
+    String id, {
+    int page = 0,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/prompts/id/$id/history',
+      queryParameters: {'page': page < 0 ? 0 : page},
+    );
     return workspaceJsonList(
       response.data,
     ).map(WorkspacePromptHistoryEntry.fromJson).toList(growable: false);
