@@ -3767,5 +3767,51 @@
   "hermesNativeSettingsSubtitle": "Connect directly to a self-hosted Hermes agent.",
   "@hermesNativeSettingsSubtitle": {
     "description": "Subtitle of the native Hermes settings sheet."
+  },
+  "hermesNoConversationsMessage": "No Hermes conversations yet.\nStart a new chat with the Hermes Agent and it will appear here.",
+  "@hermesNoConversationsMessage": {
+    "description": "Empty-state message in the Hermes conversations sidebar."
+  },
+  "hermesConversationsTitle": "Conversations",
+  "@hermesConversationsTitle": {
+    "description": "Section title above the Hermes conversation list."
+  },
+  "hermesConversationsLoadError": "Could not load Hermes conversations.\nCheck the connection in Settings → Hermes Agent.",
+  "@hermesConversationsLoadError": {
+    "description": "Error shown when Hermes conversations cannot be loaded."
+  },
+  "hermesSchedulesLoading": "Loading schedules…",
+  "@hermesSchedulesLoading": {
+    "description": "Status shown while Hermes schedules are loading."
+  },
+  "hermesSchedulesUnavailable": "Schedules unavailable",
+  "@hermesSchedulesUnavailable": {
+    "description": "Status shown when Hermes schedules cannot be loaded."
+  },
+  "hermesNoSchedulesYet": "No schedules yet",
+  "@hermesNoSchedulesYet": {
+    "description": "Status shown when no Hermes schedules exist."
+  },
+  "hermesSchedulesSummary": "{active} active · {total, plural, =1{1 schedule} other{{total} schedules}}",
+  "@hermesSchedulesSummary": {
+    "description": "Summary of active and total Hermes schedules.",
+    "placeholders": {
+      "active": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesReviewSchedules": "Review schedules",
+  "@hermesReviewSchedules": {
+    "description": "Fallback subtitle for the Hermes schedules launcher."
+  },
+  "hermesScheduledAgentsTitle": "Scheduled agents",
+  "@hermesScheduledAgentsTitle": {
+    "description": "Title of the Hermes schedules launcher."
   }
 }

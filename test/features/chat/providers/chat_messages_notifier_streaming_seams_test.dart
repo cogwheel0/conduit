@@ -485,6 +485,67 @@ void main() {
     });
 
     test(
+      'Hermes regeneration reuses the assistant bubble and keeps its version',
+      () async {
+        final service = _BranchingHermesApi();
+        final model = hermesSyntheticModel();
+        final user = ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'question',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final previousAssistant = _assistantMessage(
+          id: 'assistant-1',
+          content: 'previous answer',
+          metadata: const {'archivedVariant': true, 'transport': 'hermesRun'},
+        );
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            selectedModelProvider.overrideWithValue(model),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              Conversation(
+                id: 'local:hermes_old-session',
+                title: 'Hermes session',
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 1),
+                messages: [user, previousAssistant],
+                metadata: const {
+                  'backend': 'hermes',
+                  'hermesSessionId': 'old-session',
+                },
+              ),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        await regenerateMessage(container, user.content, null);
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).length.equals(2);
+        check(messages.last.id).equals('assistant-1');
+        check(messages.last.metadata?['archivedVariant']).isNull();
+        check(messages.last.versions).length.equals(1);
+        check(messages.last.versions.single.content).equals('previous answer');
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
       'preflight cancellation waits for late session cleanup without dispatch',
       () async {
         final service = _PreflightHermesApi();

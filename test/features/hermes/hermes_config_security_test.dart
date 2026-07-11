@@ -66,20 +66,9 @@ void main() {
     'changing origin stops owner-bound runs before rotating credentials',
     () async {
       const storage = FlutterSecureStorage();
-      final container = ProviderContainer(
-        overrides: [secureStorageProvider.overrideWithValue(storage)],
-      );
+      final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
-      container.read(hermesConfigProvider);
-      for (
-        var i = 0;
-        i < 20 && container.read(hermesSecretsLoadingProvider);
-        i++
-      ) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      check(container.read(hermesSecretsLoadingProvider)).isFalse();
       check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
       container.read(hermesActiveSessionProvider.notifier).set('session-one');
 
@@ -133,20 +122,8 @@ void main() {
     'same-origin endpoint change stops runs but retains credentials',
     () async {
       const storage = FlutterSecureStorage();
-      final container = ProviderContainer(
-        overrides: [secureStorageProvider.overrideWithValue(storage)],
-      );
+      final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
-
-      container.read(hermesConfigProvider);
-      for (
-        var i = 0;
-        i < 20 && container.read(hermesSecretsLoadingProvider);
-        i++
-      ) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      check(container.read(hermesSecretsLoadingProvider)).isFalse();
 
       container.read(hermesActiveSessionProvider.notifier).set('session-one');
       final stoppedRuns = <String>[];
@@ -177,15 +154,9 @@ void main() {
 
   test('equivalent root and v1 endpoint do not reset the session', () async {
     const storage = FlutterSecureStorage();
-    final container = ProviderContainer(
-      overrides: [secureStorageProvider.overrideWithValue(storage)],
-    );
+    final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
-    container.read(hermesConfigProvider);
-    while (container.read(hermesSecretsLoadingProvider)) {
-      await Future<void>.delayed(Duration.zero);
-    }
     container.read(hermesActiveSessionProvider.notifier).set('session-one');
 
     await container
@@ -198,15 +169,9 @@ void main() {
 
   test('same-endpoint secret change stops runs and unbinds session', () async {
     const storage = FlutterSecureStorage();
-    final container = ProviderContainer(
-      overrides: [secureStorageProvider.overrideWithValue(storage)],
-    );
+    final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
-    container.read(hermesConfigProvider);
-    while (container.read(hermesSecretsLoadingProvider)) {
-      await Future<void>.delayed(Duration.zero);
-    }
     container.read(hermesActiveSessionProvider.notifier).set('session-one');
     final stoppedRuns = <String>[];
     final registry = container.read(hermesRunRegistryProvider);
@@ -241,15 +206,9 @@ void main() {
 
   test('endpoint rotation waits for an in-flight create to settle', () async {
     const storage = FlutterSecureStorage();
-    final container = ProviderContainer(
-      overrides: [secureStorageProvider.overrideWithValue(storage)],
-    );
+    final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
 
-    container.read(hermesConfigProvider);
-    while (container.read(hermesSecretsLoadingProvider)) {
-      await Future<void>.delayed(Duration.zero);
-    }
     final settlement = Completer<void>();
     final token = container
         .read(hermesRunRegistryProvider)
@@ -283,15 +242,9 @@ void main() {
         'hermes_api_key_v1': 'key-for-one',
         'hermes_session_key_v1': 'memory-for-one',
       });
-      final container = ProviderContainer(
-        overrides: [secureStorageProvider.overrideWithValue(storage)],
-      );
+      final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
-      container.read(hermesConfigProvider);
-      while (container.read(hermesSecretsLoadingProvider)) {
-        await Future<void>.delayed(Duration.zero);
-      }
       storage.failNextWriteFor = 'hermes_api_key_v1';
       final controller = container.read(hermesConfigProvider.notifier);
 
@@ -317,15 +270,9 @@ void main() {
         'hermes_api_key_v1': 'key-for-one',
         'hermes_session_key_v1': 'memory-for-one',
       });
-      final container = ProviderContainer(
-        overrides: [secureStorageProvider.overrideWithValue(storage)],
-      );
+      final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
-      container.read(hermesConfigProvider);
-      while (container.read(hermesSecretsLoadingProvider)) {
-        await Future<void>.delayed(Duration.zero);
-      }
       final activeToken = container
           .read(hermesRunRegistryProvider)
           .registerPending('active-run', onCancelled: () {});
@@ -364,15 +311,8 @@ void main() {
       'hermes_api_key_v1': 'key-for-one',
       'hermes_session_key_v1': 'memory-for-one',
     })..failReads = true;
-    final container = ProviderContainer(
-      overrides: [secureStorageProvider.overrideWithValue(storage)],
-    );
+    final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
-
-    container.read(hermesConfigProvider);
-    while (container.read(hermesSecretsLoadingProvider)) {
-      await Future<void>.delayed(Duration.zero);
-    }
 
     check(container.read(hermesSecretsErrorProvider)).isNotNull();
     check(container.read(hermesConfigProvider).apiKey).isNull();
@@ -504,6 +444,27 @@ void main() {
     check(registry.complete('message-one', cancelToken: newToken)).isTrue();
     check(registry.runIdFor('message-one')).isNull();
   });
+}
+
+Future<ProviderContainer> _readyHermesContainer(
+  FlutterSecureStorage storage,
+) async {
+  final container = ProviderContainer(
+    overrides: [secureStorageProvider.overrideWithValue(storage)],
+  );
+  container.read(hermesConfigProvider);
+  for (
+    var i = 0;
+    i < 100 && container.read(hermesSecretsLoadingProvider);
+    i++
+  ) {
+    await Future<void>.delayed(Duration.zero);
+  }
+  if (container.read(hermesSecretsLoadingProvider)) {
+    container.dispose();
+    throw StateError('Hermes secrets did not finish loading');
+  }
+  return container;
 }
 
 class _FailOnceSecureStorage implements FlutterSecureStorage {

@@ -226,6 +226,25 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
   });
 
+  testWidgets(
+    'Hermes-only mode keeps its sole tab while enabled state is settling',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          hermesOnly: true,
+          hermesEnabled: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HermesSessionsTab), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Hermes sidebar uses one scheduled-agents launcher tile', (
     tester,
   ) async {

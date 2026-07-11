@@ -96,6 +96,23 @@ void main() {
       ).has((e) => e.done, 'done').isTrue();
     });
 
+    for (final eventType in [
+      'tool.cancelled',
+      'tool.canceled',
+      'tool.stopped',
+    ]) {
+      test('$eventType without a status is marked terminal (done)', () async {
+        final events = await parseHermesRunStream(
+          _sse(['event: $eventType\ndata: {"tool":"terminal"}\n\n']),
+        ).toList();
+
+        check(events).has((e) => e.length, 'length').equals(1);
+        check(events.single).isA<HermesToolProgress>()
+          ..has((e) => e.toolName, 'toolName').equals('terminal')
+          ..has((e) => e.done, 'done').isTrue();
+      });
+    }
+
     test('decodes an approval-requested event', () async {
       final events = await parseHermesRunStream(
         _sse([

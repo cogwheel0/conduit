@@ -4220,9 +4220,9 @@ Future<void> _regenerateHermesMessage(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,
   );
-  final previousAssistant = existingMessages.reversed
-      .where((message) => message.role == 'assistant')
-      .firstOrNull;
+  final previousAssistant = existingMessages.lastOrNull?.role == 'assistant'
+      ? existingMessages.last
+      : null;
 
   // Regeneration branches from the history before the replayed user turn. Do
   // not chain previous_response_id to the answer being replaced.
@@ -4247,7 +4247,10 @@ Future<void> _regenerateHermesMessage(
     }
   }
 
-  final assistantMessageId = const Uuid().v4();
+  // Historical regeneration leaves the selected assistant at the tail. Reuse
+  // that message rather than retaining an archived record plus a second
+  // placeholder; its previous content remains available through [versions].
+  final assistantMessageId = previousAssistant?.id ?? const Uuid().v4();
   var assistant = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
@@ -4270,7 +4273,12 @@ Future<void> _regenerateHermesMessage(
       ),
     );
   }
-  ref.read(chatMessagesProvider.notifier).addMessage(assistant);
+  final notifier = ref.read(chatMessagesProvider.notifier);
+  if (previousAssistant == null) {
+    notifier.addMessage(assistant);
+  } else {
+    notifier.updateLastMessageWithFunction((_) => assistant);
+  }
   if (!assistant.isStreaming) return;
 
   await _dispatchHermesRunFromChat(

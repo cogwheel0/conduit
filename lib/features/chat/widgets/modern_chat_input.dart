@@ -1878,6 +1878,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
       final actions = _currentNativeKeyboardAttachmentActions(l10n: l10n);
       if (actions.isEmpty) {
+        // An empty configuration is intentionally ignored by the bridge. Hide
+        // an already-open panel when the newly selected model (for example,
+        // Hermes) supports no native attachment actions.
+        unawaited(IosKeyboardAttachmentBridge.instance.hide());
         return;
       }
 
@@ -1990,6 +1994,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _scheduleNativeKeyboardAttachmentSync();
     });
     ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
+    ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
 

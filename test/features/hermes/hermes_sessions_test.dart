@@ -4,6 +4,7 @@ import 'package:conduit/features/hermes/models/hermes_session.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,6 +42,33 @@ HermesApiService _service(_CaptureInterceptor capture) {
 }
 
 void main() {
+  group('parseHermesTimestamp', () {
+    test(
+      'parses epoch seconds, milliseconds, and numeric strings identically',
+      () {
+        const epochMilliseconds = 1781947724528;
+
+        check(
+          parseHermesTimestamp(1781947724.528)!.millisecondsSinceEpoch,
+        ).equals(epochMilliseconds);
+        check(
+          parseHermesTimestamp(epochMilliseconds)!.millisecondsSinceEpoch,
+        ).equals(epochMilliseconds);
+        check(
+          parseHermesTimestamp('1781947724.528')!.millisecondsSinceEpoch,
+        ).equals(epochMilliseconds);
+      },
+    );
+
+    test('parses ISO-8601 values and rejects invalid values', () {
+      check(
+        parseHermesTimestamp('2026-06-20T10:00:00Z'),
+      ).equals(DateTime.utc(2026, 6, 20, 10));
+      check(parseHermesTimestamp('not-a-timestamp')).isNull();
+      check(parseHermesTimestamp(null)).isNull();
+    });
+  });
+
   group('HermesApiService sessions', () {
     test('createSession posts title and returns id', () async {
       final capture = _CaptureInterceptor((_) => {'id': 's1'});

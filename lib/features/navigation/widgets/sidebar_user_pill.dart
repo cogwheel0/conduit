@@ -15,6 +15,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../core/utils/user_display_name.dart';
@@ -35,7 +36,13 @@ Future<Uint8List?> _loadHermesAvatarBytes() async {
   try {
     final data = await rootBundle.load('assets/icons/hermes_agent.png');
     return _hermesAvatarBytesCache = data.buffer.asUint8List();
-  } catch (_) {
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'Failed to load Hermes profile avatar asset',
+      error: error,
+      stackTrace: stackTrace,
+      scope: 'navigation/sidebar/hermes-avatar',
+    );
     return null;
   }
 }

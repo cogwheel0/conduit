@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -64,6 +65,7 @@ class HermesSessionsTab extends ConsumerWidget {
     AsyncValue<List<HermesSessionSummary>> sessionsAsync,
   ) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     return sessionsAsync.when(
       data: (sessions) {
         if (sessions.isEmpty) {
@@ -72,8 +74,7 @@ class HermesSessionsTab extends ConsumerWidget {
               child: _message(
                 theme,
                 Icons.smart_toy_outlined,
-                'No Hermes conversations yet.\nStart a new chat with the '
-                'Hermes Agent and it will appear here.',
+                l10n.hermesNoConversationsMessage,
                 theme.textSecondary,
               ),
             ),
@@ -82,7 +83,7 @@ class HermesSessionsTab extends ConsumerWidget {
         return [
           SliverToBoxAdapter(
             child: _SectionHeader(
-              title: 'Conversations',
+              title: l10n.hermesConversationsTitle,
               count: sessions.length,
             ),
           ),
@@ -112,8 +113,7 @@ class HermesSessionsTab extends ConsumerWidget {
           child: _message(
             theme,
             Icons.error_outline,
-            'Could not load Hermes conversations.\nCheck the connection in '
-            'Settings → Hermes Agent.',
+            l10n.hermesConversationsLoadError,
             theme.error,
           ),
         ),
@@ -154,13 +154,16 @@ class _ScheduledAgentsTile extends ConsumerWidget {
     final count = jobs?.length;
     final activeCount = jobs?.where((job) => job.enabled).length;
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final subtitle = switch ((count, activeCount, jobsAsync)) {
-      (null, _, AsyncLoading()) => 'Loading schedules…',
-      (null, _, AsyncError()) => 'Schedules unavailable',
-      (0, _, _) => 'No schedules yet',
-      (final int total, final int active, _) =>
-        '$active active · $total ${total == 1 ? 'schedule' : 'schedules'}',
-      _ => 'Review schedules',
+      (null, _, AsyncLoading()) => l10n.hermesSchedulesLoading,
+      (null, _, AsyncError()) => l10n.hermesSchedulesUnavailable,
+      (0, _, _) => l10n.hermesNoSchedulesYet,
+      (final int total, final int active, _) => l10n.hermesSchedulesSummary(
+        active,
+        total,
+      ),
+      _ => l10n.hermesReviewSchedules,
     };
 
     return Padding(
@@ -205,7 +208,7 @@ class _ScheduledAgentsTile extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Scheduled agents',
+                      l10n.hermesScheduledAgentsTitle,
                       style: AppTypography.bodyMediumStyle.copyWith(
                         color: theme.textPrimary,
                         fontWeight: FontWeight.w600,

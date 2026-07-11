@@ -95,6 +95,7 @@ class HermesApprovalCard extends StatelessWidget {
                   text: l10n.hermesApprovalDenyAction,
                   isCompact: true,
                   isSecondary: true,
+                  isLoading: state == HermesApprovalState.resolving,
                   onPressed: state == HermesApprovalState.pending
                       ? () => onDecision(false)
                       : null,

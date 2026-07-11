@@ -735,10 +735,14 @@ class Models extends _$Models {
       return _demoModels();
     }
 
+    final hermesUsable = ref.watch(
+      hermesConfigProvider.select((config) => config.isUsable),
+    );
+
     if (!ref.watch(isAuthenticatedProvider2)) {
       // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
       // just the synthetic Hermes model so the picker/composer work.
-      if (ref.watch(hermesConfigProvider).isUsable) {
+      if (hermesUsable) {
         return _withHermes(const <Model>[]);
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
@@ -748,8 +752,6 @@ class Models extends _$Models {
 
     // Re-run whenever Hermes connection usability changes so the synthetic
     // model cannot outlive (or appear before) its configured service.
-    ref.watch(hermesConfigProvider);
-
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
       final cached = await storage.getLocalModels();
@@ -1981,7 +1983,7 @@ Future<Model?> defaultModel(Ref ref) async {
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
     // Hermes-only mode: auto-select the synthetic Hermes agent model.
-    if (ref.watch(hermesConfigProvider).isUsable) {
+    if (ref.watch(hermesConfigProvider.select((config) => config.isUsable))) {
       final models = await ref.read(modelsProvider.future);
       Model? hermes;
       for (final model in models) {

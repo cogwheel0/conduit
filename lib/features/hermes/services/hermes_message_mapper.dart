@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../utils/hermes_time_parsing.dart';
 
 /// Maps a Hermes session's raw message history (`GET /api/sessions/{id}/messages`)
 /// into Conduit [ChatMessage]s for display in the chat view.
@@ -36,7 +37,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
         role: role,
         content: content,
         timestamp:
-            _parseTime(item['created_at'] ?? item['timestamp']) ??
+            parseHermesTimestamp(item['created_at'] ?? item['timestamp']) ??
             DateTime.fromMillisecondsSinceEpoch(i * 1000),
         model: role == 'assistant' ? modelId : null,
         metadata: responseId == null || responseId.isEmpty
@@ -75,16 +76,4 @@ String _extractText(dynamic content) {
     return text?.toString() ?? '';
   }
   return content.toString();
-}
-
-DateTime? _parseTime(dynamic value) {
-  if (value == null) return null;
-  if (value is num) {
-    final ms = value < 100000000000 ? (value * 1000).round() : value.round();
-    return DateTime.fromMillisecondsSinceEpoch(ms);
-  }
-  final str = value.toString();
-  final asNum = num.tryParse(str);
-  if (asNum != null) return _parseTime(asNum);
-  return DateTime.tryParse(str);
 }

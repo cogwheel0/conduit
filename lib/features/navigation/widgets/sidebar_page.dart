@@ -486,7 +486,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         !hermesOnly && ref.watch(terminalTabVisibleProvider);
     final visibleTabIds = <_SidebarTabId>[
       if (!hermesOnly) _SidebarTabId.chats,
-      if (hermesEnabled) _SidebarTabId.hermes,
+      if (hermesOnly || hermesEnabled) _SidebarTabId.hermes,
       if (notesEnabled) _SidebarTabId.notes,
       if (showTerminalTab) _SidebarTabId.terminal,
       if (channelsEnabled) _SidebarTabId.channels,
@@ -506,7 +506,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           label: localizations.sidebarChatsTab,
           body: const ChatsDrawer(),
         ),
-      if (hermesEnabled)
+      if (hermesOnly || hermesEnabled)
         _SidebarTabDefinition(
           id: _SidebarTabId.hermes,
           label: 'Hermes',

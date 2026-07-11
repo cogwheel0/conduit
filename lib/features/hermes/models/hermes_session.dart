@@ -1,3 +1,5 @@
+import '../utils/hermes_time_parsing.dart';
+
 /// Lightweight summary of a Hermes server-side session, for the sessions list.
 class HermesSessionSummary {
   const HermesSessionSummary({
@@ -35,25 +37,12 @@ class HermesSessionSummary {
       title: rawTitle.isEmpty ? 'Untitled session' : rawTitle,
       preview: (rawPreview == null || rawPreview.isEmpty) ? null : rawPreview,
       source: json['source']?.toString(),
-      updatedAt: _parseTime(
+      updatedAt: parseHermesTimestamp(
         json['last_active'] ??
             json['updated_at'] ??
             json['updatedAt'] ??
             json['started_at'],
       ),
     );
-  }
-
-  static DateTime? _parseTime(dynamic value) {
-    if (value == null) return null;
-    if (value is num) {
-      // Epoch seconds (possibly fractional) or milliseconds.
-      final ms = value < 100000000000 ? (value * 1000).round() : value.round();
-      return DateTime.fromMillisecondsSinceEpoch(ms);
-    }
-    final str = value.toString();
-    final asNum = num.tryParse(str);
-    if (asNum != null) return _parseTime(asNum);
-    return DateTime.tryParse(str);
   }
 }

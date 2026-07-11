@@ -217,6 +217,9 @@ HermesToolProgress? _maybeToolProgress(
   final done =
       (eventType?.contains('completed') ?? false) ||
       (eventType?.contains('failed') ?? false) ||
+      (eventType?.contains('cancelled') ?? false) ||
+      (eventType?.contains('canceled') ?? false) ||
+      (eventType?.contains('stopped') ?? false) ||
       (eventType?.endsWith('.done') ?? false) ||
       data['done'] == true ||
       statusStr == 'completed' ||
