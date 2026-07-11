@@ -27,6 +27,23 @@ final class SseFrame {
 /// contained at least one `data:` line. Event-only and unterminated EOF frames
 /// are discarded, as required by the SSE processing model.
 final class SseFrameScanner {
+  SseFrameScanner({
+    this.maxLineCharacters = 4 * 1024 * 1024,
+    this.maxFrameDataCharacters = 4 * 1024 * 1024,
+  }) {
+    if (maxLineCharacters <= 0) {
+      throw ArgumentError.value(maxLineCharacters, 'maxLineCharacters');
+    }
+    if (maxFrameDataCharacters <= 0) {
+      throw ArgumentError.value(
+        maxFrameDataCharacters,
+        'maxFrameDataCharacters',
+      );
+    }
+  }
+
+  final int maxLineCharacters;
+  final int maxFrameDataCharacters;
   final StringBuffer _lineBuffer = StringBuffer();
   final StringBuffer _dataBuffer = StringBuffer();
   String? _eventField;
@@ -60,6 +77,9 @@ final class SseFrameScanner {
         continue;
       }
 
+      if (_lineBuffer.length >= maxLineCharacters) {
+        throw const FormatException('SSE line is too large.');
+      }
       _lineBuffer.writeCharCode(codeUnit);
     }
   }
@@ -86,12 +106,18 @@ final class SseFrameScanner {
 
   void _consumeLine(String line) {
     if (line.startsWith('data:')) {
+      final value = _stripOptionalLeadingSpace(line.substring(5));
+      final separatorLength = _frameHasDataLine ? 1 : 0;
+      if (_dataBuffer.length + separatorLength + value.length >
+          maxFrameDataCharacters) {
+        throw const FormatException('SSE frame data is too large.');
+      }
       if (_frameHasDataLine) {
         _dataBuffer.write('\n');
       }
       // Per the SSE spec, strip only a single optional leading space after the
       // colon — not all whitespace, which would corrupt indented payloads.
-      _dataBuffer.write(_stripOptionalLeadingSpace(line.substring(5)));
+      _dataBuffer.write(value);
       _frameHasDataLine = true;
       return;
     }

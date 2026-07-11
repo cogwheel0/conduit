@@ -45,9 +45,17 @@ class AuthActions {
   Future<bool> _completeOpenWebUiAuth(Future<bool> Function() authenticate) =>
       completeOpenWebUiAuthentication(
         authenticate: authenticate,
-        persistPreference: () => _ref
-            .read(preferredBackendProvider.notifier)
-            .set(PreferredBackend.owui),
+        persistPreference: () async {
+          // A direct-primary user may add Open WebUI only as an optional
+          // history-sync target. Successful authentication must not make that
+          // optional service a boot requirement.
+          if (_ref.read(preferredBackendProvider) == PreferredBackend.direct) {
+            return;
+          }
+          await _ref
+              .read(preferredBackendProvider.notifier)
+              .set(PreferredBackend.owui);
+        },
       );
 
   Future<bool> login(

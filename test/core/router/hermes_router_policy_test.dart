@@ -21,6 +21,8 @@ void main() {
         Routes.appearanceSettings,
         Routes.chatSettings,
         Routes.dataConnectionSettings,
+        Routes.directConnections,
+        Routes.directConnectionEditorPath('new'),
         Routes.hermesSettings,
         Routes.hermesJobs,
         Routes.about,

@@ -10,6 +10,7 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -20,6 +21,7 @@ import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -44,13 +46,28 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
+  late AppDatabase directDb;
+  late bool previousDontWarnAboutMultipleDatabases;
+
+  setUpAll(() {
+    previousDontWarnAboutMultipleDatabases =
+        driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
+  tearDownAll(() {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases =
+        previousDontWarnAboutMultipleDatabases;
+  });
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
+    directDb = AppDatabase(NativeDatabase.memory());
   });
 
   tearDown(() async {
     await db.close();
+    await directDb.close();
   });
 
   ProviderContainer makeContainer({
@@ -60,6 +77,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => db),
+        directLocalDatabaseProvider.overrideWith((ref) => directDb),
         isAuthenticatedProvider2.overrideWithValue(authenticated),
         reviewerModeProvider.overrideWithValue(false),
         legacyConversationCachePurgerProvider.overrideWith(
@@ -139,6 +157,37 @@ void main() {
     );
   }
 
+  Future<void> seedDirectChat(
+    String id, {
+    required int updatedAt,
+    String? title,
+  }) {
+    return directDb.chatsDao.upsertLocalOnlyChat(
+      rows: ChatBlobMapper.blobToRows(
+        chatId: id,
+        blob: {
+          'title': title ?? 'Direct $id',
+          'history': {
+            'messages': {
+              '$id-direct-m1': {
+                'id': '$id-direct-m1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'hello from direct $id',
+                'timestamp': updatedAt,
+              },
+            },
+            'currentId': '$id-direct-m1',
+          },
+        },
+        title: title ?? 'Direct $id',
+        createdAt: updatedAt,
+        updatedAt: updatedAt,
+      ),
+    );
+  }
+
   List<String> idsOf(List<Conversation> conversations) =>
       conversations.map((conversation) => conversation.id).toList();
 
@@ -188,6 +237,91 @@ void main() {
         idsOf(container.read(conversationsProvider).requireValue),
       ).deepEquals(['chat-2', 'chat-1']);
     });
+
+    test(
+      'colliding server and on-device ids retain distinct identity',
+      () async {
+        await seedServerChat('collision', updatedAt: 100);
+        await seedDirectChat('collision', updatedAt: 200, title: 'Device copy');
+        final container = makeContainer();
+
+        final conversations = await container.read(
+          conversationsProvider.future,
+        );
+        check(conversations.length).equals(2);
+        check(
+          conversations.map((conversation) => conversation.id).toSet(),
+        ).deepEquals({'collision'});
+        final server = conversations.singleWhere(
+          (conversation) =>
+              chatStorageKindOf(conversation) == ChatStorageKind.openWebUi,
+        );
+        final direct = conversations.singleWhere(isDirectLocalConversation);
+        check(
+          conversationScopedId(server) == conversationScopedId(direct),
+        ).isFalse();
+
+        final loadedServer = await container.read(
+          loadConversationProvider(conversationScopedId(server)).future,
+        );
+        final loadedDirect = await container.read(
+          loadConversationProvider(conversationScopedId(direct)).future,
+        );
+        check(
+          chatStorageKindOf(loadedServer),
+        ).equals(ChatStorageKind.openWebUi);
+        check(
+          chatStorageKindOf(loadedDirect),
+        ).equals(ChatStorageKind.directLocal);
+        check(
+          loadedServer.messages.single.content,
+        ).equals('hello from collision');
+        check(
+          loadedDirect.messages.single.content,
+        ).equals('hello from direct collision');
+
+        container
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              conversationScopedId(server),
+              (conversation) => conversation.copyWith(title: 'Server renamed'),
+            );
+        final afterRename = container.read(conversationsProvider).requireValue;
+        check(
+          afterRename
+              .singleWhere(
+                (conversation) =>
+                    chatStorageKindOf(conversation) ==
+                    ChatStorageKind.openWebUi,
+              )
+              .title,
+        ).equals('Server renamed');
+        check(
+          afterRename.singleWhere(isDirectLocalConversation).title,
+        ).equals('Device copy');
+
+        container
+            .read(conversationsProvider.notifier)
+            .removeConversation(conversationScopedId(direct));
+        check(
+          container.read(conversationsProvider).requireValue.length,
+        ).equals(1);
+        check(
+          chatStorageKindOf(
+            container.read(conversationsProvider).requireValue.single,
+          ),
+        ).equals(ChatStorageKind.openWebUi);
+        await waitForAsync<ChatRow?>(
+          () => directDb.chatsDao.getChat('collision'),
+          condition: (row) => row == null,
+        );
+        final serverRow = await waitForAsync<ChatRow?>(
+          () => db.chatsDao.getChat('collision'),
+          condition: (row) => row?.title == 'Server renamed',
+        );
+        check(serverRow).isNotNull();
+      },
+    );
 
     test('archived/filtered split with pinned-first ordering', () async {
       await seedServerChat('chat-archived', updatedAt: 400, archived: true);

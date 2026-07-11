@@ -26,6 +26,7 @@ import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../direct_connections/direct_connections.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -1785,12 +1786,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
+    final model = ref.read(selectedModelProvider);
+    final directBinding = model == null
+        ? null
+        : ref.read(directModelRegistryProvider).resolve(model);
+    final directMode = directBinding != null;
+    final imageInputAvailable = !directMode || model!.isMultimodal == true;
     return ComposerOverflowAttachmentAvailability(
-      file: widget.onFileAttachment != null,
-      serverFile: widget.onServerFileAttachment != null,
-      photo: widget.onImageAttachment != null,
-      camera: widget.onCameraCapture != null,
-      web: widget.onWebAttachment != null,
+      file: !directMode && widget.onFileAttachment != null,
+      serverFile: !directMode && widget.onServerFileAttachment != null,
+      photo: imageInputAvailable && widget.onImageAttachment != null,
+      camera: imageInputAvailable && widget.onCameraCapture != null,
+      web: !directMode && widget.onWebAttachment != null,
     );
   }
 
@@ -1814,16 +1821,29 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
-    return buildComposerOverflowItems(
+    final directMode =
+        selectedModel != null &&
+        ref.read(directModelRegistryProvider).resolve(selectedModel) != null;
+
+    final items = buildComposerOverflowItems(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
-      webSearchAvailable: webSearchAvailable,
+      webSearchAvailable: !directMode && webSearchAvailable,
       webSearchEnabled: webSearchEnabled,
-      imageGenerationAvailable: imageGenerationAvailable,
+      imageGenerationAvailable: !directMode && imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
-      availableTools: availableTools,
+      availableTools: directMode ? const <Tool>[] : availableTools,
       selectedToolIds: selectedToolIds,
-    ).map(_nativeKeyboardAttachmentActionFromItem).toList(growable: false);
+    );
+    return items
+        .where(
+          (item) =>
+              !directMode ||
+              item.id == ComposerOverflowActionIds.photo ||
+              item.id == ComposerOverflowActionIds.camera,
+        )
+        .map(_nativeKeyboardAttachmentActionFromItem)
+        .toList(growable: false);
   }
 
   IosKeyboardAttachmentActionConfig _nativeKeyboardAttachmentActionFromItem(
@@ -2065,6 +2085,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool isHermesComposer = ref.watch(
       selectedModelProvider.select((m) => m != null && isHermesModel(m)),
     );
+    final selectedComposerModel = ref.watch(selectedModelProvider);
+    final bool isDirectComposer =
+        selectedComposerModel != null &&
+        ref.watch(directModelRegistryProvider).resolve(selectedComposerModel) !=
+            null;
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -2101,7 +2126,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (isHermesComposer) break; // Hermes has no OWUI quick pills.
+      if (isHermesComposer || isDirectComposer) {
+        break;
+      }
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -3359,6 +3386,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _showOverflowSheet() {
     ConduitHaptics.selectionClick();
+    final attachmentAvailability = _overflowAttachmentAvailability;
     final prevCanRequest = _focusNode.canRequestFocus;
     final wasFocused = _focusNode.hasFocus;
     _focusNode.canRequestFocus = false;
@@ -3371,11 +3399,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context: context,
       isScrollControlled: true,
       builder: (_) => ComposerOverflowSheet(
-        onFileAttachment: widget.onFileAttachment,
-        onServerFileAttachment: widget.onServerFileAttachment,
-        onImageAttachment: widget.onImageAttachment,
-        onCameraCapture: widget.onCameraCapture,
-        onWebAttachment: widget.onWebAttachment,
+        onFileAttachment: attachmentAvailability.file
+            ? widget.onFileAttachment
+            : null,
+        onServerFileAttachment: attachmentAvailability.serverFile
+            ? widget.onServerFileAttachment
+            : null,
+        onImageAttachment: attachmentAvailability.photo
+            ? widget.onImageAttachment
+            : null,
+        onCameraCapture: attachmentAvailability.camera
+            ? widget.onCameraCapture
+            : null,
+        onWebAttachment: attachmentAvailability.web
+            ? widget.onWebAttachment
+            : null,
       ),
     ).whenComplete(() {
       if (mounted) {

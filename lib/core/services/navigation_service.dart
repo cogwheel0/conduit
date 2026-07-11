@@ -65,6 +65,13 @@ class NavigationService {
     router.go(routeName);
   }
 
+  /// Push a route while preserving the current page as the back destination.
+  static Future<T?> pushTo<T extends Object?>(String routeName) async {
+    final router = _router;
+    if (router == null) return null;
+    return router.push<T>(routeName);
+  }
+
   /// Navigate back with an optional result payload.
   static void goBack<T>([T? result]) {
     final router = _router;
@@ -141,6 +148,9 @@ class Routes {
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
   static const String dataConnectionSettings = '/profile/data-connection';
+  static const String directConnections = '/profile/direct-connections';
+  static const String directConnectionEditor =
+      '/profile/direct-connections/:id';
   static const String hermesSettings = '/profile/hermes';
   static const String hermesJobs = '/profile/hermes/jobs';
   static const String about = '/profile/about';
@@ -150,6 +160,8 @@ class Routes {
   static const String workspace = '/workspace';
 
   static String folderPath(String id) => '/folder/$id';
+  static String directConnectionEditorPath(String id) =>
+      '/profile/direct-connections/${Uri.encodeComponent(id)}';
 }
 
 /// Friendly names for GoRouter routes to support context.pushNamed.
@@ -172,6 +184,8 @@ class RouteNames {
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';
   static const String dataConnectionSettings = 'data-connection-settings';
+  static const String directConnections = 'direct-connections';
+  static const String directConnectionEditor = 'direct-connection-editor';
   static const String hermesSettings = 'hermes-settings';
   static const String hermesJobs = 'hermes-jobs';
   static const String about = 'about';

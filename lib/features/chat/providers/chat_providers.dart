@@ -18,6 +18,7 @@ import '../../../core/models/file_info.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
+import '../../../core/database/chat_database_repository.dart';
 import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/database/mappers/chat_blob_mapper.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
@@ -40,9 +41,11 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_run_transport.dart';
+import '../../direct_connections/direct_connections.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
 import '../../tools/providers/tools_providers.dart';
@@ -2021,6 +2024,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   void _touchStreamingActivity() {
     _lastStreamingActivity = DateTime.now();
+    if (state.lastOrNull?.metadata?['transport'] == kDirectTransport) {
+      _stopRemoteTaskMonitor();
+      return;
+    }
     if (_hasStreamingAssistant) {
       // Reset observed flag each time a new streaming session starts.
       if (_taskStatusTimer == null) {
@@ -2085,27 +2092,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // later hides it from selectors.
       try {
         final api = ref.read(apiServiceProvider);
-        final models = api != null
-            ? await api.getModels(includeHidden: true)
-            : await ref.read(modelsProvider.future);
-
-        if (models.isEmpty) {
-          return;
-        }
-
-        // Look for exact match first
-        final conversationModel = models
+        final visibleModels = await ref.read(modelsProvider.future);
+        Model? conversationModel = visibleModels
             .where((model) => model.id == conversation.model)
             .firstOrNull;
 
-        if (conversationModel != null) {
-          // Update the selected model
-          ref
-              .read(selectedModelProvider.notifier)
-              .set(conversationModel, allowHidden: true);
-        } else {
-          // Model not found in available models - silently continue
+        // Locally minted direct models live only in modelsProvider and must
+        // never be replaced by an untrusted server object with the same id.
+        if (conversationModel == null && api != null) {
+          final serverModels = await api.getModels(includeHidden: true);
+          conversationModel = serverModels
+              .where((model) => model.id == conversation.model)
+              .firstOrNull;
         }
+
+        if (conversationModel == null) {
+          return;
+        }
+        ref
+            .read(selectedModelProvider.notifier)
+            .set(conversationModel, allowHidden: true);
       } catch (e) {
         // Model update failed - silently continue
       }
@@ -3810,9 +3816,17 @@ void resetHermesForNewChat(dynamic ref) {
   ref.read(hermesActiveSessionProvider.notifier).set(null);
 }
 
+void resetDirectRunsForNewChat(dynamic ref) {
+  final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  for (final stop in registry.cancelAll()) {
+    unawaited(stop);
+  }
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref) {
   resetHermesForNewChat(ref);
+  resetDirectRunsForNewChat(ref);
 
   // Clear active conversation
   ref.read(activeConversationProvider.notifier).clear();
@@ -3840,6 +3854,7 @@ void startNewChat(dynamic ref) {
 /// the Hermes selection); it resolves and selects the Hermes model explicitly.
 Future<void> startNewHermesChat(dynamic ref) async {
   resetHermesForNewChat(ref);
+  resetDirectRunsForNewChat(ref);
 
   ref.read(activeConversationProvider.notifier).clear();
   ref.read(chatMessagesProvider.notifier).clearMessages();
@@ -4206,11 +4221,42 @@ bool isSendBlocked({
   required bool reviewerMode,
   required Object? api,
   required Model? selectedModel,
+  bool hasTrustedDirectBinding = false,
 }) {
   if (selectedModel == null) return true;
   if (reviewerMode) return false;
+  if (hasReservedDirectIdentity(selectedModel)) {
+    return !hasTrustedDirectBinding;
+  }
   if (api != null) return false;
-  return !isHermesModel(selectedModel);
+  return !isHermesModel(selectedModel) && !hasTrustedDirectBinding;
+}
+
+@visibleForTesting
+bool isModelCompatibleWithConversation({
+  required Conversation? conversation,
+  required bool hasTrustedDirectBinding,
+}) {
+  return !isDirectLocalConversation(conversation) || hasTrustedDirectBinding;
+}
+
+/// Enforces provider capabilities at the final dispatch boundary so images
+/// already present in history or supplied by a service cannot bypass composer
+/// and upload guards.
+@visibleForTesting
+void ensureDirectMessagesCompatibleWithModel({
+  required Model model,
+  required Iterable<DirectChatMessage> messages,
+}) {
+  if (model.isMultimodal == true) return;
+  final containsImage = messages.any(
+    (message) => message.parts.any((part) => part is DirectImagePart),
+  );
+  if (containsImage) {
+    throw const DirectChatInputException(
+      'This direct model does not support image attachments.',
+    );
+  }
 }
 
 /// Raised when a Hermes run would silently discard composer attachments.
@@ -4334,6 +4380,161 @@ Future<void> _regenerateHermesMessage(
   );
 }
 
+Future<void> _regenerateDirectMessage(
+  dynamic ref, {
+  required _ResolvedDirectRoute route,
+}) async {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (active == null) throw StateError('No active conversation');
+  final existing = List<ChatMessage>.from(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+    growable: false,
+  );
+  var userIndex = -1;
+  for (var index = existing.length - 1; index >= 0; index--) {
+    if (existing[index].role == 'user') {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex < 0) return;
+
+  final previousAssistant = existing.lastOrNull?.role == 'assistant'
+      ? existing.last
+      : null;
+  final assistantId = previousAssistant?.id ?? const Uuid().v4();
+  final metadata = <String, dynamic>{
+    ...?previousAssistant?.metadata,
+    'parentId': existing[userIndex].id,
+    'childrenIds': const <String>[],
+    'transport': kDirectTransport,
+    'modelName': route.model.name,
+  }..remove('archivedVariant');
+  final assistant = ChatMessage(
+    id: assistantId,
+    role: 'assistant',
+    content: '',
+    timestamp: DateTime.now(),
+    model: route.model.id,
+    isStreaming: true,
+    versions: previousAssistant == null
+        ? const <ChatMessageVersion>[]
+        : _buildReplayVersions(previousAssistant),
+    metadata: metadata,
+  );
+  final notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  if (previousAssistant == null) {
+    notifier.addMessage(assistant);
+  } else {
+    notifier.updateLastMessageWithFunction((_) => assistant);
+  }
+  final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  final reservation = registry.reserve(assistant.id, route.binding.profileId);
+  ChatDatabaseLocation? location;
+  try {
+    final stored = chatStorageKindOf(active) != null;
+    final temporary =
+        ref.read(temporaryChatEnabledProvider) ||
+        (isTemporaryChat(active.id) && !stored);
+    if (!temporary) {
+      final ChatDatabaseRepository repository = ref.read(
+        chatDatabaseRepositoryProvider,
+      );
+      location = await repository.resolveChat(
+        active.id,
+        preferred: chatStorageKindOf(active),
+      );
+      if (registry.isCancelled(reservation)) {
+        throw const _DirectRunStoppedDuringPreflight();
+      }
+      final resolvedLocation = location;
+      if (resolvedLocation == null) {
+        throw StateError('Conversation storage is unavailable');
+      }
+      final row = _directMessageRow(
+        chatId: active.id,
+        message: assistant,
+        parentId: existing[userIndex].id,
+        childrenIds: const <String>[],
+        orderIndex: existing.length,
+      );
+      final locks = ref.read(chatLocksProvider) as ChatLocks;
+      await locks.runExclusive(active.id, () {
+        return repository.persistDirectMessages(
+          resolvedLocation,
+          chatId: active.id,
+          messages: <MessageRowData>[row],
+          currentMessageId: assistant.id,
+          updatedAt: ref.read(syncClockProvider).nowEpochSeconds(),
+        );
+      });
+    }
+    final requestMessages = withDirectConversationSystemPrompt(
+      messages: existing.sublist(0, userIndex + 1),
+      systemPrompt: active.systemPrompt,
+    );
+    await _dispatchDirectRunFromChat(
+      ref,
+      route: route,
+      assistantMessageId: assistant.id,
+      assistantSeed: assistant,
+      requestMessages: requestMessages,
+      owner: _DirectConversationOwner(
+        conversationId: active.id,
+        location: location,
+      ),
+      reservation: reservation,
+    );
+  } on _DirectRunStoppedDuringPreflight {
+    notifier.updateMessageById(
+      assistant.id,
+      (current) => current.copyWith(isStreaming: false),
+    );
+    final stopped = (ref.read(chatMessagesProvider) as List<ChatMessage>)
+        .where((message) => message.id == assistant.id)
+        .firstOrNull;
+    if (location != null && stopped != null) {
+      await _persistCompletedDirectAssistant(
+        ref,
+        owner: _DirectConversationOwner(
+          conversationId: active.id,
+          location: location,
+        ),
+        assistant: stopped,
+      );
+    }
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'regenerate-failed',
+      scope: 'direct-connections/chat',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'profileId': route.binding.profileId},
+    );
+    notifier.failLastStreamingAssistant(
+      error,
+      assistantMessageId: assistant.id,
+    );
+    final failed = (ref.read(chatMessagesProvider) as List<ChatMessage>)
+        .where((message) => message.id == assistant.id)
+        .firstOrNull;
+    if (location != null && failed != null) {
+      await _persistCompletedDirectAssistant(
+        ref,
+        owner: _DirectConversationOwner(
+          conversationId: active.id,
+          location: location,
+        ),
+        assistant: failed,
+      );
+    }
+    rethrow;
+  } finally {
+    registry.releaseReservation(reservation);
+  }
+}
+
 // Regenerate message function that doesn't duplicate user message
 Future<void> regenerateMessage(
   dynamic ref,
@@ -4343,19 +4544,31 @@ Future<void> regenerateMessage(
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
-  final selectedModel = ref.read(selectedModelProvider);
+  final selectedModelCandidate = ref.read(selectedModelProvider) as Model?;
+  final directRoute = await _resolveDirectRoute(ref, selectedModelCandidate);
 
-  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
-  // the Hermes transport and don't need it.
+  // Standalone transports do not require an OpenWebUI API. Reserved direct
+  // identities still fail closed unless this exact model object has a current
+  // registry binding.
   if (isSendBlocked(
     reviewerMode: reviewerMode,
     api: api,
-    selectedModel: selectedModel,
+    selectedModel: selectedModelCandidate,
+    hasTrustedDirectBinding: directRoute != null,
   )) {
     throw Exception('No API service or model selected');
   }
+  final Model selectedModel = selectedModelCandidate!;
 
   var activeConversation = ref.read(activeConversationProvider);
+  if (!isModelCompatibleWithConversation(
+    conversation: activeConversation,
+    hasTrustedDirectBinding: directRoute != null,
+  )) {
+    throw StateError(
+      'On-device direct chats can only continue with a direct connection model.',
+    );
+  }
   if (!reviewerMode &&
       usesHermesTransportForRegeneration(
         selectedModel: selectedModel,
@@ -4370,6 +4583,10 @@ Future<void> regenerateMessage(
   }
   if (activeConversation == null) {
     throw Exception('No active conversation');
+  }
+  if (!reviewerMode && directRoute != null) {
+    await _regenerateDirectMessage(ref, route: directRoute);
+    return;
   }
 
   // In reviewer mode, simulate response
@@ -5203,6 +5420,17 @@ Future<void> durableSend(
   final reviewerMode = ref.read(reviewerModeProvider);
   final selectedModel = ref.read(selectedModelProvider);
   final temporary = ref.read(temporaryChatEnabledProvider);
+  final hasTrustedDirectBinding =
+      selectedModel != null && _hasTrustedDirectBinding(ref, selectedModel);
+
+  if (!isModelCompatibleWithConversation(
+    conversation: activeAtSendStart,
+    hasTrustedDirectBinding: hasTrustedDirectBinding,
+  )) {
+    throw StateError(
+      'On-device direct chats can only continue with a direct connection model.',
+    );
+  }
 
   // Hermes agent chats never touch the OpenWebUI outbox/sync engine — route
   // them through the inline path, which dispatches to the Hermes runs transport.
@@ -5216,6 +5444,21 @@ Future<void> durableSend(
       pendingFolderIdOverride,
     );
     return;
+  }
+
+  if (hasTrustedDirectBinding) {
+    await _sendMessageInternal(
+      ref,
+      message,
+      attachments,
+      toolIds,
+      isVoiceMode,
+      pendingFolderIdOverride,
+    );
+    return;
+  }
+  if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+    throw StateError('The selected direct connection is no longer available.');
   }
 
   // No durable backend (reviewer mode, no active server) OR a temporary chat
@@ -5933,6 +6176,572 @@ Future<void> dispatchHermesRunFromChatForTest(
   previousResponseIdOverride: previousResponseIdOverride,
 );
 
+typedef _ResolvedDirectRoute = ({
+  Model model,
+  DirectModelBinding binding,
+  DirectConnectionProfile profile,
+});
+
+final class _DirectRunStoppedDuringPreflight implements Exception {
+  const _DirectRunStoppedDuringPreflight();
+}
+
+final class _DirectConversationOwner {
+  _DirectConversationOwner({
+    required this.conversationId,
+    required this.location,
+  });
+
+  String conversationId;
+  final ChatDatabaseLocation? location;
+}
+
+/// Keeps a direct completion's durable owner aligned with a synchronous
+/// local-to-server chat id remap. The callback shape makes the race invariant
+/// directly testable without exposing the private owner object.
+@visibleForTesting
+StreamSubscription<RemapEvent> trackDirectConversationRemaps({
+  required Stream<RemapEvent> events,
+  required String Function() currentId,
+  required void Function(String id) setId,
+}) {
+  return events.listen((event) {
+    if (event.entityKind == 'chat' && event.fromId == currentId()) {
+      setId(event.toId);
+    }
+  });
+}
+
+/// Resolves and writes a completion under the lock for its current durable chat
+/// id. A stale local id is released and retried under the remapped server id,
+/// closing the lookup-before-lock and lookup-under-wrong-lock races.
+@visibleForTesting
+Future<String> persistWithResolvedDirectConversationOwner({
+  required ChatLocks locks,
+  required String recordedChatId,
+  required Future<String?> Function(String recordedId) resolveCurrentId,
+  required Future<void> Function(String currentId) persist,
+}) async {
+  var lockChatId = recordedChatId;
+  for (var attempt = 0; attempt < 2; attempt++) {
+    String? rerouteChatId;
+    var didPersist = false;
+    await locks.runExclusive(lockChatId, () async {
+      final resolvedChatId = await resolveCurrentId(lockChatId);
+      if (resolvedChatId == null) {
+        throw StateError('Direct conversation owner is no longer available.');
+      }
+      if (resolvedChatId != lockChatId) {
+        rerouteChatId = resolvedChatId;
+        return;
+      }
+      await persist(resolvedChatId);
+      didPersist = true;
+    });
+    if (didPersist) return lockChatId;
+    if (rerouteChatId == null) break;
+    lockChatId = rerouteChatId!;
+  }
+  throw StateError('Direct conversation owner changed repeatedly.');
+}
+
+bool _hasTrustedDirectBinding(dynamic ref, Model? model) {
+  if (model == null) return false;
+  final DirectModelRegistry registry = ref.read(directModelRegistryProvider);
+  return registry.resolve(model) != null;
+}
+
+Future<_ResolvedDirectRoute?> _resolveDirectRoute(
+  dynamic ref,
+  Model? selectedModel,
+) async {
+  if (selectedModel == null) return null;
+  final DirectModelRegistry registry = ref.read(directModelRegistryProvider);
+  final DirectModelBinding? binding = registry.resolve(selectedModel);
+  if (binding == null) return null;
+  final List<DirectConnectionProfile> profiles = await ref.read(
+    directConnectionProfilesProvider.future,
+  );
+  final DirectConnectionProfile? profile = profiles
+      .where(
+        (candidate) => candidate.id == binding.profileId && candidate.isUsable,
+      )
+      .firstOrNull;
+  if (profile == null || profile.adapterKey != binding.adapterKey) return null;
+  return (model: selectedModel, binding: binding, profile: profile);
+}
+
+DirectChatSyncPreference _directSyncPreference(dynamic ref) {
+  if (ref.read(isAuthenticatedProvider2) != true) {
+    return DirectChatSyncPreference.localOnly;
+  }
+  final DirectHistoryPolicy policy = ref.read(directHistoryPolicyProvider);
+  return switch (policy) {
+    DirectHistoryPolicy.syncWithOpenWebUI =>
+      DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+    DirectHistoryPolicy.localOnly => DirectChatSyncPreference.localOnly,
+  };
+}
+
+Map<String, dynamic> _directPersistedMessagePayload(
+  ChatMessage message, {
+  required String? parentId,
+  required List<String> childrenIds,
+}) {
+  final metadata = <String, dynamic>{
+    ...?message.metadata,
+    if (message.role == 'assistant') 'transport': kDirectTransport,
+  };
+  return <String, dynamic>{
+    'id': message.id,
+    'parentId': parentId,
+    'childrenIds': childrenIds,
+    'role': message.role,
+    'content': message.content,
+    if (message.model != null) 'model': message.model,
+    if (metadata['modelName'] != null) 'modelName': metadata['modelName'],
+    if (message.files != null) 'files': message.files,
+    if (message.output != null) 'output': message.output,
+    if (message.embeds != null) 'embeds': message.embeds,
+    if (message.usage != null) 'usage': message.usage,
+    if (message.versions.isNotEmpty)
+      'versions': message.versions
+          .map((version) => version.toJson())
+          .toList(growable: false),
+    if (message.error != null) 'error': message.error!.toJson(),
+    if (metadata.isNotEmpty) 'metadata': metadata,
+    'timestamp': message.timestamp.millisecondsSinceEpoch ~/ 1000,
+  };
+}
+
+@visibleForTesting
+Map<String, dynamic> directPersistedMessagePayloadForTest(
+  ChatMessage message,
+) => _directPersistedMessagePayload(
+  message,
+  parentId: message.metadata?['parentId']?.toString(),
+  childrenIds: const <String>[],
+);
+
+MessageRowData _directMessageRow({
+  required String chatId,
+  required ChatMessage message,
+  required String? parentId,
+  required List<String> childrenIds,
+  required int orderIndex,
+}) {
+  return MessageRowData(
+    id: message.id,
+    chatId: chatId,
+    parentId: parentId,
+    role: message.role,
+    content: message.content,
+    model: message.model,
+    createdAt: message.timestamp.millisecondsSinceEpoch ~/ 1000,
+    orderIndex: orderIndex,
+    payload: _directPersistedMessagePayload(
+      message,
+      parentId: parentId,
+      childrenIds: childrenIds,
+    ),
+  );
+}
+
+Map<String, dynamic> _directNewChatBlob({
+  required String title,
+  required String modelId,
+  required List<ChatMessage> messages,
+}) {
+  final messageMap = <String, dynamic>{};
+  for (var index = 0; index < messages.length; index++) {
+    final message = messages[index];
+    final parentId = index == 0 ? null : messages[index - 1].id;
+    final childrenIds = index + 1 < messages.length
+        ? <String>[messages[index + 1].id]
+        : const <String>[];
+    messageMap[message.id] = _directPersistedMessagePayload(
+      message,
+      parentId: parentId,
+      childrenIds: childrenIds,
+    );
+  }
+  return <String, dynamic>{
+    'title': title,
+    'models': <String>[modelId],
+    'conduit': const <String, dynamic>{'backend': kDirectTransport},
+    'history': <String, dynamic>{
+      'currentId': messages.lastOrNull?.id,
+      'messages': messageMap,
+    },
+  };
+}
+
+Future<_DirectConversationOwner> _persistDirectTurnStart(
+  dynamic ref, {
+  required _ResolvedDirectRoute route,
+  required ChatMessage userMessage,
+  required ChatMessage assistantMessage,
+  required List<ChatMessage> allMessages,
+  String? pendingFolderId,
+}) async {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  final storedActive = active != null && chatStorageKindOf(active) != null;
+  final isTemporary =
+      ref.read(temporaryChatEnabledProvider) ||
+      (active != null && isTemporaryChat(active.id) && !storedActive);
+  final now = ref.read(syncClockProvider).nowEpochSeconds();
+  final title = active?.title.trim().isNotEmpty == true
+      ? active!.title
+      : _titleFromText(userMessage.content);
+
+  if (isTemporary) {
+    final id = active?.id ?? 'local:${const Uuid().v4()}';
+    final conversation =
+        (active ??
+                Conversation(
+                  id: id,
+                  title: title,
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                ))
+            .copyWith(
+              model: route.model.id,
+              messages: allMessages,
+              updatedAt: DateTime.now(),
+              metadata: <String, dynamic>{
+                ...?active?.metadata,
+                'backend': kDirectTransport,
+                'directProfileId': route.binding.profileId,
+              },
+            );
+    ref.read(activeConversationProvider.notifier).set(conversation);
+    return _DirectConversationOwner(conversationId: id, location: null);
+  }
+
+  final ChatDatabaseRepository repository = ref.read(
+    chatDatabaseRepositoryProvider,
+  );
+  ChatDatabaseLocation? location;
+  if (active != null) {
+    location = await repository.resolveChat(
+      active.id,
+      preferred: chatStorageKindOf(active),
+    );
+  }
+
+  if (active == null || location == null) {
+    final newLocation = repository.chooseForNewDirectChat(
+      _directSyncPreference(ref),
+    );
+    location = newLocation;
+    final id = newLocation.storage == ChatStorageKind.openWebUi
+        ? 'local:${const Uuid().v4()}'
+        : 'direct-local:${const Uuid().v4()}';
+    final folderId = newLocation.storage == ChatStorageKind.openWebUi
+        ? pendingFolderId
+        : null;
+    final blob = _directNewChatBlob(
+      title: title,
+      modelId: route.model.id,
+      messages: allMessages,
+    );
+    final rows = ChatBlobMapper.blobToRows(
+      chatId: id,
+      blob: blob,
+      title: title,
+      folderId: folderId,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final locks = ref.read(chatLocksProvider) as ChatLocks;
+    await locks.runExclusive(id, () {
+      return repository.persistNewDirectChat(
+        newLocation,
+        rows,
+        openWebUiContentHash: newLocation.storage == ChatStorageKind.openWebUi
+            ? createChatContentHash(rows)
+            : null,
+      );
+    });
+    var conversation = Conversation(
+      id: id,
+      title: title,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      model: route.model.id,
+      messages: allMessages,
+      folderId: folderId,
+      metadata: <String, dynamic>{
+        'backend': kDirectTransport,
+        'directProfileId': route.binding.profileId,
+      },
+    );
+    conversation = withChatStorageProvenance(conversation, newLocation.storage);
+    ref.read(activeConversationProvider.notifier).set(conversation);
+    ref.read(pendingFolderIdProvider.notifier).clear();
+    return _DirectConversationOwner(conversationId: id, location: newLocation);
+  }
+
+  final existingLocation = location;
+  final chatId = active.id;
+  final parentId = userMessage.metadata?['parentId']?.toString();
+  final userRow = _directMessageRow(
+    chatId: chatId,
+    message: userMessage,
+    parentId: parentId,
+    childrenIds: <String>[assistantMessage.id],
+    orderIndex: 0,
+  );
+  final assistantRow = _directMessageRow(
+    chatId: chatId,
+    message: assistantMessage,
+    parentId: userMessage.id,
+    childrenIds: const <String>[],
+    orderIndex: 1,
+  );
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
+  await locks.runExclusive(chatId, () {
+    return repository.persistDirectMessages(
+      existingLocation,
+      chatId: chatId,
+      messages: <MessageRowData>[userRow, assistantRow],
+      currentMessageId: assistantMessage.id,
+      updatedAt: now,
+    );
+  });
+  final updated = withChatStorageProvenance(
+    active.copyWith(
+      model: route.model.id,
+      messages: allMessages,
+      updatedAt: DateTime.now(),
+      metadata: <String, dynamic>{
+        ...active.metadata,
+        'backend': kDirectTransport,
+        'directProfileId': route.binding.profileId,
+      },
+    ),
+    existingLocation.storage,
+  );
+  ref.read(activeConversationProvider.notifier).set(updated);
+  return _DirectConversationOwner(
+    conversationId: chatId,
+    location: existingLocation,
+  );
+}
+
+Future<String?> _resolveDirectImageFromOpenWebUi(
+  dynamic api,
+  String fileId,
+  int maxBytes,
+) async {
+  if (api == null || fileId.trim().isEmpty || maxBytes <= 0) return null;
+  try {
+    final info = await api.getFileInfo(fileId);
+    final contentType =
+        info['meta']?['content_type'] ??
+        info['content_type'] ??
+        info['mime_type'] ??
+        '';
+    final mime = contentType.toString().trim();
+    if (!mime.startsWith('image/')) return null;
+    final content = (await api.getFileContent(
+      fileId,
+      maxBytes: maxBytes,
+    )).toString();
+    if (content.startsWith('data:image/')) return content;
+    return 'data:${mime.isEmpty ? 'image/png' : mime};base64,$content';
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _persistCompletedDirectAssistant(
+  dynamic ref, {
+  required _DirectConversationOwner owner,
+  required ChatMessage assistant,
+}) async {
+  final location = owner.location;
+  if (location == null) return;
+  final ChatDatabaseRepository repository = ref.read(
+    chatDatabaseRepositoryProvider,
+  );
+  final now = ref.read(syncClockProvider).nowEpochSeconds();
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
+  final resolvedChatId = await persistWithResolvedDirectConversationOwner(
+    locks: locks,
+    recordedChatId: owner.conversationId,
+    resolveCurrentId: (recordedId) {
+      return repository.resolveCurrentChatIdForMessage(
+        location,
+        recordedChatId: recordedId,
+        messageId: assistant.id,
+      );
+    },
+    persist: (currentId) async {
+      final row = _directMessageRow(
+        chatId: currentId,
+        message: assistant,
+        parentId: assistant.metadata?['parentId']?.toString(),
+        childrenIds: const <String>[],
+        orderIndex: 0,
+      );
+      await repository.persistDirectMessages(
+        location,
+        chatId: currentId,
+        messages: <MessageRowData>[row],
+        currentMessageId: assistant.id,
+        updatedAt: now,
+      );
+    },
+  );
+  owner.conversationId = resolvedChatId;
+  if (location.storage == ChatStorageKind.openWebUi) {
+    await ref.read(syncEngineProvider.notifier).drainNow();
+  }
+}
+
+Future<void> _dispatchDirectRunFromChat(
+  dynamic ref, {
+  required _ResolvedDirectRoute route,
+  required String assistantMessageId,
+  required ChatMessage assistantSeed,
+  required List<ChatMessage> requestMessages,
+  required _DirectConversationOwner owner,
+  required DirectRunReservation reservation,
+}) async {
+  StreamSubscription<RemapEvent>? remapSubscription;
+  if (owner.location?.storage == ChatStorageKind.openWebUi) {
+    remapSubscription = trackDirectConversationRemaps(
+      events: ref.read(syncEngineProvider.notifier).remapEvents,
+      currentId: () => owner.conversationId,
+      setId: (id) => owner.conversationId = id,
+    );
+  }
+  try {
+    await _dispatchDirectRunFromChatWithTrackedOwner(
+      ref,
+      route: route,
+      assistantMessageId: assistantMessageId,
+      assistantSeed: assistantSeed,
+      requestMessages: requestMessages,
+      owner: owner,
+      reservation: reservation,
+    );
+  } finally {
+    await remapSubscription?.cancel();
+  }
+}
+
+Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
+  dynamic ref, {
+  required _ResolvedDirectRoute route,
+  required String assistantMessageId,
+  required ChatMessage assistantSeed,
+  required List<ChatMessage> requestMessages,
+  required _DirectConversationOwner owner,
+  required DirectRunReservation reservation,
+}) async {
+  final notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  final api = ref.read(apiServiceProvider);
+  final imageCache = <String, String?>{};
+  Future<String?> resolveImage(String id, int maxBytes) async {
+    if (imageCache.containsKey(id)) return imageCache[id];
+    final resolved = await _resolveDirectImageFromOpenWebUi(api, id, maxBytes);
+    imageCache[id] = resolved;
+    return resolved;
+  }
+
+  final directMessages = await buildDirectChatMessages(
+    messages: requestMessages,
+    resolveImage: resolveImage,
+  );
+  if (directMessages.isEmpty) {
+    throw const DirectChatInputException('There is no content to send.');
+  }
+  ensureDirectMessagesCompatibleWithModel(
+    model: route.model,
+    messages: directMessages,
+  );
+  if (registry.isCancelled(reservation)) {
+    throw const _DirectRunStoppedDuringPreflight();
+  }
+  final DirectProviderAdapter adapter = ref
+      .read(directProviderAdapterRegistryProvider)
+      .require(route.binding.adapterKey);
+  final run = adapter.startCompletion(
+    route.profile,
+    DirectCompletionRequest(
+      remoteModelId: route.binding.remoteModelId,
+      messages: directMessages,
+    ),
+  );
+  if (!registry.register(reservation, run)) {
+    await run.cancel('stopped before request start');
+    throw const _DirectRunStoppedDuringPreflight();
+  }
+  final accumulator = DirectStreamingAccumulator();
+
+  try {
+    await for (final event in run.events) {
+      accumulator.apply(event);
+      if (event is DirectUsageUpdate) {
+        notifier.updateMessageById(
+          assistantMessageId,
+          (current) => current.copyWith(usage: accumulator.usage),
+        );
+      } else if (event is DirectStreamError) {
+        notifier.updateMessageById(
+          assistantMessageId,
+          (current) =>
+              current.copyWith(error: ChatMessageError(content: event.message)),
+        );
+      } else if (event is DirectContentDelta || event is DirectReasoningDelta) {
+        notifier.replaceMessageContentById(
+          assistantMessageId,
+          accumulator.render(done: false),
+        );
+      }
+    }
+    notifier.updateMessageById(
+      assistantMessageId,
+      (current) => current.copyWith(
+        content: accumulator.render(done: true),
+        usage: accumulator.usage,
+        error: accumulator.error == null
+            ? current.error
+            : ChatMessageError(content: accumulator.error!.message),
+      ),
+    );
+    notifier.finishStreamingMessage(
+      assistantMessageId,
+      ownerConversationId: owner.conversationId,
+      requireConversationOwner: true,
+    );
+
+    final completed =
+        (ref.read(chatMessagesProvider) as List<ChatMessage>)
+            .where((message) => message.id == assistantMessageId)
+            .firstOrNull ??
+        assistantSeed.copyWith(
+          content: accumulator.render(done: true),
+          usage: accumulator.usage,
+          error: accumulator.error == null
+              ? null
+              : ChatMessageError(content: accumulator.error!.message),
+          isStreaming: false,
+        );
+    await _persistCompletedDirectAssistant(
+      ref,
+      owner: owner,
+      assistant: completed.copyWith(isStreaming: false),
+    );
+  } finally {
+    registry.complete(assistantMessageId, run);
+  }
+}
+
 Future<void> _sendMessageInternal(
   dynamic ref,
   String message,
@@ -5943,17 +6752,20 @@ Future<void> _sendMessageInternal(
 ]) async {
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
-  final selectedModel = ref.read(selectedModelProvider);
+  final selectedModelCandidate = ref.read(selectedModelProvider) as Model?;
+  final directRoute = await _resolveDirectRoute(ref, selectedModelCandidate);
 
-  // The OpenWebUI API may be null in Hermes-only mode; Hermes models route to
-  // the Hermes transport and don't need it.
+  // App-owned transports do not require an OpenWebUI API. A reserved direct
+  // identity without a current trusted registry binding remains blocked.
   if (isSendBlocked(
     reviewerMode: reviewerMode,
     api: api,
-    selectedModel: selectedModel,
+    selectedModel: selectedModelCandidate,
+    hasTrustedDirectBinding: directRoute != null,
   )) {
     throw Exception('No API service or model selected');
   }
+  final Model selectedModel = selectedModelCandidate!;
 
   final isLoadingConversation = ref.read(isLoadingConversationProvider);
   final currentConversation = ref.read(activeConversationProvider);
@@ -5961,6 +6773,14 @@ Future<void> _sendMessageInternal(
   // before its history loads, which would otherwise create a new chat.
   if (isLoadingConversation && currentConversation == null) {
     throw StateError('Conversation is still loading');
+  }
+  if (!isModelCompatibleWithConversation(
+    conversation: currentConversation,
+    hasTrustedDirectBinding: directRoute != null,
+  )) {
+    throw StateError(
+      'On-device direct chats can only continue with a direct connection model.',
+    );
   }
 
   // Get context attachments synchronously (no API calls)
@@ -6026,6 +6846,7 @@ Future<void> _sendMessageInternal(
       'parentId': userMessageId,
       'childrenIds': const <String>[],
       if (isHermesModel(selectedModel)) 'transport': kHermesTransport,
+      if (directRoute != null) 'transport': kDirectTransport,
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
     },
@@ -6034,6 +6855,13 @@ Future<void> _sendMessageInternal(
     userMessage,
     assistantPlaceholder,
   ]);
+  final DirectRunRegistry? directRegistry = directRoute == null
+      ? null
+      : ref.read(directRunRegistryProvider);
+  final DirectRunReservation? directReservation = directRegistry?.reserve(
+    assistantMessageId,
+    directRoute!.binding.profileId,
+  );
 
   // Hermes agent: route to the direct Hermes runs transport instead of the
   // OpenWebUI chat-completions pipeline. Hermes chats are local/ephemeral in
@@ -6063,6 +6891,122 @@ Future<void> _sendMessageInternal(
       ref.read(contextAttachmentsProvider.notifier).clear();
     } catch (_) {}
     return;
+  }
+
+  if (directRoute != null) {
+    _DirectConversationOwner? owner;
+    try {
+      if (contextAttachments.isNotEmpty) {
+        throw const DirectChatInputException(
+          'Direct chats support image attachments only.',
+        );
+      }
+
+      // A server file id is acceptable only when it resolves to an image. This
+      // check prevents documents from being silently omitted by the normalized
+      // direct request builder.
+      for (final attachment in attachments ?? const <String>[]) {
+        if (attachment.startsWith('data:image/')) continue;
+        final resolved = await _resolveDirectImageFromOpenWebUi(
+          api,
+          attachment,
+          kDirectMaxDecodedImageBytes,
+        );
+        if (resolved == null) {
+          throw const DirectChatInputException(
+            'This direct model does not support this attachment.',
+          );
+        }
+      }
+
+      final durableFiles = await _resolveDurableFilesFor(
+        ref,
+        attachments ?? const <String>[],
+      );
+      userMessage = userMessage.copyWith(
+        files: durableFiles.isEmpty ? null : durableFiles,
+      );
+      final notifier =
+          ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+      notifier.updateMessageById(userMessage.id, (_) => userMessage);
+      final allMessages = List<ChatMessage>.from(
+        ref.read(chatMessagesProvider) as List<ChatMessage>,
+        growable: false,
+      );
+      owner = await _persistDirectTurnStart(
+        ref,
+        route: directRoute,
+        userMessage: userMessage,
+        assistantMessage: assistantPlaceholder,
+        allMessages: allMessages,
+        pendingFolderId:
+            pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
+      );
+
+      final requestMessages = withDirectConversationSystemPrompt(
+        messages: <ChatMessage>[...existingMessages, userMessage],
+        systemPrompt: currentConversation?.systemPrompt,
+      );
+      await _dispatchDirectRunFromChat(
+        ref,
+        route: directRoute,
+        assistantMessageId: assistantMessageId,
+        assistantSeed: assistantPlaceholder,
+        requestMessages: requestMessages,
+        owner: owner,
+        reservation: directReservation!,
+      );
+      ref.read(contextAttachmentsProvider.notifier).clear();
+      return;
+    } catch (error, stackTrace) {
+      if (error is _DirectRunStoppedDuringPreflight) {
+        final notifier =
+            ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+        notifier.updateMessageById(
+          assistantMessageId,
+          (current) => current.copyWith(isStreaming: false),
+        );
+        final completed = (ref.read(chatMessagesProvider) as List<ChatMessage>)
+            .where((entry) => entry.id == assistantMessageId)
+            .firstOrNull;
+        if (owner != null && completed != null) {
+          await _persistCompletedDirectAssistant(
+            ref,
+            owner: owner,
+            assistant: completed,
+          );
+        }
+        return;
+      }
+      DebugLogger.error(
+        'send-failed',
+        scope: 'direct-connections/chat',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'profileId': directRoute.binding.profileId},
+      );
+      final notifier =
+          ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+      notifier.failLastStreamingAssistant(
+        error,
+        assistantMessageId: assistantMessageId,
+      );
+      final completed = (ref.read(chatMessagesProvider) as List<ChatMessage>)
+          .where((entry) => entry.id == assistantMessageId)
+          .firstOrNull;
+      if (owner != null && completed != null) {
+        await _persistCompletedDirectAssistant(
+          ref,
+          owner: owner,
+          assistant: completed,
+        );
+      }
+      rethrow;
+    } finally {
+      if (directReservation != null) {
+        directRegistry?.releaseReservation(directReservation);
+      }
+    }
   }
 
   // Now do async work in parallel: user settings + server file info
@@ -6574,6 +7518,8 @@ Future<void> _sendMessageInternal(
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
   if (e is HermesAttachmentsUnsupportedException) return e.message;
+  if (e is DirectChatInputException) return e.message;
+  if (e is DirectProviderException) return e.message;
 
   final msg = e.toString();
   if (msg.contains('400')) {
@@ -6680,17 +7626,145 @@ String _generateConversationTitle(List<ChatMessage> messages) {
   return title.isEmpty ? 'New Chat' : title;
 }
 
+Conversation? _listedConversationForSelection(
+  WidgetRef ref,
+  String selectionId,
+) {
+  final identity = ChatStorageIdentity.parse(selectionId);
+  final conversations = ref.read(conversationsProvider).asData?.value;
+  if (conversations == null) return null;
+  if (identity.storage != null) {
+    return conversations
+        .where(
+          (conversation) =>
+              conversationMatchesScopedId(conversation, selectionId),
+        )
+        .firstOrNull;
+  }
+  final candidates = conversations
+      .where((conversation) => conversation.id == identity.rawId)
+      .toList(growable: false);
+  return candidates
+          .where((conversation) => !isDirectLocalConversation(conversation))
+          .firstOrNull ??
+      candidates.firstOrNull;
+}
+
+bool _activeConversationMatchesSelection(
+  Conversation? active,
+  String selectionId,
+) {
+  if (active == null) return false;
+  final identity = ChatStorageIdentity.parse(selectionId);
+  if (identity.storage != null) {
+    return conversationMatchesScopedId(active, selectionId);
+  }
+  return active.id == identity.rawId && !isDirectLocalConversation(active);
+}
+
+String _directLocalSelectionId(ChatStorageIdentity identity) {
+  if (identity.storage != null &&
+      identity.storage != ChatStorageKind.directLocal) {
+    throw StateError('The selected chat is not stored on this device.');
+  }
+  return identity.storage == ChatStorageKind.directLocal
+      ? identity.scopedId
+      : ChatStorageIdentity(
+          rawId: identity.rawId,
+          storage: ChatStorageKind.directLocal,
+        ).scopedId;
+}
+
+Future<void> renameDirectLocalConversation(
+  WidgetRef ref,
+  String conversationId,
+  String title,
+) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
+  final selectionId = _directLocalSelectionId(identity);
+  final now = DateTime.now();
+  final locks = ref.read(chatLocksProvider);
+  final db = ref.read(directLocalDatabaseProvider);
+  await locks.runExclusive(
+    rawId,
+    () => db.chatsDao.updateLocalOnlyEnvelope(
+      rawId,
+      title: Value(title),
+      updatedAt: Value(now.millisecondsSinceEpoch ~/ 1000),
+    ),
+  );
+  ref
+      .read(conversationsProvider.notifier)
+      .updateConversation(
+        selectionId,
+        (conversation) => conversation.copyWith(title: title, updatedAt: now),
+      );
+  final active = ref.read(activeConversationProvider);
+  if (_activeConversationMatchesSelection(active, selectionId)) {
+    ref
+        .read(activeConversationProvider.notifier)
+        .set(active!.copyWith(title: title, updatedAt: now));
+  }
+}
+
+Future<void> deleteDirectLocalConversation(
+  WidgetRef ref,
+  String conversationId,
+) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
+  final selectionId = _directLocalSelectionId(identity);
+  final locks = ref.read(chatLocksProvider);
+  final db = ref.read(directLocalDatabaseProvider);
+  await locks.runExclusive(rawId, () => db.chatsDao.deleteLocalOnlyChat(rawId));
+  ref.read(conversationsProvider.notifier).removeConversation(selectionId);
+}
+
 // Pin/Unpin conversation
 Future<void> pinConversation(
   WidgetRef ref,
   String conversationId,
   bool pinned,
 ) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
+  final localConversation = _listedConversationForSelection(
+    ref,
+    conversationId,
+  );
+  if (identity.storage == ChatStorageKind.directLocal ||
+      isDirectLocalConversation(localConversation)) {
+    final locks = ref.read(chatLocksProvider);
+    final db = ref.read(directLocalDatabaseProvider);
+    await locks.runExclusive(
+      rawId,
+      () => db.chatsDao.updateLocalOnlyEnvelope(
+        rawId,
+        pinned: Value(pinned),
+        updatedAt: Value(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      ),
+    );
+    ref
+        .read(conversationsProvider.notifier)
+        .updateConversation(
+          conversationId,
+          (conversation) =>
+              conversation.copyWith(pinned: pinned, updatedAt: DateTime.now()),
+        );
+    final active = ref.read(activeConversationProvider);
+    if (_activeConversationMatchesSelection(active, conversationId)) {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(active!.copyWith(pinned: pinned));
+    }
+    return;
+  }
   try {
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service available');
 
-    await api.pinConversation(conversationId, pinned);
+    await api.pinConversation(rawId, pinned);
 
     ref
         .read(conversationsProvider.notifier)
@@ -6705,7 +7779,10 @@ Future<void> pinConversation(
 
     // Update active conversation if it's the one being pinned
     final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation?.id == conversationId) {
+    if (_activeConversationMatchesSelection(
+      activeConversation,
+      conversationId,
+    )) {
       ref
           .read(activeConversationProvider.notifier)
           .set(activeConversation!.copyWith(pinned: pinned));
@@ -6725,11 +7802,55 @@ Future<void> archiveConversation(
   String conversationId,
   bool archived,
 ) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
   final api = ref.read(apiServiceProvider);
   final activeConversation = ref.read(activeConversationProvider);
+  final listedConversation = _listedConversationForSelection(
+    ref,
+    conversationId,
+  );
+
+  if (identity.storage == ChatStorageKind.directLocal ||
+      isDirectLocalConversation(listedConversation)) {
+    final locks = ref.read(chatLocksProvider);
+    final db = ref.read(directLocalDatabaseProvider);
+    await locks.runExclusive(
+      rawId,
+      () => db.chatsDao.updateLocalOnlyEnvelope(
+        rawId,
+        archived: Value(archived),
+        updatedAt: Value(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      ),
+    );
+    ref
+        .read(conversationsProvider.notifier)
+        .updateConversation(
+          conversationId,
+          (conversation) => conversation.copyWith(
+            archived: archived,
+            updatedAt: DateTime.now(),
+          ),
+        );
+    if (_activeConversationMatchesSelection(
+      activeConversation,
+      conversationId,
+    )) {
+      if (archived) {
+        ref.read(activeConversationProvider.notifier).clear();
+        ref.read(chatMessagesProvider.notifier).clearMessages();
+      } else {
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(activeConversation!.copyWith(archived: false));
+      }
+    }
+    return;
+  }
 
   // Update local state first
-  if (activeConversation?.id == conversationId && archived) {
+  if (_activeConversationMatchesSelection(activeConversation, conversationId) &&
+      archived) {
     ref.read(activeConversationProvider.notifier).clear();
     ref.read(chatMessagesProvider.notifier).clearMessages();
   }
@@ -6737,7 +7858,7 @@ Future<void> archiveConversation(
   try {
     if (api == null) throw Exception('No API service available');
 
-    await api.archiveConversation(conversationId, archived);
+    await api.archiveConversation(rawId, archived);
 
     ref
         .read(conversationsProvider.notifier)
@@ -6758,7 +7879,11 @@ Future<void> archiveConversation(
     );
 
     // If server operation failed and we archived locally, restore the conversation
-    if (activeConversation?.id == conversationId && archived) {
+    if (_activeConversationMatchesSelection(
+          activeConversation,
+          conversationId,
+        ) &&
+        archived) {
       ref.read(activeConversationProvider.notifier).set(activeConversation);
       // Messages will be restored through the listener
     }
@@ -6943,6 +8068,7 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
 // Stop generation provider
 final stopGenerationProvider = Provider<void Function()>((ref) {
   return () {
+    var stoppedDirectRun = false;
     try {
       final messages = ref.read(chatMessagesProvider);
       if (messages.isNotEmpty &&
@@ -6950,7 +8076,11 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
           messages.last.isStreaming) {
         final last = messages.last;
 
-        if (last.metadata?['transport'] == kHermesTransport) {
+        if (last.metadata?['transport'] == kDirectTransport) {
+          stoppedDirectRun = true;
+          final stop = ref.read(directRunRegistryProvider).cancel(last.id);
+          if (stop != null) unawaited(stop);
+        } else if (last.metadata?['transport'] == kHermesTransport) {
           // The registry owns the service/origin that created this run.
           final stop = ref.read(hermesRunRegistryProvider).cancel(last.id);
           if (stop != null) unawaited(stop);
@@ -6969,6 +8099,11 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
             .cancelActiveMessageStreamPreservingContent();
       }
     } catch (_) {}
+
+    // Direct completions never create an OpenWebUI completion task or
+    // requestCompletion outbox operation. Do not send a broad server-side stop
+    // for an unrelated synced transcript.
+    if (stoppedDirectRun) return;
 
     // Best-effort: stop any background tasks associated with this chat
     // (parity with web) — covers tasks not tracked via message metadata.

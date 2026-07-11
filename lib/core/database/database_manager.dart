@@ -20,21 +20,32 @@ class DatabaseManager {
   DatabaseManager({
     Future<Directory> Function()? databaseDirectory,
     AppDatabase Function(String fileName)? openDatabase,
+    String Function(String serverId)? databaseFileName,
   }) : _databaseDirectory = databaseDirectory ?? getApplicationSupportDirectory,
-       _openDatabase = openDatabase ?? AppDatabase.forServer;
+       _openDatabase = openDatabase ?? AppDatabase.forServer,
+       _databaseFileName = databaseFileName ?? fileNameFor;
 
   final Future<Directory> Function() _databaseDirectory;
   final AppDatabase Function(String fileName) _openDatabase;
+  final String Function(String serverId) _databaseFileName;
 
   AppDatabase? _active;
   String? _activeServerId;
   Future<void>? _pendingClose;
+  final Map<String, String> _fileOwners = <String, String>{};
 
   /// Sync, lazy-open accessor for [server]'s database.
   AppDatabase openFor(ServerConfig server) => openForServerId(server.id);
 
   /// Sync, lazy-open accessor when only the stable server id is available.
   AppDatabase openForServerId(String serverId) {
+    final fileName = _databaseFileName(serverId);
+    final owner = _fileOwners[fileName];
+    if (owner != null && owner != serverId) {
+      throw StateError(
+        'Database file $fileName is already owned by logical id $owner.',
+      );
+    }
     final existing = _active;
     if (existing != null && _activeServerId == serverId) {
       return existing;
@@ -64,7 +75,15 @@ class DatabaseManager {
               });
     }
     DebugLogger.log('open', scope: 'db/manager', data: {'serverId': serverId});
-    final db = _openDatabase(fileNameFor(serverId));
+    final claimedFile = owner == null;
+    if (claimedFile) _fileOwners[fileName] = serverId;
+    late final AppDatabase db;
+    try {
+      db = _openDatabase(fileName);
+    } catch (_) {
+      if (claimedFile) _fileOwners.remove(fileName);
+      rethrow;
+    }
     _active = db;
     _activeServerId = serverId;
     return db;
@@ -93,6 +112,13 @@ class DatabaseManager {
   /// `_openConnection`); WAL mode produces `.sqlite-wal` / `.sqlite-shm`
   /// siblings.
   Future<void> deleteFor(String serverId) async {
+    final fileName = _databaseFileName(serverId);
+    final owner = _fileOwners[fileName];
+    if (owner != null && owner != serverId) {
+      throw StateError(
+        'Cannot delete database file $fileName owned by logical id $owner.',
+      );
+    }
     if (_activeServerId == serverId) {
       await closeActive();
     }
@@ -104,13 +130,14 @@ class DatabaseManager {
       await pending;
     }
     final directory = await _databaseDirectory();
-    final base = p.join(directory.path, '${fileNameFor(serverId)}.sqlite');
+    final base = p.join(directory.path, '$fileName.sqlite');
     for (final path in [base, '$base-wal', '$base-shm']) {
       final file = File(path);
       if (await file.exists()) {
         await file.delete();
       }
     }
+    if (owner == serverId) _fileOwners.remove(fileName);
     DebugLogger.log(
       'deleted',
       scope: 'db/manager',

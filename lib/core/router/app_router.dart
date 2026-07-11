@@ -42,6 +42,8 @@ import '../../features/notifications/views/notification_settings_page.dart';
 import '../../features/workspace/providers/workspace_capabilities_provider.dart';
 import '../../features/workspace/views/workspace_page.dart';
 import '../../features/workspace/workspace_navigation.dart';
+import '../../features/direct_connections/views/direct_connection_editor_page.dart';
+import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
 
@@ -56,6 +58,28 @@ bool isHermesOnlyAppLocation(String location) {
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
+      isDirectConnectionsLocation(location) ||
+      location == Routes.hermesSettings ||
+      location == Routes.hermesJobs ||
+      location == Routes.about;
+}
+
+@visibleForTesting
+bool isDirectConnectionsLocation(String location) {
+  return location == Routes.directConnections ||
+      location.startsWith('${Routes.directConnections}/');
+}
+
+/// App-local surfaces available when direct APIs are the primary backend.
+@visibleForTesting
+bool isDirectOnlyAppLocation(String location) {
+  return location == Routes.chat ||
+      location == Routes.profile ||
+      location == Routes.audioSettings ||
+      location == Routes.appearanceSettings ||
+      location == Routes.chatSettings ||
+      location == Routes.dataConnectionSettings ||
+      isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
       location == Routes.about;
@@ -112,12 +136,16 @@ class RouterNotifier extends ChangeNotifier {
     final location = state.uri.path.isEmpty ? Routes.splash : state.uri.path;
     final reviewerMode = ref.read(reviewerModeProvider);
     final activeServerAsync = ref.read(activeServerProvider);
+    final preferredBackend = ref.read(preferredBackendProvider);
 
-    // Check for API key forced logout first - redirect to authentication
+    // A stale optional Open WebUI credential must not block a direct-primary
+    // install. Other backend modes retain the forced-auth behavior.
     final authSnapshot = ref
         .read(authStateManagerProvider)
         .maybeWhen(data: (s) => s, orElse: () => null);
-    if (authSnapshot?.error?.contains('apiKey') == true) {
+    if (preferredBackend != PreferredBackend.direct &&
+        !isDirectConnectionsLocation(location) &&
+        authSnapshot?.error?.contains('apiKey') == true) {
       return location == Routes.authentication ? null : Routes.authentication;
     }
 
@@ -127,20 +155,24 @@ class RouterNotifier extends ChangeNotifier {
       return Routes.chat;
     }
 
-    // Onboarding screens (backend chooser + Hermes setup) always render.
+    // Onboarding and local backend setup screens always render.
     if (location == Routes.backendChooser ||
-        location == Routes.hermesSettings) {
+        location == Routes.hermesSettings ||
+        isDirectConnectionsLocation(location)) {
       return null;
     }
 
-    final preferredBackend = ref.read(preferredBackendProvider);
     final hermesUsable = ref.read(hermesConfigProvider).isUsable;
     final hermesSecretsLoading = ref.read(hermesSecretsLoadingProvider);
     final prefersHermes = preferredBackend == PreferredBackend.hermes;
+    final prefersDirect = preferredBackend == PreferredBackend.direct;
 
     if (activeServerAsync.isLoading) {
       // Avoid redirect loops: do not override explicit auth routes while loading
       if (_isAuthLocation(location)) return null;
+      if (prefersDirect) {
+        return isDirectOnlyAppLocation(location) ? null : Routes.chat;
+      }
       // Hermes-only user: don't flash the OWUI splash→serverConnection path.
       if (prefersHermes && hermesUsable) {
         return isHermesOnlyAppLocation(location) ? null : Routes.chat;
@@ -160,11 +192,26 @@ class RouterNotifier extends ChangeNotifier {
     }
 
     if (activeServerAsync.hasError) {
+      if (prefersDirect) {
+        if (_isAuthLocation(location)) return null;
+        return isDirectOnlyAppLocation(location) ? null : Routes.chat;
+      }
       return location == Routes.connectionIssue ? null : Routes.connectionIssue;
     }
 
     final activeServer = activeServerAsync.asData?.value;
     final hasActiveServer = activeServer != null;
+    final authState = ref.read(authNavigationStateProvider);
+
+    // A direct-primary install never depends on an Open WebUI auth session.
+    // Auth routes remain reachable so users can add or repair an optional
+    // Open WebUI connection for history sync. Once that optional session is
+    // authenticated, its server-backed surfaces remain available too.
+    if (prefersDirect &&
+        (!hasActiveServer || authState != AuthNavigationState.authenticated)) {
+      if (_isAuthLocation(location)) return null;
+      return isDirectOnlyAppLocation(location) ? null : Routes.chat;
+    }
 
     // Hermes-only mode: onboarded to Hermes with no OWUI server → straight to
     // chat, bypassing OWUI server/auth entirely (mirrors reviewer mode).
@@ -203,8 +250,6 @@ class RouterNotifier extends ChangeNotifier {
       }
       return Routes.backendChooser;
     }
-
-    final authState = ref.read(authNavigationStateProvider);
 
     // Allow staying on server connection page
     if (location == Routes.serverConnection) {
@@ -504,6 +549,27 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
         child: const NotificationSettingsPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.directConnections,
+      name: RouteNames.directConnections,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: DirectConnectionsPage(
+          isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+        ),
+      ),
+    ),
+    GoRoute(
+      path: Routes.directConnectionEditor,
+      name: RouteNames.directConnectionEditor,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: DirectConnectionEditorPage(
+          profileId: state.pathParameters['id']!,
+          isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+        ),
       ),
     ),
     GoRoute(

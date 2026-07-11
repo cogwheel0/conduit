@@ -8,7 +8,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
 /// First-run screen letting a fresh install choose its backend: a self-hosted
-/// Open WebUI server, or a Hermes Agent (used exclusively, no Open WebUI).
+/// Open WebUI, direct model APIs, or a Hermes Agent.
 class BackendChooserPage extends ConsumerWidget {
   const BackendChooserPage({super.key});
 
@@ -56,6 +56,15 @@ class BackendChooserPage extends ConsumerWidget {
                     title: l10n.connectOpenWebUITitle,
                     subtitle: l10n.backendChooserOpenWebUISubtitle,
                     onTap: () => context.go(Routes.serverConnection),
+                  ),
+                  const SizedBox(height: Spacing.md),
+                  _ChooserCard(
+                    icon: Icons.hub_outlined,
+                    title: l10n.backendChooserDirectTitle,
+                    subtitle: l10n.backendChooserDirectSubtitle,
+                    onTap: () => context.go(
+                      '${Routes.directConnections}?onboarding=true',
+                    ),
                   ),
                   const SizedBox(height: Spacing.md),
                   _ChooserCard(

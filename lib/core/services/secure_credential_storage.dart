@@ -23,6 +23,8 @@ class SecureCredentialStorage {
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
+  static const String _directConnectionProfilesKey =
+      'direct_connection_profiles_v1';
 
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
@@ -289,6 +291,57 @@ class SecureCredentialStorage {
     } catch (e) {
       DebugLogger.error('delete-failed', scope: 'hermes/session-key', error: e);
       rethrow;
+    }
+  }
+
+  /// Persists the complete versioned direct-connection document securely.
+  ///
+  /// Profiles include API keys, custom headers, and optional mTLS material, so
+  /// their serialized representation must never be placed in preferences.
+  Future<void> saveDirectConnectionProfiles(String profilesJson) async {
+    try {
+      await _secureStorage.write(
+        key: _directConnectionProfilesKey,
+        value: profilesJson,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'save-failed',
+        scope: 'direct-connections/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// Reads the versioned direct-connection document from secure storage.
+  /// Storage failures are surfaced rather than being confused with no config.
+  Future<String?> getDirectConnectionProfiles() async {
+    try {
+      return await _secureStorage.read(key: _directConnectionProfilesKey);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'read-failed',
+        scope: 'direct-connections/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> deleteDirectConnectionProfiles() async {
+    try {
+      await _secureStorage.delete(key: _directConnectionProfilesKey);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'delete-failed',
+        scope: 'direct-connections/profiles',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 

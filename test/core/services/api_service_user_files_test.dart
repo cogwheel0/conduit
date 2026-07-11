@@ -47,6 +47,74 @@ void main() {
       },
     );
   });
+
+  group('ApiService.getFileContent', () {
+    test('streams image content within the configured byte limit', () async {
+      final api = _buildApiService(
+        _FileContentAdapter([
+          Uint8List.fromList([1, 2]),
+          Uint8List.fromList([3]),
+        ]),
+      );
+
+      final content = await api.getFileContent('image', maxBytes: 3);
+
+      check(content).equals('data:image/png;base64,AQID');
+    });
+
+    test('aborts content that exceeds the configured byte limit', () async {
+      final api = _buildApiService(
+        _FileContentAdapter([
+          Uint8List.fromList([1, 2]),
+          Uint8List.fromList([3, 4]),
+        ]),
+      );
+
+      await expectLater(
+        api.getFileContent('large-image', maxBytes: 3),
+        throwsA(isA<FileContentTooLargeException>()),
+      );
+    });
+
+    test('rejects an oversized advertised content length', () async {
+      final api = _buildApiService(
+        _FileContentAdapter([
+          Uint8List.fromList([1]),
+        ], advertisedLength: 100),
+      );
+
+      await expectLater(
+        api.getFileContent('large-image', maxBytes: 3),
+        throwsA(isA<FileContentTooLargeException>()),
+      );
+    });
+  });
+}
+
+final class _FileContentAdapter implements HttpClientAdapter {
+  _FileContentAdapter(this.chunks, {this.advertisedLength});
+
+  final List<Uint8List> chunks;
+  final int? advertisedLength;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody(
+      Stream<Uint8List>.fromIterable(chunks),
+      200,
+      headers: {
+        'content-type': ['image/png'],
+        if (advertisedLength != null) 'content-length': ['$advertisedLength'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _QueuedJsonAdapter implements HttpClientAdapter {

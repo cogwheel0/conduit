@@ -68,5 +68,20 @@ void main() {
 
       check(frames).isEmpty();
     });
+
+    test('rejects oversized lines and aggregate frame data', () {
+      final lineScanner = SseFrameScanner(maxLineCharacters: 4);
+      check(
+        () => lineScanner.addChunk('abcde').toList(),
+      ).throws<FormatException>();
+
+      final frameScanner = SseFrameScanner(
+        maxLineCharacters: 32,
+        maxFrameDataCharacters: 4,
+      );
+      check(
+        () => frameScanner.addChunk('data: 12345\n\n').toList(),
+      ).throws<FormatException>();
+    });
   });
 }

@@ -72,6 +72,13 @@ class VisionCapableModelsNotifier extends Notifier<List<String>> {
       return [];
     }
 
+    final directBinding = ref
+        .read(directModelRegistryProvider)
+        .resolve(selectedModel);
+    if (directBinding != null && selectedModel.isMultimodal != true) {
+      return [];
+    }
+
     if (selectedModel.isMultimodal == true) {
       return [selectedModel.id];
     }

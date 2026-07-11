@@ -95,6 +95,8 @@
 		<string>Conduit uses your location to keep location-aware chats and prompts up to date. When enabled, your current location may be sent to and stored with your account on your connected server.</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 		<string>Conduit uses your location to keep location-aware chats and prompts up to date. When enabled, your current location may be sent to and stored with your account on your connected server.</string>
+		<key>NSLocalNetworkUsageDescription</key>
+		<string>Conduit uses your local network to connect directly to OpenAI-compatible and Ollama servers you configure.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Conduit needs access to your photo library so you can select existing images or videos to share in chats. For example, you can pick a screenshot to include in a conversation.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>

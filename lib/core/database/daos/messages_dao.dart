@@ -30,6 +30,25 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return _messageById(chatId, messageId);
   }
 
+  /// Finds at most [limit] owning chats for a message id. Message ids are UUIDs
+  /// in normal operation, but the schema permits the same id in different
+  /// chats, so callers must treat multiple matches as ambiguous.
+  Future<List<String>> getChatIdsForMessage(
+    String messageId, {
+    int limit = 2,
+  }) async {
+    if (limit <= 0) return const [];
+    final query = selectOnly(messages)
+      ..addColumns([messages.chatId])
+      ..where(messages.id.equals(messageId))
+      ..limit(limit);
+    final rows = await query.get();
+    return rows
+        .map((row) => row.read(messages.chatId))
+        .whereType<String>()
+        .toList(growable: false);
+  }
+
   /// Marks an assistant placeholder as submitted/completed without changing its
   /// content. Headless completions use this after the server accepts the
   /// request so replay can distinguish "already sent, awaiting pull" from a

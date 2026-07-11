@@ -152,6 +152,46 @@ void main() {
       check(slash.startsWith('server_')).isTrue();
       check(RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(slash)).isTrue();
     });
+
+    test('supports a fixed filename for an independent database', () async {
+      await manager.closeActive();
+      openedFileNames.clear();
+      manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) {
+          openedFileNames.add(fileName);
+          return AppDatabase(NativeDatabase(fileFor(fileName)));
+        },
+        databaseFileName: (_) => 'direct_local_v1',
+      );
+
+      final db = manager.openForServerId('logical-direct-id');
+      await db.customSelect('SELECT 1').get();
+
+      check(openedFileNames).deepEquals(['direct_local_v1']);
+      check(fileFor('direct_local_v1').existsSync()).isTrue();
+
+      await manager.deleteFor('logical-direct-id');
+      check(fileFor('direct_local_v1').existsSync()).isFalse();
+    });
+
+    test('rejects two logical ids that resolve to one filename', () async {
+      await manager.closeActive();
+      manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) =>
+            AppDatabase(NativeDatabase(fileFor(fileName))),
+        databaseFileName: (_) => 'shared_name',
+      );
+
+      final active = manager.openForServerId('logical-a');
+      await active.customSelect('SELECT 1').get();
+
+      check(() => manager.openForServerId('logical-b')).throws<StateError>();
+      await check(manager.deleteFor('logical-b')).throws<StateError>();
+      check((await active.customSelect('SELECT 1').get())).isNotEmpty();
+      check(fileFor('shared_name').existsSync()).isTrue();
+    });
   });
 }
 

@@ -79,6 +79,9 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether the conversation has an active generation running on the server.
   final bool isGenerating;
 
+  /// Optional compact provenance label, such as "On device".
+  final String? badge;
+
   /// Whether the row should size itself to its contents instead of filling width.
   final bool shrinkWrap;
 
@@ -91,6 +94,7 @@ class ConversationTileContent extends StatelessWidget {
     this.unread = false,
     required this.isLoading,
     this.isGenerating = false,
+    this.badge,
     this.shrinkWrap = false,
   });
 
@@ -106,6 +110,33 @@ class ConversationTileContent extends StatelessWidget {
     );
 
     final trailingWidgets = <Widget>[];
+
+    if (badge != null && badge!.trim().isNotEmpty) {
+      trailingWidgets.addAll([
+        const SizedBox(width: Spacing.sm),
+        Container(
+          constraints: const BoxConstraints(maxWidth: 104),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.xs,
+            vertical: Spacing.xxs,
+          ),
+          decoration: BoxDecoration(
+            color: theme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+          ),
+          child: Text(
+            badge!,
+            style: AppTypography.labelStyle.copyWith(
+              color: theme.textSecondary,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ]);
+    }
 
     if (pinned) {
       trailingWidgets.addAll([
@@ -198,6 +229,9 @@ class ConversationTile extends StatelessWidget {
   /// Whether the conversation has an active generation running on the server.
   final bool isGenerating;
 
+  /// Optional compact provenance label.
+  final String? badge;
+
   /// Callback when the tile is tapped.
   final VoidCallback? onTap;
 
@@ -210,6 +244,7 @@ class ConversationTile extends StatelessWidget {
     this.unread = false,
     required this.isLoading,
     this.isGenerating = false,
+    this.badge,
     required this.onTap,
   });
 
@@ -260,6 +295,7 @@ class ConversationTile extends StatelessWidget {
                 unread: unread,
                 isLoading: isLoading,
                 isGenerating: isGenerating,
+                badge: badge,
               ),
             ),
           ),

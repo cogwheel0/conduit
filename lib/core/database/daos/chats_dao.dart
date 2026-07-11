@@ -346,14 +346,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// those message rows stay dirty. Always `deleted=false`, `bodySynced=true`,
   /// and the delete+reinsert of message rows. `serverUpdatedAt` is the caller's
   /// contract (fast-forward advances it to today's body; three-way keeps it at
-  /// `base` so the push advances it).
+  /// `base` so the push advances it). Local-only chats pass null because they
+  /// have no remote merge base.
   Future<void> _writeChatRows({
     required ChatRows rows,
     required String? shareId,
     required Map<String, dynamic> meta,
     required int? listLastReadAt,
     required int? existingLastReadAt,
-    required int serverUpdatedAt,
+    required int? serverUpdatedAt,
     required bool chatDirty,
     Set<String> dirtyMessageIds = const {},
   }) async {
@@ -496,6 +497,84 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   // server-origin writes and must never produce outbox ops.
 
   OutboxDao get _outboxDao => attachedDatabase.outboxDao;
+
+  /// Inserts or replaces a complete on-device chat without creating outbox
+  /// work. This is the durable write seam for direct-provider conversations
+  /// that must never be synchronized to Open WebUI.
+  ///
+  /// The row has no remote merge base (`serverUpdatedAt = null`) and both the
+  /// chat and message rows remain clean. Replacing the message set is
+  /// intentional: [rows] is the complete local source of truth.
+  Future<void> upsertLocalOnlyChat({
+    required ChatRows rows,
+    Map<String, dynamic> meta = const {},
+    int? lastReadAt,
+  }) {
+    return transaction(() async {
+      final existing = await getChat(rows.chat.id);
+      await _writeChatRows(
+        rows: rows,
+        shareId: null,
+        meta: meta,
+        listLastReadAt: lastReadAt,
+        existingLastReadAt: existing?.lastReadAt,
+        serverUpdatedAt: null,
+        chatDirty: false,
+      );
+    });
+  }
+
+  /// Appends or replaces local-only messages and advances the chat tip without
+  /// dirtying rows or enqueuing either an update or completion operation.
+  Future<void> appendLocalOnlyMessages({
+    required String chatId,
+    required List<MessageRowData> messages,
+    String? currentMessageId,
+    int? updatedAt,
+  }) {
+    return appendMessagesWithUpdateOp(
+      chatId: chatId,
+      messages: messages,
+      currentMessageId: currentMessageId,
+      updatedAt: updatedAt,
+      enqueueUpdate: false,
+      enqueueCompletion: false,
+    );
+  }
+
+  /// Updates an on-device chat envelope without marking it dirty or creating an
+  /// Open WebUI outbox operation.
+  Future<void> updateLocalOnlyEnvelope(
+    String chatId, {
+    Value<String> title = const Value.absent(),
+    Value<String?> folderId = const Value.absent(),
+    Value<bool> pinned = const Value.absent(),
+    Value<bool> archived = const Value.absent(),
+    Value<int> updatedAt = const Value.absent(),
+  }) async {
+    await (update(chats)..where((t) => t.id.equals(chatId))).write(
+      ChatsCompanion(
+        title: title,
+        folderId: folderId,
+        pinned: pinned,
+        archived: archived,
+        updatedAt: updatedAt,
+        dirty: const Value(false),
+      ),
+    );
+  }
+
+  /// Permanently removes an on-device chat. Any unexpected stale outbox rows
+  /// are deleted defensively so this method cannot leave synchronizable work
+  /// behind.
+  Future<void> deleteLocalOnlyChat(String chatId) {
+    return transaction(() async {
+      await (delete(
+        _outboxDao.outboxOps,
+      )..where((t) => t.chatId.equals(chatId))).go();
+      await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+    });
+  }
 
   /// Local envelope edit: wraps [updateEnvelope]'s write, marks the chat
   /// `dirty` so the conflict gate / merge sees it, and (when [enqueue])

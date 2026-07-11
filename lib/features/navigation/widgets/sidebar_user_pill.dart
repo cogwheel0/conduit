@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/user.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/services/settings_service.dart';
@@ -105,20 +106,29 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = resolveSidebarUser(ref);
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    if (user == null && !hermesOnly) return const SizedBox.shrink();
+    final directPrimary =
+        ref.watch(preferredBackendProvider) == PreferredBackend.direct;
+    if (user == null && !hermesOnly && !directPrimary) {
+      return const SizedBox.shrink();
+    }
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
+    final directTitle = l10n.directConnectionsTitle;
     final displayName = hermesOnly
         ? 'Hermes Agent'
+        : directPrimary && user == null
+        ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
     final initial = hermesOnly
         ? 'HA'
+        : directPrimary && user == null
+        ? directTitle.characters.first.toUpperCase()
         : displayName.isEmpty
         ? 'U'
         : displayName.characters.first.toUpperCase();
-    final avatarUrl = hermesOnly
+    final avatarUrl = hermesOnly || user == null
         ? null
         : resolveUserAvatarUrlForUser(api, user);
     final iconColor = context.conduitTheme.textPrimary;
@@ -225,6 +235,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               initials: 'HA',
               avatarBytes: hermesAvatarBytes,
             )
+          : user == null
+          ? NativeProfileSheetUser(
+              displayName: l10n.directConnectionsTitle,
+              email: l10n.directConnectionsSubtitle,
+              initials: l10n.directConnectionsTitle.characters.first
+                  .toUpperCase(),
+            )
           : NativeProfileSheetUser(
               displayName: displayName,
               email: email,
@@ -265,7 +282,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         currentAvatarLabel: l10n.currentAvatar,
       ),
       menuItems: [
-        if (!hermesOnly)
+        if (user != null)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.profile,
             title: displayName,
@@ -287,14 +304,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           title: l10n.voice,
           sfSymbol: 'waveform',
         ),
-        // Notifications are OWUI-socket-derived, so hide them in Hermes-only.
-        if (!hermesOnly)
+        // Notifications are OWUI-socket-derived, so require an OWUI account.
+        if (user != null)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.notificationSettings,
             title: l10n.notificationsTitle,
             sfSymbol: 'bell',
           ),
-        if (!hermesOnly)
+        if (user != null)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.aiMemory,
             title: aiMemoryTitle,
@@ -309,6 +326,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           actionId: NativeSheetRoutes.hermes,
           actionValue: true,
         ),
+        NativeSheetItemConfig(
+          id: 'open-direct-connections',
+          title: l10n.directConnectionsTitle,
+          subtitle: l10n.directConnectionsSubtitle,
+          sfSymbol: 'link.circle',
+        ),
         if (canManageWorkspace)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.workspace,
@@ -318,13 +341,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             actionId: NativeSheetRoutes.workspace,
             actionValue: true,
           ),
-        if (!hermesOnly)
+        if (user != null)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.dataConnection,
             title: dataConnectionTitle,
             sfSymbol: 'network',
           ),
-        if (hermesOnly)
+        if (user == null)
           NativeSheetItemConfig(
             id: 'add-owui-server',
             title: l10n.connectOpenWebUITitle,
@@ -339,7 +362,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           title: l10n.aboutApp,
           sfSymbol: 'info.circle',
         ),
-        if (!hermesOnly)
+        if (user != null)
           NativeSheetItemConfig(
             id: 'sign-out',
             title: l10n.signOut,
@@ -367,7 +390,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ),
       ],
       detailSheets: [
-        if (!hermesOnly)
+        if (user != null)
           NativeSheetDetailConfig(
             id: NativeSheetRoutes.profile,
             title: profileTitle,
@@ -419,7 +442,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               ),
             ],
           ),
-        if (!hermesOnly)
+        if (user != null)
           buildNativePasswordDetail(
             l10n,
             passwordChangeEnabled: true,

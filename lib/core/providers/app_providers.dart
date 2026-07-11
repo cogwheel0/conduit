@@ -31,6 +31,7 @@ import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/conversation_parsing.dart';
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
@@ -41,10 +42,13 @@ import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/direct_connections/direct_connections.dart';
+import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
 import '../database/database_provider.dart';
+import '../database/chat_database_repository.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/mappers/conversation_assembler.dart';
 import '../sync/chat_locks.dart';
@@ -720,7 +724,9 @@ List<Model> appendHermesModelIfUsable(
   List<Model> models, {
   required bool hermesUsable,
 }) {
-  final safeModels = sanitizeRemoteHermesModels(models);
+  final safeModels = sanitizeRemoteHermesModels(
+    sanitizeRemoteDirectModels(models),
+  );
   return hermesUsable
       ? <Model>[...safeModels, hermesSyntheticModel()]
       : safeModels;
@@ -737,6 +743,15 @@ class Models extends _$Models {
 
     final hermesUsable = ref.watch(
       hermesConfigProvider.select((config) => config.isUsable),
+    );
+    final directModels = ref.watch(
+      directModelDiscoveryProvider.select((value) {
+        final models = value.value?.models;
+        // Keep loading -> empty discovery transitions referentially stable.
+        // Otherwise an empty, newly wrapped list can cancel a concurrent
+        // modelsProvider rebuild and leave callers awaiting its old future.
+        return models == null || models.isEmpty ? const <Model>[] : models;
+      }),
     );
     ref.listen<bool>(hermesConfigProvider.select((config) => config.isUsable), (
       previous,
@@ -757,14 +772,18 @@ class Models extends _$Models {
     }
 
     if (!ref.watch(isAuthenticatedProvider2)) {
-      // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
-      // just the synthetic Hermes model so the picker/composer work.
-      if (hermesUsable) {
-        return _withHermes(const <Model>[]);
+      // Standalone mode surfaces app-owned transports without requiring an
+      // Open WebUI session.
+      final localModels = _withLocalModels(
+        const <Model>[],
+        directModels: directModels,
+      );
+      if (localModels.isNotEmpty) {
+        return _returnWithSelectionReconciliation(localModels);
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return const <Model>[];
+      return _returnWithSelectionReconciliation(const <Model>[]);
     }
 
     // Re-run whenever Hermes connection usability changes so the synthetic
@@ -773,7 +792,9 @@ class Models extends _$Models {
     try {
       final cached = await storage.getLocalModels();
       if (cached.isNotEmpty) {
-        final visibleCached = _visibleModels(cached);
+        final visibleCached = sanitizeRemoteHermesModels(
+          sanitizeRemoteDirectModels(_visibleModels(cached)),
+        );
         DebugLogger.log(
           'cache-restored',
           scope: 'models/cache',
@@ -797,7 +818,9 @@ class Models extends _$Models {
             );
           }
         });
-        return _withHermes(visibleCached);
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(visibleCached, directModels: directModels),
+        );
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -812,19 +835,53 @@ class Models extends _$Models {
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return _withHermes(const <Model>[]);
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+      );
     }
 
-    final fresh = await _load(api);
-    return _withHermes(fresh);
+    try {
+      final fresh = await _load(api);
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(fresh, directModels: directModels),
+      );
+    } catch (_) {
+      final localModels = _withLocalModels(
+        const <Model>[],
+        directModels: directModels,
+      );
+      if (localModels.isNotEmpty) {
+        return _returnWithSelectionReconciliation(localModels);
+      }
+      _returnWithSelectionReconciliation(localModels);
+      rethrow;
+    }
   }
 
-  /// Appends the synthetic Hermes agent model when the connection is usable.
-  /// Called after OpenWebUI models are persisted so Hermes never lands in the
-  /// model cache, and guarded against duplicates on rebuild.
-  List<Model> _withHermes(List<Model> models) {
+  List<Model> _returnWithSelectionReconciliation(List<Model> models) {
+    unawaited(
+      Future<void>(() {
+        if (ref.mounted) _reconcileLocalSelection(models);
+      }),
+    );
+    return models;
+  }
+
+  /// Appends locally minted direct/Hermes models after the OpenWebUI list has
+  /// been sanitized and persisted. Local transport models remain runtime-only.
+  List<Model> _withLocalModels(
+    List<Model> models, {
+    List<Model>? directModels,
+  }) {
+    final withDirect = reconcileDirectModelsForDisplay(
+      remoteModels: models,
+      directModels:
+          directModels ??
+          ref.read(directModelDiscoveryProvider).value?.models ??
+          const <Model>[],
+    );
     return appendHermesModelIfUsable(
-      models,
+      withDirect,
       hermesUsable: ref.read(hermesConfigProvider).isUsable,
     );
   }
@@ -832,11 +889,32 @@ class Models extends _$Models {
   /// Prevents a disabled or incomplete Hermes connection from leaving the
   /// composer bound to a transport that can no longer handle the selection.
   /// Prefer the first available OpenWebUI model; Hermes-only mode clears it.
-  List<Model> _reconcileHermesSelection(List<Model> models) {
+  List<Model> _reconcileLocalSelection(List<Model> models) {
     final currentSelected = ref.read(selectedModelProvider);
-    if (currentSelected == null ||
-        !isHermesModel(currentSelected) ||
-        models.any(isHermesModel)) {
+    final isLocalTransport =
+        currentSelected != null &&
+        (isHermesModel(currentSelected) ||
+            isLocallyMintedDirectModel(currentSelected));
+    if (currentSelected == null || !isLocalTransport) {
+      return models;
+    }
+
+    final matching = models
+        .where((model) => model.id == currentSelected.id)
+        .firstOrNull;
+    if (matching != null) {
+      if (isLocallyMintedDirectModel(currentSelected)) {
+        final registry = ref.read(directModelRegistryProvider);
+        if (!identical(matching, currentSelected) ||
+            registry.resolve(currentSelected) == null) {
+          ref.read(selectedModelProvider.notifier).set(matching);
+          DebugLogger.log(
+            'direct-selection-rebound',
+            scope: 'models',
+            data: {'id': matching.id},
+          );
+        }
+      }
       return models;
     }
 
@@ -844,7 +922,7 @@ class Models extends _$Models {
     ref.read(isManualModelSelectionProvider.notifier).set(false);
     ref.read(selectedModelProvider.notifier).set(replacement);
     DebugLogger.warning(
-      'hermes-selection-unavailable',
+      'local-selection-unavailable',
       scope: 'models',
       data: {'replacement': replacement?.id},
     );
@@ -862,37 +940,57 @@ class Models extends _$Models {
 
   Future<void> refresh() async {
     if (ref.read(reviewerModeProvider)) {
-      state = AsyncData<List<Model>>(_reconcileHermesSelection(_demoModels()));
+      state = AsyncData<List<Model>>(_reconcileLocalSelection(_demoModels()));
       return;
     }
+    await ref.read(directModelDiscoveryProvider.notifier).refresh();
     if (!ref.read(isAuthenticatedProvider2)) {
-      final models = ref.read(hermesConfigProvider).isUsable
-          ? _withHermes(const <Model>[])
-          : const <Model>[];
-      state = AsyncData<List<Model>>(_reconcileHermesSelection(models));
-      // Keep the locally minted Hermes sentinel runtime-only.
+      final models = _withLocalModels(const <Model>[]);
+      state = AsyncData<List<Model>>(_reconcileLocalSelection(models));
+      // Keep locally minted transport models runtime-only.
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
       state = AsyncData<List<Model>>(
-        _reconcileHermesSelection(_withHermes(const <Model>[])),
+        _reconcileLocalSelection(_withLocalModels(const <Model>[])),
       );
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
-    final withHermes = result.whenData(
-      (models) => _reconcileHermesSelection(_withHermes(models)),
+    final withLocal = result.whenData(
+      (models) => _reconcileLocalSelection(_withLocalModels(models)),
     );
-    state = withHermes;
+    if (withLocal.hasError) {
+      final selected = ref.read(selectedModelProvider);
+      final preserveRemoteSelection =
+          selected != null &&
+          !isHermesModel(selected) &&
+          !isLocallyMintedDirectModel(selected);
+      if (preserveRemoteSelection) {
+        // A transient OpenWebUI refresh failure must not replace an active
+        // server model with the first standalone transport model.
+        state = withLocal;
+      } else {
+        final localModels = _reconcileLocalSelection(
+          _withLocalModels(const <Model>[]),
+        );
+        state = localModels.isEmpty
+            ? withLocal
+            : AsyncData<List<Model>>(localModels);
+      }
+    } else {
+      state = withLocal;
+    }
 
     // Update selected model with fresh data (e.g., filters) if it exists
     // in the new models list
-    if (withHermes.hasValue) {
-      final freshModels = withHermes.value!;
+    final currentState = state;
+    if (currentState.hasValue) {
+      final freshModels = currentState.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
         if (currentSelected.isHidden) {
@@ -932,7 +1030,9 @@ class Models extends _$Models {
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
-      final visibleModels = sanitizeRemoteHermesModels(_visibleModels(models));
+      final visibleModels = sanitizeRemoteHermesModels(
+        sanitizeRemoteDirectModels(_visibleModels(models)),
+      );
       DebugLogger.log(
         'fetch-ok',
         scope: 'models',
@@ -1446,6 +1546,94 @@ void _submitReconcilePull(
   );
 }
 
+/// Runtime provenance attached to conversation summaries and full loads.
+///
+/// Chat ids are not a sufficient discriminator because independent databases
+/// can legally contain the same id. This marker is app-owned and never used as
+/// routing authority for model requests.
+const String kDirectChatBackend = 'direct';
+
+Conversation withChatStorageProvenance(
+  Conversation conversation,
+  ChatStorageKind storage,
+) {
+  final annotated = annotateConversationStorage(conversation, storage);
+  final metadata = <String, dynamic>{
+    ...annotated.metadata,
+    if (storage == ChatStorageKind.directLocal) ...{
+      'backend': kDirectChatBackend,
+      'onDevice': true,
+    },
+  };
+  return annotated.copyWith(metadata: metadata);
+}
+
+ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
+  if (conversation == null) return null;
+  return chatStorageFromConversation(conversation);
+}
+
+bool isDirectLocalConversation(Conversation? conversation) =>
+    chatStorageKindOf(conversation) == ChatStorageKind.directLocal;
+
+/// Collision-free identity for selections and widget/provider keys.
+///
+/// [Conversation.id] remains the provider/server id. This value is only for
+/// app-internal identity where two independent databases may contain that id.
+String conversationScopedId(Conversation conversation) => ChatStorageIdentity(
+  rawId: conversation.id,
+  storage: chatStorageKindOf(conversation),
+).scopedId;
+
+bool conversationMatchesScopedId(Conversation conversation, String scopedId) {
+  final identity = ChatStorageIdentity.parse(scopedId);
+  if (conversation.id != identity.rawId) return false;
+  final storage = identity.storage;
+  return storage == null ||
+      (chatStorageKindOf(conversation) ?? ChatStorageKind.openWebUi) == storage;
+}
+
+bool isSameStoredConversation(Conversation? left, Conversation? right) {
+  if (left == null || right == null || left.id != right.id) return false;
+  // Unannotated conversations predate multi-store history and therefore
+  // retain their historical Open WebUI meaning.
+  final leftStorage = chatStorageKindOf(left) ?? ChatStorageKind.openWebUi;
+  final rightStorage = chatStorageKindOf(right) ?? ChatStorageKind.openWebUi;
+  return leftStorage == rightStorage;
+}
+
+int _conversationIndexForSelection(
+  List<Conversation> conversations,
+  String scopedId,
+) {
+  final identity = ChatStorageIdentity.parse(scopedId);
+  if (identity.storage != null) {
+    return conversations.indexWhere(
+      (conversation) => conversationMatchesScopedId(conversation, scopedId),
+    );
+  }
+
+  final matchingIndexes = <int>[];
+  for (var index = 0; index < conversations.length; index++) {
+    if (conversations[index].id == identity.rawId) {
+      matchingIndexes.add(index);
+    }
+  }
+  if (matchingIndexes.length <= 1) {
+    return matchingIndexes.firstOrNull ?? -1;
+  }
+
+  // Legacy unscoped callers historically referred to Open WebUI ids. Keep
+  // that behavior deterministic when a new local row happens to collide.
+  return matchingIndexes.firstWhere(
+    (index) =>
+        (chatStorageKindOf(conversations[index]) ??
+            ChatStorageKind.openWebUi) ==
+        ChatStorageKind.openWebUi,
+    orElse: () => matchingIndexes.first,
+  );
+}
+
 // Conversation list provider — Drift-backed read path (CDT-RFC-001 Phase 1).
 //
 // The list renders from `ChatsDao.watchChatList()` (a narrow projection that
@@ -1461,30 +1649,29 @@ class Conversations extends _$Conversations {
 
   @override
   Future<List<Conversation>> build() async {
-    final authed = ref.watch(isAuthenticatedProvider2);
-    if (!authed) {
-      DebugLogger.log('skip-unauthed', scope: 'conversations');
-      return const [];
-    }
-
     if (ref.watch(reviewerModeProvider)) {
       return _demoConversations();
     }
 
-    final db = ref.watch(appDatabaseProvider);
-    if (db == null) {
-      return const [];
-    }
+    // Rebuild the repository when the active Open WebUI database changes. The
+    // direct-local database is independent and remains available while signed
+    // out or while switching servers.
+    final repository = ref.watch(chatDatabaseRepositoryProvider);
 
     final completer = Completer<List<Conversation>>();
     // Cold-start instrumentation (CDT-RFC-001 §10 Budget 1): time from build()
     // start to the FIRST narrow-projection emission. Numeric-only data (no chat
     // content) so nothing untrusted is logged.
     final coldStart = Stopwatch()..start();
-    final subscription = db.chatsDao.watchChatList().listen(
+    final subscription = repository.watchMergedChatList().listen(
       (entries) {
         final conversations = List<Conversation>.unmodifiable(
-          entries.map(conversationFromListEntry),
+          entries.map((located) {
+            return withChatStorageProvenance(
+              conversationFromListEntry(located.entry),
+              located.storage,
+            );
+          }),
         );
         if (!completer.isCompleted) {
           coldStart.stop();
@@ -1526,7 +1713,14 @@ class Conversations extends _$Conversations {
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
-    await ref.read(syncEngineProvider.notifier).requestPull(reason: 'refresh');
+    // Local-only direct chats are already live through Drift. Refresh the
+    // optional Open WebUI side when it is available.
+    if (ref.read(appDatabaseProvider) != null &&
+        ref.read(isAuthenticatedProvider2)) {
+      await ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'refresh');
+    }
     folderConversationRefresh.bumpIfMounted();
   }
 
@@ -1534,27 +1728,42 @@ class Conversations extends _$Conversations {
   Future<void> loadMore() async {}
 
   void removeConversation(String id) {
+    final identity = ChatStorageIdentity.parse(id);
     final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    final removedConversation = index >= 0 ? current![index] : null;
     if (current != null) {
-      final removal = _removeItemById(
-        current,
-        id,
-        idOf: (conversation) => conversation.id,
-      );
-      if (removal.didRemove) {
-        _replaceState(removal.items);
+      if (index >= 0) {
+        final updated = <Conversation>[...current]..removeAt(index);
+        _replaceState(updated);
       }
     }
-    // Caller already deleted the chat server-side; drop the local row.
-    final db = ref.read(appDatabaseProvider);
-    if (db == null || isTemporaryChat(id)) return;
+    // The caller already confirmed any required remote deletion. Drop the row
+    // from the database that owns it. Local-only direct chats never touch the
+    // active Open WebUI database or its outbox.
+    final directLocal =
+        isDirectLocalConversation(removedConversation) ||
+        (removedConversation == null &&
+            identity.storage == ChatStorageKind.directLocal);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
+    final rawId = identity.rawId;
+    if (db == null || isTemporaryChat(rawId)) return;
     final locks = ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
     unawaited(
       locks
-          .runExclusive(id, () => db.chatsDao.hardDelete(id))
+          .runExclusive(
+            rawId,
+            () => directLocal
+                ? db.chatsDao.deleteLocalOnlyChat(rawId)
+                : db.chatsDao.hardDelete(rawId),
+          )
           .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
@@ -1562,7 +1771,7 @@ class Conversations extends _$Conversations {
               scope: 'conversations',
               error: error,
               stackTrace: stackTrace,
-              data: {'id': id},
+              data: {'id': rawId},
             );
           }),
     );
@@ -1573,11 +1782,12 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value ?? const <Conversation>[];
-    final existingIndex = current.indexWhere(
-      (item) => item.id == conversation.id,
+    final existingIndex = _conversationIndexForSelection(
+      current,
+      conversationScopedId(conversation),
     );
     final existing = existingIndex >= 0 ? current[existingIndex] : null;
-    final preparedConversation = existing == null
+    var preparedConversation = existing == null
         ? conversation
         : conversation.copyWith(
             lastReadAt: _latestDateTime(
@@ -1585,9 +1795,20 @@ class Conversations extends _$Conversations {
               conversation.lastReadAt,
             ),
           );
-    _replaceState(
-      _upsertItemById(current, preparedConversation, idOf: (item) => item.id),
-    );
+    final existingStorage = chatStorageKindOf(existing);
+    if (existingStorage != null) {
+      preparedConversation = withChatStorageProvenance(
+        preparedConversation,
+        existingStorage,
+      );
+    }
+    final updated = <Conversation>[...current];
+    if (existingIndex >= 0) {
+      updated[existingIndex] = preparedConversation;
+    } else {
+      updated.add(preparedConversation);
+    }
+    _replaceState(updated);
     _writeEnvelopeStub(preparedConversation);
   }
 
@@ -1606,15 +1827,10 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value;
-    final update = current == null
-        ? null
-        : _transformItemById(
-            current,
-            id,
-            transform,
-            idOf: (conversation) => conversation.id,
-          );
-    if (update == null) {
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    if (current == null || index < 0) {
       // The chat list stream has not loaded yet, or this id is absent from the
       // loaded projection. Request a reconcile pull so the server-confirmed
       // envelope mutation is not lost (mirrors Folders.updateFolder).
@@ -1623,8 +1839,15 @@ class Conversations extends _$Conversations {
       );
       return;
     }
-    _replaceState(update.items);
-    _writeEnvelopeUpdate(update.item);
+    final existing = current[index];
+    var transformed = transform(existing);
+    final storage = chatStorageKindOf(existing);
+    if (storage != null) {
+      transformed = withChatStorageProvenance(transformed, storage);
+    }
+    final updated = <Conversation>[...current]..[index] = transformed;
+    _replaceState(updated);
+    _writeEnvelopeUpdate(transformed);
   }
 
   void _requestConversationReconcilePull({required String action}) {
@@ -1638,26 +1861,37 @@ class Conversations extends _$Conversations {
 
   void markConversationRead(String id, DateTime readAt) {
     if (id.isEmpty) return;
+    final identity = ChatStorageIdentity.parse(id);
     final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    Conversation? target = index >= 0 ? current![index] : null;
     if (current != null) {
-      final update = _transformItemById(current, id, (conversation) {
+      if (index >= 0) {
+        final conversation = current[index];
         final existing = conversation.lastReadAt;
         if (existing != null && !readAt.isAfter(existing)) {
-          return conversation;
+          return;
         }
-        return conversation.copyWith(lastReadAt: readAt);
-      }, idOf: (conversation) => conversation.id);
-      if (update != null) {
-        _replaceState(update.items);
+        target = conversation.copyWith(lastReadAt: readAt);
+        final updated = <Conversation>[...current]..[index] = target;
+        _replaceState(updated);
       }
     }
-    final db = ref.read(appDatabaseProvider);
-    if (db == null || isTemporaryChat(id)) return;
+    final directLocal =
+        isDirectLocalConversation(target) ||
+        (target == null && identity.storage == ChatStorageKind.directLocal);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
+    final rawId = identity.rawId;
+    if (db == null || isTemporaryChat(rawId)) return;
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
     unawaited(
-      db.chatsDao.setLastReadAt(id, _epochSecondsOf(readAt)).catchError((
+      db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt)).catchError((
         Object error,
         StackTrace stackTrace,
       ) {
@@ -1666,7 +1900,7 @@ class Conversations extends _$Conversations {
           scope: 'conversations',
           error: error,
           stackTrace: stackTrace,
-          data: {'id': id},
+          data: {'id': rawId},
         );
       }),
     );
@@ -1689,7 +1923,10 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeStub(Conversation conversation) {
-    final db = ref.read(appDatabaseProvider);
+    final directLocal = isDirectLocalConversation(conversation);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(conversation.id)) return;
     final lastReadAt = conversation.lastReadAt;
     // ChatLocks discipline: every write touching one chat's rows serializes
@@ -1702,6 +1939,16 @@ class Conversations extends _$Conversations {
     unawaited(
       locks
           .runExclusive(conversation.id, () {
+            if (directLocal) {
+              return db.chatsDao.updateLocalOnlyEnvelope(
+                conversation.id,
+                title: Value(conversation.title),
+                folderId: Value(conversation.folderId),
+                pinned: Value(conversation.pinned),
+                archived: Value(conversation.archived),
+                updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+              );
+            }
             return db.chatsDao.upsertEnvelopeStub(
               id: conversation.id,
               title: conversation.title,
@@ -1729,7 +1976,10 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeUpdate(Conversation conversation) {
-    final db = ref.read(appDatabaseProvider);
+    final directLocal = isDirectLocalConversation(conversation);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(conversation.id)) return;
     final locks = ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
@@ -1738,14 +1988,23 @@ class Conversations extends _$Conversations {
     unawaited(
       locks
           .runExclusive(conversation.id, () {
-            return db.chatsDao.updateEnvelope(
-              conversation.id,
-              title: Value(conversation.title),
-              folderId: Value(conversation.folderId),
-              pinned: Value(conversation.pinned),
-              archived: Value(conversation.archived),
-              updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
-            );
+            return directLocal
+                ? db.chatsDao.updateLocalOnlyEnvelope(
+                    conversation.id,
+                    title: Value(conversation.title),
+                    folderId: Value(conversation.folderId),
+                    pinned: Value(conversation.pinned),
+                    archived: Value(conversation.archived),
+                    updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                  )
+                : db.chatsDao.updateEnvelope(
+                    conversation.id,
+                    title: Value(conversation.title),
+                    folderId: Value(conversation.folderId),
+                    pinned: Value(conversation.pinned),
+                    archived: Value(conversation.archived),
+                    updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                  );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
@@ -1852,21 +2111,38 @@ void markConversationRead(
   String? conversationId, {
   DateTime? readAt,
 }) {
-  final id = conversationId?.trim();
-  if (id == null || id.isEmpty || isTemporaryChat(id)) {
+  final scopedId = conversationId?.trim();
+  if (scopedId == null || scopedId.isEmpty) {
+    return;
+  }
+  final identity = ChatStorageIdentity.parse(scopedId);
+  final id = identity.rawId;
+  if (isTemporaryChat(id)) {
     return;
   }
 
   final timestamp = readAt ?? DateTime.now();
+  Conversation? targetConversation;
   try {
+    final conversations = ref.read(conversationsProvider).asData?.value;
+    if (conversations != null) {
+      final index = _conversationIndexForSelection(conversations, scopedId);
+      if (index >= 0) {
+        targetConversation = conversations[index];
+      }
+    }
     ref
         .read(conversationsProvider.notifier)
-        .markConversationRead(id, timestamp);
+        .markConversationRead(scopedId, timestamp);
   } catch (_) {}
 
   try {
     final active = ref.read(activeConversationProvider);
-    if (active?.id == id) {
+    if (active != null &&
+        (targetConversation != null
+            ? isSameStoredConversation(active, targetConversation)
+            : conversationMatchesScopedId(active, scopedId))) {
+      targetConversation ??= active;
       final current = active!.lastReadAt;
       if (current == null || timestamp.isAfter(current)) {
         ref
@@ -1875,6 +2151,12 @@ void markConversationRead(
       }
     }
   } catch (_) {}
+
+  if (isDirectLocalConversation(targetConversation) ||
+      identity.storage == ChatStorageKind.directLocal ||
+      (identity.storage == null && id.startsWith('direct-local:'))) {
+    return;
+  }
 
   try {
     ref.read(socketServiceProvider)?.emit('events:chat', {
@@ -1955,17 +2237,70 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
 // Provider to load full conversation with messages
 @riverpod
 Future<Conversation> loadConversation(Ref ref, String conversationId) async {
-  // DB-first open (CDT-RFC-001 Phase 1): synced rows render without the
-  // network; a background pull freshens them.
-  final local = await loadLocalConversation(ref, conversationId);
-  if (local != null) {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawConversationId = identity.rawId;
+  // Preserve database provenance from the selected summary when possible.
+  // Prefixing makes locally-created ids collision-resistant, while the marker
+  // handles imported or legacy rows whose ids do collide.
+  Conversation? summary;
+  final active = ref.read(activeConversationProvider);
+  if (identity.storage != null &&
+      active != null &&
+      conversationMatchesScopedId(active, conversationId)) {
+    summary = active;
+  } else {
+    final conversations = ref.read(conversationsProvider).asData?.value;
+    if (conversations != null) {
+      final index = _conversationIndexForSelection(
+        conversations,
+        conversationId,
+      );
+      if (index >= 0) {
+        summary = conversations[index];
+      }
+    }
+  }
+  final preferredStorage =
+      identity.storage ??
+      (rawConversationId.startsWith('direct-local:')
+          ? ChatStorageKind.directLocal
+          : null) ??
+      chatStorageKindOf(summary);
+
+  final repository = ref.read(chatDatabaseRepositoryProvider);
+  final located = await repository.loadConversation(
+    rawConversationId,
+    preferred: preferredStorage,
+    offload: (envelope) => ref
+        .read(workerManagerProvider)
+        .schedule(
+          parseFullConversationModelWorker,
+          envelope,
+          debugLabel: 'db.assembleConversation',
+        ),
+  );
+  if (located != null) {
+    final local = withChatStorageProvenance(
+      located.conversation,
+      located.location.storage,
+    );
     DebugLogger.log(
       'load-local-ok',
       scope: 'conversation',
-      data: {'id': conversationId, 'messages': local.messages.length},
+      data: {
+        'id': conversationId,
+        'messages': local.messages.length,
+        'storage': located.location.storage.name,
+      },
     );
-    schedulePullChatNow(ref, conversationId);
+    if (located.location.storage == ChatStorageKind.openWebUi) {
+      schedulePullChatNow(ref, rawConversationId);
+    }
     return local;
+  }
+
+  if (preferredStorage == ChatStorageKind.directLocal) {
+    throw StateError('On-device conversation is unavailable');
   }
 
   final api = ref.watch(apiServiceProvider);
@@ -1978,16 +2313,16 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'id': conversationId},
   );
-  final fullConversation = await api.getConversation(conversationId);
+  final fullConversation = await api.getConversation(rawConversationId);
   DebugLogger.log(
     'load-ok',
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
   // Materialize the local row so the next open is DB-first.
-  schedulePullChatNow(ref, conversationId);
+  schedulePullChatNow(ref, rawConversationId);
 
-  return fullConversation;
+  return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }
 
 // Provider to automatically load and set the default model from user settings or OpenWebUI
@@ -1996,6 +2331,9 @@ Future<Model?> defaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
   final storage = ref.read(optimizedStorageServiceProvider);
+  // Re-resolve when standalone profiles finish discovery or are edited.
+  ref.watch(directModelDiscoveryProvider);
+  final preferredBackend = ref.watch(preferredBackendProvider);
   // Read settings without subscribing to rebuilds to avoid watch/await hazards
   final reviewerMode = ref.read(reviewerModeProvider);
   if (reviewerMode) {
@@ -2034,21 +2372,23 @@ Future<Model?> defaultModel(Ref ref) async {
 
   final api = ref.watch(apiServiceProvider);
   if (api == null) {
-    // Hermes-only mode: auto-select the synthetic Hermes agent model.
-    if (ref.watch(hermesConfigProvider.select((config) => config.isUsable))) {
-      final models = await ref.read(modelsProvider.future);
-      if (!ref.mounted) return null;
-      Model? hermes;
-      for (final model in models) {
-        if (isHermesModel(model)) {
-          hermes = model;
-          break;
-        }
-      }
-      if (hermes != null && !ref.read(isManualModelSelectionProvider)) {
-        ref.read(selectedModelProvider.notifier).set(hermes);
-      }
-      return hermes;
+    final manuallySelected = ref.read(selectedModelProvider);
+    if (ref.read(isManualModelSelectionProvider) &&
+        manuallySelected != null &&
+        (isHermesModel(manuallySelected) ||
+            ref.read(directModelRegistryProvider).resolve(manuallySelected) !=
+                null)) {
+      return manuallySelected;
+    }
+
+    final models = await ref.read(modelsProvider.future);
+    if (!ref.mounted) return null;
+    final standalone =
+        _modelForPreferredBackend(models, preferredBackend) ??
+        models.firstOrNull;
+    if (standalone != null && !ref.read(isManualModelSelectionProvider)) {
+      ref.read(selectedModelProvider.notifier).set(standalone);
+      return standalone;
     }
     DebugLogger.warning('no-api', scope: 'models/default');
     return null;
@@ -2073,6 +2413,24 @@ Future<Model?> defaultModel(Ref ref) async {
     if (!ref.mounted) return null;
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
+      final availableModels = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      final availableMatch = availableModels
+          .where((model) => model.id == storedDefaultId)
+          .firstOrNull;
+      if (availableMatch != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(availableMatch);
+        if (!isLocallyMintedDirectModel(availableMatch) &&
+            !isHermesModel(availableMatch)) {
+          unawaited(storage.saveLocalDefaultModel(availableMatch));
+        }
+        DebugLogger.log(
+          'settings-default',
+          scope: 'models/default',
+          data: {'name': availableMatch.name, 'source': 'available'},
+        );
+        return availableMatch;
+      }
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (!ref.mounted) return null;
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
@@ -2086,6 +2444,21 @@ Future<Model?> defaultModel(Ref ref) async {
           data: {'name': cachedMatch.name, 'source': 'settings'},
         );
         return cachedMatch;
+      }
+    }
+
+    // Onboarding into a direct backend should not be silently replaced by an
+    // Open WebUI server default merely because both are configured.
+    if (preferredBackend == PreferredBackend.direct) {
+      final availableModels = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      final preferred = _modelForPreferredBackend(
+        availableModels,
+        preferredBackend,
+      );
+      if (preferred != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(preferred);
+        return preferred;
       }
     }
 
@@ -2155,19 +2528,23 @@ Future<Model?> defaultModel(Ref ref) async {
       DebugLogger.warning('no-models', scope: 'models/default');
       return null;
     }
-    final selectedModel = models.first;
+    final selectedModel =
+        _modelForPreferredBackend(models, preferredBackend) ?? models.first;
     if (!ref.read(isManualModelSelectionProvider)) {
       ref.read(selectedModelProvider.notifier).set(selectedModel);
-      unawaited(
-        storage.saveLocalDefaultModel(selectedModel).onError((error, stack) {
-          DebugLogger.error(
-            'Failed to save default model to cache',
-            scope: 'models/default',
-            error: error,
-            stackTrace: stack,
-          );
-        }),
-      );
+      if (!isLocallyMintedDirectModel(selectedModel) &&
+          !isHermesModel(selectedModel)) {
+        unawaited(
+          storage.saveLocalDefaultModel(selectedModel).onError((error, stack) {
+            DebugLogger.error(
+              'Failed to save default model to cache',
+              scope: 'models/default',
+              error: error,
+              stackTrace: stack,
+            );
+          }),
+        );
+      }
       DebugLogger.log(
         'fallback-selected',
         scope: 'models/default',
@@ -2183,6 +2560,18 @@ Future<Model?> defaultModel(Ref ref) async {
   }
 }
 
+Model? _modelForPreferredBackend(
+  Iterable<Model> models,
+  PreferredBackend preferredBackend,
+) {
+  return switch (preferredBackend) {
+    PreferredBackend.direct =>
+      models.where(isLocallyMintedDirectModel).firstOrNull,
+    PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
+    PreferredBackend.owui || PreferredBackend.unset => null,
+  };
+}
+
 /// Resolves a server-provided default only after removing identities reserved
 /// for Conduit's locally minted Hermes transport.
 @visibleForTesting
@@ -2190,7 +2579,9 @@ Model? resolveSafeRemoteDefaultModel(
   List<Model> remoteModels,
   String? serverDefault,
 ) {
-  final models = sanitizeRemoteHermesModels(remoteModels);
+  final models = sanitizeRemoteHermesModels(
+    sanitizeRemoteDirectModels(remoteModels),
+  );
   if (models.isEmpty) return null;
 
   if (serverDefault != null && serverDefault.isNotEmpty) {
@@ -2274,11 +2665,18 @@ class SearchQuery extends _$SearchQuery {
 /// (the DAO short-circuits on the `fts_built` gate). Results are already bm25
 /// ascending (most relevant first); order is preserved.
 Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
-  final db = ref.read(appDatabaseProvider);
-  if (db == null) return const [];
   try {
-    final hits = await db.searchDao.search(query, limit: 50);
-    return hits.map(conversationFromSearchHit).toList(growable: false);
+    final hits = await ref
+        .read(chatDatabaseRepositoryProvider)
+        .searchMergedChats(query, limit: 50);
+    return hits
+        .map((located) {
+          return withChatStorageProvenance(
+            conversationFromSearchHit(located.hit),
+            located.storage,
+          );
+        })
+        .toList(growable: false);
   } catch (e) {
     DebugLogger.error('offline-search-failed', scope: 'search', error: e);
     return const [];
@@ -2325,6 +2723,7 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
     );
 
     // Use the new server-side search API
+    final localResultsFuture = _offlineSearch(ref, trimmedQuery);
     final chatHits = await api.searchChats(
       query: trimmedQuery,
       archived: false, // Only search non-archived conversations
@@ -2332,8 +2731,16 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       sortBy: 'updated_at',
       sortOrder: 'desc',
     );
-    // chatHits is already List<Conversation>
-    final List<Conversation> conversations = List.of(chatHits);
+    // Server search results are explicitly scoped before they are merged with
+    // the independent on-device index. Equal raw ids are valid across stores.
+    final List<Conversation> conversations = chatHits
+        .map(
+          (conversation) => withChatStorageProvenance(
+            conversation,
+            ChatStorageKind.openWebUi,
+          ),
+        )
+        .toList();
 
     // Perform message-level search and merge chat hits
     try {
@@ -2343,7 +2750,7 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       );
 
       // Build a set of conversation IDs already present from chat search
-      final existingIds = conversations.map((c) => c.id).toSet();
+      final existingIds = conversations.map(conversationScopedId).toSet();
 
       // Extract chat ids from message hits (supporting multiple key casings)
       final messageChatIds = <String>{};
@@ -2357,7 +2764,14 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
 
       // Determine which chat ids we still need to fetch
       final idsToFetch = messageChatIds
-          .where((id) => !existingIds.contains(id))
+          .where(
+            (id) => !existingIds.contains(
+              ChatStorageIdentity(
+                rawId: id,
+                storage: ChatStorageKind.openWebUi,
+              ).scopedId,
+            ),
+          )
           .toList();
 
       // Fetch conversations for those ids in parallel (cap to avoid overload)
@@ -2381,9 +2795,14 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
 
         // Merge fetched conversations
         for (final conv in fetched) {
-          if (conv != null && !existingIds.contains(conv.id)) {
-            conversations.add(conv);
-            existingIds.add(conv.id);
+          if (conv != null) {
+            final scoped = withChatStorageProvenance(
+              conv,
+              ChatStorageKind.openWebUi,
+            );
+            if (existingIds.add(conversationScopedId(scoped))) {
+              conversations.add(scoped);
+            }
           }
         }
 
@@ -2392,6 +2811,17 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       }
     } catch (e) {
       DebugLogger.error('message-search-failed', scope: 'search', error: e);
+    }
+
+    // Server search cannot see chats intentionally kept in the dedicated
+    // direct-local database. Merge ranked local results after the remote
+    // response, preserving remote ordering and avoiding duplicate server rows.
+    final existingIds = conversations.map(conversationScopedId).toSet();
+    final localResults = await localResultsFuture;
+    for (final local in localResults) {
+      if (existingIds.add(conversationScopedId(local))) {
+        conversations.add(local);
+      }
     }
 
     DebugLogger.log(
@@ -4055,7 +4485,7 @@ Future<Model?> selectCachedModel(
 ) async {
   try {
     final cachedModels = sanitizeRemoteHermesModels(
-      await storage.getLocalModels(),
+      sanitizeRemoteDirectModels(await storage.getLocalModels()),
     ).where((model) => !model.isHidden).toList();
     if (cachedModels.isEmpty) return null;
 

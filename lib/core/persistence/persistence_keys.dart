@@ -54,9 +54,16 @@ final class PreferenceKeys {
   static const String hermesEnabled = 'hermes_enabled_v1';
   static const String hermesBaseUrl = 'hermes_base_url_v1';
 
-  /// Which backend onboarding completed against ('owui' | 'hermes' | unset).
+  /// Which backend onboarding completed against
+  /// ('owui' | 'direct' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
+
+  /// Non-secret boot hint only. Direct profile contents and credentials live
+  /// exclusively in SecureCredentialStorage.
+  static const String directConnectionsConfigured =
+      'direct_connections_configured_v1';
+  static const String directHistoryPolicy = 'direct_history_policy_v1';
 
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';

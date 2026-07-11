@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/channel.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
@@ -836,6 +838,153 @@ void main() {
 
     expect(orphanOffset.dx, closeTo(rootOffset.dx, 0.1));
   });
+
+  testWidgets('opening an on-device chat loads its full direct history', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    final summary = withChatStorageProvenance(
+      Conversation(
+        id: 'direct-local:drawer-test',
+        title: 'On-device chat',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      ChatStorageKind.directLocal,
+    );
+    final full = withChatStorageProvenance(
+      summary.copyWith(
+        messages: [
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Loaded from the direct database',
+            timestamp: timestamp,
+          ),
+        ],
+      ),
+      ChatStorageKind.directLocal,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [summary],
+        loadedConversations: {conversationScopedId(summary): full},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    await tester.tap(
+      find.byKey(
+        ValueKey<String>('drawer-chat-${conversationScopedId(summary)}'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final active = container.read(activeConversationProvider);
+    expect(active?.messages, hasLength(1));
+    expect(active?.messages.single.content, 'Loaded from the direct database');
+    expect(chatStorageKindOf(active), ChatStorageKind.directLocal);
+  });
+
+  testWidgets('colliding chat ids render and select as distinct rows', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    final server = withChatStorageProvenance(
+      Conversation(
+        id: 'shared-id',
+        title: 'Server copy',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    final direct = withChatStorageProvenance(
+      Conversation(
+        id: 'shared-id',
+        title: 'Device copy',
+        createdAt: timestamp,
+        updatedAt: timestamp.add(const Duration(seconds: 1)),
+      ),
+      ChatStorageKind.directLocal,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [direct, server],
+        loadedConversations: {
+          conversationScopedId(server): server,
+          conversationScopedId(direct): direct,
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final serverTile = find.byKey(
+      ValueKey<String>('drawer-chat-${conversationScopedId(server)}'),
+    );
+    final directTile = find.byKey(
+      ValueKey<String>('drawer-chat-${conversationScopedId(direct)}'),
+    );
+    expect(serverTile, findsOneWidget);
+    expect(directTile, findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(activeChatIdsProvider.notifier).setActive('shared-id');
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: serverTile,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: directTile,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: directTile,
+        matching: find.byKey(
+          const ValueKey<String>('conversation-unread-indicator'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    container.read(activeChatIdsProvider.notifier).setInactive('shared-id');
+    await tester.pump();
+
+    await tester.tap(directTile);
+    await tester.pumpAndSettle();
+    expect(
+      chatStorageKindOf(container.read(activeConversationProvider)),
+      ChatStorageKind.directLocal,
+    );
+
+    await tester.tap(serverTile);
+    await tester.pumpAndSettle();
+    expect(
+      chatStorageKindOf(container.read(activeConversationProvider)),
+      ChatStorageKind.openWebUi,
+    );
+  });
 }
 
 enum _SidebarTabLayer { chats, terminal, notes, channels }
@@ -912,6 +1061,7 @@ Widget _buildSidebarHarness({
   bool hermesOnly = false,
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
+  Map<String, Conversation> loadedConversations = const {},
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -958,6 +1108,10 @@ Widget _buildSidebarHarness({
           onRefresh: controllers.recordChatRefresh,
         ),
       ),
+      for (final entry in loadedConversations.entries)
+        loadConversationProvider(
+          entry.key,
+        ).overrideWith((ref) async => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(_TestModels.new),
       // ignore: scoped_providers_should_specify_dependencies

@@ -55,6 +55,7 @@ void main() {
       300,
     );
     expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    expect(find.text('Direct Connections'), findsOneWidget);
     expect(find.text('Connect to Open WebUI'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);

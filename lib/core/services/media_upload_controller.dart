@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
+import '../../features/direct_connections/direct_connections.dart';
 import '../models/file_info.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -61,7 +62,29 @@ class MediaUploadController {
         mimeType: mimeType,
         checksum: checksum,
       );
-    } catch (_) {
+    } catch (error) {
+      final current = _ref.read(attachedFilesProvider);
+      final existing = current
+          .where((attachment) => attachment.file.path == filePath)
+          .firstOrNull;
+      if (existing != null && existing.status != FileUploadStatus.completed) {
+        _ref
+            .read(attachedFilesProvider.notifier)
+            .updateFileState(
+              filePath,
+              FileUploadState(
+                file: existing.file,
+                fileName: existing.fileName,
+                fileSize: existing.fileSize,
+                progress: existing.progress,
+                status: FileUploadStatus.failed,
+                fileId: existing.fileId,
+                error: error.toString(),
+                isImage: existing.isImage,
+                base64DataUrl: existing.base64DataUrl,
+              ),
+            );
+      }
       unawaited(deleteShareStagingFile(filePath));
       rethrow;
     }
@@ -88,6 +111,72 @@ class MediaUploadController {
   }) async {
     final lowerName = fileName.toLowerCase();
     final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
+
+    final selectedModel = _ref.read(selectedModelProvider);
+    final directBinding = selectedModel == null
+        ? null
+        : _ref.read(directModelRegistryProvider).resolve(selectedModel);
+    if (directBinding != null) {
+      if (selectedModel!.isMultimodal != true) {
+        throw const DirectChatInputException(
+          'This direct model does not support image attachments.',
+        );
+      }
+      if (!isImage) {
+        throw const DirectChatInputException(
+          'Direct chats support image attachments only.',
+        );
+      }
+      final attachments = _ref.read(attachedFilesProvider);
+      final imageAttachments = attachments
+          .where((attachment) => attachment.isImage == true)
+          .toList(growable: false);
+      if (imageAttachments.length > kDirectMaxImages) {
+        throw const DirectChatInputException(
+          'Direct chats support up to 4 images per request.',
+        );
+      }
+      final totalBytes = imageAttachments.fold<int>(
+        0,
+        (total, attachment) => total + attachment.fileSize,
+      );
+      if (totalBytes > kDirectMaxDecodedImageBytes) {
+        throw const DirectChatInputException(
+          'Direct chat images must be 20 MB or less in total.',
+        );
+      }
+      final dataUrl = await convertImageFileToDataUrl(File(filePath));
+      if (dataUrl == null) {
+        throw const DirectChatInputException(
+          'The selected image could not be prepared for this direct model.',
+        );
+      }
+      final current = _ref.read(attachedFilesProvider);
+      final existing = current
+          .where((attachment) => attachment.file.path == filePath)
+          .firstOrNull;
+      if (existing != null) {
+        _ref
+            .read(attachedFilesProvider.notifier)
+            .updateFileState(
+              filePath,
+              FileUploadState(
+                file: existing.file,
+                fileName: existing.fileName,
+                fileSize: existing.fileSize,
+                progress: 1,
+                status: FileUploadStatus.completed,
+                fileId: dataUrl,
+                isImage: true,
+                base64DataUrl: dataUrl,
+              ),
+            );
+      }
+      // Shared-intent and camera staging files are no longer needed once the
+      // direct attachment owns an in-memory data URL.
+      unawaited(deleteShareStagingFile(filePath));
+      return;
+    }
 
     // Upload all files (including images) to the server — mirrors OpenWebUI:
     // images go to /api/v1/files/ and the server resolves them when sending to
@@ -192,83 +281,86 @@ class MediaUploadController {
     }
 
     late final StreamSubscription<List<QueuedAttachment>> sub;
-    sub = uploader.queueStream.listen((items) {
-      final entry = items.where((e) => e.id == id).firstOrNull;
-      if (entry == null) return;
+    sub = uploader.queueStream.listen(
+      (items) {
+        final entry = items.where((e) => e.id == id).firstOrNull;
+        if (entry == null) return;
 
-      try {
-        final current = _ref.read(attachedFilesProvider);
-        final idx = current.indexWhere((f) => f.file.path == filePath);
-        if (idx != -1) {
-          final existing = current[idx];
-          final status = switch (entry.status) {
-            QueuedAttachmentStatus.pending ||
-            QueuedAttachmentStatus.uploading => FileUploadStatus.uploading,
-            QueuedAttachmentStatus.completed => FileUploadStatus.completed,
-            QueuedAttachmentStatus.failed => FileUploadStatus.failed,
-            QueuedAttachmentStatus.cancelled => FileUploadStatus.failed,
-          };
+        try {
+          final current = _ref.read(attachedFilesProvider);
+          final idx = current.indexWhere((f) => f.file.path == filePath);
+          if (idx != -1) {
+            final existing = current[idx];
+            final status = switch (entry.status) {
+              QueuedAttachmentStatus.pending ||
+              QueuedAttachmentStatus.uploading => FileUploadStatus.uploading,
+              QueuedAttachmentStatus.completed => FileUploadStatus.completed,
+              QueuedAttachmentStatus.failed => FileUploadStatus.failed,
+              QueuedAttachmentStatus.cancelled => FileUploadStatus.failed,
+            };
 
-          if (status == FileUploadStatus.completed &&
-              entry.fileId != null &&
-              imageBytes != null) {
-            preCacheImageBytes(entry.fileId!, imageBytes);
+            if (status == FileUploadStatus.completed &&
+                entry.fileId != null &&
+                imageBytes != null) {
+              preCacheImageBytes(entry.fileId!, imageBytes);
+            }
+
+            if (status == FileUploadStatus.completed && entry.fileId != null) {
+              unawaited(_syncUploadedFile(entry.fileId!));
+            }
+
+            final newState = FileUploadState(
+              file: File(filePath),
+              fileName: displayFileName,
+              fileSize: fileSize ?? existing.fileSize,
+              progress: status == FileUploadStatus.completed
+                  ? 1.0
+                  : existing.progress,
+              status: status,
+              fileId: entry.fileId ?? existing.fileId,
+              error: entry.lastError,
+              isImage: isImage,
+            );
+            _ref
+                .read(attachedFilesProvider.notifier)
+                .updateFileState(filePath, newState);
           }
-
-          if (status == FileUploadStatus.completed && entry.fileId != null) {
-            unawaited(_syncUploadedFile(entry.fileId!));
-          }
-
-          final newState = FileUploadState(
-            file: File(filePath),
-            fileName: displayFileName,
-            fileSize: fileSize ?? existing.fileSize,
-            progress: status == FileUploadStatus.completed
-                ? 1.0
-                : existing.progress,
-            status: status,
-            fileId: entry.fileId ?? existing.fileId,
-            error: entry.lastError,
-            isImage: isImage,
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'file-upload-state-update-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'id': id},
           );
-          _ref
-              .read(attachedFilesProvider.notifier)
-              .updateFileState(filePath, newState);
         }
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'file-upload-state-update-failed',
-          scope: 'media/upload',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': id},
-        );
-      }
 
-      switch (entry.status) {
-        case QueuedAttachmentStatus.completed:
-        case QueuedAttachmentStatus.failed:
-        case QueuedAttachmentStatus.cancelled:
-          unawaited(deleteShareStagingFile(filePath));
-          unawaited(sub.cancel());
-          cleanupTemp();
-          removeInflight();
-          if (!completer.isCompleted) completer.complete();
-          break;
-        default:
-          break;
-      }
-    }, onDone: () {
-      // The queue was disposed (server switch / logout) before this upload
-      // reached a terminal status. Resolve the awaiting caller so it does not
-      // hang; the item stays in the previous server's Drift table and resumes
-      // when that server is next active. Do NOT cleanupTemp() here: the kept
-      // row still points at the converted temp file, which must survive for the
-      // resume to succeed. (An interrupted-and-never-resumed upload leaks the
-      // temp dir until OS cleanup — preferable to losing the attachment.)
-      removeInflight();
-      if (!completer.isCompleted) completer.complete();
-    });
+        switch (entry.status) {
+          case QueuedAttachmentStatus.completed:
+          case QueuedAttachmentStatus.failed:
+          case QueuedAttachmentStatus.cancelled:
+            unawaited(deleteShareStagingFile(filePath));
+            unawaited(sub.cancel());
+            cleanupTemp();
+            removeInflight();
+            if (!completer.isCompleted) completer.complete();
+            break;
+          default:
+            break;
+        }
+      },
+      onDone: () {
+        // The queue was disposed (server switch / logout) before this upload
+        // reached a terminal status. Resolve the awaiting caller so it does not
+        // hang; the item stays in the previous server's Drift table and resumes
+        // when that server is next active. Do NOT cleanupTemp() here: the kept
+        // row still points at the converted temp file, which must survive for the
+        // resume to succeed. (An interrupted-and-never-resumed upload leaks the
+        // temp dir until OS cleanup — preferable to losing the attachment.)
+        removeInflight();
+        if (!completer.isCompleted) completer.complete();
+      },
+    );
 
     // Wire the cancel path: stop listening + temp cleanup, then complete so the
     // awaiting caller unblocks (the legacy cancel flipped task state and let the

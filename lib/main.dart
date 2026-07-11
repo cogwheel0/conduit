@@ -350,6 +350,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'open-direct-connections') {
+        await NativeSheetBridge.instance.dismiss();
+        // The native sheet is launched over chat. Preserve chat as the back
+        // destination; while this pushed route is visible the sheet cannot be
+        // triggered again, so duplicate settings routes cannot accumulate.
+        await NavigationService.pushTo(Routes.directConnections);
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;

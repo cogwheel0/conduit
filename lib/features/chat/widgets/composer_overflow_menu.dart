@@ -14,6 +14,7 @@ import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
+import '../../direct_connections/direct_connections.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -173,16 +174,26 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final attachmentItems = buildComposerOverflowAttachmentItems(
-      l10n: l10n,
-      attachmentAvailability: ComposerOverflowAttachmentAvailability(
-        file: widget.onFileAttachment != null,
-        serverFile: widget.onServerFileAttachment != null,
-        photo: widget.onImageAttachment != null,
-        camera: widget.onCameraCapture != null,
-        web: widget.onWebAttachment != null,
-      ),
-    );
+    final selectedModel = ref.watch(selectedModelProvider);
+    final directMode =
+        selectedModel != null &&
+        ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+    final attachmentItems =
+        buildComposerOverflowAttachmentItems(
+          l10n: l10n,
+          attachmentAvailability: ComposerOverflowAttachmentAvailability(
+            file: !directMode && widget.onFileAttachment != null,
+            serverFile: !directMode && widget.onServerFileAttachment != null,
+            photo: widget.onImageAttachment != null,
+            camera: widget.onCameraCapture != null,
+            web: !directMode && widget.onWebAttachment != null,
+          ),
+        ).where(
+          (item) =>
+              !directMode ||
+              item.id == ComposerOverflowActionIds.photo ||
+              item.id == ComposerOverflowActionIds.camera,
+        );
 
     final attachments = attachmentItems
         .map(
@@ -191,9 +202,11 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         )
         .toList();
 
-    final webSearchAvailable = ref.watch(webSearchAvailableProvider);
+    final webSearchAvailable =
+        !directMode && ref.watch(webSearchAvailableProvider);
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
-    final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final imageGenAvailable =
+        !directMode && ref.watch(imageGenerationAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final featureTiles =
         buildComposerOverflowFeatureItems(
@@ -221,128 +234,143 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
       terminalAvailableServersProvider,
     );
     final toolsAsync = ref.watch(toolsListProvider);
-    final toolsSection = toolsAsync.when(
-      data: (tools) {
-        final toolItems = buildComposerOverflowToolItems(
-          availableTools: tools,
-          selectedToolIds: selectedToolIds,
-        );
-        if (toolItems.isEmpty) return _buildInfoCard(l10n.noToolsAvailable);
-        final tiles = toolItems.map((item) {
-          return _buildOverflowItemTile(
-            item: item,
-            onChanged: (selected) {
-              setComposerOverflowSelection(
-                ref,
-                actionId: item.id,
-                selected: selected,
+    final toolsSection = directMode
+        ? const SizedBox.shrink()
+        : toolsAsync.when(
+            data: (tools) {
+              final toolItems = buildComposerOverflowToolItems(
+                availableTools: tools,
+                selectedToolIds: selectedToolIds,
               );
+              if (toolItems.isEmpty) {
+                return _buildInfoCard(l10n.noToolsAvailable);
+              }
+              final tiles = toolItems.map((item) {
+                return _buildOverflowItemTile(
+                  item: item,
+                  onChanged: (selected) {
+                    setComposerOverflowSelection(
+                      ref,
+                      actionId: item.id,
+                      selected: selected,
+                    );
+                  },
+                );
+              }).toList();
+              return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
+            },
+            loading: () => Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
+              ),
+            ),
+            error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
+          );
+    final integrationsSection = directMode
+        ? const SizedBox.shrink()
+        : FutureBuilder<Map<String, dynamic>?>(
+            future: _userSettingsFuture,
+            builder: (context, snapshot) {
+              final settings = snapshot.data;
+              final directToolServers = _extractConfiguredServers(
+                settings,
+                'toolServers',
+              );
+              final directToolTiles = <Widget>[];
+              for (var index = 0; index < directToolServers.length; index++) {
+                final server = directToolServers[index];
+                if (!_isServerEnabled(server)) {
+                  continue;
+                }
+
+                final selectionId = _directServerSelectionId(server, index);
+                final isSelected = selectedToolIds.contains(selectionId);
+                directToolTiles.add(
+                  _buildToggleTile(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.square_stack_3d_down_right
+                        : Icons.hub_outlined,
+                    title: _serverTitle(
+                      server,
+                      fallbackPrefix: l10n.toolServer,
+                    ),
+                    subtitle: _serverSubtitle(server),
+                    value: isSelected,
+                    onChanged: (_) {
+                      final current = List<String>.from(
+                        ref.read(selectedToolIdsProvider),
+                      );
+                      if (isSelected) {
+                        current.remove(selectionId);
+                      } else {
+                        current.add(selectionId);
+                      }
+                      ref.read(selectedToolIdsProvider.notifier).set(current);
+                    },
+                  ),
+                );
+              }
+
+              final terminalTiles = availableTerminalServersAsync.maybeWhen(
+                data: (servers) {
+                  return servers
+                      .map((server) {
+                        final isSelected =
+                            selectedTerminalId == server.selectionId;
+                        return _buildToggleTile(
+                          icon: Platform.isIOS
+                              ? CupertinoIcons.chevron_left_slash_chevron_right
+                              : Icons.terminal_rounded,
+                          title: server.displayName,
+                          subtitle: server.subtitle,
+                          value: isSelected,
+                          onChanged: (_) async {
+                            await ref
+                                .read(terminalSelectionControllerProvider)
+                                .toggle(server);
+                          },
+                        );
+                      })
+                      .toList(growable: false);
+                },
+                orElse: () => const <Widget>[],
+              );
+
+              if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              final children = <Widget>[];
+              if (directToolTiles.isNotEmpty) {
+                children
+                  ..add(_buildSectionLabel(l10n.toolServers))
+                  ..add(
+                    Column(
+                      children: withVerticalSpacing(
+                        directToolTiles,
+                        Spacing.xxs,
+                      ),
+                    ),
+                  );
+              }
+              if (terminalTiles.isNotEmpty) {
+                if (children.isNotEmpty) {
+                  children.add(const SizedBox(height: Spacing.sm));
+                }
+                children
+                  ..add(_buildSectionLabel(l10n.terminal))
+                  ..add(
+                    Column(
+                      children: withVerticalSpacing(terminalTiles, Spacing.xxs),
+                    ),
+                  );
+              }
+
+              return Column(children: children);
             },
           );
-        }).toList();
-        return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
-      },
-      loading: () => Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-        ),
-      ),
-      error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
-    );
-    final integrationsSection = FutureBuilder<Map<String, dynamic>?>(
-      future: _userSettingsFuture,
-      builder: (context, snapshot) {
-        final settings = snapshot.data;
-        final directToolServers = _extractConfiguredServers(
-          settings,
-          'toolServers',
-        );
-        final directToolTiles = <Widget>[];
-        for (var index = 0; index < directToolServers.length; index++) {
-          final server = directToolServers[index];
-          if (!_isServerEnabled(server)) {
-            continue;
-          }
-
-          final selectionId = _directServerSelectionId(server, index);
-          final isSelected = selectedToolIds.contains(selectionId);
-          directToolTiles.add(
-            _buildToggleTile(
-              icon: Platform.isIOS
-                  ? CupertinoIcons.square_stack_3d_down_right
-                  : Icons.hub_outlined,
-              title: _serverTitle(server, fallbackPrefix: l10n.toolServer),
-              subtitle: _serverSubtitle(server),
-              value: isSelected,
-              onChanged: (_) {
-                final current = List<String>.from(
-                  ref.read(selectedToolIdsProvider),
-                );
-                if (isSelected) {
-                  current.remove(selectionId);
-                } else {
-                  current.add(selectionId);
-                }
-                ref.read(selectedToolIdsProvider.notifier).set(current);
-              },
-            ),
-          );
-        }
-
-        final terminalTiles = availableTerminalServersAsync.maybeWhen(
-          data: (servers) {
-            return servers
-                .map((server) {
-                  final isSelected = selectedTerminalId == server.selectionId;
-                  return _buildToggleTile(
-                    icon: Platform.isIOS
-                        ? CupertinoIcons.chevron_left_slash_chevron_right
-                        : Icons.terminal_rounded,
-                    title: server.displayName,
-                    subtitle: server.subtitle,
-                    value: isSelected,
-                    onChanged: (_) async {
-                      await ref
-                          .read(terminalSelectionControllerProvider)
-                          .toggle(server);
-                    },
-                  );
-                })
-                .toList(growable: false);
-          },
-          orElse: () => const <Widget>[],
-        );
-
-        if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final children = <Widget>[];
-        if (directToolTiles.isNotEmpty) {
-          children
-            ..add(_buildSectionLabel(l10n.toolServers))
-            ..add(
-              Column(
-                children: withVerticalSpacing(directToolTiles, Spacing.xxs),
-              ),
-            );
-        }
-        if (terminalTiles.isNotEmpty) {
-          if (children.isNotEmpty) {
-            children.add(const SizedBox(height: Spacing.sm));
-          }
-          children
-            ..add(_buildSectionLabel(l10n.terminal))
-            ..add(
-              Column(children: withVerticalSpacing(terminalTiles, Spacing.xxs)),
-            );
-        }
-
-        return Column(children: children);
-      },
-    );
 
     final listItems = <Widget>[
       const SheetHandle(),
@@ -367,13 +395,14 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         const SizedBox(height: Spacing.sm),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),
       ],
-      const SizedBox(height: Spacing.sm),
-      _buildSectionLabel(l10n.tools),
-      toolsSection,
-      integrationsSection,
+      if (!directMode) ...[
+        const SizedBox(height: Spacing.sm),
+        _buildSectionLabel(l10n.tools),
+        toolsSection,
+        integrationsSection,
+      ],
     ];
 
-    final selectedModel = ref.watch(selectedModelProvider);
     final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
     if (toggleFilters.isNotEmpty) {
       final selectedFilterIds = ref.watch(selectedFilterIdsProvider);

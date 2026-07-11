@@ -4350,6 +4350,138 @@
   "@connectOpenWebUISubtitle": {
     "description": "Subtitle for the Hermes-only profile option that adds an Open WebUI server."
   },
+  "directConnectionsTitle": "Direct Connections",
+  "@directConnectionsTitle": {
+    "description": "Title for settings that manage direct model API connections."
+  },
+  "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
+  "@directConnectionsSubtitle": {
+    "description": "Subtitle for the direct connections profile option."
+  },
+  "directConnectionsDescription": "Connect to model providers without an Open WebUI server. Credentials stay on this device.",
+  "@directConnectionsDescription": {
+    "description": "Introductory copy on direct connections settings."
+  },
+  "addDirectConnection": "Add connection",
+  "@addDirectConnection": {
+    "description": "Button that creates a direct connection profile."
+  },
+  "editDirectConnection": "Edit connection",
+  "@editDirectConnection": {
+    "description": "Title for editing a direct connection profile."
+  },
+  "directConnectionName": "Connection name",
+  "@directConnectionName": {
+    "description": "Label for a user-defined direct connection profile name."
+  },
+  "directProvider": "Provider type",
+  "@directProvider": {
+    "description": "Label for selecting the direct API protocol."
+  },
+  "openAICompatible": "OpenAI-compatible",
+  "@openAICompatible": {
+    "description": "Label for an API compatible with OpenAI Chat Completions."
+  },
+  "ollama": "Ollama",
+  "@ollama": {
+    "description": "Label for an Ollama native API connection."
+  },
+  "directApiBaseUrl": "Base URL",
+  "@directApiBaseUrl": {
+    "description": "Label for the direct provider base URL."
+  },
+  "directAuthentication": "Authentication",
+  "@directAuthentication": {
+    "description": "Label for direct connection authentication settings."
+  },
+  "noAuthentication": "No authentication",
+  "@noAuthentication": {
+    "description": "Authentication option for providers that need no credentials."
+  },
+  "bearerToken": "Bearer token",
+  "@bearerToken": {
+    "description": "Authentication option that sends a bearer token."
+  },
+  "directApiKey": "API key",
+  "@directApiKey": {
+    "description": "Label for a direct connection API key."
+  },
+  "directCustomHeaders": "Custom headers",
+  "@directCustomHeaders": {
+    "description": "Label for custom direct API headers entered as JSON."
+  },
+  "directManualModelIds": "Manual model IDs",
+  "@directManualModelIds": {
+    "description": "Label for newline-separated model identifiers."
+  },
+  "syncDirectHistory": "Open WebUI history",
+  "@syncDirectHistory": {
+    "description": "Title for the direct chat history synchronization preference."
+  },
+  "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
+  "@syncDirectHistorySubtitle": {
+    "description": "Description of the default direct chat history policy."
+  },
+  "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
+  "@directHistoryLocalOnlySubtitle": {
+    "description": "Description shown when direct chat history sync is disabled."
+  },
+  "backendChooserDirectTitle": "Connect directly",
+  "@backendChooserDirectTitle": {
+    "description": "Title of the direct provider option on the first-run backend chooser."
+  },
+  "backendChooserDirectSubtitle": "Use OpenAI-compatible APIs or Ollama without an Open WebUI server.",
+  "@backendChooserDirectSubtitle": {
+    "description": "Description of the direct provider option on the first-run backend chooser."
+  },
+  "testDirectConnection": "Test connection",
+  "@testDirectConnection": {
+    "description": "Button that probes a direct model API."
+  },
+  "directConnectionTestUnavailable": "Connection testing is not available yet.",
+  "@directConnectionTestUnavailable": {
+    "description": "Fallback shown when the direct connection test service is unavailable."
+  },
+  "finishDirectSetup": "Start chatting",
+  "@finishDirectSetup": {
+    "description": "Button that completes direct provider onboarding."
+  },
+  "directProfilesEmptyTitle": "No direct connections yet",
+  "@directProfilesEmptyTitle": {
+    "description": "Empty-state title on direct connections settings."
+  },
+  "directProfilesEmptySubtitle": "Add an OpenAI-compatible or Ollama server to get started.",
+  "@directProfilesEmptySubtitle": {
+    "description": "Empty-state description on direct connections settings."
+  },
+  "directConnectionsSectionTitle": "Connections",
+  "@directConnectionsSectionTitle": {
+    "description": "Section title above configured direct provider profiles."
+  },
+  "directSetupRequiresConnection": "Add and enable at least one valid connection to continue.",
+  "@directSetupRequiresConnection": {
+    "description": "Onboarding hint shown until a usable direct connection exists."
+  },
+  "directSavedDataUnreadable": "The saved connection data could not be read.",
+  "@directSavedDataUnreadable": {
+    "description": "Error shown when the secure direct profile document is malformed."
+  },
+  "directSecureStorageUnavailable": "Check secure storage access and try again.",
+  "@directSecureStorageUnavailable": {
+    "description": "Error shown when direct profiles cannot be loaded from secure storage."
+  },
+  "onDevice": "On device",
+  "@onDevice": {
+    "description": "Badge for chats and data stored only on this device."
+  },
+  "directConnectionError": "Direct connection error",
+  "@directConnectionError": {
+    "description": "Generic title for an error from a direct model provider."
+  },
+  "directAttachmentUnsupported": "This direct model does not support this attachment.",
+  "@directAttachmentUnsupported": {
+    "description": "Error shown when a direct model cannot accept an attached file."
+  },
   "backendChooserWelcome": "Welcome to Conduit",
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."

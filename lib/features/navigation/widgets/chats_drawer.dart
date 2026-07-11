@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -1526,41 +1525,49 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     bool foldersEnabled = false,
     List<Folder> folders = const <Folder>[],
   }) {
+    final conversation = conv as Conversation;
+    final scopedId = conversationScopedId(conversation);
     // Only rebuild this tile when its own selected state changes.
     final isActive = ref.watch(
-      activeConversationProvider.select((c) => c?.id == conv.id),
+      activeConversationProvider.select(
+        (active) => isSameStoredConversation(active, conversation),
+      ),
     );
-    final title = conv.title?.isEmpty == true ? 'Chat' : (conv.title ?? 'Chat');
+    final title = conversation.title.isEmpty ? 'Chat' : conversation.title;
     final bool isLoadingSelected =
-        (_pendingConversationId == conv.id) &&
+        (_pendingConversationId == scopedId) &&
         (ref.watch(chat.isLoadingConversationProvider) == true);
-    final bool isPinned = conv.pinned == true;
+    final bool isPinned = conversation.pinned;
     final activeChatIds = ref.watch(activeChatIdsProvider);
-    final bool unread = _conversationUnread(
-      conv,
-      selected: isActive,
-      activeChatIds: activeChatIds,
+    final bool isGenerating = _conversationIsActive(
+      conversation,
+      activeChatIds,
     );
-
-    final bool isGenerating =
-        conv.id != null && activeChatIds.contains(conv.id);
+    final bool unread = _conversationUnread(
+      conversation,
+      selected: isActive,
+      isGenerating: isGenerating,
+    );
 
     final tileWidget = ConversationTile(
-      key: ValueKey<String>('drawer-chat-${conv.id}'),
+      key: ValueKey<String>('drawer-chat-$scopedId'),
       title: title,
       pinned: isPinned,
       selected: isActive,
       unread: unread,
       isLoading: isLoadingSelected,
       isGenerating: isGenerating,
+      badge: isDirectLocalConversation(conversation)
+          ? AppLocalizations.of(context)!.onDevice
+          : null,
       onTap: _isLoadingConversation
           ? null
-          : () => _selectConversation(context, conv.id),
+          : () => _selectConversation(context, conversation),
     );
 
     final wrappedTile = showHierarchyBranch
         ? FolderTreeHierarchyNode(
-            key: ValueKey<String>('tree-guides-chat-${conv.id}'),
+            key: ValueKey<String>('tree-guides-chat-$scopedId'),
             ancestorHasMoreSiblings: ancestorHasMoreSiblings,
             showBranch: true,
             hasMoreSiblings: hasMoreSiblings,
@@ -1572,7 +1579,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       actions: buildConversationActionsWithFolders(
         context: context,
         ref: ref,
-        conversation: conv,
+        conversation: conversation,
         foldersEnabled: foldersEnabled,
         folders: folders,
       ),
@@ -1656,8 +1663,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  Future<void> _selectConversation(BuildContext context, String id) async {
+  Future<void> _selectConversation(
+    BuildContext context,
+    Conversation conversation,
+  ) async {
     if (_isLoadingConversation) return;
+    final scopedId = conversationScopedId(conversation);
     setState(() => _isLoadingConversation = true);
     // Keep a reference only if needed in the future; currently unused.
     // Capture a provider container detached from this widget's lifecycle so
@@ -1666,12 +1677,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
     // Selecting a real conversation exits temporary mode
     container.read(temporaryChatEnabledProvider.notifier).set(false);
-    final outgoingId = container.read(activeConversationProvider)?.id;
-    if (outgoingId != id) {
-      markConversationRead(container, outgoingId);
+    final outgoing = container.read(activeConversationProvider);
+    if (!isSameStoredConversation(outgoing, conversation)) {
+      if (outgoing != null) {
+        markConversationRead(container, conversationScopedId(outgoing));
+      }
     }
     final selectedReadAt = DateTime.now();
-    markConversationRead(container, id, readAt: selectedReadAt);
+    markConversationRead(container, scopedId, readAt: selectedReadAt);
 
     // Overlay the just-selected read time when it is newer than the source's
     // own lastReadAt, so the active conversation reflects the optimistic read.
@@ -1685,7 +1698,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     try {
       // Mark global loading to show skeletons in chat
       container.read(chat.isLoadingConversationProvider.notifier).set(true);
-      _pendingConversationId = id;
+      _pendingConversationId = scopedId;
 
       // Immediately clear current chat to show loading skeleton in the chat view
       container.read(activeConversationProvider.notifier).clear();
@@ -1709,44 +1722,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         }
       }
 
-      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
-      // instantly — offline included — and a background pull freshens it.
-      final local = await loadLocalConversation(container, id);
-      if (local != null) {
-        container
-            .read(activeConversationProvider.notifier)
-            .set(withOptimisticReadAt(local));
-        schedulePullChatNow(container, id);
-      } else {
-        // No row / envelope stub / reviewer mode: load from the server.
-        final api = container.read(apiServiceProvider);
-        if (api != null) {
-          final full = await api.getConversation(id);
-          container
-              .read(activeConversationProvider.notifier)
-              .set(withOptimisticReadAt(full));
-          // Materialize the local row so the next open is DB-first.
-          schedulePullChatNow(container, id);
-        } else {
-          // Fallback: use the lightweight item to update the active
-          // conversation
-          final conversations = await container.read(
-            conversationsProvider.future,
-          );
-          Conversation? fallback;
-          for (final conversation in conversations) {
-            if (conversation.id == id) {
-              fallback = conversation;
-              break;
-            }
-          }
-          if (fallback != null) {
-            container
-                .read(activeConversationProvider.notifier)
-                .set(withOptimisticReadAt(fallback));
-          }
-        }
-      }
+      // Resolve through the provenance-aware repository. This reads both the
+      // OpenWebUI cache and the independent on-device direct-chat database,
+      // while only scheduling a server pull for OpenWebUI-owned rows.
+      final full = await container.read(
+        loadConversationProvider(scopedId).future,
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(withOptimisticReadAt(full));
 
       // Clear loading after data is ready
       container.read(chat.isLoadingConversationProvider.notifier).set(false);
@@ -1762,10 +1746,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   bool _conversationUnread(
     dynamic conversation, {
     required bool selected,
-    required Set<String> activeChatIds,
+    required bool isGenerating,
   }) {
     final id = conversation.id?.toString();
-    if (id == null || id.isEmpty || selected || activeChatIds.contains(id)) {
+    if (id == null || id.isEmpty || selected || isGenerating) {
       return false;
     }
     final updatedAt = conversation.updatedAt;
@@ -1773,6 +1757,19 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final lastReadAt = conversation.lastReadAt;
     if (lastReadAt is! DateTime) return true;
     return updatedAt.isAfter(lastReadAt);
+  }
+
+  bool _conversationIsActive(
+    Conversation conversation,
+    Set<String> activeChatIds,
+  ) {
+    if (activeChatIds.contains(conversationScopedId(conversation))) {
+      return true;
+    }
+    // Socket-derived active IDs are raw Open WebUI IDs. Never apply one to an
+    // on-device row that happens to share the same raw ID.
+    return !isDirectLocalConversation(conversation) &&
+        activeChatIds.contains(conversation.id);
   }
 }
 

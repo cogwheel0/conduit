@@ -14,6 +14,7 @@ import '../../../core/services/share_staging_cleanup.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../direct_connections/direct_connections.dart';
 
 /// Standard web image formats that LLMs can process directly.
 const Set<String> _standardImageFormats = {
@@ -700,9 +701,14 @@ final fileAttachmentServiceProvider = Provider<dynamic>((ref) {
     return MockFileAttachmentService();
   }
 
-  // Guard: only provide service when user is logged in
+  final selectedModel = ref.watch(selectedModelProvider);
+  final directEnabled =
+      selectedModel != null &&
+      ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+
+  // OpenWebUI uploads require an API, while direct images are encoded locally.
   final apiService = ref.watch(apiServiceProvider);
-  if (apiService == null) return null;
+  if (apiService == null && !directEnabled) return null;
 
   return FileAttachmentService();
 });

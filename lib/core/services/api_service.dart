@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
@@ -44,6 +45,13 @@ const int _conversationWorkerByteThreshold = 50 * 1024;
 const int _conversationSummaryWorkerItemThreshold = 24;
 const int _fileUploadTimeoutBytesPerSecondFloor = 128 * 1024;
 const Duration _minimumFileUploadTimeout = Duration(minutes: 5);
+
+final class FileContentTooLargeException implements Exception {
+  const FileContentTooLargeException();
+
+  @override
+  String toString() => 'File content exceeds the configured byte limit.';
+}
 
 void _traceApi(String message) {
   if (!_traceApiLogs) {
@@ -3038,14 +3046,17 @@ class ApiService {
   }
 
   // Files
-  Future<String> getFileContent(String fileId) async {
+  Future<String> getFileContent(String fileId, {int? maxBytes}) async {
     _traceApi('Fetching file content: $fileId');
+    if (maxBytes != null && maxBytes <= 0) {
+      throw ArgumentError.value(maxBytes, 'maxBytes');
+    }
     // The Open-WebUI endpoint returns the raw file bytes with appropriate
     // Content-Type headers, not JSON. We must read bytes and base64-encode
     // them for consistent handling across platforms/widgets.
-    final response = await _dio.get(
+    final response = await _dio.get<ResponseBody>(
       '/api/v1/files/$fileId/content',
-      options: Options(responseType: ResponseType.bytes),
+      options: Options(responseType: ResponseType.stream),
     );
 
     // Try to determine the mime type from response headers; fallback to text/plain
@@ -3057,11 +3068,31 @@ class ApiService {
       mimeType = contentType.split(';').first.trim();
     }
 
-    final bytes = response.data is List<int>
-        ? (response.data as List<int>)
-        : (response.data as Uint8List).toList();
+    final advertisedLength = int.tryParse(
+      response.headers.value(HttpHeaders.contentLengthHeader) ?? '',
+    );
+    final body = response.data;
+    if (body == null) {
+      throw const FormatException('File content response is empty.');
+    }
+    if (maxBytes != null &&
+        advertisedLength != null &&
+        advertisedLength > maxBytes) {
+      final subscription = body.stream.listen((_) {});
+      await subscription.cancel();
+      throw const FileContentTooLargeException();
+    }
+    final bytes = BytesBuilder(copy: false);
+    var receivedBytes = 0;
+    await for (final chunk in body.stream) {
+      receivedBytes += chunk.length;
+      if (maxBytes != null && receivedBytes > maxBytes) {
+        throw const FileContentTooLargeException();
+      }
+      bytes.add(chunk);
+    }
 
-    final base64Data = base64Encode(bytes);
+    final base64Data = base64Encode(bytes.takeBytes());
 
     // For images, return a data URL so UI can render directly; otherwise return raw base64
     if (mimeType.startsWith('image/')) {
