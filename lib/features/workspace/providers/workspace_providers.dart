@@ -910,6 +910,29 @@ class WorkspaceSkills extends _$WorkspaceSkills {
     ref.invalidate(workspaceSkillDetailProvider(id));
   }
 
+  /// Imports a single skill definition by creating it. Fail-closed: throws when
+  /// the server does not confirm the create. Does not refresh the collection —
+  /// the caller batches a single [refresh] after the import run so model skill
+  /// selectors/runtime metadata reconcile once.
+  Future<void> importSkill(WorkspaceSkillForm form) async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.createWorkspaceSkill(form);
+    session.ensureCurrent(ref);
+    if (result == null) {
+      throw StateError('Skill import returned no record.');
+    }
+  }
+
+  /// Returns every readable skill (with content) for export via the dedicated
+  /// `/skills/export` endpoint. Read-only: does not mutate state and respects
+  /// the stale-session guard.
+  Future<List<WorkspaceSkillDetail>> exportAll() async {
+    final session = WorkspaceSessionIdentity.read(ref);
+    final result = await session.api.exportWorkspaceSkills();
+    session.ensureCurrent(ref);
+    return result;
+  }
+
   Future<WorkspaceSkillDetail> _mutate(
     Future<WorkspaceSkillDetail?> Function(ApiService api) action, {
     required String id,

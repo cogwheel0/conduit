@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_editor.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_editor.dart';
+import 'package:conduit/features/workspace/views/skills/workspace_skill_editor.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 
 /// Arguments handed to a section editor when the shell resolves a create,
@@ -38,5 +39,6 @@ final workspaceSectionEditorsProvider =
         WorkspaceSection.models: buildWorkspaceModelEditor,
         WorkspaceSection.knowledge: buildWorkspaceKnowledgeEditor,
         WorkspaceSection.prompts: buildWorkspacePromptEditor,
+        WorkspaceSection.skills: buildWorkspaceSkillEditor,
       };
     });
