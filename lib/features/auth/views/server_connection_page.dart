@@ -1,6 +1,5 @@
 import 'dart:convert';
-import 'dart:io'
-    show File, HandshakeException, HttpException, Platform, SocketException;
+import 'dart:io' show File, HandshakeException, HttpException, SocketException;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
@@ -25,11 +24,10 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
-import '../../../shared/services/brand_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
+import '../widgets/adaptive_auth_scaffold.dart';
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
   const ServerConnectionPage({super.key});
@@ -57,6 +55,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _isConnecting = false;
   bool _showAdvancedSettings = false;
   bool _allowSelfSignedCertificates = false;
+
+  bool get _usesCupertinoDesign {
+    final platform = Theme.of(context).platform;
+    return platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+  }
+
+  bool get _canAddCustomHeader =>
+      _customHeaders.length < 10 &&
+      _headerKeyController.text.trim().isNotEmpty &&
+      _headerValueController.text.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -100,10 +108,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Future<void> _connectToServer() async {
+    if (_isConnecting) return;
+
     DebugLogger.log('Connect button pressed', scope: 'auth/connection');
 
     final urlValue = _urlController.text.trim();
-    DebugLogger.log('URL value: "$urlValue"', scope: 'auth/connection');
+    DebugLogger.log(
+      'Server address provided: ${urlValue.isNotEmpty}',
+      scope: 'auth/connection',
+    );
 
     // Check what validation would return
     final validationResult = InputValidationService.validateUrl(urlValue);
@@ -905,68 +918,29 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   @override
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
-    final safePadding = MediaQuery.of(context).padding;
+    final l10n = AppLocalizations.of(context)!;
 
     return ErrorBoundary(
-      child: AdaptiveRouteShell(
-        backgroundColor: context.conduitTheme.surfaceBackground,
-        body: Column(
-          children: [
-            // Main content
-            Expanded(
-              child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 480),
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        left: Spacing.pagePadding,
-                        right: Spacing.pagePadding,
-                        top: safePadding.top + Spacing.xxl,
-                      ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Brand header with welcome text
-                            _buildHeader(reviewerMode),
-
-                            const SizedBox(height: Spacing.xxl),
-
-                            // Reviewer mode demo (if enabled)
-                            if (reviewerMode) ...[
-                              _buildReviewerModeSection(),
-                              const SizedBox(height: Spacing.xl),
-                            ],
-
-                            // Server connection form
-                            _buildServerForm(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // Bottom action button
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                Spacing.pagePadding,
-                Spacing.md,
-                Spacing.pagePadding,
-                safePadding.bottom + Spacing.md,
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: _buildConnectButton(),
-              ),
-            ),
-          ],
+      child: AdaptiveAuthScaffold(
+        title: l10n.backendChooserOpenWebUITitle,
+        backLabel: l10n.back,
+        backButtonKey: const ValueKey<String>('server-connection-back-button'),
+        onBack: () => context.go(Routes.backendChooser),
+        bottomAction: _buildConnectButton(),
+        body: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(reviewerMode),
+              if (reviewerMode) ...[
+                const SizedBox(height: Spacing.xl),
+                _buildReviewerModeSection(),
+              ],
+              const SizedBox(height: Spacing.xl),
+              _buildServerForm(),
+            ],
+          ),
         ),
       ),
     );
@@ -974,91 +948,44 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Widget _buildHeader(bool reviewerMode) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
 
-    return Column(
-      children: [
-        // Brand icon with gradient container
-        GestureDetector(
-          onLongPress: () async {
-            ConduitHaptics.mediumImpact();
-            await ref.read(reviewerModeProvider.notifier).toggle();
-            if (!mounted) return;
-            final enabled = ref.read(reviewerModeProvider);
-            AdaptiveSnackBar.show(
-              context,
-              message: enabled
-                  ? 'Reviewer Mode enabled: Demo without server'
-                  : 'Reviewer Mode disabled',
-              type: AdaptiveSnackBarType.info,
-            );
-          },
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      theme.buttonPrimary.withValues(alpha: 0.12),
-                      theme.buttonPrimary.withValues(alpha: 0.04),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: theme.buttonPrimary.withValues(alpha: 0.15),
-                    width: BorderWidth.standard,
-                  ),
-                ),
-                child: Center(
-                  child: BrandService.createBrandIcon(
-                    size: 36,
-                    useGradient: true,
-                    context: context,
-                  ),
-                ),
-              ),
-              // Reviewer mode badge
-              if (reviewerMode)
-                Positioned(
-                  bottom: -8,
-                  child: ConduitBadge(
-                    text: AppLocalizations.of(context)!.demoBadge,
-                    backgroundColor: theme.warning.withValues(alpha: 0.15),
-                    textColor: theme.warning,
-                    isCompact: true,
-                  ),
-                ),
-            ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: () async {
+        ConduitHaptics.mediumImpact();
+        await ref.read(reviewerModeProvider.notifier).toggle();
+        if (!mounted) return;
+        final enabled = ref.read(reviewerModeProvider);
+        AdaptiveSnackBar.show(
+          context,
+          message: enabled
+              ? l10n.reviewerModeEnabled
+              : l10n.reviewerModeDisabled,
+          type: AdaptiveSnackBarType.info,
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.enterServerAddress,
+            style: theme.bodyMedium?.copyWith(
+              color: theme.textSecondary,
+              height: 1.4,
+            ),
           ),
-        ),
-        const SizedBox(height: Spacing.lg),
-
-        // Title
-        Text(
-          AppLocalizations.of(context)!.connectToServer,
-          textAlign: TextAlign.center,
-          style: theme.headingLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: AppTypography.letterSpacingTight,
-          ),
-        ),
-        const SizedBox(height: Spacing.sm),
-
-        // Subtitle
-        Text(
-          AppLocalizations.of(context)!.enterServerAddress,
-          textAlign: TextAlign.center,
-          style: theme.bodyMedium?.copyWith(
-            color: theme.textSecondary,
-            height: 1.4,
-          ),
-        ),
-      ],
+          if (reviewerMode) ...[
+            const SizedBox(height: Spacing.sm),
+            ConduitBadge(
+              text: l10n.demoBadge,
+              backgroundColor: theme.warning.withValues(alpha: 0.15),
+              textColor: theme.warning,
+              isCompact: true,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1071,7 +998,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           Row(
             children: [
               Icon(
-                Platform.isIOS ? CupertinoIcons.wand_stars : Icons.auto_awesome,
+                _usesCupertinoDesign
+                    ? CupertinoIcons.wand_stars
+                    : Icons.auto_awesome,
                 color: context.conduitTheme.warning,
                 size: IconSize.medium,
               ),
@@ -1102,7 +1031,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           const SizedBox(height: Spacing.lg),
           ConduitButton(
             text: AppLocalizations.of(context)!.enterDemo,
-            icon: Platform.isIOS ? CupertinoIcons.play_fill : Icons.play_arrow,
+            icon: _usesCupertinoDesign
+                ? CupertinoIcons.play_fill
+                : Icons.play_arrow,
             onPressed: () {
               context.go(Routes.chat);
             },
@@ -1115,12 +1046,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Widget _buildServerForm() {
+    final l10n = AppLocalizations.of(context)!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AdaptiveTextFormField(
+        AccessibleFormField(
+          key: const ValueKey<String>('server-url-field'),
+          label: l10n.serverUrl,
+          hint: l10n.serverUrlHint,
           controller: _urlController,
-          placeholder: AppLocalizations.of(context)!.serverUrlHint,
           validator: (value) {
             final v = value ?? _urlController.text;
             return InputValidationService.combine([
@@ -1129,17 +1064,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             ])(v);
           },
           keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          autocorrect: false,
           onSubmitted: (_) => _connectToServer(),
-          prefixIcon: Icon(
-            Platform.isIOS ? CupertinoIcons.globe : Icons.public,
-            color: context.conduitTheme.iconSecondary,
-          ),
+          semanticLabel: l10n.enterServerUrlSemantic,
+          isRequired: true,
           autofillHints: const [AutofillHints.url],
-          cupertinoDecoration: BoxDecoration(
-            color: CupertinoColors.tertiarySystemBackground,
-            border: Border.all(color: context.conduitTheme.inputBorder),
-            borderRadius: BorderRadius.circular(8),
-          ),
         ),
 
         if (_connectionError != null) ...[
@@ -1167,73 +1097,92 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Toggle header
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () =>
-                setState(() => _showAdvancedSettings = !_showAdvancedSettings),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.md,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Platform.isIOS
-                        ? CupertinoIcons.gear_alt
-                        : Icons.tune_rounded,
-                    color: theme.iconSecondary,
-                    size: IconSize.medium,
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: Text(
-                      AppLocalizations.of(context)!.advancedSettings,
-                      style: theme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: theme.textPrimary,
+          Semantics(
+            button: true,
+            expanded: _showAdvancedSettings,
+            child: SizedBox(
+              width: double.infinity,
+              child: AdaptiveButton.child(
+                key: const ValueKey<String>('advanced-settings-toggle'),
+                onPressed: () => setState(
+                  () => _showAdvancedSettings = !_showAdvancedSettings,
+                ),
+                style: AdaptiveButtonStyle.plain,
+                size: AdaptiveButtonSize.large,
+                minSize: const Size(
+                  TouchTarget.minimum,
+                  TouchTarget.comfortable,
+                ),
+                padding: EdgeInsets.zero,
+                borderRadius: BorderRadius.circular(AppBorderRadius.card),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _usesCupertinoDesign
+                            ? CupertinoIcons.gear_alt
+                            : Icons.tune_rounded,
+                        color: theme.iconSecondary,
+                        size: IconSize.medium,
                       ),
-                    ),
-                  ),
-                  if (_customHeaders.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: Spacing.sm),
-                      child: ConduitBadge(
-                        text: '${_customHeaders.length}',
-                        backgroundColor: theme.buttonPrimary.withValues(
-                          alpha: 0.1,
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: Text(
+                          AppLocalizations.of(context)!.advancedSettings,
+                          style: theme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: theme.textPrimary,
+                          ),
                         ),
-                        textColor: theme.buttonPrimary,
-                        isCompact: true,
                       ),
-                    ),
-                  AnimatedRotation(
-                    duration: AnimationDuration.microInteraction,
-                    turns: _showAdvancedSettings ? 0.5 : 0,
-                    child: Icon(
-                      Platform.isIOS
-                          ? CupertinoIcons.chevron_down
-                          : Icons.expand_more,
-                      color: theme.iconSecondary,
-                      size: IconSize.medium,
-                    ),
+                      if (_customHeaders.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: Spacing.sm),
+                          child: ConduitBadge(
+                            text: '${_customHeaders.length}',
+                            backgroundColor: theme.buttonPrimary.withValues(
+                              alpha: 0.1,
+                            ),
+                            textColor: theme.buttonPrimary,
+                            isCompact: true,
+                          ),
+                        ),
+                      AnimatedRotation(
+                        duration: context.motionDuration(
+                          AnimationDuration.microInteraction,
+                        ),
+                        turns: _showAdvancedSettings ? 0.5 : 0,
+                        child: Icon(
+                          _usesCupertinoDesign
+                              ? CupertinoIcons.chevron_down
+                              : Icons.expand_more,
+                          color: theme.iconSecondary,
+                          size: IconSize.medium,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
 
-          // Expandable content
-          AnimatedCrossFade(
-            duration: AnimationDuration.microInteraction,
-            sizeCurve: Curves.easeInOutCubic,
-            crossFadeState: _showAdvancedSettings
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: _buildAdvancedSettingsContent(),
-          ),
+          if (context.reduceMotion)
+            if (_showAdvancedSettings)
+              _buildAdvancedSettingsContent()
+            else
+              const SizedBox.shrink()
+          else
+            AnimatedCrossFade(
+              duration: AnimationDuration.microInteraction,
+              sizeCurve: Curves.easeOutCubic,
+              crossFadeState: _showAdvancedSettings
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: _buildAdvancedSettingsContent(),
+            ),
         ],
       ),
     );
@@ -1369,17 +1318,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   ),
                 if (_hasAnyMutualTlsInput) ...[
                   const SizedBox(height: Spacing.md),
-                  AdaptiveTextFormField(
+                  AccessibleFormField(
                     controller: _mtlsPrivateKeyPasswordController,
-                    placeholder: l10n.mutualTlsPrivateKeyPasswordHint,
+                    hint: l10n.mutualTlsPrivateKeyPasswordHint,
                     obscureText: true,
                     keyboardType: TextInputType.visiblePassword,
                     textInputAction: TextInputAction.done,
-                    cupertinoDecoration: BoxDecoration(
-                      color: CupertinoColors.tertiarySystemBackground,
-                      border: Border.all(color: theme.inputBorder),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    autocorrect: false,
                   ),
                   const SizedBox(height: Spacing.sm),
                   ConduitButton(
@@ -1447,69 +1392,44 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               ),
               const SizedBox(height: Spacing.md),
 
-              // Header input row
-              Row(
-                children: [
-                  Expanded(
-                    child: AdaptiveTextFormField(
-                      placeholder: 'X-Custom-Header',
-                      controller: _headerKeyController,
-                      validator: (value) => _validateHeaderKey(
-                        value ?? _headerKeyController.text,
-                      ),
-                      keyboardType: TextInputType.text,
-                      textInputAction: TextInputAction.next,
-                      onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
-                      cupertinoDecoration: BoxDecoration(
-                        color: CupertinoColors.tertiarySystemBackground,
-                        border: Border.all(color: theme.inputBorder),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: AdaptiveTextFormField(
-                      placeholder: l10n.headerValueHint,
-                      controller: _headerValueController,
-                      focusNode: _headerValueFocusNode,
-                      validator: (value) => _validateHeaderValue(
-                        value ?? _headerValueController.text,
-                      ),
-                      keyboardType: TextInputType.text,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _addCustomHeader(),
-                      cupertinoDecoration: BoxDecoration(
-                        color: CupertinoColors.tertiarySystemBackground,
-                        border: Border.all(color: theme.inputBorder),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ],
+              AccessibleFormField(
+                key: const ValueKey<String>('custom-header-name-field'),
+                label: l10n.headerName,
+                hint: 'X-Custom-Header',
+                controller: _headerKeyController,
+                validator: (value) =>
+                    _validateHeaderKey(value ?? _headerKeyController.text),
+                keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.next,
+                autocorrect: false,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
               ),
-              const SizedBox(height: Spacing.sm),
-              Center(
-                child: GestureDetector(
-                  onTap: _customHeaders.length >= 10 ? null : _addCustomHeader,
-                  child: Container(
-                    width: TouchTarget.minimum,
-                    height: TouchTarget.minimum,
-                    decoration: BoxDecoration(
-                      color: _customHeaders.length >= 10
-                          ? theme.surfaceContainer
-                          : theme.buttonPrimary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Platform.isIOS ? CupertinoIcons.plus : Icons.add_rounded,
-                      color: _customHeaders.length >= 10
-                          ? theme.textDisabled
-                          : theme.buttonPrimaryText,
-                      size: IconSize.medium,
-                    ),
-                  ),
-                ),
+              const SizedBox(height: Spacing.md),
+              AccessibleFormField(
+                key: const ValueKey<String>('custom-header-value-field'),
+                label: l10n.headerValue,
+                hint: l10n.headerValueHint,
+                controller: _headerValueController,
+                focusNode: _headerValueFocusNode,
+                validator: (value) =>
+                    _validateHeaderValue(value ?? _headerValueController.text),
+                keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.done,
+                autocorrect: false,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (_canAddCustomHeader) _addCustomHeader();
+                },
+              ),
+              const SizedBox(height: Spacing.md),
+              ConduitButton(
+                key: const ValueKey<String>('add-custom-header-button'),
+                text: l10n.addHeader,
+                onPressed: _canAddCustomHeader ? _addCustomHeader : null,
+                isSecondary: true,
+                isFullWidth: true,
+                useNativeLabel: true,
               ),
 
               // Header list
@@ -1580,7 +1500,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   ),
                 ),
                 ConduitIconButton(
-                  icon: Platform.isIOS
+                  icon: _usesCupertinoDesign
                       ? CupertinoIcons.xmark
                       : Icons.close_rounded,
                   onPressed: () => _removeCustomHeader(entry.key),
@@ -1602,12 +1522,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
           : AppLocalizations.of(context)!.connectToServerButton,
-      icon: _isConnecting
-          ? null
-          : (Platform.isIOS ? CupertinoIcons.arrow_right : Icons.arrow_forward),
       onPressed: _isConnecting ? null : _connectToServer,
       isLoading: _isConnecting,
       isFullWidth: true,
+      useNativeLabel: true,
     );
   }
 
@@ -1628,7 +1546,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         child: Row(
           children: [
             Icon(
-              Platform.isIOS
+              _usesCupertinoDesign
                   ? CupertinoIcons.exclamationmark_circle
                   : Icons.error_outline,
               color: context.conduitTheme.error,

@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -14,6 +12,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
     required this.value,
     required this.onChanged,
     required this.options,
+    this.showIcons = true,
   });
 
   final T value;
@@ -28,15 +27,20 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
     })
   >
   options;
+  final bool showIcons;
 
   @override
   Widget build(BuildContext context) {
+    final platform = Theme.of(context).platform;
     final isCupertino =
-        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    final selectedValue = options.any((option) => option.value == value)
+        ? value
+        : null;
 
     if (isCupertino) {
       return CupertinoSlidingSegmentedControl<T>(
-        groupValue: value,
+        groupValue: selectedValue,
         disabledChildren: {
           for (final option in options)
             if (!option.enabled) option.value,
@@ -52,22 +56,31 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
         },
         children: {
           for (final option in options)
-            option.value: ThemeModeSegmentLabel(
-              icon: option.cupertinoIcon,
-              label: option.label,
-            ),
+            option.value: showIcons
+                ? ThemeModeSegmentLabel(
+                    icon: option.cupertinoIcon,
+                    label: option.label,
+                  )
+                : Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.sm,
+                      vertical: Spacing.xs,
+                    ),
+                    child: Text(option.label),
+                  ),
         },
       );
     }
 
     return SegmentedButton<T>(
-      selected: {value},
+      selected: selectedValue == null ? <T>{} : <T>{selectedValue},
+      emptySelectionAllowed: selectedValue == null,
       showSelectedIcon: false,
       segments: [
         for (final option in options)
           ButtonSegment<T>(
             value: option.value,
-            icon: Icon(option.materialIcon),
+            icon: showIcons ? Icon(option.materialIcon) : null,
             label: Text(option.label),
             enabled: option.enabled,
           ),
@@ -101,8 +114,9 @@ class ThemeModeSegmentedControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final platform = Theme.of(context).platform;
     final isCupertino =
-        Platform.isIOS || Theme.of(context).platform == TargetPlatform.macOS;
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
 
     if (isCupertino) {
       return CupertinoSlidingSegmentedControl<ThemeMode>(

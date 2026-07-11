@@ -286,7 +286,7 @@
   "@document": {
     "description": "Generic document label used in UI."
   },
-  "backToServerSetup": "Back to server setup",
+  "backToServerSetup": "Back to Open WebUI setup",
   "@backToServerSetup": {
     "description": "Button/back label to return to server configuration flow."
   },
@@ -294,7 +294,19 @@
   "@connectedToServer": {
     "description": "Status label indicating a successful server connection."
   },
-  "signIn": "Sign In",
+  "signInServerDescription": "Use your Open WebUI account to sign in to the server below.",
+  "@signInServerDescription": {
+    "description": "Introductory copy above the destination server on the Open WebUI sign-in page."
+  },
+  "openWebUIServer": "Open WebUI server",
+  "@openWebUIServer": {
+    "description": "Label above the server address on the Open WebUI sign-in page."
+  },
+  "serverAddressUnavailable": "Server address unavailable",
+  "@serverAddressUnavailable": {
+    "description": "Privacy-safe fallback when a saved server address cannot be displayed."
+  },
+  "signIn": "Sign in",
   "@signIn": {
     "description": "Button/heading for sign-in flows."
   },
@@ -302,9 +314,9 @@
   "@enterCredentials": {
     "description": "Instructional text on the sign-in screen."
   },
-  "credentials": "Credentials",
+  "credentials": "Password",
   "@credentials": {
-    "description": "Header for credential input section."
+    "description": "Authentication method label for username/password sign-in."
   },
   "apiKey": "API Key",
   "@apiKey": {
@@ -314,7 +326,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "usernameOrEmail": "Username or Email",
+  "usernameOrEmail": "Email or username",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
   },
@@ -322,7 +334,15 @@
   "@password": {
     "description": "Label for password input field."
   },
-  "signInWithToken": "Sign in with Token",
+  "showPassword": "Show password",
+  "@showPassword": {
+    "description": "Tooltip for revealing a password or session token field."
+  },
+  "hidePassword": "Hide password",
+  "@hidePassword": {
+    "description": "Tooltip for obscuring a password or session token field."
+  },
+  "signInWithToken": "Sign in with token",
   "@signInWithToken": {
     "description": "Alternative sign-in method using a JWT token."
   },
@@ -330,33 +350,33 @@
   "@connectToServer": {
     "description": "Call-to-action button for server connection."
   },
-  "enterServerAddress": "Enter your Open-WebUI server address to get started",
+  "enterServerAddress": "Enter the address you use to open Open WebUI.",
   "@enterServerAddress": {
     "description": "Instruction telling user to provide server URL to begin."
   },
-  "serverUrl": "Server URL",
+  "serverUrl": "Open WebUI address",
   "@serverUrl": {
     "description": "Label for server URL field."
   },
-  "serverUrlHint": "https://your-server.com",
+  "serverUrlHint": "https://openwebui.example.com",
   "@serverUrlHint": {
     "description": "Hint text showing example server URL format."
   },
-  "enterServerUrlSemantic": "Enter your server URL or IP address",
+  "enterServerUrlSemantic": "Enter the address of your Open WebUI server",
   "@enterServerUrlSemantic": {
     "description": "Semantic/ARIA label instructing to enter server URL or IP."
   },
-  "headerName": "Header Name",
+  "headerName": "Header name",
   "@headerName": {
     "description": "Label for custom header key."
   },
-  "headerValue": "Header Value",
+  "headerValue": "Header value",
   "@headerValue": {
     "description": "Label for custom header value."
   },
-  "headerValueHint": "api-key-123 or Bearer token",
+  "headerValueHint": "api-key-123",
   "@headerValueHint": {
-    "description": "Hint text with example header values, including API key or Bearer token."
+    "description": "Hint text with an example custom header value."
   },
   "addHeader": "Add header",
   "@addHeader": {
@@ -374,7 +394,7 @@
   "@connecting": {
     "description": "Status while attempting to connect to server."
   },
-  "connectToServerButton": "Connect to Server",
+  "connectToServerButton": "Connect",
   "@connectToServerButton": {
     "description": "Primary action button to initiate server connection."
   },
@@ -394,9 +414,17 @@
   "@demoBadge": {
     "description": "Small badge label for demo content."
   },
-  "serverNotOpenWebUI": "This does not appear to be an Open-WebUI server.",
+  "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
+  "@reviewerModeEnabled": {
+    "description": "Confirmation shown when the hidden reviewer demo mode is enabled."
+  },
+  "reviewerModeDisabled": "Reviewer mode disabled.",
+  "@reviewerModeDisabled": {
+    "description": "Confirmation shown when the hidden reviewer demo mode is disabled."
+  },
+  "serverNotOpenWebUI": "This does not appear to be an Open WebUI server.",
   "@serverNotOpenWebUI": {
-    "description": "Validation error when the server does not resemble Open-WebUI."
+    "description": "Validation error when the server does not resemble Open WebUI."
   },
   "serverUrlEmpty": "Server URL cannot be empty",
   "@serverUrlEmpty": {
@@ -1148,11 +1176,11 @@
   "@noConversationsYet": {
     "description": "Empty state when the user has no chats."
   },
-  "usernameOrEmailHint": "Enter your username or email",
+  "usernameOrEmailHint": "Email or username",
   "@usernameOrEmailHint": {
     "description": "Hint text for username/email input."
   },
-  "passwordHint": "Enter your password",
+  "passwordHint": "Password",
   "@passwordHint": {
     "description": "Hint text for password input."
   },
@@ -1160,19 +1188,19 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Get the JWT token from OpenWebUI settings. API keys (sk-...) are not supported for streaming.",
+  "tokenHint": "Paste an Open WebUI session token from a signed-in browser. API keys are not supported.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API keys (sk-...) are not supported. Please use a JWT token instead.",
+  "apiKeyNotSupported": "API keys are not supported here. Use an Open WebUI session token.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
-  "apiKeyNoLongerSupported": "You were logged out because API keys are no longer supported. Please sign in with a JWT token from OpenWebUI settings.",
+  "apiKeyNoLongerSupported": "This saved API key can no longer be used to sign in. Choose another sign-in method.",
   "@apiKeyNoLongerSupported": {
     "description": "Error message shown when user is forced logged out due to using an API key."
   },
-  "tokenTooShort": "Token is too short",
+  "tokenTooShort": "Enter a valid session token.",
   "@tokenTooShort": {
     "description": "Error message when token is too short."
   },
@@ -1180,39 +1208,39 @@
   "@signingIn": {
     "description": "Status message shown while signing in."
   },
-  "advancedSettings": "Advanced Settings",
+  "advancedSettings": "Advanced settings",
   "@advancedSettings": {
     "description": "Section that contains additional/optional configuration."
   },
-  "customHeaders": "Custom Headers",
+  "customHeaders": "Custom headers",
   "@customHeaders": {
     "description": "Section title for adding custom HTTP headers."
   },
-  "customHeadersDescription": "Add custom HTTP headers for authentication, API keys, or special server requirements.",
+  "customHeadersDescription": "Conduit sends these headers with requests to this server and stores them securely on this device.",
   "@customHeadersDescription": {
     "description": "Helper text explaining use-cases for custom headers."
   },
-  "allowSelfSignedCertificates": "Trust self-signed certificates",
+  "allowSelfSignedCertificates": "Allow an unverified certificate",
   "@allowSelfSignedCertificates": {
     "description": "Toggle label that allows trusting self-signed TLS certificates for the configured server."
   },
-  "allowSelfSignedCertificatesDescription": "Accept this server's TLS certificate even if it is self-signed. Enable only for servers you trust.",
+  "allowSelfSignedCertificatesDescription": "Accept a certificate this device cannot verify. This weakens connection security; enable only for a server and network you control.",
   "@allowSelfSignedCertificatesDescription": {
     "description": "Helper text clarifying the risks of enabling the self-signed certificate toggle."
   },
-  "mutualTlsSectionTitle": "mTLS client certificate",
+  "mutualTlsSectionTitle": "Client certificate (mTLS)",
   "@mutualTlsSectionTitle": {
     "description": "Section title for configuring a client certificate and private key for mutual TLS."
   },
-  "mutualTlsSectionDescription": "Attach a PEM certificate chain and PEM private key when your server requires mutual TLS during connection setup.",
+  "mutualTlsSectionDescription": "If this server requires mTLS, choose its client certificate and private key.",
   "@mutualTlsSectionDescription": {
     "description": "Helper text explaining when to use the mTLS configuration section."
   },
-  "mutualTlsSelectCertificate": "Select certificate",
+  "mutualTlsSelectCertificate": "Choose certificate",
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file."
   },
-  "mutualTlsSelectPrivateKey": "Select private key",
+  "mutualTlsSelectPrivateKey": "Choose private key",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file."
   },
@@ -1228,7 +1256,7 @@
   "@mutualTlsPrivateKeyPasswordHint": {
     "description": "Placeholder for the optional password used to decrypt an mTLS private key."
   },
-  "mutualTlsClearCredentials": "Clear mTLS files",
+  "mutualTlsClearCredentials": "Remove certificate and key",
   "@mutualTlsClearCredentials": {
     "description": "Button label that removes selected mTLS certificate material from the form."
   },
@@ -1370,6 +1398,10 @@
   "aboutConduit": "About Conduit",
   "@aboutConduit": {
     "description": "Dialog title for app information."
+  },
+  "openSourceLicenses": "Open source licenses",
+  "@openSourceLicenses": {
+    "description": "Action that opens licenses and notices for bundled open source software and assets."
   },
   "versionLabel": "Version: {version} ({build})",
   "@versionLabel": {
@@ -4358,7 +4390,7 @@
   "@directConnectionsSubtitle": {
     "description": "Subtitle for the direct connections profile option."
   },
-  "directConnectionsDescription": "Connect to model providers without an Open WebUI server. Credentials stay on this device.",
+  "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "@directConnectionsDescription": {
     "description": "Introductory copy on direct connections settings."
   },
@@ -4430,7 +4462,7 @@
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Use OpenAI-compatible APIs or Ollama without an Open WebUI server.",
+  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -4482,23 +4514,27 @@
   "@directAttachmentUnsupported": {
     "description": "Error shown when a direct model cannot accept an attached file."
   },
-  "backendChooserWelcome": "Welcome to Conduit",
+  "backendChooserWelcome": "Choose how to connect",
   "@backendChooserWelcome": {
     "description": "Welcome heading on the first-run backend chooser."
   },
-  "backendChooserPrompt": "Choose how you want to connect.",
+  "backendChooserPrompt": "Choose a service to start with. You can add others later.",
   "@backendChooserPrompt": {
     "description": "Prompt on the first-run backend chooser."
   },
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
+  "backendChooserOpenWebUITitle": "Open WebUI",
+  "@backendChooserOpenWebUITitle": {
+    "description": "Short Open WebUI title used on the backend chooser and server setup page."
+  },
+  "backendChooserOpenWebUISubtitle": "Sign in to your server for synced chats, notes, and more.",
   "@backendChooserOpenWebUISubtitle": {
     "description": "Description of the Open WebUI option on the backend chooser."
   },
-  "backendChooserHermesTitle": "Use a Hermes Agent",
+  "backendChooserHermesTitle": "Hermes Agent",
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "backendChooserHermesSubtitle": "Use a self-hosted Hermes Agent without Open WebUI.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
