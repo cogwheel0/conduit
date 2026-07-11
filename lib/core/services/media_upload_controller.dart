@@ -381,7 +381,9 @@ class MediaUploadController {
     final attachments = _ref.read(attachedFilesProvider);
     final imagesByPath = <String, FileUploadState>{
       for (final attachment in attachments)
-        if (attachment.isImage == true) attachment.file.path: attachment,
+        if (attachment.isImage == true &&
+            attachment.status != FileUploadStatus.failed)
+          attachment.file.path: attachment,
     };
     final imagePaths = <String>{...imagesByPath.keys, filePath};
     if (imagePaths.length > kDirectMaxImages) {

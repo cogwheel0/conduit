@@ -69,6 +69,68 @@ void main() {
     expect(encodeCalls, 0);
   });
 
+  test('failed images do not consume the direct image count', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_media_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final current = File('${directory.path}/current.png');
+    await current.writeAsBytes([1]);
+    final failed = [
+      for (var index = 0; index < kDirectMaxImages; index++)
+        _failedImage(File('${directory.path}/deleted-$index.png')),
+    ];
+    var encodeCalls = 0;
+    final container = _directContainer(
+      attachments: [...failed, _pendingImage(current, reportedBytes: 1)],
+      encoder: (file) async {
+        encodeCalls++;
+        return 'data:image/png;base64,AQ==';
+      },
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: current.path, fileName: 'current.png', fileSize: 1);
+
+    expect(encodeCalls, 1);
+    final stored = container
+        .read(attachedFilesProvider)
+        .where((attachment) => attachment.file.path == current.path)
+        .single;
+    expect(stored.status, FileUploadStatus.completed);
+  });
+
+  test('missing failed image staging file is never statted', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_media_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final current = File('${directory.path}/current.png');
+    await current.writeAsBytes([1]);
+    final deleted = File('${directory.path}/already-deleted.png');
+    expect(await deleted.exists(), isFalse);
+    final container = _directContainer(
+      attachments: [
+        _failedImage(deleted),
+        _pendingImage(current, reportedBytes: 1),
+      ],
+      encoder: (file) async => 'data:image/png;base64,AQ==',
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: current.path, fileName: 'current.png', fileSize: 1);
+
+    final stored = container
+        .read(attachedFilesProvider)
+        .where((attachment) => attachment.file.path == current.path)
+        .single;
+    expect(stored.status, FileUploadStatus.completed);
+  });
+
   test('prepared direct data URL is validated against aggregate bytes', () {
     expect(
       () => validatePreparedDirectImageDataUrl(
@@ -275,6 +337,15 @@ FileUploadState _pendingImage(File file, {required int reportedBytes}) =>
       status: FileUploadStatus.pending,
       isImage: true,
     );
+
+FileUploadState _failedImage(File file) => FileUploadState(
+  file: file,
+  fileName: file.uri.pathSegments.last,
+  fileSize: kDirectMaxDecodedImageBytes,
+  progress: 0,
+  status: FileUploadStatus.failed,
+  isImage: true,
+);
 
 Future<void> _truncate(File file, int length) async {
   final handle = await file.open(mode: FileMode.write);
