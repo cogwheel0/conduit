@@ -27,7 +27,6 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
-import '../../workspace/workspace_navigation.dart';
 import '../providers/sidebar_providers.dart';
 
 /// Cached bytes of the Hermes agent icon, used as the native profile-sheet
@@ -110,12 +109,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
-    final canManageWorkspace = ref
-        .watch(workspaceCapabilitiesProvider)
-        .maybeWhen(
-          data: (value) => permittedWorkspaceSections(value).isNotEmpty,
-          orElse: () => false,
-        );
+    final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final displayName = hermesOnly
         ? 'Hermes Agent'
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);

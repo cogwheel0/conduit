@@ -42,8 +42,16 @@ const workspaceRouteDescriptors = <WorkspaceRouteDescriptor>[
   WorkspaceRouteDescriptor(section: WorkspaceSection.skills),
 ];
 
+// Keyed lookup so a section resolves to its descriptor by identity rather than
+// by list position — inserting a new WorkspaceSection anywhere no longer risks
+// silently returning the wrong descriptor.
+final Map<WorkspaceSection, WorkspaceRouteDescriptor> _descriptorsBySection = {
+  for (final descriptor in workspaceRouteDescriptors)
+    descriptor.section: descriptor,
+};
+
 extension WorkspaceSectionX on WorkspaceSection {
-  WorkspaceRouteDescriptor get routes => workspaceRouteDescriptors[index];
+  WorkspaceRouteDescriptor get routes => _descriptorsBySection[this]!;
   String get path => routes.collectionPath;
 
   WorkspaceSectionCapabilities capabilities(WorkspaceCapabilities value) {

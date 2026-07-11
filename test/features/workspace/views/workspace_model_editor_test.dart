@@ -11,6 +11,7 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/models/workspace_model_editor.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
@@ -279,6 +280,11 @@ List<Override> _baseOverrides(
     ),
     workspaceModelsProvider.overrideWith(() => models),
     modelsProvider.overrideWith(_FakeModels.new),
+    workspaceBaseModelsProvider.overrideWith(
+      (ref) async => const [
+        WorkspaceRelationshipOption(id: 'base-1', label: 'Base One'),
+      ],
+    ),
     workspaceToolsProvider.overrideWith(() => _FakeWorkspaceTools(tools)),
   ];
 }

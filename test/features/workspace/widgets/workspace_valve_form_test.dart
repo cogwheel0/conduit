@@ -88,6 +88,51 @@ void main() {
     expect(emitted!['api_key'], 'seed');
   });
 
+  testWidgets(
+    'boolean valve without a default emits false when toggled to custom',
+    (tester) async {
+      final spec = WorkspaceValveSpec.fromJson(const {
+        'properties': {
+          'enabled': {'type': 'boolean', 'title': 'Enabled'},
+        },
+      });
+      Map<String, dynamic>? emitted;
+      await tester.pumpWidget(harness(spec, onChanged: (v) => emitted = v));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('workspace-tool-valve-toggle-enabled')),
+      );
+      await tester.pumpAndSettle();
+
+      // Without a schema default the custom value must be a real bool, not ''.
+      expect(emitted, isNotNull);
+      expect(emitted!['enabled'], isFalse);
+    },
+  );
+
+  testWidgets(
+    'numeric valve without a default emits 0 when toggled to custom',
+    (tester) async {
+      final spec = WorkspaceValveSpec.fromJson(const {
+        'properties': {
+          'count': {'type': 'integer', 'title': 'Count'},
+        },
+      });
+      Map<String, dynamic>? emitted;
+      await tester.pumpWidget(harness(spec, onChanged: (v) => emitted = v));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('workspace-tool-valve-toggle-count')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(emitted, isNotNull);
+      expect(emitted!['count'], 0);
+    },
+  );
+
   testWidgets('renders a switch for boolean valves in custom mode', (
     tester,
   ) async {

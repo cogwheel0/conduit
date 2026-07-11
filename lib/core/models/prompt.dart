@@ -44,7 +44,7 @@ class Prompt {
   String? get description => meta?['description']?.toString();
 
   factory Prompt.fromJson(Map<String, dynamic> json) {
-    final rawCommand = (json['command'] as String? ?? '').trim();
+    final rawCommand = (json['command']?.toString() ?? '').trim();
     final normalizedCommand = rawCommand.startsWith('/')
         ? rawCommand
         : (rawCommand.isEmpty ? rawCommand : '/$rawCommand');
@@ -55,7 +55,7 @@ class Prompt {
       id: json['id']?.toString(),
       command: normalizedCommand,
       title: json['name']?.toString() ?? json['title']?.toString() ?? '',
-      content: json['content'] as String? ?? '',
+      content: json['content']?.toString() ?? '',
       data: json['data'] is Map
           ? Map<String, dynamic>.from(json['data'] as Map)
           : null,

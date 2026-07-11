@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
@@ -279,6 +279,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         );
       } else if (router.canPop()) {
         router.pop();
+      } else {
+        // Edit saved with nothing to pop (deep-linked into /edit): release the
+        // saving lock so the form stays usable.
+        setState(() => _saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -368,7 +372,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _toggleHidden() async {
     final id = _draft.id;
     if (id.isEmpty) return;
-    _syncTextIntoDraft();
+    // There is no hidden-only endpoint, so this persists the whole model. Honour
+    // the same validation as _save (abort on invalid params JSON) and reconcile
+    // _dirty on success so the discard-changes guard does not later prompt for
+    // changes that were already saved here.
+    if (!_syncTextIntoDraft()) return;
     _draft.hidden = !_draft.hidden;
     setState(() => _saving = true);
     try {
@@ -376,6 +384,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         _draft.toForm(),
       );
       if (!mounted) return;
+      _dirty = false;
       ref.invalidate(workspaceModelDetailProvider(id));
       _showSnack(AppLocalizations.of(context)!.workspaceModelSaved);
     } catch (error, stackTrace) {
@@ -896,10 +905,14 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Widget _baseModelSelector(AppLocalizations l10n) {
-    final models = ref.watch(modelsProvider).maybeWhen(
-      data: (value) => value,
-      orElse: () => const <Model>[],
-    );
+    // Base models are the raw `/models/base` options (not the general chat
+    // model list, which also contains already-composed custom models).
+    final models = ref
+        .watch(workspaceBaseModelsProvider)
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => const <WorkspaceRelationshipOption>[],
+        );
     final ids = <String?>[null, ...models.map((m) => m.id)];
     final current = ids.contains(_draft.baseModelId) ? _draft.baseModelId : null;
     return Padding(
@@ -921,7 +934,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           for (final model in models)
             DropdownMenuItem<String?>(
               value: model.id,
-              child: Text(model.name, overflow: TextOverflow.ellipsis),
+              child: Text(model.label, overflow: TextOverflow.ellipsis),
             ),
         ],
         onChanged: _readOnly
@@ -1086,14 +1099,23 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       if (file == null) return;
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) return;
-      final ext = (file.extension ?? 'png').toLowerCase();
-      final mime = switch (ext) {
-        'jpg' || 'jpeg' => 'image/jpeg',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-        _ => 'image/png',
-      };
-      final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+      // Cap the avatar's dimensions before base64-embedding it so a large source
+      // image does not bloat the draft JSON / spike memory. A downscaled image
+      // is always re-encoded as PNG; an unchanged image keeps its source mime.
+      final bounded = await _boundAvatarBytes(bytes);
+      final String mime;
+      if (identical(bounded, bytes)) {
+        final ext = (file.extension ?? 'png').toLowerCase();
+        mime = switch (ext) {
+          'jpg' || 'jpeg' => 'image/jpeg',
+          'gif' => 'image/gif',
+          'webp' => 'image/webp',
+          _ => 'image/png',
+        };
+      } else {
+        mime = 'image/png';
+      }
+      final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
       _update(() => _draft.profileImageUrl = dataUrl);
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -1108,6 +1130,41 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           isError: true,
         );
       }
+    }
+  }
+
+  /// Downscales [bytes] so the longest edge is at most [_avatarMaxEdge],
+  /// re-encoding as PNG. Returns the original [bytes] unchanged when the image
+  /// already fits, and falls back to the original on any decode/encode failure
+  /// so picking an avatar never breaks.
+  static const int _avatarMaxEdge = 512;
+
+  Future<Uint8List> _boundAvatarBytes(Uint8List bytes) async {
+    try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      final width = descriptor.width;
+      final height = descriptor.height;
+      final longest = width > height ? width : height;
+      if (longest <= _avatarMaxEdge) {
+        descriptor.dispose();
+        return bytes;
+      }
+      final scale = _avatarMaxEdge / longest;
+      final codec = await descriptor.instantiateCodec(
+        targetWidth: (width * scale).round(),
+        targetHeight: (height * scale).round(),
+      );
+      final frame = await codec.getNextFrame();
+      final data = await frame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      frame.image.dispose();
+      codec.dispose();
+      descriptor.dispose();
+      return data?.buffer.asUint8List() ?? bytes;
+    } catch (_) {
+      return bytes;
     }
   }
 
@@ -1310,15 +1367,28 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
 
 /// Renders the model's current profile image: from an inline draft data/URL, or
 /// lazily fetched from the dedicated profile-image endpoint for saved models.
-class _ModelAvatar extends ConsumerWidget {
+class _ModelAvatar extends ConsumerStatefulWidget {
   const _ModelAvatar({required this.draftImage, required this.modelId});
 
   final String? draftImage;
   final String modelId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ModelAvatar> createState() => _ModelAvatarState();
+}
+
+class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
+  // Memoized profile-image request, keyed by the model id it was issued for, so
+  // parent rebuilds (e.g. every keystroke in the form) reuse the in-flight /
+  // resolved future instead of firing a fresh request and flickering the avatar.
+  Future<List<int>?>? _imageFuture;
+  String? _fetchedModelId;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final draftImage = widget.draftImage;
+    final modelId = widget.modelId;
     final placeholder = Container(
       key: const Key('workspace-model-avatar-placeholder'),
       width: 56,
@@ -1351,10 +1421,15 @@ class _ModelAvatar extends ConsumerWidget {
     }
     if (modelId.isEmpty) return placeholder;
 
-    return FutureBuilder<List<int>?>(
-      future: ref
+    if (_fetchedModelId != modelId) {
+      _fetchedModelId = modelId;
+      _imageFuture = ref
           .read(apiServiceProvider)
-          ?.getWorkspaceModelProfileImage(modelId),
+          ?.getWorkspaceModelProfileImage(modelId);
+    }
+
+    return FutureBuilder<List<int>?>(
+      future: _imageFuture,
       builder: (context, snapshot) {
         final data = snapshot.data;
         if (data == null || data.isEmpty) return placeholder;

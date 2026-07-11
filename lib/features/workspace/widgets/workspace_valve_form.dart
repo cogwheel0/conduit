@@ -62,7 +62,11 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
         final defaultArray = spec['default'];
         next = defaultArray is List ? defaultArray.join(', ') : '';
       } else {
-        next = spec['default'] ?? '';
+        // Fall back to a type-appropriate empty value when the schema omits a
+        // default, so a boolean valve becomes `false` (not `''`) and a numeric
+        // valve becomes `0` — otherwise a custom-but-untouched control would
+        // submit a string where the server expects a bool/number.
+        next = spec['default'] ?? _typedFallback(spec['type']?.toString());
       }
     } else {
       next = null;
@@ -241,6 +245,22 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
       ),
       onChanged: (value) => _setValue(property, _coerce(type, value)),
     );
+  }
+
+  /// The type-appropriate empty value used when toggling a property to custom
+  /// and the schema declares no `default`. Keeps the working value's runtime
+  /// type aligned with the schema so an untouched control never submits `''`
+  /// where a bool/number is required.
+  static dynamic _typedFallback(String? type) {
+    switch (type) {
+      case 'boolean':
+        return false;
+      case 'integer':
+      case 'number':
+        return 0;
+      default:
+        return '';
+    }
   }
 
   /// Coerces raw text into the schema type where it is unambiguous. Numbers are

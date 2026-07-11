@@ -264,7 +264,23 @@ class WorkspaceModels extends _$WorkspaceModels {
         throw StateError('Model mutation returned no record.');
       }
       ref.invalidate(workspaceModelDetailProvider(detailId));
-      await refresh();
+      // The write already succeeded; a failure while reloading the collection
+      // must not surface as a failed mutation. Isolate the refresh so the write
+      // outcome is preserved.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/models',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
       return result;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
@@ -447,7 +463,22 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
         throw StateError('Knowledge mutation returned no record.');
       }
       ref.invalidate(workspaceKnowledgeDetailProvider(id ?? result.summary.id));
-      await refresh();
+      // The write already succeeded; isolate the refresh so a reload failure
+      // does not surface as a failed mutation.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/knowledge',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
       return result;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
@@ -684,7 +715,22 @@ class WorkspacePrompts extends _$WorkspacePrompts {
         throw StateError('Prompt mutation returned no record.');
       }
       ref.invalidate(workspacePromptDetailProvider(id ?? result.id));
-      await refresh();
+      // The write already succeeded; isolate the refresh so a reload failure
+      // does not surface as a failed mutation.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/prompts',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
       return result;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
@@ -895,7 +941,22 @@ class WorkspaceTools extends _$WorkspaceTools {
       session.ensureCurrent(ref);
       if (result == null) throw StateError('Tool mutation returned no record.');
       ref.invalidate(workspaceToolDetailProvider(id));
-      await refresh();
+      // The write already succeeded; isolate the refresh so a reload failure
+      // does not surface as a failed mutation.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/tools',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
       return result;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
@@ -1074,7 +1135,22 @@ class WorkspaceSkills extends _$WorkspaceSkills {
         throw StateError('Skill mutation returned no record.');
       }
       ref.invalidate(workspaceSkillDetailProvider(id));
-      await refresh();
+      // The write already succeeded; isolate the refresh so a reload failure
+      // does not surface as a failed mutation.
+      try {
+        await refresh();
+      } catch (refreshError) {
+        DebugLogger.warning(
+          'post-write refresh failed',
+          scope: 'workspace/skills',
+          data: {'error': refreshError.toString()},
+        );
+        if (session.isCurrent(ref)) {
+          state = AsyncData(
+            (state.asData?.value ?? current).copyWith(isBusy: false),
+          );
+        }
+      }
       return result;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {

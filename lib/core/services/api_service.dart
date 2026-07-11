@@ -22,7 +22,9 @@ import '../models/server_user_settings.dart';
 import '../models/user.dart';
 import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
+import '../../features/workspace/models/workspace_prompt_command.dart';
 import '../../features/workspace/models/workspace_resources.dart';
+import '../../features/workspace/models/workspace_tool_content.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
 import '../sync/sync_api_client.dart' show SyncTerminalException;
@@ -5333,9 +5335,11 @@ class ApiService {
     String? description,
     List<String>? tags,
   }) async {
+    // The workspace prompt API expects a bare command token (no leading slash).
+    // Strip any caller-supplied slash and slugify the title for the fallback.
     final normalizedCommand = command?.trim().isNotEmpty == true
-        ? command!.trim()
-        : '/${title.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-')}';
+        ? WorkspacePromptCommand.strip(command!)
+        : WorkspacePromptCommand.slugify(title);
     final created = await createWorkspacePrompt(
       WorkspacePromptForm(
         command: normalizedCommand,
@@ -5434,8 +5438,9 @@ class ApiService {
     String? content,
     String? description,
   }) async {
-    final toolId =
-        id ?? name.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    // Tool ids must be Python identifiers (letters/digits/underscore, no leading
+    // digit); derive the fallback via nameToId rather than a hyphenated slug.
+    final toolId = id ?? WorkspaceToolContent.nameToId(name);
     final source = content ?? spec['content']?.toString() ?? '';
     final created = await createWorkspaceTool(
       WorkspaceToolForm(

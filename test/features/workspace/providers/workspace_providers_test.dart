@@ -58,6 +58,27 @@ void main() {
     check(state.isLoading).isFalse();
   });
 
+  test('mutation succeeds even when the post-write refresh fails', () async {
+    final api = _WorkspaceModelsApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+
+    await container.read(workspaceModelsProvider.future);
+    // The write endpoint succeeds, but reloading the collection afterwards
+    // throws. The mutation must not surface as a failure.
+    api.refreshError = StateError('refresh failed');
+
+    final result = await container
+        .read(workspaceModelsProvider.notifier)
+        .toggle('model-1');
+    check(result.id).equals('model-1');
+
+    final state = container.read(workspaceModelsProvider).requireValue;
+    // The busy flag is released and the prior items are preserved.
+    check(state.isBusy).isFalse();
+    check(state.items.map((item) => item.id)).deepEquals(['model-1']);
+  });
+
   test('newer model query wins when responses complete out of order', () async {
     final api = _OutOfOrderModelsApi();
     final container = _container(api);
@@ -325,6 +346,11 @@ class _WorkspaceModelsApi extends ApiService {
       );
 
   Object? refreshError;
+
+  @override
+  Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
+    return WorkspaceModelSummary(id: id, name: 'Model 1', userId: 'user-1');
+  }
 
   @override
   Future<WorkspacePagedResponse<WorkspaceModelSummary>> getWorkspaceModels({

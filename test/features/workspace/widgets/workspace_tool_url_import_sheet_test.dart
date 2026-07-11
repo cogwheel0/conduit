@@ -75,4 +75,34 @@ void main() {
       'https://raw.githubusercontent.com/acme/tools/refs/heads/main/search/tool.py',
     );
   });
+
+  group('normalizeImportedTool', () {
+    test('derives id from the original name, not the front-matter title', () {
+      final tool = normalizeImportedTool(const {
+        'name': 'main',
+        'content': '"""\ntitle: Web Search\n"""\n',
+      });
+      // The front-matter title becomes the display name, but the id stays tied
+      // to the original name so the import does not silently retarget.
+      expect(tool['id'], 'main');
+      expect(tool['name'], 'Web Search');
+    });
+
+    test('falls back to nameToId(title) when the name is empty', () {
+      final tool = normalizeImportedTool(const {
+        'name': '',
+        'content': '"""\ntitle: Web Search\n"""\n',
+      });
+      expect(tool['id'], 'web_search');
+    });
+
+    test('keeps an explicit id untouched', () {
+      final tool = normalizeImportedTool(const {
+        'id': 'custom_id',
+        'name': 'main',
+        'content': '"""\ntitle: Web Search\n"""\n',
+      });
+      expect(tool['id'], 'custom_id');
+    });
+  });
 }

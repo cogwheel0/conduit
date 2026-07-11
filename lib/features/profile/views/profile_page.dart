@@ -18,7 +18,6 @@ import '../../../core/services/navigation_service.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
-import '../../workspace/workspace_navigation.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
@@ -333,12 +332,7 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final canManageWorkspace = ref
-        .watch(workspaceCapabilitiesProvider)
-        .maybeWhen(
-          data: (value) => permittedWorkspaceSections(value).isNotEmpty,
-          orElse: () => false,
-        );
+    final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     // In Hermes-only mode there's no Open WebUI account to sign out of; instead
     // surface a "Connect to Open WebUI" entry so the user can add a server.
     final hermesOnly = ref.watch(hermesOnlyModeProvider);

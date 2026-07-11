@@ -182,9 +182,13 @@ Map<String, dynamic> normalizeImportedTool(Map<String, dynamic> tool) {
   final title = frontmatter['title']?.trim();
   final resolvedName = (title != null && title.isNotEmpty) ? title : name;
   result['name'] = resolvedName;
+  // Derive the id from the original name *before* the front-matter title
+  // override (matching upstream's ImportModal), so a payload like
+  // `{name: 'main', content: '---\ntitle: Web Search\n---'}` keeps id `main`
+  // rather than retargeting to `web_search`.
   result['id'] = rawId.isNotEmpty
       ? rawId
-      : WorkspaceToolContent.nameToId(resolvedName);
+      : WorkspaceToolContent.nameToId(name.isNotEmpty ? name : resolvedName);
 
   final meta = workspaceJsonMap(result['meta']);
   final fmDescription = frontmatter['description']?.trim();

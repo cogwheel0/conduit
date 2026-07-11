@@ -253,6 +253,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         );
       } else if (router.canPop()) {
         router.pop();
+      } else {
+        // Edit saved with nothing to pop (deep-linked into /edit): release the
+        // saving lock so the form does not stay stuck behind AbsorbPointer.
+        setState(() => _saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(

@@ -153,7 +153,10 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   bool _dirty = false;
   bool _saving = false;
   String? _errorMessage;
-  bool _idError = false;
+  // The specific inline id error to show under the field (null = no error), so
+  // the message matches the reason (required / invalid characters / taken)
+  // rather than always reading "invalid characters".
+  String? _idErrorText;
 
   bool get _isCreate => widget.mode == WorkspaceRouteMode.create;
   bool get _isDetail => widget.mode == WorkspaceRouteMode.detail;
@@ -209,7 +212,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   void _onIdChanged(String _) {
     _idManuallyEdited = true;
-    if (_idError) setState(() => _idError = false);
+    if (_idErrorText != null) setState(() => _idErrorText = null);
     _markDirty();
   }
 
@@ -266,14 +269,14 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     final id = _idController.text.trim();
     if (id.isEmpty) {
       setState(() {
-        _idError = true;
+        _idErrorText = l10n.workspaceSkillIdRequired;
         _errorMessage = l10n.workspaceSkillIdRequired;
       });
       return null;
     }
     if (!WorkspaceSkillContent.isValidId(id)) {
       setState(() {
-        _idError = true;
+        _idErrorText = l10n.workspaceSkillIdInvalid;
         _errorMessage = l10n.workspaceSkillIdInvalid;
       });
       return null;
@@ -305,7 +308,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     setState(() {
       _saving = true;
       _errorMessage = null;
-      _idError = false;
+      _idErrorText = null;
     });
     final notifier = ref.read(workspaceSkillsProvider.notifier);
     // The update endpoint keys off the existing id; the id field is immutable
@@ -330,6 +333,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         );
       } else if (router.canPop()) {
         router.pop();
+      } else {
+        // Edit saved but there is nothing to pop (e.g. deep-linked into /edit):
+        // clear the saving lock so the form stays usable and reflects the
+        // freshly invalidated detail.
+        setState(() => _saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -339,10 +347,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
+      final conflict = _isConflict(error);
       setState(() {
         _saving = false;
-        _idError = _isConflict(error);
-        _errorMessage = _isConflict(error)
+        _idErrorText = conflict ? l10n.workspaceSkillIdTaken : null;
+        _errorMessage = conflict
             ? l10n.workspaceSkillIdTaken
             : l10n.workspaceSkillSaveFailed;
       });
@@ -532,7 +541,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       _previewMode = false;
       _dirty = true;
       _errorMessage = null;
-      _idError = false;
+      _idErrorText = null;
     });
     _showSnack(l10n.workspaceSkillImportMarkdownLoaded);
   }
@@ -669,7 +678,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       decoration: InputDecoration(
         labelText: l10n.workspaceSkillId,
         helperText: l10n.workspaceSkillIdHint,
-        errorText: _idError ? l10n.workspaceSkillIdInvalid : null,
+        errorText: _idErrorText,
         isDense: true,
         border: const OutlineInputBorder(),
       ),

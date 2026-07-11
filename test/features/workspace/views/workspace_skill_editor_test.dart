@@ -309,6 +309,65 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('empty id reports the required reason inline, not "invalid"', (
+    tester,
+  ) async {
+    final skills = _FakeSkills();
+    await tester.pumpWidget(_harness(skills, mode: WorkspaceRouteMode.create));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-skill-name')),
+      'Review',
+    );
+    await tester.enterText(
+      find.byKey(const Key('workspace-skill-content')),
+      'Body.',
+    );
+    // Clear the auto-slugged id so the required branch fires.
+    await tester.enterText(find.byKey(const Key('workspace-skill-id')), '');
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+
+    final idField = tester.widget<TextField>(
+      find.byKey(const Key('workspace-skill-id')),
+    );
+    expect(skills.created, isEmpty);
+    expect(idField.decoration!.errorText, 'Skill ID is required.');
+  });
+
+  testWidgets('illegal id characters report the invalid-characters reason', (
+    tester,
+  ) async {
+    final skills = _FakeSkills();
+    await tester.pumpWidget(_harness(skills, mode: WorkspaceRouteMode.create));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-skill-name')),
+      'Review',
+    );
+    await tester.enterText(
+      find.byKey(const Key('workspace-skill-content')),
+      'Body.',
+    );
+    await tester.enterText(
+      find.byKey(const Key('workspace-skill-id')),
+      'bad id',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pump();
+
+    final idField = tester.widget<TextField>(
+      find.byKey(const Key('workspace-skill-id')),
+    );
+    expect(skills.created, isEmpty);
+    expect(
+      idField.decoration!.errorText,
+      'Only letters, numbers, hyphens, and underscores are allowed.',
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
