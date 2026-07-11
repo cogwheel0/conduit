@@ -345,6 +345,10 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         );
       } else if (router.canPop()) {
         router.pop();
+      } else {
+        // Edit saved with nothing to pop (deep-linked into /edit): release the
+        // saving lock so the form stays usable.
+        setState(() => _saving = false);
       }
     } catch (error, stackTrace) {
       DebugLogger.error(

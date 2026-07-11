@@ -531,11 +531,15 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
     setState(() {
       _contentController.text = content!;
       final fmName = fm['name']?.trim() ?? '';
+      final fmId = fm['id']?.trim() ?? '';
       if (fmName.isNotEmpty) {
         _nameController.text = WorkspaceSkillContent.formatSkillName(fmName);
-        _idController.text = WorkspaceSkillContent.slugify(
-          (fm['id']?.trim().isNotEmpty ?? false) ? fm['id']!.trim() : fmName,
-        );
+      }
+      // Honor a front-matter `id` even without a `name`, preferring the explicit
+      // id and otherwise deriving it from the name, so a valid id isn't dropped.
+      final idSource = fmId.isNotEmpty ? fmId : fmName;
+      if (idSource.isNotEmpty) {
+        _idController.text = WorkspaceSkillContent.slugify(idSource);
         _idManuallyEdited = false;
       }
       final fmDescription = fm['description']?.trim() ?? '';

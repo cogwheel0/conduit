@@ -152,6 +152,41 @@ void main() {
     expect(tools.updated.single.$2.content, contains('class Tools'));
   });
 
+  testWidgets('edit save on a non-poppable route keeps the form usable', (
+    tester,
+  ) async {
+    // Deep-linked straight into /editor, so canPop() is false: the save must
+    // release the saving lock instead of leaving the body permanently absorbed.
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 't-1',
+        detail: _writable(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('workspace-tool-content')),
+      '"""\ntitle: Search\n"""\nclass Tools:\n    pass2\n',
+    );
+    await tester.tap(find.byKey(const Key('workspace-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(tools.updated, hasLength(1));
+    final absorber = tester
+        .widgetList<AbsorbPointer>(
+          find.ancestor(
+            of: find.byKey(const Key('workspace-tool-editor-body')),
+            matching: find.byType(AbsorbPointer),
+          ),
+        )
+        .first;
+    expect(absorber.absorbing, isFalse);
+  });
+
   testWidgets('clone creates a copy without inherited grants', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(

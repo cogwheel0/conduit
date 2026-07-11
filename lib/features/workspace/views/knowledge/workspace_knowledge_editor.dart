@@ -9,6 +9,7 @@ import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/knowledge/workspace_knowledge_file_browser.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
@@ -233,6 +234,10 @@ class _WorkspaceKnowledgeFormState
     final summary = widget.summary;
     if (summary == null || _isExternal || !_writeAccess) {
       setState(() => _grants = grants);
+      // Create mode persists nothing server-side here, so record the grant
+      // change for the unsaved-changes guard. Read-only surfaces can't actually
+      // mutate grants, so only the create path needs this.
+      if (summary == null) _markDirty();
       return;
     }
     setState(() => _saving = true);
@@ -274,6 +279,9 @@ class _WorkspaceKnowledgeFormState
     try {
       await ref.read(workspaceKnowledgeProvider.notifier).reset(summary.id);
       if (!mounted) return;
+      // Reset deleted every file server-side; refetch the browser so it no
+      // longer shows (or offers actions on) the now-deleted entries.
+      ref.invalidate(workspaceKnowledgeFilesProvider(summary.id));
       _showSnack(l10n.workspaceKnowledgeResetDone);
     } catch (error, stackTrace) {
       DebugLogger.error(

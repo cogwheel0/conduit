@@ -97,16 +97,18 @@ void main() {
 
   testWidgets('detail overflow resets after confirmation', (tester) async {
     final knowledge = _FakeKnowledge();
+    final files = _FakeFiles(const WorkspaceKnowledgeBrowserState());
     await tester.pumpWidget(
       _harness(
         knowledge: knowledge,
         mode: WorkspaceRouteMode.detail,
         resourceId: 'kb-1',
         detail: _writableDetail(),
-        files: _FakeFiles(const WorkspaceKnowledgeBrowserState()),
+        files: files,
       ),
     );
     await tester.pumpAndSettle();
+    final buildsBeforeReset = files.buildCount;
 
     await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
     await tester.pumpAndSettle();
@@ -115,10 +117,11 @@ void main() {
 
     expect(find.text('Reset knowledge base?'), findsOneWidget);
     await tester.tap(find.text('Reset'));
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(knowledge.resetIds, ['kb-1']);
+    // Reset wiped every file server-side, so the browser provider must refetch.
+    expect(files.buildCount, greaterThan(buildsBeforeReset));
   });
 
   testWidgets('detail overflow deletes after confirmation', (tester) async {
@@ -426,9 +429,11 @@ class _FakeFiles extends WorkspaceKnowledgeFiles {
 
   final WorkspaceKnowledgeBrowserState _initial;
   final detached = <(String, bool)>[];
+  int buildCount = 0;
 
   @override
   Future<WorkspaceKnowledgeBrowserState> build(String knowledgeId) async {
+    buildCount++;
     return _initial;
   }
 

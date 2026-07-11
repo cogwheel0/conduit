@@ -234,6 +234,31 @@ void main() {
     expect(skills.created, isEmpty);
   });
 
+  testWidgets('markdown import honors front-matter id without a name', (
+    tester,
+  ) async {
+    final skills = _FakeSkills();
+    await tester.pumpWidget(
+      _harness(
+        skills,
+        mode: WorkspaceRouteMode.create,
+        markdownPicker: () async => '---\nid: my_skill\n---\nBody text.',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('workspace-skill-action-import-markdown')),
+    );
+    await tester.pumpAndSettle();
+
+    final id = _textFieldByKey(tester, 'workspace-skill-id');
+    // The id must survive even though no front-matter name was provided.
+    expect(id.controller!.text, 'my_skill');
+  });
+
   testWidgets('json import records per-item failures without aborting', (
     tester,
   ) async {

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
@@ -206,7 +207,11 @@ class WorkspaceScaffold extends ConsumerWidget {
           data: permittedWorkspaceSections,
           orElse: () => const <WorkspaceSection>[],
         );
-    final wide = MediaQuery.sizeOf(context).width >= 600;
+    // The three-pane layout reserves 184px for the rail and 320px for the
+    // collection list (plus dividers); anything below the Material expanded
+    // breakpoint leaves the detail/editor pane too narrow to render forms, so
+    // fall back to the single-pane compact layout there.
+    final wide = MediaQuery.sizeOf(context).width >= 840;
     final theme = context.conduitTheme;
 
     // iOS compact collection uses native Cupertino chrome (a sliver navigation
@@ -572,6 +577,27 @@ R _withCollectionBinding<R>(
   }
 }
 
+/// Fire-and-forget a collection mutation (search/filter/pagination) from a
+/// synchronous UI callback.
+///
+/// The collection notifiers record failures into their own error state (which
+/// drives the retry UI) but also rethrow so awaited callers like
+/// pull-to-refresh can surface the error. The callbacks below intentionally
+/// drop the returned [Future], so absorb the already-recorded error here to keep
+/// it from escalating to an uncaught async zone error.
+void _fireCollectionMutation(Future<void> Function() action) {
+  unawaited(
+    action().catchError((Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'workspace collection mutation failed',
+        scope: 'workspace/collection',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
+}
+
 /// Whether the current user can create resources in [section]; drives the
 /// permission-gated create (+) affordance.
 bool _canCreateSection(WidgetRef ref, WorkspaceSection section) {
@@ -734,7 +760,7 @@ class _WorkspaceIosCollectionShellState
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
     if (position.pixels >= position.maxScrollExtent - 320) {
-      _onLoadMore!.call();
+      _fireCollectionMutation(_onLoadMore!);
     }
   }
 
@@ -962,7 +988,7 @@ Widget _loadMoreFooter(
       child: isLoadingMore
           ? ConduitLoading.inline(context: context)
           : AdaptiveButton(
-              onPressed: onLoadMore,
+              onPressed: () => _fireCollectionMutation(onLoadMore),
               style: AdaptiveButtonStyle.plain,
               size: AdaptiveButtonSize.small,
               label: l10n.workspaceLoadMore,
@@ -1050,17 +1076,29 @@ class _WorkspaceCupertinoSearchFieldState
   );
   Timer? _debounce;
 
+  @override
+  void didUpdateWidget(covariant _WorkspaceCupertinoSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync the field when the bound collection query changes externally (e.g. a
+    // session/source reset) without clobbering in-progress typing: once the
+    // debounced change reaches the provider, initialQuery matches the field.
+    if (widget.initialQuery != oldWidget.initialQuery &&
+        widget.initialQuery != _controller.text) {
+      _controller.text = widget.initialQuery;
+    }
+  }
+
   void _onChanged(String value) {
     _debounce?.cancel();
     _debounce = Timer(
       const Duration(milliseconds: 300),
-      () => widget.onSearch(value),
+      () => _fireCollectionMutation(() => widget.onSearch(value)),
     );
   }
 
   void _onSubmitted(String value) {
     _debounce?.cancel();
-    widget.onSearch(value);
+    _fireCollectionMutation(() => widget.onSearch(value));
   }
 
   @override
@@ -1108,12 +1146,25 @@ class _WorkspaceGlassSearchFieldState
   late String _query = widget.initialQuery;
   Timer? _debounce;
 
+  @override
+  void didUpdateWidget(covariant _WorkspaceGlassSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync the field when the bound collection query changes externally (e.g. a
+    // session/source reset) without clobbering in-progress typing: once the
+    // debounced change reaches the provider, initialQuery matches the field.
+    if (widget.initialQuery != oldWidget.initialQuery &&
+        widget.initialQuery != _controller.text) {
+      _controller.text = widget.initialQuery;
+      _query = widget.initialQuery;
+    }
+  }
+
   void _onChanged(String value) {
     setState(() => _query = value);
     _debounce?.cancel();
     _debounce = Timer(
       const Duration(milliseconds: 300),
-      () => widget.onSearch(value),
+      () => _fireCollectionMutation(() => widget.onSearch(value)),
     );
   }
 
@@ -1121,7 +1172,7 @@ class _WorkspaceGlassSearchFieldState
     _controller.clear();
     setState(() => _query = '');
     _debounce?.cancel();
-    widget.onSearch('');
+    _fireCollectionMutation(() => widget.onSearch(''));
   }
 
   @override
@@ -1351,7 +1402,8 @@ class _KnowledgeFilterBar extends ConsumerWidget {
               'created': l10n.workspaceKnowledgeViewCreated,
               'shared': l10n.workspaceKnowledgeViewShared,
             },
-            onSelected: notifier.setView,
+            onSelected: (view) =>
+                _fireCollectionMutation(() => notifier.setView(view)),
           ),
         ),
         const SizedBox(width: Spacing.sm),
@@ -1364,7 +1416,8 @@ class _KnowledgeFilterBar extends ConsumerWidget {
               'local': l10n.workspaceKnowledgeSourceLocal,
               'external': l10n.workspaceKnowledgeSourceExternal,
             },
-            onSelected: notifier.setSource,
+            onSelected: (source) =>
+                _fireCollectionMutation(() => notifier.setSource(source)),
           ),
         ),
       ],

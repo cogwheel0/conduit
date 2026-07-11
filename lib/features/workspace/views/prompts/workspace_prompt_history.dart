@@ -64,6 +64,17 @@ class _WorkspacePromptHistorySectionState
     _loadInitial();
   }
 
+  @override
+  void didUpdateWidget(covariant WorkspacePromptHistorySection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The parent keeps this panel mounted under the same key while refreshing
+    // the production version after a save, so track the new production id or the
+    // marking/diffing and delete-eligibility checks keep using the stale one.
+    if (widget.productionVersionId != oldWidget.productionVersionId) {
+      setState(() => _productionVersionId = widget.productionVersionId);
+    }
+  }
+
   Future<void> _loadInitial() async {
     setState(() {
       _loading = true;
