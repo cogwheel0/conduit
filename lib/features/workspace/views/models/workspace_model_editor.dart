@@ -940,13 +940,22 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           data: (value) => value,
           orElse: () => const <WorkspaceRelationshipOption>[],
         );
-    final ids = <String?>[null, ...models.map((m) => m.id)];
-    final current = ids.contains(_draft.baseModelId) ? _draft.baseModelId : null;
+    // Drive the field from the draft's saved id. A `FormFieldState` only honours
+    // `initialValue` on its first build, so `workspaceBaseModelsProvider`
+    // resolving later must not be what first supplies the id — otherwise the
+    // field is created with `null` (empty options) and stays on "None" even
+    // though `_draft.baseModelId` holds the real id. We seed `initialValue` with
+    // the saved id directly and guarantee it is always a selectable item (adding
+    // a synthetic entry when the async options have not yet arrived or no longer
+    // contain it), so an existing base model renders correctly from build one.
+    final selectedId = _draft.baseModelId;
+    final hasSelectedOption =
+        selectedId == null || models.any((m) => m.id == selectedId);
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: DropdownButtonFormField<String?>(
         key: const Key('workspace-model-base'),
-        initialValue: current,
+        initialValue: selectedId,
         isExpanded: true,
         decoration: InputDecoration(
           labelText: l10n.workspaceModelBaseModel,
@@ -958,6 +967,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
             value: null,
             child: Text(l10n.workspaceModelBaseModelNone),
           ),
+          if (!hasSelectedOption)
+            DropdownMenuItem<String?>(
+              value: selectedId,
+              child: Text(selectedId, overflow: TextOverflow.ellipsis),
+            ),
           for (final model in models)
             DropdownMenuItem<String?>(
               value: model.id,
@@ -1221,17 +1235,29 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Future<void> _pickKnowledge(AppLocalizations l10n) async {
-    final options = await ref.read(workspaceKnowledgeProvider.future).then(
-      (state) => state.items
-          .map(
-            (item) => WorkspaceRelationshipOption(
-              id: item.id,
-              label: item.name,
-              subtitle: item.description,
-            ),
-          )
-          .toList(),
-    );
+    final List<WorkspaceRelationshipOption> options;
+    try {
+      options = await ref.read(workspaceKnowledgeProvider.future).then(
+        (state) => state.items
+            .map(
+              (item) => WorkspaceRelationshipOption(
+                id: item.id,
+                label: item.name,
+                subtitle: item.description,
+              ),
+            )
+            .toList(),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'knowledge relationship load failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
+      return;
+    }
     if (!mounted) return;
     final selected = await WorkspaceRelationshipSheet.show(
       context,
@@ -1261,11 +1287,23 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Future<void> _pickTools(AppLocalizations l10n) async {
-    final options = await ref.read(workspaceToolsProvider.future).then(
-      (state) => state.items
-          .map((t) => WorkspaceRelationshipOption(id: t.id, label: t.name))
-          .toList(),
-    );
+    final List<WorkspaceRelationshipOption> options;
+    try {
+      options = await ref.read(workspaceToolsProvider.future).then(
+        (state) => state.items
+            .map((t) => WorkspaceRelationshipOption(id: t.id, label: t.name))
+            .toList(),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'tools relationship load failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
+      return;
+    }
     if (!mounted) return;
     final selected = await WorkspaceRelationshipSheet.show(
       context,
@@ -1277,17 +1315,29 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   Future<void> _pickSkills(AppLocalizations l10n) async {
-    final options = await ref.read(workspaceSkillsProvider.future).then(
-      (state) => state.items
-          .map(
-            (s) => WorkspaceRelationshipOption(
-              id: s.id,
-              label: s.name,
-              subtitle: s.description,
-            ),
-          )
-          .toList(),
-    );
+    final List<WorkspaceRelationshipOption> options;
+    try {
+      options = await ref.read(workspaceSkillsProvider.future).then(
+        (state) => state.items
+            .map(
+              (s) => WorkspaceRelationshipOption(
+                id: s.id,
+                label: s.name,
+                subtitle: s.description,
+              ),
+            )
+            .toList(),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'skills relationship load failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
+      return;
+    }
     if (!mounted) return;
     final selected = await WorkspaceRelationshipSheet.show(
       context,
@@ -1303,7 +1353,19 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     required bool isFilter,
     bool isDefault = false,
   }) async {
-    final functions = await ref.read(workspaceFunctionsProvider.future);
+    final List<WorkspaceFunctionRef> functions;
+    try {
+      functions = await ref.read(workspaceFunctionsProvider.future);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'functions relationship load failed',
+        scope: 'workspace/models',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showSnack(l10n.workspaceLoadFailed, isError: true);
+      return;
+    }
     if (!mounted) return;
     final options = functions
         .where((fn) => isFilter ? fn.isFilter : fn.isAction)

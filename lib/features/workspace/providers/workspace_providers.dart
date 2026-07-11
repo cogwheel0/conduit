@@ -174,7 +174,15 @@ class WorkspaceModels extends _$WorkspaceModels {
 
   Future<void> loadMore() async {
     final current = state.asData?.value;
-    if (current == null || current.isLoadingMore || !current.hasMore) return;
+    // Reject while a refresh/load is in flight: bumping `_requestGeneration`
+    // here would discard the outstanding refresh (leaving `isLoading` stuck
+    // true) and merge a newer page onto the stale refresh-time snapshot.
+    if (current == null ||
+        current.isLoading ||
+        current.isLoadingMore ||
+        !current.hasMore) {
+      return;
+    }
     final generation = ++_requestGeneration;
     final query = current.query;
     final view = current.view;
@@ -370,7 +378,13 @@ class WorkspaceKnowledge extends _$WorkspaceKnowledge {
 
   Future<void> _fetch({required bool append}) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
-    if (append && (current.isLoadingMore || !current.hasMore)) return;
+    // Reject a load-more while a refresh/load is in flight: bumping
+    // `_requestGeneration` here would discard the outstanding refresh (leaving
+    // `isLoading` stuck true) and merge a newer page onto the stale snapshot.
+    if (append &&
+        (current.isLoading || current.isLoadingMore || !current.hasMore)) {
+      return;
+    }
     final generation = ++_requestGeneration;
     final query = current.query;
     final view = current.view;
@@ -577,7 +591,13 @@ class WorkspacePrompts extends _$WorkspacePrompts {
 
   Future<void> _fetch({required bool append}) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
-    if (append && (current.isLoadingMore || !current.hasMore)) return;
+    // Reject a load-more while a refresh/load is in flight: bumping
+    // `_requestGeneration` here would discard the outstanding refresh (leaving
+    // `isLoading` stuck true) and merge a newer page onto the stale snapshot.
+    if (append &&
+        (current.isLoading || current.isLoadingMore || !current.hasMore)) {
+      return;
+    }
     final generation = ++_requestGeneration;
     final query = current.query;
     final view = current.view;
@@ -1087,7 +1107,13 @@ class WorkspaceSkills extends _$WorkspaceSkills {
 
   Future<void> _fetch({required bool append}) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
-    if (append && (current.isLoadingMore || !current.hasMore)) return;
+    // Reject a load-more while a refresh/load is in flight: bumping
+    // `_requestGeneration` here would discard the outstanding refresh (leaving
+    // `isLoading` stuck true) and merge a newer page onto the stale snapshot.
+    if (append &&
+        (current.isLoading || current.isLoadingMore || !current.hasMore)) {
+      return;
+    }
     final generation = ++_requestGeneration;
     final query = current.query;
     final view = current.view;

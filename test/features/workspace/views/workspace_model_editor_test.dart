@@ -227,6 +227,76 @@ void main() {
     expect(fake.updatedForms.single.meta['toolIds'], ['tool-a']);
   });
 
+  testWidgets('base model dropdown shows the saved id once options resolve', (
+    tester,
+  ) async {
+    final fake = _FakeWorkspaceModels();
+    // The base-model options resolve asynchronously (as a FutureProvider always
+    // does on the first frame), so the dropdown is first built with an empty
+    // options list. The saved base model id must still drive the selection once
+    // the options arrive, rather than reverting to "None".
+    await tester.pumpWidget(
+      _harness(
+        models: fake,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'model-1',
+        detail: const WorkspaceModelSummary(
+          id: 'model-1',
+          name: 'Model 1',
+          userId: 'owner',
+          writeAccess: true,
+          baseModelId: 'base-1',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final dropdown = tester.widget<DropdownButton<String?>>(
+      find.descendant(
+        of: find.byKey(const Key('workspace-model-base')),
+        matching: find.byType(DropdownButton<String?>),
+      ),
+    );
+    expect(dropdown.value, 'base-1');
+    // The saved option renders by its resolved label.
+    expect(find.text('Base One'), findsWidgets);
+  });
+
+  testWidgets('relationship picker load failure surfaces an error snack', (
+    tester,
+  ) async {
+    final fake = _FakeWorkspaceModels();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => WorkspaceCapabilities.all,
+          ),
+          workspaceModelsProvider.overrideWith(() => fake),
+          modelsProvider.overrideWith(_FakeModels.new),
+          workspaceBaseModelsProvider.overrideWith((ref) async => const []),
+          // The tools collection fails to load; opening the picker must surface
+          // an error snackbar rather than throw unhandled from the callback.
+          workspaceToolsProvider.overrideWith(_FailingWorkspaceTools.new),
+          workspaceModelDetailProvider('model-1').overrideWith(
+            (ref) async => _writableModel(),
+          ),
+        ],
+        child: _app(WorkspaceRouteMode.edit, 'model-1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _scrollTo(tester, const Key('workspace-model-tools'));
+    await tester.tap(find.byKey(const Key('workspace-model-tools')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Workspace could not be loaded.'), findsOneWidget);
+  });
+
   testWidgets('import failure is surfaced per item', (tester) async {
     final fake = _FakeWorkspaceModels(importSucceeds: false);
     final report = await fake.runImport();
@@ -471,6 +541,16 @@ class _FakeWorkspaceTools extends WorkspaceTools {
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {
     return WorkspaceCollectionState(items: _tools, total: _tools.length);
+  }
+
+  @override
+  Future<void> refresh() async {}
+}
+
+class _FailingWorkspaceTools extends WorkspaceTools {
+  @override
+  Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {
+    throw StateError('tools load failed');
   }
 
   @override

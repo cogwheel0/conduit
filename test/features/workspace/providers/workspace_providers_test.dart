@@ -40,6 +40,37 @@ void main() {
     },
   );
 
+  test('loadMore is a no-op while a refresh is in flight', () async {
+    final api = _BlockingRefreshModelsApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+
+    await container.read(workspaceModelsProvider.future);
+    final notifier = container.read(workspaceModelsProvider.notifier);
+
+    // Start a refresh that blocks on a gate the test controls. `refresh` sets
+    // `isLoading: true` synchronously before awaiting the request.
+    final refreshFuture = notifier.refresh();
+    check(container.read(workspaceModelsProvider).requireValue.isLoading)
+        .isTrue();
+
+    // A load-more during the in-flight refresh must be rejected: it must not
+    // issue a page-2 request nor bump the request generation (which would
+    // strand the outstanding refresh with `isLoading` stuck true).
+    await notifier.loadMore();
+    // Only the build (page 1) and the in-flight refresh (page 1) were requested.
+    check(api.requestedPages).deepEquals([1, 1]);
+
+    // Completing the refresh resolves cleanly — proof the load-more did not
+    // discard it. `isLoading` clears and the page is not corrupted.
+    api.openGate();
+    await refreshFuture;
+    final state = container.read(workspaceModelsProvider).requireValue;
+    check(state.isLoading).isFalse();
+    check(state.page).equals(1);
+    check(state.items.map((item) => item.id)).deepEquals(['model-1']);
+  });
+
   test('management errors remain visible and preserve prior items', () async {
     final api = _WorkspaceModelsApi();
     final container = _container(api);
@@ -455,6 +486,64 @@ class _WorkspaceModelsApi extends ApiService {
         WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
       ],
       total: 2,
+    );
+  }
+}
+
+class _BlockingRefreshModelsApi extends ApiService {
+  _BlockingRefreshModelsApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'workspace-server',
+          name: 'Workspace Server',
+          url: 'https://example.com',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final requestedPages = <int>[];
+  Completer<WorkspacePagedResponse<WorkspaceModelSummary>>? _gate;
+  var _built = false;
+
+  static const _page1 = WorkspacePagedResponse<WorkspaceModelSummary>(
+    items: [
+      WorkspaceModelSummary(id: 'model-1', name: 'Model 1', userId: 'user-1'),
+    ],
+    total: 2,
+  );
+
+  void openGate() => _gate?.complete(_page1);
+
+  @override
+  Future<WorkspacePagedResponse<WorkspaceModelSummary>> getWorkspaceModels({
+    String? query,
+    String? viewOption,
+    String? tag,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) {
+    requestedPages.add(page);
+    // The initial build resolves immediately; the subsequent page-1 refresh
+    // blocks on a gate so the test can act while it is in flight.
+    if (!_built) {
+      _built = true;
+      return Future.value(_page1);
+    }
+    if (page == 1) {
+      return (_gate = Completer()).future;
+    }
+    return Future.value(
+      const WorkspacePagedResponse(
+        items: [
+          WorkspaceModelSummary(
+            id: 'model-2',
+            name: 'Model 2',
+            userId: 'user-1',
+          ),
+        ],
+        total: 2,
+      ),
     );
   }
 }

@@ -927,7 +927,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       },
     );
     final tag = value?.trim() ?? '';
-    if (tag.isEmpty || _tags.contains(tag)) return;
+    // Guard against the editor being disposed while the tag dialog was open
+    // (e.g. a live permission revocation removes the route): a setState after
+    // dispose throws.
+    if (tag.isEmpty || _tags.contains(tag) || !mounted) return;
     setState(() {
       _tags = [..._tags, tag];
       _dirty = true;
