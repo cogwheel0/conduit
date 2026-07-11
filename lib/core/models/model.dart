@@ -172,6 +172,26 @@ sealed class Model with _$Model {
       mergedMetadata['has_user_valves'] = json['has_user_valves'];
     }
     if (json['hidden'] != null) mergedMetadata['hidden'] = json['hidden'];
+    if (json['user_id'] != null) mergedMetadata['user_id'] = json['user_id'];
+    if (json['base_model_id'] != null) {
+      mergedMetadata['base_model_id'] = json['base_model_id'];
+    }
+    if (json['params'] != null) mergedMetadata['params'] = json['params'];
+    if (json['access_grants'] != null) {
+      mergedMetadata['access_grants'] = json['access_grants'];
+    }
+    if (json['is_active'] != null) {
+      mergedMetadata['is_active'] = json['is_active'];
+    }
+    if (json['write_access'] != null) {
+      mergedMetadata['write_access'] = json['write_access'];
+    }
+    if (json['created_at'] != null) {
+      mergedMetadata['created_at'] = json['created_at'];
+    }
+    if (json['updated_at'] != null) {
+      mergedMetadata['updated_at'] = json['updated_at'];
+    }
 
     if (metaSection != null) {
       final existing =
@@ -278,6 +298,21 @@ sealed class Model with _$Model {
     };
     data.removeWhere((_, value) => value == null);
     return data;
+  }
+
+  String? get workspaceOwnerId => metadata?['user_id']?.toString();
+  String? get baseModelId => metadata?['base_model_id']?.toString();
+  bool get isWorkspaceActive => _safeBool(metadata?['is_active']) ?? true;
+  bool get hasWorkspaceWriteAccess =>
+      _safeBool(metadata?['write_access']) ?? false;
+  List<Map<String, dynamic>> get workspaceAccessGrants {
+    final grants = metadata?['access_grants'];
+    return grants is List
+        ? grants
+              .whereType<Map>()
+              .map(Map<String, dynamic>.from)
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
   }
 
   /// Whether OpenWebUI marks this model as hidden from model selectors.
