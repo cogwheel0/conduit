@@ -300,6 +300,142 @@ void main() {
       check(isHermesModel(model!)).isTrue();
     });
 
+    test(
+      'unauthenticated rebuild clears a selected Hermes model when unusable',
+      () async {
+        final hermesController = _MutableHermesConfigController(_usableHermes);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(false),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(() => hermesController),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final initialModels = await container.read(modelsProvider.future);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(initialModels.single);
+        container.read(isManualModelSelectionProvider.notifier).set(true);
+
+        hermesController.setConfig(_incompleteHermes);
+        final rebuiltModels = await container.read(modelsProvider.future);
+        await Future<void>.delayed(Duration.zero);
+
+        check(rebuiltModels).isEmpty();
+        check(container.read(selectedModelProvider)).isNull();
+        check(container.read(isManualModelSelectionProvider)).isFalse();
+      },
+    );
+
+    test(
+      'unauthenticated refresh clears a stale selected Hermes model',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(false),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_incompleteHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(modelsProvider.future);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        container.read(isManualModelSelectionProvider.notifier).set(true);
+
+        await container.read(modelsProvider.notifier).refresh();
+
+        check(container.read(selectedModelProvider)).isNull();
+        check(container.read(isManualModelSelectionProvider)).isFalse();
+      },
+    );
+
+    test('authenticated rebuild clears unusable Hermes selection', () async {
+      final workerManager = WorkerManager();
+      final api = _ModelsApiService(workerManager);
+      final hermesController = _MutableHermesConfigController(_usableHermes);
+      addTearDown(workerManager.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          apiServiceProvider.overrideWithValue(api),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(() => hermesController),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final initialModels = await container.read(modelsProvider.future);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(initialModels.firstWhere(isHermesModel));
+      container.read(isManualModelSelectionProvider.notifier).set(true);
+
+      hermesController.setConfig(_incompleteHermes);
+      final rebuiltModels = await container.read(modelsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        rebuiltModels.map((model) => model.id).toList(),
+      ).deepEquals(<String>['owui-model']);
+      check(container.read(selectedModelProvider)).isNull();
+      check(container.read(isManualModelSelectionProvider)).isFalse();
+    });
+
+    test(
+      'failed authenticated rebuild still clears unusable Hermes selection',
+      () async {
+        final workerManager = WorkerManager();
+        final api = _ModelsApiService(workerManager);
+        final hermesController = _MutableHermesConfigController(_usableHermes);
+        addTearDown(workerManager.dispose);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            apiServiceProvider.overrideWithValue(api),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(() => hermesController),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final initialModels = await container.read(modelsProvider.future);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(initialModels.firstWhere(isHermesModel));
+        container.read(isManualModelSelectionProvider.notifier).set(true);
+
+        api.fail = true;
+        hermesController.setConfig(_incompleteHermes);
+        await expectLater(
+          container.read(modelsProvider.future),
+          throwsA(isA<StateError>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        check(container.read(selectedModelProvider)).isNull();
+        check(container.read(isManualModelSelectionProvider)).isFalse();
+      },
+    );
+
     test('failed model refresh preserves the OpenWebUI selection', () async {
       final workerManager = WorkerManager();
       final api = _ModelsApiService(workerManager);

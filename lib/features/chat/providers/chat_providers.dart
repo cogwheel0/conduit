@@ -2342,7 +2342,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         final sameDescription =
             (withTimestamp.description?.isNotEmpty ?? false) &&
             withTimestamp.description == last.description;
-        if (sameAction && sameDescription) {
+        final updatesHermesTool =
+            sameAction &&
+            (withTimestamp.action?.startsWith('hermes_tool_') ?? false);
+        if (sameAction && (sameDescription || updatesHermesTool)) {
           history[history.length - 1] = withTimestamp;
           return current.copyWith(statusHistory: history);
         }

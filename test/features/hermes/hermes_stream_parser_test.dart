@@ -19,6 +19,15 @@ void main() {
       check(events.single).isA<HermesRunDone>();
     });
 
+    test('run.canceled with empty data is terminal', () async {
+      final events = await parseHermesRunStream(
+        _sse(['event: run.canceled\ndata:\n\n']),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single).isA<HermesRunDone>();
+    });
+
     test('empty non-terminal Hermes events remain ignorable', () async {
       final events = await parseHermesRunStream(
         _sse(['event: tool.started\ndata:\n\n']),
@@ -108,6 +117,7 @@ void main() {
       check(events.single).isA<HermesToolProgress>()
         ..has((e) => e.toolName, 'toolName').equals('terminal')
         ..has((e) => e.done, 'done').isTrue()
+        ..has((e) => e.failed, 'failed').isTrue()
         ..has((e) => e.detail, 'detail').equals('command failed');
       check(events.whereType<HermesRunError>()).isEmpty();
     });
@@ -125,7 +135,25 @@ void main() {
       check(events.single).isA<HermesToolProgress>()
         ..has((e) => e.toolName, 'toolName').equals('web_search')
         ..has((e) => e.done, 'done').isTrue()
+        ..has((e) => e.failed, 'failed').isTrue()
         ..has((e) => e.detail, 'detail').equals('provider unavailable');
+      check(events.whereType<HermesRunError>()).isEmpty();
+    });
+
+    test('tool.error is failed and terminal', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: tool.error\n'
+              'data: {"tool":"terminal","error":"permission denied"}\n\n',
+        ]),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single).isA<HermesToolProgress>()
+        ..has((e) => e.toolName, 'toolName').equals('terminal')
+        ..has((e) => e.done, 'done').isTrue()
+        ..has((e) => e.failed, 'failed').isTrue()
+        ..has((e) => e.detail, 'detail').equals('permission denied');
       check(events.whereType<HermesRunError>()).isEmpty();
     });
 

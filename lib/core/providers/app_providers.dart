@@ -738,6 +738,23 @@ class Models extends _$Models {
     final hermesUsable = ref.watch(
       hermesConfigProvider.select((config) => config.isUsable),
     );
+    ref.listen<bool>(hermesConfigProvider.select((config) => config.isUsable), (
+      previous,
+      next,
+    ) {
+      if (!next) _clearHermesSelection();
+    });
+    if (!hermesUsable) {
+      // A build cannot synchronously mutate another provider. Queue the clear
+      // before any model fetch so a failed cache/API load still fails closed.
+      unawaited(
+        Future<void>(() {
+          if (ref.mounted && !ref.read(hermesConfigProvider).isUsable) {
+            _clearHermesSelection();
+          }
+        }),
+      );
+    }
 
     if (!ref.watch(isAuthenticatedProvider2)) {
       // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
@@ -747,7 +764,7 @@ class Models extends _$Models {
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return const [];
+      return const <Model>[];
     }
 
     // Re-run whenever Hermes connection usability changes so the synthetic
@@ -812,29 +829,64 @@ class Models extends _$Models {
     );
   }
 
+  /// Prevents a disabled or incomplete Hermes connection from leaving the
+  /// composer bound to a transport that can no longer handle the selection.
+  /// Prefer the first available OpenWebUI model; Hermes-only mode clears it.
+  List<Model> _reconcileHermesSelection(List<Model> models) {
+    final currentSelected = ref.read(selectedModelProvider);
+    if (currentSelected == null ||
+        !isHermesModel(currentSelected) ||
+        models.any(isHermesModel)) {
+      return models;
+    }
+
+    final replacement = models.isNotEmpty ? models.first : null;
+    ref.read(isManualModelSelectionProvider.notifier).set(false);
+    ref.read(selectedModelProvider.notifier).set(replacement);
+    DebugLogger.warning(
+      'hermes-selection-unavailable',
+      scope: 'models',
+      data: {'replacement': replacement?.id},
+    );
+    return models;
+  }
+
+  void _clearHermesSelection() {
+    final currentSelected = ref.read(selectedModelProvider);
+    if (currentSelected == null || !isHermesModel(currentSelected)) return;
+
+    ref.read(isManualModelSelectionProvider.notifier).set(false);
+    ref.read(selectedModelProvider.notifier).clear();
+    DebugLogger.warning('hermes-selection-unavailable', scope: 'models');
+  }
+
   Future<void> refresh() async {
     if (ref.read(reviewerModeProvider)) {
-      state = AsyncData<List<Model>>(_demoModels());
+      state = AsyncData<List<Model>>(_reconcileHermesSelection(_demoModels()));
       return;
     }
     if (!ref.read(isAuthenticatedProvider2)) {
       final models = ref.read(hermesConfigProvider).isUsable
           ? _withHermes(const <Model>[])
           : const <Model>[];
-      state = AsyncData<List<Model>>(models);
+      state = AsyncData<List<Model>>(_reconcileHermesSelection(models));
       // Keep the locally minted Hermes sentinel runtime-only.
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      state = AsyncData<List<Model>>(_withHermes(const <Model>[]));
+      state = AsyncData<List<Model>>(
+        _reconcileHermesSelection(_withHermes(const <Model>[])),
+      );
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
-    final withHermes = result.whenData(_withHermes);
+    final withHermes = result.whenData(
+      (models) => _reconcileHermesSelection(_withHermes(models)),
+    );
     state = withHermes;
 
     // Update selected model with fresh data (e.g., filters) if it exists

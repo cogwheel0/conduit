@@ -33,6 +33,7 @@ final class HermesToolProgress extends HermesRunEvent {
     required this.toolName,
     required this.done,
     this.detail,
+    this.failed = false,
   });
 
   /// Tool/toolset name, e.g. `terminal`, `web_search`, `file_edit`.
@@ -43,6 +44,9 @@ final class HermesToolProgress extends HermesRunEvent {
 
   /// Whether the tool has finished (vs. just started / progressing).
   final bool done;
+
+  /// Whether this terminal progress event reports a tool failure.
+  final bool failed;
 }
 
 /// The run paused and is waiting for human approval before continuing.

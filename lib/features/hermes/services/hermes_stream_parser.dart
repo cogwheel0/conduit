@@ -110,12 +110,14 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   }
 
   // Terminal lifecycle (`run.completed` / `run.failed` / `run.cancelled` /
-  // `run.stopped`). `run.completed` carries the full `output` as a fallback.
+  // `run.canceled` / `run.stopped`). `run.completed` carries the full `output`
+  // as a fallback.
   if (eventType != null && eventType.startsWith('run.')) {
     final status = eventType.substring('run.'.length);
     if (status == 'completed' ||
         status == 'failed' ||
         status == 'cancelled' ||
+        status == 'canceled' ||
         status == 'stopped') {
       if (status == 'failed') {
         yield HermesRunError(_failureMessage(data['error']));
@@ -216,9 +218,15 @@ HermesToolProgress? _maybeToolProgress(
       'tool';
 
   final statusStr = _str(data['status'])?.toLowerCase();
+  final failed =
+      (eventType?.contains('failed') ?? false) ||
+      statusStr == 'failed' ||
+      statusStr == 'error' ||
+      _isTruthyError(data['error']);
   final done =
       (eventType?.contains('completed') ?? false) ||
       (eventType?.contains('failed') ?? false) ||
+      (eventType?.contains('error') ?? false) ||
       (eventType?.contains('cancelled') ?? false) ||
       (eventType?.contains('canceled') ?? false) ||
       (eventType?.contains('stopped') ?? false) ||
@@ -238,6 +246,7 @@ HermesToolProgress? _maybeToolProgress(
   return HermesToolProgress(
     toolName: toolName,
     done: done,
+    failed: failed,
     detail:
         _str(data['preview']) ??
         _str(data['detail']) ??
@@ -323,6 +332,8 @@ String? _lifecycleStatus(String? eventType, Map<String, dynamic> data) {
       return 'failed';
     case 'run.cancelled':
       return 'cancelled';
+    case 'run.canceled':
+      return 'canceled';
     case 'done':
       return 'completed';
     default:
@@ -334,6 +345,7 @@ bool _isTerminal(String status) =>
     status == 'completed' ||
     status == 'failed' ||
     status == 'cancelled' ||
+    status == 'canceled' ||
     status == 'stopped';
 
 /// Whether an `error` field represents a real failure (vs. a falsy marker like

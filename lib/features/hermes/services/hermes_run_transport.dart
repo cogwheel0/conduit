@@ -417,13 +417,24 @@ void _handleEvent(
         ),
       );
 
-    case HermesToolProgress(:final toolName, :final done):
-      // Stable action+description so start→finish updates the same status line
-      // in place (the notifier dedupes on action+description and flips `done`).
+    case HermesToolProgress(
+      :final toolName,
+      :final detail,
+      :final done,
+      :final failed,
+    ):
+      // The stable action lets the notifier replace and finish the in-flight
+      // tool row. A failed terminal event gets a distinct description so its
+      // scoped error remains visible instead of resembling a success.
+      final failureDetail = detail?.trim();
       appendStatus(
         ChatStatusUpdate(
           action: 'hermes_tool_$toolName',
-          description: toolName,
+          description: failed
+              ? failureDetail != null && failureDetail.isNotEmpty
+                    ? '$toolName failed: $failureDetail'
+                    : '$toolName failed'
+              : toolName,
           done: done,
         ),
       );

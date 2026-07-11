@@ -127,6 +127,41 @@ void main() {
     check(completedUi).isTrue();
   });
 
+  test('failed tool detail is visible in its completed status', () async {
+    final fake = _FakeHermesApiService(const [
+      HermesToolProgress(toolName: 'web_search', done: false),
+      HermesToolProgress(
+        toolName: 'web_search',
+        done: true,
+        detail: 'provider unavailable',
+        failed: true,
+      ),
+      HermesRunDone(),
+    ]);
+    final statuses = <ChatStatusUpdate>[];
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(statuses).length.equals(2);
+    check(statuses.first.description).equals('web_search');
+    check(statuses.last)
+      ..has(
+        (status) => status.description,
+        'description',
+      ).equals('web_search failed: provider unavailable')
+      ..has((status) => status.done, 'done').equals(true);
+  });
+
   test('appends final output when no deltas streamed', () async {
     final fake = _FakeHermesApiService(const [
       HermesFinalOutput('Only the final'),
