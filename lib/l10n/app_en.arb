@@ -86,6 +86,22 @@
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },
+  "settingsCategoryApp": "App",
+  "@settingsCategoryApp": {
+    "description": "Settings category for app appearance, chat, voice, and notifications."
+  },
+  "settingsCategoryAi": "AI",
+  "@settingsCategoryAi": {
+    "description": "Settings category for AI personalization and agent options."
+  },
+  "settingsCategoryServer": "Server",
+  "@settingsCategoryServer": {
+    "description": "Settings category for server administration and connection options."
+  },
+  "settingsCategorySupport": "Support",
+  "@settingsCategorySupport": {
+    "description": "Settings category for project support and app information."
+  },
   "account": "Account",
   "@account": {
     "description": "Section header for account-related options."

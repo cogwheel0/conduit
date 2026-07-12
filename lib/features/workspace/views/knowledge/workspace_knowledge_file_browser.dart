@@ -11,11 +11,11 @@ import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/chat/widgets/server_file_picker_sheet.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
-import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 
 /// File/directory browser embedded in the knowledge editor. Renders breadcrumbs,
@@ -79,11 +79,12 @@ class _WorkspaceKnowledgeFileBrowserState
       loading: () => Padding(
         key: const Key('knowledge-files-loading'),
         padding: const EdgeInsets.all(Spacing.xl),
-        child: Center(child: ConduitLoading.primary(message: l10n.loadingShort)),
+        child: Center(
+          child: ConduitLoading.primary(message: l10n.loadingShort),
+        ),
       ),
-      error: (_, _) => _ErrorState(
-        onRetry: () => ref.read(_provider.notifier).refresh(),
-      ),
+      error: (_, _) =>
+          _ErrorState(onRetry: () => ref.read(_provider.notifier).refresh()),
       data: (state) {
         _syncPolling(state);
         return _Browser(
@@ -122,9 +123,13 @@ class _Browser extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Text(l10n.workspaceKnowledgeFilesTitle, style: theme.label),
+              child: Text(
+                l10n.workspaceKnowledgeFilesTitle,
+                style: theme.headingSmall,
+              ),
             ),
             IconButton(
               key: const Key('knowledge-files-refresh'),
@@ -164,15 +169,12 @@ class _Browser extends ConsumerWidget {
           ),
         const SizedBox(height: Spacing.sm),
         if (state.isEmpty)
-          Padding(
+          ConduitEmptyState(
             key: const Key('knowledge-files-empty'),
-            padding: const EdgeInsets.all(Spacing.lg),
-            child: Center(
-              child: Text(
-                l10n.workspaceKnowledgeFilesEmpty,
-                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-              ),
-            ),
+            isCompact: true,
+            icon: Icons.folder_open_outlined,
+            title: l10n.workspaceKnowledgeFilesTitle,
+            message: l10n.workspaceKnowledgeFilesEmpty,
           )
         else ...[
           for (final dir in state.directories)
@@ -636,30 +638,32 @@ class _DirectoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-    return AdaptiveListTile(
-      padding: EdgeInsets.zero,
-      leading: Icon(Icons.folder_outlined, color: theme.iconSecondary),
-      title: MiddleEllipsisText(directory.name),
-      onTap: onOpen,
-      trailing: readOnly
-          ? const Icon(Icons.chevron_right)
-          : PopupMenuButton<int>(
-              key: Key('knowledge-directory-menu-${directory.id}'),
-              tooltip: l10n.workspaceKnowledgeRenameFolder,
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) => value == 0 ? onRename() : onDelete(),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 0,
-                  child: Text(l10n.workspaceKnowledgeRenameFolder),
-                ),
-                PopupMenuItem(
-                  value: 1,
-                  child: Text(l10n.workspaceKnowledgeDeleteFolder),
-                ),
-              ],
-            ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: WorkspaceResourceTile(
+        icon: Icons.folder_outlined,
+        title: directory.name,
+        onTap: onOpen,
+        showChevron: readOnly,
+        trailing: readOnly
+            ? null
+            : PopupMenuButton<int>(
+                key: Key('knowledge-directory-menu-${directory.id}'),
+                tooltip: l10n.workspaceKnowledgeRenameFolder,
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) => value == 0 ? onRename() : onDelete(),
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 0,
+                    child: Text(l10n.workspaceKnowledgeRenameFolder),
+                  ),
+                  PopupMenuItem(
+                    value: 1,
+                    child: Text(l10n.workspaceKnowledgeDeleteFolder),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }
@@ -674,22 +678,22 @@ class _PendingTile extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final failed =
-        (pending.status ?? '').toLowerCase() == 'failed' || pending.error != null;
-    return AdaptiveListTile(
-      padding: EdgeInsets.zero,
-      leading: failed
-          ? Icon(Icons.error_outline, color: theme.error)
-          : SizedBox(
-              width: IconSize.md,
-              height: IconSize.md,
-              child: ConduitLoading.inline(context: context),
-            ),
-      title: MiddleEllipsisText(pending.raw['filename']?.toString() ?? pending.id),
-      subtitle: Text(
-        failed ? l10n.workspaceKnowledgeStatusFailed : l10n.workspaceKnowledgeStatusPending,
-        style: theme.caption?.copyWith(
-          color: failed ? theme.error : theme.textSecondary,
-        ),
+        (pending.status ?? '').toLowerCase() == 'failed' ||
+        pending.error != null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: WorkspaceResourceTile(
+        leading: failed
+            ? WorkspaceIconBadge(icon: Icons.error_outline, color: theme.error)
+            : SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(child: ConduitLoading.inline(context: context)),
+              ),
+        title: pending.raw['filename']?.toString() ?? pending.id,
+        subtitle: failed
+            ? l10n.workspaceKnowledgeStatusFailed
+            : l10n.workspaceKnowledgeStatusPending,
       ),
     );
   }
@@ -716,58 +720,51 @@ class _FileTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-    return AdaptiveListTile(
-      padding: EdgeInsets.zero,
-      leading: Icon(
-        Icons.insert_drive_file_outlined,
-        color: theme.iconSecondary,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: WorkspaceResourceTile(
+        icon: Icons.insert_drive_file_outlined,
+        title: file.filename,
+        subtitle: file.size == null ? null : _formatSize(file.size!),
+        trailing: readOnly
+            ? null
+            : PopupMenuButton<int>(
+                key: Key('knowledge-file-menu-${file.id}'),
+                tooltip: l10n.workspaceKnowledgeFileRename,
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) {
+                  switch (value) {
+                    case 0:
+                      onRename();
+                    case 1:
+                      onRefresh();
+                    case 2:
+                      onMove();
+                    case 3:
+                      onDetach();
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 0,
+                    child: Text(l10n.workspaceKnowledgeFileRename),
+                  ),
+                  PopupMenuItem(
+                    value: 1,
+                    child: Text(l10n.workspaceKnowledgeFileRefresh),
+                  ),
+                  PopupMenuItem(
+                    value: 2,
+                    child: Text(l10n.workspaceKnowledgeFileMove),
+                  ),
+                  PopupMenuItem(
+                    key: Key('knowledge-file-detach-${file.id}'),
+                    value: 3,
+                    child: Text(l10n.workspaceKnowledgeFileDetach),
+                  ),
+                ],
+              ),
       ),
-      title: MiddleEllipsisText(file.filename),
-      subtitle: file.size == null
-          ? null
-          : Text(
-              _formatSize(file.size!),
-              style: theme.caption?.copyWith(color: theme.textSecondary),
-            ),
-      trailing: readOnly
-          ? null
-          : PopupMenuButton<int>(
-              key: Key('knowledge-file-menu-${file.id}'),
-              tooltip: l10n.workspaceKnowledgeFileRename,
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) {
-                switch (value) {
-                  case 0:
-                    onRename();
-                  case 1:
-                    onRefresh();
-                  case 2:
-                    onMove();
-                  case 3:
-                    onDetach();
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 0,
-                  child: Text(l10n.workspaceKnowledgeFileRename),
-                ),
-                PopupMenuItem(
-                  value: 1,
-                  child: Text(l10n.workspaceKnowledgeFileRefresh),
-                ),
-                PopupMenuItem(
-                  value: 2,
-                  child: Text(l10n.workspaceKnowledgeFileMove),
-                ),
-                PopupMenuItem(
-                  key: Key('knowledge-file-detach-${file.id}'),
-                  value: 3,
-                  child: Text(l10n.workspaceKnowledgeFileDetach),
-                ),
-              ],
-            ),
     );
   }
 
@@ -832,7 +829,10 @@ class _Notice extends StatelessWidget {
           ),
           const SizedBox(width: Spacing.sm),
           Expanded(
-            child: Text(message, style: theme.bodySmall?.copyWith(color: color)),
+            child: Text(
+              message,
+              style: theme.bodySmall?.copyWith(color: color),
+            ),
           ),
         ],
       ),
@@ -913,9 +913,7 @@ class _AddTextDialog {
               onPressed: () {
                 final name = nameController.text.trim();
                 if (name.isEmpty) return;
-                Navigator.of(
-                  dialogContext,
-                ).pop((name, contentController.text));
+                Navigator.of(dialogContext).pop((name, contentController.text));
               },
             ),
           ],
@@ -956,9 +954,8 @@ class _DetachDialog {
                       onChanged: (value) =>
                           setState(() => deleteUnderlying = value ?? false),
                     ),
-                    onTap: () => setState(
-                      () => deleteUnderlying = !deleteUnderlying,
-                    ),
+                    onTap: () =>
+                        setState(() => deleteUnderlying = !deleteUnderlying),
                   ),
               ],
             ),

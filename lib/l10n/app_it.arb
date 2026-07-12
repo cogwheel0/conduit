@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "Sottotitolo che spiega le azioni disponibili quando il server non è raggiungibile"
   },
+  "settingsCategoryApp": "App",
+  "settingsCategoryAi": "IA",
+  "settingsCategoryServer": "Server",
+  "settingsCategorySupport": "Supporto",
   "account": "Account",
   "supportConduit": "Sostieni Conduit",
   "supportConduitSubtitle": "Mantieni Conduit indipendente finanziando lo sviluppo continuo.",

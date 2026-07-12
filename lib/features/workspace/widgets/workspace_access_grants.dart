@@ -9,6 +9,7 @@ import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -40,12 +41,15 @@ List<WorkspaceAccessGrantInput> normalizeWorkspaceGrants(
   final map = <String, WorkspaceAccessGrantInput>{};
   for (final grant in grants) {
     if (grant.principalId.isEmpty) continue;
-    map[_grantKey(grant.principalType, grant.principalId, grant.permission)] =
-        WorkspaceAccessGrantInput(
-          principalType: grant.principalType,
-          principalId: grant.principalId,
-          permission: grant.permission,
-        );
+    map[_grantKey(
+      grant.principalType,
+      grant.principalId,
+      grant.permission,
+    )] = WorkspaceAccessGrantInput(
+      principalType: grant.principalType,
+      principalId: grant.principalId,
+      permission: grant.permission,
+    );
   }
   return List<WorkspaceAccessGrantInput>.unmodifiable(map.values);
 }
@@ -122,7 +126,9 @@ List<WorkspaceAccessGrantInput> setWorkspacePrincipalWrite(
   bool canWrite,
 ) {
   final next = grants
-      .where((grant) => !(grant.principalType == type && grant.principalId == id))
+      .where(
+        (grant) => !(grant.principalType == type && grant.principalId == id),
+      )
       .toList();
   next.add(
     WorkspaceAccessGrantInput(
@@ -185,7 +191,8 @@ List<WorkspaceSharedPrincipal> workspaceSharedPrincipals(
 
 typedef WorkspaceUserSearch =
     Future<List<WorkspacePrincipalPreview>> Function(String query);
-typedef WorkspaceGroupLoader = Future<List<WorkspacePrincipalPreview>> Function();
+typedef WorkspaceGroupLoader =
+    Future<List<WorkspacePrincipalPreview>> Function();
 
 @immutable
 class WorkspacePrincipalDirectory {
@@ -342,10 +349,7 @@ class _WorkspaceAccessGrantSheetState
                 if (!canTogglePublic && !_isReadOnly)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-                    child: _notice(
-                      context,
-                      l10n.workspaceAccessPublicDisabled,
-                    ),
+                    child: _notice(context, l10n.workspaceAccessPublicDisabled),
                   ),
                 const SizedBox(height: Spacing.sm),
                 Padding(
@@ -358,10 +362,7 @@ class _WorkspaceAccessGrantSheetState
                 if (!widget.allowUserGrants && !_isReadOnly)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-                    child: _notice(
-                      context,
-                      l10n.workspaceAccessUsersDisabled,
-                    ),
+                    child: _notice(context, l10n.workspaceAccessUsersDisabled),
                   ),
                 if (principals.isEmpty)
                   Padding(
@@ -414,10 +415,7 @@ class _WorkspaceAccessGrantSheetState
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              l10n.workspaceAccessTitle,
-              style: theme.headingSmall,
-            ),
+            child: Text(l10n.workspaceAccessTitle, style: theme.headingSmall),
           ),
           if (_isReadOnly)
             Padding(
@@ -471,18 +469,12 @@ class _WorkspaceAccessGrantSheetState
     bool canToggle,
   ) {
     final theme = context.conduitTheme;
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-access-public'),
-      padding: EdgeInsets.zero,
-      leading: Icon(
-        isPublic ? Icons.public : Icons.public_off,
-        color: isPublic ? theme.buttonPrimary : theme.iconSecondary,
-      ),
-      title: Text(l10n.workspaceAccessVisibilityLabel),
-      subtitle: Text(
-        l10n.workspaceAccessVisibilityDescription,
-        style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-      ),
+      icon: isPublic ? Icons.public : Icons.public_off,
+      iconColor: isPublic ? theme.buttonPrimary : theme.iconSecondary,
+      title: l10n.workspaceAccessVisibilityLabel,
+      subtitle: l10n.workspaceAccessVisibilityDescription,
       trailing: AdaptiveSwitch(
         value: isPublic,
         onChanged: canToggle
@@ -500,67 +492,66 @@ class _WorkspaceAccessGrantSheetState
     final theme = context.conduitTheme;
     final isGroup = principal.type == WorkspacePrincipalType.group;
     final canEdit = !_isReadOnly;
-    return AdaptiveListTile(
-      key: Key('workspace-access-principal-${principal.type.name}-${principal.id}'),
-      padding: EdgeInsets.zero,
-      leading: Icon(
-        isGroup ? Icons.groups_outlined : Icons.person_outline,
-        color: theme.iconSecondary,
-      ),
-      title: MiddleEllipsisText(_principalName(principal)),
-      subtitle: Text(
-        isGroup ? l10n.workspaceAccessGroupBadge : l10n.workspaceAccessUserBadge,
-        style: theme.caption?.copyWith(color: theme.textSecondary),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AdaptiveTooltip(
-            message: l10n.workspaceAccessCanEdit,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  l10n.workspaceAccessCanEdit,
-                  style: theme.caption?.copyWith(
-                    color: theme.textSecondary,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: WorkspaceResourceTile(
+        key: Key(
+          'workspace-access-principal-${principal.type.name}-${principal.id}',
+        ),
+        icon: isGroup ? Icons.groups_outlined : Icons.person_outline,
+        iconColor: theme.iconSecondary,
+        title: _principalName(principal),
+        subtitle: isGroup
+            ? l10n.workspaceAccessGroupBadge
+            : l10n.workspaceAccessUserBadge,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AdaptiveTooltip(
+              message: l10n.workspaceAccessCanEdit,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    l10n.workspaceAccessCanEdit,
+                    style: theme.caption?.copyWith(color: theme.textSecondary),
                   ),
-                ),
-                AdaptiveSwitch(
-                  key: Key(
-                    'workspace-access-write-${principal.type.name}-${principal.id}',
+                  AdaptiveSwitch(
+                    key: Key(
+                      'workspace-access-write-${principal.type.name}-${principal.id}',
+                    ),
+                    value: principal.canWrite,
+                    onChanged: canEdit
+                        ? (value) => _update(
+                            setWorkspacePrincipalWrite(
+                              _grants,
+                              principal.type,
+                              principal.id,
+                              value,
+                            ),
+                          )
+                        : null,
                   ),
-                  value: principal.canWrite,
-                  onChanged: canEdit
-                      ? (value) => _update(
-                          setWorkspacePrincipalWrite(
-                            _grants,
-                            principal.type,
-                            principal.id,
-                            value,
-                          ),
-                        )
-                      : null,
-                ),
-              ],
-            ),
-          ),
-          if (canEdit)
-            IconButton(
-              key: Key(
-                'workspace-access-remove-${principal.type.name}-${principal.id}',
-              ),
-              tooltip: l10n.workspaceAccessRemoveGrant,
-              icon: const Icon(Icons.close),
-              onPressed: () => _update(
-                removeWorkspacePrincipal(
-                  _grants,
-                  principal.type,
-                  principal.id,
-                ),
+                ],
               ),
             ),
-        ],
+            if (canEdit)
+              IconButton(
+                key: Key(
+                  'workspace-access-remove-${principal.type.name}-${principal.id}',
+                ),
+                tooltip: l10n.workspaceAccessRemoveGrant,
+                icon: const Icon(Icons.close),
+                onPressed: () => _update(
+                  removeWorkspacePrincipal(
+                    _grants,
+                    principal.type,
+                    principal.id,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -588,8 +579,10 @@ class WorkspacePrincipalPicker extends StatefulWidget {
   }) {
     return ThemedSheets.showCustom<WorkspacePrincipalPreview>(
       context: context,
-      builder: (_) =>
-          WorkspacePrincipalPicker(directory: directory, allowUsers: allowUsers),
+      builder: (_) => WorkspacePrincipalPicker(
+        directory: directory,
+        allowUsers: allowUsers,
+      ),
     );
   }
 
@@ -815,7 +808,9 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
         final principal = _results[index];
         final isGroup = principal.type == WorkspacePrincipalType.group;
         return AdaptiveListTile(
-          key: Key('workspace-principal-${principal.type.name}-${principal.id}'),
+          key: Key(
+            'workspace-principal-${principal.type.name}-${principal.id}',
+          ),
           leading: Icon(
             isGroup ? Icons.groups_outlined : Icons.person_outline,
             color: theme.iconSecondary,

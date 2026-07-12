@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "Untertitel mit den verfügbaren Aktionen, wenn der Server nicht erreichbar ist"
   },
+  "settingsCategoryApp": "App",
+  "settingsCategoryAi": "KI",
+  "settingsCategoryServer": "Server",
+  "settingsCategorySupport": "Support",
   "account": "Konto",
   "supportConduit": "Conduit unterstützen",
   "supportConduitSubtitle": "Hilf, die Weiterentwicklung und neue Funktionen zu finanzieren.",

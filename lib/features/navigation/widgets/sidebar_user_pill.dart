@@ -25,6 +25,7 @@ import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../profile/models/settings_taxonomy.dart';
 import '../../terminal/providers/terminal_providers.dart';
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
@@ -268,6 +269,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       sections: [
         if (!hermesOnly)
           NativeSheetSectionConfig(
+            title: SettingsDestination.profile.category.label(l10n),
             items: [
               NativeSheetItemConfig(
                 id: NativeSheetRoutes.profile,
@@ -278,17 +280,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ],
           ),
         NativeSheetSectionConfig(
+          title: SettingsDestination.appearance.category.label(l10n),
           items: [
-            if (canManageWorkspace)
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.workspace,
-                title: l10n.workspaceTitle,
-                subtitle: l10n.workspaceSubtitle,
-                sfSymbol: 'square.grid.2x2',
-                dismissOnSelect: true,
-                actionId: NativeSheetRoutes.workspace,
-                actionValue: true,
-              ),
             NativeSheetItemConfig(
               id: NativeSheetRoutes.appearance,
               title: appearanceTitle,
@@ -304,12 +297,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               title: l10n.voice,
               sfSymbol: 'waveform',
             ),
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.aiMemory,
-                title: aiMemoryTitle,
-                sfSymbol: 'wand.and.stars',
-              ),
             // Notifications are OWUI-socket-derived, so hide them in Hermes-only.
             if (!hermesOnly)
               NativeSheetItemConfig(
@@ -317,17 +304,43 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                 title: l10n.notificationsTitle,
                 sfSymbol: 'bell',
               ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: SettingsDestination.personalization.category.label(l10n),
+          items: [
             if (!hermesOnly)
               NativeSheetItemConfig(
-                id: NativeSheetRoutes.dataConnection,
-                title: dataConnectionTitle,
-                sfSymbol: 'network',
+                id: NativeSheetRoutes.aiMemory,
+                title: aiMemoryTitle,
+                sfSymbol: 'wand.and.stars',
               ),
             const NativeSheetItemConfig(
               id: NativeSheetRoutes.hermes,
               title: 'Hermes Agent',
               sfSymbol: 'sparkles',
             ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: SettingsDestination.workspace.category.label(l10n),
+          items: [
+            if (canManageWorkspace)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.workspace,
+                title: l10n.workspaceTitle,
+                subtitle: l10n.workspaceSubtitle,
+                sfSymbol: 'square.grid.2x2',
+                dismissOnSelect: true,
+                actionId: NativeSheetRoutes.workspace,
+                actionValue: true,
+              ),
+            if (!hermesOnly)
+              NativeSheetItemConfig(
+                id: NativeSheetRoutes.dataConnection,
+                title: dataConnectionTitle,
+                sfSymbol: 'network',
+              ),
             if (hermesOnly)
               const NativeSheetItemConfig(
                 id: 'add-owui-server',
@@ -338,7 +351,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           ],
         ),
         NativeSheetSectionConfig(
-          title: l10n.supportConduit,
+          title: SettingsDestination.supportConduit.category.label(l10n),
           footer: l10n.supportConduitSubtitle,
           items: [
             NativeSheetItemConfig(
@@ -355,10 +368,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               sfSymbol: 'heart',
               url: 'https://github.com/sponsors/cogwheel0',
             ),
-          ],
-        ),
-        NativeSheetSectionConfig(
-          items: [
             NativeSheetItemConfig(
               id: NativeSheetRoutes.helpAbout,
               title: l10n.aboutApp,

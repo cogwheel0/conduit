@@ -17,6 +17,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_read_only_badge.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -89,7 +90,9 @@ class WorkspaceKnowledgeEditorView extends ConsumerWidget {
           );
         }
         return _WorkspaceKnowledgeForm(
-          key: ValueKey('workspace-knowledge-form-${value.summary.id}-${mode.name}'),
+          key: ValueKey(
+            'workspace-knowledge-form-${value.summary.id}-${mode.name}',
+          ),
           mode: mode,
           summary: value.summary,
         );
@@ -387,7 +390,12 @@ class _WorkspaceKnowledgeFormState
         absorbing: _saving,
         child: ListView(
           key: const Key('workspace-knowledge-editor-body'),
-          padding: const EdgeInsets.all(Spacing.md),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_isExternal)
               Padding(
@@ -427,7 +435,7 @@ class _WorkspaceKnowledgeFormState
               enabled: !_fieldsReadOnly,
               onChanged: (_) => _markDirty(),
             ),
-            const SizedBox(height: Spacing.sm),
+            const SizedBox(height: Spacing.md),
             ConduitInput(
               key: const Key('workspace-knowledge-description'),
               controller: _descriptionController,
@@ -437,10 +445,10 @@ class _WorkspaceKnowledgeFormState
               maxLines: 4,
               onChanged: (_) => _markDirty(),
             ),
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             _accessTile(l10n),
             if (!_isCreate && summary != null) ...[
-              const Divider(height: Spacing.xl),
+              const SizedBox(height: Spacing.xl),
               WorkspaceKnowledgeFileBrowser(
                 key: Key('workspace-knowledge-files-${summary.id}'),
                 knowledgeId: summary.id,
@@ -458,17 +466,13 @@ class _WorkspaceKnowledgeFormState
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-knowledge-access'),
-      padding: EdgeInsets.zero,
-      leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
-      title: Text(l10n.workspaceKnowledgeManageAccess),
-      subtitle: Text(
-        isPublic
-            ? l10n.workspaceAccessVisibilityLabel
-            : l10n.workspaceModelSelectCount(principals.length),
-      ),
-      trailing: const Icon(Icons.chevron_right),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspaceKnowledgeManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
       onTap: _manageAccess,
     );
   }
@@ -521,9 +525,7 @@ class _WorkspaceKnowledgeFormState
     AdaptiveSnackBar.show(
       context,
       message: message,
-      type: isError
-          ? AdaptiveSnackBarType.error
-          : AdaptiveSnackBarType.success,
+      type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );
   }
 }

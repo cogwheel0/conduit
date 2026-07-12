@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "Ondertitel die beschikbare acties uitlegt wanneer de server niet bereikbaar is"
   },
+  "settingsCategoryApp": "App",
+  "settingsCategoryAi": "AI",
+  "settingsCategoryServer": "Server",
+  "settingsCategorySupport": "Ondersteuning",
   "account": "Account",
   "supportConduit": "Ondersteun Conduit",
   "supportConduitSubtitle": "Houd Conduit onafhankelijk door doorlopende ontwikkeling te financieren.",

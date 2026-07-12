@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "当无法访问服务器时解释可用操作的副标题"
   },
+  "settingsCategoryApp": "應用程式",
+  "settingsCategoryAi": "AI",
+  "settingsCategoryServer": "伺服器",
+  "settingsCategorySupport": "支援",
   "account": "賬戶",
   "supportConduit": "支持 Conduit",
   "supportConduitSubtitle": "通過資助持續開發來保持 Conduit 的獨立性。",

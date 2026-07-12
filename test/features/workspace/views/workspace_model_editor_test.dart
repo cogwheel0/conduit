@@ -50,6 +50,9 @@ void main() {
     await _scrollTo(tester, const Key('workspace-model-tools'));
     expect(find.byKey(const Key('workspace-model-tools')), findsOneWidget);
 
+    // Scroll back up: the taller card-based layout disposes the top-of-form
+    // fields once the relationship tiles are in view.
+    await _scrollTo(tester, const Key('workspace-model-id'), delta: -300);
     await tester.enterText(
       find.byKey(const Key('workspace-model-id')),
       'my-model',
@@ -215,7 +218,10 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-model-tools')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-relationship-list')), findsOneWidget);
+    expect(
+      find.byKey(const Key('workspace-relationship-list')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const Key('workspace-relationship-tool-a')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('workspace-relationship-save')));
@@ -280,9 +286,9 @@ void main() {
           // The tools collection fails to load; opening the picker must surface
           // an error snackbar rather than throw unhandled from the callback.
           workspaceToolsProvider.overrideWith(_FailingWorkspaceTools.new),
-          workspaceModelDetailProvider('model-1').overrideWith(
-            (ref) async => _writableModel(),
-          ),
+          workspaceModelDetailProvider(
+            'model-1',
+          ).overrideWith((ref) async => _writableModel()),
         ],
         child: _app(WorkspaceRouteMode.edit, 'model-1'),
       ),
@@ -384,10 +390,14 @@ void main() {
 
 // ---------------------------------------------------------------------------
 
-Future<void> _scrollTo(WidgetTester tester, Key key) async {
+Future<void> _scrollTo(
+  WidgetTester tester,
+  Key key, {
+  double delta = 300,
+}) async {
   await tester.scrollUntilVisible(
     find.byKey(key),
-    300,
+    delta,
     scrollable: find
         .descendant(
           of: find.byKey(const Key('workspace-model-editor-body')),
@@ -408,9 +418,9 @@ Widget _harness({
     overrides: [
       ..._baseOverrides(models, tools: tools),
       if (resourceId != null && detail != null)
-        workspaceModelDetailProvider(resourceId).overrideWith(
-          (ref) async => detail,
-        ),
+        workspaceModelDetailProvider(
+          resourceId,
+        ).overrideWith((ref) async => detail),
     ],
     child: _app(mode, resourceId),
   );

@@ -23,6 +23,7 @@ import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
+import '../models/settings_taxonomy.dart';
 import '../widgets/profile_setting_tile.dart';
 import '../widgets/profile_text_styles.dart';
 
@@ -92,6 +93,16 @@ class ProfilePage extends ConsumerWidget {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    final items = _buildSettingsItems(
+      context,
+      ref,
+      userData: userData,
+      api: api,
+      hermesOnly: hermesOnly,
+    );
+    final categories = settingsCategoriesFor(
+      items.map((item) => item.destination),
+    );
 
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -104,13 +115,11 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
-        if (!hermesOnly) ...[
-          _buildProfileHeader(context, userData, api),
+        for (final category in categories) ...[
+          _buildSettingsCategory(context, category, items),
           const SizedBox(height: Spacing.xl),
         ],
-        _buildAccountSection(context, ref),
-        const SizedBox(height: Spacing.xl),
-        _buildSupportSection(context),
+        if (!hermesOnly) _buildSignOutOption(context, ref),
       ],
     );
   }
@@ -123,53 +132,39 @@ class ProfilePage extends ConsumerWidget {
     return Spacing.lg;
   }
 
-  Widget _buildSupportSection(BuildContext context) {
+  Widget _buildSettingsCategory(
+    BuildContext context,
+    SettingsCategory category,
+    List<_ProfileSettingsItem> items,
+  ) {
     final theme = context.conduitTheme;
-    final textTheme = theme.bodySmall?.copyWith(
-      color: theme.sidebarForeground.withValues(alpha: 0.75),
-    );
-
-    final supportTiles = [
-      _buildSupportOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.gift,
-          android: Icons.coffee,
-        ),
-        title: AppLocalizations.of(context)!.buyMeACoffeeTitle,
-        subtitle: AppLocalizations.of(context)!.buyMeACoffeeSubtitle,
-        url: _buyMeACoffeeUrl,
-        color: theme.warning,
-      ),
-      _buildSupportOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.heart,
-          android: Icons.favorite_border,
-        ),
-        title: AppLocalizations.of(context)!.githubSponsorsTitle,
-        subtitle: AppLocalizations.of(context)!.githubSponsorsSubtitle,
-        url: _githubSponsorsUrl,
-        color: theme.success,
-      ),
+    final l10n = AppLocalizations.of(context)!;
+    final categoryItems = [
+      for (final item in items)
+        if (item.destination.category == category) item.child,
     ];
 
     return Column(
+      key: Key('settings-category-${category.name}'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          AppLocalizations.of(context)!.supportConduit,
+          category.label(l10n),
           style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
         ),
-        const SizedBox(height: Spacing.xs),
-        Text(
-          AppLocalizations.of(context)!.supportConduitSubtitle,
-          style: textTheme,
-        ),
+        if (category == SettingsCategory.support) ...[
+          const SizedBox(height: Spacing.xs),
+          Text(
+            l10n.supportConduitSubtitle,
+            style: theme.bodySmall?.copyWith(
+              color: theme.sidebarForeground.withValues(alpha: 0.75),
+            ),
+          ),
+        ],
         const SizedBox(height: Spacing.sm),
-        for (var i = 0; i < supportTiles.length; i++) ...[
-          supportTiles[i],
-          if (i != supportTiles.length - 1) const SizedBox(height: Spacing.md),
+        for (var i = 0; i < categoryItems.length; i++) ...[
+          categoryItems[i],
+          if (i != categoryItems.length - 1) const SizedBox(height: Spacing.md),
         ],
       ],
     );
@@ -330,123 +325,164 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
+  List<_ProfileSettingsItem> _buildSettingsItems(
+    BuildContext context,
+    WidgetRef ref, {
+    required dynamic userData,
+    required ApiService? api,
+    required bool hermesOnly,
+  }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
-    // In Hermes-only mode there's no Open WebUI account to sign out of; instead
-    // surface a "Connect to Open WebUI" entry so the user can add a server.
-    final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final items = [
-      if (canManageWorkspace)
-        _buildAccountOption(
-          context,
-          key: const Key('workspace-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.square_grid_2x2,
-            android: Icons.dashboard_customize_outlined,
-          ),
-          title: l10n.workspaceTitle,
-          subtitle: l10n.workspaceSubtitle,
-          onTap: () => context.pushNamed(RouteNames.workspace),
-        ),
-      if (!hermesOnly)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.person_crop_circle_badge_checkmark,
-            android: Icons.auto_awesome,
-          ),
-          title: AppLocalizations.of(context)!.personalization,
-          subtitle: AppLocalizations.of(context)!.personalizationSubtitle,
-          onTap: () {
-            context.pushNamed(RouteNames.personalization);
-          },
-        ),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.waveform,
-          android: Icons.graphic_eq,
-        ),
-        title: AppLocalizations.of(context)!.audioSettingsTitle,
-        subtitle: AppLocalizations.of(context)!.audioSettingsSubtitle,
-        onTap: () {
-          context.pushNamed(RouteNames.audioSettings);
-        },
-      ),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.slider_horizontal_3,
-          android: Icons.tune,
-        ),
-        title: AppLocalizations.of(context)!.appAndChat,
-        subtitle: AppLocalizations.of(context)!.appAndChatSubtitle,
-        onTap: () {
-          context.pushNamed(RouteNames.appCustomization);
-        },
-      ),
-      if (!hermesOnly)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bell,
-            android: Icons.notifications_outlined,
-          ),
-          title: AppLocalizations.of(context)!.notificationsTitle,
-          subtitle: AppLocalizations.of(context)!.notificationsSubtitle,
-          onTap: () {
-            context.pushNamed(RouteNames.notificationSettings);
-          },
-        ),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.bolt_horizontal_circle,
-          android: Icons.smart_toy_outlined,
-        ),
-        title: AppLocalizations.of(context)!.hermesAgentSettingsTitle,
-        subtitle: AppLocalizations.of(context)!.hermesAgentSettingsSubtitle,
-        onTap: () {
-          context.pushNamed(RouteNames.hermesSettings);
-        },
-      ),
-      if (hermesOnly)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.add_circled,
-            android: Icons.add_circle_outline,
-          ),
-          title: AppLocalizations.of(context)!.connectOpenWebUITitle,
-          subtitle: AppLocalizations.of(context)!.connectOpenWebUISubtitle,
-          onTap: () {
-            context.goNamed(RouteNames.serverConnection);
-          },
-        ),
-      _buildAboutTile(context),
-      if (!hermesOnly)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.square_arrow_left,
-            android: Icons.logout,
-          ),
-          title: AppLocalizations.of(context)!.signOut,
-          subtitle: AppLocalizations.of(context)!.endYourSession,
-          onTap: () => _signOut(context, ref),
-          showChevron: false,
-        ),
-    ];
+    final theme = context.conduitTheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          items[i],
-          if (i != items.length - 1) const SizedBox(height: Spacing.md),
-        ],
-      ],
+    return [
+      if (!hermesOnly)
+        (
+          destination: SettingsDestination.profile,
+          child: _buildProfileHeader(context, userData, api),
+        ),
+      (
+        destination: SettingsDestination.appAndChat,
+        child: _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.slider_horizontal_3,
+            android: Icons.tune,
+          ),
+          title: l10n.appAndChat,
+          subtitle: l10n.appAndChatSubtitle,
+          onTap: () => context.pushNamed(RouteNames.appCustomization),
+        ),
+      ),
+      (
+        destination: SettingsDestination.voice,
+        child: _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.waveform,
+            android: Icons.graphic_eq,
+          ),
+          title: l10n.audioSettingsTitle,
+          subtitle: l10n.audioSettingsSubtitle,
+          onTap: () => context.pushNamed(RouteNames.audioSettings),
+        ),
+      ),
+      if (!hermesOnly)
+        (
+          destination: SettingsDestination.notifications,
+          child: _buildAccountOption(
+            context,
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.bell,
+              android: Icons.notifications_outlined,
+            ),
+            title: l10n.notificationsTitle,
+            subtitle: l10n.notificationsSubtitle,
+            onTap: () => context.pushNamed(RouteNames.notificationSettings),
+          ),
+        ),
+      if (!hermesOnly)
+        (
+          destination: SettingsDestination.personalization,
+          child: _buildAccountOption(
+            context,
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+              android: Icons.auto_awesome,
+            ),
+            title: l10n.personalization,
+            subtitle: l10n.personalizationSubtitle,
+            onTap: () => context.pushNamed(RouteNames.personalization),
+          ),
+        ),
+      (
+        destination: SettingsDestination.hermes,
+        child: _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.bolt_horizontal_circle,
+            android: Icons.smart_toy_outlined,
+          ),
+          title: l10n.hermesAgentSettingsTitle,
+          subtitle: l10n.hermesAgentSettingsSubtitle,
+          onTap: () => context.pushNamed(RouteNames.hermesSettings),
+        ),
+      ),
+      if (canManageWorkspace)
+        (
+          destination: SettingsDestination.workspace,
+          child: _buildAccountOption(
+            context,
+            key: const Key('workspace-entry'),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.square_grid_2x2,
+              android: Icons.dashboard_customize_outlined,
+            ),
+            title: l10n.workspaceTitle,
+            subtitle: l10n.workspaceSubtitle,
+            onTap: () => context.pushNamed(RouteNames.workspace),
+          ),
+        ),
+      if (hermesOnly)
+        (
+          destination: SettingsDestination.connectOpenWebUi,
+          child: _buildAccountOption(
+            context,
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.add_circled,
+              android: Icons.add_circle_outline,
+            ),
+            title: l10n.connectOpenWebUITitle,
+            subtitle: l10n.connectOpenWebUISubtitle,
+            onTap: () => context.goNamed(RouteNames.serverConnection),
+          ),
+        ),
+      (
+        destination: SettingsDestination.supportConduit,
+        child: _buildSupportOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.gift,
+            android: Icons.coffee,
+          ),
+          title: l10n.buyMeACoffeeTitle,
+          subtitle: l10n.buyMeACoffeeSubtitle,
+          url: _buyMeACoffeeUrl,
+          color: theme.warning,
+        ),
+      ),
+      (
+        destination: SettingsDestination.supportConduit,
+        child: _buildSupportOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.heart,
+            android: Icons.favorite_border,
+          ),
+          title: l10n.githubSponsorsTitle,
+          subtitle: l10n.githubSponsorsSubtitle,
+          url: _githubSponsorsUrl,
+          color: theme.success,
+        ),
+      ),
+      (destination: SettingsDestination.about, child: _buildAboutTile(context)),
+    ];
+  }
+
+  Widget _buildSignOutOption(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    return _buildAccountOption(
+      context,
+      key: const Key('settings-sign-out'),
+      icon: UiUtils.platformIcon(
+        ios: CupertinoIcons.square_arrow_left,
+        android: Icons.logout,
+      ),
+      title: l10n.signOut,
+      subtitle: l10n.endYourSession,
+      onTap: () => _signOut(context, ref),
+      showChevron: false,
     );
   }
 
@@ -530,3 +566,8 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 }
+
+typedef _ProfileSettingsItem = ({
+  SettingsDestination destination,
+  Widget child,
+});

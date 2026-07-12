@@ -7,6 +7,7 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
@@ -92,7 +93,8 @@ class _WorkspacePromptHistorySectionState
         _page = 0;
         _hasMore = entries.length >= _pageSize;
         _loading = false;
-        _selectedId = _productionVersionId != null &&
+        _selectedId =
+            _productionVersionId != null &&
                 entries.any((e) => e.id == _productionVersionId)
             ? _productionVersionId
             : (entries.isNotEmpty ? entries.first.id : null);
@@ -241,30 +243,25 @@ class _WorkspacePromptHistorySectionState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     return Column(
       key: const Key('workspace-prompt-history-panel'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l10n.workspacePromptHistory, style: theme.headingSmall),
-        const SizedBox(height: Spacing.sm),
+        WorkspaceSectionHeader(title: l10n.workspacePromptHistory),
         if (_loading)
           Padding(
             padding: const EdgeInsets.all(Spacing.lg),
-            child: Center(
-              child: ConduitLoading.inline(context: context),
-            ),
+            child: Center(child: ConduitLoading.inline(context: context)),
           )
         else if (_hasError)
           _errorRow(l10n)
         else if (_entries.isEmpty)
-          Padding(
+          ConduitEmptyState(
             key: const Key('workspace-prompt-history-empty'),
-            padding: const EdgeInsets.symmetric(vertical: Spacing.md),
-            child: Text(
-              l10n.workspacePromptHistoryEmpty,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
+            isCompact: true,
+            icon: Icons.history,
+            title: l10n.workspacePromptHistory,
+            message: l10n.workspacePromptHistoryEmpty,
           )
         else
           AbsorbPointer(
@@ -333,39 +330,29 @@ class _WorkspacePromptHistorySectionState
       key: Key('prompt-history-${entry.id}'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AdaptiveListTile(
-          selected: selected,
-          padding: EdgeInsets.zero,
-          title: Row(
-            children: [
-              Flexible(
-                child: Text(
-                  commit == null || commit.isEmpty
-                      ? l10n.workspacePromptHistoryCommitFallback
-                      : commit,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isProduction) ...[
-                const SizedBox(width: Spacing.sm),
-                ConduitBadge(
-                  key: Key('prompt-history-live-${entry.id}'),
-                  text: l10n.workspacePromptHistoryLive,
-                  isCompact: true,
-                  backgroundColor: theme.success.withValues(alpha: 0.15),
-                  textColor: theme.success,
-                ),
-              ],
-            ],
-          ),
-          subtitle: Text(
-            '${entry.id.length >= 7 ? entry.id.substring(0, 7) : entry.id} · '
-            '${_formatDate(entry.createdAt)}',
-            style: theme.caption?.copyWith(color: theme.textSecondary),
-          ),
-          onTap: () => setState(
-            () => _selectedId = selected ? null : entry.id,
+        Padding(
+          padding: const EdgeInsets.only(bottom: Spacing.md),
+          child: WorkspaceResourceTile(
+            icon: Icons.history,
+            selected: selected,
+            showChevron: false,
+            title: commit == null || commit.isEmpty
+                ? l10n.workspacePromptHistoryCommitFallback
+                : commit,
+            titleTrailing: isProduction
+                ? ConduitBadge(
+                    key: Key('prompt-history-live-${entry.id}'),
+                    text: l10n.workspacePromptHistoryLive,
+                    isCompact: true,
+                    backgroundColor: theme.success.withValues(alpha: 0.15),
+                    textColor: theme.success,
+                  )
+                : null,
+            subtitle:
+                '${entry.id.length >= 7 ? entry.id.substring(0, 7) : entry.id} · '
+                '${_formatDate(entry.createdAt)}',
+            onTap: () =>
+                setState(() => _selectedId = selected ? null : entry.id),
           ),
         ),
         if (selected) _selectedPanel(l10n, entry, isProduction),
@@ -444,9 +431,7 @@ class _WorkspacePromptHistorySectionState
 
   static String _formatDate(int seconds) {
     if (seconds <= 0) return '';
-    final date = DateTime.fromMillisecondsSinceEpoch(
-      seconds * 1000,
-    ).toLocal();
+    final date = DateTime.fromMillisecondsSinceEpoch(seconds * 1000).toLocal();
     String two(int v) => v.toString().padLeft(2, '0');
     return '${date.year}-${two(date.month)}-${two(date.day)} '
         '${two(date.hour)}:${two(date.minute)}';
@@ -470,7 +455,8 @@ class WorkspacePromptDiffSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final lines = (diff['content_diff'] as List?)
+    final lines =
+        (diff['content_diff'] as List?)
             ?.map((line) => line.toString())
             .toList() ??
         const <String>[];

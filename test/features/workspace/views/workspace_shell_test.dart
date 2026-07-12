@@ -19,7 +19,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 
 void main() {
-  testWidgets('compact shell shows permitted tabs and collection', (
+  testWidgets('compact shell shows app bar section menu and collection', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -33,14 +33,18 @@ void main() {
     expect(find.byKey(const Key('workspace-section-tabs')), findsOneWidget);
     expect(find.byKey(const Key('workspace-section-rail')), findsNothing);
     expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-tab-tools')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-tab-skills')), findsNothing);
     // The permission-gated create affordance renders for a manageable section.
     expect(find.byKey(const Key('workspace-create-models')), findsOneWidget);
     expect(find.byKey(const Key('workspace-search-models')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('workspace-section-tabs')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Models'), findsWidgets);
+    expect(find.text('Tools'), findsOneWidget);
   });
 
-  testWidgets('compact shell switches sections through the segmented control', (
+  testWidgets('compact shell switches sections through the app bar menu', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -80,11 +84,65 @@ void main() {
 
     expect(find.byKey(const Key('workspace-list-models')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('workspace-tab-tools')));
+    await tester.tap(find.byKey(const Key('workspace-section-tabs')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tools'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
     expect(find.byKey(const Key('workspace-list-models')), findsNothing);
+  });
+
+  testWidgets('pushed compact workspace exposes app bar back navigation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final router = GoRouter(
+      initialLocation: '/origin',
+      routes: [
+        GoRoute(
+          path: '/origin',
+          builder: (_, _) => const Scaffold(body: Text('origin')),
+        ),
+        GoRoute(
+          path: Routes.workspace,
+          name: RouteNames.workspace,
+          builder: (_, _) =>
+              const WorkspacePage(section: WorkspaceSection.models),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => _capabilities,
+          ),
+          workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    router.pushNamed(RouteNames.workspace);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('origin'), findsOneWidget);
   });
 
   testWidgets('tablet shell keeps section rail, list, and detail placeholder', (

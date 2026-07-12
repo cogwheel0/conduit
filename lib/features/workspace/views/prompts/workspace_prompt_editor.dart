@@ -18,6 +18,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -32,7 +33,9 @@ Widget buildWorkspacePromptEditor(
   WorkspaceEditorArgs args,
 ) {
   return WorkspacePromptEditorView(
-    key: ValueKey('workspace-prompt-editor-${args.mode.name}-${args.resourceId}'),
+    key: ValueKey(
+      'workspace-prompt-editor-${args.mode.name}-${args.resourceId}',
+    ),
     mode: args.mode,
     promptId: args.resourceId,
   );
@@ -144,7 +147,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
     final summary = widget.summary;
     _nameController = TextEditingController(text: summary?.name ?? '');
     _commandController = TextEditingController(
-      text: summary == null ? '' : WorkspacePromptCommand.strip(summary.command),
+      text: summary == null
+          ? ''
+          : WorkspacePromptCommand.strip(summary.command),
     );
     _contentController = TextEditingController(text: summary?.content ?? '');
     _commitController = TextEditingController();
@@ -187,7 +192,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
 
   WorkspaceCapabilities get _capabilities => ref
       .read(workspaceCapabilitiesProvider)
-      .maybeWhen(data: (value) => value, orElse: () => WorkspaceCapabilities.none);
+      .maybeWhen(
+        data: (value) => value,
+        orElse: () => WorkspaceCapabilities.none,
+      );
 
   // --- Save -----------------------------------------------------------------
 
@@ -581,7 +589,12 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         absorbing: _saving,
         child: ListView(
           key: const Key('workspace-prompt-editor-body'),
-          padding: const EdgeInsets.all(Spacing.md),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_isDetail && _writeAccess)
               Padding(
@@ -596,20 +609,20 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
                 ),
               ),
             _nameField(l10n),
-            const SizedBox(height: Spacing.sm),
+            const SizedBox(height: Spacing.md),
             _commandField(l10n),
             const SizedBox(height: Spacing.md),
             _tagsField(l10n),
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             _contentEditor(l10n),
             if (!_fieldsReadOnly) ...[
-              const SizedBox(height: Spacing.md),
+              const SizedBox(height: Spacing.xl),
               _versionSection(l10n),
             ],
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             _accessTile(l10n),
             if (!_isCreate && summary != null) ...[
-              const Divider(height: Spacing.xl),
+              const SizedBox(height: Spacing.xl),
               WorkspacePromptHistorySection(
                 key: Key('workspace-prompt-history-${summary.id}'),
                 promptId: summary.id,
@@ -704,7 +717,12 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       children: [
         Row(
           children: [
-            Expanded(child: Text(l10n.workspacePromptContent, style: theme.label)),
+            Expanded(
+              child: Text(
+                l10n.workspacePromptContent,
+                style: theme.headingSmall,
+              ),
+            ),
             // The adaptive segmented control renders a native platform view on
             // iOS 26; a non-flex child in a Row is measured with unbounded
             // width, which makes the native layer's frame infinite (NaN) and
@@ -725,7 +743,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
             ),
           ],
         ),
-        const SizedBox(height: Spacing.xs),
+        const SizedBox(height: Spacing.sm),
         if (_previewMode)
           _previewPane(l10n)
         else
@@ -766,12 +784,10 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   }
 
   Widget _versionSection(AppLocalizations l10n) {
-    final theme = context.conduitTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l10n.workspacePromptVersionSection, style: theme.label),
-        const SizedBox(height: Spacing.xs),
+        WorkspaceSectionHeader(title: l10n.workspacePromptVersionSection),
         ConduitInput(
           key: const Key('workspace-prompt-commit-message'),
           controller: _commitController,
@@ -803,17 +819,13 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-prompt-access'),
-      padding: EdgeInsets.zero,
-      leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
-      title: Text(l10n.workspacePromptManageAccess),
-      subtitle: Text(
-        isPublic
-            ? l10n.workspaceAccessVisibilityLabel
-            : l10n.workspaceModelSelectCount(principals.length),
-      ),
-      trailing: const Icon(Icons.chevron_right),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspacePromptManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
       onTap: _manageAccess,
     );
   }

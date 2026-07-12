@@ -39,6 +39,10 @@
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },
+  "settingsCategoryApp": "アプリ",
+  "settingsCategoryAi": "AI",
+  "settingsCategoryServer": "サーバー",
+  "settingsCategorySupport": "サポート",
   "account": "アカウント",
   "@account": {
     "description": "Section header for account-related options."

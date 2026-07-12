@@ -39,6 +39,10 @@
   "@pleaseCheckConnection": {
     "description": "Generic connectivity hint after an error."
   },
+  "settingsCategoryApp": "Aplikácia",
+  "settingsCategoryAi": "AI",
+  "settingsCategoryServer": "Server",
+  "settingsCategorySupport": "Podpora",
   "account": "Účet",
   "@account": {
     "description": "Section header for account-related options."

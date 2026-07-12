@@ -22,6 +22,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -37,18 +38,16 @@ Widget buildWorkspaceModelEditor(
   WorkspaceEditorArgs args,
 ) {
   return WorkspaceModelEditorView(
-    key: ValueKey('workspace-model-editor-${args.mode.name}-${args.resourceId}'),
+    key: ValueKey(
+      'workspace-model-editor-${args.mode.name}-${args.resourceId}',
+    ),
     mode: args.mode,
     modelId: args.resourceId,
   );
 }
 
 class WorkspaceModelEditorView extends ConsumerWidget {
-  const WorkspaceModelEditorView({
-    super.key,
-    required this.mode,
-    this.modelId,
-  });
+  const WorkspaceModelEditorView({super.key, required this.mode, this.modelId});
 
   final WorkspaceRouteMode mode;
   final String? modelId;
@@ -406,9 +405,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     _draft.hidden = !_draft.hidden;
     setState(() => _saving = true);
     try {
-      await ref.read(workspaceModelsProvider.notifier).updateItem(
-        _draft.toForm(),
-      );
+      await ref
+          .read(workspaceModelsProvider.notifier)
+          .updateItem(_draft.toForm());
       if (!mounted) return;
       _dirty = false;
       ref.invalidate(workspaceModelDetailProvider(id));
@@ -477,7 +476,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = ref
         .read(workspaceCapabilitiesProvider)
-        .maybeWhen(data: (value) => value, orElse: () => WorkspaceCapabilities.none);
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => WorkspaceCapabilities.none,
+        );
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _draft.normalizedAccessGrants,
@@ -557,7 +559,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               .importItems([item]);
           if (!ok) throw StateError('import rejected');
         },
-        labelOf: (item) => item['name']?.toString() ?? item['id']?.toString() ?? '',
+        labelOf: (item) =>
+            item['name']?.toString() ?? item['id']?.toString() ?? '',
       ),
     );
     if (report != null && mounted) {
@@ -572,7 +575,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = ref
         .watch(workspaceCapabilitiesProvider)
-        .maybeWhen(data: (value) => value, orElse: () => WorkspaceCapabilities.none);
+        .maybeWhen(
+          data: (value) => value,
+          orElse: () => WorkspaceCapabilities.none,
+        );
     final title = _isCreate
         ? l10n.workspaceModelNewTitle
         : (_nameController.text.trim().isEmpty
@@ -593,7 +599,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         absorbing: _saving,
         child: ListView(
           key: const Key('workspace-model-editor-body'),
-          padding: const EdgeInsets.all(Spacing.md),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_isDetail && widget.writeAccess)
               Padding(
@@ -608,8 +619,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
                 ),
               ),
             _profileImage(l10n),
-            const SizedBox(height: Spacing.md),
-            _sectionHeader(l10n.workspaceModelSectionBasics),
+            const SizedBox(height: Spacing.xl),
+            WorkspaceSectionHeader(title: l10n.workspaceModelSectionBasics),
             _textField(
               key: 'workspace-model-id',
               controller: _idController,
@@ -635,8 +646,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               onChanged: (_) => _markDirty(),
             ),
             _tagsField(l10n),
-            const SizedBox(height: Spacing.md),
-            _sectionHeader(l10n.workspaceModelSectionPrompt),
+            const SizedBox(height: Spacing.xl),
+            WorkspaceSectionHeader(title: l10n.workspaceModelSectionPrompt),
             _textField(
               key: 'workspace-model-system',
               controller: _systemController,
@@ -647,8 +658,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               onChanged: (_) => _markDirty(),
             ),
             _suggestionPrompts(l10n),
-            const SizedBox(height: Spacing.md),
-            _sectionHeader(l10n.workspaceModelSectionAdvanced),
+            const SizedBox(height: Spacing.xl),
+            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAdvanced),
             _textField(
               key: 'workspace-model-stop',
               controller: _stopController,
@@ -693,8 +704,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               helperText: l10n.workspaceModelParamsHint,
               hasError: _paramsError == 'builtinTools',
             ),
-            const SizedBox(height: Spacing.md),
-            _sectionHeader(l10n.workspaceModelSectionRelationships),
+            const SizedBox(height: Spacing.xl),
+            WorkspaceSectionHeader(
+              title: l10n.workspaceModelSectionRelationships,
+            ),
             _knowledgeSelector(l10n),
             _relationshipTile(
               keyId: 'workspace-model-tools',
@@ -712,7 +725,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               keyId: 'workspace-model-filters',
               label: l10n.workspaceModelFilters,
               count: _draft.filterIds.length,
-              onTap: _readOnly ? null : () => _pickFunctions(l10n, isFilter: true),
+              onTap: _readOnly
+                  ? null
+                  : () => _pickFunctions(l10n, isFilter: true),
             ),
             _relationshipTile(
               keyId: 'workspace-model-default-filters',
@@ -726,10 +741,12 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
               keyId: 'workspace-model-actions',
               label: l10n.workspaceModelActions,
               count: _draft.actionIds.length,
-              onTap: _readOnly ? null : () => _pickFunctions(l10n, isFilter: false),
+              onTap: _readOnly
+                  ? null
+                  : () => _pickFunctions(l10n, isFilter: false),
             ),
-            const SizedBox(height: Spacing.md),
-            _sectionHeader(l10n.workspaceModelSectionAccess),
+            const SizedBox(height: Spacing.xl),
+            WorkspaceSectionHeader(title: l10n.workspaceModelSectionAccess),
             _accessTile(l10n),
             const SizedBox(height: Spacing.xl),
           ],
@@ -816,17 +833,6 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   }
 
   // --- Field builders -------------------------------------------------------
-
-  Widget _sectionHeader(String label) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Spacing.sm, top: Spacing.xs),
-      child: Text(
-        label,
-        style: theme.label?.copyWith(color: theme.textSecondary),
-      ),
-    );
-  }
 
   Widget _textField({
     required String key,
@@ -1037,9 +1043,8 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
                   : IconButton(
                       tooltip: l10n.workspaceModelRemoveSuggestion,
                       icon: const Icon(Icons.close, size: IconSize.small),
-                      onPressed: () => _update(
-                        () => _draft.suggestionPrompts.removeAt(i),
-                      ),
+                      onPressed: () =>
+                          _update(() => _draft.suggestionPrompts.removeAt(i)),
                     ),
             ),
           if (!_readOnly)
@@ -1063,7 +1068,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l10n.workspaceModelCapabilities, style: context.conduitTheme.label),
+          Text(
+            l10n.workspaceModelCapabilities,
+            style: context.conduitTheme.label,
+          ),
           for (final key in _draft.capabilities.keys)
             AdaptiveListTile(
               key: Key('workspace-model-capability-$key'),
@@ -1089,17 +1097,17 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     VoidCallback? onTap,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    return AdaptiveListTile(
-      key: Key(keyId),
-      padding: EdgeInsets.zero,
-      title: Text(label),
-      subtitle: Text(
-        count == 0
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: WorkspaceResourceTile(
+        key: Key(keyId),
+        icon: Icons.account_tree_outlined,
+        title: label,
+        subtitle: count == 0
             ? l10n.workspaceModelSelectNone
             : l10n.workspaceModelSelectCount(count),
+        onTap: onTap,
       ),
-      trailing: onTap == null ? null : const Icon(Icons.chevron_right),
-      onTap: onTap,
     );
   }
 
@@ -1115,17 +1123,13 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_draft.normalizedAccessGrants);
     final isPublic = workspaceGrantsArePublic(_draft.normalizedAccessGrants);
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-model-access'),
-      padding: EdgeInsets.zero,
-      leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
-      title: Text(l10n.workspaceModelManageAccess),
-      subtitle: Text(
-        isPublic
-            ? l10n.workspaceAccessVisibilityLabel
-            : l10n.workspaceModelSelectCount(principals.length),
-      ),
-      trailing: const Icon(Icons.chevron_right),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspaceModelManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
       onTap: _manageAccess,
     );
   }
@@ -1235,17 +1239,19 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _pickKnowledge(AppLocalizations l10n) async {
     final List<WorkspaceRelationshipOption> options;
     try {
-      options = await ref.read(workspaceKnowledgeProvider.future).then(
-        (state) => state.items
-            .map(
-              (item) => WorkspaceRelationshipOption(
-                id: item.id,
-                label: item.name,
-                subtitle: item.description,
-              ),
-            )
-            .toList(),
-      );
+      options = await ref
+          .read(workspaceKnowledgeProvider.future)
+          .then(
+            (state) => state.items
+                .map(
+                  (item) => WorkspaceRelationshipOption(
+                    id: item.id,
+                    label: item.name,
+                    subtitle: item.description,
+                  ),
+                )
+                .toList(),
+          );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'knowledge relationship load failed',
@@ -1287,11 +1293,15 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _pickTools(AppLocalizations l10n) async {
     final List<WorkspaceRelationshipOption> options;
     try {
-      options = await ref.read(workspaceToolsProvider.future).then(
-        (state) => state.items
-            .map((t) => WorkspaceRelationshipOption(id: t.id, label: t.name))
-            .toList(),
-      );
+      options = await ref
+          .read(workspaceToolsProvider.future)
+          .then(
+            (state) => state.items
+                .map(
+                  (t) => WorkspaceRelationshipOption(id: t.id, label: t.name),
+                )
+                .toList(),
+          );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'tools relationship load failed',
@@ -1315,17 +1325,19 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
   Future<void> _pickSkills(AppLocalizations l10n) async {
     final List<WorkspaceRelationshipOption> options;
     try {
-      options = await ref.read(workspaceSkillsProvider.future).then(
-        (state) => state.items
-            .map(
-              (s) => WorkspaceRelationshipOption(
-                id: s.id,
-                label: s.name,
-                subtitle: s.description,
-              ),
-            )
-            .toList(),
-      );
+      options = await ref
+          .read(workspaceSkillsProvider.future)
+          .then(
+            (state) => state.items
+                .map(
+                  (s) => WorkspaceRelationshipOption(
+                    id: s.id,
+                    label: s.name,
+                    subtitle: s.description,
+                  ),
+                )
+                .toList(),
+          );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'skills relationship load failed',
@@ -1379,7 +1391,9 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
         ? (isDefault ? _draft.defaultFilterIds : _draft.filterIds)
         : _draft.actionIds;
     final title = isFilter
-        ? (isDefault ? l10n.workspaceModelDefaultFilters : l10n.workspaceModelFilters)
+        ? (isDefault
+              ? l10n.workspaceModelDefaultFilters
+              : l10n.workspaceModelFilters)
         : l10n.workspaceModelActions;
     final selected = await WorkspaceRelationshipSheet.show(
       context,
@@ -1415,9 +1429,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
     AdaptiveSnackBar.show(
       context,
       message: message,
-      type: isError
-          ? AdaptiveSnackBarType.error
-          : AdaptiveSnackBarType.success,
+      type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
     );
   }
 
@@ -1499,7 +1511,11 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
     }
     if (inline != null && inline.startsWith('http')) {
       return wrap(
-        Image.network(inline, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder),
+        Image.network(
+          inline,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => placeholder,
+        ),
       );
     }
     // A fresh model or an explicit removal both render the placeholder without

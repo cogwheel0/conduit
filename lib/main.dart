@@ -414,7 +414,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
       switch (event.id) {
         case NativeSheetRoutes.workspace:
-          NavigationService.router.go(Routes.workspace);
+          NavigationService.router.pushNamed(RouteNames.workspace);
         case 'default-model':
           if (value is String) {
             final modelId = value == 'auto-select' ? null : value;

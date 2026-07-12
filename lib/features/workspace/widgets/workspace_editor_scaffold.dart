@@ -99,8 +99,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _toolbar(context),
-          if (errorMessage != null)
-            _errorBanner(context, errorMessage!),
+          if (errorMessage != null) _errorBanner(context, errorMessage!),
           Divider(height: 1, color: theme.dividerColor),
           Expanded(
             child: isLoading
@@ -121,7 +120,7 @@ class WorkspaceEditorScaffold extends StatelessWidget {
     final theme = context.conduitTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        Spacing.md,
+        Spacing.pagePadding,
         Spacing.sm,
         Spacing.sm,
         Spacing.sm,

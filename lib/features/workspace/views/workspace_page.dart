@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,10 +15,12 @@ import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 
@@ -137,7 +138,6 @@ class _WorkspaceStatusContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     final message = switch (kind) {
       _GateStateKind.loading => l10n.loadingShort,
       _GateStateKind.denied => l10n.workspaceDenied,
@@ -150,37 +150,27 @@ class _WorkspaceStatusContent extends StatelessWidget {
       _GateStateKind.unsupported => Icons.cloud_off_outlined,
       _GateStateKind.error => Icons.error_outline,
     };
+    if (kind == _GateStateKind.loading) {
+      return Semantics(
+        liveRegion: true,
+        label: message,
+        child: Center(child: ConduitLoading.primary(message: message)),
+      );
+    }
     return Semantics(
       liveRegion: true,
       label: message,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (kind == _GateStateKind.loading)
-                ConduitLoading.primary(message: message)
-              else ...[
-                Icon(icon, size: 36, color: theme.iconSecondary),
-                const SizedBox(height: Spacing.md),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
-                ),
-                if (onRetry != null) ...[
-                  const SizedBox(height: Spacing.lg),
-                  ConduitButton(
-                    key: const Key('workspace-retry'),
-                    text: l10n.workspaceRetry,
-                    onPressed: onRetry,
-                  ),
-                ],
-              ],
-            ],
-          ),
-        ),
+      child: ConduitEmptyState(
+        icon: icon!,
+        title: l10n.workspaceTitle,
+        message: message,
+        action: onRetry == null
+            ? null
+            : ConduitButton(
+                key: const Key('workspace-retry'),
+                text: l10n.workspaceRetry,
+                onPressed: onRetry,
+              ),
       ),
     );
   }
@@ -218,9 +208,7 @@ class WorkspaceScaffold extends ConsumerWidget {
     // bar with search + a pinned segmented switcher), so it hosts its own
     // CupertinoPageScaffold and must NOT be wrapped in an AdaptiveRouteShell —
     // doing so would stack a second navigation bar.
-    if (!wide &&
-        PlatformInfo.isIOS &&
-        mode == WorkspaceRouteMode.collection) {
+    if (!wide && PlatformInfo.isIOS && mode == WorkspaceRouteMode.collection) {
       return _WorkspaceIosCollectionShell(
         section: section,
         permitted: permitted,
@@ -236,11 +224,20 @@ class WorkspaceScaffold extends ConsumerWidget {
         ? MediaQuery.paddingOf(context).top + kTextTabBarHeight
         : 0.0;
 
+    final appBar = !wide && mode == WorkspaceRouteMode.collection
+        ? _workspaceCompactCollectionAppBar(
+            context,
+            section: section,
+            permitted: permitted,
+            canCreate: _canCreateSection(ref, section),
+          )
+        : AdaptiveAppBar(
+            title: '${l10n.workspaceTitle} · ${_sectionLabel(l10n, section)}',
+          );
+
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
-      appBar: AdaptiveAppBar(
-        title: '${l10n.workspaceTitle} · ${_sectionLabel(l10n, section)}',
-      ),
+      appBar: appBar,
       body: Material(
         color: Colors.transparent,
         child: Padding(
@@ -257,20 +254,16 @@ class WorkspaceScaffold extends ConsumerWidget {
   }
 
   Widget _buildCompact(BuildContext context, List<WorkspaceSection> permitted) {
-    return Column(
-      children: [
-        _WorkspaceSectionSwitcher(selected: section, permitted: permitted),
-        Divider(height: 1, color: context.conduitTheme.dividerColor),
-        Expanded(
-          child: mode == WorkspaceRouteMode.collection
-              ? _WorkspaceCollectionPanel(section: section)
-              : _WorkspaceDetailPanel(
-                  section: section,
-                  mode: mode,
-                  resourceId: resourceId,
-                ),
-        ),
-      ],
+    if (mode == WorkspaceRouteMode.collection) {
+      return _WorkspaceCollectionPanel(
+        section: section,
+        showCreateAction: false,
+      );
+    }
+    return _WorkspaceDetailPanel(
+      section: section,
+      mode: mode,
+      resourceId: resourceId,
     );
   }
 
@@ -309,120 +302,150 @@ class WorkspaceScaffold extends ConsumerWidget {
   }
 }
 
-/// Adaptive section switcher shared by the iOS pinned header and the Android
-/// compact column. Renders a native `CupertinoSlidingSegmentedControl` on iOS
-/// and a Material `SegmentedButton` elsewhere, preserving the
-/// `workspace-section-tabs` container key and per-segment `workspace-tab-<name>`
-/// keys that tests depend on. Selecting a segment navigates to that section.
-class _WorkspaceSectionSwitcher extends StatelessWidget {
-  const _WorkspaceSectionSwitcher({
+/// Compact Workspace chrome. The current section lives in the adaptive app
+/// bar and opens a native popup menu, so every permitted destination remains
+/// visible without squeezing labels into a segmented control.
+AdaptiveAppBar _workspaceCompactCollectionAppBar(
+  BuildContext context, {
+  required WorkspaceSection section,
+  required List<WorkspaceSection> permitted,
+  required bool canCreate,
+}) {
+  final theme = context.conduitTheme;
+  final isIos = PlatformInfo.isIOS;
+
+  Widget sectionMenu({required bool activePlatform}) => _WorkspaceSectionMenu(
+    key: activePlatform ? const Key('workspace-section-tabs') : null,
+    selected: section,
+    permitted: permitted,
+  );
+
+  Widget createButton({required bool activePlatform}) => Tooltip(
+    message: AppLocalizations.of(context)!.workspaceCreate,
+    child: KeyedSubtree(
+      key: activePlatform ? Key('workspace-create-${section.name}') : null,
+      child: ConduitAdaptiveAppBarIconButton(
+        icon: PlatformInfo.isIOS ? CupertinoIcons.add : Icons.add,
+        iconColor: theme.textPrimary,
+        onPressed: () => context.push(section.routes.createPattern),
+      ),
+    ),
+  );
+
+  return AdaptiveAppBar(
+    useNativeToolbar: false,
+    tintColor: theme.textPrimary,
+    cupertinoNavigationBar: CupertinoNavigationBar(
+      automaticallyImplyLeading: true,
+      border: null,
+      backgroundColor: Colors.transparent,
+      automaticBackgroundVisibility: false,
+      enableBackgroundFilterBlur: false,
+      middle: sectionMenu(activePlatform: isIos),
+      trailing: canCreate
+          ? createButton(activePlatform: isIos)
+          : const SizedBox.shrink(),
+    ),
+    appBar: AppBar(
+      automaticallyImplyLeading: true,
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: Elevation.none,
+      scrolledUnderElevation: Elevation.none,
+      centerTitle: true,
+      title: sectionMenu(activePlatform: !isIos),
+      actions: canCreate
+          ? [
+              Padding(
+                padding: const EdgeInsets.only(right: Spacing.inputPadding),
+                child: createButton(activePlatform: !isIos),
+              ),
+            ]
+          : null,
+    ),
+  );
+}
+
+class _WorkspaceSectionMenu extends StatelessWidget {
+  const _WorkspaceSectionMenu({
+    super.key,
     required this.selected,
     required this.permitted,
-    this.padding = const EdgeInsets.symmetric(
-      horizontal: Spacing.md,
-      vertical: Spacing.sm,
-    ),
   });
 
   final WorkspaceSection selected;
   final List<WorkspaceSection> permitted;
-  final EdgeInsets padding;
-
-  void _select(BuildContext context, WorkspaceSection next) {
-    if (next != selected) {
-      context.go(next.path);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-
-    Widget control;
+    final label = '${l10n.workspaceTitle} · ${_sectionLabel(l10n, selected)}';
     if (permitted.length < 2) {
-      // A sliding segmented control needs at least two segments; when only one
-      // section is permitted just label it (still keyed for tests).
-      final only = permitted.isNotEmpty ? permitted.first : selected;
-      control = Center(
-        child: Text(
-          _sectionLabel(l10n, only),
-          key: Key('workspace-tab-${only.name}'),
-          style: theme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-      );
-    } else if (PlatformInfo.isIOS) {
-      control = LayoutBuilder(
-        builder: (context, constraints) {
-          final segmented = CupertinoSlidingSegmentedControl<WorkspaceSection>(
-            groupValue: permitted.contains(selected) ? selected : null,
-            onValueChanged: (value) {
-              if (value != null) _select(context, value);
-            },
-            children: {
-              for (final item in permitted)
-                item: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
-                  ),
-                  child: Text(
-                    _sectionLabel(l10n, item),
-                    key: Key('workspace-tab-${item.name}'),
-                    maxLines: 1,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-            },
-          );
-          // Fill the available width when the labels fit; if they would
-          // overflow, let the control keep its intrinsic width and scroll
-          // horizontally instead of truncating.
-          final minWidth = constraints.maxWidth.isFinite
-              ? constraints.maxWidth
-              : 0.0;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: minWidth),
-              child: segmented,
-            ),
-          );
-        },
-      );
-    } else {
-      control = SegmentedButton<WorkspaceSection>(
-        showSelectedIcon: false,
-        selected: {permitted.contains(selected) ? selected : permitted.first},
-        segments: [
-          for (final item in permitted)
-            ButtonSegment<WorkspaceSection>(
-              value: item,
-              label: Text(
-                _sectionLabel(l10n, item),
-                key: Key('workspace-tab-${item.name}'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        ],
-        onSelectionChanged: (selection) {
-          if (selection.isNotEmpty) _select(context, selection.first);
-        },
-      );
+      return Text(label, style: conduitAdaptiveToolbarPillTextStyle(context));
     }
 
-    return Semantics(
-      container: true,
-      label: l10n.workspaceTitle,
-      child: Padding(
-        key: const Key('workspace-section-tabs'),
-        padding: padding,
-        child: control,
+    final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final targetWidth = resolveConduitAdaptiveTextPillWidth(
+      context: context,
+      label: label,
+      textStyle: textStyle,
+      maxWidth: 260,
+      minWidth: 120,
+      horizontalPadding: 20,
+      trailingWidth: IconSize.small + Spacing.sm,
+    );
+
+    return AdaptivePopupMenuButton.widget<WorkspaceSection>(
+      tint: context.conduitTheme.textPrimary,
+      buttonStyle: PopupButtonStyle.glass,
+      child: SizedBox(
+        width: targetWidth,
+        height: 32,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textStyle,
+                ),
+              ),
+              const SizedBox(width: Spacing.sm),
+              Icon(
+                PlatformInfo.isIOS
+                    ? CupertinoIcons.chevron_down
+                    : Icons.keyboard_arrow_down_rounded,
+                size: IconSize.small,
+                color: context.conduitTheme.iconSecondary,
+              ),
+            ],
+          ),
+        ),
       ),
+      items: [
+        for (final item in permitted)
+          AdaptivePopupMenuItem<WorkspaceSection>(
+            value: item,
+            label: _sectionLabel(l10n, item),
+            icon: conduitAdaptivePopupMenuIcon(
+              iosSymbol: item == selected
+                  ? 'checkmark'
+                  : _sectionIosSymbol(item),
+              materialIcon: item == selected
+                  ? Icons.check_rounded
+                  : _sectionIcon(item),
+            ),
+          ),
+      ],
+      onSelected: (_, entry) {
+        final next = entry.value;
+        if (next != null && next != selected) context.go(next.path);
+      },
     );
   }
 }
@@ -439,28 +462,32 @@ class _WorkspaceSectionRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
     return ListView(
       key: const Key('workspace-section-rail'),
-      padding: const EdgeInsets.all(Spacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.sm,
+      ),
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            Spacing.sm,
+            Spacing.xs,
             Spacing.md,
-            Spacing.sm,
+            Spacing.xs,
             Spacing.sm,
           ),
           child: Text(
             l10n.workspaceSubtitle,
-            style: context.conduitTheme.bodySmall?.copyWith(
-              color: context.conduitTheme.textSecondary,
-            ),
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
           ),
         ),
         for (final item in permitted)
           ListTile(
             key: Key('workspace-rail-${item.name}'),
             selected: item == selected,
+            selectedTileColor: theme.buttonPrimary.withValues(alpha: 0.1),
+            selectedColor: theme.buttonPrimary,
             dense: true,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppBorderRadius.small),
@@ -612,10 +639,15 @@ bool _canCreateSection(WidgetRef ref, WorkspaceSection section) {
 /// Box (Material) collection layout used on Android compact and both tablet
 /// list panes.
 class _WorkspaceCollectionPanel extends ConsumerWidget {
-  const _WorkspaceCollectionPanel({required this.section, this.selectedId});
+  const _WorkspaceCollectionPanel({
+    required this.section,
+    this.selectedId,
+    this.showCreateAction = true,
+  });
 
   final WorkspaceSection section;
   final String? selectedId;
+  final bool showCreateAction;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -642,7 +674,12 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(Spacing.md),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.pagePadding,
+                Spacing.md,
+                Spacing.pagePadding,
+                Spacing.md,
+              ),
               child: Row(
                 children: [
                   Expanded(
@@ -652,7 +689,7 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                       onSearch: binding.onSearch,
                     ),
                   ),
-                  if (canCreate) ...[
+                  if (canCreate && showCreateAction) ...[
                     const SizedBox(width: Spacing.sm),
                     IconButton(
                       key: Key('workspace-create-${section.name}'),
@@ -668,10 +705,10 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
             if (binding.filterBar != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  Spacing.md,
+                  Spacing.pagePadding,
                   0,
+                  Spacing.pagePadding,
                   Spacing.md,
-                  Spacing.sm,
                 ),
                 child: binding.filterBar,
               ),
@@ -684,6 +721,11 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
                       onRefresh: binding.onRefresh,
                       child: ListView.builder(
                         key: Key('workspace-list-${section.name}'),
+                        padding: EdgeInsets.only(
+                          bottom:
+                              Spacing.pagePadding +
+                              MediaQuery.paddingOf(context).bottom,
+                        ),
                         physics: const AlwaysScrollableScrollPhysics(),
                         itemCount:
                             collection.items.length +
@@ -714,9 +756,8 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
   }
 }
 
-/// iOS compact collection: a `CupertinoPageScaffold` hosting a
-/// `CustomScrollView` with a searchable large-title navigation bar, a pinned
-/// segmented section switcher, native pull-to-refresh, and a sliver list.
+/// iOS compact collection: adaptive app-bar navigation, native pull-to-refresh,
+/// a persistent search field, and a sliver list.
 class _WorkspaceIosCollectionShell extends ConsumerStatefulWidget {
   const _WorkspaceIosCollectionShell({
     required this.section,
@@ -776,7 +817,6 @@ class _WorkspaceIosCollectionShellState
     _CollectionBinding<T> binding, {
     required bool canCreate,
   }) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final section = widget.section;
 
@@ -793,25 +833,20 @@ class _WorkspaceIosCollectionShellState
     );
 
     final slivers = <Widget>[
-      CupertinoSliverNavigationBar.search(
-        largeTitle: Text(l10n.workspaceTitle),
-        // The search field is the nav bar's bottom slot (not the largeTitle),
-        // so its ValueKey is safe from the largeTitle double-insertion.
-        searchField: _WorkspaceCupertinoSearchField(
-          section: section,
-          initialQuery: currentQuery,
-          onSearch: binding.onSearch,
-        ),
-        trailing: canCreate ? _iosCreateButton(context, section, l10n) : null,
-      ),
       CupertinoSliverRefreshControl(onRefresh: binding.onRefresh),
-      SliverPersistentHeader(
-        pinned: true,
-        delegate: _SegmentedHeaderDelegate(
-          selected: section,
-          permitted: widget.permitted,
-          background: theme.surfaceBackground,
-          dividerColor: theme.dividerColor,
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.md,
+          ),
+          child: _WorkspaceCupertinoSearchField(
+            section: section,
+            initialQuery: currentQuery,
+            onSearch: binding.onSearch,
+          ),
         ),
       ),
       if (binding.filterBar != null)
@@ -820,10 +855,10 @@ class _WorkspaceIosCollectionShellState
             color: theme.surfaceBackground,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
-                Spacing.md,
+                Spacing.pagePadding,
                 Spacing.sm,
+                Spacing.pagePadding,
                 Spacing.md,
-                Spacing.sm,
               ),
               child: binding.filterBar,
             ),
@@ -832,15 +867,24 @@ class _WorkspaceIosCollectionShellState
       ..._contentSlivers<T>(binding, section),
     ];
 
-    return CupertinoPageScaffold(
+    return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
-      // Material ancestor so shared ListTile/FilledButton/progress widgets in
-      // the slivers keep working under the Cupertino scaffold.
-      child: Material(
-        color: Colors.transparent,
-        child: CustomScrollView(
-          controller: _scrollController,
-          slivers: slivers,
+      appBar: _workspaceCompactCollectionAppBar(
+        context,
+        section: section,
+        permitted: widget.permitted,
+        canCreate: canCreate,
+      ),
+      body: Padding(
+        padding: EdgeInsets.only(
+          top: MediaQuery.paddingOf(context).top + kTextTabBarHeight,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: slivers,
+          ),
         ),
       ),
     );
@@ -888,23 +932,34 @@ class _WorkspaceIosCollectionShellState
             const SliverToBoxAdapter(
               child: LinearProgressIndicator(minHeight: 2),
             ),
-          SliverList(
-            key: Key('workspace-list-${section.name}'),
-            delegate: SliverChildBuilderDelegate((context, index) {
-              if (index == collection.items.length) {
-                return _loadMoreFooter(
-                  context,
-                  isLoadingMore: collection.isLoadingMore,
-                  onLoadMore: binding.onLoadMore,
-                );
-              }
-              return _resourceTile<T>(
-                context,
-                binding,
-                collection.items[index],
-                section: section,
-              );
-            }, childCount: collection.items.length + (collection.hasMore ? 1 : 0)),
+          SliverPadding(
+            padding: EdgeInsets.only(
+              top: Spacing.md,
+              bottom:
+                  Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+            ),
+            sliver: SliverList(
+              key: Key('workspace-list-${section.name}'),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (index == collection.items.length) {
+                    return _loadMoreFooter(
+                      context,
+                      isLoadingMore: collection.isLoadingMore,
+                      onLoadMore: binding.onLoadMore,
+                    );
+                  }
+                  return _resourceTile<T>(
+                    context,
+                    binding,
+                    collection.items[index],
+                    section: section,
+                  );
+                },
+                childCount:
+                    collection.items.length + (collection.hasMore ? 1 : 0),
+              ),
+            ),
           ),
         ];
       },
@@ -912,29 +967,9 @@ class _WorkspaceIosCollectionShellState
   }
 }
 
-/// Native create (+) affordance for the iOS sliver navigation bar.
-Widget _iosCreateButton(
-  BuildContext context,
-  WorkspaceSection section,
-  AppLocalizations l10n,
-) {
-  return Tooltip(
-    message: l10n.workspaceCreate,
-    child: CupertinoButton(
-      key: Key('workspace-create-${section.name}'),
-      padding: EdgeInsets.zero,
-      onPressed: () => context.push(section.routes.createPattern),
-      child: Semantics(
-        button: true,
-        label: l10n.workspaceCreate,
-        child: const Icon(CupertinoIcons.add),
-      ),
-    ),
-  );
-}
-
 /// Shared list row for a workspace resource, keyed as
-/// `workspace-resource-<section>-<id>`.
+/// `workspace-resource-<section>-<id>`. Rendered as a ConduitCard tile with a
+/// leading section icon badge, matching the profile/settings tile pattern.
 Widget _resourceTile<T>(
   BuildContext context,
   _CollectionBinding<T> binding,
@@ -945,33 +980,33 @@ Widget _resourceTile<T>(
   final id = binding.idOf(item);
   final subtitle = binding.subtitleOf(item);
   final trailing = binding.trailingOf?.call(item);
-  return AdaptiveListTile(
-    key: Key('workspace-resource-${section.name}-$id'),
-    selected: selectedId == id,
-    title: Text(binding.titleOf(item)),
-    subtitle: subtitle == null || subtitle.isEmpty
-        ? null
-        : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-    trailing: trailing == null
-        ? const Icon(Icons.chevron_right)
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [trailing, const Icon(Icons.chevron_right)],
-          ),
-    onTap: () => context.push(section.routes.detailLocation(id)),
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(
+      Spacing.pagePadding,
+      0,
+      Spacing.pagePadding,
+      Spacing.md,
+    ),
+    child: WorkspaceResourceTile(
+      key: Key('workspace-resource-${section.name}-$id'),
+      icon: _sectionIcon(section),
+      title: binding.titleOf(item),
+      subtitle: subtitle,
+      trailing: trailing,
+      selected: selectedId == id,
+      onTap: () => context.push(section.routes.detailLocation(id)),
+    ),
   );
 }
 
 /// Shared empty-collection placeholder, keyed `workspace-empty-<section>`.
 Widget _emptyState(BuildContext context, WorkspaceSection section) {
   final l10n = AppLocalizations.of(context)!;
-  final theme = context.conduitTheme;
-  return Center(
+  return ConduitEmptyState(
     key: Key('workspace-empty-${section.name}'),
-    child: Text(
-      l10n.workspaceEmpty,
-      style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
-    ),
+    icon: _sectionIcon(section),
+    title: _sectionLabel(l10n, section),
+    message: l10n.workspaceEmpty,
   );
 }
 
@@ -997,62 +1032,7 @@ Widget _loadMoreFooter(
   );
 }
 
-/// Fixed-height pinned header hosting the section switcher for the iOS sliver
-/// layout.
-class _SegmentedHeaderDelegate extends SliverPersistentHeaderDelegate {
-  _SegmentedHeaderDelegate({
-    required this.selected,
-    required this.permitted,
-    required this.background,
-    required this.dividerColor,
-  });
-
-  final WorkspaceSection selected;
-  final List<WorkspaceSection> permitted;
-  final Color background;
-  final Color dividerColor;
-
-  static const double _extent = 56;
-
-  @override
-  double get minExtent => _extent;
-
-  @override
-  double get maxExtent => _extent;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
-    return Container(
-      height: _extent,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: background,
-        border: Border(
-          bottom: BorderSide(color: dividerColor, width: 0.5),
-        ),
-      ),
-      child: _WorkspaceSectionSwitcher(
-        selected: selected,
-        permitted: permitted,
-        padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-      ),
-    );
-  }
-
-  @override
-  bool shouldRebuild(covariant _SegmentedHeaderDelegate oldDelegate) {
-    return oldDelegate.selected != selected ||
-        !listEquals(oldDelegate.permitted, permitted) ||
-        oldDelegate.background != background ||
-        oldDelegate.dividerColor != dividerColor;
-  }
-}
-
-/// Debounced Cupertino search field for the iOS sliver navigation bar.
+/// Debounced Cupertino search field for the iOS compact collection.
 class _WorkspaceCupertinoSearchField extends StatefulWidget {
   const _WorkspaceCupertinoSearchField({
     required this.section,
@@ -1204,24 +1184,11 @@ class _CollectionError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: context.conduitTheme.iconSecondary,
-              size: 32,
-            ),
-            const SizedBox(height: Spacing.md),
-            Text(l10n.workspaceLoadFailed, textAlign: TextAlign.center),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(text: l10n.workspaceRetry, onPressed: onRetry),
-          ],
-        ),
-      ),
+    return ConduitEmptyState(
+      icon: Icons.error_outline,
+      title: l10n.error,
+      message: l10n.workspaceLoadFailed,
+      action: ConduitButton(text: l10n.workspaceRetry, onPressed: onRetry),
     );
   }
 }
@@ -1385,7 +1352,8 @@ class _KnowledgeFilterBar extends ConsumerWidget {
         .watch(workspaceKnowledgeProvider)
         .maybeWhen(
           data: (value) => value,
-          orElse: () => const WorkspaceCollectionState<WorkspaceKnowledgeSummary>(),
+          orElse: () =>
+              const WorkspaceCollectionState<WorkspaceKnowledgeSummary>(),
         );
     final view = (state.view == 'created' || state.view == 'shared')
         ? state.view
@@ -1505,5 +1473,15 @@ IconData _sectionIcon(WorkspaceSection section) {
     WorkspaceSection.prompts => Icons.short_text,
     WorkspaceSection.tools => Icons.build_outlined,
     WorkspaceSection.skills => Icons.auto_awesome_outlined,
+  };
+}
+
+String _sectionIosSymbol(WorkspaceSection section) {
+  return switch (section) {
+    WorkspaceSection.models => 'point.3.connected.trianglepath.dotted',
+    WorkspaceSection.knowledge => 'books.vertical',
+    WorkspaceSection.prompts => 'text.quote',
+    WorkspaceSection.tools => 'wrench.and.screwdriver',
+    WorkspaceSection.skills => 'sparkles',
   };
 }

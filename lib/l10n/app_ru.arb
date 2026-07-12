@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "Подзаголовок с доступными действиями при недоступности сервера"
   },
+  "settingsCategoryApp": "Приложение",
+  "settingsCategoryAi": "ИИ",
+  "settingsCategoryServer": "Сервер",
+  "settingsCategorySupport": "Поддержка",
   "account": "Аккаунт",
   "supportConduit": "Поддержать Conduit",
   "supportConduitSubtitle": "Сохраните независимость Conduit, финансируя разработку.",

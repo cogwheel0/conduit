@@ -18,6 +18,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_url_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tool_valves_sheet.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
@@ -56,7 +57,10 @@ class Tools:
 
 /// Section-registry entry point for the Tools editor. Dispatches to the
 /// create/detail/edit editor based on [WorkspaceEditorArgs.mode].
-Widget buildWorkspaceToolEditor(BuildContext context, WorkspaceEditorArgs args) {
+Widget buildWorkspaceToolEditor(
+  BuildContext context,
+  WorkspaceEditorArgs args,
+) {
   return WorkspaceToolEditorView(
     key: ValueKey('workspace-tool-editor-${args.mode.name}-${args.resourceId}'),
     mode: args.mode,
@@ -525,7 +529,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final l10n = AppLocalizations.of(context)!;
     final tool = await WorkspaceToolUrlImportSheet.show(
       context,
-      loader: (url) => ref.read(workspaceToolsProvider.notifier).loadFromUrl(url),
+      loader: (url) =>
+          ref.read(workspaceToolsProvider.notifier).loadFromUrl(url),
     );
     if (tool == null || !mounted) return;
     final normalized = normalizeImportedTool(tool);
@@ -600,7 +605,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
         absorbing: _saving,
         child: ListView(
           key: const Key('workspace-tool-editor-body'),
-          padding: const EdgeInsets.all(Spacing.md),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_isDetail && _writeAccess)
               Padding(
@@ -615,16 +625,16 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
                 ),
               ),
             _nameField(l10n),
-            const SizedBox(height: Spacing.sm),
-            _idField(l10n),
-            const SizedBox(height: Spacing.sm),
-            _descriptionField(l10n),
             const SizedBox(height: Spacing.md),
+            _idField(l10n),
+            const SizedBox(height: Spacing.md),
+            _descriptionField(l10n),
+            const SizedBox(height: Spacing.xl),
             if (_isIncompatible) _incompatibilityBanner(l10n),
             _contentEditor(l10n),
             const SizedBox(height: Spacing.sm),
             _warning(l10n),
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             if (summary != null) ...[
               _manifestSummary(l10n, summary),
               _specsSummary(l10n, summary),
@@ -680,8 +690,8 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l10n.workspaceToolContent, style: theme.label),
-        const SizedBox(height: Spacing.xs),
+        Text(l10n.workspaceToolContent, style: theme.headingSmall),
+        const SizedBox(height: Spacing.sm),
         AdaptiveTextField(
           key: const Key('workspace-tool-content'),
           controller: _contentController,
@@ -711,7 +721,11 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_outlined, size: IconSize.small, color: theme.error),
+          Icon(
+            Icons.warning_amber_outlined,
+            size: IconSize.small,
+            color: theme.error,
+          ),
           const SizedBox(width: Spacing.sm),
           Expanded(
             child: Text(
@@ -753,17 +767,16 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     if (manifest.isEmpty) return const SizedBox.shrink();
     final theme = context.conduitTheme;
     final version = manifest['version']?.toString();
-    final requiredVersion =
-        manifest['required_open_webui_version']?.toString();
+    final requiredVersion = manifest['required_open_webui_version']?.toString();
     final fundingUrl = manifest['funding_url']?.toString();
     return Padding(
       key: const Key('workspace-tool-manifest'),
-      padding: const EdgeInsets.only(bottom: Spacing.md),
+      padding: const EdgeInsets.only(bottom: Spacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l10n.workspaceToolManifest, style: theme.label),
-          const SizedBox(height: Spacing.xxs),
+          Text(l10n.workspaceToolManifest, style: theme.headingSmall),
+          const SizedBox(height: Spacing.sm),
           if (version != null && version.isNotEmpty)
             Text(
               l10n.workspaceToolManifestVersion(version),
@@ -789,12 +802,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final specs = summary.specs;
     return Padding(
       key: const Key('workspace-tool-specs'),
-      padding: const EdgeInsets.only(bottom: Spacing.md),
+      padding: const EdgeInsets.only(bottom: Spacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l10n.workspaceToolSpecs, style: theme.label),
-          const SizedBox(height: Spacing.xxs),
+          Text(l10n.workspaceToolSpecs, style: theme.headingSmall),
+          const SizedBox(height: Spacing.sm),
           if (specs.isEmpty)
             Text(
               l10n.workspaceToolSpecsEmpty,
@@ -831,17 +844,13 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-tool-access'),
-      padding: EdgeInsets.zero,
-      leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
-      title: Text(l10n.workspaceToolManageAccess),
-      subtitle: Text(
-        isPublic
-            ? l10n.workspaceAccessVisibilityLabel
-            : l10n.workspaceModelSelectCount(principals.length),
-      ),
-      trailing: const Icon(Icons.chevron_right),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspaceToolManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
       onTap: _manageAccess,
     );
   }

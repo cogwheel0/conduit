@@ -21,6 +21,7 @@ import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dar
 import 'package:conduit/features/workspace/widgets/workspace_export_controller.dart';
 import 'package:conduit/features/workspace/widgets/workspace_import_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_section_editors.dart';
+import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -50,7 +51,9 @@ Widget buildWorkspaceSkillEditor(
   WorkspaceEditorArgs args,
 ) {
   return WorkspaceSkillEditorView(
-    key: ValueKey('workspace-skill-editor-${args.mode.name}-${args.resourceId}'),
+    key: ValueKey(
+      'workspace-skill-editor-${args.mode.name}-${args.resourceId}',
+    ),
     mode: args.mode,
     skillId: args.resourceId,
   );
@@ -629,7 +632,12 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         absorbing: _saving,
         child: ListView(
           key: const Key('workspace-skill-editor-body'),
-          padding: const EdgeInsets.all(Spacing.md),
+          padding: EdgeInsets.fromLTRB(
+            Spacing.pagePadding,
+            Spacing.md,
+            Spacing.pagePadding,
+            Spacing.pagePadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (_isDetail && _writeAccess)
               Padding(
@@ -644,13 +652,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
                 ),
               ),
             _nameField(l10n),
-            const SizedBox(height: Spacing.sm),
+            const SizedBox(height: Spacing.md),
             _idField(l10n),
-            const SizedBox(height: Spacing.sm),
+            const SizedBox(height: Spacing.md),
             _descriptionField(l10n),
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             _contentEditor(l10n),
-            const SizedBox(height: Spacing.md),
+            const SizedBox(height: Spacing.xl),
             _accessTile(l10n),
             const SizedBox(height: Spacing.xl),
           ],
@@ -705,7 +713,10 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         Row(
           children: [
             Expanded(
-              child: Text(l10n.workspaceSkillContent, style: theme.label),
+              child: Text(
+                l10n.workspaceSkillContent,
+                style: theme.headingSmall,
+              ),
             ),
             // Bound the width: on iOS 26 this is a native platform view and an
             // unbounded Row constraint makes its layer frame infinite (NaN),
@@ -726,7 +737,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
             ),
           ],
         ),
-        const SizedBox(height: Spacing.xs),
+        const SizedBox(height: Spacing.sm),
         if (_previewMode)
           _previewPane(l10n)
         else
@@ -769,17 +780,13 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   Widget _accessTile(AppLocalizations l10n) {
     final principals = workspaceSharedPrincipals(_grants);
     final isPublic = workspaceGrantsArePublic(_grants);
-    return AdaptiveListTile(
+    return WorkspaceResourceTile(
       key: const Key('workspace-skill-access'),
-      padding: EdgeInsets.zero,
-      leading: Icon(isPublic ? Icons.public : Icons.lock_outline),
-      title: Text(l10n.workspaceSkillManageAccess),
-      subtitle: Text(
-        isPublic
-            ? l10n.workspaceAccessVisibilityLabel
-            : l10n.workspaceModelSelectCount(principals.length),
-      ),
-      trailing: const Icon(Icons.chevron_right),
+      icon: isPublic ? Icons.public : Icons.lock_outline,
+      title: l10n.workspaceSkillManageAccess,
+      subtitle: isPublic
+          ? l10n.workspaceAccessVisibilityLabel
+          : l10n.workspaceModelSelectCount(principals.length),
       onTap: _manageAccess,
     );
   }
@@ -880,8 +887,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
 
   WorkspaceSkillForm _formFromImport(Map<String, dynamic> json) {
     final rawId = json['id']?.toString().trim() ?? '';
-    final name =
-        json['name']?.toString() ?? json['title']?.toString() ?? '';
+    final name = json['name']?.toString() ?? json['title']?.toString() ?? '';
     final id = rawId.isEmpty ? WorkspaceSkillContent.slugify(name) : rawId;
     return WorkspaceSkillForm(
       id: id,

@@ -21,6 +21,10 @@
   "@connectionIssueSubtitle": {
     "description": "Sous-titre expliquant les actions possibles quand le serveur est injoignable"
   },
+  "settingsCategoryApp": "Application",
+  "settingsCategoryAi": "IA",
+  "settingsCategoryServer": "Serveur",
+  "settingsCategorySupport": "Assistance",
   "account": "Compte",
   "supportConduit": "Soutenir Conduit",
   "supportConduitSubtitle": "Financez le développement continu et les nouvelles fonctionnalités.",
