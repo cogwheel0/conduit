@@ -2751,11 +2751,6 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         tableView.tableHeaderView = nil
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        updateHeaderSize()
-    }
-
     override func numberOfSections(in tableView: UITableView) -> Int {
         tableSections.count
     }
@@ -2867,65 +2862,6 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
             row.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 11),
             row.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -11),
         ])
-    }
-
-    private func profileHeader() -> UIView {
-        let container = UIView()
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-
-        let avatar = NativeAvatarView(profile: configuration.profile, diameter: 72)
-        stack.addArrangedSubview(avatar)
-
-        let nameLabel = UILabel()
-        nameLabel.text = configuration.profile.displayName
-        nameLabel.font = .preferredFont(forTextStyle: .title3)
-        nameLabel.adjustsFontForContentSizeCategory = true
-        nameLabel.textAlignment = .center
-        nameLabel.textColor = .label
-        nameLabel.numberOfLines = 2
-        stack.addArrangedSubview(nameLabel)
-
-        let emailLabel = UILabel()
-        emailLabel.text = configuration.profile.email
-        emailLabel.font = .preferredFont(forTextStyle: .footnote)
-        emailLabel.adjustsFontForContentSizeCategory = true
-        emailLabel.textAlignment = .center
-        emailLabel.textColor = .secondaryLabel
-        emailLabel.numberOfLines = 2
-        stack.addArrangedSubview(emailLabel)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-        ])
-
-        container.frame.size = CGSize(width: tableView.bounds.width, height: 154)
-        return container
-    }
-
-    private func updateHeaderSize() {
-        guard let header = tableView.tableHeaderView else { return }
-        let targetSize = CGSize(
-            width: tableView.bounds.width,
-            height: UIView.layoutFittingCompressedSize.height
-        )
-        let size = header.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        guard header.frame.width != targetSize.width || header.frame.height != size.height
-        else { return }
-
-        header.frame.size = CGSize(width: targetSize.width, height: size.height)
-        tableView.tableHeaderView = header
     }
 
     private func closeButton() -> UIBarButtonItem {

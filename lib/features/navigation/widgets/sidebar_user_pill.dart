@@ -300,9 +300,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             title: aiMemoryTitle,
             sfSymbol: 'wand.and.stars',
           ),
-        const NativeSheetItemConfig(
+        NativeSheetItemConfig(
           id: NativeSheetRoutes.hermes,
-          title: 'Hermes Agent',
+          title: l10n.hermesAgentSettingsTitle,
           sfSymbol: 'sparkles',
           iconAsset: 'assets/icons/hermes_agent.png',
           dismissOnSelect: true,
@@ -325,10 +325,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             sfSymbol: 'network',
           ),
         if (hermesOnly)
-          const NativeSheetItemConfig(
+          NativeSheetItemConfig(
             id: 'add-owui-server',
-            title: 'Connect to Open WebUI',
-            subtitle: 'Add a self-hosted Open WebUI server',
+            title: l10n.connectOpenWebUITitle,
+            subtitle: l10n.connectOpenWebUISubtitle,
             sfSymbol: 'plus.circle',
             dismissOnSelect: true,
             actionId: 'add-owui-server',
