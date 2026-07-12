@@ -7,6 +7,7 @@ import 'package:conduit/features/direct_connections/providers/direct_connection_
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
+import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/model_list_tile.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -36,6 +37,12 @@ void main() {
       check(
         parseDirectManualModelIds('model-a\n model-b,model-a\n'),
       ).deepEquals(['model-a', 'model-b']);
+    });
+
+    test('deduplicates model tags while preserving order', () {
+      check(
+        parseDirectModelTags('local, private\nlocal'),
+      ).deepEquals(['local', 'private']);
     });
 
     test('normalizes whitespace and trailing slash', () {
@@ -171,6 +178,47 @@ void main() {
     await tester.tap(find.byType(AdaptiveSwitch));
     await tester.pump();
     check(syncEnabled).isFalse();
+  });
+
+  testWidgets('editor restores the OpenAI-family completion API mode', (
+    tester,
+  ) async {
+    final profile = DirectConnectionProfile(
+      id: 'lm-studio',
+      name: 'LM Studio',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'http://localhost:1234/v1',
+      openAiApiMode: DirectOpenAiApiMode.responses,
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'lm-studio'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -420));
+    await tester.pumpAndSettle();
+
+    final selector = tester
+        .widget<AdaptiveSegmentedSelector<DirectOpenAiApiMode>>(
+          find.byKey(const ValueKey<String>('direct-openai-api-mode-selector')),
+        );
+    expect(selector.value, DirectOpenAiApiMode.responses);
+    expect(find.text('Chat Completions'), findsOneWidget);
+    expect(find.text('Responses'), findsOneWidget);
   });
 
   testWidgets('delete confirmation serializes editor operations', (

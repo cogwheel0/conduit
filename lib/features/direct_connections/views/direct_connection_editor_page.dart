@@ -21,7 +21,7 @@ import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
 import '../providers/direct_connection_providers.dart';
 
-enum DirectAuthenticationMode { bearer, none }
+enum DirectAuthenticationMode { bearer, apiKeyHeader, none }
 
 @visibleForTesting
 Map<String, String> parseDirectCustomHeaders(String source) {
@@ -49,6 +49,10 @@ List<String> parseDirectManualModelIds(String source) {
       if (line.trim().isNotEmpty && seen.add(line.trim())) line.trim(),
   ];
 }
+
+@visibleForTesting
+List<String> parseDirectModelTags(String source) =>
+    parseDirectManualModelIds(source);
 
 @visibleForTesting
 String normalizeDirectBaseUrl(String source) {
@@ -109,6 +113,9 @@ class _DirectConnectionEditorPageState
   final _nameController = TextEditingController();
   final _baseUrlController = TextEditingController();
   final _apiKeyController = TextEditingController();
+  final _apiVersionController = TextEditingController();
+  final _modelIdPrefixController = TextEditingController();
+  final _tagsController = TextEditingController();
   final _headerNameController = TextEditingController();
   final _headerValueController = TextEditingController();
   final _modelsController = TextEditingController();
@@ -117,6 +124,7 @@ class _DirectConnectionEditorPageState
 
   DirectConnectionProfile? _savedProfile;
   String _adapterKey = kOpenAiCompatibleAdapterKey;
+  DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
   DirectAuthenticationMode _authentication = DirectAuthenticationMode.bearer;
   bool _enabled = true;
   bool _hydrated = false;
@@ -141,6 +149,9 @@ class _DirectConnectionEditorPageState
     _nameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
+    _apiVersionController.dispose();
+    _modelIdPrefixController.dispose();
+    _tagsController.dispose();
     _headerNameController.dispose();
     _headerValueController.dispose();
     _modelsController.dispose();
@@ -163,10 +174,18 @@ class _DirectConnectionEditorPageState
       ..clear()
       ..addAll(profile.customHeaders);
     _modelsController.text = profile.manualModelIds.join('\n');
+    _apiVersionController.text = profile.apiVersion ?? '';
+    _modelIdPrefixController.text = profile.modelIdPrefix ?? '';
+    _tagsController.text = profile.tags.join(', ');
     _adapterKey = profile.adapterKey;
+    _openAiApiMode = profile.openAiApiMode;
     _authentication = (profile.apiKey ?? '').isEmpty
         ? DirectAuthenticationMode.none
-        : DirectAuthenticationMode.bearer;
+        : switch (profile.apiKeyAuthMode) {
+            DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
+            DirectApiKeyAuthMode.apiKeyHeader =>
+              DirectAuthenticationMode.apiKeyHeader,
+          };
     _enabled = profile.enabled;
   }
 
@@ -234,10 +253,11 @@ class _DirectConnectionEditorPageState
     final enteredApiKey = _apiKeyController.text.trim();
     final apiKey = switch (_authentication) {
       DirectAuthenticationMode.none => null,
-      DirectAuthenticationMode.bearer =>
+      DirectAuthenticationMode.bearer ||
+      DirectAuthenticationMode.apiKeyHeader =>
         _apiKeyDirty || _originChanged ? enteredApiKey : existingApiKey,
     };
-    if (_authentication == DirectAuthenticationMode.bearer &&
+    if (_authentication != DirectAuthenticationMode.none &&
         (apiKey ?? '').isEmpty) {
       valid = false;
       apiKeyError = 'Enter an API key or choose no authentication.';
@@ -261,6 +281,17 @@ class _DirectConnectionEditorPageState
       name: name,
       adapterKey: _adapterKey,
       baseUrl: baseUrl,
+      openAiApiMode: _openAiApiMode,
+      apiKeyAuthMode: _authentication == DirectAuthenticationMode.apiKeyHeader
+          ? DirectApiKeyAuthMode.apiKeyHeader
+          : DirectApiKeyAuthMode.bearer,
+      apiVersion: _apiVersionController.text.trim().isEmpty
+          ? null
+          : _apiVersionController.text.trim(),
+      modelIdPrefix: _modelIdPrefixController.text.trim().isEmpty
+          ? null
+          : _modelIdPrefixController.text.trim(),
+      tags: parseDirectModelTags(_tagsController.text),
       enabled: _enabled,
       apiKey: apiKey,
       customHeaders: headers,
@@ -752,6 +783,59 @@ class _DirectConnectionEditorPageState
             : 'Include the API prefix expected by the provider, usually /v1.',
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
+      if (!isOllama) ...[
+        const SizedBox(height: Spacing.lg),
+        const SettingsSectionHeader(title: 'Completion API'),
+        const SizedBox(height: Spacing.sm),
+        AdaptiveSegmentedSelector<DirectOpenAiApiMode>(
+          key: const ValueKey<String>('direct-openai-api-mode-selector'),
+          value: _openAiApiMode,
+          showIcons: false,
+          onChanged: (value) => setState(() {
+            _openAiApiMode = value;
+            _testSucceeded = null;
+            _testMessage = null;
+          }),
+          options: const [
+            (
+              value: DirectOpenAiApiMode.chatCompletions,
+              label: 'Chat Completions',
+              cupertinoIcon: CupertinoIcons.text_bubble,
+              materialIcon: Icons.chat_bubble_outline,
+              enabled: true,
+            ),
+            (
+              value: DirectOpenAiApiMode.responses,
+              label: 'Responses',
+              cupertinoIcon: CupertinoIcons.sparkles,
+              materialIcon: Icons.auto_awesome_outlined,
+              enabled: true,
+            ),
+          ],
+        ),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          _openAiApiMode == DirectOpenAiApiMode.responses
+              ? 'Use the typed Responses event stream. Choose this only when the provider exposes /responses.'
+              : 'Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.',
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.md),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-api-version-field'),
+          label: 'API version',
+          hint: '2024-10-21',
+          controller: _apiVersionController,
+          textInputAction: TextInputAction.next,
+          autocorrect: false,
+          onChanged: (_) => _clearTransientState(),
+        ),
+        const SizedBox(height: Spacing.sm),
+        Text(
+          'Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.',
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+      ],
       const SizedBox(height: Spacing.lg),
       const SettingsSectionHeader(title: 'Authentication'),
       const SizedBox(height: Spacing.sm),
@@ -775,6 +859,13 @@ class _DirectConnectionEditorPageState
             enabled: true,
           ),
           (
+            value: DirectAuthenticationMode.apiKeyHeader,
+            label: 'API-key header',
+            cupertinoIcon: CupertinoIcons.lock_shield,
+            materialIcon: Icons.vpn_key_outlined,
+            enabled: true,
+          ),
+          (
             value: DirectAuthenticationMode.none,
             label: l10n.noAuthentication,
             cupertinoIcon: CupertinoIcons.lock_open,
@@ -783,7 +874,14 @@ class _DirectConnectionEditorPageState
           ),
         ],
       ),
-      if (_authentication == DirectAuthenticationMode.bearer) ...[
+      if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
+        const SizedBox(height: Spacing.sm),
+        Text(
+          'Sends the credential in the api-key header used by Azure OpenAI.',
+          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+        ),
+      ],
+      if (_authentication != DirectAuthenticationMode.none) ...[
         const SizedBox(height: Spacing.md),
         AccessibleFormField(
           key: const ValueKey<String>('direct-api-key-field'),
@@ -1154,6 +1252,36 @@ class _DirectConnectionEditorPageState
                     ),
                   ),
               ],
+              const SizedBox(height: Spacing.xl),
+              AccessibleFormField(
+                key: const ValueKey<String>('direct-model-prefix-field'),
+                label: 'Model ID prefix',
+                hint: 'studio',
+                controller: _modelIdPrefixController,
+                textInputAction: TextInputAction.next,
+                autocorrect: false,
+                onChanged: (_) => _clearTransientState(),
+              ),
+              const SizedBox(height: Spacing.sm),
+              Text(
+                'Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.',
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
+              const SizedBox(height: Spacing.md),
+              AccessibleFormField(
+                key: const ValueKey<String>('direct-model-tags-field'),
+                label: 'Model tags',
+                hint: 'local, private',
+                controller: _tagsController,
+                textInputAction: TextInputAction.next,
+                autocorrect: false,
+                onChanged: (_) => _clearTransientState(),
+              ),
+              const SizedBox(height: Spacing.sm),
+              Text(
+                'Optional. Separate tags with commas or new lines.',
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
               const SizedBox(height: Spacing.xl),
               AccessibleFormField(
                 key: const ValueKey<String>('direct-manual-models-field'),

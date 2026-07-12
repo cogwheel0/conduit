@@ -4,7 +4,7 @@ version: 3.4.3+136
 publish_to: 'none'
 
 environment:
-  sdk: ">=3.8.0 <4.0.0"
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -22,6 +22,8 @@ dependencies:
   
   # Network & API
   dio: ^5.9.0
+  ollama_dart: ^2.4.0
+  openai_dart: ^7.0.1
   http_parser: ^4.0.2
   
   

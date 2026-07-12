@@ -121,6 +121,30 @@ void main() {
     expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
+  test(
+    'profile prefixes and tags decorate models without changing routing',
+    () {
+      final registry = DirectModelRegistry();
+      final profile = DirectConnectionProfile(
+        id: 'lm-studio',
+        name: 'LM Studio',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'http://localhost:1234/v1',
+        modelIdPrefix: 'studio',
+        tags: const ['local', 'private'],
+      );
+
+      final model = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'qwen', name: 'Qwen'),
+      ]).single;
+
+      expect(model.name, 'studio.Qwen');
+      expect(model.modelTags, ['local', 'private']);
+      expect(model.metadata?['remoteModelDisplayId'], 'studio.qwen');
+      expect(registry.resolve(model)?.remoteModelId, 'qwen');
+    },
+  );
+
   test('display reconciliation removes remote reserved identities', () {
     final remote = [
       const Model(id: 'normal', name: 'Normal'),

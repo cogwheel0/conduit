@@ -100,7 +100,7 @@ enough for daily use.
 | Area | Included |
 | --- | --- |
 | Chat | Real-time streaming, model selection, temporary chats, conversation search, and folder management |
-| Direct connections | Multiple OpenAI-compatible or Ollama profiles, custom headers, manual model IDs, image prompts, reasoning, usage, stop, and regenerate without requiring an Open WebUI backend |
+| Direct connections | Multiple OpenAI-compatible or Ollama profiles, Chat Completions or Responses, LM Studio and Azure-compatible settings, custom headers, model prefixes and tags, manual model IDs, image prompts, reasoning, usage, stop, and regenerate without requiring an Open WebUI backend |
 | AI workflows | File and image uploads, re-attaching previously uploaded server files, multimodal prompts, server-side tools, saved prompts with variables, model-specific toggle filters, and optional web search or image generation when supported by your server |
 | Authentication | Username and password, LDAP, JWT, custom headers, SSO/OAuth, and reverse proxy login flows |
 | Productivity | Notes with autosave, pinning, AI-generated titles, AI enhancement, audio attachments, channels with threads and reactions when enabled by the server, and sharing from other apps |
@@ -125,7 +125,9 @@ enough for daily use.
   long-running chat reliability.
 - Surfaces optional server capabilities such as notes, channels, web search,
   and image generation only when your Open WebUI deployment exposes them.
-- Can connect directly to OpenAI-compatible APIs and native Ollama endpoints.
+- Can connect directly to OpenAI-compatible APIs—including LM Studio—and
+  native Ollama endpoints. OpenAI-family profiles can use Chat Completions or
+  Responses, Bearer or API-key headers, and an optional Azure API version.
   Completion traffic travels from your device to that provider. New chat
   history can use Open WebUI when one is signed in, or remain on this device.
 
@@ -187,7 +189,7 @@ filters appear when they are available on the connected server.
 
 ### Requirements
 
-- A recent Flutter SDK with Dart `3.8` or newer
+- A recent Flutter SDK with Dart `3.9` or newer
 - Java 17 for Android builds
 - Android 7.0+ (API 24) or iOS 16.0+
 - An Open WebUI instance, an OpenAI-compatible API, or an Ollama endpoint

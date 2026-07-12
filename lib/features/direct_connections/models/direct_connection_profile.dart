@@ -8,6 +8,53 @@ const String kOpenAiCompatibleAdapterKey = 'openai-compatible';
 /// Built-in adapter key for Ollama's native HTTP API.
 const String kOllamaAdapterKey = 'ollama';
 
+/// OpenAI-family completion protocol selected for one connection profile.
+///
+/// This remains profile data rather than a separate adapter key so OpenAI,
+/// Azure OpenAI, LM Studio, vLLM, LocalAI, OpenRouter, and similar providers
+/// can share the same adapter implementation while choosing the API shape
+/// their endpoint supports.
+enum DirectOpenAiApiMode {
+  chatCompletions('chat-completions'),
+  responses('responses');
+
+  const DirectOpenAiApiMode(this.storageValue);
+
+  final String storageValue;
+
+  static DirectOpenAiApiMode fromStorage(Object? value) {
+    if (value == null) return chatCompletions;
+    final mode = values
+        .where((candidate) => candidate.storageValue == value)
+        .firstOrNull;
+    if (mode == null) {
+      throw const FormatException('Unsupported OpenAI completion API mode.');
+    }
+    return mode;
+  }
+}
+
+/// Header convention used when a profile has an API key.
+enum DirectApiKeyAuthMode {
+  bearer('bearer'),
+  apiKeyHeader('api-key-header');
+
+  const DirectApiKeyAuthMode(this.storageValue);
+
+  final String storageValue;
+
+  static DirectApiKeyAuthMode fromStorage(Object? value) {
+    if (value == null) return bearer;
+    final mode = values
+        .where((candidate) => candidate.storageValue == value)
+        .firstOrNull;
+    if (mode == null) {
+      throw const FormatException('Unsupported direct API-key auth mode.');
+    }
+    return mode;
+  }
+}
+
 /// A direct backend connection, including its credentials.
 ///
 /// The complete object is persisted only in secure storage. Do not copy this
@@ -20,6 +67,11 @@ final class DirectConnectionProfile {
     required this.name,
     required this.adapterKey,
     required this.baseUrl,
+    this.openAiApiMode = DirectOpenAiApiMode.chatCompletions,
+    this.apiKeyAuthMode = DirectApiKeyAuthMode.bearer,
+    String? apiVersion,
+    String? modelIdPrefix,
+    List<String> tags = const [],
     this.enabled = true,
     this.apiKey,
     Map<String, String> customHeaders = const {},
@@ -30,7 +82,10 @@ final class DirectConnectionProfile {
     this.mtlsPrivateKeyPem,
     this.mtlsPrivateKeyLabel,
     this.mtlsPrivateKeyPassword,
-  }) : customHeaders = UnmodifiableMapView(Map.of(customHeaders)),
+  }) : apiVersion = _trimmedOrNull(apiVersion),
+       modelIdPrefix = _trimmedOrNull(modelIdPrefix),
+       customHeaders = UnmodifiableMapView(Map.of(customHeaders)),
+       tags = List.unmodifiable(_deduplicateNonEmpty(tags)),
        manualModelIds = List.unmodifiable(_deduplicateNonEmpty(manualModelIds));
 
   static const int currentSchemaVersion = 1;
@@ -43,6 +98,15 @@ final class DirectConnectionProfile {
   /// adapters without changing the persisted schema.
   final String adapterKey;
   final String baseUrl;
+  final DirectOpenAiApiMode openAiApiMode;
+  final DirectApiKeyAuthMode apiKeyAuthMode;
+
+  /// Optional `api-version` query value, primarily for Azure OpenAI endpoints.
+  final String? apiVersion;
+
+  /// Optional display namespace for models from this profile.
+  final String? modelIdPrefix;
+  final List<String> tags;
   final bool enabled;
   final String? apiKey;
   final Map<String, String> customHeaders;
@@ -86,6 +150,25 @@ final class DirectConnectionProfile {
     if (originOf(baseUrl) == null) return 'Use a valid http(s) URL.';
     final uri = Uri.parse(baseUrl.trim());
 
+    final normalizedApiVersion = apiVersion?.trim();
+    if (normalizedApiVersion != null &&
+        normalizedApiVersion.isNotEmpty &&
+        !RegExp(r'^[A-Za-z0-9._-]{1,128}$').hasMatch(normalizedApiVersion)) {
+      return 'API version contains unsupported characters.';
+    }
+    final normalizedPrefix = modelIdPrefix?.trim();
+    if (normalizedPrefix != null &&
+        normalizedPrefix.isNotEmpty &&
+        !RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(normalizedPrefix)) {
+      return 'Model prefix must contain only letters, numbers, periods, underscores, or dashes.';
+    }
+    if (tags.any(
+      (tag) =>
+          tag.length > 64 || _containsLineBreak(tag) || tag.contains('\u0000'),
+    )) {
+      return 'A model tag is invalid.';
+    }
+
     if (uri.scheme.toLowerCase() == 'http') {
       if (_hasTlsCredentialMaterial) {
         return 'TLS client credentials require an HTTPS URL.';
@@ -102,6 +185,13 @@ final class DirectConnectionProfile {
       if (reservedHeaderNames.contains(entry.key.trim().toLowerCase())) {
         return 'Authorization, Host, and Content-Length cannot be custom headers.';
       }
+    }
+    if (apiKeyAuthMode == DirectApiKeyAuthMode.apiKeyHeader &&
+        (apiKey ?? '').trim().isNotEmpty &&
+        customHeaders.keys.any(
+          (name) => name.trim().toLowerCase() == 'api-key',
+        )) {
+      return 'Remove the duplicate api-key custom header.';
     }
     if (_containsLineBreak(apiKey ?? '') ||
         _containsLineBreak(mtlsPrivateKeyPassword ?? '')) {
@@ -124,6 +214,11 @@ final class DirectConnectionProfile {
         name: name,
         adapterKey: adapterKey,
         baseUrl: baseUrl ?? this.baseUrl,
+        openAiApiMode: openAiApiMode,
+        apiKeyAuthMode: apiKeyAuthMode,
+        apiVersion: apiVersion,
+        modelIdPrefix: modelIdPrefix,
+        tags: tags,
         enabled: enabled,
         manualModelIds: manualModelIds,
       );
@@ -137,6 +232,11 @@ final class DirectConnectionProfile {
     name: name,
     adapterKey: adapterKey,
     baseUrl: baseUrl,
+    openAiApiMode: openAiApiMode,
+    apiKeyAuthMode: apiKeyAuthMode,
+    apiVersion: apiVersion,
+    modelIdPrefix: modelIdPrefix,
+    tags: tags,
     enabled: enabled,
     apiKey: apiKey,
     customHeaders: customHeaders,
@@ -162,6 +262,11 @@ final class DirectConnectionProfile {
     String? name,
     String? adapterKey,
     String? baseUrl,
+    DirectOpenAiApiMode? openAiApiMode,
+    DirectApiKeyAuthMode? apiKeyAuthMode,
+    Object? apiVersion = _keep,
+    Object? modelIdPrefix = _keep,
+    List<String>? tags,
     bool? enabled,
     Object? apiKey = _keep,
     Map<String, String>? customHeaders,
@@ -178,6 +283,15 @@ final class DirectConnectionProfile {
     name: name ?? this.name,
     adapterKey: adapterKey ?? this.adapterKey,
     baseUrl: baseUrl ?? this.baseUrl,
+    openAiApiMode: openAiApiMode ?? this.openAiApiMode,
+    apiKeyAuthMode: apiKeyAuthMode ?? this.apiKeyAuthMode,
+    apiVersion: identical(apiVersion, _keep)
+        ? this.apiVersion
+        : apiVersion as String?,
+    modelIdPrefix: identical(modelIdPrefix, _keep)
+        ? this.modelIdPrefix
+        : modelIdPrefix as String?,
+    tags: tags ?? this.tags,
     enabled: enabled ?? this.enabled,
     apiKey: identical(apiKey, _keep) ? this.apiKey : apiKey as String?,
     customHeaders: customHeaders ?? this.customHeaders,
@@ -207,6 +321,11 @@ final class DirectConnectionProfile {
     'name': name,
     'adapterKey': adapterKey,
     'baseUrl': baseUrl,
+    'openAiApiMode': openAiApiMode.storageValue,
+    'apiKeyAuthMode': apiKeyAuthMode.storageValue,
+    'apiVersion': apiVersion,
+    'modelIdPrefix': modelIdPrefix,
+    'tags': tags,
     'enabled': enabled,
     'apiKey': apiKey,
     'customHeaders': customHeaders,
@@ -232,6 +351,11 @@ final class DirectConnectionProfile {
       name: _requiredString(json, 'name'),
       adapterKey: _requiredString(json, 'adapterKey'),
       baseUrl: _requiredString(json, 'baseUrl'),
+      openAiApiMode: DirectOpenAiApiMode.fromStorage(json['openAiApiMode']),
+      apiKeyAuthMode: DirectApiKeyAuthMode.fromStorage(json['apiKeyAuthMode']),
+      apiVersion: _optionalString(json['apiVersion']),
+      modelIdPrefix: _optionalString(json['modelIdPrefix']),
+      tags: _stringList(json['tags']),
       enabled: json['enabled'] is bool ? json['enabled'] as bool : true,
       apiKey: _optionalString(json['apiKey']),
       customHeaders: _stringMap(json['customHeaders']),
@@ -339,6 +463,11 @@ List<String> _deduplicateNonEmpty(Iterable<String> values) {
     if (trimmed.isNotEmpty && seen.add(trimmed)) result.add(trimmed);
   }
   return result;
+}
+
+String? _trimmedOrNull(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
 String _requiredString(Map<String, dynamic> json, String key) {

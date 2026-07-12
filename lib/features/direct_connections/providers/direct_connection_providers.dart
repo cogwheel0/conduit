@@ -557,6 +557,11 @@ final class _DiscoveryOutcome {
 int _profileSignature(DirectConnectionProfile profile) => Object.hashAll([
   profile.adapterKey,
   profile.baseUrl,
+  profile.openAiApiMode,
+  profile.apiKeyAuthMode,
+  profile.apiVersion,
+  profile.modelIdPrefix,
+  ...profile.tags,
   profile.apiKey,
   ...profile.customHeaders.entries.expand((entry) => [entry.key, entry.value]),
   ...profile.manualModelIds,
@@ -591,6 +596,11 @@ bool _sameDirectProfile(
     left.name == right.name &&
     left.adapterKey == right.adapterKey &&
     left.baseUrl == right.baseUrl &&
+    left.openAiApiMode == right.openAiApiMode &&
+    left.apiKeyAuthMode == right.apiKeyAuthMode &&
+    left.apiVersion == right.apiVersion &&
+    left.modelIdPrefix == right.modelIdPrefix &&
+    listEquals(left.tags, right.tags) &&
     left.enabled == right.enabled &&
     left.apiKey == right.apiKey &&
     mapEquals(left.customHeaders, right.customHeaders) &&

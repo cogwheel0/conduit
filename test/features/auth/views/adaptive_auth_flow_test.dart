@@ -461,7 +461,7 @@ void main() {
       find.byKey(const ValueKey<String>('direct-editor-back-button')),
       findsOneWidget,
     );
-    expect(find.byType(AccessibleFormField), findsNWidgets(6));
+    expect(find.byType(AccessibleFormField), findsNWidgets(9));
     expect(find.byType(ConduitInput), findsNothing);
     check(
       tester

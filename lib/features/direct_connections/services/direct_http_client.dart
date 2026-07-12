@@ -32,11 +32,23 @@ final class DirectHttpClientFactory {
     profile.validate();
     dio.options.baseUrl = profile.requestBaseUri().toString();
     dio.options.followRedirects = false;
+    dio.options.queryParameters.clear();
+    if (profile.adapterKey == kOpenAiCompatibleAdapterKey &&
+        (profile.apiVersion ?? '').trim().isNotEmpty) {
+      dio.options.queryParameters['api-version'] = profile.apiVersion!.trim();
+    }
     dio.options.headers.clear();
     dio.options.headers.addAll({
       'Accept': 'application/json',
       if ((profile.apiKey ?? '').trim().isNotEmpty)
-        'Authorization': 'Bearer ${profile.apiKey!.trim()}',
+        ...switch (profile.apiKeyAuthMode) {
+          DirectApiKeyAuthMode.bearer => {
+            'Authorization': 'Bearer ${profile.apiKey!.trim()}',
+          },
+          DirectApiKeyAuthMode.apiKeyHeader => {
+            'api-key': profile.apiKey!.trim(),
+          },
+        },
       ...profile.customHeaders,
     });
 

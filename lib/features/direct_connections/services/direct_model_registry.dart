@@ -125,6 +125,13 @@ final class DirectModelRegistry {
     final ids = <String>{};
     final models = <Model>[];
     for (final remote in remoteModels) {
+      final prefix = profile.modelIdPrefix?.trim();
+      final displayModelId = prefix == null || prefix.isEmpty
+          ? remote.id
+          : '$prefix.${remote.id}';
+      final displayName = prefix == null || prefix.isEmpty
+          ? remote.name
+          : '$prefix.${remote.name}';
       final binding = DirectModelBinding(
         profileId: profile.id,
         adapterKey: profile.adapterKey,
@@ -134,7 +141,7 @@ final class DirectModelRegistry {
       if (!ids.add(id)) continue;
       final model = Model(
         id: id,
-        name: remote.name,
+        name: displayName,
         description: remote.description,
         isMultimodal: remote.isMultimodal,
         supportsStreaming: true,
@@ -148,6 +155,9 @@ final class DirectModelRegistry {
           'profileName': profile.name,
           'adapterKey': profile.adapterKey,
           'remoteModelId': remote.id,
+          'remoteModelDisplayId': displayModelId,
+          if (prefix != null && prefix.isNotEmpty) 'prefixId': prefix,
+          if (profile.tags.isNotEmpty) 'tags': profile.tags,
         },
       );
       _trustedBindings[model] = binding;

@@ -1,7 +1,12 @@
 import 'dart:convert';
 
-/// Incrementally parses Ollama's newline-delimited JSON response format.
-/// Handles arbitrary byte and UTF-8 boundaries and a final line without `\n`.
+/// Strictly frames Ollama's newline-delimited JSON response format before each
+/// object is decoded by ollama_dart's typed event models.
+///
+/// The package's permissive stream helper intentionally skips malformed lines;
+/// Conduit retains this small boundary shim so corrupted/truncated provider
+/// output cannot silently become a successful completion. It also handles
+/// arbitrary byte/UTF-8 boundaries and a final line without `\n`.
 const int kMaxOllamaNdjsonLineCharacters = 4 * 1024 * 1024;
 
 Stream<Map<String, dynamic>> parseOllamaNdjson(

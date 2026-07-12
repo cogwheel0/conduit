@@ -8,6 +8,11 @@ void main() {
       final profile = _profile(
         apiKey: 'secret-key',
         customHeaders: const {'X-Tenant': 'tenant-secret'},
+        openAiApiMode: DirectOpenAiApiMode.responses,
+        apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
+        apiVersion: '2024-10-21',
+        modelIdPrefix: 'studio',
+        tags: const ['local', 'private'],
       );
 
       final encoded = DirectConnectionProfilesDocument([profile]).encode();
@@ -16,9 +21,70 @@ void main() {
       expect(decoded.profiles, hasLength(1));
       expect(decoded.profiles.single.apiKey, 'secret-key');
       expect(
+        decoded.profiles.single.openAiApiMode,
+        DirectOpenAiApiMode.responses,
+      );
+      expect(
+        decoded.profiles.single.apiKeyAuthMode,
+        DirectApiKeyAuthMode.apiKeyHeader,
+      );
+      expect(decoded.profiles.single.apiVersion, '2024-10-21');
+      expect(decoded.profiles.single.modelIdPrefix, 'studio');
+      expect(decoded.profiles.single.tags, ['local', 'private']);
+      expect(
         decoded.profiles.single.customHeaders['X-Tenant'],
         'tenant-secret',
       );
+    });
+
+    test('legacy profiles default to Chat Completions mode', () {
+      final profile = DirectConnectionProfile.fromJson({
+        'schemaVersion': DirectConnectionProfile.currentSchemaVersion,
+        'id': 'legacy-profile',
+        'name': 'Legacy provider',
+        'adapterKey': kOpenAiCompatibleAdapterKey,
+        'baseUrl': 'https://example.test/v1',
+      });
+
+      expect(profile.openAiApiMode, DirectOpenAiApiMode.chatCompletions);
+    });
+
+    test('rejects unknown persisted protocol and auth modes', () {
+      final base = {
+        'schemaVersion': DirectConnectionProfile.currentSchemaVersion,
+        'id': 'future-profile',
+        'name': 'Future provider',
+        'adapterKey': kOpenAiCompatibleAdapterKey,
+        'baseUrl': 'https://example.test/v1',
+      };
+
+      expect(
+        () => DirectConnectionProfile.fromJson({
+          ...base,
+          'openAiApiMode': 'future-protocol',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => DirectConnectionProfile.fromJson({
+          ...base,
+          'apiKeyAuthMode': 'future-auth',
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('canonicalizes optional API version and model prefix values', () {
+      final profile = _profile(
+        apiVersion: ' 2024-10-21 ',
+        modelIdPrefix: ' studio ',
+      );
+      final empty = _profile(apiVersion: '  ', modelIdPrefix: '\t');
+
+      expect(profile.apiVersion, '2024-10-21');
+      expect(profile.modelIdPrefix, 'studio');
+      expect(empty.apiVersion, isNull);
+      expect(empty.modelIdPrefix, isNull);
     });
 
     test('rejects URL credentials, query secrets, and reserved headers', () {
@@ -39,6 +105,22 @@ void main() {
       expect(
         () => _profile(
           customHeaders: const {'X-Test': 'ok\r\nHost: bad'},
+        ).validate(),
+        throwsFormatException,
+      );
+      expect(
+        () => _profile(apiVersion: 'preview?secret=value').validate(),
+        throwsFormatException,
+      );
+      expect(
+        () => _profile(modelIdPrefix: 'bad prefix').validate(),
+        throwsFormatException,
+      );
+      expect(
+        () => _profile(
+          apiKey: 'azure-secret',
+          apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
+          customHeaders: const {'api-key': 'duplicate'},
         ).validate(),
         throwsFormatException,
       );
@@ -213,6 +295,20 @@ void main() {
       expect(dio.options.headers['Authorization'], 'Bearer secret');
       expect(dio.options.headers['X-Tenant'], 'one');
     });
+
+    test('HTTP factory supports Azure API-key auth and API versions', () {
+      final profile = _profile(
+        apiKey: 'azure-secret',
+        apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
+        apiVersion: '2024-10-21',
+      );
+      final dio = const DirectHttpClientFactory().create(profile);
+      addTearDown(() => dio.close(force: true));
+
+      expect(dio.options.headers['api-key'], 'azure-secret');
+      expect(dio.options.headers['Authorization'], isNull);
+      expect(dio.options.queryParameters['api-version'], '2024-10-21');
+    });
   });
 }
 
@@ -224,11 +320,21 @@ DirectConnectionProfile _profile({
   String? mtlsCertificateChainPem,
   String? mtlsPrivateKeyPem,
   String? mtlsPrivateKeyPassword,
+  DirectOpenAiApiMode openAiApiMode = DirectOpenAiApiMode.chatCompletions,
+  DirectApiKeyAuthMode apiKeyAuthMode = DirectApiKeyAuthMode.bearer,
+  String? apiVersion,
+  String? modelIdPrefix,
+  List<String> tags = const [],
 }) => DirectConnectionProfile(
   id: 'profile-one',
   name: 'Example',
   adapterKey: kOpenAiCompatibleAdapterKey,
   baseUrl: baseUrl,
+  openAiApiMode: openAiApiMode,
+  apiKeyAuthMode: apiKeyAuthMode,
+  apiVersion: apiVersion,
+  modelIdPrefix: modelIdPrefix,
+  tags: tags,
   apiKey: apiKey,
   customHeaders: customHeaders,
   allowSelfSignedCertificates: allowSelfSignedCertificates,

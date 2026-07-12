@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:ollama_dart/ollama_dart.dart' as ollama;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/utils/debug_logger.dart';
@@ -54,20 +55,19 @@ final class OllamaAdapter implements DirectProviderAdapter {
         throw const FormatException('Ollama model list response is empty.');
       }
       final body = await decodeDirectJsonBody(responseBody);
-      final raw = body['models'];
-      if (raw is! List) {
+      final rawModels = body['models'];
+      if (rawModels is! List) {
         throw const FormatException('Ollama model list is missing.');
       }
       final candidates = <_OllamaModelCandidate>[];
       final seen = <String>{};
-      for (final item in raw.whereType<Map>()) {
+      for (final item in rawModels.whereType<Map>()) {
         final map = item.cast<String, dynamic>();
-        final id = (map['name'] ?? map['model'])?.toString().trim();
+        final model = _decodeModelSummary(map);
+        final id = (model.name ?? model.model)?.trim();
         if (id == null || id.isEmpty || !seen.add(id)) continue;
         final details = map['details'];
-        final families = details is Map
-            ? _lowercaseStringList(details['families'])
-            : const <String>[];
+        final families = _lowercaseStringList(model.details?.families);
         final capabilities = details is Map
             ? _lowercaseStringList(details['capabilities'])
             : const <String>[];
@@ -77,8 +77,8 @@ final class OllamaAdapter implements DirectProviderAdapter {
             details: details is Map ? details : null,
             families: families,
             capabilities: capabilities,
-            size: map['size'],
-            modifiedAt: map['modified_at'],
+            size: model.size ?? map['size'],
+            modifiedAt: model.modifiedAt ?? map['modified_at'],
           ),
         );
       }
@@ -161,20 +161,19 @@ final class OllamaAdapter implements DirectProviderAdapter {
     try {
       final response = await dio.post<ResponseBody>(
         'api/show',
-        data: {'model': modelId},
+        data: ollama.ShowRequest(model: modelId).toJson(),
         options: Options(responseType: ResponseType.stream),
       );
       final responseBody = response.data;
       if (responseBody == null) return null;
       final body = await decodeDirectJsonBody(responseBody);
-      final rawCapabilities = body['capabilities'];
-      final capabilities = rawCapabilities is Iterable
-          ? _lowercaseStringList(rawCapabilities)
-          : const <String>[];
+      final shown = ollama.ShowResponse.fromJson(body);
+      final capabilities = _lowercaseStringList(shown.capabilities);
       return _OllamaShowDetails(
         capabilities: capabilities,
         advertisesVision:
-            capabilities.contains('vision') || _hasVisionMetadata(body),
+            capabilities.contains('vision') ||
+            _hasVisionMetadata(shown, body['projector_info']),
       );
     } catch (_) {
       // A single old/broken model must not hide the entire catalog. Retain the
@@ -217,7 +216,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
         throw const FormatException('Ollama version response is empty.');
       }
       final body = await decodeDirectJsonBody(responseBody);
-      final version = body['version']?.toString().trim();
+      final version = ollama.VersionResponse.fromJson(body).version?.trim();
       if (version == null || version.isEmpty) {
         throw const FormatException('Ollama version response is invalid.');
       }
@@ -268,16 +267,22 @@ final class OllamaAdapter implements DirectProviderAdapter {
 
         try {
           final budget = DirectStreamBudget(maxCharacters: maxStreamCharacters);
+          final sdkRequest = ollama.ChatRequest(
+            model: request.remoteModelId,
+            messages: [
+              for (final message in request.messages) _ollamaMessage(message),
+            ],
+            stream: true,
+          );
           final response = await dio.post<ResponseBody>(
             'api/chat',
             cancelToken: cancelToken,
             data: {
               ...request.parameters,
-              'model': request.remoteModelId,
-              'messages': [
-                for (final message in request.messages) _ollamaMessage(message),
-              ],
-              'stream': true,
+              // The SDK owns native request serialization. Its routing keys
+              // are merged last so provider parameters cannot switch models,
+              // replace the conversation, or disable streaming.
+              ...sdkRequest.toJson(),
             },
             options: Options(
               responseType: ResponseType.stream,
@@ -297,24 +302,32 @@ final class OllamaAdapter implements DirectProviderAdapter {
               emitError(directErrorMessage(payload['error']));
               break;
             }
-            final message = payload['message'];
-            if (message is Map) {
+            final event = _decodeChatStreamEvent(payload);
+            final message = event.message;
+            if (message != null) {
+              // `thinking` is Ollama's native field. Retain the older
+              // `reasoning_content` alias for compatible proxies that emit it
+              // while the SDK remains the authority for native decoding.
+              final rawMessage = payload['message'];
               final reasoning =
-                  message['thinking'] ?? message['reasoning_content'];
-              if (reasoning != null && reasoning.toString().isNotEmpty) {
-                final value = reasoning.toString();
+                  message.thinking ??
+                  (rawMessage is Map
+                      ? rawMessage['reasoning_content']?.toString()
+                      : null);
+              if (reasoning != null && reasoning.isNotEmpty) {
+                final value = reasoning;
                 budget.add(value);
                 controller.add(DirectReasoningDelta(value));
               }
-              final content = message['content'];
-              if (content != null && content.toString().isNotEmpty) {
-                final value = content.toString();
+              final content = message.content;
+              if (content != null && content.isNotEmpty) {
+                final value = content;
                 budget.add(value);
                 controller.add(DirectContentDelta(value));
               }
             }
-            if (payload['done'] == true) {
-              final usage = _ollamaUsage(payload);
+            if (event.done == true) {
+              final usage = _ollamaUsage(event);
               if (usage.isNotEmpty) controller.add(DirectUsageUpdate(usage));
               emitDone();
               break;
@@ -364,16 +377,57 @@ List<String> _lowercaseStringList(Object? value) {
       .toList(growable: false);
 }
 
-bool _hasVisionMetadata(Map<String, dynamic> body) {
-  final projectorInfo = body['projector_info'];
+bool _hasVisionMetadata(ollama.ShowResponse response, Object? projectorInfo) {
   if (projectorInfo is Map && projectorInfo.isNotEmpty) return true;
-  final modelInfo = body['model_info'];
-  if (modelInfo is! Map) return false;
+  final modelInfo = response.modelInfo;
+  if (modelInfo == null) return false;
   return modelInfo.keys.any((key) {
     final normalized = key.toString().toLowerCase();
     return normalized.contains('.vision.') ||
         normalized.contains('.projector.');
   });
+}
+
+/// Normalizes the few catalog fields that older Ollama versions returned with
+/// looser JSON types, then delegates the actual model decoding to ollama_dart.
+ollama.ModelSummary _decodeModelSummary(Map<String, dynamic> json) {
+  final details = json['details'];
+  return ollama.ModelSummary.fromJson({
+    if (json['name'] != null) 'name': json['name'].toString(),
+    if (json['model'] != null) 'model': json['model'].toString(),
+    if (json['remote_model'] != null)
+      'remote_model': json['remote_model'].toString(),
+    if (json['remote_host'] != null)
+      'remote_host': json['remote_host'].toString(),
+    if (json['modified_at'] != null)
+      'modified_at': json['modified_at'].toString(),
+    if (json['size'] is int) 'size': json['size'],
+    if (json['digest'] != null) 'digest': json['digest'].toString(),
+    if (details is Map)
+      'details': {
+        if (details['format'] != null) 'format': details['format'].toString(),
+        if (details['family'] != null) 'family': details['family'].toString(),
+        if (details['families'] is Iterable)
+          'families': [
+            for (final family in details['families'] as Iterable)
+              family.toString(),
+          ],
+        if (details['parameter_size'] != null)
+          'parameter_size': details['parameter_size'].toString(),
+        if (details['quantization_level'] != null)
+          'quantization_level': details['quantization_level'].toString(),
+        if (details['parent_model'] != null)
+          'parent_model': details['parent_model'].toString(),
+      },
+  });
+}
+
+ollama.ChatStreamEvent _decodeChatStreamEvent(Map<String, dynamic> json) {
+  try {
+    return ollama.ChatStreamEvent.fromJson(json);
+  } catch (error) {
+    throw FormatException('Invalid Ollama chat stream event.', error);
+  }
 }
 
 final class _OllamaShowDetails {
@@ -404,7 +458,7 @@ final class _OllamaModelCandidate {
   final Object? modifiedAt;
 }
 
-Map<String, dynamic> _ollamaMessage(DirectChatMessage message) {
+ollama.ChatMessage _ollamaMessage(DirectChatMessage message) {
   final text = message.parts
       .whereType<DirectTextPart>()
       .map((part) => part.text)
@@ -419,23 +473,42 @@ Map<String, dynamic> _ollamaMessage(DirectChatMessage message) {
     }
     images.add(data);
   }
-  return {
-    'role': message.role,
-    'content': text,
-    if (images.isNotEmpty) 'images': images,
-  };
+  return _DirectOllamaChatMessage(
+    rawRole: message.role,
+    content: text,
+    images: images.isEmpty ? null : images,
+  );
 }
 
-Map<String, dynamic> _ollamaUsage(Map<String, dynamic> payload) {
-  final prompt = payload['prompt_eval_count'];
-  final completion = payload['eval_count'];
+/// ollama_dart models the roles supported by Ollama itself as an enum. Keep
+/// forwarding an extension role used by a compatible proxy while retaining
+/// the SDK's message serialization for all standard fields.
+final class _DirectOllamaChatMessage extends ollama.ChatMessage {
+  _DirectOllamaChatMessage({
+    required this.rawRole,
+    required super.content,
+    super.images,
+  }) : super(
+         role:
+             ollama.messageRoleFromNullableString(rawRole.trim()) ??
+             ollama.MessageRole.user,
+       );
+
+  final String rawRole;
+
+  @override
+  Map<String, dynamic> toJson() => {...super.toJson(), 'role': rawRole};
+}
+
+Map<String, dynamic> _ollamaUsage(ollama.ChatStreamEvent event) {
+  final prompt = event.promptEvalCount;
+  final completion = event.evalCount;
   return {
-    if (prompt is num) 'prompt_tokens': prompt,
-    if (completion is num) 'completion_tokens': completion,
-    if (prompt is num && completion is num) 'total_tokens': prompt + completion,
-    if (payload['total_duration'] != null)
-      'total_duration': payload['total_duration'],
-    if (payload['load_duration'] != null)
-      'load_duration': payload['load_duration'],
+    'prompt_tokens': ?prompt,
+    'completion_tokens': ?completion,
+    if (prompt != null && completion != null)
+      'total_tokens': prompt + completion,
+    if (event.totalDuration != null) 'total_duration': event.totalDuration,
+    if (event.loadDuration != null) 'load_duration': event.loadDuration,
   };
 }

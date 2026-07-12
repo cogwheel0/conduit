@@ -124,6 +124,39 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
+  test('OpenAI adapter surfaces a non-stream Chat refusal', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'refusal': 'I cannot help with that.'},
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'I cannot help with that.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
   test(
     'OpenAI adapter rejects JSON without usable completion content',
     () async {
@@ -349,6 +382,39 @@ void main() {
   });
 
   test(
+    'OpenAI adapter rejects an oversized SSE line before decoding',
+    () async {
+      final oversized = List.filled(64, 'x').join();
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode('data: $oversized\n\n'),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        maxSseLineCharacters: 32,
+        maxSseFrameDataCharacters: 128,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectContentDelta>(), isEmpty);
+      expect(events.whereType<DirectStreamError>(), hasLength(1));
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+    },
+  );
+
+  test(
     'completion settles when cancelled before the stream is listened',
     () async {
       final http = _QueuedAdapter([
@@ -419,6 +485,14 @@ void main() {
             ],
           ),
         ],
+        parameters: const {
+          'model': 'forged-model',
+          'messages': <Object>[],
+          'stream': false,
+          'think': 'high',
+          'options': {'temperature': 0.25},
+          'provider_extension': 'kept',
+        },
       ),
     );
     final events = await run.events.toList();
@@ -449,6 +523,12 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
     final message =
         ((http.requests.last.data as Map)['messages'] as List).single as Map;
+    final requestBody = http.requests.last.data as Map;
+    expect(requestBody['model'], 'llava:latest');
+    expect(requestBody['stream'], isTrue);
+    expect(requestBody['think'], 'high');
+    expect(requestBody['options'], {'temperature': 0.25});
+    expect(requestBody['provider_extension'], 'kept');
     expect(message['images'], ['aW1hZ2U=']);
   });
 
@@ -632,10 +712,585 @@ void main() {
     );
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
+
+  test('Ollama adapter rejects malformed typed SDK stream events', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode('{"message":{"content":42},"done":true}\n'),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _ollamaProfile(),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      ),
+    );
+
+    final events = await run.events.toList();
+
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('invalid response'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('Ollama adapter preserves reasoning_content proxy alias', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '{"message":{"reasoning_content":"think","content":"answer"},"done":true}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _ollamaProfile(),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      ),
+    );
+
+    final events = await run.events.toList();
+
+    expect(events.whereType<DirectReasoningDelta>().single.content, 'think');
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('Ollama adapter rejects cumulative streamed text over budget', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode('{"message":{"content":"12345"},"done":true}\n'),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+      maxStreamCharacters: 4,
+    );
+    final run = adapter.startCompletion(
+      _ollamaProfile(),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      ),
+    );
+
+    final events = await run.events.toList();
+
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('size limit'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI adapter preserves the LM Studio thinking alias', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: {"choices":[{"delta":{"thinking":"think","content":"answer"}}]}\n\n'
+          'data: [DONE]\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectReasoningDelta>().single.content, 'think');
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenAI adapter surfaces a streamed Chat refusal', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: {"choices":[{"delta":{"refusal":"Request declined."}}]}\n\n'
+          'data: [DONE]\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Request declined.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test(
+    'OpenAI adapter streams Responses API reasoning and owns routing keys',
+    () async {
+      final completed = {
+        'type': 'response.completed',
+        'response': {
+          'id': 'resp_1',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'completed',
+          'output': <Object>[],
+          'usage': {'input_tokens': 2, 'output_tokens': 3, 'total_tokens': 5},
+        },
+      };
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary '})}\n\n'
+            'data: ${jsonEncode({'type': 'response.reasoning.delta', 'delta': 'detail'})}\n\n'
+            'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'answer'})}\n\n'
+            'data: ${jsonEncode(completed)}\n\n',
+          ),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final run = adapter.startCompletion(
+        _openAiProfile(
+          openAiApiMode: DirectOpenAiApiMode.responses,
+          apiKeyAuthMode: DirectApiKeyAuthMode.apiKeyHeader,
+          apiVersion: '2025-04-01-preview',
+        ),
+        DirectCompletionRequest(
+          remoteModelId: 'trusted-model',
+          messages: [
+            DirectChatMessage.text(role: 'system', text: 'be concise'),
+            DirectChatMessage.text(
+              role: 'observer',
+              text: 'compatible-provider extension role',
+            ),
+            DirectChatMessage(
+              role: 'user',
+              parts: const [
+                DirectTextPart('describe'),
+                DirectImagePart('data:image/png;base64,aW1hZ2U='),
+              ],
+            ),
+          ],
+          parameters: const {
+            'model': 'forged-model',
+            'input': 'forged-input',
+            'stream': false,
+            'repeat_penalty': 1.1,
+          },
+        ),
+      );
+
+      final events = await run.events.toList();
+
+      expect(
+        events
+            .whereType<DirectReasoningDelta>()
+            .map((event) => event.content)
+            .join(),
+        'summary detail',
+      );
+      expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+      expect(
+        events.whereType<DirectUsageUpdate>().single.usage['total_tokens'],
+        5,
+      );
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+
+      final sent = http.requests.single;
+      expect(
+        sent.uri.toString(),
+        'https://api.test/v1/responses?api-version=2025-04-01-preview',
+      );
+      expect(sent.headers['api-key'], 'secret');
+      expect(sent.headers['Authorization'], isNull);
+      final body = sent.data as Map;
+      expect(body['model'], 'trusted-model');
+      expect(body['stream'], isTrue);
+      expect(body['repeat_penalty'], 1.1);
+      final input = body['input'] as List;
+      expect(input, hasLength(3));
+      expect((input.first as Map)['role'], 'system');
+      expect((input[1] as Map)['role'], 'observer');
+      final userContent = (input.last as Map)['content'] as List;
+      expect((userContent.last as Map)['type'], 'input_image');
+    },
+  );
+
+  test(
+    'OpenAI adapter normalizes a non-stream Responses API payload',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'id': 'resp_1',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'completed',
+          'output': [
+            {
+              'type': 'reasoning',
+              'id': 'reason_1',
+              'summary': [
+                {'type': 'summary_text', 'text': 'json-think'},
+              ],
+            },
+            {
+              'type': 'message',
+              'id': 'msg_1',
+              'role': 'assistant',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'json-answer'},
+              ],
+            },
+          ],
+          'usage': {'input_tokens': 2, 'output_tokens': 3, 'total_tokens': 5},
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final run = adapter.startCompletion(
+        _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+        ),
+      );
+
+      final events = await run.events.toList();
+
+      expect(
+        events.whereType<DirectReasoningDelta>().single.content,
+        'json-think',
+      );
+      expect(
+        events.whereType<DirectContentDelta>().single.content,
+        'json-answer',
+      );
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test('OpenAI adapter surfaces a non-stream Responses refusal', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'id': 'resp_refusal',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'message',
+            'id': 'msg_refusal',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'refusal', 'refusal': 'Response declined.'},
+            ],
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Response declined.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenAI adapter rejects a cancelled non-stream Response', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'id': 'resp_cancelled',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'cancelled',
+        'output': [
+          {
+            'type': 'message',
+            'id': 'msg_partial',
+            'role': 'assistant',
+            'status': 'in_progress',
+            'content': [
+              {'type': 'output_text', 'text': 'partial output'},
+            ],
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('cancelled'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI adapter surfaces a streamed Responses refusal', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_refusal',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': <Object>[],
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.refusal.delta', 'output_index': 0, 'content_index': 0, 'delta': 'Request declined.'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Request declined.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test(
+    'OpenAI adapter rejects a completed event with cancelled status',
+    () async {
+      final completed = {
+        'type': 'response.completed',
+        'response': {
+          'id': 'resp_cancelled',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'cancelled',
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg_partial',
+              'role': 'assistant',
+              'status': 'in_progress',
+              'content': [
+                {'type': 'output_text', 'text': 'partial output'},
+              ],
+            },
+          ],
+        },
+      };
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode('data: ${jsonEncode(completed)}\n\n'),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectContentDelta>(), isEmpty);
+      expect(
+        events.whereType<DirectStreamError>().single.message,
+        contains('cancelled'),
+      );
+      expect(events.whereType<DirectStreamDone>(), isEmpty);
+    },
+  );
+
+  test('Responses completion recovers text missing from delta events', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_1',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'reasoning',
+            'id': 'reason_1',
+            'summary': [
+              {'type': 'summary_text', 'text': 'complete-thought'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'msg_1',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'recovered-answer'},
+            ],
+          },
+        ],
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'streamed-thought'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectReasoningDelta>().single.content,
+      'streamed-thought',
+    );
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'recovered-answer',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenAI adapter requires a Responses API terminal event', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'partial'})}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      ),
+    );
+
+    final events = await run.events.toList();
+
+    expect(events.whereType<DirectContentDelta>().single.content, 'partial');
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      contains('response.completed'),
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
 }
 
 DirectConnectionProfile _openAiProfile({
   List<String> manualModelIds = const [],
+  DirectOpenAiApiMode openAiApiMode = DirectOpenAiApiMode.chatCompletions,
+  DirectApiKeyAuthMode apiKeyAuthMode = DirectApiKeyAuthMode.bearer,
+  String? apiVersion,
 }) => DirectConnectionProfile(
   id: 'openai-one',
   name: 'OpenAI compatible',
@@ -643,6 +1298,9 @@ DirectConnectionProfile _openAiProfile({
   baseUrl: 'https://api.test/v1',
   apiKey: 'secret',
   manualModelIds: manualModelIds,
+  openAiApiMode: openAiApiMode,
+  apiKeyAuthMode: apiKeyAuthMode,
+  apiVersion: apiVersion,
 );
 
 DirectConnectionProfile _ollamaProfile({
