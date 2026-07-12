@@ -32,7 +32,7 @@ class DrawerShellPage extends ConsumerWidget {
 
     return ResponsiveDrawerLayout(
       maxFraction: isTablet ? 0.42 : 1.0,
-      edgeFraction: isTablet ? 0.36 : 0.50,
+      edgeFraction: isTablet ? 0.36 : 1.0,
       settleFraction: 0.06,
       scrimColor: scrim,
       pushContent: true,

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/chat_message.dart';
 import '../../utils/ask_conduit_context_menu.dart';
+import '../responsive_drawer_layout.dart';
 import 'compiled_markdown_document.dart';
 import 'markdown_config.dart';
 import 'markdown_compile_service.dart';
@@ -466,19 +467,21 @@ class _StreamingMarkdownWidgetState
       return result;
     }
 
-    return SelectionArea(
-      contextMenuBuilder: (context, selectableRegionState) {
-        return buildAskConduitSelectionAreaContextMenu(
-          selectableRegionState: selectableRegionState,
-          ref: ref,
-          selectedText: _selectedText,
-          composerTargetId: widget.askConduitComposerTargetId,
-        );
-      },
-      onSelectionChanged: (content) {
-        _selectedText = content?.plainText;
-      },
-      child: result,
+    return DrawerOpenGestureExclusion(
+      child: SelectionArea(
+        contextMenuBuilder: (context, selectableRegionState) {
+          return buildAskConduitSelectionAreaContextMenu(
+            selectableRegionState: selectableRegionState,
+            ref: ref,
+            selectedText: _selectedText,
+            composerTargetId: widget.askConduitComposerTargetId,
+          );
+        },
+        onSelectionChanged: (content) {
+          _selectedText = content?.plainText;
+        },
+        child: DrawerOpenGesturePriority(child: result),
+      ),
     );
   }
 
