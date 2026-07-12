@@ -2564,9 +2564,15 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
   // handles imported or legacy rows whose ids do collide.
   Conversation? summary;
   final active = ref.read(activeConversationProvider);
-  if (identity.storage != null &&
-      active != null &&
+  final activeConfirmsOpenWebUiOwnership =
+      identity.storage == null &&
+      chatStorageKindOf(active) == ChatStorageKind.openWebUi;
+  if (active != null &&
+      (identity.storage != null || activeConfirmsOpenWebUiOwnership) &&
       conversationMatchesScopedId(active, conversationId)) {
+    // Legacy callers still pass raw OpenWebUI ids. An explicitly annotated
+    // active summary can restore that ownership while the merged list loads;
+    // a Direct-local or unannotated active row is never trusted for this.
     summary = active;
   } else {
     final conversations = ref.read(conversationsProvider).asData?.value;

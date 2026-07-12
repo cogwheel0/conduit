@@ -181,6 +181,15 @@ class _FixedConversations extends Conversations {
   Future<List<Conversation>> build() async => _conversations;
 }
 
+class _PendingConversations extends Conversations {
+  _PendingConversations(this._conversations);
+
+  final Future<List<Conversation>> _conversations;
+
+  @override
+  Future<List<Conversation>> build() => _conversations;
+}
+
 class _ThrowingChatDatabaseRepository extends Fake
     implements ChatDatabaseRepository {
   _ThrowingChatDatabaseRepository(this.error);
@@ -194,6 +203,24 @@ class _ThrowingChatDatabaseRepository extends Fake
     ConversationParseOffload? offload,
   }) async {
     throw error;
+  }
+}
+
+class _OpenWebUiPreferenceRepository extends Fake
+    implements ChatDatabaseRepository {
+  ChatStorageKind? preferredStorage;
+
+  @override
+  Future<LocatedConversation?> loadConversation(
+    String chatId, {
+    ChatStorageKind? preferred,
+    ConversationParseOffload? offload,
+  }) async {
+    preferredStorage = preferred;
+    if (preferred != ChatStorageKind.openWebUi) {
+      throw AmbiguousChatStorageException(chatId);
+    }
+    return null;
   }
 }
 
@@ -1327,6 +1354,56 @@ void main() {
 
       check(api.conversationFetches).equals(0);
     });
+
+    test(
+      'active OpenWebUI summary scopes a legacy id while the list loads',
+      () async {
+        final workerManager = WorkerManager();
+        final api = _ConversationFallbackApi(workerManager);
+        final repository = _OpenWebUiPreferenceRepository();
+        final pendingConversations = Completer<List<Conversation>>();
+        final active = withChatStorageProvenance(
+          Conversation(
+            id: 'legacy-collision',
+            title: 'Active OpenWebUI chat',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+          ),
+          ChatStorageKind.openWebUi,
+        );
+        final container = ProviderContainer(
+          retry: (retryCount, error) => null,
+          overrides: [
+            authStateManagerProvider.overrideWith(
+              () => _FakeAuthStateManager(AuthStatus.authenticated),
+            ),
+            conversationsProvider.overrideWith(
+              () => _PendingConversations(pendingConversations.future),
+            ),
+            chatDatabaseRepositoryProvider.overrideWithValue(repository),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(() {
+          if (!pendingConversations.isCompleted) {
+            pendingConversations.complete(const []);
+          }
+          container.dispose();
+        });
+        addTearDown(workerManager.dispose);
+        container.read(conversationsProvider);
+        check(container.read(conversationsProvider).isLoading).isTrue();
+        container.read(activeConversationProvider.notifier).set(active);
+
+        final loaded = await container.read(
+          loadConversationProvider(active.id).future,
+        );
+
+        check(loaded.id).equals(active.id);
+        check(repository.preferredStorage).equals(ChatStorageKind.openWebUi);
+        check(api.conversationFetches).equals(1);
+      },
+    );
 
     test('default selection tolerates a local cache write failure', () async {
       final workerManager = WorkerManager();
