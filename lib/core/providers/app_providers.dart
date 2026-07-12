@@ -2588,17 +2588,37 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
       chatStorageKindOf(summary);
 
   final repository = ref.read(chatDatabaseRepositoryProvider);
-  final located = await repository.loadConversation(
-    rawConversationId,
-    preferred: preferredStorage,
-    offload: (envelope) => ref
-        .read(workerManagerProvider)
-        .schedule(
-          parseFullConversationModelWorker,
-          envelope,
-          debugLabel: 'db.assembleConversation',
-        ),
-  );
+  LocatedConversation? located;
+  try {
+    located = await repository.loadConversation(
+      rawConversationId,
+      preferred: preferredStorage,
+      offload: (envelope) => ref
+          .read(workerManagerProvider)
+          .schedule(
+            parseFullConversationModelWorker,
+            envelope,
+            debugLabel: 'db.assembleConversation',
+          ),
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'load-failed',
+      scope: 'conversation/cache',
+      error: error,
+      stackTrace: stackTrace,
+      data: {
+        'id': conversationId,
+        'storage': preferredStorage?.name ?? 'unknown',
+      },
+    );
+    // Only an explicitly OpenWebUI-owned summary may use the network fallback.
+    // Unknown provenance can mean the same raw id exists in both stores; in
+    // that case fetching OpenWebUI would silently cross the storage boundary.
+    if (preferredStorage != ChatStorageKind.openWebUi) {
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
   if (located != null) {
     final local = withChatStorageProvenance(
       located.conversation,
@@ -2873,7 +2893,19 @@ Future<Model?> defaultModel(Ref ref) async {
         ref.read(selectedModelProvider.notifier).set(availableMatch);
         if (!isLocallyMintedDirectModel(availableMatch) &&
             !isHermesModel(availableMatch)) {
-          unawaited(storage.saveLocalDefaultModel(availableMatch));
+          unawaited(
+            storage.saveLocalDefaultModel(availableMatch).onError((
+              error,
+              stack,
+            ) {
+              DebugLogger.error(
+                'Failed to save default model to cache',
+                scope: 'models/default',
+                error: error,
+                stackTrace: stack,
+              );
+            }),
+          );
         }
         DebugLogger.log(
           'settings-default',

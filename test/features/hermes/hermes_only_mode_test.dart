@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/database/database_provider.dart';
+import 'package:conduit/core/database/mappers/conversation_assembler.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -168,6 +172,31 @@ class _FixedModels extends Models {
   Future<List<Model>> build() async => _models;
 }
 
+class _FixedConversations extends Conversations {
+  _FixedConversations(this._conversations);
+
+  final List<Conversation> _conversations;
+
+  @override
+  Future<List<Conversation>> build() async => _conversations;
+}
+
+class _ThrowingChatDatabaseRepository extends Fake
+    implements ChatDatabaseRepository {
+  _ThrowingChatDatabaseRepository(this.error);
+
+  final Object error;
+
+  @override
+  Future<LocatedConversation?> loadConversation(
+    String chatId, {
+    ChatStorageKind? preferred,
+    ConversationParseOffload? offload,
+  }) async {
+    throw error;
+  }
+}
+
 class _PendingModels extends Models {
   _PendingModels(this._models);
 
@@ -196,6 +225,13 @@ class _CachedOpenWebUiStorage extends Fake implements OptimizedStorageService {
   Future<void> saveLocalModels(List<Model> models) async {}
 }
 
+class _ThrowingDefaultModelStorage extends _CachedOpenWebUiStorage {
+  @override
+  Future<void> saveLocalDefaultModel(Model? model) async {
+    throw StateError('default model cache is unavailable');
+  }
+}
+
 class _RetainedOpenWebUiApi extends ApiService {
   _RetainedOpenWebUiApi(this.workerManager)
     : super(serverConfig: _server, workerManager: workerManager);
@@ -210,6 +246,23 @@ class _RetainedOpenWebUiApi extends ApiService {
   Future<List<Model>> getModels({bool includeHidden = false}) async => const [
     _CachedOpenWebUiStorage.staleModel,
   ];
+}
+
+class _ConversationFallbackApi extends _RetainedOpenWebUiApi {
+  _ConversationFallbackApi(super.workerManager);
+
+  var conversationFetches = 0;
+
+  @override
+  Future<Conversation> getConversation(String id) async {
+    conversationFetches += 1;
+    return Conversation(
+      id: id,
+      title: 'Recovered from OpenWebUI',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+    );
+  }
 }
 
 const _usableHermes = HermesConfig(
@@ -1192,6 +1245,129 @@ void main() {
       final selected = container.read(selectedModelProvider);
       check(selected).isNotNull();
       check(isHermesModel(selected!)).isTrue();
+    });
+
+    test(
+      'OpenWebUI cache read failure falls back to the authenticated API',
+      () async {
+        final workerManager = WorkerManager();
+        final api = _ConversationFallbackApi(workerManager);
+        final summary = Conversation(
+          id: 'recoverable-chat',
+          title: 'Cached summary',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+        );
+        final container = ProviderContainer(
+          overrides: [
+            authStateManagerProvider.overrideWith(
+              () => _FakeAuthStateManager(AuthStatus.authenticated),
+            ),
+            conversationsProvider.overrideWith(
+              () => _FixedConversations([summary]),
+            ),
+            chatDatabaseRepositoryProvider.overrideWithValue(
+              _ThrowingChatDatabaseRepository(
+                StateError('corrupt OpenWebUI cache'),
+              ),
+            ),
+            apiServiceProvider.overrideWithValue(api),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(workerManager.dispose);
+        await container.read(conversationsProvider.future);
+        final scopedId = ChatStorageIdentity(
+          rawId: summary.id,
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
+
+        final loaded = await container.read(
+          loadConversationProvider(scopedId).future,
+        );
+
+        check(loaded.id).equals(summary.id);
+        check(loaded.title).equals('Recovered from OpenWebUI');
+        check(chatStorageKindOf(loaded)).equals(ChatStorageKind.openWebUi);
+        check(api.conversationFetches).equals(1);
+      },
+    );
+
+    test('unscoped chat collision never falls through to OpenWebUI', () async {
+      final workerManager = WorkerManager();
+      final api = _ConversationFallbackApi(workerManager);
+      final container = ProviderContainer(
+        retry: (retryCount, error) => null,
+        overrides: [
+          authStateManagerProvider.overrideWith(
+            () => _FakeAuthStateManager(AuthStatus.authenticated),
+          ),
+          conversationsProvider.overrideWith(
+            () => _FixedConversations(const []),
+          ),
+          chatDatabaseRepositoryProvider.overrideWithValue(
+            _ThrowingChatDatabaseRepository(
+              const AmbiguousChatStorageException('collision'),
+            ),
+          ),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(workerManager.dispose);
+      await container.read(conversationsProvider.future);
+      final provider = loadConversationProvider('collision');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+
+      await expectLater(
+        container.read(provider.future),
+        throwsA(isA<AmbiguousChatStorageException>()),
+      );
+
+      check(api.conversationFetches).equals(0);
+    });
+
+    test('default selection tolerates a local cache write failure', () async {
+      final workerManager = WorkerManager();
+      final selectedModel = _CachedOpenWebUiStorage.staleModel;
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          authStateManagerProvider.overrideWith(
+            () => _FakeAuthStateManager(AuthStatus.authenticated),
+          ),
+          preferredBackendProvider.overrideWith(
+            () => _FakePreferredBackendController(PreferredBackend.owui),
+          ),
+          apiServiceProvider.overrideWithValue(
+            _RetainedOpenWebUiApi(workerManager),
+          ),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(defaultModel: 'owui-stale'),
+          ),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _ThrowingDefaultModelStorage(),
+          ),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_disabledHermes),
+          ),
+          directModelDiscoveryProvider.overrideWith(
+            () => _FixedDirectDiscovery(const []),
+          ),
+          modelsProvider.overrideWith(() => _FixedModels([selectedModel])),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(workerManager.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directModelDiscoveryProvider.future);
+
+      final resolved = await container.read(defaultModelProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      check(resolved).identicalTo(selectedModel);
+      check(container.read(selectedModelProvider)).identicalTo(selectedModel);
     });
   });
 }
