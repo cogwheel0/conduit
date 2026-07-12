@@ -1546,16 +1546,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const SizedBox.shrink();
     }
 
-    final editor = FleatherEditor(
-      controller: controller,
-      focusNode: _contentFocusNode,
-      // Lives inside the page's SingleChildScrollView; the editor must not
-      // scroll independently so the whole note grows with the content.
-      scrollable: false,
-      expands: false,
-      padding: EdgeInsets.zero,
-      minHeight: 20 * 1.8 * AppTypography.bodyLarge,
-      textCapitalization: TextCapitalization.sentences,
+    final editor = DrawerOpenGestureExclusion(
+      child: FleatherEditor(
+        controller: controller,
+        focusNode: _contentFocusNode,
+        // Lives inside the page's SingleChildScrollView; the editor must not
+        // scroll independently so the whole note grows with the content.
+        scrollable: false,
+        expands: false,
+        padding: EdgeInsets.zero,
+        minHeight: 20 * 1.8 * AppTypography.bodyLarge,
+        textCapitalization: TextCapitalization.sentences,
+      ),
     );
 
     // Fleather has no built-in placeholder, so overlay a hint while the
