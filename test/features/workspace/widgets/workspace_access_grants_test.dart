@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -63,6 +65,28 @@ Switch _switchIn(WidgetTester tester, Key tileKey) {
   );
 }
 
+Future<void> _pumpPrincipalPicker(
+  WidgetTester tester, {
+  required WorkspacePrincipalDirectory directory,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(
+        body: SizedBox(
+          height: 600,
+          child: WorkspacePrincipalPicker(
+            directory: directory,
+            allowUsers: true,
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
 void main() {
   group('grant algebra', () {
     test('normalize drops duplicates and empty principals', () {
@@ -73,10 +97,7 @@ void main() {
         _group('g'),
       ]);
       expect(result, hasLength(2));
-      expect(
-        result.where((g) => g.principalId == 'a'),
-        hasLength(1),
-      );
+      expect(result.where((g) => g.principalId == 'a'), hasLength(1));
     });
 
     test('public grant is a single wildcard user read grant', () {
@@ -122,7 +143,11 @@ void main() {
 
     test('removing a principal drops all its grants', () {
       final grants = removeWorkspacePrincipal(
-        [_user('a', permission: WorkspaceGrantPermission.write), _user('a'), _group('g')],
+        [
+          _user('a', permission: WorkspaceGrantPermission.write),
+          _user('a'),
+          _group('g'),
+        ],
         WorkspacePrincipalType.user,
         'a',
       );
@@ -146,8 +171,10 @@ void main() {
       expect(find.byKey(const Key('workspace-access-save')), findsNothing);
       expect(find.byKey(const Key('workspace-access-add')), findsNothing);
       // Public toggle present but disabled.
-      expect(_switchIn(tester, const Key('workspace-access-public')).onChanged,
-          isNull);
+      expect(
+        _switchIn(tester, const Key('workspace-access-public')).onChanged,
+        isNull,
+      );
     });
 
     testWidgets('share=false forces read-only even when readOnly is false', (
@@ -183,8 +210,10 @@ void main() {
 
       // Editable (save + add present) but public toggle is locked off.
       expect(find.byKey(const Key('workspace-access-save')), findsOneWidget);
-      expect(_switchIn(tester, const Key('workspace-access-public')).onChanged,
-          isNull);
+      expect(
+        _switchIn(tester, const Key('workspace-access-public')).onChanged,
+        isNull,
+      );
     });
 
     testWidgets('allowUserGrants=false shows the groups-only add label', (
@@ -212,12 +241,93 @@ void main() {
         allowUserGrants: true,
       );
 
-      final publicSwitch =
-          _switchIn(tester, const Key('workspace-access-public'));
+      final publicSwitch = _switchIn(
+        tester,
+        const Key('workspace-access-public'),
+      );
       expect(publicSwitch.value, isTrue);
       expect(publicSwitch.onChanged, isNotNull);
       // Wildcard grant does not appear as a normal shared principal row.
       expect(find.byKey(const Key('workspace-access-empty')), findsOneWidget);
+    });
+  });
+
+  group('WorkspacePrincipalPicker request ordering', () {
+    testWidgets('newer user search wins when responses finish out of order', (
+      tester,
+    ) async {
+      final first = Completer<List<WorkspacePrincipalPreview>>();
+      final second = Completer<List<WorkspacePrincipalPreview>>();
+      await _pumpPrincipalPicker(
+        tester,
+        directory: WorkspacePrincipalDirectory(
+          searchUsers: (query) =>
+              query == 'first' ? first.future : second.future,
+          loadGroups: () async => const [],
+        ),
+      );
+
+      final field = find.byType(EditableText);
+      await tester.enterText(field, 'first');
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.enterText(field, 'second');
+      await tester.pump(const Duration(milliseconds: 301));
+
+      second.complete(const [
+        WorkspacePrincipalPreview(
+          id: 'new',
+          type: WorkspacePrincipalType.user,
+          name: 'New result',
+        ),
+      ]);
+      await tester.pump();
+      first.complete(const [
+        WorkspacePrincipalPreview(
+          id: 'old',
+          type: WorkspacePrincipalType.user,
+          name: 'Old result',
+        ),
+      ]);
+      await tester.pump();
+
+      expect(find.text('New result'), findsOneWidget);
+      expect(find.text('Old result'), findsNothing);
+    });
+
+    testWidgets('user search cannot overwrite the groups tab', (tester) async {
+      final users = Completer<List<WorkspacePrincipalPreview>>();
+      final groups = Completer<List<WorkspacePrincipalPreview>>();
+      await _pumpPrincipalPicker(
+        tester,
+        directory: WorkspacePrincipalDirectory(
+          searchUsers: (_) => users.future,
+          loadGroups: () => groups.future,
+        ),
+      );
+
+      await tester.enterText(find.byType(EditableText), 'person');
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.tap(find.byKey(const Key('workspace-principal-tab-groups')));
+      await tester.pump();
+      groups.complete(const [
+        WorkspacePrincipalPreview(
+          id: 'group',
+          type: WorkspacePrincipalType.group,
+          name: 'Current group',
+        ),
+      ]);
+      await tester.pump();
+      users.complete(const [
+        WorkspacePrincipalPreview(
+          id: 'user',
+          type: WorkspacePrincipalType.user,
+          name: 'Stale user',
+        ),
+      ]);
+      await tester.pump();
+
+      expect(find.text('Current group'), findsOneWidget);
+      expect(find.text('Stale user'), findsNothing);
     });
   });
 }

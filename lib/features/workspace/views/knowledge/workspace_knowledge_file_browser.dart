@@ -227,16 +227,14 @@ class _Browser extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final notifier = _notifier(ref);
     final picked = await FilePicker.pickFile(type: FileType.any);
-    if (picked == null) return;
-    final bytes = picked.path != null
-        ? await File(picked.path!).readAsBytes()
-        : await picked.readAsBytes();
-    if (bytes.isEmpty || !context.mounted) return;
-    await _guard(
-      context,
-      () => notifier.uploadBytes(picked.name, bytes),
-      failureText: l10n.workspaceKnowledgeUploadFailed,
-    );
+    if (picked == null || !context.mounted) return;
+    await _guard(context, () async {
+      final bytes = picked.path != null
+          ? await File(picked.path!).readAsBytes()
+          : await picked.readAsBytes();
+      if (bytes.isEmpty) return;
+      await notifier.uploadBytes(picked.name, bytes);
+    }, failureText: l10n.workspaceKnowledgeUploadFailed);
   }
 
   Future<void> _uploadMultiple(BuildContext context, WidgetRef ref) async {

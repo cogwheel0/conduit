@@ -598,6 +598,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
   bool _loading = false;
   Object? _error;
   List<WorkspacePrincipalPreview> _results = const [];
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -605,7 +606,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
     // Default to the only permitted tab when user grants are disallowed.
     _showingGroups = !widget.allowUsers;
     if (_showingGroups) {
-      _loadGroups();
+      _loadGroups(++_requestGeneration);
     }
   }
 
@@ -618,6 +619,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
 
   void _onQueryChanged(String value) {
     _debounce?.cancel();
+    final generation = ++_requestGeneration;
     final query = value.trim();
     if (query.isEmpty) {
       setState(() {
@@ -628,24 +630,34 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      _searchUsers(query);
+      _searchUsers(query, generation);
     });
   }
 
-  Future<void> _searchUsers(String query) async {
+  Future<void> _searchUsers(String query, int generation) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final results = await widget.directory.searchUsers(query);
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _requestGeneration ||
+          _showingGroups ||
+          _controller.text.trim() != query) {
+        return;
+      }
       setState(() {
         _results = results;
         _loading = false;
       });
     } catch (error, stackTrace) {
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _requestGeneration ||
+          _showingGroups ||
+          _controller.text.trim() != query) {
+        return;
+      }
       DebugLogger.error(
         'principal user search failed',
         scope: 'workspace/access',
@@ -659,20 +671,24 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
     }
   }
 
-  Future<void> _loadGroups() async {
+  Future<void> _loadGroups(int generation) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final results = await widget.directory.loadGroups();
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration || !_showingGroups) {
+        return;
+      }
       setState(() {
         _results = results;
         _loading = false;
       });
     } catch (error, stackTrace) {
-      if (!mounted) return;
+      if (!mounted || generation != _requestGeneration || !_showingGroups) {
+        return;
+      }
       DebugLogger.error(
         'principal group load failed',
         scope: 'workspace/access',
@@ -688,16 +704,19 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
 
   void _selectTab({required bool groups}) {
     if (_showingGroups == groups) return;
+    _debounce?.cancel();
+    final generation = ++_requestGeneration;
     setState(() {
       _showingGroups = groups;
       _results = const [];
       _error = null;
+      _loading = false;
     });
     if (groups) {
-      _loadGroups();
+      _loadGroups(generation);
     } else {
       final query = _controller.text.trim();
-      if (query.isNotEmpty) _searchUsers(query);
+      if (query.isNotEmpty) _searchUsers(query, generation);
     }
   }
 
@@ -807,25 +826,28 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
       itemBuilder: (context, index) {
         final principal = _results[index];
         final isGroup = principal.type == WorkspacePrincipalType.group;
-        return AdaptiveListTile(
-          key: Key(
-            'workspace-principal-${principal.type.name}-${principal.id}',
+        return Material(
+          color: Colors.transparent,
+          child: AdaptiveListTile(
+            key: Key(
+              'workspace-principal-${principal.type.name}-${principal.id}',
+            ),
+            leading: Icon(
+              isGroup ? Icons.groups_outlined : Icons.person_outline,
+              color: theme.iconSecondary,
+            ),
+            title: MiddleEllipsisText(
+              principal.name.isEmpty ? principal.id : principal.name,
+            ),
+            subtitle: principal.email == null || principal.email!.isEmpty
+                ? null
+                : Text(
+                    principal.email!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+            onTap: () => Navigator.of(context).pop(principal),
           ),
-          leading: Icon(
-            isGroup ? Icons.groups_outlined : Icons.person_outline,
-            color: theme.iconSecondary,
-          ),
-          title: MiddleEllipsisText(
-            principal.name.isEmpty ? principal.id : principal.name,
-          ),
-          subtitle: principal.email == null || principal.email!.isEmpty
-              ? null
-              : Text(
-                  principal.email!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-          onTap: () => Navigator.of(context).pop(principal),
         );
       },
     );
