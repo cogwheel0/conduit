@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 

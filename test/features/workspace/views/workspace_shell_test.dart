@@ -93,7 +93,7 @@ void main() {
     expect(find.byKey(const Key('workspace-list-models')), findsNothing);
   });
 
-  testWidgets('pushed compact workspace exposes app bar back navigation', (
+  testWidgets('section changes retain a back button that exits workspace', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -108,12 +108,11 @@ void main() {
           path: '/origin',
           builder: (_, _) => const Scaffold(body: Text('origin')),
         ),
-        GoRoute(
-          path: Routes.workspace,
-          name: RouteNames.workspace,
-          builder: (_, _) =>
-              const WorkspacePage(section: WorkspaceSection.models),
-        ),
+        for (final section in [WorkspaceSection.models, WorkspaceSection.tools])
+          GoRoute(
+            path: section.path,
+            builder: (_, _) => WorkspacePage(section: section),
+          ),
       ],
     );
 
@@ -125,6 +124,7 @@ void main() {
             (ref) async => _capabilities,
           ),
           workspaceModelsProvider.overrideWith(_TestWorkspaceModels.new),
+          workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
         ],
         child: MaterialApp.router(
           routerConfig: router,
@@ -135,11 +135,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    router.pushNamed(RouteNames.workspace);
+    router.push(WorkspaceSection.models.path);
     await tester.pumpAndSettle();
 
-    expect(find.byType(BackButton), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
+    expect(find.byKey(const Key('workspace-exit')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('workspace-section-tabs')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('workspace-list-tools')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-exit')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('workspace-exit')));
     await tester.pumpAndSettle();
 
     expect(find.text('origin'), findsOneWidget);
@@ -233,12 +242,93 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
     expect(NativeSheetRoutes.workspace, 'workspace-entry');
+    expect(find.byKey(const Key('settings-category-account')), findsOneWidget);
+    expect(find.byKey(const Key('settings-category-app')), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-category-ai')),
+      300,
+    );
+    expect(find.byKey(const Key('settings-category-ai')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-category-server')),
+      300,
+    );
+    expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
+    expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('settings-category-server')),
+        matching: find.byKey(const Key('workspace-entry')),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-category-support')),
+      300,
+    );
+    expect(find.byKey(const Key('settings-category-support')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('workspace-entry')),
+      -300,
+    );
     await tester.tap(find.byKey(const Key('workspace-entry')));
     await tester.pumpAndSettle();
     expect(find.text('workspace target'), findsOneWidget);
+    ErrorWidget.builder = originalErrorWidgetBuilder;
+  });
+
+  testWidgets('ProfilePage keeps Server category without workspace access', (
+    tester,
+  ) async {
+    final originalErrorWidgetBuilder = ErrorWidget.builder;
+    final router = GoRouter(
+      initialLocation: '/profile',
+      routes: [
+        GoRoute(path: '/profile', builder: (_, _) => const ProfilePage()),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          currentUserProvider2.overrideWithValue(_user),
+          currentUserProvider.overrideWith((ref) async => _user),
+          apiServiceProvider.overrideWithValue(null),
+          workspaceCapabilitiesProvider.overrideWith(
+            (ref) async => const WorkspaceCapabilities(),
+          ),
+        ],
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings-category-server')),
+      300,
+    );
+
+    expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-entry')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('settings-category-server')),
+        matching: find.byKey(const Key('data-connection-entry')),
+      ),
+      findsOneWidget,
+    );
     ErrorWidget.builder = originalErrorWidgetBuilder;
   });
 }

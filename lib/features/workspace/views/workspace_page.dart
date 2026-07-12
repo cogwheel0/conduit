@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
@@ -123,7 +124,10 @@ class _WorkspaceGateState extends StatelessWidget {
     final theme = context.conduitTheme;
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
-      appBar: AdaptiveAppBar(title: l10n.workspaceTitle),
+      appBar: AdaptiveAppBar(
+        title: l10n.workspaceTitle,
+        leading: _workspaceExitButton(context),
+      ),
       body: _WorkspaceStatusContent(kind: kind, onRetry: onRetry),
     );
   }
@@ -233,6 +237,7 @@ class WorkspaceScaffold extends ConsumerWidget {
           )
         : AdaptiveAppBar(
             title: '${l10n.workspaceTitle} · ${_sectionLabel(l10n, section)}',
+            leading: _workspaceExitButton(context),
           );
 
     return AdaptiveRouteShell(
@@ -336,24 +341,26 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
     useNativeToolbar: false,
     tintColor: theme.textPrimary,
     cupertinoNavigationBar: CupertinoNavigationBar(
-      automaticallyImplyLeading: true,
+      automaticallyImplyLeading: false,
       border: null,
       backgroundColor: Colors.transparent,
       automaticBackgroundVisibility: false,
       enableBackgroundFilterBlur: false,
+      leading: _workspaceExitButton(context),
       middle: sectionMenu(activePlatform: isIos),
       trailing: canCreate
           ? createButton(activePlatform: isIos)
           : const SizedBox.shrink(),
     ),
     appBar: AppBar(
-      automaticallyImplyLeading: true,
+      automaticallyImplyLeading: false,
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       elevation: Elevation.none,
       scrolledUnderElevation: Elevation.none,
       centerTitle: true,
+      leading: _workspaceExitButton(context),
       title: sectionMenu(activePlatform: !isIos),
       actions: canCreate
           ? [
@@ -444,7 +451,9 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       ],
       onSelected: (_, entry) {
         final next = entry.value;
-        if (next != null && next != selected) context.go(next.path);
+        if (next != null && next != selected) {
+          context.pushReplacement(next.path);
+        }
       },
     );
   }
@@ -494,11 +503,29 @@ class _WorkspaceSectionRail extends StatelessWidget {
             ),
             leading: Icon(_sectionIcon(item), size: IconSize.small),
             title: Text(_sectionLabel(l10n, item)),
-            onTap: () => context.go(item.path),
+            onTap: () => context.pushReplacement(item.path),
           ),
       ],
     );
   }
+}
+
+Widget _workspaceExitButton(BuildContext context) {
+  return Tooltip(
+    message: MaterialLocalizations.of(context).backButtonTooltip,
+    child: ConduitAdaptiveAppBarIconButton(
+      key: const Key('workspace-exit'),
+      icon: PlatformInfo.isIOS ? CupertinoIcons.back : Icons.arrow_back,
+      iconColor: context.conduitTheme.textPrimary,
+      onPressed: () {
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go(Routes.profile);
+        }
+      },
+    ),
+  );
 }
 
 /// A per-section bundle of the collection state and its notifier callbacks,

@@ -59,7 +59,18 @@ void main() {
     });
   });
 
-  test('profile menu propagates dismiss action metadata to platform', () async {
+  test('sheet item serializes a branded icon asset', () {
+    const item = NativeSheetItemConfig(
+      id: 'hermes',
+      title: 'Hermes Agent',
+      sfSymbol: 'sparkles',
+      iconAsset: 'assets/icons/hermes_agent.png',
+    );
+
+    check(item.toMap()['iconAsset']).equals('assets/icons/hermes_agent.png');
+  });
+
+  test('profile menu propagates item metadata to platform', () async {
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -72,6 +83,7 @@ void main() {
         check(item.dismissOnSelect).isTrue();
         check(item.actionId).equals('open-workspace');
         check(item.actionValue).equals('models');
+        check(item.iconAsset).equals('assets/icons/hermes_agent.png');
         return wrapResponse(result: true);
       },
     );
@@ -95,6 +107,7 @@ void main() {
                 dismissOnSelect: true,
                 actionId: 'open-workspace',
                 actionValue: 'models',
+                iconAsset: 'assets/icons/hermes_agent.png',
               ),
             ],
           ),

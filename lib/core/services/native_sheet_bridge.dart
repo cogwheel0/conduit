@@ -671,6 +671,7 @@ class NativeSheetItemConfig {
     required this.title,
     this.subtitle,
     this.sfSymbol = 'circle',
+    this.iconAsset,
     this.destructive = false,
     this.dismissOnSelect = false,
     this.actionId,
@@ -697,6 +698,7 @@ class NativeSheetItemConfig {
   final String title;
   final String? subtitle;
   final String sfSymbol;
+  final String? iconAsset;
   final bool destructive;
   final bool dismissOnSelect;
   final String? actionId;
@@ -728,6 +730,7 @@ class NativeSheetItemConfig {
       'title': title,
       'subtitle': subtitle,
       'sfSymbol': sfSymbol,
+      if (iconAsset != null) 'iconAsset': iconAsset,
       'destructive': destructive,
       'dismissOnSelect': dismissOnSelect,
       if (actionId != null) 'actionId': actionId,
@@ -1040,6 +1043,7 @@ extension on NativeSheetItemConfig {
       title: title,
       subtitle: subtitle,
       sfSymbol: sfSymbol,
+      iconAsset: iconAsset,
       destructive: destructive,
       dismissOnSelect: dismissOnSelect,
       actionId: actionId,

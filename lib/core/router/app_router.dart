@@ -53,7 +53,9 @@ bool isHermesOnlyAppLocation(String location) {
   return location == Routes.chat ||
       location == Routes.profile ||
       location == Routes.audioSettings ||
-      location == Routes.appCustomization ||
+      location == Routes.appearanceSettings ||
+      location == Routes.chatSettings ||
+      location == Routes.dataConnectionSettings ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
       location == Routes.about;
@@ -467,10 +469,34 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const AccountSettingsPage()),
     ),
     GoRoute(
-      path: Routes.appCustomization,
-      name: RouteNames.appCustomization,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const AppCustomizationPage()),
+      path: Routes.appearanceSettings,
+      name: RouteNames.appearanceSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const AppCustomizationPage(
+          section: AppCustomizationSection.appearance,
+        ),
+      ),
+    ),
+    GoRoute(
+      path: Routes.chatSettings,
+      name: RouteNames.chatSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const AppCustomizationPage(
+          section: AppCustomizationSection.chat,
+        ),
+      ),
+    ),
+    GoRoute(
+      path: Routes.dataConnectionSettings,
+      name: RouteNames.dataConnectionSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const AppCustomizationPage(
+          section: AppCustomizationSection.dataConnection,
+        ),
+      ),
     ),
     GoRoute(
       path: Routes.notificationSettings,
@@ -643,6 +669,10 @@ Page<void> _buildPlatformPage({
   required GoRouterState state,
   required Widget child,
 }) {
+  if (usesNoTransitionForNativeSheet(state.extra)) {
+    return _buildNoTransitionPage(state: state, child: child);
+  }
+
   switch (defaultTargetPlatform) {
     case TargetPlatform.iOS:
     case TargetPlatform.macOS:
@@ -659,3 +689,7 @@ Page<void> _buildPlatformPage({
       );
   }
 }
+
+@visibleForTesting
+bool usesNoTransitionForNativeSheet(Object? extra) =>
+    extra is NativeSheetNavigationOrigin;

@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/widgets/themed_dialogs.dart';
 
+/// Marks routes opened after a native sheet dismisses so Flutter does not
+/// layer a second platform transition over the outgoing app surface.
+final class NativeSheetNavigationOrigin {
+  const NativeSheetNavigationOrigin();
+}
+
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers
@@ -132,7 +138,9 @@ class Routes {
   static const String audioSettings = '/profile/audio';
   static const String accountSettings = '/profile/account';
   static const String notificationSettings = '/profile/notifications';
-  static const String appCustomization = '/profile/customization';
+  static const String appearanceSettings = '/profile/appearance';
+  static const String chatSettings = '/profile/chat';
+  static const String dataConnectionSettings = '/profile/data-connection';
   static const String hermesSettings = '/profile/hermes';
   static const String hermesJobs = '/profile/hermes/jobs';
   static const String about = '/profile/about';
@@ -161,7 +169,9 @@ class RouteNames {
   static const String audioSettings = 'audio-settings';
   static const String accountSettings = 'account-settings';
   static const String notificationSettings = 'notification-settings';
-  static const String appCustomization = 'app-customization';
+  static const String appearanceSettings = 'appearance-settings';
+  static const String chatSettings = 'chat-settings';
+  static const String dataConnectionSettings = 'data-connection-settings';
   static const String hermesSettings = 'hermes-settings';
   static const String hermesJobs = 'hermes-jobs';
   static const String about = 'about';

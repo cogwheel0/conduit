@@ -2,6 +2,14 @@ import Flutter
 import PhotosUI
 import UIKit
 
+func loadFlutterAssetImage(_ asset: String, bundle: Bundle = .main) -> UIImage? {
+    let assetKey = FlutterDartProject.lookupKey(forAsset: asset)
+    guard let assetPath = bundle.path(forResource: assetKey, ofType: nil) else {
+        return nil
+    }
+    return UIImage(contentsOfFile: assetPath)
+}
+
 private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
@@ -111,6 +119,7 @@ private struct NativeSheetItem {
     let title: String
     let subtitle: String?
     let sfSymbol: String
+    let iconAsset: String?
     let destructive: Bool
     let dismissOnSelect: Bool
     let actionId: String?
@@ -146,6 +155,7 @@ private struct NativeSheetItem {
         self.title = title
         subtitle = payload["subtitle"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
+        iconAsset = payload["iconAsset"] as? String
         destructive = payload["destructive"] as? Bool ?? false
         dismissOnSelect = payload["dismissOnSelect"] as? Bool ?? false
         actionId = payload["actionId"] as? String
@@ -816,6 +826,7 @@ private extension PlatformNativeSheetItem {
             "pending": pending,
         ]
         payload["subtitle"] = subtitle
+        payload["iconAsset"] = iconAsset
         payload["actionId"] = actionId
         payload["actionValue"] = actionValue
         payload["url"] = url
@@ -2737,7 +2748,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "profileCell")
         NativeSheetSettingsStyle.apply(to: tableView)
-        tableView.tableHeaderView = configuration.sections.isEmpty ? profileHeader() : nil
+        tableView.tableHeaderView = nil
     }
 
     override func viewDidLayoutSubviews() {
@@ -2788,7 +2799,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
-        if item.id == "profile" && !configuration.sections.isEmpty {
+        if item.id == "profile" {
             let cell = tableView.dequeueReusableCell(withIdentifier: "profileCell", for: indexPath)
             configureProfileSummaryCell(cell)
             return cell
@@ -2813,7 +2824,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     private func shouldShowDisclosure(for item: NativeSheetItem) -> Bool {
-        item.url != nil || configuration.details[item.id] != nil
+        item.url != nil || item.dismissOnSelect || configuration.details[item.id] != nil
     }
 
     private func configureProfileSummaryCell(_ cell: UITableViewCell) {
@@ -5251,8 +5262,20 @@ private func configureNavigationCell(
     content.secondaryText = item.kind == "searchablePicker"
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
-    content.image = UIImage(systemName: item.sfSymbol)
+    if let iconAsset = item.iconAsset {
+        content.image = loadFlutterAssetImage(iconAsset)?
+            .withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: item.sfSymbol)
+    } else {
+        content.image = UIImage(systemName: item.sfSymbol)
+    }
     NativeSheetSettingsStyle.applyContentStyle(&content)
+    if item.iconAsset != nil {
+        content.imageProperties.maximumSize = CGSize(
+            width: NativeSheetSettingsStyle.iconSize,
+            height: NativeSheetSettingsStyle.iconSize
+        )
+    }
     if item.destructive {
         content.textProperties.color = .systemRed
         content.imageProperties.tintColor = .systemRed

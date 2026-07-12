@@ -43,6 +43,10 @@
   "settingsCategoryAi": "AI",
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
+  "settingsDataAndConnection": "Dáta a pripojenie",
+  "settingsAppearance": "Vzhľad",
+  "settingsAppearanceSubtitle": "Motív, paleta farieb a jazyk",
+  "settingsChatSubtitle": "Správanie chatu, rýchle akcie a pokročilé prompty",
   "account": "Účet",
   "@account": {
     "description": "Section header for account-related options."

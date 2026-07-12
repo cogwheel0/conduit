@@ -102,6 +102,22 @@
   "@settingsCategorySupport": {
     "description": "Settings category for project support and app information."
   },
+  "settingsDataAndConnection": "Data & Connection",
+  "@settingsDataAndConnection": {
+    "description": "Settings destination for transport, connectivity, and related server data options."
+  },
+  "settingsAppearance": "Appearance",
+  "@settingsAppearance": {
+    "description": "Settings destination for app appearance options."
+  },
+  "settingsAppearanceSubtitle": "Theme, color palette, and language",
+  "@settingsAppearanceSubtitle": {
+    "description": "Subtitle for the app appearance settings destination."
+  },
+  "settingsChatSubtitle": "Chat behavior, quick actions, and advanced prompts",
+  "@settingsChatSubtitle": {
+    "description": "Subtitle for the chat settings destination."
+  },
   "account": "Account",
   "@account": {
     "description": "Section header for account-related options."

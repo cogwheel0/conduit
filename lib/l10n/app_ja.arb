@@ -43,6 +43,10 @@
   "settingsCategoryAi": "AI",
   "settingsCategoryServer": "サーバー",
   "settingsCategorySupport": "サポート",
+  "settingsDataAndConnection": "データと接続",
+  "settingsAppearance": "外観",
+  "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
+  "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
   "account": "アカウント",
   "@account": {
     "description": "Section header for account-related options."

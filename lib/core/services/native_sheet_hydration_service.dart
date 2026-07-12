@@ -130,9 +130,6 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.aiMemory:
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
         return;
-      case NativeSheetRoutes.hermes:
-        await _hydrateNativeHermesDetail(ctx, l10n);
-        return;
       case NativeSheetRoutes.voice:
         await _hydrateNativeVoiceDetail(l10n);
         return;
@@ -563,110 +560,6 @@ class NativeSheetHydrationService {
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.notificationSettings,
-        l10n.unableToLoadOpenWebuiSettings,
-      );
-    }
-  }
-
-  Future<void> _hydrateNativeHermesDetail(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) async {
-    try {
-      final config = _ref.read(hermesConfigProvider);
-      final hasApiKey = config.apiKey?.isNotEmpty ?? false;
-      final hasSessionKey = config.sessionKey?.isNotEmpty ?? false;
-
-      final items = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'hermes-enabled',
-          title: l10n.hermesEnableTitle,
-          subtitle: l10n.hermesEnableSubtitle,
-          sfSymbol: 'sparkles',
-          kind: NativeSheetItemKind.toggle,
-          value: config.enabled,
-        ),
-        NativeSheetItemConfig(
-          id: 'hermes-base-url',
-          title: l10n.hermesServerUrlTitle,
-          sfSymbol: 'link',
-          kind: NativeSheetItemKind.textField,
-          value: config.baseUrl,
-          placeholder: 'http://192.168.1.10:8642',
-        ),
-        NativeSheetItemConfig(
-          id: 'hermes-api-key',
-          title: l10n.hermesApiKeyTitle,
-          sfSymbol: 'key',
-          kind: NativeSheetItemKind.secureTextField,
-          value: '',
-          placeholder: hasApiKey
-              ? l10n.hermesConfiguredReplacePlaceholder
-              : l10n.hermesApiKeyPlaceholder,
-        ),
-        NativeSheetItemConfig(
-          id: 'hermes-session-key',
-          title: l10n.hermesMemoryKeyTitle,
-          sfSymbol: 'brain',
-          kind: NativeSheetItemKind.secureTextField,
-          value: '',
-          placeholder: hasSessionKey
-              ? l10n.hermesConfiguredReplacePlaceholder
-              : l10n.hermesMemoryKeyPlaceholder,
-        ),
-      ];
-
-      // Best-effort capabilities summary once the server is reachable.
-      if (config.isUsable) {
-        try {
-          final caps = await _ref.read(hermesCapabilitiesProvider.future);
-          if (!context.mounted) return;
-          final supported = <String>[
-            if (caps.runApproval) l10n.hermesCapabilityApproval,
-            if (caps.skills) l10n.hermesCapabilitySkills,
-            if (caps.toolsets) l10n.hermesCapabilityToolsets,
-            if (caps.jobs) l10n.hermesCapabilityJobs,
-            if (caps.sessions) l10n.hermesCapabilitySessions,
-          ];
-          items.add(
-            NativeSheetItemConfig(
-              id: 'hermes-capabilities-info',
-              title: l10n.hermesCapabilitiesTitle,
-              subtitle: supported.isEmpty ? '—' : supported.join(' · '),
-              sfSymbol: 'checkmark.seal',
-              kind: NativeSheetItemKind.info,
-            ),
-          );
-        } catch (_) {}
-      }
-
-      items.add(
-        NativeSheetItemConfig(
-          id: 'hermes-tab-info',
-          title: l10n.hermesTabInfoTitle,
-          subtitle: l10n.hermesTabInfoSubtitle,
-          sfSymbol: 'sidebar.left',
-          kind: NativeSheetItemKind.info,
-        ),
-      );
-
-      await _applyNativeDetail(
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.hermes,
-          title: l10n.hermesAgentSettingsTitle,
-          subtitle: l10n.hermesNativeSettingsSubtitle,
-          items: items,
-        ),
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'native-hermes-hydration-failed',
-        scope: 'native-sheet',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      await _patchNativeDetailError(
-        NativeSheetRoutes.hermes,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }

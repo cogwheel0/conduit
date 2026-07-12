@@ -5,6 +5,22 @@ import '../models/hermes_config.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_stream_parser.dart';
 
+Future<bool> testHermesDraftConnection(
+  HermesConfig config, {
+  Future<bool> Function(HermesConfig probeConfig)? probe,
+}) async {
+  // Enabling a backend and verifying its draft are separate operations.
+  final probeConfig = config.copyWith(enabled: true);
+  if (probe != null) return probe(probeConfig);
+
+  final service = HermesApiService(config: probeConfig);
+  try {
+    return await service.health();
+  } finally {
+    service.close();
+  }
+}
+
 /// Thin client for the direct Hermes Agent API server.
 ///
 /// Deliberately separate from the ~6000-line OpenWebUI `ApiService`: Hermes is a

@@ -119,6 +119,8 @@ class ProfilePage extends ConsumerWidget {
           _buildSettingsCategory(context, category, items),
           const SizedBox(height: Spacing.xl),
         ],
+        _buildDonationSection(context),
+        if (!hermesOnly) const SizedBox(height: Spacing.xl),
         if (!hermesOnly) _buildSignOutOption(context, ref),
       ],
     );
@@ -152,19 +154,63 @@ class ProfilePage extends ConsumerWidget {
           category.label(l10n),
           style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
         ),
-        if (category == SettingsCategory.support) ...[
-          const SizedBox(height: Spacing.xs),
-          Text(
-            l10n.supportConduitSubtitle,
-            style: theme.bodySmall?.copyWith(
-              color: theme.sidebarForeground.withValues(alpha: 0.75),
-            ),
-          ),
-        ],
         const SizedBox(height: Spacing.sm),
         for (var i = 0; i < categoryItems.length; i++) ...[
           categoryItems[i],
           if (i != categoryItems.length - 1) const SizedBox(height: Spacing.md),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDonationSection(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final donationOptions = [
+      _buildSupportOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.gift,
+          android: Icons.coffee,
+        ),
+        title: l10n.buyMeACoffeeTitle,
+        subtitle: l10n.buyMeACoffeeSubtitle,
+        url: _buyMeACoffeeUrl,
+        color: theme.warning,
+      ),
+      _buildSupportOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.heart,
+          android: Icons.favorite_border,
+        ),
+        title: l10n.githubSponsorsTitle,
+        subtitle: l10n.githubSponsorsSubtitle,
+        url: _githubSponsorsUrl,
+        color: theme.success,
+      ),
+    ];
+
+    return Column(
+      key: const Key('settings-donations'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.supportConduit,
+          style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
+        ),
+        const SizedBox(height: Spacing.xs),
+        Text(
+          l10n.supportConduitSubtitle,
+          style: theme.bodySmall?.copyWith(
+            color: theme.sidebarForeground.withValues(alpha: 0.75),
+          ),
+        ),
+        const SizedBox(height: Spacing.sm),
+        for (var i = 0; i < donationOptions.length; i++) ...[
+          donationOptions[i],
+          if (i != donationOptions.length - 1)
+            const SizedBox(height: Spacing.md),
         ],
       ],
     );
@@ -334,7 +380,6 @@ class ProfilePage extends ConsumerWidget {
   }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
-    final theme = context.conduitTheme;
 
     return [
       if (!hermesOnly)
@@ -343,16 +388,29 @@ class ProfilePage extends ConsumerWidget {
           child: _buildProfileHeader(context, userData, api),
         ),
       (
-        destination: SettingsDestination.appAndChat,
+        destination: SettingsDestination.appearance,
         child: _buildAccountOption(
           context,
           icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.slider_horizontal_3,
-            android: Icons.tune,
+            ios: CupertinoIcons.paintbrush,
+            android: Icons.palette_outlined,
           ),
-          title: l10n.appAndChat,
-          subtitle: l10n.appAndChatSubtitle,
-          onTap: () => context.pushNamed(RouteNames.appCustomization),
+          title: l10n.settingsAppearance,
+          subtitle: l10n.settingsAppearanceSubtitle,
+          onTap: () => context.pushNamed(RouteNames.appearanceSettings),
+        ),
+      ),
+      (
+        destination: SettingsDestination.chats,
+        child: _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.bubble_left_bubble_right,
+            android: Icons.chat_bubble_outline,
+          ),
+          title: l10n.chatSettings,
+          subtitle: l10n.settingsChatSubtitle,
+          onTap: () => context.pushNamed(RouteNames.chatSettings),
         ),
       ),
       (
@@ -400,10 +458,7 @@ class ProfilePage extends ConsumerWidget {
         destination: SettingsDestination.hermes,
         child: _buildAccountOption(
           context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bolt_horizontal_circle,
-            android: Icons.smart_toy_outlined,
-          ),
+          iconAsset: 'assets/icons/hermes_agent.png',
           title: l10n.hermesAgentSettingsTitle,
           subtitle: l10n.hermesAgentSettingsSubtitle,
           onTap: () => context.pushNamed(RouteNames.hermesSettings),
@@ -424,6 +479,21 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => context.pushNamed(RouteNames.workspace),
           ),
         ),
+      if (!hermesOnly)
+        (
+          destination: SettingsDestination.dataConnection,
+          child: _buildAccountOption(
+            context,
+            key: const Key('data-connection-entry'),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.antenna_radiowaves_left_right,
+              android: Icons.hub_outlined,
+            ),
+            title: l10n.settingsDataAndConnection,
+            subtitle: l10n.connectionHealth,
+            onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
+          ),
+        ),
       if (hermesOnly)
         (
           destination: SettingsDestination.connectOpenWebUi,
@@ -438,34 +508,6 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => context.goNamed(RouteNames.serverConnection),
           ),
         ),
-      (
-        destination: SettingsDestination.supportConduit,
-        child: _buildSupportOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.gift,
-            android: Icons.coffee,
-          ),
-          title: l10n.buyMeACoffeeTitle,
-          subtitle: l10n.buyMeACoffeeSubtitle,
-          url: _buyMeACoffeeUrl,
-          color: theme.warning,
-        ),
-      ),
-      (
-        destination: SettingsDestination.supportConduit,
-        child: _buildSupportOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.heart,
-            android: Icons.favorite_border,
-          ),
-          title: l10n.githubSponsorsTitle,
-          subtitle: l10n.githubSponsorsSubtitle,
-          url: _githubSponsorsUrl,
-          color: theme.success,
-        ),
-      ),
       (destination: SettingsDestination.about, child: _buildAboutTile(context)),
     ];
   }
@@ -489,18 +531,25 @@ class ProfilePage extends ConsumerWidget {
   Widget _buildAccountOption(
     BuildContext context, {
     Key? key,
-    required IconData icon,
+    IconData? icon,
+    String? iconAsset,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
     bool showChevron = true,
   }) {
+    assert(
+      (icon == null) != (iconAsset == null),
+      'Provide exactly one of icon or iconAsset.',
+    );
     final theme = context.conduitTheme;
     final color = theme.buttonPrimary;
     return ProfileSettingTile(
       key: key,
       onTap: onTap,
-      leading: _buildIconBadge(context, icon, color: color),
+      leading: iconAsset != null
+          ? _buildAssetIconBadge(context, iconAsset, color: color)
+          : _buildIconBadge(context, icon!, color: color),
       title: title,
       subtitle: subtitle,
       trailing: showChevron
@@ -534,6 +583,35 @@ class ProfilePage extends ConsumerWidget {
       ),
       alignment: Alignment.center,
       child: Icon(icon, color: color, size: IconSize.medium),
+    );
+  }
+
+  Widget _buildAssetIconBadge(
+    BuildContext context,
+    String asset, {
+    required Color color,
+  }) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+        border: Border.all(
+          color: color.withValues(alpha: 0.2),
+          width: BorderWidth.thin,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Image.asset(
+        asset,
+        key: const Key('hermes-settings-logo'),
+        width: IconSize.medium,
+        height: IconSize.medium,
+        color: color,
+        colorBlendMode: BlendMode.srcIn,
+        filterQuality: FilterQuality.high,
+      ),
     );
   }
 

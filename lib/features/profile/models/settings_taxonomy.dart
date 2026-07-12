@@ -23,7 +23,6 @@ enum SettingsCategory {
 /// renderers in the same information architecture.
 enum SettingsDestination {
   profile(SettingsCategory.account),
-  appAndChat(SettingsCategory.app),
   appearance(SettingsCategory.app),
   chats(SettingsCategory.app),
   voice(SettingsCategory.app),
@@ -33,7 +32,6 @@ enum SettingsDestination {
   workspace(SettingsCategory.server),
   dataConnection(SettingsCategory.server),
   connectOpenWebUi(SettingsCategory.server),
-  supportConduit(SettingsCategory.support),
   about(SettingsCategory.support);
 
   const SettingsDestination(this.category);

@@ -1171,6 +1171,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
   var title: String
   var subtitle: String? = nil
   var sfSymbol: String
+  var iconAsset: String? = nil
   var destructive: Bool
   var dismissOnSelect: Bool
   var actionId: String? = nil
@@ -1199,32 +1200,34 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     let title = pigeonVar_list[1] as! String
     let subtitle: String? = nilOrValue(pigeonVar_list[2])
     let sfSymbol = pigeonVar_list[3] as! String
-    let destructive = pigeonVar_list[4] as! Bool
-    let dismissOnSelect = pigeonVar_list[5] as! Bool
-    let actionId: String? = nilOrValue(pigeonVar_list[6])
-    let actionValue: Any? = pigeonVar_list[7]
-    let url: String? = nilOrValue(pigeonVar_list[8])
-    let kind = pigeonVar_list[9] as! PlatformNativeSheetItemKind
-    let value: Any? = pigeonVar_list[10]
-    let placeholder: String? = nilOrValue(pigeonVar_list[11])
-    let options = pigeonVar_list[12] as! [PlatformNativeSheetOption]
-    let sourceIndex: Int64? = nilOrValue(pigeonVar_list[13])
-    let sourceUrl: String? = nilOrValue(pigeonVar_list[14])
-    let sourceType: String? = nilOrValue(pigeonVar_list[15])
-    let snippet: String? = nilOrValue(pigeonVar_list[16])
-    let faviconUrl: String? = nilOrValue(pigeonVar_list[17])
-    let queries = pigeonVar_list[18] as! [String]
-    let links = pigeonVar_list[19] as! [PlatformNativeSheetLink]
-    let pending = pigeonVar_list[20] as! Bool
-    let min: Double? = nilOrValue(pigeonVar_list[21])
-    let max: Double? = nilOrValue(pigeonVar_list[22])
-    let divisions: Int64? = nilOrValue(pigeonVar_list[23])
+    let iconAsset: String? = nilOrValue(pigeonVar_list[4])
+    let destructive = pigeonVar_list[5] as! Bool
+    let dismissOnSelect = pigeonVar_list[6] as! Bool
+    let actionId: String? = nilOrValue(pigeonVar_list[7])
+    let actionValue: Any? = pigeonVar_list[8]
+    let url: String? = nilOrValue(pigeonVar_list[9])
+    let kind = pigeonVar_list[10] as! PlatformNativeSheetItemKind
+    let value: Any? = pigeonVar_list[11]
+    let placeholder: String? = nilOrValue(pigeonVar_list[12])
+    let options = pigeonVar_list[13] as! [PlatformNativeSheetOption]
+    let sourceIndex: Int64? = nilOrValue(pigeonVar_list[14])
+    let sourceUrl: String? = nilOrValue(pigeonVar_list[15])
+    let sourceType: String? = nilOrValue(pigeonVar_list[16])
+    let snippet: String? = nilOrValue(pigeonVar_list[17])
+    let faviconUrl: String? = nilOrValue(pigeonVar_list[18])
+    let queries = pigeonVar_list[19] as! [String]
+    let links = pigeonVar_list[20] as! [PlatformNativeSheetLink]
+    let pending = pigeonVar_list[21] as! Bool
+    let min: Double? = nilOrValue(pigeonVar_list[22])
+    let max: Double? = nilOrValue(pigeonVar_list[23])
+    let divisions: Int64? = nilOrValue(pigeonVar_list[24])
 
     return PlatformNativeSheetItem(
       id: id,
       title: title,
       subtitle: subtitle,
       sfSymbol: sfSymbol,
+      iconAsset: iconAsset,
       destructive: destructive,
       dismissOnSelect: dismissOnSelect,
       actionId: actionId,
@@ -1253,6 +1256,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       title,
       subtitle,
       sfSymbol,
+      iconAsset,
       destructive,
       dismissOnSelect,
       actionId,
@@ -1279,7 +1283,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1288,6 +1292,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: subtitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: sfSymbol, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: iconAsset, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: destructive, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: dismissOnSelect, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: actionId, hasher: &hasher)
@@ -1311,7 +1316,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
   }
 
   public var description: String {
-    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)))"
+    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)))"
   }
 }
 
