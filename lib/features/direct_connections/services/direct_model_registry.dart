@@ -92,9 +92,10 @@ List<Model> sanitizeRemoteDirectModels(Iterable<Model> models) => models
 List<Model> reconcileDirectModelsForDisplay({
   required Iterable<Model> remoteModels,
   required Iterable<Model> directModels,
+  required DirectModelRegistry registry,
 }) => List.unmodifiable([
   ...sanitizeRemoteDirectModels(remoteModels),
-  ...directModels.where(isLocallyMintedDirectModel),
+  ...directModels.where((model) => registry.resolve(model) != null),
 ]);
 
 /// Trusted binding table for discovered/manual direct models.

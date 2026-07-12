@@ -980,6 +980,7 @@ class Models extends _$Models {
           directModels ??
           ref.read(directModelDiscoveryProvider).value?.models ??
           const <Model>[],
+      registry: ref.read(directModelRegistryProvider),
     );
     return appendHermesModelIfUsable(
       withDirect,

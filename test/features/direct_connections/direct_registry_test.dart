@@ -146,6 +146,7 @@ void main() {
   );
 
   test('display reconciliation removes remote reserved identities', () {
+    final registry = DirectModelRegistry();
     final remote = [
       const Model(id: 'normal', name: 'Normal'),
       const Model(id: 'direct:forged:value', name: 'Forged'),
@@ -159,9 +160,41 @@ void main() {
     final reconciled = reconcileDirectModelsForDisplay(
       remoteModels: remote,
       directModels: const [],
+      registry: registry,
     );
 
     expect(reconciled.map((model) => model.id), ['normal']);
+  });
+
+  test('display reconciliation removes stale locally minted models', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://example.test/v1',
+    );
+    final stale = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'stale-model'),
+    ]).single;
+
+    expect(
+      reconcileDirectModelsForDisplay(
+        remoteModels: const [],
+        directModels: [stale],
+        registry: registry,
+      ),
+      [stale],
+    );
+
+    registry.removeProfile(profile.id);
+    final reconciled = reconcileDirectModelsForDisplay(
+      remoteModels: const [],
+      directModels: [stale],
+      registry: registry,
+    );
+
+    expect(reconciled, isEmpty);
   });
 
   test('adapter registry is string-keyed and rejects duplicates', () {
