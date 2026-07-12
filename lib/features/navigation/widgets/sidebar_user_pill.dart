@@ -26,6 +26,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
+import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 
 /// Cached bytes of the Hermes agent icon, used as the native profile-sheet
@@ -108,6 +109,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
     final api = ref.watch(apiServiceProvider);
     final l10n = AppLocalizations.of(context)!;
+    final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final displayName = hermesOnly
         ? 'Hermes Agent'
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
@@ -148,6 +150,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               api: api,
               displayName: displayName,
               initials: initial,
+              canManageWorkspace: canManageWorkspace,
               hermesAvatarBytes: hermesAvatarBytes,
             );
             final presented = await NativeSheetBridge.instance
@@ -184,6 +187,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required dynamic api,
     required String displayName,
     required String initials,
+    required bool canManageWorkspace,
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -260,110 +264,107 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         removeAvatarLabel: l10n.removeAvatar,
         currentAvatarLabel: l10n.currentAvatar,
       ),
-      menuItems: const [],
-      sections: [
+      menuItems: [
         if (!hermesOnly)
-          NativeSheetSectionConfig(
-            items: [
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.profile,
-                title: displayName,
-                subtitle: email,
-                sfSymbol: 'person.crop.circle',
-              ),
-            ],
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.profile,
+            title: displayName,
+            subtitle: email,
+            sfSymbol: 'person.crop.circle',
           ),
-        NativeSheetSectionConfig(
-          items: [
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.appearance,
-              title: appearanceTitle,
-              sfSymbol: 'paintpalette',
-            ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.chats,
-              title: chatsTitle,
-              sfSymbol: 'bubble.left.and.bubble.right',
-            ),
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.voice,
-              title: l10n.voice,
-              sfSymbol: 'waveform',
-            ),
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.aiMemory,
-                title: aiMemoryTitle,
-                sfSymbol: 'wand.and.stars',
-              ),
-            // Notifications are OWUI-socket-derived, so hide them in Hermes-only.
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.notificationSettings,
-                title: l10n.notificationsTitle,
-                sfSymbol: 'bell',
-              ),
-            if (!hermesOnly)
-              NativeSheetItemConfig(
-                id: NativeSheetRoutes.dataConnection,
-                title: dataConnectionTitle,
-                sfSymbol: 'network',
-              ),
-            const NativeSheetItemConfig(
-              id: NativeSheetRoutes.hermes,
-              title: 'Hermes Agent',
-              sfSymbol: 'sparkles',
-            ),
-            if (hermesOnly)
-              const NativeSheetItemConfig(
-                id: 'add-owui-server',
-                title: 'Connect to Open WebUI',
-                subtitle: 'Add a self-hosted Open WebUI server',
-                sfSymbol: 'plus.circle',
-              ),
-          ],
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.appearance,
+          title: appearanceTitle,
+          sfSymbol: 'paintpalette',
         ),
-        NativeSheetSectionConfig(
-          title: l10n.supportConduit,
-          footer: l10n.supportConduitSubtitle,
-          items: [
-            NativeSheetItemConfig(
-              id: 'buy-me-a-coffee',
-              title: l10n.buyMeACoffeeTitle,
-              subtitle: 'buymeacoffee.com/cogwheel0',
-              sfSymbol: 'gift',
-              url: 'https://www.buymeacoffee.com/cogwheel0',
-            ),
-            NativeSheetItemConfig(
-              id: 'github-sponsors',
-              title: l10n.githubSponsorsTitle,
-              subtitle: 'github.com/sponsors/cogwheel0',
-              sfSymbol: 'heart',
-              url: 'https://github.com/sponsors/cogwheel0',
-            ),
-          ],
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.chats,
+          title: chatsTitle,
+          sfSymbol: 'bubble.left.and.bubble.right',
         ),
-        NativeSheetSectionConfig(
-          items: [
-            NativeSheetItemConfig(
-              id: NativeSheetRoutes.helpAbout,
-              title: l10n.aboutApp,
-              sfSymbol: 'info.circle',
-            ),
-          ],
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.voice,
+          title: l10n.voice,
+          sfSymbol: 'waveform',
+        ),
+        // Notifications are OWUI-socket-derived, so hide them in Hermes-only.
+        if (!hermesOnly)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.notificationSettings,
+            title: l10n.notificationsTitle,
+            sfSymbol: 'bell',
+          ),
+        if (!hermesOnly)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.aiMemory,
+            title: aiMemoryTitle,
+            sfSymbol: 'wand.and.stars',
+          ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.hermes,
+          title: l10n.hermesAgentSettingsTitle,
+          sfSymbol: 'sparkles',
+          iconAsset: 'assets/icons/hermes_agent.png',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.hermes,
+          actionValue: true,
+        ),
+        if (canManageWorkspace)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.workspace,
+            title: l10n.workspaceTitle,
+            sfSymbol: 'square.grid.2x2',
+            dismissOnSelect: true,
+            actionId: NativeSheetRoutes.workspace,
+            actionValue: true,
+          ),
+        if (!hermesOnly)
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.dataConnection,
+            title: dataConnectionTitle,
+            sfSymbol: 'network',
+          ),
+        if (hermesOnly)
+          NativeSheetItemConfig(
+            id: 'add-owui-server',
+            title: l10n.connectOpenWebUITitle,
+            subtitle: l10n.connectOpenWebUISubtitle,
+            sfSymbol: 'plus.circle',
+            dismissOnSelect: true,
+            actionId: 'add-owui-server',
+            actionValue: true,
+          ),
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.helpAbout,
+          title: l10n.aboutApp,
+          sfSymbol: 'info.circle',
         ),
         if (!hermesOnly)
-          NativeSheetSectionConfig(
-            items: [
-              NativeSheetItemConfig(
-                id: 'sign-out',
-                title: l10n.signOut,
-                subtitle: l10n.endYourSession,
-                sfSymbol: 'rectangle.portrait.and.arrow.right',
-                destructive: true,
-              ),
-            ],
+          NativeSheetItemConfig(
+            id: 'sign-out',
+            title: l10n.signOut,
+            subtitle: l10n.endYourSession,
+            sfSymbol: 'rectangle.portrait.and.arrow.right',
+            destructive: true,
           ),
+      ],
+      supportTitle: l10n.supportConduit,
+      supportSubtitle: l10n.supportConduitSubtitle,
+      supportItems: [
+        NativeSheetItemConfig(
+          id: 'buy-me-a-coffee',
+          title: l10n.buyMeACoffeeTitle,
+          subtitle: 'buymeacoffee.com/cogwheel0',
+          sfSymbol: 'gift',
+          url: 'https://www.buymeacoffee.com/cogwheel0',
+        ),
+        NativeSheetItemConfig(
+          id: 'github-sponsors',
+          title: l10n.githubSponsorsTitle,
+          subtitle: 'github.com/sponsors/cogwheel0',
+          sfSymbol: 'heart',
+          url: 'https://github.com/sponsors/cogwheel0',
+        ),
       ],
       detailSheets: [
         if (!hermesOnly)
@@ -459,12 +460,6 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           l10n: l10n,
           id: NativeSheetRoutes.dataConnection,
           title: dataConnectionTitle,
-          subtitle: l10n.loadingShort,
-        ),
-        buildNativeLoadingDetail(
-          l10n: l10n,
-          id: NativeSheetRoutes.hermes,
-          title: 'Hermes Agent',
           subtitle: l10n.loadingShort,
         ),
         buildNativeLoadingDetail(

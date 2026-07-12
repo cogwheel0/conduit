@@ -383,7 +383,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
       ),
       title: l10n.advancedPromptOverrides,
       subtitle: l10n.advancedPromptOverridesDescription,
-      onTap: () => context.pushNamed(RouteNames.appCustomization),
+      onTap: () => context.pushNamed(RouteNames.chatSettings),
     );
   }
 

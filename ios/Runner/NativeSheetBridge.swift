@@ -2,6 +2,14 @@ import Flutter
 import PhotosUI
 import UIKit
 
+func loadFlutterAssetImage(_ asset: String, bundle: Bundle = .main) -> UIImage? {
+    let assetKey = FlutterDartProject.lookupKey(forAsset: asset)
+    guard let assetPath = bundle.path(forResource: assetKey, ofType: nil) else {
+        return nil
+    }
+    return UIImage(contentsOfFile: assetPath)
+}
+
 private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
@@ -111,7 +119,11 @@ private struct NativeSheetItem {
     let title: String
     let subtitle: String?
     let sfSymbol: String
+    let iconAsset: String?
     let destructive: Bool
+    let dismissOnSelect: Bool
+    let actionId: String?
+    let actionValue: Any?
     let url: URL?
     let kind: String
     let value: Any?
@@ -143,7 +155,11 @@ private struct NativeSheetItem {
         self.title = title
         subtitle = payload["subtitle"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
+        iconAsset = payload["iconAsset"] as? String
         destructive = payload["destructive"] as? Bool ?? false
+        dismissOnSelect = payload["dismissOnSelect"] as? Bool ?? false
+        actionId = payload["actionId"] as? String
+        actionValue = payload["actionValue"]
         if let urlString = payload["url"] as? String {
             url = URL(string: urlString)
         } else {
@@ -802,6 +818,7 @@ private extension PlatformNativeSheetItem {
             "title": title,
             "sfSymbol": sfSymbol,
             "destructive": destructive,
+            "dismissOnSelect": dismissOnSelect,
             "kind": kind.payloadName,
             "options": options.map { $0.asPayload() },
             "queries": queries,
@@ -809,6 +826,9 @@ private extension PlatformNativeSheetItem {
             "pending": pending,
         ]
         payload["subtitle"] = subtitle
+        payload["iconAsset"] = iconAsset
+        payload["actionId"] = actionId
+        payload["actionValue"] = actionValue
         payload["url"] = url
         payload["value"] = value
         payload["placeholder"] = placeholder
@@ -1809,6 +1829,15 @@ final class NativeSheetBridge: NativeSheetHostApi {
             return
         }
 
+        if item.dismissOnSelect {
+            let actionId = (item.actionId?.isEmpty == false ? item.actionId : nil) ?? item.id
+            let actionValue = item.actionValue ?? item.value ?? true
+            dismissActive { [weak self] in
+                self?.sendControlChanged(id: actionId, value: actionValue)
+            }
+            return
+        }
+
         switch item.id {
         case "profile-photo":
             presentProfilePhotoEditor()
@@ -1897,9 +1926,13 @@ final class NativeSheetBridge: NativeSheetHostApi {
         activeNavigationController?.view.endEditing(true)
     }
 
-    private func dismissActive() {
+    private func dismissActive(completion: (() -> Void)? = nil) {
         flushActiveSheetEditing()
-        activeController?.dismiss(animated: true)
+        let controller = activeController
+        controller?.dismiss(animated: true, completion: completion)
+        if controller == nil {
+            completion?()
+        }
         activeController = nil
         presentationDelegate = nil
         activeDetailTableController = nil
@@ -2715,12 +2748,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "profileCell")
         NativeSheetSettingsStyle.apply(to: tableView)
-        tableView.tableHeaderView = configuration.sections.isEmpty ? profileHeader() : nil
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        updateHeaderSize()
+        tableView.tableHeaderView = nil
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
@@ -2766,7 +2794,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
-        if item.id == "profile" && !configuration.sections.isEmpty {
+        if item.id == "profile" {
             let cell = tableView.dequeueReusableCell(withIdentifier: "profileCell", for: indexPath)
             configureProfileSummaryCell(cell)
             return cell
@@ -2791,7 +2819,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     private func shouldShowDisclosure(for item: NativeSheetItem) -> Bool {
-        item.url != nil || configuration.details[item.id] != nil
+        item.url != nil || item.dismissOnSelect || configuration.details[item.id] != nil
     }
 
     private func configureProfileSummaryCell(_ cell: UITableViewCell) {
@@ -2834,65 +2862,6 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
             row.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 11),
             row.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -11),
         ])
-    }
-
-    private func profileHeader() -> UIView {
-        let container = UIView()
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-
-        let avatar = NativeAvatarView(profile: configuration.profile, diameter: 72)
-        stack.addArrangedSubview(avatar)
-
-        let nameLabel = UILabel()
-        nameLabel.text = configuration.profile.displayName
-        nameLabel.font = .preferredFont(forTextStyle: .title3)
-        nameLabel.adjustsFontForContentSizeCategory = true
-        nameLabel.textAlignment = .center
-        nameLabel.textColor = .label
-        nameLabel.numberOfLines = 2
-        stack.addArrangedSubview(nameLabel)
-
-        let emailLabel = UILabel()
-        emailLabel.text = configuration.profile.email
-        emailLabel.font = .preferredFont(forTextStyle: .footnote)
-        emailLabel.adjustsFontForContentSizeCategory = true
-        emailLabel.textAlignment = .center
-        emailLabel.textColor = .secondaryLabel
-        emailLabel.numberOfLines = 2
-        stack.addArrangedSubview(emailLabel)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-        ])
-
-        container.frame.size = CGSize(width: tableView.bounds.width, height: 154)
-        return container
-    }
-
-    private func updateHeaderSize() {
-        guard let header = tableView.tableHeaderView else { return }
-        let targetSize = CGSize(
-            width: tableView.bounds.width,
-            height: UIView.layoutFittingCompressedSize.height
-        )
-        let size = header.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        guard header.frame.width != targetSize.width || header.frame.height != size.height
-        else { return }
-
-        header.frame.size = CGSize(width: targetSize.width, height: size.height)
-        tableView.tableHeaderView = header
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -5229,8 +5198,20 @@ private func configureNavigationCell(
     content.secondaryText = item.kind == "searchablePicker"
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
-    content.image = UIImage(systemName: item.sfSymbol)
+    if let iconAsset = item.iconAsset {
+        content.image = loadFlutterAssetImage(iconAsset)?
+            .withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: item.sfSymbol)
+    } else {
+        content.image = UIImage(systemName: item.sfSymbol)
+    }
     NativeSheetSettingsStyle.applyContentStyle(&content)
+    if item.iconAsset != nil {
+        content.imageProperties.maximumSize = CGSize(
+            width: NativeSheetSettingsStyle.iconSize,
+            height: NativeSheetSettingsStyle.iconSize
+        )
+    }
     if item.destructive {
         content.textProperties.color = .systemRed
         content.imageProperties.tintColor = .systemRed

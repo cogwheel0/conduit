@@ -30,8 +30,12 @@ import '../widgets/stt_language_picker.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
 
+enum AppCustomizationSection { appearance, chat, dataConnection }
+
 class AppCustomizationPage extends ConsumerWidget {
-  const AppCustomizationPage({super.key});
+  const AppCustomizationPage({super.key, required this.section});
+
+  final AppCustomizationSection section;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -65,10 +69,13 @@ class AppCustomizationPage extends ConsumerWidget {
     final currentLanguageCode = locale?.toLanguageTag() ?? 'system';
     final languageLabel = _resolveLanguageLabel(context, currentLanguageCode);
     final activeTheme = ref.watch(appThemePaletteProvider);
-
-    return SettingsPageScaffold(
-      title: l10n.appAndChat,
-      children: [
+    final title = switch (section) {
+      AppCustomizationSection.appearance => l10n.settingsAppearance,
+      AppCustomizationSection.chat => l10n.chatSettings,
+      AppCustomizationSection.dataConnection => l10n.settingsDataAndConnection,
+    };
+    final children = switch (section) {
+      AppCustomizationSection.appearance => <Widget>[
         _buildThemesDropdownSection(
           context,
           ref,
@@ -79,14 +86,20 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
-        _sectionGap,
+      ],
+      AppCustomizationSection.chat => <Widget>[
         _buildChatSection(context, ref, settings),
         _sectionGap,
         _buildSystemPromptsSection(context, ref),
+      ],
+      AppCustomizationSection.dataConnection => <Widget>[
+        _buildDataConnectionSection(context, ref, settings),
         _sectionGap,
         _buildSocketHealthSection(context, ref),
       ],
-    );
+    };
+
+    return SettingsPageScaffold(title: title, children: children);
   }
 
   Widget _buildThemesDropdownSection(
@@ -369,18 +382,6 @@ class AppCustomizationPage extends ConsumerWidget {
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final transportAvailability = ref.watch(socketTransportOptionsProvider);
-    var activeTransportMode = settings.socketTransportMode;
-    if (!transportAvailability.allowPolling &&
-        activeTransportMode == 'polling') {
-      activeTransportMode = 'ws';
-    } else if (!transportAvailability.allowWebsocketOnly &&
-        activeTransportMode == 'ws') {
-      activeTransportMode = 'polling';
-    }
-    final transportLabel = activeTransportMode == 'polling'
-        ? l10n.transportModePolling
-        : l10n.transportModeWs;
     final assistantTriggerLabel = _androidAssistantTriggerLabel(
       l10n,
       settings.androidAssistantTrigger,
@@ -389,38 +390,6 @@ class AppCustomizationPage extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionHeader(title: l10n.chatSettings),
-        const SizedBox(height: Spacing.sm),
-        CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.arrow_2_circlepath,
-              android: Icons.sync,
-            ),
-            color: theme.buttonPrimary,
-          ),
-          title: l10n.transportMode,
-          subtitle: transportLabel,
-          trailing:
-              transportAvailability.allowPolling &&
-                  transportAvailability.allowWebsocketOnly
-              ? _buildValueBadge(context, transportLabel)
-              : null,
-          onTap:
-              transportAvailability.allowPolling &&
-                  transportAvailability.allowWebsocketOnly
-              ? () => _showTransportModeSheet(
-                  context,
-                  ref,
-                  settings,
-                  allowPolling: transportAvailability.allowPolling,
-                  allowWebsocketOnly: transportAvailability.allowWebsocketOnly,
-                )
-              : null,
-          showChevron:
-              transportAvailability.allowPolling &&
-              transportAvailability.allowWebsocketOnly,
-        ),
         const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: _buildIconBadge(
@@ -460,6 +429,80 @@ class AppCustomizationPage extends ConsumerWidget {
               .read(appSettingsProvider.notifier)
               .setTemporaryChatByDefault(!settings.temporaryChatByDefault),
         ),
+        if (Platform.isAndroid) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: _buildIconBadge(
+              context,
+              Icons.assistant,
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.androidAssistantTitle,
+            subtitle: assistantTriggerLabel,
+            onTap: () =>
+                _showAndroidAssistantTriggerSheet(context, ref, settings),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDataConnectionSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final transportAvailability = ref.watch(socketTransportOptionsProvider);
+    var activeTransportMode = settings.socketTransportMode;
+    if (!transportAvailability.allowPolling &&
+        activeTransportMode == 'polling') {
+      activeTransportMode = 'ws';
+    } else if (!transportAvailability.allowWebsocketOnly &&
+        activeTransportMode == 'ws') {
+      activeTransportMode = 'polling';
+    }
+    final transportLabel = activeTransportMode == 'polling'
+        ? l10n.transportModePolling
+        : l10n.transportModeWs;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(title: l10n.settingsDataAndConnection),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.arrow_2_circlepath,
+              android: Icons.sync,
+            ),
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.transportMode,
+          subtitle: transportLabel,
+          trailing:
+              transportAvailability.allowPolling &&
+                  transportAvailability.allowWebsocketOnly
+              ? _buildValueBadge(context, transportLabel)
+              : null,
+          onTap:
+              transportAvailability.allowPolling &&
+                  transportAvailability.allowWebsocketOnly
+              ? () => _showTransportModeSheet(
+                  context,
+                  ref,
+                  settings,
+                  allowPolling: transportAvailability.allowPolling,
+                  allowWebsocketOnly: transportAvailability.allowWebsocketOnly,
+                )
+              : null,
+          showChevron:
+              transportAvailability.allowPolling &&
+              transportAvailability.allowWebsocketOnly,
+        ),
         const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: _buildIconBadge(
@@ -482,20 +525,6 @@ class AppCustomizationPage extends ConsumerWidget {
                 !settings.disableHapticsWhileStreaming,
               ),
         ),
-        if (Platform.isAndroid) ...[
-          const SizedBox(height: Spacing.sm),
-          CustomizationTile(
-            leading: _buildIconBadge(
-              context,
-              Icons.assistant,
-              color: theme.buttonPrimary,
-            ),
-            title: l10n.androidAssistantTitle,
-            subtitle: assistantTriggerLabel,
-            onTap: () =>
-                _showAndroidAssistantTriggerSheet(context, ref, settings),
-          ),
-        ],
       ],
     );
   }

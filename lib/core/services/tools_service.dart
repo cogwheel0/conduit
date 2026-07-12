@@ -12,10 +12,8 @@ class ToolsService {
 
   Future<List<Tool>> getTools() async {
     try {
-      final response = await _apiService.dio.get('/api/v1/tools/');
-      return (response.data as List)
-          .map((json) => Tool.fromJson(json))
-          .toList();
+      final tools = await _apiService.getTools();
+      return tools.map(Tool.fromJson).toList(growable: false);
     } on DioException catch (e) {
       throw ApiErrorHandler().transformError(e);
     }

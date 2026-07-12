@@ -4,13 +4,23 @@ import 'package:conduit/core/services/navigation_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('native-sheet destinations suppress the second page transition', () {
+    check(
+      usesNoTransitionForNativeSheet(const NativeSheetNavigationOrigin()),
+    ).isTrue();
+    check(usesNoTransitionForNativeSheet(null)).isFalse();
+    check(usesNoTransitionForNativeSheet(true)).isFalse();
+  });
+
   group('Hermes-only route policy', () {
     test('allows app-local profile and Hermes settings surfaces', () {
       for (final location in <String>[
         Routes.chat,
         Routes.profile,
         Routes.audioSettings,
-        Routes.appCustomization,
+        Routes.appearanceSettings,
+        Routes.chatSettings,
+        Routes.dataConnectionSettings,
         Routes.hermesSettings,
         Routes.hermesJobs,
         Routes.about,

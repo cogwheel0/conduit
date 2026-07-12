@@ -11,7 +11,7 @@ import 'profile_text_styles.dart';
 class CustomizationTile extends StatelessWidget {
   const CustomizationTile({
     super.key,
-    required this.leading,
+    this.leading,
     required this.title,
     required this.subtitle,
     this.subtitleTrailing,
@@ -20,7 +20,7 @@ class CustomizationTile extends StatelessWidget {
     this.showChevron = true,
   });
 
-  final Widget leading;
+  final Widget? leading;
   final String title;
   final String subtitle;
 
@@ -40,8 +40,7 @@ class CustomizationTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          leading,
-          const SizedBox(width: Spacing.md),
+          if (leading != null) ...[leading!, const SizedBox(width: Spacing.md)],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

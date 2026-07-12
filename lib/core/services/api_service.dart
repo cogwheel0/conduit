@@ -20,6 +20,11 @@ import '../models/server_config.dart';
 import '../models/server_memory.dart';
 import '../models/server_user_settings.dart';
 import '../models/user.dart';
+import '../../features/workspace/models/workspace_common.dart';
+import '../../features/workspace/models/workspace_knowledge.dart';
+import '../../features/workspace/models/workspace_prompt_command.dart';
+import '../../features/workspace/models/workspace_resources.dart';
+import '../../features/workspace/models/workspace_tool_content.dart';
 import '../auth/api_auth_interceptor.dart';
 import '../error/api_error_interceptor.dart';
 import '../sync/sync_api_client.dart' show SyncTerminalException;
@@ -3303,6 +3308,322 @@ class ApiService {
   }
 
   // Knowledge Base
+  Future<WorkspacePagedResponse<WorkspaceKnowledgeSummary>>
+  getWorkspaceKnowledge({
+    String? query,
+    String? viewOption,
+    String? source,
+    int page = 1,
+  }) async {
+    final normalizedQuery = query?.trim() ?? '';
+    final normalizedView = viewOption?.trim() ?? '';
+    final normalizedSource = source?.trim() ?? '';
+    final isFiltered =
+        normalizedQuery.isNotEmpty ||
+        normalizedView.isNotEmpty ||
+        normalizedSource.isNotEmpty;
+    final response = await _dio.get(
+      isFiltered ? '/api/v1/knowledge/search' : '/api/v1/knowledge/',
+      queryParameters: {
+        'page': page,
+        if (normalizedQuery.isNotEmpty) 'query': normalizedQuery,
+        if (normalizedView.isNotEmpty) 'view_option': normalizedView,
+        if (normalizedSource.isNotEmpty) 'source': normalizedSource,
+      },
+    );
+    return WorkspacePagedResponse.fromJson(
+      response.data,
+      WorkspaceKnowledgeSummary.fromJson,
+    );
+  }
+
+  Future<WorkspaceKnowledgeDetail?> getWorkspaceKnowledgeDetail(
+    String id,
+  ) async {
+    final response = await _dio.get('/api/v1/knowledge/$id');
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> createWorkspaceKnowledge(
+    WorkspaceKnowledgeForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/create',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> updateWorkspaceKnowledge(
+    String id,
+    WorkspaceKnowledgeForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/update',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> updateWorkspaceKnowledgeAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/access/update',
+      data: {'access_grants': workspaceGrantInputs(grants)},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeFilePage> getWorkspaceKnowledgeFiles(
+    String id, {
+    String? query,
+    String? viewOption,
+    String? orderBy,
+    String? direction,
+    String? directoryId,
+    bool includeContent = false,
+    int page = 1,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/knowledge/$id/files',
+      queryParameters: <String, dynamic>{
+        'page': page,
+        'include_content': includeContent,
+        if (query != null && query.isNotEmpty) 'query': query,
+        if (viewOption != null && viewOption.isNotEmpty)
+          'view_option': viewOption,
+        if (orderBy != null && orderBy.isNotEmpty) 'order_by': orderBy,
+        if (direction != null && direction.isNotEmpty) 'direction': direction,
+        'directory_id': ?directoryId,
+      },
+    );
+    return WorkspaceKnowledgeFilePage.fromJson(response.data);
+  }
+
+  Future<List<WorkspacePendingFile>> getWorkspaceKnowledgePendingFiles(
+    String id,
+  ) async {
+    final response = await _dio.get(
+      '/api/v1/knowledge/$id/files/pending',
+      queryParameters: const {'stream': false},
+    );
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspacePendingFile.fromJson).toList(growable: false);
+  }
+
+  Future<WorkspaceKnowledgeDetail?> attachWorkspaceKnowledgeFile(
+    String id,
+    String fileId, {
+    String? directoryId,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/file/add',
+      data: {'file_id': fileId, 'directory_id': directoryId},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> reindexWorkspaceKnowledgeFile(
+    String id,
+    String fileId,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/file/update',
+      data: {'file_id': fileId},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> removeWorkspaceKnowledgeFile(
+    String id,
+    String fileId, {
+    bool deleteFile = true,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/file/remove',
+      queryParameters: {'delete_file': deleteFile},
+      data: {'file_id': fileId},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDetail?> attachWorkspaceKnowledgeFiles(
+    String id,
+    List<({String fileId, String? directoryId})> files,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/files/batch/add',
+      data: files
+          .map(
+            (file) => {
+              'file_id': file.fileId,
+              'directory_id': file.directoryId,
+            },
+          )
+          .toList(growable: false),
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceKnowledgeDirectory> createWorkspaceKnowledgeDirectory(
+    String id, {
+    required String name,
+    String? parentId,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/dirs/create',
+      data: {'name': name, 'parent_id': parentId},
+    );
+    return WorkspaceKnowledgeDirectory.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<WorkspaceKnowledgeDirectory> updateWorkspaceKnowledgeDirectory(
+    String id,
+    String directoryId, {
+    String? name,
+    String? parentId,
+    bool updateParent = false,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/dirs/$directoryId/update',
+      data: {'name': ?name, if (updateParent) 'parent_id': parentId},
+    );
+    return WorkspaceKnowledgeDirectory.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<bool> deleteWorkspaceKnowledgeDirectory(
+    String id,
+    String directoryId, {
+    bool moveFiles = true,
+  }) async {
+    final response = await _dio.delete(
+      '/api/v1/knowledge/$id/dirs/$directoryId/delete',
+      queryParameters: {'move_files': moveFiles},
+    );
+    return workspaceJsonMap(response.data)['status'] == true;
+  }
+
+  Future<bool> moveWorkspaceKnowledgeFile(
+    String id,
+    String fileId, {
+    String? directoryId,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/file/move',
+      data: {'file_id': fileId, 'directory_id': directoryId},
+    );
+    return workspaceJsonMap(response.data)['status'] == true;
+  }
+
+  Future<WorkspaceSyncDiff> diffWorkspaceKnowledge(
+    String id,
+    List<Map<String, dynamic>> manifest,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/sync/diff',
+      data: {'manifest': manifest},
+    );
+    return WorkspaceSyncDiff.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<bool> cleanupWorkspaceKnowledgeSync(
+    String id, {
+    required List<String> fileIds,
+    List<String> directoryIds = const [],
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/sync/cleanup',
+      data: {'file_ids': fileIds, 'dir_ids': directoryIds},
+    );
+    return workspaceJsonMap(response.data)['status'] == true;
+  }
+
+  Future<List<int>> exportWorkspaceKnowledge(String id) async {
+    final response = await _dio.get<List<int>>(
+      '/api/v1/knowledge/$id/export',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return response.data ?? const <int>[];
+  }
+
+  /// Removes every file (and optionally directories) from a knowledge base while
+  /// keeping the base itself. Owner/write-access or admin only, server-enforced.
+  Future<WorkspaceKnowledgeDetail?> resetWorkspaceKnowledge(
+    String id, {
+    bool includeDirectories = true,
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/knowledge/$id/reset',
+      queryParameters: {'include_directories': includeDirectories},
+    );
+    return response.data is Map
+        ? WorkspaceKnowledgeDetail.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  /// Uploads an in-memory file to `/files/` and returns the new file id. Used by
+  /// the workspace knowledge browser for both binary uploads and generated text
+  /// files. Mirrors [uploadFileWithProgress] but takes bytes directly.
+  Future<String> uploadFileBytes(
+    String fileName,
+    List<int> bytes, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    _traceApi('Uploading file bytes: $fileName (${bytes.length} bytes)');
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: fileName),
+    });
+    final response = await _dio.post(
+      '/api/v1/files/',
+      data: formData,
+      onSendProgress: onProgress,
+    );
+    return response.data['id'] as String;
+  }
+
   Future<List<KnowledgeBase>> getKnowledgeBases() async {
     _traceApi('Fetching knowledge bases');
     final response = await _dio.get('/api/v1/knowledge/');
@@ -4511,6 +4832,297 @@ class ApiService {
     }
   }
 
+  Map<String, dynamic> _workspaceListQuery({
+    String? query,
+    String? viewOption,
+    String? tag,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) => <String, dynamic>{
+    'page': page,
+    if (query != null && query.isNotEmpty) 'query': query,
+    if (viewOption != null && viewOption.isNotEmpty) 'view_option': viewOption,
+    if (tag != null && tag.isNotEmpty) 'tag': tag,
+    if (orderBy != null && orderBy.isNotEmpty) 'order_by': orderBy,
+    if (direction != null && direction.isNotEmpty) 'direction': direction,
+  };
+
+  Future<WorkspacePagedResponse<WorkspaceModelSummary>> getWorkspaceModels({
+    String? query,
+    String? viewOption,
+    String? tag,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/models/list',
+      queryParameters: _workspaceListQuery(
+        query: query,
+        viewOption: viewOption,
+        tag: tag,
+        orderBy: orderBy,
+        direction: direction,
+        page: page,
+      ),
+    );
+    return WorkspacePagedResponse.fromJson(
+      response.data,
+      WorkspaceModelSummary.fromJson,
+    );
+  }
+
+  Future<WorkspaceModelDetail?> getWorkspaceModel(String id) async {
+    final response = await _dio.get(
+      '/api/v1/models/model',
+      queryParameters: {'id': id},
+    );
+    return response.data is Map
+        ? WorkspaceModelSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceModelDetail?> createWorkspaceModel(
+    WorkspaceModelForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/models/create',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceModelSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceModelDetail?> updateWorkspaceModel(
+    WorkspaceModelForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/models/model/update',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceModelSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceModelDetail?> updateWorkspaceModelAccess(
+    String id,
+    String name,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/models/model/access/update',
+      data: {
+        'id': id,
+        'name': name,
+        'access_grants': workspaceGrantInputs(grants),
+      },
+    );
+    return response.data is Map
+        ? WorkspaceModelSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<List<WorkspaceModelDetail>> exportWorkspaceModels() async {
+    final response = await _dio.get('/api/v1/models/export');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+  }
+
+  Future<bool> importWorkspaceModels(List<Map<String, dynamic>> models) async {
+    final response = await _dio.post(
+      '/api/v1/models/import',
+      data: {'models': models},
+    );
+    return response.data == true;
+  }
+
+  Future<List<WorkspaceModelDetail>> syncWorkspaceModels() async {
+    final response = await _dio.post('/api/v1/models/sync');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+  }
+
+  Future<List<String>> getWorkspaceModelTags() async {
+    final response = await _dio.get('/api/v1/models/tags');
+    return workspaceStringList(response.data);
+  }
+
+  /// Base models available to compose custom workspace models from. Open WebUI
+  /// serves these at `/api/v1/models/base` (the raw connections/pipelines,
+  /// distinct from the user-facing `/models/list`).
+  Future<List<WorkspaceModelSummary>> getWorkspaceBaseModels() async {
+    final response = await _dio.get('/api/v1/models/base');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceModelSummary.fromJson).toList(growable: false);
+  }
+
+  /// Fetches a model's profile image bytes from the dedicated
+  /// `/api/v1/models/model/profile/image` endpoint. Returns null when the
+  /// server has no stored image (or serves a redirect to a remote URL).
+  Future<List<int>?> getWorkspaceModelProfileImage(String id) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        '/api/v1/models/model/profile/image',
+        queryParameters: {'id': id},
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      final data = response.data;
+      return data == null || data.isEmpty ? null : data;
+    } on DioException {
+      return null;
+    }
+  }
+
+  Future<WorkspaceModelDetail?> toggleWorkspaceModel(String id) async {
+    final response = await _dio.post(
+      '/api/v1/models/model/toggle',
+      queryParameters: {'id': id},
+    );
+    return response.data is Map
+        ? WorkspaceModelSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<bool> deleteWorkspaceModel(String id) async {
+    final response = await _dio.post(
+      '/api/v1/models/model/delete',
+      data: {'id': id},
+    );
+    return response.data == true;
+  }
+
+  Future<WorkspacePagedResponse<WorkspaceSkillSummary>> getWorkspaceSkills({
+    String? query,
+    String? viewOption,
+    int page = 1,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/skills/list',
+      queryParameters: _workspaceListQuery(
+        query: query,
+        viewOption: viewOption,
+        page: page,
+      ),
+    );
+    return WorkspacePagedResponse.fromJson(
+      response.data,
+      WorkspaceSkillSummary.fromJson,
+    );
+  }
+
+  Future<WorkspaceSkillDetail?> getWorkspaceSkill(String id) async {
+    final response = await _dio.get('/api/v1/skills/id/$id');
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceSkillDetail?> createWorkspaceSkill(
+    WorkspaceSkillForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/skills/create',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceSkillDetail?> updateWorkspaceSkill(
+    String id,
+    WorkspaceSkillForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/skills/id/$id/update',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceSkillDetail?> updateWorkspaceSkillAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/skills/id/$id/access/update',
+      data: {'access_grants': workspaceGrantInputs(grants)},
+    );
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<List<WorkspaceSkillDetail>> exportWorkspaceSkills() async {
+    final response = await _dio.get('/api/v1/skills/export');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceSkillSummary.fromJson).toList(growable: false);
+  }
+
+  Future<WorkspaceSkillDetail?> toggleWorkspaceSkill(String id) async {
+    final response = await _dio.post('/api/v1/skills/id/$id/toggle');
+    return response.data is Map
+        ? WorkspaceSkillSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<bool> deleteWorkspaceSkill(String id) async {
+    final response = await _dio.delete('/api/v1/skills/id/$id/delete');
+    return response.data == true;
+  }
+
+  Future<WorkspacePagedResponse<WorkspacePrincipalPreview>>
+  searchWorkspaceUsers(String query, {int page = 1}) async {
+    final response = await _dio.get(
+      '/api/v1/users/search',
+      queryParameters: {'query': query, 'page': page},
+    );
+    return WorkspacePagedResponse.fromJson(
+      response.data,
+      WorkspacePrincipalPreview.user,
+    );
+  }
+
+  Future<List<WorkspacePrincipalPreview>> getWorkspaceGroups() async {
+    final response = await _dio.get('/api/v1/groups/');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspacePrincipalPreview.group).toList(growable: false);
+  }
+
   // Prompts
   Future<List<Prompt>> getPrompts() async {
     _traceApi('Fetching prompts');
@@ -4545,23 +5157,205 @@ class ApiService {
     }
   }
 
+  Future<WorkspacePagedResponse<WorkspacePromptSummary>> getWorkspacePrompts({
+    String? query,
+    String? viewOption,
+    String? tag,
+    String? orderBy,
+    String? direction,
+    int page = 1,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/prompts/list',
+      queryParameters: _workspaceListQuery(
+        query: query,
+        viewOption: viewOption,
+        tag: tag,
+        orderBy: orderBy,
+        direction: direction,
+        page: page,
+      ),
+    );
+    return WorkspacePagedResponse.fromJson(
+      response.data,
+      WorkspacePromptSummary.fromJson,
+    );
+  }
+
+  Future<WorkspacePromptDetail?> getWorkspacePrompt(String id) async {
+    final response = await _dio.get('/api/v1/prompts/id/$id');
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspacePromptDetail?> createWorkspacePrompt(
+    WorkspacePromptForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/prompts/create',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspacePromptDetail?> updateWorkspacePrompt(
+    String id,
+    WorkspacePromptForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/prompts/id/$id/update',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspacePromptDetail?> updateWorkspacePromptAccess(
+    String id,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/prompts/id/$id/access/update',
+      data: {'access_grants': workspaceGrantInputs(grants)},
+    );
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<List<String>> getWorkspacePromptTags() async {
+    final response = await _dio.get('/api/v1/prompts/tags');
+    return workspaceStringList(response.data);
+  }
+
+  Future<WorkspacePromptDetail?> updateWorkspacePromptMetadata(
+    String id, {
+    required String name,
+    required String command,
+    List<String> tags = const [],
+  }) async {
+    final response = await _dio.post(
+      '/api/v1/prompts/id/$id/update/meta',
+      data: {'name': name, 'command': command, 'tags': tags},
+    );
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspacePromptDetail?> setWorkspacePromptVersion(
+    String id,
+    String versionId,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/prompts/id/$id/update/version',
+      data: {'version_id': versionId},
+    );
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspacePromptDetail?> toggleWorkspacePrompt(String id) async {
+    final response = await _dio.post('/api/v1/prompts/id/$id/toggle');
+    return response.data is Map
+        ? WorkspacePromptSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<List<WorkspacePromptHistoryEntry>> getWorkspacePromptHistory(
+    String id, {
+    int page = 0,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/prompts/id/$id/history',
+      queryParameters: {'page': page < 0 ? 0 : page},
+    );
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspacePromptHistoryEntry.fromJson).toList(growable: false);
+  }
+
+  Future<WorkspacePromptHistoryEntry> getWorkspacePromptHistoryEntry(
+    String promptId,
+    String historyId,
+  ) async {
+    final response = await _dio.get(
+      '/api/v1/prompts/id/$promptId/history/$historyId',
+    );
+    return WorkspacePromptHistoryEntry.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<bool> deleteWorkspacePromptHistoryEntry(
+    String promptId,
+    String historyId,
+  ) async {
+    final response = await _dio.delete(
+      '/api/v1/prompts/id/$promptId/history/$historyId',
+    );
+    return response.data == true;
+  }
+
+  Future<Map<String, dynamic>> getWorkspacePromptHistoryDiff(
+    String promptId, {
+    required String fromId,
+    required String toId,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/prompts/id/$promptId/history/diff',
+      queryParameters: {'from_id': fromId, 'to_id': toId},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createPrompt({
     required String title,
     required String content,
+    String? command,
     String? description,
     List<String>? tags,
   }) async {
-    _traceApi('Creating prompt: $title');
-    final response = await _dio.post(
-      '/api/v1/prompts/',
-      data: {
-        'title': title,
-        'content': content,
-        'description': ?description,
-        'tags': ?tags,
-      },
+    // The workspace prompt API expects a bare command token (no leading slash).
+    // Strip any caller-supplied slash and slugify the title for the fallback.
+    final normalizedCommand = command?.trim().isNotEmpty == true
+        ? WorkspacePromptCommand.strip(command!)
+        : WorkspacePromptCommand.slugify(title);
+    final created = await createWorkspacePrompt(
+      WorkspacePromptForm(
+        command: normalizedCommand,
+        name: title,
+        content: content,
+        meta: description == null ? null : {'description': description},
+        tags: tags ?? const [],
+      ),
     );
-    return response.data as Map<String, dynamic>;
+    if (created == null) throw StateError('Prompt create returned no record.');
+    return <String, dynamic>{
+      'id': created.id,
+      'command': created.command,
+      'name': created.name,
+      'content': created.content,
+    };
   }
 
   Future<void> updatePrompt(
@@ -4571,32 +5365,46 @@ class ApiService {
     String? description,
     List<String>? tags,
   }) async {
-    _traceApi('Updating prompt: $id');
-    await _dio.put(
-      '/api/v1/prompts/$id',
-      data: {
-        'title': ?title,
-        'content': ?content,
-        'description': ?description,
-        'tags': ?tags,
-      },
+    final current = await getWorkspacePrompt(id);
+    if (current == null) throw StateError('Prompt "$id" was not found.');
+    await updateWorkspacePrompt(
+      id,
+      WorkspacePromptForm(
+        command: current.command,
+        name: title ?? current.name,
+        content: content ?? current.content,
+        data: current.data,
+        meta: description == null
+            ? current.meta
+            : {...?current.meta, 'description': description},
+        tags: tags ?? current.tags,
+        accessGrants: current.accessGrants
+            .map(WorkspaceAccessGrantInput.fromGrant)
+            .toList(growable: false),
+        versionId: current.versionId,
+      ),
     );
   }
 
   Future<void> deletePrompt(String id) async {
-    _traceApi('Deleting prompt: $id');
-    await _dio.delete('/api/v1/prompts/$id');
+    final response = await _dio.delete('/api/v1/prompts/id/$id/delete');
+    if (response.data == false) {
+      throw StateError('Failed to delete prompt: $id');
+    }
   }
 
   // Tools & Functions
   Future<List<Map<String, dynamic>>> getTools() async {
     _traceApi('Fetching tools');
     final response = await _dio.get('/api/v1/tools/');
-    final data = response.data;
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
-    return [];
+    return workspaceJsonList(response.data);
+  }
+
+  Future<List<WorkspaceToolSummary>> getWorkspaceTools() async {
+    final response = await _dio.get('/api/v1/tools/list');
+    return workspaceJsonList(
+      response.data,
+    ).map(WorkspaceToolSummary.fromJson).toList(growable: false);
   }
 
   Future<List<Map<String, dynamic>>> getFunctions() async {
@@ -4609,16 +5417,48 @@ class ApiService {
     return [];
   }
 
+  Future<WorkspaceToolDetail?> createWorkspaceTool(
+    WorkspaceToolForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/tools/create',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceToolSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
   Future<Map<String, dynamic>> createTool({
     required String name,
     required Map<String, dynamic> spec,
+    String? id,
+    String? content,
+    String? description,
   }) async {
-    _traceApi('Creating tool: $name');
-    final response = await _dio.post(
-      '/api/v1/tools/',
-      data: {'name': name, 'spec': spec},
+    // Tool ids must be Python identifiers (letters/digits/underscore, no leading
+    // digit); derive the fallback via nameToId rather than a hyphenated slug.
+    final toolId = id ?? WorkspaceToolContent.nameToId(name);
+    final source = content ?? spec['content']?.toString() ?? '';
+    final created = await createWorkspaceTool(
+      WorkspaceToolForm(
+        id: toolId,
+        name: name,
+        content: source,
+        meta: {
+          'description': ?description,
+          if (spec.isNotEmpty) 'manifest': spec,
+        },
+      ),
     );
-    return response.data as Map<String, dynamic>;
+    if (created == null) throw StateError('Tool create returned no record.');
+    return <String, dynamic>{
+      'id': created.id,
+      'name': created.name,
+      'meta': created.meta,
+    };
   }
 
   Future<Map<String, dynamic>> createFunction({
@@ -4641,18 +5481,64 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  Future<WorkspaceToolDetail?> updateWorkspaceTool(
+    String toolId,
+    WorkspaceToolForm form,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/tools/id/$toolId/update',
+      data: form.toJson(),
+    );
+    return response.data is Map
+        ? WorkspaceToolSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
+  Future<WorkspaceToolDetail?> updateWorkspaceToolAccess(
+    String toolId,
+    List<WorkspaceAccessGrantInput> grants,
+  ) async {
+    final response = await _dio.post(
+      '/api/v1/tools/id/$toolId/access/update',
+      data: {'access_grants': workspaceGrantInputs(grants)},
+    );
+    return response.data is Map
+        ? WorkspaceToolSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
   Future<Map<String, dynamic>> updateTool(
     String toolId, {
     String? name,
     Map<String, dynamic>? spec,
+    String? content,
     String? description,
   }) async {
-    _traceApi('Updating tool: $toolId');
-    final response = await _dio.post(
-      '/api/v1/tools/id/$toolId/update',
-      data: {'name': ?name, 'spec': ?spec, 'description': ?description},
+    final current = WorkspaceToolSummary.fromJson(await getTool(toolId));
+    final updated = await updateWorkspaceTool(
+      toolId,
+      WorkspaceToolForm(
+        id: toolId,
+        name: name ?? current.name,
+        content:
+            content ?? spec?['content']?.toString() ?? current.content ?? '',
+        meta: {...current.meta, 'description': ?description, 'manifest': ?spec},
+        accessGrants: current.accessGrants
+            .map(WorkspaceAccessGrantInput.fromGrant)
+            .toList(growable: false),
+      ),
     );
-    return response.data as Map<String, dynamic>;
+    if (updated == null) throw StateError('Tool update returned no record.');
+    return <String, dynamic>{
+      'id': updated.id,
+      'name': updated.name,
+      'content': updated.content,
+      'meta': updated.meta,
+    };
   }
 
   Future<void> deleteTool(String toolId) async {
@@ -4664,6 +5550,15 @@ class ApiService {
     _traceApi('Fetching tool valves: $toolId');
     final response = await _dio.get('/api/v1/tools/id/$toolId/valves');
     return response.data as Map<String, dynamic>;
+  }
+
+  Future<WorkspaceValveSpec?> getToolValvesSpec(String toolId) async {
+    final response = await _dio.get('/api/v1/tools/id/$toolId/valves/spec');
+    return response.data is Map
+        ? WorkspaceValveSpec.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
   }
 
   Future<Map<String, dynamic>> updateToolValves(
@@ -4682,6 +5577,17 @@ class ApiService {
     _traceApi('Fetching user tool valves: $toolId');
     final response = await _dio.get('/api/v1/tools/id/$toolId/valves/user');
     return response.data as Map<String, dynamic>;
+  }
+
+  Future<WorkspaceValveSpec?> getUserToolValvesSpec(String toolId) async {
+    final response = await _dio.get(
+      '/api/v1/tools/id/$toolId/valves/user/spec',
+    );
+    return response.data is Map
+        ? WorkspaceValveSpec.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
   }
 
   Future<Map<String, dynamic>> updateUserToolValves(

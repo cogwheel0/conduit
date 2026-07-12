@@ -15,6 +15,9 @@ sealed class KnowledgeBase with _$KnowledgeBase {
     required DateTime updatedAt,
     @Default(0) int itemCount,
     @Default({}) Map<String, dynamic> metadata,
+    String? userId,
+    @Default(<Map<String, dynamic>>[]) List<Map<String, dynamic>> accessGrants,
+    @Default(false) bool writeAccess,
   }) = _KnowledgeBase;
 
   /// Creates a [KnowledgeBase] from JSON, handling both snake_case (new API)
@@ -33,7 +36,17 @@ sealed class KnowledgeBase with _$KnowledgeBase {
           0,
       metadata:
           (json['metadata'] as Map<String, dynamic>?) ??
-          const <String, dynamic>{},
+          (json['meta'] is Map
+              ? Map<String, dynamic>.from(json['meta'] as Map)
+              : const <String, dynamic>{}),
+      userId: json['user_id']?.toString(),
+      accessGrants: json['access_grants'] is List
+          ? (json['access_grants'] as List)
+                .whereType<Map>()
+                .map(Map<String, dynamic>.from)
+                .toList(growable: false)
+          : const <Map<String, dynamic>>[],
+      writeAccess: json['write_access'] == true,
     );
   }
 }

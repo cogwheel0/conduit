@@ -17,24 +17,6 @@ import '../providers/hermes_providers.dart';
 import '../services/hermes_api_service.dart';
 
 @visibleForTesting
-Future<bool> testHermesDraftConnection(
-  HermesConfig config, {
-  Future<bool> Function(HermesConfig probeConfig)? probe,
-}) async {
-  // `enabled` controls whether Hermes participates in the app, not whether a
-  // user may verify a draft. Probe an enabled copy without mutating persistence.
-  final probeConfig = config.copyWith(enabled: true);
-  if (probe != null) return probe(probeConfig);
-
-  final service = HermesApiService(config: probeConfig);
-  try {
-    return await service.health();
-  } finally {
-    service.close();
-  }
-}
-
-@visibleForTesting
 HermesConfig buildHermesConnectionDraft({
   required HermesConfig saved,
   required String baseUrl,
@@ -341,7 +323,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           )
         else ...[
           CustomizationTile(
-            leading: _badge(context, Icons.smart_toy_outlined),
             title: 'Enable Hermes Agent',
             subtitle:
                 'Connect directly to your self-hosted Hermes agent and use it '

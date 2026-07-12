@@ -16,13 +16,14 @@ String nativeSettingsTitle(AppLocalizations _) => 'Settings';
 
 String nativeProfileTitle(AppLocalizations _) => 'Profile';
 
-String nativeAppearanceTitle(AppLocalizations _) => 'Appearance';
+String nativeAppearanceTitle(AppLocalizations l10n) => l10n.settingsAppearance;
 
 String nativeChatsTitle(AppLocalizations _) => 'Chats';
 
 String nativeAiMemoryTitle(AppLocalizations _) => 'AI and Memory';
 
-String nativeDataConnectionTitle(AppLocalizations _) => 'Data and Connection';
+String nativeDataConnectionTitle(AppLocalizations l10n) =>
+    l10n.settingsDataAndConnection;
 
 String? resolveNativeSheetModelName(List<Model> models, String? modelId) {
   if (modelId == null || modelId.isEmpty) return null;
