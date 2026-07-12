@@ -4406,6 +4406,78 @@
   "@directConnectionName": {
     "description": "Label for a user-defined direct connection profile name."
   },
+  "directConnectionNameRequired": "Enter a connection name.",
+  "@directConnectionNameRequired": {
+    "description": "Validation error shown when a direct connection name is empty."
+  },
+  "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
+  "@directConnectionUrlInvalid": {
+    "description": "Validation error shown when a direct provider URL is invalid."
+  },
+  "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
+  "@directConnectionCredentialsReentryRequired": {
+    "description": "Validation error requiring credentials to be reviewed after changing a direct provider origin."
+  },
+  "directConnectionApiKeyRequired": "Enter an API key or choose no authentication.",
+  "@directConnectionApiKeyRequired": {
+    "description": "Validation error shown when direct provider authentication requires an API key."
+  },
+  "directConnectionHeaderNameRequired": "Enter a header name, then add the header.",
+  "@directConnectionHeaderNameRequired": {
+    "description": "Validation error shown when a pending direct provider header has a value but no name."
+  },
+  "directConnectionCredentialTransferTitle": "Use credentials with new server?",
+  "@directConnectionCredentialTransferTitle": {
+    "description": "Title of the confirmation dialog shown before sending saved direct provider credentials to a new origin."
+  },
+  "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
+  "@directConnectionCredentialTransferMessage": {
+    "description": "Security warning shown before sending direct provider credentials to a new origin."
+  },
+  "directConnectionCredentialTransferConfirm": "Use credentials",
+  "@directConnectionCredentialTransferConfirm": {
+    "description": "Action that confirms sending direct provider credentials to a new origin."
+  },
+  "directConnectionSaveFailed": "Could not save this connection.",
+  "@directConnectionSaveFailed": {
+    "description": "Error shown when a direct connection profile cannot be saved."
+  },
+  "directConnectionReachFailed": "Could not reach the provider.",
+  "@directConnectionReachFailed": {
+    "description": "Error shown when a direct provider connection test cannot reach the provider."
+  },
+  "directConnectionDeleteTitle": "Delete connection?",
+  "@directConnectionDeleteTitle": {
+    "description": "Title of the direct connection deletion confirmation dialog."
+  },
+  "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",
+  "@directConnectionDeleteMessage": {
+    "description": "Confirmation message shown before deleting a direct connection and its credentials.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home provider"
+      }
+    }
+  },
+  "directConnectionDeleteFailed": "Could not delete this connection.",
+  "@directConnectionDeleteFailed": {
+    "description": "Error shown when a direct connection profile cannot be deleted."
+  },
+  "directConnectionProbeConnected": "Connected",
+  "@directConnectionProbeConnected": {
+    "description": "Success status shown when a direct provider connection test succeeds without a model count."
+  },
+  "directConnectionProbeConnectedModels": "{count, plural, =1{Connected · 1 model} other{Connected · {count} models}}",
+  "@directConnectionProbeConnectedModels": {
+    "description": "Success status showing how many models a direct provider connection test discovered.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
   "directProvider": "Provider type",
   "@directProvider": {
     "description": "Label for selecting the direct API protocol."
@@ -4641,6 +4713,10 @@
   "hermesMemoryKeyTitle": "Memory key (optional)",
   "@hermesMemoryKeyTitle": {
     "description": "Label for the optional Hermes memory key."
+  },
+  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
+  "@hermesMemoryKeyDescription": {
+    "description": "Help text explaining how the optional Hermes memory key scopes long-term memory."
   },
   "hermesMemoryKeyPlaceholder": "Auto-generated if left blank",
   "@hermesMemoryKeyPlaceholder": {

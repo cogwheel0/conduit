@@ -51,11 +51,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
 
-  bool get _usesCupertinoDesign {
-    final platform = Theme.of(context).platform;
-    return platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-  }
-
   /// Whether the server has OAuth/SSO providers configured.
   bool get _hasSsoEnabled =>
       widget.backendConfig?.hasSsoEnabled == true && isWebViewSupported;
@@ -526,7 +521,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       case 'github':
         icon = Icons.code;
       case 'oidc':
-        icon = _usesCupertinoDesign
+        icon = context.usesCupertinoChrome
             ? CupertinoIcons.lock_shield
             : Icons.security;
       case 'feishu':
@@ -588,10 +583,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           textInputAction: TextInputAction.done,
           suffixIcon: ConduitIconButton(
             icon: _obscurePassword
-                ? (_usesCupertinoDesign
+                ? (context.usesCupertinoChrome
                       ? CupertinoIcons.eye_slash
                       : Icons.visibility_off)
-                : (_usesCupertinoDesign
+                : (context.usesCupertinoChrome
                       ? CupertinoIcons.eye
                       : Icons.visibility),
             iconColor: context.conduitTheme.iconSecondary,
@@ -661,10 +656,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             isRequired: true,
             suffixIcon: ConduitIconButton(
               icon: _obscurePassword
-                  ? (_usesCupertinoDesign
+                  ? (context.usesCupertinoChrome
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (_usesCupertinoDesign
+                  : (context.usesCupertinoChrome
                         ? CupertinoIcons.eye
                         : Icons.visibility),
               iconColor: context.conduitTheme.iconSecondary,
@@ -724,10 +719,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             isRequired: true,
             suffixIcon: ConduitIconButton(
               icon: _obscurePassword
-                  ? (_usesCupertinoDesign
+                  ? (context.usesCupertinoChrome
                         ? CupertinoIcons.eye_slash
                         : Icons.visibility_off)
-                  : (_usesCupertinoDesign
+                  : (context.usesCupertinoChrome
                         ? CupertinoIcons.eye
                         : Icons.visibility),
               iconColor: context.conduitTheme.iconSecondary,
@@ -770,7 +765,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           child: Column(
             children: [
               Icon(
-                _usesCupertinoDesign
+                context.usesCupertinoChrome
                     ? CupertinoIcons.lock_shield
                     : Icons.security,
                 size: IconSize.xxl,
@@ -789,7 +784,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               const SizedBox(height: Spacing.lg),
               ConduitButton(
                 text: l10n.signInWithSso,
-                icon: _usesCupertinoDesign
+                icon: context.usesCupertinoChrome
                     ? CupertinoIcons.arrow_right
                     : Icons.arrow_forward,
                 onPressed: _navigateToSso,
@@ -865,7 +860,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         child: Row(
           children: [
             Icon(
-              _usesCupertinoDesign
+              context.usesCupertinoChrome
                   ? CupertinoIcons.exclamationmark_circle
                   : Icons.error_outline,
               color: context.conduitTheme.error,

@@ -56,11 +56,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _showAdvancedSettings = false;
   bool _allowSelfSignedCertificates = false;
 
-  bool get _usesCupertinoDesign {
-    final platform = Theme.of(context).platform;
-    return platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-  }
-
   bool get _canAddCustomHeader =>
       _customHeaders.length < 10 &&
       _headerKeyController.text.trim().isNotEmpty &&
@@ -998,7 +993,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           Row(
             children: [
               Icon(
-                _usesCupertinoDesign
+                context.usesCupertinoChrome
                     ? CupertinoIcons.wand_stars
                     : Icons.auto_awesome,
                 color: context.conduitTheme.warning,
@@ -1031,7 +1026,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           const SizedBox(height: Spacing.lg),
           ConduitButton(
             text: AppLocalizations.of(context)!.enterDemo,
-            icon: _usesCupertinoDesign
+            icon: context.usesCupertinoChrome
                 ? CupertinoIcons.play_fill
                 : Icons.play_arrow,
             onPressed: () {
@@ -1120,7 +1115,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   child: Row(
                     children: [
                       Icon(
-                        _usesCupertinoDesign
+                        context.usesCupertinoChrome
                             ? CupertinoIcons.gear_alt
                             : Icons.tune_rounded,
                         color: theme.iconSecondary,
@@ -1154,7 +1149,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                         ),
                         turns: _showAdvancedSettings ? 0.5 : 0,
                         child: Icon(
-                          _usesCupertinoDesign
+                          context.usesCupertinoChrome
                               ? CupertinoIcons.chevron_down
                               : Icons.expand_more,
                           color: theme.iconSecondary,
@@ -1500,7 +1495,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                   ),
                 ),
                 ConduitIconButton(
-                  icon: _usesCupertinoDesign
+                  icon: context.usesCupertinoChrome
                       ? CupertinoIcons.xmark
                       : Icons.close_rounded,
                   onPressed: () => _removeCustomHeader(entry.key),
@@ -1546,7 +1541,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         child: Row(
           children: [
             Icon(
-              _usesCupertinoDesign
+              context.usesCupertinoChrome
                   ? CupertinoIcons.exclamationmark_circle
                   : Icons.error_outline,
               color: context.conduitTheme.error,

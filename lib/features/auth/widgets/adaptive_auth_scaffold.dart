@@ -31,10 +31,7 @@ class AdaptiveAuthScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-    final topPadding = usesCupertinoChrome
+    final topPadding = context.usesCupertinoChrome
         ? mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg
         : Spacing.lg;
 
@@ -50,7 +47,7 @@ class AdaptiveAuthScaffold extends StatelessWidget {
             button: true,
             child: ConduitAdaptiveAppBarIconButton(
               key: backButtonKey,
-              icon: usesCupertinoChrome
+              icon: context.usesCupertinoChrome
                   ? CupertinoIcons.chevron_back
                   : Icons.arrow_back,
               onPressed: onBack,

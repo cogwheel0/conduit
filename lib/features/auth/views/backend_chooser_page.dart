@@ -106,9 +106,6 @@ class _ChooserCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
 
     return Semantics(
       label: '$title. $subtitle',
@@ -153,7 +150,7 @@ class _ChooserCard extends StatelessWidget {
                   ),
                 ),
                 Icon(
-                  usesCupertinoChrome
+                  context.usesCupertinoChrome
                       ? CupertinoIcons.chevron_forward
                       : Icons.chevron_right,
                   color: theme.iconSecondary,
@@ -220,9 +217,6 @@ class _DirectConnectionIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
 
     return Container(
       width: TouchTarget.minimum,
@@ -232,7 +226,7 @@ class _DirectConnectionIcon extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppBorderRadius.md),
       ),
       child: Icon(
-        usesCupertinoChrome ? CupertinoIcons.link : Icons.api_rounded,
+        context.usesCupertinoChrome ? CupertinoIcons.link : Icons.api_rounded,
         color: theme.buttonPrimary,
         size: IconSize.medium,
       ),

@@ -1439,9 +1439,6 @@ class AccessibleFormField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
     final hasExternalError = errorText?.trim().isNotEmpty ?? false;
 
     return Column(
@@ -1555,7 +1552,7 @@ class AccessibleFormField extends StatelessWidget {
               ),
               suffixIcon: suffixIcon,
               prefixIcon: prefixIcon,
-              errorText: usesCupertinoChrome ? null : errorText,
+              errorText: context.usesCupertinoChrome ? null : errorText,
               errorStyle: AppTypography.small.copyWith(
                 color: context.conduitTheme.error,
               ),
@@ -1574,7 +1571,7 @@ class AccessibleFormField extends StatelessWidget {
             ),
           ),
         ),
-        if (usesCupertinoChrome && hasExternalError)
+        if (context.usesCupertinoChrome && hasExternalError)
           Semantics(
             liveRegion: true,
             label: errorText,

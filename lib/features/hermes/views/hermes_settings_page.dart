@@ -330,7 +330,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           CustomizationTile(
             leading: _badge(context, Icons.schedule),
             title: l10n.hermesScheduledAgentsTitle,
-            subtitle: 'Run prompts on a cron schedule.',
+            subtitle: l10n.hermesReviewSchedules,
             onTap: () => context.pushNamed(RouteNames.hermesJobs),
           ),
         ],
@@ -389,9 +389,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       ),
       const SizedBox(height: Spacing.sm),
       Text(
-        'The memory key scopes the agent\'s long-term memory to you '
-        '(X-Hermes-Session-Key). A stable key is generated automatically the '
-        'first time you chat if you leave this blank.',
+        l10n.hermesMemoryKeyDescription,
         style: AppTypography.captionStyle.copyWith(color: theme.textSecondary),
       ),
       const SizedBox(height: Spacing.lg),

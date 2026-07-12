@@ -227,6 +227,7 @@ class _DirectConnectionEditorPageState
   }
 
   DirectConnectionProfile? _buildDraft({required bool validateFields}) {
+    final l10n = AppLocalizations.of(context)!;
     final name = _nameController.text.trim();
     final baseUrl = normalizeDirectBaseUrl(_baseUrlController.text);
     var valid = true;
@@ -239,14 +240,14 @@ class _DirectConnectionEditorPageState
 
     if (name.isEmpty) {
       valid = false;
-      nameError = 'Enter a connection name.';
+      nameError = l10n.directConnectionNameRequired;
     }
     if (DirectConnectionProfile.originOf(baseUrl) == null) {
       valid = false;
-      urlError = 'Use a valid http:// or https:// URL.';
+      urlError = l10n.directConnectionUrlInvalid;
     } else if (!_originBoundSecretsReviewed) {
       valid = false;
-      urlError = 'Re-enter credentials when changing servers.';
+      urlError = l10n.directConnectionCredentialsReentryRequired;
     }
 
     final existingApiKey = _savedProfile?.apiKey?.trim() ?? '';
@@ -260,7 +261,7 @@ class _DirectConnectionEditorPageState
     if (_authentication != DirectAuthenticationMode.none &&
         (apiKey ?? '').isEmpty) {
       valid = false;
-      apiKeyError = 'Enter an API key or choose no authentication.';
+      apiKeyError = l10n.directConnectionApiKeyRequired;
     }
 
     final headers = Map<String, String>.from(_customHeaders);
@@ -370,7 +371,9 @@ class _DirectConnectionEditorPageState
     if (!hasName) {
       setState(() {
         _showAdvancedSettings = true;
-        _headersError = 'Enter a header name, then add the header.';
+        _headersError = AppLocalizations.of(
+          context,
+        )!.directConnectionHeaderNameRequired;
       });
       return false;
     }
@@ -425,12 +428,12 @@ class _DirectConnectionEditorPageState
         )) {
       return true;
     }
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,
-      title: 'Use credentials with new server?',
-      message:
-          'This sends the API key and complete custom-header map to the new server. Only continue if you trust it.',
-      confirmText: 'Use credentials',
+      title: l10n.directConnectionCredentialTransferTitle,
+      message: l10n.directConnectionCredentialTransferMessage,
+      confirmText: l10n.directConnectionCredentialTransferConfirm,
       barrierDismissible: false,
     );
     if (confirmed && mounted) {
@@ -469,7 +472,7 @@ class _DirectConnectionEditorPageState
       setState(() => _saving = false);
       AdaptiveSnackBar.show(
         context,
-        message: 'Could not save this connection.',
+        message: AppLocalizations.of(context)!.directConnectionSaveFailed,
         type: AdaptiveSnackBarType.error,
       );
     }
@@ -500,14 +503,16 @@ class _DirectConnectionEditorPageState
       setState(() {
         _testing = false;
         _testSucceeded = result.reachable;
-        _testMessage = _probeMessage(result);
+        _testMessage = _probeMessage(result, AppLocalizations.of(context)!);
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _testing = false;
         _testSucceeded = false;
-        _testMessage = 'Could not reach the provider.';
+        _testMessage = AppLocalizations.of(
+          context,
+        )!.directConnectionReachFailed;
       });
     }
   }
@@ -516,14 +521,14 @@ class _DirectConnectionEditorPageState
     if (_busy) return;
     final saved = _savedProfile;
     if (saved == null) return;
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _deleting = true);
     try {
       final confirmed = await ThemedDialogs.confirm(
         context,
-        title: 'Delete connection?',
-        message:
-            'This removes ${saved.name} and its credentials from this device.',
-        confirmText: 'Delete',
+        title: l10n.directConnectionDeleteTitle,
+        message: l10n.directConnectionDeleteMessage(saved.name),
+        confirmText: l10n.delete,
         isDestructive: true,
       );
       if (!confirmed || !mounted) {
@@ -594,7 +599,7 @@ class _DirectConnectionEditorPageState
       setState(() => _deleting = false);
       AdaptiveSnackBar.show(
         context,
-        message: 'Could not delete this connection.',
+        message: l10n.directConnectionDeleteFailed,
         type: AdaptiveSnackBarType.error,
       );
     }
@@ -673,9 +678,7 @@ class _DirectConnectionEditorPageState
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final isOllama = _adapterKey == kOllamaAdapterKey;
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
 
     final content = <Widget>[
       ConduitCard(
@@ -995,9 +998,7 @@ class _DirectConnectionEditorPageState
   Widget _buildAdvancedSettings() {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
 
     return Container(
       decoration: BoxDecoration(
@@ -1100,9 +1101,7 @@ class _DirectConnectionEditorPageState
   Widget _buildAdvancedSettingsContent() {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final platform = Theme.of(context).platform;
-    final usesCupertinoChrome =
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
+    final usesCupertinoChrome = context.usesCupertinoChrome;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1334,15 +1333,13 @@ class DirectConnectionEditorError extends StatelessWidget {
   }
 }
 
-String _probeMessage(DirectConnectionProbe probe) {
+String _probeMessage(DirectConnectionProbe probe, AppLocalizations l10n) {
   if (!probe.reachable) {
     return probe.message?.trim().isNotEmpty == true
         ? probe.message!.trim()
-        : 'Could not reach the provider.';
+        : l10n.directConnectionReachFailed;
   }
   final modelCount = probe.modelCount;
-  if (modelCount == null) return 'Connected';
-  return modelCount == 1
-      ? 'Connected · 1 model'
-      : 'Connected · $modelCount models';
+  if (modelCount == null) return l10n.directConnectionProbeConnected;
+  return l10n.directConnectionProbeConnectedModels(modelCount);
 }
