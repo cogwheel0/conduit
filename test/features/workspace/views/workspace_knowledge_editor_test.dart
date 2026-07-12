@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit/core/models/file_info.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
@@ -34,10 +35,7 @@ void main() {
   ) async {
     final knowledge = _FakeKnowledge();
     await tester.pumpWidget(
-      _harness(
-        knowledge: knowledge,
-        mode: WorkspaceRouteMode.create,
-      ),
+      _harness(knowledge: knowledge, mode: WorkspaceRouteMode.create),
     );
     await tester.pumpAndSettle();
 
@@ -74,26 +72,27 @@ void main() {
     expect(find.byKey(const Key('workspace-editor-error')), findsOneWidget);
   });
 
-  testWidgets('external knowledge is read-only with no file mutation controls', (
-    tester,
-  ) async {
-    final knowledge = _FakeKnowledge();
-    await tester.pumpWidget(
-      _harness(
-        knowledge: knowledge,
-        mode: WorkspaceRouteMode.detail,
-        resourceId: 'kb-ext',
-        detail: _externalDetail(),
-        files: _FakeFiles(const WorkspaceKnowledgeBrowserState()),
-      ),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'external knowledge is read-only with no file mutation controls',
+    (tester) async {
+      final knowledge = _FakeKnowledge();
+      await tester.pumpWidget(
+        _harness(
+          knowledge: knowledge,
+          mode: WorkspaceRouteMode.detail,
+          resourceId: 'kb-ext',
+          detail: _externalDetail(),
+          files: _FakeFiles(const WorkspaceKnowledgeBrowserState()),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // No save affordance, a read-only badge, and no add menu on the browser.
-    expect(find.byKey(const Key('workspace-editor-save')), findsNothing);
-    expect(find.byKey(const Key('workspace-read-only-badge')), findsWidgets);
-    expect(find.byKey(const Key('knowledge-add-menu')), findsNothing);
-  });
+      // No save affordance, a read-only badge, and no add menu on the browser.
+      expect(find.byKey(const Key('workspace-editor-save')), findsNothing);
+      expect(find.byKey(const Key('workspace-read-only-badge')), findsWidgets);
+      expect(find.byKey(const Key('knowledge-add-menu')), findsNothing);
+    },
+  );
 
   testWidgets('detail overflow resets after confirmation', (tester) async {
     final knowledge = _FakeKnowledge();
@@ -139,7 +138,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-knowledge-action-delete')));
+    await tester.tap(
+      find.byKey(const Key('workspace-knowledge-action-delete')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Delete knowledge base?'), findsOneWidget);
@@ -202,6 +203,35 @@ void main() {
     expect(find.byKey(const Key('knowledge-files-empty')), findsOneWidget);
   });
 
+  testWidgets('attach failure reports through the parent after picker closes', (
+    tester,
+  ) async {
+    final files = _FakeFiles(
+      const WorkspaceKnowledgeBrowserState(),
+      attachError: StateError('attach failed'),
+    );
+    await tester.pumpWidget(
+      _harness(
+        knowledge: _FakeKnowledge(),
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'kb-1',
+        detail: _writableDetail(),
+        files: files,
+        userFiles: [_serverFile('server-file')],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('knowledge-add-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('knowledge-add-attach')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('server-file.txt'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('The file could not be attached.'), findsOneWidget);
+  });
+
   testWidgets('owner can delete the underlying file on detach', (tester) async {
     final knowledge = _FakeKnowledge();
     final files = _FakeFiles(
@@ -236,7 +266,9 @@ void main() {
       find.byKey(const Key('knowledge-detach-delete-underlying')),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const Key('knowledge-detach-delete-underlying')));
+    await tester.tap(
+      find.byKey(const Key('knowledge-detach-delete-underlying')),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const Key('knowledge-detach-confirm')));
     await tester.pumpAndSettle();
@@ -295,6 +327,7 @@ Widget _harness({
   String? resourceId,
   WorkspaceKnowledgeDetail? detail,
   _FakeFiles? files,
+  List<FileInfo> userFiles = const [],
   User user = const User(
     id: 'owner',
     username: 'owner',
@@ -311,10 +344,11 @@ Widget _harness({
         (ref) async => WorkspaceCapabilities.all,
       ),
       workspaceKnowledgeProvider.overrideWith(() => knowledge),
+      userFilesProvider.overrideWith(() => _FakeUserFiles(userFiles)),
       if (resourceId != null && detail != null)
-        workspaceKnowledgeDetailProvider(resourceId).overrideWith(
-          (ref) async => detail,
-        ),
+        workspaceKnowledgeDetailProvider(
+          resourceId,
+        ).overrideWith((ref) async => detail),
       if (resourceId != null && files != null)
         workspaceKnowledgeFilesProvider(resourceId).overrideWith(() => files),
     ],
@@ -330,7 +364,10 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
       GoRoute(
         path: '/editor',
         builder: (_, _) => Scaffold(
-          body: WorkspaceKnowledgeEditorView(mode: mode, knowledgeId: resourceId),
+          body: WorkspaceKnowledgeEditorView(
+            mode: mode,
+            knowledgeId: resourceId,
+          ),
         ),
       ),
       GoRoute(path: '/workspace/knowledge', builder: placeholder),
@@ -364,6 +401,16 @@ WorkspaceKnowledgeDetail _externalDetail() => const WorkspaceKnowledgeDetail(
     writeAccess: false,
     meta: {'source': 'external'},
   ),
+);
+
+FileInfo _serverFile(String id) => FileInfo(
+  id: id,
+  filename: '$id.txt',
+  originalFilename: '$id.txt',
+  size: 12,
+  mimeType: 'text/plain',
+  createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+  updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
 );
 
 class _FakeKnowledge extends WorkspaceKnowledge {
@@ -425,9 +472,10 @@ class _FakeKnowledge extends WorkspaceKnowledge {
 }
 
 class _FakeFiles extends WorkspaceKnowledgeFiles {
-  _FakeFiles(this._initial);
+  _FakeFiles(this._initial, {this.attachError});
 
   final WorkspaceKnowledgeBrowserState _initial;
+  final Object? attachError;
   final detached = <(String, bool)>[];
   int buildCount = 0;
 
@@ -443,8 +491,23 @@ class _FakeFiles extends WorkspaceKnowledgeFiles {
   }
 
   @override
+  Future<void> attachExisting(String fileId) async {
+    final error = attachError;
+    if (error != null) throw error;
+  }
+
+  @override
   Future<void> refresh() async {}
 
   @override
   Future<void> refreshPending() async {}
+}
+
+class _FakeUserFiles extends UserFiles {
+  _FakeUserFiles(this.files);
+
+  final List<FileInfo> files;
+
+  @override
+  Future<List<FileInfo>> build() async => files;
 }

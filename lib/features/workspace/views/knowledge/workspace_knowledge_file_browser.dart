@@ -263,10 +263,10 @@ class _Browser extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => ServerFilePickerSheet(
+      builder: (_) => ServerFilePickerSheet(
         onSelected: (FileInfo file) async {
           await _guard(
-            sheetContext,
+            context,
             () => notifier.attachExisting(file.id),
             failureText: l10n.workspaceKnowledgeAttachFailed,
           );
