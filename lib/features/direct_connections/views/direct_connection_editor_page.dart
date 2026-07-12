@@ -785,7 +785,7 @@ class _DirectConnectionEditorPageState
       ),
       if (!isOllama) ...[
         const SizedBox(height: Spacing.lg),
-        const SettingsSectionHeader(title: 'Completion API'),
+        SettingsSectionHeader(title: l10n.directCompletionApi),
         const SizedBox(height: Spacing.sm),
         AdaptiveSegmentedSelector<DirectOpenAiApiMode>(
           key: const ValueKey<String>('direct-openai-api-mode-selector'),
@@ -796,17 +796,17 @@ class _DirectConnectionEditorPageState
             _testSucceeded = null;
             _testMessage = null;
           }),
-          options: const [
+          options: [
             (
               value: DirectOpenAiApiMode.chatCompletions,
-              label: 'Chat Completions',
+              label: l10n.directChatCompletions,
               cupertinoIcon: CupertinoIcons.text_bubble,
               materialIcon: Icons.chat_bubble_outline,
               enabled: true,
             ),
             (
               value: DirectOpenAiApiMode.responses,
-              label: 'Responses',
+              label: l10n.directResponses,
               cupertinoIcon: CupertinoIcons.sparkles,
               materialIcon: Icons.auto_awesome_outlined,
               enabled: true,
@@ -816,14 +816,14 @@ class _DirectConnectionEditorPageState
         const SizedBox(height: Spacing.sm),
         Text(
           _openAiApiMode == DirectOpenAiApiMode.responses
-              ? 'Use the typed Responses event stream. Choose this only when the provider exposes /responses.'
-              : 'Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.',
+              ? l10n.directResponsesDescription
+              : l10n.directChatCompletionsDescription,
           style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
         const SizedBox(height: Spacing.md),
         AccessibleFormField(
           key: const ValueKey<String>('direct-api-version-field'),
-          label: 'API version',
+          label: l10n.directApiVersion,
           hint: '2024-10-21',
           controller: _apiVersionController,
           textInputAction: TextInputAction.next,
@@ -832,12 +832,12 @@ class _DirectConnectionEditorPageState
         ),
         const SizedBox(height: Spacing.sm),
         Text(
-          'Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.',
+          l10n.directApiVersionDescription,
           style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ],
       const SizedBox(height: Spacing.lg),
-      const SettingsSectionHeader(title: 'Authentication'),
+      SettingsSectionHeader(title: l10n.directAuthentication),
       const SizedBox(height: Spacing.sm),
       AdaptiveSegmentedSelector<DirectAuthenticationMode>(
         value: _authentication,
@@ -860,7 +860,7 @@ class _DirectConnectionEditorPageState
           ),
           (
             value: DirectAuthenticationMode.apiKeyHeader,
-            label: 'API-key header',
+            label: l10n.directApiKeyHeader,
             cupertinoIcon: CupertinoIcons.lock_shield,
             materialIcon: Icons.vpn_key_outlined,
             enabled: true,
@@ -877,7 +877,7 @@ class _DirectConnectionEditorPageState
       if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
         const SizedBox(height: Spacing.sm),
         Text(
-          'Sends the credential in the api-key header used by Azure OpenAI.',
+          l10n.directApiKeyHeaderDescription,
           style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ],
@@ -1255,7 +1255,7 @@ class _DirectConnectionEditorPageState
               const SizedBox(height: Spacing.xl),
               AccessibleFormField(
                 key: const ValueKey<String>('direct-model-prefix-field'),
-                label: 'Model ID prefix',
+                label: l10n.directModelIdPrefix,
                 hint: 'studio',
                 controller: _modelIdPrefixController,
                 textInputAction: TextInputAction.next,
@@ -1264,13 +1264,13 @@ class _DirectConnectionEditorPageState
               ),
               const SizedBox(height: Spacing.sm),
               Text(
-                'Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.',
+                l10n.directModelIdPrefixDescription,
                 style: theme.bodySmall?.copyWith(color: theme.textSecondary),
               ),
               const SizedBox(height: Spacing.md),
               AccessibleFormField(
                 key: const ValueKey<String>('direct-model-tags-field'),
-                label: 'Model tags',
+                label: l10n.directModelTags,
                 hint: 'local, private',
                 controller: _tagsController,
                 textInputAction: TextInputAction.next,
@@ -1279,7 +1279,7 @@ class _DirectConnectionEditorPageState
               ),
               const SizedBox(height: Spacing.sm),
               Text(
-                'Optional. Separate tags with commas or new lines.',
+                l10n.directModelTagsDescription,
                 style: theme.bodySmall?.copyWith(color: theme.textSecondary),
               ),
               const SizedBox(height: Spacing.xl),

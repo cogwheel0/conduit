@@ -287,6 +287,11 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     )) {
       if (emitter.terminalSent) break;
       if (raw.isDone) {
+        if (!emitter.hasCompletion) {
+          throw const FormatException(
+            'OpenAI-compatible stream has no usable completion content.',
+          );
+        }
         emitter.done();
         break;
       }

@@ -1,5 +1,7 @@
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -308,6 +310,27 @@ void main() {
       expect(dio.options.headers['api-key'], 'azure-secret');
       expect(dio.options.headers['Authorization'], isNull);
       expect(dio.options.queryParameters['api-version'], '2024-10-21');
+    });
+
+    test('HTTP factory rotates cached native TLS clients between profiles', () {
+      final dio = Dio();
+      addTearDown(() => dio.close(force: true));
+      final original = dio.httpClientAdapter;
+
+      const DirectHttpClientFactory().configure(
+        dio,
+        _profile(allowSelfSignedCertificates: true),
+      );
+      final customTls = dio.httpClientAdapter as IOHttpClientAdapter;
+
+      expect(customTls, isNot(same(original)));
+      expect(customTls.createHttpClient, isNotNull);
+
+      const DirectHttpClientFactory().configure(dio, _profile());
+      final defaultTls = dio.httpClientAdapter as IOHttpClientAdapter;
+
+      expect(defaultTls, isNot(same(customTls)));
+      expect(defaultTls.createHttpClient, isNull);
     });
   });
 }

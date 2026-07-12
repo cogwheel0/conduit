@@ -81,6 +81,8 @@ void main() {
 
   final ollamaBaseUrl = Platform.environment['OLLAMA_URL']?.trim() ?? '';
   final ollamaApiKey = Platform.environment['OLLAMA_API']?.trim() ?? '';
+  final ollamaModelOverride =
+      Platform.environment['OLLAMA_MODEL']?.trim() ?? '';
   final ollamaSkipReason = enabled && ollamaBaseUrl.isNotEmpty
       ? false
       : 'Set DIRECT_LIVE_TESTS=1 and OLLAMA_URL to run live Ollama tests.';
@@ -98,10 +100,30 @@ void main() {
       );
       final models = await adapter.listModels(profile);
       expect(models, isNotEmpty);
-      final model = models.firstWhere(
-        (candidate) => !_looksNonChatModel(candidate.id),
-        orElse: () => models.first,
+      final chatModels = models
+          .where((candidate) => !_looksNonChatModel(candidate.id))
+          .toList();
+      expect(
+        chatModels,
+        isNotEmpty,
+        reason: 'The endpoint did not advertise a chat-capable Ollama model.',
       );
+      final model = switch (ollamaModelOverride) {
+        final configured when configured.isNotEmpty => chatModels.firstWhere(
+          (candidate) => candidate.id == configured,
+          orElse: () => throw StateError(
+            'OLLAMA_MODEL is not present in the endpoint model catalog.',
+          ),
+        ),
+        _ =>
+          (chatModels..sort((left, right) {
+                final sizeOrder = _ollamaSmokeModelScore(
+                  left.id,
+                ).compareTo(_ollamaSmokeModelScore(right.id));
+                return sizeOrder != 0 ? sizeOrder : left.id.compareTo(right.id);
+              }))
+              .first,
+      };
 
       final run = adapter.startCompletion(
         profile,
@@ -159,4 +181,14 @@ bool _looksReasoningModel(String id) {
     '/o3',
     '/o4',
   ].any(normalized.contains);
+}
+
+int _ollamaSmokeModelScore(String id) {
+  final matches = RegExp(
+    r'(?::|[-_])(\d+(?:\.\d+)?)b(?:$|[-_:])',
+    caseSensitive: false,
+  ).allMatches(id).toList(growable: false);
+  if (matches.isEmpty) return 1 << 30;
+  final billions = double.tryParse(matches.last.group(1)!) ?? double.infinity;
+  return billions.isFinite ? (billions * 1000).round() : 1 << 30;
 }

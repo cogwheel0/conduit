@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 
 import '../../../core/models/server_config.dart';
 import '../../../core/services/server_tls_http_client_factory.dart';
@@ -30,6 +31,17 @@ final class DirectHttpClientFactory {
   /// credential-bearing redirects or using a stale base URL.
   void configure(Dio dio, DirectConnectionProfile profile) {
     profile.validate();
+
+    // An IO adapter caches its HttpClient after the first request. Reusing it
+    // across profile edits could retain an earlier profile's trust policy or
+    // client certificate even after createHttpClient is replaced. Rotate only
+    // native Dio adapters; injected/mock adapters remain intact.
+    final previousAdapter = dio.httpClientAdapter;
+    if (previousAdapter is IOHttpClientAdapter) {
+      previousAdapter.close(force: true);
+      dio.httpClientAdapter = IOHttpClientAdapter();
+    }
+
     dio.options.baseUrl = profile.requestBaseUri().toString();
     dio.options.followRedirects = false;
     dio.options.queryParameters.clear();

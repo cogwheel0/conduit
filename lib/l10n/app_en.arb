@@ -4422,6 +4422,34 @@
   "@directApiBaseUrl": {
     "description": "Label for the direct provider base URL."
   },
+  "directCompletionApi": "Completion API",
+  "@directCompletionApi": {
+    "description": "Section title for selecting an OpenAI-family completion protocol."
+  },
+  "directChatCompletions": "Chat Completions",
+  "@directChatCompletions": {
+    "description": "Option for the OpenAI-compatible Chat Completions protocol."
+  },
+  "directResponses": "Responses",
+  "@directResponses": {
+    "description": "Option for the OpenAI Responses protocol."
+  },
+  "directChatCompletionsDescription": "Works with OpenAI-compatible providers such as LM Studio, vLLM, LocalAI, and OpenRouter.",
+  "@directChatCompletionsDescription": {
+    "description": "Help text for the direct Chat Completions option."
+  },
+  "directResponsesDescription": "Use the typed Responses event stream. Choose this only when the provider exposes /responses.",
+  "@directResponsesDescription": {
+    "description": "Help text for the direct Responses API option."
+  },
+  "directApiVersion": "API version",
+  "@directApiVersion": {
+    "description": "Label for an optional direct provider API version."
+  },
+  "directApiVersionDescription": "Optional. Adds the api-version query parameter required by Azure OpenAI endpoints.",
+  "@directApiVersionDescription": {
+    "description": "Help text for the optional Azure OpenAI API version."
+  },
   "directAuthentication": "Authentication",
   "@directAuthentication": {
     "description": "Label for direct connection authentication settings."
@@ -4434,6 +4462,14 @@
   "@bearerToken": {
     "description": "Authentication option that sends a bearer token."
   },
+  "directApiKeyHeader": "API-key header",
+  "@directApiKeyHeader": {
+    "description": "Authentication option that sends a credential in an api-key header."
+  },
+  "directApiKeyHeaderDescription": "Sends the credential in the api-key header used by Azure OpenAI.",
+  "@directApiKeyHeaderDescription": {
+    "description": "Help text for Azure OpenAI API-key header authentication."
+  },
   "directApiKey": "API key",
   "@directApiKey": {
     "description": "Label for a direct connection API key."
@@ -4445,6 +4481,22 @@
   "directManualModelIds": "Manual model IDs",
   "@directManualModelIds": {
     "description": "Label for newline-separated model identifiers."
+  },
+  "directModelIdPrefix": "Model ID prefix",
+  "@directModelIdPrefix": {
+    "description": "Label for a visible namespace added to direct model IDs."
+  },
+  "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
+  "@directModelIdPrefixDescription": {
+    "description": "Help text for a direct connection model ID prefix."
+  },
+  "directModelTags": "Model tags",
+  "@directModelTags": {
+    "description": "Label for tags applied to models from a direct connection."
+  },
+  "directModelTagsDescription": "Optional. Separate tags with commas or new lines.",
+  "@directModelTagsDescription": {
+    "description": "Help text for direct connection model tags."
   },
   "syncDirectHistory": "Open WebUI history",
   "@syncDirectHistory": {

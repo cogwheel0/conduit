@@ -349,6 +349,36 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test('OpenAI adapter rejects a DONE-only Chat stream', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: {"usage":{"total_tokens":0}}\n\n'
+          'data: [DONE]\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(events.whereType<DirectStreamError>(), hasLength(1));
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
   test('OpenAI adapter rejects cumulative streamed text over budget', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
