@@ -59,6 +59,23 @@ export 'storage_providers.dart';
 
 part 'app_providers.g.dart';
 
+typedef _ModelAuthReadiness = ({
+  bool authenticated,
+  bool loading,
+  AuthStatus status,
+});
+
+/// A single, value-deduplicated auth dependency for model resolution. Watching
+/// the three public derivations independently can restart an async provider
+/// several times while one AuthState transition is being published.
+final _modelAuthReadinessProvider = Provider<_ModelAuthReadiness>((ref) {
+  return (
+    authenticated: ref.watch(isAuthenticatedProvider2),
+    loading: ref.watch(isAuthLoadingProvider2),
+    status: ref.watch(authStatusProvider),
+  );
+});
+
 // Theme provider
 @Riverpod(keepAlive: true)
 class AppThemeMode extends _$AppThemeMode {
@@ -762,6 +779,10 @@ class Models extends _$Models {
     final directDiscovery = ref.read(directModelDiscoveryProvider);
     final deferDirectSelectionReconciliation =
         directDiscovery.isLoading && !directDiscovery.hasValue;
+    // A backend switch must also reconcile a keepAlive model selection. This
+    // is especially important after OpenWebUI logout, where the old remote
+    // model can otherwise survive while the retained server remains present.
+    ref.watch(preferredBackendProvider);
     ref.listen<AsyncValue<DirectModelDiscoveryState>>(
       directModelDiscoveryProvider,
       _handleDirectDiscoveryTransition,
@@ -784,7 +805,12 @@ class Models extends _$Models {
       );
     }
 
-    if (!ref.watch(isAuthenticatedProvider2)) {
+    final modelAuth = ref.watch(_modelAuthReadinessProvider);
+    // `isAuthenticated` is false during a token-preserving refresh too. Watch
+    // the richer auth signals so loading -> terminal sign-out triggers a
+    // second reconciliation without clobbering a live mixed-mode selection in
+    // the transient loading state.
+    if (!modelAuth.authenticated) {
       // Standalone mode surfaces app-owned transports without requiring an
       // Open WebUI session.
       final localModels = _withLocalModels(
@@ -969,6 +995,45 @@ class Models extends _$Models {
     bool deferDirectSelection = false,
   }) {
     final currentSelected = ref.read(selectedModelProvider);
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (!modelAuth.authenticated) {
+      final shouldReconcile = _shouldUseAccountlessModelSelection(
+        isAuthenticated: false,
+        isAuthLoading: modelAuth.loading,
+        authStatus: modelAuth.status,
+        preferredBackend: ref.read(preferredBackendProvider),
+        hasApiService: ref.read(apiServiceProvider) != null,
+      );
+      if (!shouldReconcile) return models;
+
+      if (deferDirectSelection &&
+          currentSelected != null &&
+          isLocallyMintedDirectModel(currentSelected)) {
+        return models;
+      }
+
+      final replacement = _accountlessSelection(
+        models: models,
+        current: currentSelected,
+        preferredBackend: ref.read(preferredBackendProvider),
+      );
+      if (identical(currentSelected, replacement)) return models;
+
+      // Rebinding the same trusted model id after discovery should preserve a
+      // deliberate manual selection. Crossing transports (or clearing a stale
+      // remote selection) restores automatic selection semantics.
+      if (currentSelected?.id != replacement?.id) {
+        ref.read(isManualModelSelectionProvider.notifier).set(false);
+      }
+      ref.read(selectedModelProvider.notifier).set(replacement);
+      DebugLogger.warning(
+        'accountless-selection-reconciled',
+        scope: 'models',
+        data: {'previous': currentSelected?.id, 'replacement': replacement?.id},
+      );
+      return models;
+    }
+
     final isLocalTransport =
         currentSelected != null &&
         (isHermesModel(currentSelected) ||
@@ -1185,8 +1250,182 @@ class Models extends _$Models {
 
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
+  bool _authenticatedDefaultRestoreScheduled = false;
+
   @override
-  Model? build() => null;
+  Model? build() {
+    // This provider is consumed before auth and secure Hermes secrets finish
+    // hydrating on a cold start. Reconcile again when either one settles;
+    // callers such as the chat page only await defaultModelProvider once.
+    ref.listen<_ModelAuthReadiness>(_modelAuthReadinessProvider, (
+      previous,
+      next,
+    ) {
+      if (next.authenticated) {
+        _scheduleAuthenticatedDefaultRestore();
+      } else {
+        _schedulePrimaryAccountlessRestore();
+      }
+    });
+    ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
+      _schedulePrimaryAccountlessRestore();
+    });
+    ref.listen<bool>(
+      hermesConfigProvider.select((config) => config.isUsable),
+      (previous, next) => _schedulePrimaryAccountlessRestore(),
+    );
+    ref.listen<AsyncValue<DirectModelDiscoveryState>>(
+      directModelDiscoveryProvider,
+      (previous, next) => _schedulePrimaryAccountlessRestore(),
+    );
+    ref.listen<ApiService?>(apiServiceProvider, (previous, next) {
+      if (next != null) _scheduleAuthenticatedDefaultRestore();
+    });
+    ref.listen<String?>(authTokenProvider3, (previous, next) {
+      if (previous != next &&
+          ref.read(_modelAuthReadinessProvider).authenticated) {
+        _scheduleAuthenticatedDefaultRestore();
+      }
+    });
+
+    final initialDecision = _primaryAccountlessDecision(current: null);
+    if (initialDecision.shouldReconcile &&
+        ref.read(isManualModelSelectionProvider)) {
+      // User-scoped sign-out cleanup invalidates the selected model but not the
+      // manual-selection bit. Once selection is rebuilt automatically, that
+      // bit must not later suppress an authenticated OpenWebUI default.
+      unawaited(
+        Future<void>(() {
+          if (ref.mounted) {
+            ref.read(isManualModelSelectionProvider.notifier).set(false);
+          }
+        }),
+      );
+    }
+    return initialDecision.model;
+  }
+
+  ({bool shouldReconcile, Model? model}) _primaryAccountlessDecision({
+    required Model? current,
+  }) {
+    // Sign-out cleanup invalidates user-scoped model state after auth settles.
+    // A retained OpenWebUI server must not make that cleanup erase the primary
+    // accountless transport that the router has already admitted to chat.
+    final preferredBackend = ref.read(preferredBackendProvider);
+    if (preferredBackend != PreferredBackend.hermes &&
+        preferredBackend != PreferredBackend.direct) {
+      return (shouldReconcile: false, model: null);
+    }
+
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (modelAuth.authenticated || modelAuth.loading) {
+      return (shouldReconcile: false, model: null);
+    }
+    if (modelAuth.status == AuthStatus.initial ||
+        modelAuth.status == AuthStatus.loading ||
+        modelAuth.status == AuthStatus.authenticated) {
+      return (shouldReconcile: false, model: null);
+    }
+
+    if (preferredBackend == PreferredBackend.hermes) {
+      if (!ref.read(hermesConfigProvider).isUsable) {
+        // A false value can be the initial secure-secret hydration state.
+        // Models owns clearing a connection that is definitively unusable.
+        return (shouldReconcile: false, model: null);
+      }
+      return (
+        shouldReconcile: true,
+        model: current != null && isHermesModel(current)
+            ? current
+            : hermesSyntheticModel(),
+      );
+    }
+
+    final discovery = ref.read(directModelDiscoveryProvider);
+    if (discovery.isLoading && !discovery.hasValue) {
+      return (shouldReconcile: false, model: null);
+    }
+    final registry = ref.read(directModelRegistryProvider);
+    final trustedModels = (discovery.value?.models ?? const <Model>[])
+        .where((model) => registry.resolve(model) != null)
+        .toList(growable: false);
+    return (
+      shouldReconcile: true,
+      model: _accountlessSelection(
+        models: trustedModels,
+        current: current,
+        preferredBackend: preferredBackend,
+      ),
+    );
+  }
+
+  void _schedulePrimaryAccountlessRestore() {
+    unawaited(
+      Future<void>(() {
+        if (!ref.mounted) return;
+        final current = state;
+        final decision = _primaryAccountlessDecision(current: current);
+        if (!decision.shouldReconcile) return;
+        final replacement = decision.model;
+        final currentBindingIsValid =
+            current != null &&
+            isLocallyMintedDirectModel(current) &&
+            ref.read(directModelRegistryProvider).resolve(current) != null;
+        if (current == null && replacement == null) return;
+        if (current != null &&
+            replacement != null &&
+            current.id == replacement.id &&
+            (!isLocallyMintedDirectModel(replacement) ||
+                currentBindingIsValid)) {
+          return;
+        }
+
+        if (current?.id != replacement?.id) {
+          ref.read(isManualModelSelectionProvider.notifier).set(false);
+        }
+        state = replacement;
+        DebugLogger.warning(
+          'primary-accountless-selection-restored',
+          scope: 'models/default',
+          data: {'previous': current?.id, 'replacement': replacement?.id},
+        );
+      }),
+    );
+  }
+
+  void _scheduleAuthenticatedDefaultRestore() {
+    if (_authenticatedDefaultRestoreScheduled) return;
+    _authenticatedDefaultRestoreScheduled = true;
+    unawaited(
+      Future<void>(() {
+        _authenticatedDefaultRestoreScheduled = false;
+        if (!ref.mounted || state != null) return;
+        final auth = ref.read(_modelAuthReadinessProvider);
+        if (!auth.authenticated || ref.read(apiServiceProvider) == null) return;
+
+        // A background saved-credential login can finish after an earlier
+        // one-shot read cached null. Force a fresh authenticated resolution.
+        // Dispatch instead of awaiting so a later token/session transition can
+        // invalidate this attempt and immediately start the authoritative one.
+        ref.invalidate(defaultModelProvider);
+        final restore = ref.read(defaultModelProvider.future);
+        unawaited(
+          restore.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stackTrace) {
+              if (!ref.mounted) return;
+              DebugLogger.error(
+                'authenticated-default-restore-failed',
+                scope: 'models/default',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
+        );
+      }),
+    );
+  }
 
   void set(Model? model, {bool allowHidden = false}) {
     if (model?.isHidden == true && !allowHidden) {
@@ -2412,9 +2651,8 @@ Future<Model?> defaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
   final storage = ref.read(optimizedStorageServiceProvider);
-  // Re-resolve when standalone profiles finish discovery or are edited.
-  ref.watch(directModelDiscoveryProvider);
   final preferredBackend = ref.watch(preferredBackendProvider);
+  final hermesConfig = ref.watch(hermesConfigProvider);
   // Read settings without subscribing to rebuilds to avoid watch/await hazards
   final reviewerMode = ref.read(reviewerModeProvider);
   if (reviewerMode) {
@@ -2452,6 +2690,127 @@ Future<Model?> defaultModel(Ref ref) async {
   }
 
   final api = ref.watch(apiServiceProvider);
+  var modelAuth = ref.read(_modelAuthReadinessProvider);
+  final selectedBeforeAuthSettles = ref.read(selectedModelProvider);
+  final authBuildFuture =
+      !modelAuth.authenticated &&
+          modelAuth.loading &&
+          selectedBeforeAuthSettles == null
+      ? ref.read(authStateManagerProvider.future)
+      : null;
+  if (authBuildFuture != null) {
+    // A cold-start chat may ask for its default before the initial secure
+    // storage read resolves. If this invocation completes with null, there may
+    // be no remaining listener to retry when auth settles. Wait for that first
+    // AuthStateManager build; inner token refreshes already have AsyncData and
+    // return immediately.
+    final settledAuth = await authBuildFuture;
+    if (!ref.mounted) return null;
+    modelAuth = (
+      authenticated: settledAuth.isAuthenticated,
+      loading:
+          settledAuth.isLoading ||
+          settledAuth.status == AuthStatus.initial ||
+          settledAuth.status == AuthStatus.loading,
+      status: settledAuth.status,
+    );
+  }
+  final authenticatedTokenSnapshot = modelAuth.authenticated
+      ? ref.read(authTokenProvider3)
+      : null;
+  final apiSnapshot = api;
+  if (!modelAuth.authenticated) {
+    if (!_shouldUseAccountlessModelSelection(
+      isAuthenticated: false,
+      isAuthLoading: modelAuth.loading,
+      authStatus: modelAuth.status,
+      preferredBackend: preferredBackend,
+      hasApiService: api != null,
+    )) {
+      // Authentication hydration/revalidation is not logout. Keep the current
+      // model and avoid protected OpenWebUI calls until auth settles.
+      return ref.read(selectedModelProvider);
+    }
+
+    final currentSelected = ref.read(selectedModelProvider);
+    final Model? standalone;
+    if (preferredBackend == PreferredBackend.hermes) {
+      standalone = hermesConfig.isUsable
+          ? (currentSelected != null && isHermesModel(currentSelected)
+                ? currentSelected
+                : hermesSyntheticModel())
+          : null;
+    } else if (preferredBackend == PreferredBackend.direct) {
+      final discovery = await ref.read(directModelDiscoveryProvider.future);
+      if (!ref.mounted) return null;
+      final registry = ref.read(directModelRegistryProvider);
+      standalone = _accountlessSelection(
+        models: discovery.models.where(
+          (model) => registry.resolve(model) != null,
+        ),
+        current: currentSelected,
+        preferredBackend: preferredBackend,
+      );
+    } else {
+      final models = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      standalone = _accountlessSelection(
+        models: models,
+        current: currentSelected,
+        preferredBackend: preferredBackend,
+      );
+    }
+    // Provider initialization may not synchronously mutate another provider.
+    // The remote/default paths already cross an async boundary; keep the
+    // locally minted Hermes fast path under the same Riverpod contract.
+    await Future<void>.delayed(Duration.zero);
+    if (!ref.mounted) return null;
+    final latestSelected = ref.read(selectedModelProvider);
+    final latestAuth = ref.read(_modelAuthReadinessProvider);
+    final preferenceIsCurrent =
+        ref.read(preferredBackendProvider) == preferredBackend;
+    final authStillAllowsAccountless = _shouldUseAccountlessModelSelection(
+      isAuthenticated: latestAuth.authenticated,
+      isAuthLoading: latestAuth.loading,
+      authStatus: latestAuth.status,
+      preferredBackend: preferredBackend,
+      hasApiService: ref.read(apiServiceProvider) != null,
+    );
+    final hermesSnapshotIsCurrent =
+        preferredBackend != PreferredBackend.hermes ||
+        ref.read(hermesConfigProvider).isUsable;
+    final directBindingIsCurrent =
+        standalone == null ||
+        !isLocallyMintedDirectModel(standalone) ||
+        ref.read(directModelRegistryProvider).resolve(standalone) != null;
+    if (!preferenceIsCurrent ||
+        !authStillAllowsAccountless ||
+        !hermesSnapshotIsCurrent ||
+        !directBindingIsCurrent ||
+        !identical(latestSelected, currentSelected)) {
+      return latestSelected;
+    }
+    if (!identical(currentSelected, standalone)) {
+      if (currentSelected?.id != standalone?.id) {
+        ref.read(isManualModelSelectionProvider.notifier).set(false);
+      }
+      ref.read(selectedModelProvider.notifier).set(standalone);
+    }
+    if (standalone != null) return standalone;
+    DebugLogger.warning('no-accountless-model', scope: 'models/default');
+    return null;
+  }
+
+  bool authenticatedResolutionIsCurrent(Model? selectionSnapshot) {
+    if (!ref.mounted) return false;
+    final latestAuth = ref.read(_modelAuthReadinessProvider);
+    return latestAuth.authenticated &&
+        ref.read(authTokenProvider3) == authenticatedTokenSnapshot &&
+        identical(ref.read(apiServiceProvider), apiSnapshot) &&
+        ref.read(preferredBackendProvider) == preferredBackend &&
+        identical(ref.read(selectedModelProvider), selectionSnapshot);
+  }
+
   if (api == null) {
     final manuallySelected = ref.read(selectedModelProvider);
     if (ref.read(isManualModelSelectionProvider) &&
@@ -2462,8 +2821,12 @@ Future<Model?> defaultModel(Ref ref) async {
       return manuallySelected;
     }
 
+    final selectionSnapshot = ref.read(selectedModelProvider);
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
     final standalone =
         _modelForPreferredBackend(models, preferredBackend) ??
         models.firstOrNull;
@@ -2485,6 +2848,7 @@ Future<Model?> defaultModel(Ref ref) async {
       ref.read(isManualModelSelectionProvider.notifier).set(false);
       ref.read(selectedModelProvider.notifier).clear();
     }
+    final selectionSnapshot = ref.read(selectedModelProvider);
 
     // 1) Priority: app-local default model preference.
     final settingsDefaultId = ref.read(appSettingsProvider).defaultModel;
@@ -2492,10 +2856,16 @@ Future<Model?> defaultModel(Ref ref) async {
         settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
     if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
       final availableModels = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       final availableMatch = availableModels
           .where((model) => model.id == storedDefaultId)
           .firstOrNull;
@@ -2514,6 +2884,9 @@ Future<Model?> defaultModel(Ref ref) async {
       }
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(cachedMatch);
         unawaited(
@@ -2533,6 +2906,9 @@ Future<Model?> defaultModel(Ref ref) async {
     if (preferredBackend == PreferredBackend.direct) {
       final availableModels = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       final preferred = _modelForPreferredBackend(
         availableModels,
         preferredBackend,
@@ -2547,11 +2923,21 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final cached = await storage.getLocalDefaultModel();
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
         final cachedMatch = await selectCachedModel(storage, cached.id);
         if (!ref.mounted) return null;
+        if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+          return ref.read(selectedModelProvider);
+        }
         if (cachedMatch == null) {
           await storage.saveLocalDefaultModel(null);
+          if (!ref.mounted) return null;
+          if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+            return ref.read(selectedModelProvider);
+          }
         } else {
           ref.read(selectedModelProvider.notifier).set(cachedMatch);
           DebugLogger.log(
@@ -2569,9 +2955,15 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final serverDefault = await api.getDefaultModel();
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final models = await api.getModels();
         if (!ref.mounted) return null;
+        if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+          return ref.read(selectedModelProvider);
+        }
         final resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
 
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
@@ -2600,6 +2992,9 @@ Future<Model?> defaultModel(Ref ref) async {
     DebugLogger.log('fallback-path', scope: 'models/default');
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
     DebugLogger.log(
       'models-loaded',
       scope: 'models/default',
@@ -2650,6 +3045,54 @@ Model? _modelForPreferredBackend(
       models.where(isLocallyMintedDirectModel).firstOrNull,
     PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
     PreferredBackend.owui || PreferredBackend.unset => null,
+  };
+}
+
+Model? _accountlessSelection({
+  required Iterable<Model> models,
+  required Model? current,
+  required PreferredBackend preferredBackend,
+}) {
+  final available = models.toList(growable: false);
+  final currentMatch = current == null
+      ? null
+      : available.where((model) => model.id == current.id).firstOrNull;
+
+  bool matchesPreferred(Model model) => switch (preferredBackend) {
+    PreferredBackend.direct => isLocallyMintedDirectModel(model),
+    PreferredBackend.hermes => isHermesModel(model),
+    PreferredBackend.owui || PreferredBackend.unset =>
+      isLocallyMintedDirectModel(model) || isHermesModel(model),
+  };
+
+  if (currentMatch != null && matchesPreferred(currentMatch)) {
+    return currentMatch;
+  }
+  return _modelForPreferredBackend(available, preferredBackend) ??
+      switch (preferredBackend) {
+        PreferredBackend.owui ||
+        PreferredBackend.unset => available.firstOrNull,
+        PreferredBackend.direct || PreferredBackend.hermes => null,
+      };
+}
+
+bool _shouldUseAccountlessModelSelection({
+  required bool isAuthenticated,
+  required bool isAuthLoading,
+  required AuthStatus authStatus,
+  required PreferredBackend preferredBackend,
+  required bool hasApiService,
+}) {
+  if (isAuthenticated || isAuthLoading) return false;
+  return switch (authStatus) {
+    AuthStatus.unauthenticated ||
+    AuthStatus.tokenExpired ||
+    AuthStatus.credentialError => true,
+    AuthStatus.error || AuthStatus.initial || AuthStatus.loading =>
+      preferredBackend == PreferredBackend.direct ||
+          preferredBackend == PreferredBackend.hermes ||
+          !hasApiService,
+    AuthStatus.authenticated => false,
   };
 }
 

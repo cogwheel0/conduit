@@ -4,11 +4,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/prompt.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart'
     show activeServerProvider, reviewerModeProvider;
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -373,14 +375,32 @@ final hermesEnabledProvider = Provider<bool>(
   (ref) => ref.watch(hermesConfigProvider).enabled,
 );
 
-/// True when the app is running as a Hermes-only client: Hermes is fully
-/// configured AND there is no OpenWebUI server. Drives UI gating (hide OWUI
-/// tabs/affordances, make Hermes home). Reviewer mode takes precedence.
+/// True when Hermes is the only currently usable primary backend. A retained
+/// OpenWebUI server does not make the session mixed-mode after its user signs
+/// out; it becomes optional again until re-authenticated. Reviewer mode takes
+/// precedence.
 final hermesOnlyModeProvider = Provider<bool>((ref) {
   if (ref.watch(reviewerModeProvider)) return false;
   if (!ref.watch(hermesConfigProvider).isUsable) return false;
+  final preferredBackend = ref.watch(preferredBackendProvider);
+  // With no OpenWebUI server, legacy Hermes-only installs may still have an
+  // unset preference. A deliberate Direct primary must never inherit Hermes'
+  // sidebar/profile presentation merely because Hermes is also configured.
+  if (preferredBackend == PreferredBackend.direct) return false;
   final activeServer = ref.watch(activeServerProvider);
-  return activeServer.hasValue && activeServer.requireValue == null;
+  if (activeServer.hasValue && activeServer.requireValue == null) return true;
+  if (preferredBackend != PreferredBackend.hermes) {
+    return false;
+  }
+  // Loading/error states may retain a previous server value during refresh.
+  // Until a server resolves successfully, there is no usable OpenWebUI surface
+  // to expose even if an old auth token is still cached.
+  if (activeServer.isLoading || activeServer.hasError) return true;
+  if (!activeServer.hasValue) return true;
+  final openWebUiAuthenticated = ref
+      .watch(authStateManagerProvider)
+      .maybeWhen(data: (state) => state.isAuthenticated, orElse: () => false);
+  return !openWebUiAuthenticated;
 });
 
 /// The Hermes client, or null when Hermes is disabled / not fully configured.
