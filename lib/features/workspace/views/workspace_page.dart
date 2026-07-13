@@ -511,7 +511,7 @@ class _WorkspaceSectionRail extends StatelessWidget {
 }
 
 Widget _workspaceExitButton(BuildContext context) {
-  return Tooltip(
+  final button = Tooltip(
     message: MaterialLocalizations.of(context).backButtonTooltip,
     child: ConduitAdaptiveAppBarIconButton(
       key: const Key('workspace-exit'),
@@ -526,6 +526,15 @@ Widget _workspaceExitButton(BuildContext context) {
       },
     ),
   );
+
+  // Material gives AppBar.leading tight 56x56 constraints. Loosen them around
+  // the adaptive control so its painted surface remains the standard 44dp
+  // toolbar action size instead of expanding to fill the entire leading slot.
+  return context.usesCupertinoChrome
+      ? button
+      : Center(
+          child: SizedBox.square(dimension: TouchTarget.minimum, child: button),
+        );
 }
 
 /// A per-section bundle of the collection state and its notifier callbacks,

@@ -33,6 +33,9 @@ import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:flutter/cupertino.dart';
@@ -234,6 +237,39 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('Hermes bottom tab follows dark navigation icon colors', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesEnabled: true,
+        theme: AppTheme.dark(TweakcnThemes.t3Chat),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final context = tester.element(find.byType(SidebarPage));
+    final conduitTheme = context.conduitTheme;
+    Finder hermesImage() => find.byWidgetPredicate(
+      (widget) => widget is Image && widget.image == kHermesTabIcon,
+    );
+
+    expect(
+      tester.widget<Image>(hermesImage()).color,
+      conduitTheme.textSecondary,
+    );
+
+    await tester.tap(_sidebarBottomNavTabLabel('Hermes'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Image>(hermesImage()).color,
+      conduitTheme.buttonPrimary,
+    );
   });
 
   testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
@@ -1141,6 +1177,7 @@ Widget _buildSidebarHarness({
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
+  ThemeData? theme,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -1235,6 +1272,7 @@ Widget _buildSidebarHarness({
       }),
     ],
     child: MaterialApp.router(
+      theme: theme,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,

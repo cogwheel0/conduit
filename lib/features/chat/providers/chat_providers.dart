@@ -7309,11 +7309,15 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       }
     }
     final ownerIsActive = _isDirectConversationOwnerActive(ref, owner);
+    final completedContent = accumulator.render(done: true);
     if (ownerIsActive) {
+      // Streaming replacements live in the notifier's tail buffer. Replace the
+      // final content through the same seam before completion so the stale
+      // `done="false"` reasoning block cannot overwrite this settled snapshot.
+      notifier.replaceMessageContentById(assistantMessageId, completedContent);
       notifier.updateMessageById(
         assistantMessageId,
         (current) => current.copyWith(
-          content: accumulator.render(done: true),
           usage: accumulator.usage,
           error: accumulator.error == null
               ? current.error
@@ -7335,7 +7339,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
                   .firstOrNull
             : null) ??
         assistantSeed.copyWith(
-          content: accumulator.render(done: true),
+          content: completedContent,
           usage: accumulator.usage,
           error: accumulator.error == null
               ? null

@@ -64,7 +64,9 @@ final class _Adapter implements DirectProviderAdapter {
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
       events: Stream<DirectStreamEvent>.fromIterable(const [
+        DirectReasoningDelta('Review the prior context.'),
         DirectContentDelta('Follow-up answer'),
+        DirectStreamDone(),
       ]),
       cancelToken: CancelToken(),
       done: Future<void>.value(),
@@ -182,7 +184,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'direct follow-up links its parent and preserves image files on reload',
+    'direct follow-up settles reasoning and preserves linked history on reload',
     () async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -292,6 +294,13 @@ void main() {
       const image = 'data:image/png;base64,AQID';
       await sendMessageWithContainer(container, 'Follow-up', const [image]);
 
+      final completedAssistant = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'assistant');
+      expect(completedAssistant.isStreaming, isFalse);
+      expect(completedAssistant.content, contains('done="true"'));
+      expect(completedAssistant.content, isNot(contains('done="false"')));
+
       final messageRows = await db.messagesDao.getForChat(chatId);
       final secondUser = messageRows.singleWhere(
         (row) => row.role == 'user' && row.id != firstUser.id,
@@ -318,6 +327,12 @@ void main() {
       expect(reloadedUser.files, const [
         {'type': 'image', 'url': image},
       ]);
+      final reloadedAssistant = reloaded.conversation.messages.singleWhere(
+        (message) => message.id == completedAssistant.id,
+      );
+      expect(reloadedAssistant.isStreaming, isFalse);
+      expect(reloadedAssistant.content, contains('done="true"'));
+      expect(reloadedAssistant.content, isNot(contains('done="false"')));
     },
   );
 
