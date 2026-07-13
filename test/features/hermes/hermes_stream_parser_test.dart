@@ -187,23 +187,37 @@ void main() {
         ..has((e) => e.summary, 'summary').equals('Run rm -rf?');
     });
 
-    test('decodes Responses-API text deltas and terminal lifecycle', () async {
+    test('decodes Responses created, text delta, and completed envelope', () async {
       final events = await parseHermesRunStream(
         _sse([
-          'event: response.output_text.delta\ndata: {"delta":"world"}\n\n',
-          'event: response.completed\ndata: {"status":"completed"}\n\n',
+          'event: response.created\n'
+              'data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress","output":[]}}\n\n',
+          'event: response.output_text.delta\n'
+              'data: {"type":"response.output_text.delta","delta":"world"}\n\n',
+          'event: response.completed\n'
+              'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"world"}]}]}}\n\n',
         ]),
       ).toList();
 
       check(events[0])
+          .isA<HermesResponseCreated>()
+          .has((e) => e.responseId, 'responseId')
+          .equals('resp_1');
+      check(
+        events[1],
+      ).isA<HermesLifecycle>().has((e) => e.status, 'status').equals('created');
+      check(events[2])
           .isA<HermesTokenDelta>()
           .has((e) => e.content, 'content')
           .equals('world');
-      check(events[1])
-          .isA<HermesLifecycle>()
-          .has((e) => e.status, 'status')
-          .equals('completed');
-      check(events[2]).isA<HermesRunDone>();
+      check(events[3])
+          .isA<HermesResponseCreated>()
+          .has((e) => e.responseId, 'responseId')
+          .equals('resp_1');
+      check(
+        events[4],
+      ).isA<HermesFinalOutput>().has((e) => e.text, 'text').equals('world');
+      check(events[5]).isA<HermesRunDone>();
     });
 
     test(
@@ -244,6 +258,178 @@ void main() {
       check(
         events.single,
       ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
+    });
+  });
+
+  group('parseHermesResponseStream', () {
+    test('maps SDK Responses events and preserves frame-declared types', () async {
+      final responseCreated = {
+        'id': 'resp_sdk',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'in_progress',
+        'model': 'hermes-agent',
+        'output': <dynamic>[],
+      };
+      final responseCompleted = {
+        ...responseCreated,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'reasoning',
+            'id': 'reason_1',
+            'summary': [
+              {'type': 'summary_text', 'text': 'final thought'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'msg_1',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'hello'},
+            ],
+          },
+        ],
+      };
+      final functionCall = {
+        'type': 'function_call',
+        'id': 'fc_1',
+        'call_id': 'call_1',
+        'name': 'terminal',
+        'arguments': '{"command":"pwd"}',
+        'status': 'in_progress',
+      };
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.created\n'
+              'data: ${jsonEncode({'response': responseCreated})}\n\n',
+          'event: response.output_text.delta\n'
+              'data: {"output_index":0,"content_index":0,"delta":"hello"}\n\n',
+          'data: {"type":"response.refusal.delta","output_index":0,"content_index":0,"delta":" declined"}\n\n',
+          'data: {"type":"response.reasoning_text.delta","output_index":0,"content_index":0,"delta":"think"}\n\n',
+          'data: {"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"summary"}\n\n',
+          'data: ${jsonEncode({'type': 'response.output_item.added', 'output_index': 0, 'item': functionCall})}\n\n',
+          'data: ${jsonEncode({
+            'type': 'response.output_item.done',
+            'output_index': 0,
+            'item': {...functionCall, 'status': 'completed'},
+          })}\n\n',
+          'data: ${jsonEncode({'type': 'response.completed', 'response': responseCompleted})}\n\n',
+        ]),
+      ).toList();
+
+      check(
+        events.whereType<HermesResponseCreated>().map(
+          (event) => event.responseId,
+        ),
+      ).deepEquals(['resp_sdk', 'resp_sdk']);
+      check(
+        events.whereType<HermesTokenDelta>().map((event) => event.content),
+      ).deepEquals(['hello', ' declined']);
+      check(
+        events.whereType<HermesReasoningDelta>().map((event) => event.content),
+      ).deepEquals(['think', 'summary', 'final thought']);
+      final tools = events.whereType<HermesToolProgress>().toList();
+      check(tools).length.equals(2);
+      check(tools.first.done).isFalse();
+      check(tools.last.done).isTrue();
+      check(tools.first.toolName).equals('terminal');
+      check(events.whereType<HermesFinalOutput>().single.text).equals('hello');
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('keeps sparse and custom Hermes frames behind the fallback', () async {
+      final events = await parseHermesResponseStream(
+        _sse([
+          'data: not-json\n\n',
+          'event: response.output_text.delta\n'
+              'data: {"delta":"legacy"}\n\n',
+          'data: {"type":"response.reasoning.delta","delta":"alias"}\n\n',
+          'event: tool.started\n'
+              'data: {"tool":"terminal"}\n\n',
+          'event: approval.requested\n'
+              'data: {"approval_id":"a1","summary":"Allow?"}\n\n',
+          'data: {"type":"response.keepalive"}\n\n',
+        ]),
+      ).toList();
+
+      check(
+        events.whereType<HermesTokenDelta>().single.content,
+      ).equals('legacy');
+      check(
+        events.whereType<HermesReasoningDelta>().single.content,
+      ).equals('alias');
+      check(
+        events.whereType<HermesToolProgress>().single.toolName,
+      ).equals('terminal');
+      check(
+        events.whereType<HermesApprovalRequested>().single.approvalId,
+      ).equals('a1');
+    });
+
+    test('surfaces typed incomplete responses as terminal errors', () async {
+      final events = await parseHermesResponseStream(
+        _sse([
+          'data: ${jsonEncode({
+            'type': 'response.incomplete',
+            'response': {
+              'id': 'resp_incomplete',
+              'object': 'response',
+              'created_at': 1,
+              'status': 'incomplete',
+              'output': <dynamic>[],
+              'incomplete_details': {'reason': 'max_output_tokens'},
+            },
+          })}\n\n',
+        ]),
+      ).toList();
+
+      check(events.first)
+          .isA<HermesResponseCreated>()
+          .has((event) => event.responseId, 'responseId')
+          .equals('resp_incomplete');
+      check(
+        events.whereType<HermesRunError>().single.message,
+      ).contains('max_output_tokens');
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('rejects a sparse completed envelope with cancelled status', () async {
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.completed\n'
+              'data: {"response":{"id":"resp_cancelled","status":"cancelled"}}\n\n',
+        ]),
+      ).toList();
+
+      check(events.first)
+          .isA<HermesResponseCreated>()
+          .has((event) => event.responseId, 'responseId')
+          .equals('resp_cancelled');
+      check(
+        events.whereType<HermesRunError>().single.message,
+      ).contains('cancelled');
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('surfaces sparse incomplete envelopes through the fallback', () async {
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.incomplete\n'
+              'data: {"response":{"id":"resp_sparse","status":"incomplete","incomplete_details":{"reason":"content_filter"}}}\n\n',
+        ]),
+      ).toList();
+
+      check(events.first)
+          .isA<HermesResponseCreated>()
+          .has((event) => event.responseId, 'responseId')
+          .equals('resp_sparse');
+      check(
+        events.whereType<HermesRunError>().single.message,
+      ).contains('content_filter');
+      check(events.last).isA<HermesRunDone>();
     });
   });
 }

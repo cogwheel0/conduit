@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:openai_dart/openai_dart.dart' as openai;
 import 'package:uuid/uuid.dart';
 
+import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/services/sse_frame_scanner.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../models/direct_completion.dart';
@@ -347,7 +348,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       if (payload['type'] == null && raw.event != null) {
         payload['type'] = raw.event;
       }
-      final event = openai.ResponseStreamEvent.fromJson(payload);
+      final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
       switch (event) {
         case openai.OutputTextDeltaEvent(:final delta):
           if (delta.isNotEmpty) emitter.content(delta);
@@ -501,14 +502,12 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
 }
 
 Map<String, dynamic> _responsesRequestBody(DirectCompletionRequest request) {
-  final sdkRequest = openai.CreateResponseRequest(
+  final core = OpenAiResponsesCodec.createRequestBody(
     model: request.remoteModelId,
     input: openai.ResponseInput.items([
       for (final message in request.messages) _responseMessage(message),
     ]),
-    stream: true,
   );
-  final core = sdkRequest.toJson();
   final input = core['input'];
   if (input is List && input.length == request.messages.length) {
     for (var index = 0; index < input.length; index++) {
@@ -609,7 +608,7 @@ void _emitResponsesPayload(
     emitter.error(directErrorMessage(payload['error']));
     return;
   }
-  final response = openai.Response.fromJson(payload);
+  final response = OpenAiResponsesCodec.decodeResponse(payload);
   final statusError = _responseStatusError(response);
   if (statusError != null) {
     emitter.error(statusError);
@@ -625,22 +624,10 @@ void _emitResponsesPayload(
 }
 
 String? _responseStatusError(openai.Response response) {
-  return switch (response.status) {
-    openai.ResponseStatus.completed => null,
-    openai.ResponseStatus.failed =>
-      response.error?.message ?? 'The provider response failed.',
-    openai.ResponseStatus.incomplete =>
-      switch (response.incompleteDetails?.reason) {
-        final reason? when reason.isNotEmpty =>
-          'The provider response was incomplete: $reason.',
-        _ => 'The provider response was incomplete.',
-      },
-    openai.ResponseStatus.cancelled => 'The provider response was cancelled.',
-    openai.ResponseStatus.queued || openai.ResponseStatus.inProgress =>
-      'The provider returned a response that is not complete.',
-    openai.ResponseStatus.unknown =>
-      'The provider returned an unsupported response status.',
-  };
+  return OpenAiResponsesCodec.statusError(
+    response,
+    subject: 'provider response',
+  );
 }
 
 bool _emitResponseOutput(
@@ -648,42 +635,17 @@ bool _emitResponseOutput(
   _DirectEmitter emitter, {
   bool onlyMissing = false,
 }) {
+  final content = OpenAiResponsesCodec.content(response);
   var emitted = false;
   final emitReasoning = !onlyMissing || !emitter.hasReasoning;
-  if (emitReasoning) {
-    for (final item in response.reasoningItems) {
-      final content = item.content
-          ?.map((part) => _completionText(part['text']))
-          .whereType<String>()
-          .join();
-      final summary = item.summary.map((part) => part.text).join();
-      final reasoning = _nonEmpty(content) ?? _nonEmpty(summary);
-      if (reasoning != null) {
-        emitter.reasoning(reasoning);
-        emitted = true;
-      }
-    }
+  if (emitReasoning && content.reasoning.isNotEmpty) {
+    emitter.reasoning(content.reasoning);
+    emitted = true;
   }
   final emitContent = !onlyMissing || !emitter.hasContent;
-  if (emitContent) {
-    final output = StringBuffer();
-    for (final item in response.output.whereType<openai.MessageOutputItem>()) {
-      for (final part in item.content) {
-        switch (part) {
-          case openai.OutputTextContent(:final text):
-            output.write(text);
-          case openai.RefusalContent(:final refusal):
-            output.write(refusal);
-          default:
-            break;
-        }
-      }
-    }
-    final content = _nonEmpty(output.toString());
-    if (content != null) {
-      emitter.content(content);
-      emitted = true;
-    }
+  if (emitContent && content.text.isNotEmpty) {
+    emitter.content(content.text);
+    emitted = true;
   }
   return emitted;
 }

@@ -931,6 +931,7 @@ void main() {
               role: 'observer',
               text: 'compatible-provider extension role',
             ),
+            DirectChatMessage.text(role: 'assistant', text: 'previous answer'),
             DirectChatMessage(
               role: 'user',
               parts: const [
@@ -943,6 +944,7 @@ void main() {
             'model': 'forged-model',
             'input': 'forged-input',
             'stream': false,
+            'store': false,
             'repeat_penalty': 1.1,
           },
         ),
@@ -974,11 +976,15 @@ void main() {
       final body = sent.data as Map;
       expect(body['model'], 'trusted-model');
       expect(body['stream'], isTrue);
+      expect(body['store'], isFalse);
       expect(body['repeat_penalty'], 1.1);
       final input = body['input'] as List;
-      expect(input, hasLength(3));
+      expect(input, hasLength(4));
+      expect((input.first as Map)['type'], 'message');
       expect((input.first as Map)['role'], 'system');
       expect((input[1] as Map)['role'], 'observer');
+      final assistantContent = (input[2] as Map)['content'] as List;
+      expect((assistantContent.single as Map)['type'], 'output_text');
       final userContent = (input.last as Map)['content'] as List;
       expect((userContent.last as Map)['type'], 'input_image');
     },
@@ -1312,6 +1318,34 @@ void main() {
       events.whereType<DirectStreamError>().single.message,
       contains('response.completed'),
     );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI adapter keeps malformed Responses events strict', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: {"type":"response.output_text.delta","delta":42}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamError>(), hasLength(1));
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 }

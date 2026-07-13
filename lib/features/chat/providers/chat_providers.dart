@@ -42,8 +42,11 @@ import '../../../core/utils/json_normalization.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/tool_calls_parser.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../hermes/models/hermes_chat_input.dart';
+import '../../hermes/models/hermes_capabilities.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_local_document_service.dart';
 import '../../hermes/services/hermes_run_transport.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../models/chat_context_attachment.dart';
@@ -4351,18 +4354,20 @@ void ensureDirectMessagesCompatibleWithModel({
 
 /// Raised when a Hermes run would silently discard composer attachments.
 class HermesAttachmentsUnsupportedException implements Exception {
-  const HermesAttachmentsUnsupportedException();
+  const HermesAttachmentsUnsupportedException([
+    this.message =
+        'Hermes cannot use this attachment. Select a local image, text file, '
+        'PDF, or DOCX document instead.',
+  ]);
 
-  String get message =>
-      'Hermes Agent does not support file or context attachments yet. '
-      'Remove the attachments before sending.';
+  final String message;
 
   @override
   String toString() => message;
 }
 
-/// Hermes' Runs API currently accepts a plain string input only. Reject file
-/// and OpenWebUI context attachments instead of silently dropping them.
+/// Rejects attachment identities that cannot be resolved locally by Conduit.
+/// OpenWebUI file/context ids must never leak into the Hermes request.
 @visibleForTesting
 void ensureHermesSendSupportsAttachments({
   required Model selectedModel,
@@ -4370,12 +4375,224 @@ void ensureHermesSendSupportsAttachments({
   required List<ChatContextAttachment> contextAttachments,
 }) {
   if (!isHermesModel(selectedModel)) return;
-  if ((attachments == null || attachments.isEmpty) &&
-      contextAttachments.isEmpty) {
-    return;
+  if (contextAttachments.isNotEmpty) {
+    throw const HermesAttachmentsUnsupportedException(
+      'Hermes cannot use OpenWebUI context attachments. Remove them or attach '
+      'a local document instead.',
+    );
+  }
+  for (final attachment in attachments ?? const <String>[]) {
+    if (attachment.startsWith('data:image/') ||
+        attachment.startsWith(kHermesLocalDocumentIdPrefix)) {
+      continue;
+    }
+    throw const HermesAttachmentsUnsupportedException();
+  }
+}
+
+final class _PreparedHermesTurn {
+  const _PreparedHermesTurn({
+    required this.input,
+    required this.imageUrls,
+    required this.files,
+  });
+
+  final HermesChatInput input;
+  final List<String> imageUrls;
+  final List<Map<String, dynamic>> files;
+}
+
+Future<_PreparedHermesTurn> _prepareHermesTurn(
+  dynamic ref, {
+  required Model selectedModel,
+  required String text,
+  required List<String>? attachmentIds,
+  required List<ChatContextAttachment> contextAttachments,
+}) async {
+  ensureHermesSendSupportsAttachments(
+    selectedModel: selectedModel,
+    attachments: attachmentIds,
+    contextAttachments: contextAttachments,
+  );
+
+  final attachedStates =
+      ref.read(attachedFilesProvider) as List<FileUploadState>;
+  final stateById = <String, FileUploadState>{
+    for (final state in attachedStates)
+      if (state.fileId != null) state.fileId!: state,
+  };
+  final images = <String>[];
+  final seenImages = <String>{};
+  final documentSources = <HermesLocalDocumentSource>[];
+  var decodedImageBytes = 0;
+
+  for (final attachmentId in attachmentIds ?? const <String>[]) {
+    if (attachmentId.startsWith('data:image/')) {
+      final AsyncValue<HermesCapabilities> capabilities = ref.read(
+        hermesCapabilitiesProvider,
+      );
+      final inputImages = capabilities.asData?.value.inputImages == true;
+      if (!inputImages) {
+        throw const HermesChatInputException(
+          'This Hermes server does not advertise image input support.',
+        );
+      }
+      if (!seenImages.add(attachmentId)) continue;
+      final int bytes;
+      try {
+        bytes = decodedImageByteLength(attachmentId);
+      } on DirectChatInputException catch (error) {
+        throw HermesChatInputException(error.message);
+      }
+      decodedImageBytes += bytes;
+      if (images.length + 1 > kHermesMaxInlineImages) {
+        throw const HermesChatInputException(
+          'Hermes supports up to 4 images per message.',
+        );
+      }
+      if (decodedImageBytes > kHermesMaxDecodedImageBytes) {
+        throw const HermesChatInputException(
+          'Hermes images must be 6 MB or less in total.',
+        );
+      }
+      images.add(attachmentId);
+      continue;
+    }
+
+    final state = stateById[attachmentId];
+    if (state == null || state.isImage == true) {
+      throw const HermesAttachmentsUnsupportedException();
+    }
+    documentSources.add(
+      await HermesLocalDocumentSource.fromFile(
+        state.file,
+        displayName: state.fileName,
+      ),
+    );
   }
 
-  throw const HermesAttachmentsUnsupportedException();
+  final documents = await HermesLocalDocumentService().prepareAll(
+    documentSources,
+  );
+  final promptText = documents.documents.isEmpty
+      ? text
+      : '$text\n\n${documents.renderForPrompt()}';
+  final HermesChatInput input;
+  if (images.isEmpty) {
+    input = HermesChatInput.text(promptText);
+  } else {
+    input = HermesChatInput.multimodal(<HermesChatContentPart>[
+      if (promptText.trim().isNotEmpty) HermesInputTextPart(promptText),
+      for (final image in images) HermesInputImagePart(image),
+    ]);
+  }
+
+  final files = <Map<String, dynamic>>[
+    for (final image in images)
+      <String, dynamic>{
+        'type': 'image',
+        'source': 'hermes_inline',
+        'url': image,
+      },
+    for (final document in documents.documents)
+      <String, dynamic>{
+        'type': 'file',
+        'source': 'hermes_local',
+        'id': document.id,
+        'url': '$kHermesLocalDocumentIdPrefix${document.id}',
+        'name': document.name,
+        'filename': document.name,
+        'size': document.size,
+        'content_type': document.mimeType,
+        'hermes_extracted_text': document.extractedText,
+        'hermes_truncated': document.truncated,
+      },
+  ];
+  return _PreparedHermesTurn(
+    input: input,
+    imageUrls: List.unmodifiable(images),
+    files: List.unmodifiable(files),
+  );
+}
+
+HermesPreparedDocument? _hermesDocumentFromDescriptor(
+  Map<String, dynamic> file,
+) {
+  if (file['source'] != 'hermes_local') return null;
+  final id = file['id']?.toString().trim() ?? '';
+  final name = (file['name'] ?? file['filename'])?.toString().trim() ?? '';
+  final mimeType = file['content_type']?.toString().trim() ?? '';
+  final text = file['hermes_extracted_text']?.toString() ?? '';
+  if (id.isEmpty || name.isEmpty || text.isEmpty) return null;
+  return HermesPreparedDocument(
+    id: id,
+    name: name,
+    mimeType: mimeType.isEmpty ? 'text/plain' : mimeType,
+    size: int.tryParse(file['size']?.toString() ?? '') ?? 0,
+    extractedText: text,
+    truncated: file['hermes_truncated'] == true,
+  );
+}
+
+HermesChatInput _hermesInputFromPersistedMessage(ChatMessage message) {
+  final documents = <HermesPreparedDocument>[];
+  final images = <String>[];
+  final seenImages = <String>{};
+  for (final file in message.files ?? const <Map<String, dynamic>>[]) {
+    final document = _hermesDocumentFromDescriptor(file);
+    if (document != null) documents.add(document);
+    if (file['type']?.toString().toLowerCase() == 'image') {
+      final url = file['url']?.toString() ?? '';
+      if ((url.startsWith('data:image/') ||
+              url.startsWith('http://') ||
+              url.startsWith('https://')) &&
+          seenImages.add(url)) {
+        images.add(url);
+      }
+    }
+  }
+  for (final value in message.attachmentIds ?? const <String>[]) {
+    if ((value.startsWith('data:image/') ||
+            value.startsWith('http://') ||
+            value.startsWith('https://')) &&
+        seenImages.add(value)) {
+      images.add(value);
+    }
+  }
+  final renderedDocuments = documents
+      .map((document) => document.renderForPrompt())
+      .join('\n\n');
+  final text = renderedDocuments.isEmpty
+      ? message.content
+      : '${message.content}\n\n$renderedDocuments';
+  if (images.isEmpty) return HermesChatInput.text(text);
+  return HermesChatInput.multimodal(<HermesChatContentPart>[
+    if (text.trim().isNotEmpty) HermesInputTextPart(text),
+    for (final image in images) HermesInputImagePart(image),
+  ]);
+}
+
+List<Map<String, dynamic>> _hermesVisibleHistory(
+  Iterable<ChatMessage> messages,
+) {
+  final result = <Map<String, dynamic>>[];
+  for (final message in messages) {
+    if (message.metadata?['archivedVariant'] == true) continue;
+    final role = message.role.toLowerCase();
+    if (role != 'user' && role != 'assistant' && role != 'system') continue;
+    if (role == 'user') {
+      final input = _hermesInputFromPersistedMessage(message);
+      result.add(<String, dynamic>{'role': role, 'content': input.toJson()});
+    } else {
+      final text = ToolCallsParser.sanitizeForApi(message.content).trim();
+      if (text.isNotEmpty) {
+        result.add(<String, dynamic>{'role': role, 'content': text});
+      }
+    }
+  }
+  return result.length <= 50
+      ? List.unmodifiable(result)
+      : List.unmodifiable(result.sublist(result.length - 50));
 }
 
 @visibleForTesting
@@ -4415,16 +4632,35 @@ Future<void> _regenerateHermesMessage(
   final continuityMessages = replayedUserIndex < 0
       ? const <ChatMessage>[]
       : existingMessages.sublist(0, replayedUserIndex);
+  final replayedUser = replayedUserIndex < 0
+      ? null
+      : existingMessages[replayedUserIndex];
 
-  String? previousResponseId;
-  for (final message in continuityMessages.reversed) {
-    if (message.role != 'assistant') continue;
-    final id = message.metadata?['hermesRunId'];
-    if (id is String && id.isNotEmpty) {
-      previousResponseId = id;
-      break;
-    }
-  }
+  final previousRunId = _lastHermesMetadataId(
+    continuityMessages,
+    'hermesRunId',
+  );
+  final previousResponseId = _lastHermesMetadataId(
+    continuityMessages,
+    'hermesResponseId',
+  );
+  final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
+  final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
+  final useResponses =
+      previousAssistant?.metadata?['hermesTransportMode'] ==
+          kHermesResponsesMode ||
+      previousResponseId != null ||
+      replayedFiles.any(
+        (file) =>
+            file['source'] == 'hermes_local' ||
+            file['type']?.toString().toLowerCase() == 'image',
+      ) ||
+      replayedAttachments.any(
+        (attachment) =>
+            attachment.startsWith('data:image/') ||
+            attachment.startsWith('http://') ||
+            attachment.startsWith('https://'),
+      );
 
   // Historical regeneration leaves the selected assistant at the tail. Reuse
   // that message rather than retaining an archived record plus a second
@@ -4442,7 +4678,7 @@ Future<void> _regenerateHermesMessage(
         : _buildReplayVersions(previousAssistant),
     metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
   );
-  if (continuityMessages.isNotEmpty && previousResponseId == null) {
+  if (!useResponses && continuityMessages.isNotEmpty && previousRunId == null) {
     assistant = assistant.copyWith(
       isStreaming: false,
       error: const ChatMessageError(
@@ -4463,10 +4699,20 @@ Future<void> _regenerateHermesMessage(
   await _dispatchHermesRunFromChat(
     ref,
     assistantMessageId: assistantMessageId,
-    input: input,
+    input: replayedUser?.content ?? input,
     existingMessages: continuityMessages,
     forceNewSession: true,
-    previousResponseIdOverride: previousResponseId,
+    previousResponseIdOverride: useResponses
+        ? previousResponseId
+        : previousRunId,
+    responseInput: useResponses
+        ? replayedUser == null
+              ? HermesChatInput.text(input)
+              : _hermesInputFromPersistedMessage(replayedUser)
+        : null,
+    responseHistory: useResponses
+        ? _hermesVisibleHistory(continuityMessages)
+        : null,
   );
 }
 
@@ -4623,6 +4869,43 @@ Future<void> _regenerateDirectMessage(
   } finally {
     registry.releaseReservation(reservation);
   }
+}
+
+/// Replays an edited user turn in a Hermes session while retaining Conduit's
+/// persisted local image/document descriptors. Reopened local documents no
+/// longer have a source filesystem attachment, so sending their old opaque id
+/// through the normal composer pipeline would either fail or silently drop the
+/// reference text.
+Future<void> regenerateEditedHermesUserMessage(
+  dynamic ref, {
+  required String messageId,
+  required String content,
+}) async {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (active?.metadata['backend'] != 'hermes') {
+    throw StateError('The active conversation is not a Hermes session.');
+  }
+  final messages = List<ChatMessage>.from(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+    growable: false,
+  );
+  final index = messages.indexWhere(
+    (message) => message.id == messageId && message.role == 'user',
+  );
+  if (index < 0) throw StateError('The Hermes user message was not found.');
+
+  final edited = messages[index].copyWith(
+    content: content,
+    metadata: <String, dynamic>{
+      ...?messages[index].metadata,
+      'childrenIds': const <String>[],
+    },
+  );
+  ref.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+    ...messages.sublist(0, index),
+    edited,
+  ]);
+  await regenerateMessage(ref, content, null);
 }
 
 // Regenerate message function that doesn't duplicate user message
@@ -6024,6 +6307,92 @@ class _HermesConversationOwner {
   String? conversationId;
 }
 
+String? _lastHermesMetadataId(Iterable<ChatMessage> messages, String key) {
+  for (final message in messages.toList(growable: false).reversed) {
+    if (message.role != 'assistant') continue;
+    final value = message.metadata?[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return null;
+}
+
+/// Binds a server-side Hermes session without converting an existing
+/// OpenWebUI conversation into a Hermes conversation. A fresh Hermes chat (or
+/// a branch of an already-Hermes chat) gets the local session-backed shell used
+/// by the Hermes history browser.
+void _bindHermesSessionToConversation(
+  dynamic ref, {
+  required _HermesConversationOwner owner,
+  required String assistantMessageId,
+  required String sessionId,
+  required String input,
+}) {
+  final normalizedSessionId = sessionId.trim();
+  if (normalizedSessionId.isEmpty) return;
+
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  final ownerIsActive = owner.conversationId == null
+      ? active == null
+      : active?.id == owner.conversationId;
+  if (!ownerIsActive) return;
+
+  ref.read(hermesActiveSessionProvider.notifier).set(normalizedSessionId);
+  final notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  notifier.updateMessageById(assistantMessageId, (message) {
+    final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
+    metadata['hermesSessionId'] = normalizedSessionId;
+    return message.copyWith(metadata: metadata);
+  });
+
+  if (active != null && active.metadata['backend'] != 'hermes') {
+    // A Hermes turn inside an OpenWebUI chat remains owned by that chat. The
+    // message metadata above is enough to recover this Hermes segment later.
+    return;
+  }
+
+  final nextConversationId = 'local:hermes_$normalizedSessionId';
+  final now = DateTime.now();
+  final selectedModel = ref.read(selectedModelProvider) as Model?;
+  final messages = List<ChatMessage>.unmodifiable(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+  );
+  final Conversation nextConversation;
+  if (active == null) {
+    nextConversation = Conversation(
+      id: nextConversationId,
+      title: _deriveHermesSessionTitle(input),
+      createdAt: now,
+      updatedAt: now,
+      model: selectedModel?.id,
+      messages: messages,
+      metadata: <String, dynamic>{
+        'backend': 'hermes',
+        'hermesSessionId': normalizedSessionId,
+      },
+    );
+  } else {
+    nextConversation = active.copyWith(
+      id: nextConversationId,
+      updatedAt: now,
+      model: selectedModel?.id ?? active.model,
+      messages: messages,
+      metadata: <String, dynamic>{
+        ...active.metadata,
+        'backend': 'hermes',
+        'hermesSessionId': normalizedSessionId,
+      },
+    );
+    if (active.id != nextConversationId) {
+      ref
+          .read(activeConversationInPlaceRemapProvider.notifier)
+          .mark(fromId: active.id, toId: nextConversationId);
+    }
+  }
+  owner.conversationId = nextConversationId;
+  ref.read(activeConversationProvider.notifier).set(nextConversation);
+}
+
 Future<void> _dispatchHermesRunFromChat(
   dynamic ref, {
   required String assistantMessageId,
@@ -6031,6 +6400,8 @@ Future<void> _dispatchHermesRunFromChat(
   required List<ChatMessage> existingMessages,
   bool forceNewSession = false,
   String? previousResponseIdOverride,
+  HermesChatInput? responseInput,
+  List<Map<String, dynamic>>? responseHistory,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -6057,6 +6428,8 @@ Future<void> _dispatchHermesRunFromChat(
       existingMessages: existingMessages,
       forceNewSession: forceNewSession,
       previousResponseIdOverride: previousResponseIdOverride,
+      responseInput: responseInput,
+      responseHistory: responseHistory,
       notifier: notifier,
       registry: registry,
       cancelToken: cancelToken,
@@ -6074,6 +6447,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required List<ChatMessage> existingMessages,
   required bool forceNewSession,
   required String? previousResponseIdOverride,
+  required HermesChatInput? responseInput,
+  required List<Map<String, dynamic>>? responseHistory,
   required ChatMessagesNotifier notifier,
   required HermesRunRegistry registry,
   required CancelToken cancelToken,
@@ -6137,16 +6512,17 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   }
 
   // Bind a server-side Hermes session so the transcript persists and is
-  // reloadable from the sessions browser. If the active conversation is an
-  // OpenWebUI chat, drop any stale Hermes session so we start a fresh one.
+  // reloadable from the sessions browser. For a Hermes segment embedded in an
+  // OpenWebUI chat, reuse only a session recorded by that segment—not global
+  // session state that may belong to another conversation.
   final activeConv = ref.read(activeConversationProvider);
   final activeIsHermes = activeConv?.metadata['backend'] == 'hermes';
-  if (activeConv != null && !activeIsHermes) {
-    ref.read(hermesActiveSessionProvider.notifier).set(null);
-  }
   var sessionId = forceNewSession
       ? null
-      : ref.read(hermesActiveSessionProvider);
+      : activeIsHermes || activeConv == null
+      ? (activeConv?.metadata['hermesSessionId']?.toString() ??
+            ref.read(hermesActiveSessionProvider))
+      : _lastHermesMetadataId(existingMessages, 'hermesSessionId');
   if (sessionId == null || sessionId.isEmpty) {
     try {
       // Title the session from the first user message when this is turn one.
@@ -6171,7 +6547,13 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         return;
       }
       sessionId = createdSessionId;
-      ref.read(hermesActiveSessionProvider.notifier).set(sessionId);
+      _bindHermesSessionToConversation(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        sessionId: createdSessionId,
+        input: input,
+      );
     } catch (error) {
       if (cancelled()) return;
       if (forceNewSession) {
@@ -6184,29 +6566,67 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     }
   }
 
-  if (forceNewSession &&
-      sessionId != null &&
-      activeConv != null &&
-      activeIsHermes) {
-    final nextConversationId = 'local:hermes_$sessionId';
-    final updatedConversation = activeConv.copyWith(
-      id: nextConversationId,
-      updatedAt: DateTime.now(),
-      messages: List<ChatMessage>.unmodifiable(ref.read(chatMessagesProvider)),
-      metadata: <String, dynamic>{
-        ...activeConv.metadata,
-        'backend': 'hermes',
-        'hermesSessionId': sessionId,
-      },
+  if (sessionId != null && sessionId.isNotEmpty) {
+    _bindHermesSessionToConversation(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+      sessionId: sessionId,
+      input: input,
     );
-    ref
-        .read(activeConversationInPlaceRemapProvider.notifier)
-        .mark(fromId: activeConv.id, toId: nextConversationId);
-    owner.conversationId = nextConversationId;
-    ref.read(activeConversationProvider.notifier).set(updatedConversation);
   }
 
-  // Chain to the previous Hermes turn for server-side multi-turn continuity.
+  // Attachments require Responses. Once a conversation enters that response
+  // chain, callers continue supplying [responseInput] for later text turns.
+  if (responseInput != null) {
+    var previousResponseId = previousResponseIdOverride;
+    previousResponseId ??= _lastHermesMetadataId(
+      existingMessages,
+      'hermesResponseId',
+    );
+    if (cancelled()) return;
+    await dispatchHermesResponse(
+      service: service,
+      registry: registry,
+      assistantMessageId: assistantMessageId,
+      input: responseInput,
+      sessionId: sessionId,
+      previousResponseId: previousResponseId,
+      conversationHistory: previousResponseId == null ? responseHistory : null,
+      cancelToken: cancelToken,
+      onSessionEstablished: (establishedSessionId) {
+        if (establishedSessionId == null || cancelled()) return;
+        _bindHermesSessionToConversation(
+          ref,
+          owner: owner,
+          assistantMessageId: assistantMessageId,
+          sessionId: establishedSessionId,
+          input: input,
+        );
+      },
+      appendContent: (content) =>
+          notifier.appendToMessageById(assistantMessageId, content),
+      replaceContent: (content) =>
+          notifier.replaceMessageContentById(assistantMessageId, content),
+      appendStatus: (update) =>
+          notifier.appendStatusUpdate(assistantMessageId, update),
+      updateMessage: (updater) =>
+          notifier.updateMessageById(assistantMessageId, updater),
+      finishStreaming: () => notifier.finishStreamingMessage(
+        assistantMessageId,
+        ownerConversationId: owner.conversationId,
+        requireConversationOwner: true,
+      ),
+      completeStreamingUi: () => notifier.completeStreamingUiForMessage(
+        assistantMessageId,
+        ownerConversationId: owner.conversationId,
+        requireConversationOwner: true,
+      ),
+    );
+    return;
+  }
+
+  // Chain detachable text-only runs to the previous Hermes run.
   var previousResponseId = previousResponseIdOverride;
   if (previousResponseId == null) {
     for (final m in existingMessages.reversed) {
@@ -6223,7 +6643,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   await dispatchHermesRun(
     service: service,
-    registry: ref.read(hermesRunRegistryProvider),
+    registry: registry,
     assistantMessageId: assistantMessageId,
     input: input,
     sessionId: sessionId,
@@ -6257,6 +6677,8 @@ Future<void> dispatchHermesRunFromChatForTest(
   required List<ChatMessage> existingMessages,
   bool forceNewSession = false,
   String? previousResponseIdOverride,
+  HermesChatInput? responseInput,
+  List<Map<String, dynamic>>? responseHistory,
 }) => _dispatchHermesRunFromChat(
   ref,
   assistantMessageId: assistantMessageId,
@@ -6264,6 +6686,8 @@ Future<void> dispatchHermesRunFromChatForTest(
   existingMessages: existingMessages,
   forceNewSession: forceNewSession,
   previousResponseIdOverride: previousResponseIdOverride,
+  responseInput: responseInput,
+  responseHistory: responseHistory,
 );
 
 typedef _ResolvedDirectRoute = ({
@@ -6964,13 +7388,22 @@ Future<void> _sendMessageInternal(
   // Get context attachments synchronously (no API calls)
   final contextAttachments = ref.read(contextAttachmentsProvider);
   final contextFiles = _contextAttachmentsToFiles(contextAttachments);
+  final _PreparedHermesTurn? preparedHermesTurn = isHermesModel(selectedModel)
+      ? await _prepareHermesTurn(
+          ref,
+          selectedModel: selectedModel,
+          text: message,
+          attachmentIds: attachments,
+          contextAttachments: contextAttachments,
+        )
+      : null;
 
   // All attachments are now server file IDs (images uploaded like OpenWebUI)
   // Legacy base64 support kept for backwards compatibility
   final legacyBase64Images = <Map<String, dynamic>>[];
   final serverFileIds = <String>[];
 
-  if (attachments != null) {
+  if (attachments != null && preparedHermesTurn == null) {
     for (final attachment in attachments) {
       if (attachment.startsWith('data:image/')) {
         // Legacy base64 format - keep for backwards compatibility
@@ -6984,7 +7417,9 @@ Future<void> _sendMessageInternal(
 
   // Build initial user files with legacy base64 and context (server files added later)
   final List<Map<String, dynamic>>? initialUserFiles =
-      (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
+      preparedHermesTurn != null
+      ? (preparedHermesTurn.files.isEmpty ? null : preparedHermesTurn.files)
+      : (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
       ? [...legacyBase64Images, ...contextFiles]
       : null;
 
@@ -7059,25 +7494,23 @@ Future<void> _sendMessageInternal(
   // OpenWebUI chat-completions pipeline. Hermes chats are local/ephemeral in
   // v1 (no OpenWebUI chat resource); durable memory is handled server-side.
   if (isHermesModel(selectedModel)) {
-    try {
-      ensureHermesSendSupportsAttachments(
-        selectedModel: selectedModel,
-        attachments: attachments,
-        contextAttachments: contextAttachments,
-      );
-    } on HermesAttachmentsUnsupportedException catch (error) {
-      final notifier = ref.read(chatMessagesProvider.notifier);
-      notifier.failLastStreamingAssistant(
-        error,
-        assistantMessageId: assistantMessageId,
-      );
-      rethrow;
-    }
+    final continuesResponses =
+        _lastHermesMetadataId(existingMessages, 'hermesResponseId') != null ||
+        existingMessages.any(
+          (item) =>
+              item.metadata?['hermesTransportMode'] == kHermesResponsesMode,
+        );
+    final useResponses =
+        (attachments?.isNotEmpty ?? false) || continuesResponses;
     await _dispatchHermesRunFromChat(
       ref,
       assistantMessageId: assistantMessageId,
       input: message,
       existingMessages: existingMessages,
+      responseInput: useResponses ? preparedHermesTurn!.input : null,
+      responseHistory: useResponses
+          ? _hermesVisibleHistory(existingMessages)
+          : null,
     );
     try {
       ref.read(contextAttachmentsProvider.notifier).clear();
@@ -7719,6 +8152,8 @@ Future<void> _sendMessageInternal(
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
   if (e is HermesAttachmentsUnsupportedException) return e.message;
+  if (e is HermesChatInputException) return e.message;
+  if (e is HermesLocalDocumentException) return e.message;
   if (e is DirectChatInputException) return e.message;
   if (e is DirectProviderException) return e.message;
 

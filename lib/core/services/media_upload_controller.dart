@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -10,6 +12,10 @@ import 'package:synchronized/synchronized.dart';
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
 import '../../features/direct_connections/direct_connections.dart';
+import '../../features/hermes/models/hermes_chat_input.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/hermes/services/hermes_local_document_service.dart';
 import '../models/file_info.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -63,7 +69,7 @@ class MediaUploadController {
   MediaUploadController(this._ref);
 
   final Ref _ref;
-  final Lock _directImagePreparationLock = Lock();
+  final Lock _localAttachmentPreparationLock = Lock();
 
   /// In-flight uploads keyed by the ORIGINAL source [filePath] (the key the UI
   /// + cancellation reference, never the converted temp path). Multiple callers
@@ -142,8 +148,27 @@ class MediaUploadController {
     final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
 
     final selectedModel = _ref.read(selectedModelProvider);
+    if (selectedModel != null && isHermesModel(selectedModel)) {
+      await _localAttachmentPreparationLock.synchronized(() async {
+        // A local attachment must never fall through to a different backend
+        // after a model switch: it may contain private bytes intended only for
+        // the selected Hermes connection.
+        final currentModel = _ref.read(selectedModelProvider);
+        if (currentModel == null || !isHermesModel(currentModel)) {
+          throw const HermesChatInputException(
+            'The selected backend changed while preparing this attachment.',
+          );
+        }
+        await _prepareHermesAttachment(
+          filePath: filePath,
+          fileName: fileName,
+          isImage: isImage,
+        );
+      });
+      return;
+    }
     if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
-      final preparedDirect = await _directImagePreparationLock.synchronized(
+      final preparedDirect = await _localAttachmentPreparationLock.synchronized(
         () async {
           // Waiting for an earlier image can outlive a model switch. Resolve
           // the route only after this upload owns the preparation lock so a
@@ -459,6 +484,157 @@ class MediaUploadController {
     // Shared-intent and camera staging files are no longer needed once the
     // direct attachment owns an in-memory data URL.
     unawaited(deleteShareStagingFile(filePath));
+  }
+
+  Future<void> _prepareHermesAttachment({
+    required String filePath,
+    required String fileName,
+    required bool isImage,
+  }) async {
+    final attachments = _ref.read(attachedFilesProvider);
+    final activeAttachments = attachments
+        .where((attachment) => attachment.status != FileUploadStatus.failed)
+        .toList(growable: false);
+
+    if (!isImage) {
+      final documentPaths = <String>{
+        for (final attachment in activeAttachments)
+          if (attachment.isImage != true) attachment.file.path,
+        filePath,
+      };
+      if (documentPaths.length > kHermesMaxLocalDocuments) {
+        throw const HermesChatInputException(
+          'Hermes supports up to 4 local documents per message.',
+        );
+      }
+      final file = File(filePath);
+      final stat = await file.stat();
+      if (stat.size > kHermesMaxLocalDocumentBytes) {
+        throw const HermesChatInputException(
+          'This document exceeds the Hermes local-document size limit.',
+        );
+      }
+      final opaqueId = sha256
+          .convert(
+            utf8.encode(
+              '$filePath\u0000${stat.size}\u0000'
+              '${stat.modified.microsecondsSinceEpoch}',
+            ),
+          )
+          .toString();
+      _updatePreparedHermesState(
+        filePath: filePath,
+        fileName: fileName,
+        fileSize: stat.size,
+        fileId: '$kHermesLocalDocumentIdPrefix$opaqueId',
+        isImage: false,
+      );
+      return;
+    }
+
+    final capabilities = hermesCapabilitiesNow(_ref);
+    if (!capabilities.inputImages) {
+      throw const HermesChatInputException(
+        'This Hermes server does not advertise image input support.',
+      );
+    }
+
+    final imagesByPath = <String, FileUploadState>{
+      for (final attachment in activeAttachments)
+        if (attachment.isImage == true) attachment.file.path: attachment,
+    };
+    final imagePaths = <String>{...imagesByPath.keys, filePath};
+    if (imagePaths.length > kHermesMaxInlineImages) {
+      throw const HermesChatInputException(
+        'Hermes supports up to 4 images per message.',
+      );
+    }
+
+    var measuredTotalBytes = 0;
+    var currentSourceBytes = 0;
+    for (final path in imagePaths) {
+      final attachment = imagesByPath[path];
+      final preparedDataUrl =
+          attachment?.base64DataUrl ??
+          ((attachment?.fileId?.startsWith('data:image/') ?? false)
+              ? attachment!.fileId
+              : null);
+      final int bytes;
+      try {
+        bytes = preparedDataUrl != null
+            ? decodedImageByteLength(preparedDataUrl)
+            : await File(path).length();
+      } on DirectChatInputException catch (error) {
+        throw HermesChatInputException(error.message);
+      }
+      measuredTotalBytes += bytes;
+      if (path == filePath) currentSourceBytes = bytes;
+      if (measuredTotalBytes > kHermesMaxDecodedImageBytes) {
+        throw const HermesChatInputException(
+          'Hermes images must be 6 MB or less in total.',
+        );
+      }
+    }
+
+    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+      File(filePath),
+    );
+    if (dataUrl == null) {
+      throw const HermesChatInputException(
+        'The selected image could not be prepared for Hermes.',
+      );
+    }
+    final int decodedBytes;
+    try {
+      decodedBytes = decodedImageByteLength(dataUrl);
+    } on DirectChatInputException catch (error) {
+      throw HermesChatInputException(error.message);
+    }
+    if (measuredTotalBytes - currentSourceBytes + decodedBytes >
+        kHermesMaxDecodedImageBytes) {
+      throw const HermesChatInputException(
+        'Hermes images must be 6 MB or less in total.',
+      );
+    }
+    _updatePreparedHermesState(
+      filePath: filePath,
+      fileName: fileName,
+      fileSize: decodedBytes,
+      fileId: dataUrl,
+      isImage: true,
+      base64DataUrl: dataUrl,
+    );
+    unawaited(deleteShareStagingFile(filePath));
+  }
+
+  void _updatePreparedHermesState({
+    required String filePath,
+    required String fileName,
+    required int fileSize,
+    required String fileId,
+    required bool isImage,
+    String? base64DataUrl,
+  }) {
+    final existing = _ref
+        .read(attachedFilesProvider)
+        .where((attachment) => attachment.file.path == filePath)
+        .firstOrNull;
+    if (existing == null) return;
+    _ref
+        .read(attachedFilesProvider.notifier)
+        .updateFileState(
+          filePath,
+          FileUploadState(
+            file: existing.file,
+            fileName: fileName,
+            fileSize: fileSize,
+            progress: 1,
+            status: FileUploadStatus.completed,
+            fileId: fileId,
+            isImage: isImage,
+            base64DataUrl: base64DataUrl,
+          ),
+        );
   }
 
   Future<void> _syncUploadedFile(String fileId) async {

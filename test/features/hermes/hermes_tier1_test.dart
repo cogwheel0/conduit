@@ -53,10 +53,11 @@ void main() {
       check(caps.sessions).isTrue();
     });
 
-    test('empty payload is optimistic (all enabled)', () {
+    test('empty payload keeps management optimistic but images disabled', () {
       final caps = HermesCapabilities.fromJson(const {});
       check(caps.runApproval).isTrue();
       check(caps.toolsets).isTrue();
+      check(caps.inputImages).isFalse();
     });
 
     test('null feature values remain optimistic', () {
@@ -64,6 +65,62 @@ void main() {
         'features': {'skills': null},
       });
       check(caps.skills).isTrue();
+    });
+
+    test('image input follows advertised Responses streaming support', () {
+      final viaFeature = HermesCapabilities.fromJson({
+        'features': {'responses_api': true, 'responses_streaming': true},
+      });
+      final viaEndpoint = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/responses'},
+        },
+      });
+      final disabled = HermesCapabilities.fromJson({
+        'features': {'responses_api': true, 'responses_streaming': false},
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/responses'},
+        },
+      });
+      final conflictingFlags = HermesCapabilities.fromJson({
+        'responses_streaming': true,
+        'features': {'responses_streaming': false},
+      });
+      final oldSessionOnly = HermesCapabilities.fromJson({
+        'features': {'session_chat_streaming': true},
+        'endpoints': {
+          'session_chat_stream': {
+            'method': 'POST',
+            'path': '/api/sessions/{session_id}/chat/stream',
+          },
+        },
+      });
+
+      check(viaFeature.inputImages).isTrue();
+      check(viaEndpoint.inputImages).isTrue();
+      check(disabled.inputImages).isFalse();
+      check(conflictingFlags.inputImages).isFalse();
+      check(oldSessionOnly.inputImages).isFalse();
+    });
+
+    test('malformed Responses endpoint does not enable image input', () {
+      final wrongMethod = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'GET', 'path': '/v1/responses'},
+        },
+      });
+      final wrongPath = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/runs'},
+        },
+      });
+      final apiWithoutStreaming = HermesCapabilities.fromJson({
+        'features': {'responses_api': true},
+      });
+
+      check(wrongMethod.inputImages).isFalse();
+      check(wrongPath.inputImages).isFalse();
+      check(apiWithoutStreaming.inputImages).isFalse();
     });
   });
 

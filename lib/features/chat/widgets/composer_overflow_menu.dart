@@ -130,6 +130,7 @@ List<Widget> withHorizontalSpacing(List<Widget> children, double gap) {
 class ComposerOverflowSheet extends ConsumerStatefulWidget {
   const ComposerOverflowSheet({
     super.key,
+    this.localAttachmentsOnly = false,
     this.onFileAttachment,
     this.onServerFileAttachment,
     this.onImageAttachment,
@@ -137,6 +138,10 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
     this.onWebAttachment,
   });
 
+  /// Restricts the sheet to device-local attachment actions supplied by the
+  /// caller. Used by backends such as Hermes that cannot resolve OpenWebUI
+  /// server files, web pages, feature toggles, tools, integrations, or filters.
+  final bool localAttachmentsOnly;
   final VoidCallback? onFileAttachment;
   final VoidCallback? onServerFileAttachment;
   final VoidCallback? onImageAttachment;
@@ -154,7 +159,12 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   @override
   void initState() {
     super.initState();
-    _userSettingsFuture = _loadUserSettings();
+    // Restricted backends have no OpenWebUI integrations to discover. Avoid
+    // issuing a request to an unrelated configured backend just for a hidden
+    // section.
+    _userSettingsFuture = widget.localAttachmentsOnly
+        ? null
+        : _loadUserSettings();
   }
 
   Future<Map<String, dynamic>?> _loadUserSettings() async {
@@ -178,22 +188,31 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
     final directMode =
         selectedModel != null &&
         ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+    final restrictedMode = directMode || widget.localAttachmentsOnly;
     final attachmentItems =
         buildComposerOverflowAttachmentItems(
           l10n: l10n,
           attachmentAvailability: ComposerOverflowAttachmentAvailability(
-            file: !directMode && widget.onFileAttachment != null,
-            serverFile: !directMode && widget.onServerFileAttachment != null,
+            file:
+                (!directMode || widget.localAttachmentsOnly) &&
+                widget.onFileAttachment != null,
+            serverFile:
+                !restrictedMode && widget.onServerFileAttachment != null,
             photo: widget.onImageAttachment != null,
             camera: widget.onCameraCapture != null,
-            web: !directMode && widget.onWebAttachment != null,
+            web: !restrictedMode && widget.onWebAttachment != null,
           ),
-        ).where(
-          (item) =>
-              !directMode ||
+        ).where((item) {
+          if (widget.localAttachmentsOnly) {
+            return item.enabled &&
+                (item.id == ComposerOverflowActionIds.file ||
+                    item.id == ComposerOverflowActionIds.photo ||
+                    item.id == ComposerOverflowActionIds.camera);
+          }
+          return !directMode ||
               item.id == ComposerOverflowActionIds.photo ||
-              item.id == ComposerOverflowActionIds.camera,
-        );
+              item.id == ComposerOverflowActionIds.camera;
+        });
 
     final attachments = attachmentItems
         .map(
@@ -203,10 +222,10 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         .toList();
 
     final webSearchAvailable =
-        !directMode && ref.watch(webSearchAvailableProvider);
+        !restrictedMode && ref.watch(webSearchAvailableProvider);
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final imageGenAvailable =
-        !directMode && ref.watch(imageGenerationAvailableProvider);
+        !restrictedMode && ref.watch(imageGenerationAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final featureTiles =
         buildComposerOverflowFeatureItems(
@@ -228,15 +247,19 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           );
         }).toList();
 
-    final selectedToolIds = ref.watch(selectedToolIdsProvider);
-    final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
-    final availableTerminalServersAsync = ref.watch(
-      terminalAvailableServersProvider,
-    );
-    final toolsAsync = ref.watch(toolsListProvider);
-    final toolsSection = directMode
+    final selectedToolIds = restrictedMode
+        ? const <String>[]
+        : ref.watch(selectedToolIdsProvider);
+    final selectedTerminalId = restrictedMode
+        ? null
+        : ref.watch(selectedTerminalIdProvider);
+    final availableTerminalServersAsync = restrictedMode
+        ? null
+        : ref.watch(terminalAvailableServersProvider);
+    final toolsAsync = restrictedMode ? null : ref.watch(toolsListProvider);
+    final toolsSection = restrictedMode
         ? const SizedBox.shrink()
-        : toolsAsync.when(
+        : toolsAsync!.when(
             data: (tools) {
               final toolItems = buildComposerOverflowToolItems(
                 availableTools: tools,
@@ -268,7 +291,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
             ),
             error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
           );
-    final integrationsSection = directMode
+    final integrationsSection = restrictedMode
         ? const SizedBox.shrink()
         : FutureBuilder<Map<String, dynamic>?>(
             future: _userSettingsFuture,
@@ -313,7 +336,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
                 );
               }
 
-              final terminalTiles = availableTerminalServersAsync.maybeWhen(
+              final terminalTiles = availableTerminalServersAsync!.maybeWhen(
                 data: (servers) {
                   return servers
                       .map((server) {
@@ -395,7 +418,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         const SizedBox(height: Spacing.sm),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),
       ],
-      if (!directMode) ...[
+      if (!restrictedMode) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
         toolsSection,
@@ -404,7 +427,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
     ];
 
     final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
-    if (toggleFilters.isNotEmpty) {
+    if (!restrictedMode && toggleFilters.isNotEmpty) {
       final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
       final filterTiles = toggleFilters.map((filter) {
         final isSelected = selectedFilterIds.contains(filter.id);

@@ -3,6 +3,7 @@ import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_session.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:dio/dio.dart';
@@ -156,9 +157,209 @@ void main() {
         {'role': 'assistant', 'content': 'Three', 'responseId': 'response-3'},
       ]);
 
+      check(messages[0].metadata?['hermesRunId']).equals('run-1');
+      check(messages[0].metadata?['hermesResponseId']).isNull();
+      check(messages[1].metadata?['hermesResponseId']).equals('response-2');
+      check(messages[2].metadata?['hermesResponseId']).equals('response-3');
       check(
-        messages.map((message) => message.metadata?['hermesRunId']).toList(),
-      ).deepEquals(['run-1', 'response-2', 'response-3']);
+        messages.sublist(1).map(
+          (message) => message.metadata?['hermesTransportMode'],
+        ),
+      ).deepEquals(['responses', 'responses']);
+    });
+
+    test('restores typed image parts alongside their text', () {
+      const pngDataUrl = 'data:image/png;base64,AQID';
+      const jpegDataUrl = 'data:image/jpeg;base64,BAUG';
+      const remoteImageUrl = 'https://images.example.com/photo.webp';
+      final messages = hermesMessagesToChatMessages([
+        {
+          'role': 'user',
+          'content': [
+            {'type': 'input_text', 'text': 'Compare '},
+            {
+              'type': 'image_url',
+              'image_url': {'url': pngDataUrl},
+            },
+            {'type': 'input_image', 'image_url': jpegDataUrl},
+            {'type': 'input_image', 'url': remoteImageUrl},
+            {
+              // Older history rows can omit the part type.
+              'image_url': {'url': pngDataUrl},
+            },
+            {'type': 'text', 'text': 'these'},
+          ],
+        },
+      ]);
+
+      check(messages).has((m) => m.length, 'length').equals(1);
+      final message = messages.single;
+      check(message.content).equals('Compare these');
+      check(
+        message.attachmentIds!,
+      ).deepEquals([pngDataUrl, jpegDataUrl, remoteImageUrl]);
+      check(message.files!).deepEquals([
+        {'type': 'image', 'url': pngDataUrl, 'content_type': 'image/png'},
+        {'type': 'image', 'url': jpegDataUrl, 'content_type': 'image/jpeg'},
+        {'type': 'image', 'url': remoteImageUrl},
+      ]);
+    });
+
+    test('preserves image-only user rows in map and string forms', () {
+      const mapImage = 'data:image/webp;base64,AQID';
+      const stringImage = 'data:image/png;base64,BAUG';
+      final messages = hermesMessagesToChatMessages([
+        {
+          'id': 'map-image',
+          'role': 'user',
+          'content': {
+            'type': 'input_image',
+            'image_url': {'url': mapImage},
+          },
+        },
+        {'id': 'string-image', 'role': 'user', 'content': stringImage},
+      ]);
+
+      check(messages).has((m) => m.length, 'length').equals(2);
+      check(messages[0].content).isEmpty();
+      check(messages[0].attachmentIds!).deepEquals([mapImage]);
+      check(messages[0].files!).deepEquals([
+        {'type': 'image', 'url': mapImage, 'content_type': 'image/webp'},
+      ]);
+      check(messages[1].content).isEmpty();
+      check(messages[1].attachmentIds!).deepEquals([stringImage]);
+    });
+
+    test(
+      'ignores unsafe or malformed image URLs without exposing them as text',
+      () {
+        const malformedDataUrl = 'data:image/png;base64,';
+        final messages = hermesMessagesToChatMessages([
+          {
+            'role': 'user',
+            'content': [
+              {'type': 'input_text', 'text': 'Safe text'},
+              {'type': 'input_image', 'image_url': 'file:///private/photo.png'},
+              {'type': 'image_url', 'image_url': malformedDataUrl},
+            ],
+          },
+          {'role': 'user', 'content': malformedDataUrl},
+        ]);
+
+        check(messages).has((m) => m.length, 'length').equals(1);
+        check(messages.single.content).equals('Safe text');
+        check(messages.single.attachmentIds).isNull();
+        check(messages.single.files).isNull();
+      },
+    );
+
+    test('restores local document blocks as clean inert file descriptors', () {
+      const document = HermesPreparedDocument(
+        id: 'hdoc_0123456789abcdef01234567',
+        name: 'research notes.pdf',
+        mimeType: 'application/pdf',
+        size: 2048,
+        extractedText: '[Page 1]\nQuarterly findings',
+        truncated: true,
+      );
+      final rendered = document.renderForPrompt();
+      final messages = hermesMessagesToChatMessages([
+        {'role': 'user', 'content': 'Summarize the findings.\n\n$rendered'},
+      ]);
+
+      check(messages).has((m) => m.length, 'length').equals(1);
+      final message = messages.single;
+      check(message.content).equals('Summarize the findings.');
+      check(message.content).not((value) => value.contains('untrusted'));
+      check(
+        message.content,
+      ).not((value) => value.contains(document.extractedText));
+      check(message.attachmentIds).isNull();
+      check(message.files!).deepEquals([
+        {
+          'type': 'file',
+          'source': 'hermes_local',
+          'id': document.id,
+          'url': 'hermes-local:${document.id}',
+          'name': document.name,
+          'filename': document.name,
+          'size': document.size,
+          'content_type': document.mimeType,
+          'hermes_extracted_text': document.extractedText,
+          'hermes_truncated': true,
+        },
+      ]);
+    });
+
+    test(
+      'preserves document-only user rows and restores multiple documents',
+      () {
+        const first = HermesPreparedDocument(
+          id: 'hdoc_aaaaaaaaaaaaaaaaaaaaaaaa',
+          name: 'first.txt',
+          mimeType: 'text/plain',
+          size: 12,
+          extractedText: 'First source',
+          truncated: false,
+        );
+        const second = HermesPreparedDocument(
+          id: 'hdoc_bbbbbbbbbbbbbbbbbbbbbbbb',
+          name: 'second.md',
+          mimeType: 'text/markdown',
+          size: 13,
+          extractedText: 'Second source',
+          truncated: false,
+        );
+        final messages = hermesMessagesToChatMessages([
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'input_text',
+                'text':
+                    '${first.renderForPrompt()}\n\n${second.renderForPrompt()}',
+              },
+            ],
+          },
+        ]);
+
+        check(messages).has((m) => m.length, 'length').equals(1);
+        check(messages.single.content).isEmpty();
+        check(
+          messages.single.files!,
+        ).has((files) => files.length, 'length').equals(2);
+        check(
+          messages.single.files!.map((file) => file['id']).toList(),
+        ).deepEquals([first.id, second.id]);
+        check(
+          messages.single.files!
+              .map((file) => file['hermes_extracted_text'])
+              .toList(),
+        ).deepEquals([first.extractedText, second.extractedText]);
+      },
+    );
+
+    test('leaves malformed reference lookalikes visible and inert', () {
+      const document = HermesPreparedDocument(
+        id: 'hdoc_cccccccccccccccccccccccc',
+        name: 'source.txt',
+        mimeType: 'text/plain',
+        size: 6,
+        extractedText: 'Source',
+        truncated: false,
+      );
+      final malformed = document.renderForPrompt().replaceFirst(
+        '"id":"${document.id}"',
+        '"id":"hdoc_dddddddddddddddddddddddd"',
+      );
+      final messages = hermesMessagesToChatMessages([
+        {'role': 'user', 'content': 'Keep this visible.\n\n$malformed'},
+      ]);
+
+      check(messages).has((m) => m.length, 'length').equals(1);
+      check(messages.single.content).contains('Keep this visible.');
+      check(messages.single.content).contains('untrusted reference data');
+      check(messages.single.files).isNull();
     });
   });
 

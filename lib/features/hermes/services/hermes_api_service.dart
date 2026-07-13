@@ -1,9 +1,20 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../models/hermes_chat_input.dart';
 import '../models/hermes_config.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_stream_parser.dart';
+
+/// An established Responses SSE request. Headers are available before event
+/// consumption so callers can bind the server-created Hermes session.
+final class HermesResponseStream {
+  const HermesResponseStream({required this.events, this.sessionId});
+
+  final Stream<HermesRunEvent> events;
+  final String? sessionId;
+}
 
 Future<bool> testHermesDraftConnection(
   HermesConfig config, {
@@ -249,6 +260,79 @@ class HermesApiService {
     final list = data is Map ? (data['messages'] ?? data['data']) : data;
     if (list is! List) return const [];
     return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+  }
+
+  /// Starts one turn through Hermes's existing Responses SSE endpoint.
+  ///
+  /// Unlike `/v1/runs`, Responses accepts multimodal content on current Hermes
+  /// servers and persists a response chain for client-managed conversations.
+  Future<HermesResponseStream> streamResponse(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    CancelToken? cancelToken,
+  }) async {
+    if ((conversation?.isNotEmpty ?? false) &&
+        (previousResponseId?.isNotEmpty ?? false)) {
+      throw ArgumentError(
+        'conversation and previousResponseId are mutually exclusive',
+      );
+    }
+    final resp = await _dio.post<ResponseBody>(
+      '$_root/v1/responses',
+      cancelToken: cancelToken,
+      data: <String, dynamic>{
+        ...OpenAiResponsesCodec.createRequestBody(
+          // Hermes documents this model id and treats the field as cosmetic;
+          // the configured server-side agent still selects the actual model.
+          model: 'hermes-agent',
+          input: input.toResponseInput(),
+          instructions: instructions,
+          previousResponseId: previousResponseId,
+          // Response chaining and stream-drop recovery retrieve this result.
+          store: true,
+        ),
+        'conversation': ?conversation,
+        if (conversationHistory != null && conversationHistory.isNotEmpty)
+          'conversation_history': conversationHistory,
+      },
+      options: Options(
+        responseType: ResponseType.stream,
+        receiveTimeout: Duration.zero,
+        headers: {
+          'Accept': 'text/event-stream',
+          ..._sessionHeaders(sessionId: sessionId),
+        },
+      ),
+    );
+    final body = resp.data;
+    if (body == null) {
+      throw StateError('Hermes Responses returned no event stream');
+    }
+    return HermesResponseStream(
+      sessionId: resp.headers.value('x-hermes-session-id'),
+      events: parseHermesResponseStream(body.stream.cast<List<int>>()),
+    );
+  }
+
+  /// Retrieves a stored Responses result for stream-drop reconciliation.
+  Future<Map<String, dynamic>> getResponse(
+    String responseId, {
+    CancelToken? cancelToken,
+  }) async {
+    final encoded = Uri.encodeComponent(responseId);
+    final resp = await _dio.get<dynamic>(
+      '$_root/v1/responses/$encoded',
+      cancelToken: cancelToken,
+    );
+    final data = resp.data;
+    if (data is! Map) {
+      throw const FormatException('Hermes response payload is not an object');
+    }
+    return data.cast<String, dynamic>();
   }
 
   /// Renames a session (`PATCH /api/sessions/{id}`).

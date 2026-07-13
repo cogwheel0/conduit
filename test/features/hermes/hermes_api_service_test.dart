@@ -1,8 +1,11 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openai_dart/openai_dart.dart' as openai;
 
 /// Captures the outgoing request and short-circuits it with a canned response,
 /// so we can assert paths/headers/body without a real server.
@@ -104,6 +107,167 @@ void main() {
       final capture = _CaptureInterceptor('not an object');
 
       await check(_service(capture).getRun('r1')).throws<FormatException>();
+    });
+
+    test(
+      'streamResponse sends chained multimodal input and exposes session',
+      () async {
+        final body = ResponseBody.fromString(
+          'event: response.created\n'
+          'data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}\n\n'
+          'event: response.output_text.delta\n'
+          'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+          'event: response.completed\n'
+          'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}}\n\n',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+            'x-hermes-session-id': ['server-session'],
+          },
+        );
+        final capture = _CaptureInterceptor(body);
+        final cancelToken = CancelToken();
+        final history = <Map<String, dynamic>>[
+          {'role': 'user', 'content': 'earlier'},
+          {'role': 'assistant', 'content': 'answer'},
+        ];
+        final responseStream = await _service(capture, session: 'mem-key')
+            .streamResponse(
+              HermesChatInput.multimodal([
+                HermesInputTextPart('look'),
+                HermesInputImagePart('https://example.com/image.png'),
+              ]),
+              instructions: 'Be concise',
+              sessionId: 'client-session',
+              previousResponseId: 'resp_0',
+              conversationHistory: history,
+              cancelToken: cancelToken,
+            );
+        final events = await responseStream.events.toList();
+
+        check(responseStream.sessionId).equals('server-session');
+        check(
+          events.whereType<HermesResponseCreated>().map((e) => e.responseId),
+        ).deepEquals(['resp_1', 'resp_1']);
+        check(
+          events.whereType<HermesTokenDelta>().single.content,
+        ).equals('hello');
+        check(
+          events.whereType<HermesFinalOutput>().single.text,
+        ).equals('hello');
+        check(events.last).isA<HermesRunDone>();
+
+        final req = capture.requests.single;
+        check(req.path).equals('http://host:8642/v1/responses');
+        check(req.method).equals('POST');
+        check(req.cancelToken).identicalTo(cancelToken);
+        check(req.receiveTimeout).equals(Duration.zero);
+        check(req.headers['X-Hermes-Session-Id']).equals('client-session');
+        check(req.headers['X-Hermes-Session-Key']).equals('mem-key');
+        check(req.headers['Accept']).equals('text/event-stream');
+        final data = req.data as Map;
+        check(data['input'] as List).deepEquals([
+          {
+            'type': 'message',
+            'role': 'user',
+            'content': [
+              {'type': 'input_text', 'text': 'look'},
+              {
+                'type': 'input_image',
+                'image_url': 'https://example.com/image.png',
+              },
+            ],
+          },
+        ]);
+        check(data['model']).equals('hermes-agent');
+        check(data['stream']).equals(true);
+        check(data['store']).equals(true);
+        check(data['instructions']).equals('Be concise');
+        check(data['previous_response_id']).equals('resp_0');
+        check(data['conversation_history'] as List).deepEquals(history);
+        check(data.containsKey('conversation')).isFalse();
+
+        final sdkRequest = openai.CreateResponseRequest.fromJson(
+          data.cast<String, dynamic>(),
+        );
+        check(sdkRequest.model).equals('hermes-agent');
+        check(sdkRequest.input).isA<openai.ResponseInputItems>();
+        check(sdkRequest.stream).equals(true);
+        check(sdkRequest.store).equals(true);
+        check(sdkRequest.instructions).equals('Be concise');
+        check(sdkRequest.previousResponseId).equals('resp_0');
+      },
+    );
+
+    test('streamResponse rejects competing continuation mechanisms', () async {
+      final capture = _CaptureInterceptor({});
+
+      await check(
+        _service(capture).streamResponse(
+          HermesChatInput.text('hello'),
+          conversation: 'conversation-1',
+          previousResponseId: 'resp_0',
+        ),
+      ).throws<ArgumentError>();
+      check(capture.requests).isEmpty();
+    });
+
+    test(
+      'streamResponse layers named conversation over SDK text input',
+      () async {
+        final capture = _CaptureInterceptor(
+          ResponseBody.fromString(
+            'data: [DONE]\n\n',
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['text/event-stream'],
+            },
+          ),
+        );
+
+        final stream = await _service(capture).streamResponse(
+          HermesChatInput.text('hello'),
+          conversation: 'project-chat',
+        );
+        final events = await stream.events.toList();
+
+        check(events.single).isA<HermesRunDone>();
+        final data = (capture.requests.single.data as Map)
+            .cast<String, dynamic>();
+        check(data['model']).equals('hermes-agent');
+        check(data['input']).equals('hello');
+        check(data['conversation']).equals('project-chat');
+        check(data.containsKey('previous_response_id')).isFalse();
+        final sdkRequest = openai.CreateResponseRequest.fromJson(data);
+        check(sdkRequest.input).isA<openai.ResponseInputText>();
+      },
+    );
+
+    test('getResponse encodes identity and forwards cancellation', () async {
+      final capture = _CaptureInterceptor({
+        'id': 'resp/1#fragment',
+        'status': 'completed',
+      });
+      final cancelToken = CancelToken();
+
+      final response = await _service(
+        capture,
+      ).getResponse('resp/1#fragment', cancelToken: cancelToken);
+
+      check(response['status']).equals('completed');
+      final req = capture.requests.single;
+      check(
+        req.path,
+      ).equals('http://host:8642/v1/responses/resp%2F1%23fragment');
+      check(req.cancelToken).identicalTo(cancelToken);
+    });
+
+    test('getResponse rejects a non-object payload', () async {
+      final capture = _CaptureInterceptor('not an object');
+
+      await check(
+        _service(capture).getResponse('resp_1'),
+      ).throws<FormatException>();
     });
 
     test(

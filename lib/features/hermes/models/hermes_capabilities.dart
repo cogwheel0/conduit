@@ -1,9 +1,8 @@
 /// Parsed `/v1/capabilities` feature flags.
 ///
-/// Every flag defaults to **true** when the server doesn't clearly advertise it
-/// (older servers, or a 404 on the endpoint): we only ever hide a feature when
-/// the server explicitly says it's unsupported, never because parsing was
-/// uncertain.
+/// Existing management features are optimistic for compatibility with older
+/// servers. Image input is fail-closed: the client only enables it when the
+/// server advertises a compatible endpoint.
 class HermesCapabilities {
   const HermesCapabilities({
     this.runApproval = true,
@@ -12,6 +11,7 @@ class HermesCapabilities {
     this.jobs = true,
     this.jobsAdmin = true,
     this.sessions = true,
+    this.inputImages = false,
   });
 
   final bool runApproval;
@@ -27,7 +27,14 @@ class HermesCapabilities {
 
   final bool sessions;
 
-  /// The optimistic default used while loading or when discovery fails.
+  /// Whether Conduit can send image content through Responses streaming.
+  ///
+  /// Hermes does not currently publish a separate vision flag, so this is
+  /// inferred from its advertised Responses streaming API. It intentionally
+  /// remains false when discovery is unavailable or ambiguous.
+  final bool inputImages;
+
+  /// The compatibility default used while loading or when discovery fails.
   static const HermesCapabilities enabledByDefault = HermesCapabilities();
 
   factory HermesCapabilities.fromJson(Map<String, dynamic> json) {
@@ -49,6 +56,7 @@ class HermesCapabilities {
         'sessions',
         'session_key_header',
       ]),
+      inputImages: _resolveResponsesImageInput(json),
     );
   }
 
@@ -68,5 +76,48 @@ class HermesCapabilities {
       if (endpoints is Map && endpoints.containsKey(name)) return true;
     }
     return true;
+  }
+
+  static bool _resolveResponsesImageInput(Map<String, dynamic> json) {
+    final topLevelApi = json['responses_api'];
+    final topLevelStreaming = json['responses_streaming'];
+    final features = json['features'];
+    final featureApi = features is Map ? features['responses_api'] : null;
+    final featureStreaming = features is Map
+        ? features['responses_streaming']
+        : null;
+    // Conflicting discovery data must fail closed. This also makes an explicit
+    // false authoritative over a stale endpoint entry.
+    if (topLevelApi == false ||
+        topLevelStreaming == false ||
+        featureApi == false ||
+        featureStreaming == false) {
+      return false;
+    }
+    if (topLevelStreaming == true || featureStreaming == true) return true;
+
+    final endpoints = json['endpoints'];
+    if (endpoints is! Map || !endpoints.containsKey('responses')) {
+      return false;
+    }
+
+    final endpoint = endpoints['responses'];
+    if (endpoint is String) {
+      return _isResponsesPath(endpoint);
+    }
+    if (endpoint is! Map) return false;
+
+    final method = endpoint['method'];
+    if (method != null &&
+        (method is! String || method.trim().toUpperCase() != 'POST')) {
+      return false;
+    }
+    final path = endpoint['path'];
+    return path is String && _isResponsesPath(path);
+  }
+
+  static bool _isResponsesPath(String path) {
+    final normalized = path.trim().toLowerCase();
+    return normalized == '/v1/responses' || normalized == '/responses';
   }
 }

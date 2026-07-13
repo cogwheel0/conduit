@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
@@ -7,6 +8,9 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/streaming_response_controller.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
+import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
@@ -205,6 +209,77 @@ class _CreateRunRaceHermesApi extends HermesApiService {
   }
 }
 
+class _ResponsesHermesApi extends HermesApiService {
+  _ResponsesHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://hermes',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  final List<HermesChatInput> inputs = [];
+  final List<String?> sessionIds = [];
+  final List<String?> previousResponseIds = [];
+  final List<List<Map<String, dynamic>>?> histories = [];
+  var createRunCalls = 0;
+
+  @override
+  Future<String> createSession({
+    String? title,
+    CancelToken? cancelToken,
+  }) async => 'responses-session';
+
+  @override
+  Future<String> createRun({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    CancelToken? cancelToken,
+  }) async {
+    createRunCalls++;
+    return 'unexpected-run';
+  }
+
+  @override
+  Future<HermesResponseStream> streamResponse(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    CancelToken? cancelToken,
+  }) async {
+    inputs.add(input);
+    sessionIds.add(sessionId);
+    previousResponseIds.add(previousResponseId);
+    histories.add(conversationHistory);
+    final responseId = 'resp-${inputs.length}';
+    return HermesResponseStream(
+      sessionId: 'responses-session',
+      events: Stream<HermesRunEvent>.fromIterable([
+        HermesResponseCreated(responseId),
+        HermesTokenDelta('answer ${inputs.length}'),
+        HermesFinalOutput('answer ${inputs.length}'),
+        const HermesRunDone(),
+      ]),
+    );
+  }
+}
+
+class _SeededAttachedFiles extends AttachedFilesNotifier {
+  _SeededAttachedFiles(this.files);
+
+  final List<FileUploadState> files;
+
+  @override
+  List<FileUploadState> build() => List<FileUploadState>.of(files);
+}
+
 ProviderContainer _buildContainer({HermesApiService? hermesService}) {
   return ProviderContainer(
     overrides: [
@@ -223,7 +298,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ChatMessagesNotifier streaming seams', () {
-    test('Hermes rejects file attachments with an in-chat error', () async {
+    test('Hermes rejects unresolved attachment ids before dispatch', () async {
       final container = _buildContainer();
       addTearDown(container.dispose);
       container
@@ -236,18 +311,13 @@ void main() {
           isA<HermesAttachmentsUnsupportedException>().having(
             (error) => error.message,
             'message',
-            contains('does not support file or context attachments'),
+            contains('cannot use this attachment'),
           ),
         ),
       );
 
       final messages = container.read(chatMessagesProvider);
-      check(messages).has((it) => it.length, 'length').equals(2);
-      expect(messages.first.attachmentIds, ['file-1']);
-      expect(
-        messages.last.error?.content,
-        contains('does not support file or context attachments'),
-      );
+      check(messages).isEmpty();
     });
 
     test(
@@ -272,16 +342,143 @@ void main() {
         );
 
         final messages = container.read(chatMessagesProvider);
-        check(messages).has((it) => it.length, 'length').equals(2);
-        check(messages.first.files).isNotNull();
-        check(messages.first.files!).isNotEmpty();
-        expect(
-          messages.last.error?.content,
-          contains('does not support file or context attachments'),
-        );
+        check(messages).isEmpty();
         check(container.read(contextAttachmentsProvider)).single
             .has((attachment) => attachment.displayName, 'displayName')
             .equals('Reference');
+      },
+    );
+
+    test(
+      'Hermes image turn enters Responses and later text stays on its chain',
+      () async {
+        final service = _ResponsesHermesApi();
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesCapabilitiesProvider.overrideWith(
+              (ref) async => const HermesCapabilities(inputImages: true),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(hermesCapabilitiesProvider.future);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        const image = 'data:image/png;base64,AQID';
+
+        await sendMessageWithContainer(container, 'describe', [image]);
+        await sendMessageWithContainer(container, 'continue', null);
+
+        check(service.createRunCalls).equals(0);
+        check(service.inputs).length.equals(2);
+        check(
+          service.inputs.first.toJson() as List<Map<String, dynamic>>,
+        ).deepEquals([
+          {'type': 'input_text', 'text': 'describe'},
+          {'type': 'input_image', 'image_url': image},
+        ]);
+        check(service.inputs.last.toJson()).equals('continue');
+        check(
+          service.sessionIds,
+        ).deepEquals(['responses-session', 'responses-session']);
+        check(service.previousResponseIds).deepEquals([null, 'resp-1']);
+        check(service.histories.first).isNotNull();
+        check(service.histories.first!).isEmpty();
+        check(service.histories.last).isNull();
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages).length.equals(4);
+        check(messages.first.files!.single['url']).equals(image);
+        check(messages[1].metadata?['hermesResponseId']).equals('resp-1');
+        check(messages.last.metadata?['hermesResponseId']).equals('resp-2');
+        check(
+          container.read(activeConversationProvider)?.metadata['backend'],
+        ).equals('hermes');
+      },
+    );
+
+    test(
+      'Hermes document text is local-only and hidden from the bubble',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_send_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final document = File('${directory.path}/notes.txt');
+        await document.writeAsString('private reference text');
+        final attachment = FileUploadState(
+          file: document,
+          fileName: 'notes.txt',
+          fileSize: await document.length(),
+          progress: 1,
+          status: FileUploadStatus.completed,
+          fileId: 'hermes-local:composer-token',
+          isImage: false,
+        );
+        final service = _ResponsesHermesApi();
+        final container = ProviderContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+            attachedFilesProvider.overrideWith(
+              () => _SeededAttachedFiles([attachment]),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+
+        await sendMessageWithContainer(container, 'summarize', [
+          'hermes-local:composer-token',
+        ]);
+
+        check(service.createRunCalls).equals(0);
+        final requestText = service.inputs.single.toJson() as String;
+        check(requestText).contains('private reference text');
+        check(requestText).contains('BEGIN_HERMES_UNTRUSTED_REFERENCE');
+        final user = container.read(chatMessagesProvider).first;
+        check(user.content).equals('summarize');
+        check(user.content).not((value) => value.contains('private reference'));
+        check(user.files).isNotNull();
+        check(user.files!.single['source']).equals('hermes_local');
+        check(
+          user.files!.single['hermes_extracted_text'],
+        ).equals('private reference text');
+
+        await regenerateEditedHermesUserMessage(
+          container,
+          messageId: user.id,
+          content: 'summarize briefly',
+        );
+
+        check(service.inputs).length.equals(2);
+        final editedRequest = service.inputs.last.toJson() as String;
+        check(editedRequest).contains('summarize briefly');
+        check(editedRequest).contains('private reference text');
+        final editedUser = container.read(chatMessagesProvider).first;
+        check(editedUser.content).equals('summarize briefly');
+        check(editedUser.files!.single['source']).equals('hermes_local');
       },
     );
 

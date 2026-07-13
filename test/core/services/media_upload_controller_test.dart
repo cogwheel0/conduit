@@ -9,6 +9,11 @@ import 'package:conduit/core/services/attachment_upload_queue.dart';
 import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
+import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -386,6 +391,301 @@ void main() {
     expect(byPath[second.path]?.fileId, 'server-file-1');
     expect(byPath[second.path]?.base64DataUrl, isNull);
   });
+
+  group('Hermes attachment preparation', () {
+    test('file service remains available without an OpenWebUI API', () {
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          reviewerModeProvider.overrideWithValue(false),
+          selectedModelProvider.overrideWith(
+            () => _SeededSelectedModel(hermesSyntheticModel()),
+          ),
+          directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        container.read(fileAttachmentServiceProvider),
+        isA<FileAttachmentService>(),
+      );
+    });
+
+    test('image preparation fails closed without capability', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final image = File('${directory.path}/photo.png');
+      await image.writeAsBytes([1, 2, 3]);
+      var encodeCalls = 0;
+      final queue = await _recordingUploadQueue();
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(),
+        attachments: [_pendingImage(image, reportedBytes: 3)],
+        encoder: (file) async {
+          encodeCalls++;
+          return 'data:image/png;base64,AQID';
+        },
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(filePath: image.path, fileName: 'photo.png', fileSize: 3),
+        throwsA(isA<HermesChatInputException>()),
+      );
+
+      expect(encodeCalls, 0);
+      expect(queue.queue, isEmpty);
+      expect(
+        container.read(attachedFilesProvider).single.status,
+        FileUploadStatus.failed,
+      );
+    });
+
+    test('advertised image capability stores a local data URL', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final image = File('${directory.path}/photo.png');
+      await image.writeAsBytes([1, 2, 3]);
+      const dataUrl = 'data:image/png;base64,AQID';
+      final queue = await _recordingUploadQueue();
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(inputImages: true),
+        attachments: [_pendingImage(image, reportedBytes: 3)],
+        encoder: (file) async => dataUrl,
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: image.path, fileName: 'photo.png', fileSize: 3);
+
+      final stored = container.read(attachedFilesProvider).single;
+      expect(stored.status, FileUploadStatus.completed);
+      expect(stored.fileId, dataUrl);
+      expect(stored.base64DataUrl, dataUrl);
+      expect(stored.fileSize, 3);
+      expect(queue.queue, isEmpty);
+    });
+
+    test('a fifth active image is rejected before encoding', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final images = <File>[];
+      for (var index = 0; index < kHermesMaxInlineImages + 1; index++) {
+        final image = File('${directory.path}/photo-$index.png');
+        await image.writeAsBytes([index]);
+        images.add(image);
+      }
+      var encodeCalls = 0;
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(inputImages: true),
+        attachments: [
+          for (final image in images) _pendingImage(image, reportedBytes: 1),
+        ],
+        encoder: (file) async {
+          encodeCalls++;
+          return 'data:image/png;base64,AQ==';
+        },
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: images.first.path,
+              fileName: 'photo-0.png',
+              fileSize: 1,
+            ),
+        throwsA(isA<HermesChatInputException>()),
+      );
+
+      expect(encodeCalls, 0);
+    });
+
+    test('aggregate image size uses local file stats', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final first = File('${directory.path}/first.png');
+      final second = File('${directory.path}/second.png');
+      await _truncate(first, 3 * 1024 * 1024 + 1);
+      await _truncate(second, 3 * 1024 * 1024);
+      var encodeCalls = 0;
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(inputImages: true),
+        attachments: [
+          _pendingImage(first, reportedBytes: 1),
+          _pendingImage(second, reportedBytes: 1),
+        ],
+        encoder: (file) async {
+          encodeCalls++;
+          return 'data:image/png;base64,AQ==';
+        },
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(filePath: first.path, fileName: 'first.png', fileSize: 1),
+        throwsA(isA<HermesChatInputException>()),
+      );
+
+      expect(encodeCalls, 0);
+    });
+
+    test('local document gets an opaque token and never uploads', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/private-notes.txt');
+      await document.writeAsString('private on-device notes');
+      var uploadCalls = 0;
+      final queue = await _recordingUploadQueue(onUpload: () => uploadCalls++);
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(),
+        attachments: [_pendingDocument(document, reportedBytes: 1)],
+        encoder: (file) async => throw StateError('not an image'),
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(
+            filePath: document.path,
+            fileName: 'private-notes.txt',
+            fileSize: 1,
+          );
+
+      final stored = container.read(attachedFilesProvider).single;
+      expect(stored.status, FileUploadStatus.completed);
+      expect(stored.fileId, matches(RegExp(r'^hermes-local:[a-f0-9]{64}$')));
+      expect(stored.fileId, isNot(contains(document.path)));
+      expect(stored.fileId, isNot(contains('private-notes')));
+      expect(stored.fileSize, await document.length());
+      expect(stored.base64DataUrl, isNull);
+      expect(stored.isImage, isFalse);
+      expect(uploadCalls, 0);
+      expect(queue.queue, isEmpty);
+    });
+
+    test('oversized local document is rejected before preparation', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/oversized.txt');
+      await _truncate(document, kHermesMaxLocalDocumentBytes + 1);
+      var uploadCalls = 0;
+      final queue = await _recordingUploadQueue(onUpload: () => uploadCalls++);
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(),
+        attachments: [_pendingDocument(document, reportedBytes: 1)],
+        encoder: (file) async => throw StateError('not an image'),
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: document.path,
+              fileName: 'oversized.txt',
+              fileSize: 1,
+            ),
+        throwsA(isA<HermesChatInputException>()),
+      );
+
+      expect(uploadCalls, 0);
+      expect(queue.queue, isEmpty);
+    });
+
+    test('queued preparation refuses a model-switch fallthrough', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final first = File('${directory.path}/first.png');
+      final second = File('${directory.path}/second.png');
+      await first.writeAsBytes([1]);
+      await second.writeAsBytes([2]);
+      final firstEncodingStarted = Completer<void>();
+      final allowFirstEncoding = Completer<void>();
+      var encodeCalls = 0;
+      var uploadCalls = 0;
+      final queue = await _recordingUploadQueue(onUpload: () => uploadCalls++);
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(inputImages: true),
+        attachments: [
+          _pendingImage(first, reportedBytes: 1),
+          _pendingImage(second, reportedBytes: 1),
+        ],
+        encoder: (file) async {
+          encodeCalls++;
+          if (encodeCalls == 1) {
+            firstEncodingStarted.complete();
+            await allowFirstEncoding.future;
+          }
+          return 'data:image/png;base64,AQ==';
+        },
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      final firstUpload = container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: first.path, fileName: 'first.png', fileSize: 1);
+      await firstEncodingStarted.future;
+      final secondUpload = container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: second.path, fileName: 'second.png', fileSize: 1);
+      final secondFailure = expectLater(
+        secondUpload,
+        throwsA(isA<HermesChatInputException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const Model(id: 'server-model', name: 'Server model'));
+      allowFirstEncoding.complete();
+      await firstUpload;
+      await secondFailure;
+
+      expect(encodeCalls, 1);
+      expect(uploadCalls, 0);
+      expect(queue.queue, isEmpty);
+      final byPath = {
+        for (final attachment in container.read(attachedFilesProvider))
+          attachment.file.path: attachment,
+      };
+      expect(byPath[first.path]?.status, FileUploadStatus.completed);
+      expect(byPath[first.path]?.fileId, startsWith('data:image/'));
+      expect(byPath[second.path]?.status, FileUploadStatus.failed);
+      expect(byPath[second.path]?.fileId, isNull);
+    });
+  });
 }
 
 ProviderContainer _directContainer({
@@ -414,6 +714,45 @@ ProviderContainer _directContainer({
   );
 }
 
+Future<ProviderContainer> _hermesContainer({
+  required HermesCapabilities capabilities,
+  required List<FileUploadState> attachments,
+  required DirectImageDataUrlEncoder encoder,
+  AttachmentUploadQueue? uploadQueue,
+}) async {
+  final container = ProviderContainer(
+    overrides: [
+      apiServiceProvider.overrideWithValue(null),
+      selectedModelProvider.overrideWith(
+        () => _SeededSelectedModel(hermesSyntheticModel()),
+      ),
+      hermesCapabilitiesProvider.overrideWith((ref) async => capabilities),
+      directImageDataUrlEncoderProvider.overrideWithValue(encoder),
+      if (uploadQueue != null)
+        attachmentUploadQueueProvider.overrideWithValue(uploadQueue),
+      attachedFilesProvider.overrideWith(
+        () => _SeededAttachedFilesNotifier(attachments),
+      ),
+    ],
+  );
+  await container.read(hermesCapabilitiesProvider.future);
+  return container;
+}
+
+Future<AttachmentUploadQueue> _recordingUploadQueue({
+  void Function()? onUpload,
+}) async {
+  final queue = AttachmentUploadQueue();
+  await queue.initialize(
+    onUpload: (filePath, fileName, {cancelToken}) async {
+      onUpload?.call();
+      return 'unexpected-server-file';
+    },
+    database: () => null,
+  );
+  return queue;
+}
+
 FileUploadState _pendingImage(File file, {required int reportedBytes}) =>
     FileUploadState(
       file: file,
@@ -422,6 +761,16 @@ FileUploadState _pendingImage(File file, {required int reportedBytes}) =>
       progress: 0,
       status: FileUploadStatus.pending,
       isImage: true,
+    );
+
+FileUploadState _pendingDocument(File file, {required int reportedBytes}) =>
+    FileUploadState(
+      file: file,
+      fileName: file.uri.pathSegments.last,
+      fileSize: reportedBytes,
+      progress: 0,
+      status: FileUploadStatus.pending,
+      isImage: false,
     );
 
 FileUploadState _failedImage(File file) => FileUploadState(
@@ -449,4 +798,13 @@ final class _SeededAttachedFilesNotifier extends AttachedFilesNotifier {
 
   @override
   List<FileUploadState> build() => List.of(attachments);
+}
+
+final class _SeededSelectedModel extends SelectedModel {
+  _SeededSelectedModel(this.model);
+
+  final Model? model;
+
+  @override
+  Model? build() => model;
 }

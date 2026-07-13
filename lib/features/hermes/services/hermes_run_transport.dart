@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../../../core/models/chat_message.dart';
+import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../models/hermes_chat_input.dart';
 import '../models/hermes_run_event.dart';
 import '../providers/hermes_providers.dart';
 import 'hermes_api_service.dart';
@@ -15,6 +17,234 @@ const String kHermesApprovalMeta = 'hermesApproval';
 
 /// Transport metadata marker so the stop path can recognize a Hermes run.
 const String kHermesTransport = 'hermesRun';
+
+/// Metadata value distinguishing the attachment-capable Responses path from
+/// detachable `/v1/runs` while retaining [kHermesTransport] for stop routing.
+const String kHermesResponsesMode = 'responses';
+
+/// Drives an attachment-capable Hermes turn over the existing Responses SSE
+/// endpoint. The endpoint has no separate stop API; cancelling its request
+/// closes the stream, which current Hermes servers use to interrupt the agent.
+Future<void> dispatchHermesResponse({
+  required HermesApiService service,
+  required HermesRunRegistry registry,
+  required String assistantMessageId,
+  required HermesChatInput input,
+  String? sessionId,
+  String? conversation,
+  String? previousResponseId,
+  List<Map<String, dynamic>>? conversationHistory,
+  String? instructions,
+  CancelToken? cancelToken,
+  int maxRecoveryPolls = 120,
+  Duration recoveryPollInterval = const Duration(seconds: 1),
+  void Function(String? sessionId)? onSessionEstablished,
+  required void Function(String content) appendContent,
+  void Function(String content)? replaceContent,
+  required void Function(ChatStatusUpdate update) appendStatus,
+  required void Function(ChatMessage Function(ChatMessage) updater)
+  updateMessage,
+  required void Function() finishStreaming,
+  required void Function() completeStreamingUi,
+}) async {
+  final responseCancelToken = cancelToken ?? CancelToken();
+  final completer = Completer<void>();
+
+  if (responseCancelToken.isCancelled) {
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+  registry.registerPending(
+    assistantMessageId,
+    cancelToken: responseCancelToken,
+    onCancelled: () {
+      if (!completer.isCompleted) completer.complete();
+    },
+  );
+
+  HermesResponseStream responseStream;
+  try {
+    responseStream = await service.streamResponse(
+      input,
+      sessionId: sessionId,
+      conversation: conversation,
+      previousResponseId: previousResponseId,
+      conversationHistory: conversationHistory,
+      instructions: instructions,
+      cancelToken: responseCancelToken,
+    );
+  } catch (error, stackTrace) {
+    registry.complete(assistantMessageId, cancelToken: responseCancelToken);
+    if (!responseCancelToken.isCancelled) {
+      DebugLogger.error(
+        'create-response-stream-failed',
+        scope: 'hermes/transport',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      updateMessage(
+        (message) => message.copyWith(
+          error: ChatMessageError(content: _friendlyError(error)),
+        ),
+      );
+    }
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+
+  if (responseCancelToken.isCancelled) {
+    registry.complete(assistantMessageId, cancelToken: responseCancelToken);
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+  onSessionEstablished?.call(responseStream.sessionId);
+  updateMessage((message) {
+    final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
+    metadata['transport'] = kHermesTransport;
+    metadata['hermesTransportMode'] = kHermesResponsesMode;
+    return message.copyWith(metadata: metadata);
+  });
+
+  var sawTerminal = false;
+  var gotContent = false;
+  var streamedText = '';
+  String? finalOutput;
+  String? responseId;
+  Object? streamError;
+
+  late final StreamSubscription<HermesRunEvent> subscription;
+  subscription = responseStream.events.listen(
+    (event) {
+      if (sawTerminal) return;
+      switch (event) {
+        case HermesTokenDelta(:final content):
+          gotContent = true;
+          streamedText += content;
+        case HermesFinalOutput(:final text):
+          finalOutput = text;
+        case HermesResponseCreated(:final responseId):
+          final announcedId = responseId;
+          if (announcedId.isNotEmpty) {
+            updateMessage((message) {
+              final metadata = Map<String, dynamic>.from(
+                message.metadata ?? const {},
+              );
+              metadata['hermesResponseId'] = announcedId;
+              return message.copyWith(metadata: metadata);
+            });
+          }
+        case HermesRunDone() || HermesRunError():
+          sawTerminal = true;
+          if (!completer.isCompleted) completer.complete();
+        default:
+          break;
+      }
+      if (event is HermesResponseCreated && event.responseId.isNotEmpty) {
+        responseId = event.responseId;
+      }
+      _handleEvent(
+        event,
+        runId: responseId,
+        appendContent: appendContent,
+        appendStatus: appendStatus,
+        updateMessage: updateMessage,
+      );
+    },
+    onError: (Object error, StackTrace stackTrace) {
+      if (!responseCancelToken.isCancelled) streamError = error;
+      if (!completer.isCompleted) completer.complete();
+    },
+    onDone: () {
+      if (!completer.isCompleted) completer.complete();
+    },
+    cancelOnError: true,
+  );
+
+  final attached = registry.attachStream(
+    assistantMessageId,
+    cancelToken: responseCancelToken,
+    subscription: subscription,
+  );
+  if (!attached) {
+    await subscription.cancel();
+    finishStreaming();
+    completeStreamingUi();
+    return;
+  }
+
+  try {
+    await completer.future;
+    if (sawTerminal && finalOutput != null && finalOutput!.isNotEmpty) {
+      _appendAuthoritativeOutput(
+        finalOutput!,
+        streamedText: streamedText,
+        gotContent: gotContent,
+        appendContent: appendContent,
+        replaceContent: replaceContent,
+      );
+    }
+
+    if (!sawTerminal && !responseCancelToken.isCancelled) {
+      try {
+        if (responseId == null) {
+          throw streamError ??
+              StateError('Hermes Responses stream ended before it started.');
+        }
+        final recovered = await _recoverResponseOutput(
+          service,
+          responseId!,
+          cancelToken: responseCancelToken,
+          maxPolls: maxRecoveryPolls,
+          pollInterval: recoveryPollInterval,
+        );
+        if (recovered == null) return;
+        if (recovered.text.isNotEmpty) {
+          _appendAuthoritativeOutput(
+            recovered.text,
+            streamedText: streamedText,
+            gotContent: gotContent,
+            appendContent: appendContent,
+            replaceContent: replaceContent,
+          );
+        }
+        if (recovered.status != 'completed') {
+          updateMessage(
+            (message) => message.copyWith(
+              error: ChatMessageError(
+                content: recovered.status == 'incomplete'
+                    ? 'Hermes stopped this response before it completed.'
+                    : 'Hermes response failed.',
+              ),
+            ),
+          );
+        }
+      } catch (error, stackTrace) {
+        if (responseCancelToken.isCancelled) return;
+        DebugLogger.error(
+          'response-stream-error',
+          scope: 'hermes/transport',
+          error: streamError ?? error,
+          stackTrace: stackTrace,
+        );
+        updateMessage(
+          (message) => message.copyWith(
+            error: ChatMessageError(
+              content: _friendlyError(streamError ?? error),
+            ),
+          ),
+        );
+      }
+    }
+  } finally {
+    await subscription.cancel();
+    registry.complete(assistantMessageId, cancelToken: responseCancelToken);
+    finishStreaming();
+    completeStreamingUi();
+  }
+}
 
 /// Drives one Hermes run end-to-end: creates the run, subscribes to its event
 /// stream, and maps each [HermesRunEvent] onto the supplied chat-notifier
@@ -397,14 +627,61 @@ Future<({String text, String status})?> _recoverRunOutput(
   return null;
 }
 
+Future<({String text, String status})?> _recoverResponseOutput(
+  HermesApiService service,
+  String responseId, {
+  required CancelToken cancelToken,
+  required int maxPolls,
+  required Duration pollInterval,
+}) async {
+  if (maxPolls <= 0) {
+    throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
+  }
+  var polls = 0;
+  while (!cancelToken.isCancelled) {
+    if (polls >= maxPolls) {
+      throw TimeoutException(
+        'Hermes response remained pending after $maxPolls polls',
+      );
+    }
+    polls++;
+    final response = await service.getResponse(
+      responseId,
+      cancelToken: cancelToken,
+    );
+    if (cancelToken.isCancelled) return null;
+    String status;
+    String text;
+    try {
+      final decoded = OpenAiResponsesCodec.decodeResponse(response);
+      status = decoded.status.toJson();
+      text = OpenAiResponsesCodec.content(decoded).text;
+    } catch (_) {
+      // Stored responses from older Hermes releases can omit OpenAI-required
+      // item metadata. Keep recovery compatible without making the direct
+      // provider adapter's standard Responses decoding permissive.
+      status = response['status']?.toString().toLowerCase() ?? 'unknown';
+      text = extractHermesOutputText(response['output']);
+    }
+    if (status != 'queued' && status != 'in_progress') {
+      return (text: text, status: status);
+    }
+    await Future<void>.delayed(pollInterval);
+  }
+  return null;
+}
+
 void _handleEvent(
   HermesRunEvent event, {
-  required String runId,
+  required String? runId,
   required void Function(String) appendContent,
   required void Function(ChatStatusUpdate) appendStatus,
   required void Function(ChatMessage Function(ChatMessage)) updateMessage,
 }) {
   switch (event) {
+    case HermesResponseCreated():
+      break;
+
     case HermesTokenDelta(:final content):
       appendContent(content);
 
@@ -440,6 +717,7 @@ void _handleEvent(
       );
 
     case HermesApprovalRequested(:final approvalId, :final summary):
+      if (runId == null) break;
       updateMessage((m) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta[kHermesApprovalMeta] = {

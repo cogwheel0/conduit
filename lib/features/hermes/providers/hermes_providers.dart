@@ -654,6 +654,25 @@ class HermesRunRegistry {
     return true;
   }
 
+  /// Attaches a cancellable stream that has no separate remote stop endpoint,
+  /// such as Hermes Responses SSE. Cancelling the Dio token closes the stream;
+  /// current Hermes servers interrupt the owning agent on disconnect.
+  bool attachStream(
+    String assistantMessageId, {
+    required CancelToken cancelToken,
+    required StreamSubscription<void> subscription,
+  }) {
+    final run = _runs[assistantMessageId];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run.cancelToken, cancelToken)) {
+      unawaited(subscription.cancel());
+      return false;
+    }
+    run.subscription = subscription;
+    return true;
+  }
+
   /// Compatibility helper for callers that already have a live run.
   void register(
     String assistantMessageId, {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
@@ -20,6 +21,12 @@ class _FakeHermesApiService extends HermesApiService {
     this.getRunGate,
     this.stopRunGate,
     this.stopRunError,
+    this.responseEvents = const [],
+    this.responseEventsOverride,
+    this.responseSessionId,
+    this.responseResult = const {},
+    this.responseResults,
+    this.getResponseError,
   }) : super(
          config: HermesConfig(enabled: true, baseUrl: 'http://x', apiKey: 'k'),
          dio: Dio(),
@@ -33,9 +40,24 @@ class _FakeHermesApiService extends HermesApiService {
   final Completer<Map<String, dynamic>>? getRunGate;
   final Completer<void>? stopRunGate;
   final Object? stopRunError;
+  final List<HermesRunEvent> responseEvents;
+  final Stream<HermesRunEvent>? responseEventsOverride;
+  final String? responseSessionId;
+  final Map<String, dynamic> responseResult;
+  final List<Map<String, dynamic>>? responseResults;
+  final Object? getResponseError;
   var getRunCalls = 0;
+  var streamResponseCalls = 0;
+  var getResponseCalls = 0;
   final List<String> stoppedRuns = [];
   CancelToken? lastStopCancelToken;
+  HermesChatInput? lastResponseInput;
+  String? lastResponseSessionId;
+  String? lastResponseConversation;
+  String? lastResponsePreviousResponseId;
+  List<Map<String, dynamic>>? lastResponseConversationHistory;
+  String? lastResponseInstructions;
+  CancelToken? lastResponseCancelToken;
 
   @override
   Future<String> createRun({
@@ -74,9 +96,382 @@ class _FakeHermesApiService extends HermesApiService {
     final error = stopRunError;
     if (error != null) throw error;
   }
+
+  @override
+  Future<HermesResponseStream> streamResponse(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    CancelToken? cancelToken,
+  }) async {
+    streamResponseCalls++;
+    lastResponseInput = input;
+    lastResponseSessionId = sessionId;
+    lastResponseConversation = conversation;
+    lastResponsePreviousResponseId = previousResponseId;
+    lastResponseConversationHistory = conversationHistory;
+    lastResponseInstructions = instructions;
+    lastResponseCancelToken = cancelToken;
+    return HermesResponseStream(
+      events:
+          responseEventsOverride ??
+          Stream<HermesRunEvent>.fromIterable(responseEvents),
+      sessionId: responseSessionId,
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getResponse(
+    String responseId, {
+    CancelToken? cancelToken,
+  }) async {
+    getResponseCalls++;
+    final error = getResponseError;
+    if (error != null) throw error;
+    final results = responseResults;
+    if (results != null && results.isNotEmpty) {
+      final requestedIndex = getResponseCalls - 1;
+      final index = requestedIndex < results.length
+          ? requestedIndex
+          : results.length - 1;
+      return results[index];
+    }
+    return responseResult;
+  }
 }
 
 void main() {
+  group('dispatchHermesResponse', () {
+    test('forwards typed input and response chain context', () async {
+      final input = HermesChatInput.multimodal([
+        HermesInputTextPart('What is shown?'),
+        HermesInputImagePart('data:image/png;base64,aGVsbG8='),
+      ]);
+      const history = <Map<String, dynamic>>[
+        {'role': 'user', 'content': 'Earlier question'},
+        {'role': 'assistant', 'content': 'Earlier answer'},
+      ];
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesRunDone()],
+        responseSessionId: 'session-from-header',
+      );
+      String? establishedSession;
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'response-message',
+        input: input,
+        sessionId: 'session-1',
+        previousResponseId: 'resp-previous',
+        conversationHistory: history,
+        instructions: 'Be concise',
+        onSessionEstablished: (sessionId) => establishedSession = sessionId,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(fake.streamResponseCalls).equals(1);
+      check(identical(fake.lastResponseInput, input)).isTrue();
+      check(fake.lastResponseSessionId).equals('session-1');
+      check(fake.lastResponsePreviousResponseId).equals('resp-previous');
+      check(fake.lastResponseConversation).isNull();
+      expect(fake.lastResponseConversationHistory, equals(history));
+      check(fake.lastResponseInstructions).equals('Be concise');
+      check(establishedSession).equals('session-from-header');
+    });
+
+    test('records response identity and transport metadata', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesRunDone(),
+        ],
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: message.id,
+        input: HermesChatInput.text('hello'),
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(message.metadata?['transport']).equals(kHermesTransport);
+      check(
+        message.metadata?['hermesTransportMode'],
+      ).equals(kHermesResponsesMode);
+      check(message.metadata?['hermesResponseId']).equals('resp-1');
+      check(message.metadata?['hermesRunId']).isNull();
+    });
+
+    test('reconciles deltas with final output without duplication', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesTokenDelta('Hello'),
+          HermesTokenDelta(' world'),
+          HermesFinalOutput('Hello world'),
+          HermesRunDone(),
+        ],
+      );
+      final content = StringBuffer();
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(content.toString()).equals('Hello world');
+    });
+
+    test('appends a final-only response', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesFinalOutput('Only the final response'),
+          HermesRunDone(),
+        ],
+      );
+      final content = StringBuffer();
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(content.toString()).equals('Only the final response');
+    });
+
+    test('cancellation closes the stream without stopping a run', () async {
+      final listened = Completer<void>();
+      final cancelled = Completer<void>();
+      final events = StreamController<HermesRunEvent>(
+        onListen: listened.complete,
+        onCancel: cancelled.complete,
+      );
+      addTearDown(() async {
+        if (!events.isClosed) await events.close();
+      });
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEventsOverride: events.stream,
+      );
+      final registry = HermesRunRegistry();
+      var finished = false;
+      var completedUi = false;
+
+      final dispatch = dispatchHermesResponse(
+        service: fake,
+        registry: registry,
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () => finished = true,
+        completeStreamingUi: () => completedUi = true,
+      );
+      await listened.future;
+      await Future<void>.delayed(Duration.zero);
+
+      final cancellation = registry.cancel('m');
+      check(cancellation).isNotNull();
+      await cancellation!;
+      await dispatch.timeout(const Duration(seconds: 1));
+      await cancelled.future.timeout(const Duration(seconds: 1));
+
+      check(fake.lastResponseCancelToken).isNotNull();
+      check(fake.lastResponseCancelToken!.isCancelled).isTrue();
+      check(fake.stoppedRuns).isEmpty();
+      check(finished).isTrue();
+      check(completedUi).isTrue();
+    });
+
+    test('recovers a completed response after the stream drops', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesResponseCreated('resp-recover')],
+        responseResult: const {
+          'id': 'resp-recover',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'completed',
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg-recover',
+              'role': 'assistant',
+              'status': 'completed',
+              'content': [
+                {'type': 'output_text', 'text': 'Recovered response'},
+              ],
+            },
+          ],
+        },
+      );
+      final content = StringBuffer();
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(fake.getResponseCalls).equals(1);
+      check(content.toString()).equals('Recovered response');
+    });
+
+    test('recovery waits while a stored response is queued', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesResponseCreated('resp-queued')],
+        responseResults: const [
+          {
+            'id': 'resp-queued',
+            'object': 'response',
+            'created_at': 1,
+            'status': 'queued',
+            'output': <dynamic>[],
+          },
+          {
+            'id': 'resp-queued',
+            'object': 'response',
+            'created_at': 1,
+            'status': 'completed',
+            'output': [
+              {
+                'type': 'message',
+                'id': 'msg-queued',
+                'role': 'assistant',
+                'status': 'completed',
+                'content': [
+                  {'type': 'output_text', 'text': 'Ready now'},
+                ],
+              },
+            ],
+          },
+        ],
+      );
+      final content = StringBuffer();
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hello'),
+        recoveryPollInterval: Duration.zero,
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(fake.getResponseCalls).equals(2);
+      check(content.toString()).equals('Ready now');
+    });
+
+    test(
+      'recovers a sparse stored response from older Hermes servers',
+      () async {
+        final fake = _FakeHermesApiService(
+          const [],
+          responseEvents: const [HermesResponseCreated('resp-legacy')],
+          responseResult: const {
+            'status': 'completed',
+            'output': 'Legacy response',
+          },
+        );
+        final content = StringBuffer();
+
+        await dispatchHermesResponse(
+          service: fake,
+          registry: HermesRunRegistry(),
+          assistantMessageId: 'm',
+          input: HermesChatInput.text('hello'),
+          appendContent: content.write,
+          appendStatus: (_) {},
+          updateMessage: (_) {},
+          finishStreaming: () {},
+          completeStreamingUi: () {},
+        );
+
+        check(content.toString()).equals('Legacy response');
+      },
+    );
+
+    test('surfaces recovery errors after a dropped stream', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesResponseCreated('resp-recover')],
+        getResponseError: StateError('response expired'),
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: message.id,
+        input: HermesChatInput.text('hello'),
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(fake.getResponseCalls).equals(1);
+      check(message.error).isNotNull();
+      expect(message.error!.content, contains('response expired'));
+    });
+  });
+
   test('dispatchHermesRun maps events onto chat callbacks', () async {
     final fake = _FakeHermesApiService([
       const HermesToolProgress(toolName: 'web_search', done: false),

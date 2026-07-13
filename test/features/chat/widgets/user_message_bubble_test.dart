@@ -67,6 +67,62 @@ void main() {
     expect(find.byIcon(Icons.sticky_note_2_outlined), findsOneWidget);
   });
 
+  testWidgets(
+    'renders Hermes local file descriptors without backend or network access',
+    (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = _FakeAttachmentInfoApiService(
+        onGetFileInfo: (_) => throw StateError('must not fetch local metadata'),
+      );
+      const filename = 'quarterly-research-notes-with-a-long-name.pdf';
+      final message = ChatMessage(
+        id: 'hermes-local-file-message',
+        role: 'user',
+        content: '',
+        timestamp: DateTime.utc(2026, 7, 13, 10),
+        files: const [
+          <String, dynamic>{
+            'type': 'file',
+            'source': 'hermes_local',
+            'id': 'local-opaque-1',
+            'url': 'hermes-local:local-opaque-1',
+            'name': filename,
+            'filename': filename,
+            'size': 2048,
+            'content_type': 'application/pdf',
+          },
+        ],
+      );
+
+      await tester.pumpWidget(
+        buildHarness(
+          message,
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('hermes-local-file-local-opaque-1')),
+        findsOneWidget,
+      );
+      expect(find.text(filename), findsOneWidget);
+      expect(find.text('2.0 KB'), findsOneWidget);
+      expect(find.byType(EnhancedAttachment), findsNothing);
+      expect(find.byType(EnhancedImageAttachment), findsNothing);
+      expect(api.fileInfoCalls, 0);
+      expect(api.fileContentCalls, 0);
+
+      await tester.tap(find.text(filename));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(api.fileInfoCalls, 0);
+      expect(api.fileContentCalls, 0);
+    },
+  );
+
   testWidgets('uses the redesigned rounded user bubble surface', (
     WidgetTester tester,
   ) async {
@@ -190,9 +246,18 @@ class _FakeAttachmentInfoApiService extends ApiService {
       );
 
   final Future<Map<String, dynamic>> Function(String fileId) onGetFileInfo;
+  int fileInfoCalls = 0;
+  int fileContentCalls = 0;
 
   @override
   Future<Map<String, dynamic>> getFileInfo(String fileId) {
+    fileInfoCalls++;
     return onGetFileInfo(fileId);
+  }
+
+  @override
+  Future<String> getFileContent(String fileId, {int? maxBytes}) async {
+    fileContentCalls++;
+    throw StateError('must not download local descriptor bytes');
   }
 }
