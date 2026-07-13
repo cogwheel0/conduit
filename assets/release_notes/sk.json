@@ -1,0 +1,27 @@
+{
+  "notes": [
+    {
+      "version": "4.0.0",
+      "title": "Conduit 4.0 — funguje, nech ste kdekoľvek",
+      "intro": "Toto je najväčšie vydanie od vzniku Conduitu. Vaše chaty teraz žijú najprv vo vašom zariadení a Conduit vie komunikovať s viacerými druhmi backendov — vrátane žiadneho backendu.",
+      "bullets": [
+        {
+          "text": "Offline ukladanie: chaty, poznámky a koncepty sa ukladajú v zariadení a po pripojení sa synchronizujú. Históriu čítajte a prehľadávajte kdekoľvek — správy odoslané offline sa zaradia do frontu a doručia automaticky.",
+          "icon": "offline"
+        },
+        {
+          "text": "Hermes Agent: pripojte vlastný server Hermes ako druhý backend — so živým priebehom nástrojov, žiadosťami o schválenie pred citlivými akciami, plánovanými agentmi a lomkovými príkazmi.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Priame pripojenia: chatujte s poskytovateľmi kompatibilnými s OpenAI a lokálnymi modelmi Ollama priamo z aplikácie — bez servera Open WebUI. Použite vlastný API kľúč, alebo žiadny.",
+          "icon": "direct"
+        },
+        {
+          "text": "Vyladenejšie všade: plynulejšie streamovanie a posúvanie, vylepšené panely a navigácia a opravy príloh, reči a tém.",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

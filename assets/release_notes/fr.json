@@ -1,0 +1,27 @@
+{
+  "notes": [
+    {
+      "version": "4.0.0",
+      "title": "Conduit 4.0 — fonctionne où que vous soyez",
+      "intro": "C’est la plus grande version depuis les débuts de Conduit. Vos conversations vivent désormais d’abord sur votre appareil, et Conduit peut dialoguer avec plusieurs types de backends — y compris aucun backend du tout.",
+      "bullets": [
+        {
+          "text": "Persistance hors ligne : conversations, notes et brouillons sont stockés sur l’appareil et se synchronisent à la reconnexion. Lisez et recherchez votre historique partout — les messages envoyés hors ligne sont mis en file et livrés automatiquement.",
+          "icon": "offline"
+        },
+        {
+          "text": "Hermes Agent : connectez un serveur Hermes auto-hébergé comme second backend, avec progression des outils en direct, demandes d’approbation avant les actions sensibles, agents planifiés et commandes slash.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Connexions directes : discutez avec des fournisseurs compatibles OpenAI et des modèles Ollama locaux directement depuis l’app — aucun serveur Open WebUI requis. Apportez votre propre clé API, ou aucune.",
+          "icon": "direct"
+        },
+        {
+          "text": "Plus soigné partout : streaming et défilement plus fluides, feuilles et navigation raffinées, et corrections des pièces jointes, de la voix et des thèmes.",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

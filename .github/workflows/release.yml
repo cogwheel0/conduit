@@ -10,9 +10,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate-release-notes:
+    name: Validate Release Notes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set Up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Validate baked release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          dart run tool/validate_release_notes.dart --version "$VERSION"
+
   generate-release-notes:
     name: Generate Release Notes
     runs-on: ubuntu-latest
+    needs: validate-release-notes
     permissions:
       contents: write
 

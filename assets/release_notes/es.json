@@ -1,0 +1,27 @@
+{
+  "notes": [
+    {
+      "version": "4.0.0",
+      "title": "Conduit 4.0 — funciona estés donde estés",
+      "intro": "Es la mayor versión desde que Conduit existe. Tus chats ahora viven primero en tu dispositivo, y Conduit puede hablar con más de un tipo de backend — incluso con ninguno.",
+      "bullets": [
+        {
+          "text": "Persistencia sin conexión: chats, notas y borradores se guardan en el dispositivo y se sincronizan al reconectar. Lee y busca tu historial en cualquier lugar — los mensajes enviados sin conexión se encolan y se entregan automáticamente.",
+          "icon": "offline"
+        },
+        {
+          "text": "Hermes Agent: conecta un servidor Hermes autoalojado como segundo backend, con progreso de herramientas en vivo, solicitudes de aprobación antes de acciones sensibles, agentes programados y comandos slash.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Conexiones directas: chatea con proveedores compatibles con OpenAI y modelos locales de Ollama directamente desde la app — sin servidor Open WebUI. Trae tu propia clave de API, o ninguna.",
+          "icon": "direct"
+        },
+        {
+          "text": "Más pulido en todas partes: streaming y desplazamiento más fluidos, hojas y navegación refinadas, y correcciones en adjuntos, voz y temas.",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

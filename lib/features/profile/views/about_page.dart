@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../../core/models/server_about_info.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../features/release_notes/data/release_notes_repository.dart';
+import '../../../features/release_notes/release_notes_presenter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../widgets/settings_page_scaffold.dart';
@@ -112,6 +114,54 @@ class _AboutPageState extends ConsumerState<AboutPage> {
           Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onTap: () => _openReleaseNotes(context, info),
+            child: Padding(
+              padding: const EdgeInsets.only(top: Spacing.md),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.new_releases_rounded,
+                    size: IconSize.medium,
+                    color: theme.buttonPrimary,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.releaseNotesTitle,
+                          style: theme.bodyMedium?.copyWith(
+                            color: theme.sidebarForeground,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: Spacing.xs),
+                        Text(
+                          l10n.releaseNotesManualSubtitle(info.version),
+                          style: theme.bodySmall?.copyWith(
+                            color: theme.sidebarForeground.withValues(
+                              alpha: 0.72,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: IconSize.small,
+                    color: theme.sidebarForeground.withValues(alpha: 0.7),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+          Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => _openGithub(context),
             child: Padding(
               padding: const EdgeInsets.only(top: Spacing.md),
@@ -213,27 +263,40 @@ class _AboutPageState extends ConsumerState<AboutPage> {
   }
 
   Future<void> _openGithub(BuildContext context) async {
-    try {
-      final launched = await launchUrlString(
-        AboutPage._githubUrl,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched && context.mounted) {
-        UiUtils.showMessage(
-          context,
-          AppLocalizations.of(context)!.errorMessage,
-        );
-      }
-    } catch (_) {
-      if (!context.mounted) {
-        return;
-      }
+    final launched = await launchExternalLink(
+      AboutPage._githubUrl,
+      scope: 'about/github',
+    );
+    if (!launched && context.mounted) {
       UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
     }
   }
 
   void _showLicenses(BuildContext context) {
     showLicensePage(context: context, applicationName: 'Conduit');
+  }
+
+  Future<void> _openReleaseNotes(BuildContext context, PackageInfo info) async {
+    final l10n = AppLocalizations.of(context)!;
+    final allNotes = await const ReleaseNotesRepository().load(
+      Localizations.localeOf(context),
+    );
+    if (!context.mounted) return;
+    final notes = latestBundledReleaseNotesForVersion(
+      currentVersion: info.version,
+      notes: allNotes,
+    );
+    if (notes.isEmpty) {
+      UiUtils.showMessage(context, l10n.errorMessage);
+      return;
+    }
+    await showReleaseNotesSheet(
+      context: context,
+      currentVersion: info.version,
+      previousVersion: null,
+      subtitle: l10n.releaseNotesManualSubtitle(info.version),
+      notes: notes,
+    );
   }
 }
 

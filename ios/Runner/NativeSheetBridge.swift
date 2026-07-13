@@ -4204,6 +4204,161 @@ private final class NativeSheetStatusTableViewCell: UITableViewCell {
     }
 }
 
+private enum NativeReleaseNotesTextCellStyle {
+    case version
+    case intro
+    case bullet
+    case message
+}
+
+private final class NativeReleaseNotesTextTableViewCell: UITableViewCell {
+    static let reuseId = "NativeReleaseNotesTextTableViewCell"
+
+    private let rootStack = UIStackView()
+    private let markerContainer = UIView()
+    private let iconView = UIImageView()
+    private let bodyLabel = UILabel()
+    private var iconTopConstraint: NSLayoutConstraint?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+
+        rootStack.axis = .horizontal
+        rootStack.alignment = .top
+        rootStack.spacing = 14
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+
+        markerContainer.translatesAutoresizingMaskIntoConstraints = false
+        markerContainer.setContentHuggingPriority(.required, for: .horizontal)
+        markerContainer.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        iconView.tintColor = .secondaryLabel
+        iconView.contentMode = .scaleAspectFit
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        bodyLabel.textColor = .label
+        bodyLabel.adjustsFontForContentSizeCategory = true
+        bodyLabel.numberOfLines = 0
+        bodyLabel.lineBreakMode = .byWordWrapping
+        bodyLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        contentView.addSubview(rootStack)
+        rootStack.addArrangedSubview(markerContainer)
+        rootStack.addArrangedSubview(bodyLabel)
+        markerContainer.addSubview(iconView)
+
+        let iconTopConstraint = iconView.topAnchor.constraint(
+            equalTo: markerContainer.topAnchor,
+            constant: 2
+        )
+        self.iconTopConstraint = iconTopConstraint
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            markerContainer.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            markerContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: NativeSheetSettingsStyle.iconSize),
+            iconTopConstraint,
+            iconView.centerXAnchor.constraint(equalTo: markerContainer.centerXAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        markerContainer.isHidden = false
+        iconView.transform = .identity
+        iconTopConstraint?.constant = 2
+    }
+
+    func configure(item: NativeSheetItem, style: NativeReleaseNotesTextCellStyle) {
+        bodyLabel.text = item.title
+        markerContainer.isHidden = false
+        iconView.transform = .identity
+        iconTopConstraint?.constant = 2
+
+        switch style {
+        case .version:
+            bodyLabel.font = UIFontMetrics(forTextStyle: .body)
+                .scaledFont(for: .systemFont(ofSize: 17, weight: .medium))
+            bodyLabel.textColor = .label
+            iconView.image = UIImage(systemName: "clock")
+            iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+                pointSize: 21,
+                weight: .regular
+            )
+            iconView.tintColor = .secondaryLabel
+        case .intro:
+            bodyLabel.font = .preferredFont(forTextStyle: .body)
+            bodyLabel.textColor = .label
+            iconView.image = UIImage(systemName: "text.alignleft")
+            iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+                pointSize: 18,
+                weight: .regular
+            )
+            iconView.tintColor = .secondaryLabel
+        case .bullet:
+            bodyLabel.font = .preferredFont(forTextStyle: .body)
+            bodyLabel.textColor = .label
+            iconView.image = UIImage(systemName: "circle.fill")
+            iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+                pointSize: 7,
+                weight: .semibold
+            )
+            iconTopConstraint?.constant = 8
+            iconView.tintColor = .tertiaryLabel
+        case .message:
+            markerContainer.isHidden = true
+            bodyLabel.font = .preferredFont(forTextStyle: .footnote)
+            bodyLabel.textColor = .secondaryLabel
+        }
+    }
+}
+
+private final class NativeReleaseNotesSectionHeaderView: UIView {
+    private let titleLabel = UILabel()
+
+    init(title: String) {
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 18,
+            leading: NativeSheetSettingsStyle.horizontalMargin + 16,
+            bottom: 8,
+            trailing: NativeSheetSettingsStyle.horizontalMargin + 16
+        )
+
+        titleLabel.text = title
+        titleLabel.font = UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: .systemFont(ofSize: 17, weight: .semibold))
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = .label
+        titleLabel.numberOfLines = 0
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
 private final class NativeDetailTableViewController: UITableViewController {
     private var detail: NativeSheetDetail
     private let canNavigate: (NativeSheetItem) -> Bool
@@ -4215,6 +4370,10 @@ private final class NativeDetailTableViewController: UITableViewController {
     private var committedTextValues: [String: String] = [:]
 
     var detailId: String { detail.id }
+
+    private var isReleaseNotesDetail: Bool {
+        detail.id == "release-notes"
+    }
 
     private var tableSections: [NativeSheetSection] {
         if !detail.sections.isEmpty {
@@ -4314,6 +4473,10 @@ private final class NativeDetailTableViewController: UITableViewController {
             NativeSheetStatusTableViewCell.self,
             forCellReuseIdentifier: NativeSheetStatusTableViewCell.reuseId
         )
+        tableView.register(
+            NativeReleaseNotesTextTableViewCell.self,
+            forCellReuseIdentifier: NativeReleaseNotesTextTableViewCell.reuseId
+        )
         tableView.estimatedRowHeight = NativeSheetSettingsStyle.defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         NativeSheetSettingsStyle.apply(to: tableView)
@@ -4335,7 +4498,35 @@ private final class NativeDetailTableViewController: UITableViewController {
         _ tableView: UITableView,
         titleForHeaderInSection section: Int
     ) -> String? {
-        tableSections[section].title
+        if isReleaseNotesDetail {
+            return nil
+        }
+        return tableSections[section].title
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        viewForHeaderInSection section: Int
+    ) -> UIView? {
+        guard isReleaseNotesDetail,
+              let title = tableSections[section].title,
+              !title.isEmpty
+        else {
+            return nil
+        }
+        return NativeReleaseNotesSectionHeaderView(title: title)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        estimatedHeightForHeaderInSection section: Int
+    ) -> CGFloat {
+        guard isReleaseNotesDetail,
+              tableSections[section].title?.isEmpty == false
+        else {
+            return UITableView.automaticDimension
+        }
+        return 52
     }
 
     override func tableView(
@@ -4359,6 +4550,15 @@ private final class NativeDetailTableViewController: UITableViewController {
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
+        if let releaseNotesStyle = releaseNotesTextCellStyle(for: item) {
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeReleaseNotesTextTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeReleaseNotesTextTableViewCell
+            cell.configure(item: item, style: releaseNotesStyle)
+            return cell
+        }
+
         switch item.kind {
         case "segment":
             let cell = tableView.dequeueReusableCell(
@@ -4468,6 +4668,26 @@ private final class NativeDetailTableViewController: UITableViewController {
 
     private func item(at indexPath: IndexPath) -> NativeSheetItem {
         tableSections[indexPath.section].items[indexPath.row]
+    }
+
+    private func releaseNotesTextCellStyle(
+        for item: NativeSheetItem
+    ) -> NativeReleaseNotesTextCellStyle? {
+        guard isReleaseNotesDetail else { return nil }
+        if item.id == "release-notes:version" {
+            return .version
+        }
+        if item.id.hasSuffix(":intro") {
+            return .intro
+        }
+        if item.id.contains(":bullet:") {
+            return .bullet
+        }
+        if item.id == "release-notes:review:message"
+            || item.id == "release-notes:support:message" {
+            return .message
+        }
+        return nil
     }
 
     private func configureCell(_ cell: UITableViewCell, item: NativeSheetItem) {
@@ -6639,6 +6859,12 @@ private func configureNavigationCell(
         content.imageProperties.tintColor = .systemRed
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
+    if item.kind == "info" && !showsDisclosure {
+        content.textProperties.numberOfLines = 0
+        content.textProperties.lineBreakMode = .byWordWrapping
+        content.secondaryTextProperties.numberOfLines = 0
+        content.secondaryTextProperties.lineBreakMode = .byWordWrapping
+    }
     cell.contentConfiguration = content
     cell.accessoryType = showsDisclosure ? .disclosureIndicator : .none
     NativeSheetSettingsStyle.applyCellStyle(cell)

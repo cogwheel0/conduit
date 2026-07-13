@@ -34,6 +34,7 @@ final class PreferenceKeys {
   static const String themePalette = 'theme_palette_v1';
   static const String localeCode = 'locale_code_v1';
   static const String reviewerMode = 'reviewer_mode_v1';
+  static const String lastSeenReleaseVersion = 'last_seen_release_version_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
   static const String ttsSpeechRate = 'tts_speech_rate';

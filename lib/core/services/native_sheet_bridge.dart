@@ -42,6 +42,12 @@ class NativeSheetRoutes {
   static const about = 'about';
   static const notificationSettings = 'notification-settings';
   static const workspace = 'workspace-entry';
+  static const releaseNotes = 'release-notes';
+  static const releaseNotesManual = 'release-notes-manual';
+  static const releaseNotesReview = 'release-notes-review';
+  static const releaseNotesSupport = 'release-notes-support';
+  static const releaseNotesDone = 'release-notes-done';
+  static const supportDonate = 'support-donate';
 }
 
 class NativeSheetBridge implements NativeSheetFlutterApi {
@@ -65,6 +71,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Stream<NativeSheetEvent> get events => _events.stream;
 
   bool get _isIOS => debugIsIOSOverride ?? Platform.isIOS;
+
+  bool get isSupported => _isIOS;
 
   Future<bool> presentProfileMenu(NativeProfileSheetConfig config) async {
     if (!_isIOS) return false;

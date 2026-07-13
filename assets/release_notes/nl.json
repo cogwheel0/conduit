@@ -1,0 +1,27 @@
+{
+  "notes": [
+    {
+      "version": "4.0.0",
+      "title": "Conduit 4.0 — werkt waar je ook bent",
+      "intro": "Dit is de grootste release sinds het begin van Conduit. Je chats leven nu eerst op je apparaat, en Conduit kan met meer dan één soort backend praten — of zelfs helemaal zonder backend.",
+      "bullets": [
+        {
+          "text": "Offline opslag: chats, notities en concepten worden op het apparaat bewaard en synchroniseren zodra je weer verbinding hebt. Lees en doorzoek je geschiedenis overal — offline verzonden berichten worden automatisch afgeleverd.",
+          "icon": "offline"
+        },
+        {
+          "text": "Hermes Agent: koppel een zelf-gehoste Hermes-server als tweede backend, met live toolvoortgang, goedkeuringsvragen vóór gevoelige acties, geplande agents en slash-commando’s.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Directe verbindingen: chat rechtstreeks vanuit de app met OpenAI-compatibele providers en lokale Ollama-modellen — geen Open WebUI-server nodig. Gebruik je eigen API-sleutel, of helemaal geen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Overal strakker: soepeler streamen en scrollen, verfijnde sheets en navigatie, en fixes voor bijlagen, spraak en thema’s.",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}

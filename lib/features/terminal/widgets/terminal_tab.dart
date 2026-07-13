@@ -962,8 +962,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     final launched = await launchUrl(
       url,
       mode: authToken == null || authToken.isEmpty
-          ? LaunchMode.externalApplication
+          ? LaunchMode.inAppBrowserView
           : LaunchMode.inAppWebView,
+      browserConfiguration: const BrowserConfiguration(showTitle: true),
       webViewConfiguration: WebViewConfiguration(
         headers: authToken == null || authToken.isEmpty
             ? const <String, String>{}

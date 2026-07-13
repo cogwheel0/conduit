@@ -54,6 +54,11 @@ dependencies:
   
   # Modern Animations
   flutter_animate: ^4.5.0
+  expressive_sheet:
+    git:
+      url: https://github.com/kamranbekirovyz/bunpod.git
+      ref: 85ad55a72f61a9913362de88f60da6dfa57f810a
+      path: packages/expressive_sheet
   
   # Platform Features
   vad: ^0.0.8
@@ -147,6 +152,7 @@ flutter:
   assets:
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
+    - assets/release_notes/
     - assets/chartjs.min.js
     - assets/flutter_tex.js
     - assets/flutter_tex.css

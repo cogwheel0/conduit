@@ -392,6 +392,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  expressive_sheet:
+    dependency: "direct main"
+    description:
+      path: "packages/expressive_sheet"
+      ref: "85ad55a72f61a9913362de88f60da6dfa57f810a"
+      resolved-ref: "85ad55a72f61a9913362de88f60da6dfa57f810a"
+      url: "https://github.com/kamranbekirovyz/bunpod.git"
+    source: git
+    version: "1.0.0"
   fake_async:
     dependency: "direct dev"
     description:
@@ -1299,6 +1308,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.5"
+  motor:
+    dependency: transitive
+    description:
+      name: motor
+      sha256: cbd49f21b00e568c2b1a55f134ed803614a107782f4fea7769693bca32940c58
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
   native_toolchain_c:
     dependency: transitive
     description:

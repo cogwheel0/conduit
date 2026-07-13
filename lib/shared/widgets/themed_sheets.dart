@@ -1,7 +1,10 @@
+import 'dart:ui';
+
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:expressive_sheet/expressive_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -94,6 +97,27 @@ class ThemedSheets {
       minHeight: requested?.minHeight ?? 0,
       maxHeight: requested?.maxHeight ?? double.infinity,
     );
+  }
+
+  /// Presents a velocity-aware floating sheet, with a static fallback for
+  /// people who request reduced motion at the system level.
+  static Future<T?> showExpressive<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return showModalBottomSheet<T>(
+        context: context,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black54,
+        sheetAnimationStyle: AnimationStyle.noAnimation,
+        builder: builder,
+      );
+    }
+
+    return showExpressiveSheet<T>(context: context, builder: builder);
   }
 
   static Future<T?> showCustom<T>({
@@ -424,6 +448,55 @@ class ConduitModalSheetSurface extends StatelessWidget {
         boxShadow: ConduitShadows.modal(context),
       ),
       child: ModalSheetSafeArea(padding: padding, child: content),
+    );
+  }
+}
+
+/// Floating modal surface used with `expressive_sheet` routes.
+///
+/// Unlike the standard edge-attached sheet, this card stays inset from every
+/// screen edge and rounds all four corners so the spring overshoot remains
+/// visible against the scrim.
+class ConduitExpressiveSheetSurface extends StatelessWidget {
+  const ConduitExpressiveSheetSurface({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final radius = BorderRadius.circular(AppBorderRadius.floatingButton);
+    final materialColor = theme.surfaceBackground.withValues(
+      alpha: isDark ? 0.9 : 0.94,
+    );
+    final edgeColor = Color.alphaBlend(
+      Colors.white.withValues(alpha: isDark ? 0.08 : 0.28),
+      theme.dividerColor,
+    );
+
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(Spacing.sm, 0, Spacing.sm, Spacing.sm),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(color: edgeColor, width: BorderWidth.thin),
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: ColoredBox(
+              color: materialColor,
+              child: Padding(
+                padding: const EdgeInsets.all(Spacing.modalPadding),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,0 +1,27 @@
+{
+  "notes": [
+    {
+      "version": "4.0.0",
+      "title": "Conduit 4.0 — works wherever you are",
+      "intro": "This is the biggest release since Conduit began. Your chats now live on your device first, and Conduit can talk to more than one kind of backend — including no backend at all.",
+      "bullets": [
+        {
+          "text": "Offline persistence: chats, notes, and drafts are stored on device and sync when you reconnect. Read and search your history anywhere — messages you send offline are queued and delivered automatically.",
+          "icon": "offline"
+        },
+        {
+          "text": "Hermes Agent: connect a self-hosted Hermes server as a second backend, with live tool progress, approval prompts before sensitive actions, scheduled agents, and slash-command skills.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Direct connections: chat with OpenAI-compatible providers and local Ollama models straight from the app — no Open WebUI server required. Bring your own API key, or none at all.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sharper everywhere: smoother streaming and scrolling, refined sheets and navigation, and fixes across attachments, speech, and theming.",
+          "icon": "polish"
+        }
+      ]
+    }
+  ]
+}
