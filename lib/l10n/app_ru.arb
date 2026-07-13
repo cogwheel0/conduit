@@ -3074,5 +3074,7 @@
   "ollamaThinkingLow": "Низкий",
   "ollamaThinkingMedium": "Средний",
   "ollamaThinkingHigh": "Высокий",
-  "ollamaThinkingMaximum": "Максимальный"
+  "ollamaThinkingMaximum": "Максимальный",
+  "releaseNotesSupportPromptHeading": "Нравится Conduit?",
+  "releaseNotesSupportPromptMessage": "Короткий отзыв помогает большему числу людей найти Conduit. Небольшие чаевые помогают мне продолжать разработку. И то и другое очень ценно."
 }

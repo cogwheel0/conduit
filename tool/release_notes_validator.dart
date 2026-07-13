@@ -8,19 +8,16 @@ const releaseNotesShellLocalizationKeys = <String>[
   'releaseNotesTitle',
   'releaseNotesSubtitle',
   'releaseNotesReviewButton',
-  'releaseNotesReviewHeading',
-  'releaseNotesReviewMessage',
   'releaseNotesDoneButton',
-  'releaseNotesManualSubtitle',
-  'releaseNotesSupportHeading',
-  'releaseNotesSupportMessage',
+  'releaseNotesSupportPromptHeading',
+  'releaseNotesSupportPromptMessage',
 ];
 
 /// Icon names allowed in release-note JSON `icon` fields. Keep in sync with
 /// `releaseNoteIcon` in
 /// `lib/features/release_notes/data/release_notes_repository.dart`.
 const releaseNoteValidatorIconNames = <String>{
-  'offline',
+  'local',
   'hermes',
   'direct',
   'polish',

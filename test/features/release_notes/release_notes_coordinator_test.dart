@@ -71,7 +71,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text("What's new"), findsOneWidget);
-    expect(find.text('A more private way to share updates'), findsOneWidget);
+    expect(find.text('Hi, this update is bundled with the app.'), findsOneWidget);
     expect(find.text('Buy Me a Coffee'), findsOneWidget);
     expect(find.text('GitHub Sponsors'), findsNothing);
 

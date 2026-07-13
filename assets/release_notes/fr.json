@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — fonctionne où que vous soyez",
-      "intro": "C’est la plus grande version depuis les débuts de Conduit. Vos conversations vivent désormais d’abord sur votre appareil, et Conduit peut dialoguer avec plusieurs types de backends — y compris aucun backend du tout.",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! C'est la plus grande mise à jour depuis les débuts de Conduit, et je suis ravi de la partager. Vos conversations vivent désormais d'abord sur votre appareil, et vous pouvez utiliser Conduit entièrement sans serveur.",
       "bullets": [
         {
-          "text": "Persistance hors ligne : conversations, notes et brouillons sont stockés sur l’appareil et se synchronisent à la reconnexion. Lisez et recherchez votre historique partout — les messages envoyés hors ligne sont mis en file et livrés automatiquement.",
-          "icon": "offline"
+          "text": "Stockage local : les conversations, notes et brouillons sont conservés en toute sécurité sur votre appareil. Les notes et brouillons restent disponibles sans connexion ; poursuivre une conversation en nécessite toujours une.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent : connectez un serveur Hermes auto-hébergé comme second backend, avec progression des outils en direct, demandes d’approbation avant les actions sensibles, agents planifiés et commandes slash.",
+          "text": "Hermes Agent : connectez votre propre serveur Hermes et discutez avec un agent qui agit vraiment. Suivez ses outils en direct, approuvez les étapes sensibles avant leur exécution et laissez des agents planifiés travailler pendant que vous dormez.",
           "icon": "hermes"
         },
         {
-          "text": "Connexions directes : discutez avec des fournisseurs compatibles OpenAI et des modèles Ollama locaux directement depuis l’app — aucun serveur Open WebUI requis. Apportez votre propre clé API, ou aucune.",
+          "text": "Connexions directes : parlez aux fournisseurs compatibles OpenAI ou aux modèles Ollama sur votre propre machine, directement depuis l'app. Ajoutez une clé API, ou passez-vous-en complètement.",
           "icon": "direct"
         },
         {
-          "text": "Plus soigné partout : streaming et défilement plus fluides, feuilles et navigation raffinées, et corrections des pièces jointes, de la voix et des thèmes.",
+          "text": "Et beaucoup de soin dans les détails : streaming et défilement plus fluides, feuilles et navigation plus agréables, et des dizaines de correctifs pour les pièces jointes, la voix et les thèmes. Merci d'être là !",
           "icon": "polish"
         }
       ]

@@ -136,15 +136,6 @@ class _AboutPageState extends ConsumerState<AboutPage> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: Spacing.xs),
-                        Text(
-                          l10n.releaseNotesManualSubtitle(info.version),
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.sidebarForeground.withValues(
-                              alpha: 0.72,
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -294,7 +285,7 @@ class _AboutPageState extends ConsumerState<AboutPage> {
       context: context,
       currentVersion: info.version,
       previousVersion: null,
-      subtitle: l10n.releaseNotesManualSubtitle(info.version),
+      showSubtitle: false,
       notes: notes,
     );
   }

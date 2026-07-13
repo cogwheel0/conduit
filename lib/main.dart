@@ -829,7 +829,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       context: context,
       currentVersion: packageInfo.version,
       previousVersion: null,
-      subtitle: l10n.releaseNotesManualSubtitle(packageInfo.version),
+      showSubtitle: false,
       notes: notes,
     );
   }

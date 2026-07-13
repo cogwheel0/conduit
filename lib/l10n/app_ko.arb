@@ -2852,5 +2852,7 @@
   "ollamaThinkingLow": "낮음",
   "ollamaThinkingMedium": "중간",
   "ollamaThinkingHigh": "높음",
-  "ollamaThinkingMaximum": "최대"
+  "ollamaThinkingMaximum": "최대",
+  "releaseNotesSupportPromptHeading": "Conduit이 마음에 드시나요?",
+  "releaseNotesSupportPromptMessage": "짧은 리뷰는 더 많은 사람이 Conduit을 발견하는 데 도움이 됩니다. 작은 후원은 제가 계속 개발할 수 있게 합니다. 어느 쪽이든 정말 큰 힘이 됩니다."
 }

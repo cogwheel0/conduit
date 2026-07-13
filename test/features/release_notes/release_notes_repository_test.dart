@@ -17,13 +17,16 @@ void main() {
     check(files).isNotEmpty();
     for (final file in files) {
       final notes = parseReleaseNotes(file.readAsStringSync());
-      check(
-        because: file.path,
-        notes,
-      ).isNotEmpty();
+      check(because: file.path, notes).isNotEmpty();
       for (final note in notes) {
-        check(because: file.path, note.bulletIcons.length)
-            .equals(note.bullets.length);
+        check(
+          because: file.path,
+          note.bulletIcons.length,
+        ).equals(note.bullets.length);
+        check(
+          because: file.path,
+          note.bulletIconAssets.length,
+        ).equals(note.bullets.length);
       }
     }
   });

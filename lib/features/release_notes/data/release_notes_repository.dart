@@ -68,35 +68,41 @@ List<ReleaseNote> parseReleaseNotes(String raw) {
   if (notes is! List) {
     throw const FormatException('Release notes document must have "notes".');
   }
-  return notes.map((note) {
-    if (note is! Map<String, dynamic>) {
-      throw const FormatException('Each release note must be an object.');
-    }
-    final bullets = note['bullets'];
-    if (bullets is! List || bullets.isEmpty) {
-      throw FormatException(
-        'Release note ${note['version']} must have non-empty "bullets".',
-      );
-    }
-    final texts = <String>[];
-    final icons = <IconData?>[];
-    for (final bullet in bullets) {
-      if (bullet is! Map<String, dynamic> || bullet['text'] is! String) {
-        throw FormatException(
-          'Release note ${note['version']} has a bullet without "text".',
+  return notes
+      .map((note) {
+        if (note is! Map<String, dynamic>) {
+          throw const FormatException('Each release note must be an object.');
+        }
+        final bullets = note['bullets'];
+        if (bullets is! List || bullets.isEmpty) {
+          throw FormatException(
+            'Release note ${note['version']} must have non-empty "bullets".',
+          );
+        }
+        final texts = <String>[];
+        final icons = <IconData?>[];
+        final iconAssets = <String?>[];
+        for (final bullet in bullets) {
+          if (bullet is! Map<String, dynamic> || bullet['text'] is! String) {
+            throw FormatException(
+              'Release note ${note['version']} has a bullet without "text".',
+            );
+          }
+          texts.add(bullet['text'] as String);
+          final iconName = bullet['icon'] as String?;
+          icons.add(releaseNoteIcon(iconName));
+          iconAssets.add(releaseNoteIconAsset(iconName));
+        }
+        return ReleaseNote(
+          version: _requireString(note, 'version'),
+          title: _requireString(note, 'title'),
+          intro: _requireString(note, 'intro'),
+          bullets: texts,
+          bulletIcons: icons,
+          bulletIconAssets: iconAssets,
         );
-      }
-      texts.add(bullet['text'] as String);
-      icons.add(releaseNoteIcon(bullet['icon'] as String?));
-    }
-    return ReleaseNote(
-      version: _requireString(note, 'version'),
-      title: _requireString(note, 'title'),
-      intro: _requireString(note, 'intro'),
-      bullets: texts,
-      bulletIcons: icons,
-    );
-  }).toList(growable: false);
+      })
+      .toList(growable: false);
 }
 
 String _requireString(Map<String, dynamic> note, String key) {
@@ -108,23 +114,22 @@ String _requireString(Map<String, dynamic> note, String key) {
 }
 
 /// Known icon names usable in release-note JSON `icon` fields.
-const releaseNoteIconNames = <String>{
-  'offline',
-  'hermes',
-  'direct',
-  'polish',
-};
+const releaseNoteIconNames = <String>{'local', 'hermes', 'direct', 'polish'};
 
 IconData? releaseNoteIcon(String? name) {
   switch (name) {
-    case 'offline':
-      return Icons.cloud_off_rounded;
+    case 'local':
+      return Icons.storage_rounded;
     case 'hermes':
-      return Icons.auto_awesome_rounded;
+      return null;
     case 'direct':
       return Icons.bolt_rounded;
     case 'polish':
       return Icons.design_services_rounded;
   }
   return null;
+}
+
+String? releaseNoteIconAsset(String? name) {
+  return name == 'hermes' ? 'assets/icons/hermes_agent.png' : null;
 }

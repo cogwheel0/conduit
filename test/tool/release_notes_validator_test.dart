@@ -43,7 +43,7 @@ void main() {
   Map<String, Object?> note(
     String version, {
     int bulletCount = 2,
-    String? icon = 'offline',
+    String? icon = 'local',
   }) => {
     'version': version,
     'title': 'Title $version',
@@ -81,8 +81,9 @@ void main() {
       'notes': [note('3.3.2')],
     });
 
-    check(validate('4.0.0').errors)
-        .contains('Missing baked release note for 4.0.0.');
+    check(
+      validate('4.0.0').errors,
+    ).contains('Missing baked release note for 4.0.0.');
   });
 
   test('fails when a locale is missing a version', () {
@@ -94,8 +95,9 @@ void main() {
       'notes': [note('3.3.2')],
     });
 
-    check(validate('4.0.0').errors)
-        .contains('de.json is missing version 4.0.0.');
+    check(
+      validate('4.0.0').errors,
+    ).contains('de.json is missing version 4.0.0.');
   });
 
   test('fails when a locale has a different bullet count', () {
@@ -132,8 +134,9 @@ void main() {
       'notes': [note('4.0.0'), note('4.1.0')],
     });
 
-    check(validate('4.0.0').errors.single)
-        .contains('de.json has version 4.1.0');
+    check(
+      validate('4.0.0').errors.single,
+    ).contains('de.json has version 4.1.0');
   });
 
   test('fails when a locale ARB is missing a shell key', () {
@@ -142,8 +145,6 @@ void main() {
       'notes': [note('4.0.0')],
     });
 
-    check(
-      validate('4.0.0').errors.single,
-    ).contains('releaseNotesTitle');
+    check(validate('4.0.0').errors.single).contains('releaseNotesTitle');
   });
 }

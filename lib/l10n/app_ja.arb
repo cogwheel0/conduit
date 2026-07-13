@@ -4414,5 +4414,7 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "releaseNotesSupportPromptHeading": "Conduit を気に入っていただけましたか?",
+  "releaseNotesSupportPromptMessage": "短いレビューは、より多くの人が Conduit と出会う助けになります。小さなチップは、開発を続ける力になります。どちらも本当に励みになります。"
 }

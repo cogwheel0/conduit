@@ -382,7 +382,6 @@ class NativeSheetHydrationService {
             NativeSheetItemConfig(
               id: NativeSheetRoutes.releaseNotesManual,
               title: l10n.releaseNotesTitle,
-              subtitle: l10n.releaseNotesManualSubtitle(packageInfo.version),
               sfSymbol: 'sparkles',
             ),
             NativeSheetItemConfig(

@@ -3074,5 +3074,7 @@
   "ollamaThinkingLow": "Faible",
   "ollamaThinkingMedium": "Moyen",
   "ollamaThinkingHigh": "Élevé",
-  "ollamaThinkingMaximum": "Maximal"
+  "ollamaThinkingMaximum": "Maximal",
+  "releaseNotesSupportPromptHeading": "Conduit vous plaît ?",
+  "releaseNotesSupportPromptMessage": "Un court avis aide davantage de personnes à découvrir Conduit. Un petit pourboire m'aide à continuer de le développer. Les deux comptent beaucoup."
 }

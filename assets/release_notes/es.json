@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — funciona estés donde estés",
-      "intro": "Es la mayor versión desde que Conduit existe. Tus chats ahora viven primero en tu dispositivo, y Conduit puede hablar con más de un tipo de backend — incluso con ninguno.",
+      "title": "Novedades",
+      "intro": "¡Hola! Esta es la mayor actualización desde que Conduit existe, y me hace muchísima ilusión compartirla. Tus chats ahora viven primero en tu dispositivo, y puedes usar Conduit completamente sin servidor.",
       "bullets": [
         {
-          "text": "Persistencia sin conexión: chats, notas y borradores se guardan en el dispositivo y se sincronizan al reconectar. Lee y busca tu historial en cualquier lugar — los mensajes enviados sin conexión se encolan y se entregan automáticamente.",
-          "icon": "offline"
+          "text": "Almacenamiento local: los chats, las notas y los borradores se guardan de forma segura en tu dispositivo. Las notas y los borradores siguen disponibles sin conexión; para continuar un chat todavía necesitas conectividad.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: conecta un servidor Hermes autoalojado como segundo backend, con progreso de herramientas en vivo, solicitudes de aprobación antes de acciones sensibles, agentes programados y comandos slash.",
+          "text": "Hermes Agent: conecta tu propio servidor Hermes y chatea con un agente que de verdad hace cosas. Mira sus herramientas trabajar en directo, aprueba los pasos delicados antes de que se ejecuten y deja que los agentes programados trabajen mientras duermes.",
           "icon": "hermes"
         },
         {
-          "text": "Conexiones directas: chatea con proveedores compatibles con OpenAI y modelos locales de Ollama directamente desde la app — sin servidor Open WebUI. Trae tu propia clave de API, o ninguna.",
+          "text": "Conexiones directas: habla con proveedores compatibles con OpenAI o con modelos Ollama en tu propia máquina, directamente desde la app. Añade una clave de API, o prescinde de ella por completo.",
           "icon": "direct"
         },
         {
-          "text": "Más pulido en todas partes: streaming y desplazamiento más fluidos, hojas y navegación refinadas, y correcciones en adjuntos, voz y temas.",
+          "text": "Y mucho mimo en los detalles: streaming y desplazamiento más fluidos, hojas y navegación más agradables y decenas de correcciones en adjuntos, voz y temas. ¡Gracias por estar aquí!",
           "icon": "polish"
         }
       ]

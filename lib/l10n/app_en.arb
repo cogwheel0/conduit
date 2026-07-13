@@ -5236,5 +5236,13 @@
   "ollamaThinkingMaximum": "Maximum",
   "@ollamaThinkingMaximum": {
     "description": "Maximum Ollama thinking level."
+  },
+  "releaseNotesSupportPromptHeading": "Enjoying Conduit?",
+  "releaseNotesSupportPromptMessage": "A short review helps more people find Conduit. A small tip helps me keep building it. Either one means a lot.",
+  "@releaseNotesSupportPromptHeading": {
+    "description": "Heading above the combined review and donation actions in release notes."
+  },
+  "@releaseNotesSupportPromptMessage": {
+    "description": "Combined message explaining how a review or donation supports Conduit."
   }
 }

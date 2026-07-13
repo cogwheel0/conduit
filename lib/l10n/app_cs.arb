@@ -4729,5 +4729,7 @@
   "ollamaThinkingLow": "Low",
   "ollamaThinkingMedium": "Medium",
   "ollamaThinkingHigh": "High",
-  "ollamaThinkingMaximum": "Maximum"
+  "ollamaThinkingMaximum": "Maximum",
+  "releaseNotesSupportPromptHeading": "Líbí se vám Conduit?",
+  "releaseNotesSupportPromptMessage": "Krátká recenze pomůže více lidem objevit Conduit. Malé dýško mi pomáhá pokračovat ve vývoji. Obojí pro mě hodně znamená."
 }

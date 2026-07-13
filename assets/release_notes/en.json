@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — works wherever you are",
-      "intro": "This is the biggest release since Conduit began. Your chats now live on your device first, and Conduit can talk to more than one kind of backend — including no backend at all.",
+      "title": "What's new",
+      "intro": "Hi! This is the biggest update since Conduit began, and I'm really excited to share it. Your chats now live on your phone first, and you can use Conduit entirely without a server.",
       "bullets": [
         {
-          "text": "Offline persistence: chats, notes, and drafts are stored on device and sync when you reconnect. Read and search your history anywhere — messages you send offline are queued and delivered automatically.",
-          "icon": "offline"
+          "text": "Local persistence: chats, notes, and drafts are kept safely on your device. Notes and drafts remain available without a connection; continuing a chat still requires one.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: connect a self-hosted Hermes server as a second backend, with live tool progress, approval prompts before sensitive actions, scheduled agents, and slash-command skills.",
+          "text": "Hermes Agent: connect your own Hermes server and chat with an agent that gets things done. Watch its tools work live, approve sensitive steps before they run, and let scheduled agents work while you sleep.",
           "icon": "hermes"
         },
         {
-          "text": "Direct connections: chat with OpenAI-compatible providers and local Ollama models straight from the app — no Open WebUI server required. Bring your own API key, or none at all.",
+          "text": "Direct connections: talk to OpenAI-compatible providers or Ollama models running on your own machine, straight from the app. Just add an API key, or skip the key entirely.",
           "icon": "direct"
         },
         {
-          "text": "Sharper everywhere: smoother streaming and scrolling, refined sheets and navigation, and fixes across attachments, speech, and theming.",
+          "text": "And lots of care in the details: smoother streaming and scrolling, nicer sheets and navigation, and dozens of fixes for attachments, speech, and themes. Thank you for being here!",
           "icon": "polish"
         }
       ]

@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — werkt waar je ook bent",
-      "intro": "Dit is de grootste release sinds het begin van Conduit. Je chats leven nu eerst op je apparaat, en Conduit kan met meer dan één soort backend praten — of zelfs helemaal zonder backend.",
+      "title": "Nieuw",
+      "intro": "Hoi! Dit is de grootste update sinds het begin van Conduit, en ik ben ontzettend blij om hem te delen. Je chats leven nu eerst op je apparaat, en je kunt Conduit volledig zonder server gebruiken.",
       "bullets": [
         {
-          "text": "Offline opslag: chats, notities en concepten worden op het apparaat bewaard en synchroniseren zodra je weer verbinding hebt. Lees en doorzoek je geschiedenis overal — offline verzonden berichten worden automatisch afgeleverd.",
-          "icon": "offline"
+          "text": "Lokale opslag: chats, notities en concepten worden veilig op je apparaat bewaard. Notities en concepten blijven zonder verbinding beschikbaar; om een chat voort te zetten heb je nog steeds een verbinding nodig.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: koppel een zelf-gehoste Hermes-server als tweede backend, met live toolvoortgang, goedkeuringsvragen vóór gevoelige acties, geplande agents en slash-commando’s.",
+          "text": "Hermes Agent: koppel je eigen Hermes-server en chat met een agent die echt dingen gedaan krijgt. Zie zijn tools live werken, keur gevoelige stappen vooraf goed en laat geplande agents werken terwijl jij slaapt.",
           "icon": "hermes"
         },
         {
-          "text": "Directe verbindingen: chat rechtstreeks vanuit de app met OpenAI-compatibele providers en lokale Ollama-modellen — geen Open WebUI-server nodig. Gebruik je eigen API-sleutel, of helemaal geen.",
+          "text": "Directe verbindingen: praat met OpenAI-compatibele providers of Ollama-modellen op je eigen computer, rechtstreeks vanuit de app. Voeg een API-sleutel toe, of sla die gewoon over.",
           "icon": "direct"
         },
         {
-          "text": "Overal strakker: soepeler streamen en scrollen, verfijnde sheets en navigatie, en fixes voor bijlagen, spraak en thema’s.",
+          "text": "En veel liefde voor de details: soepeler streamen en scrollen, mooiere sheets en navigatie, en tientallen fixes voor bijlagen, spraak en thema's. Fijn dat je er bent!",
           "icon": "polish"
         }
       ]

@@ -3074,5 +3074,7 @@
   "ollamaThinkingLow": "Laag",
   "ollamaThinkingMedium": "Gemiddeld",
   "ollamaThinkingHigh": "Hoog",
-  "ollamaThinkingMaximum": "Maximaal"
+  "ollamaThinkingMaximum": "Maximaal",
+  "releaseNotesSupportPromptHeading": "Bevalt Conduit je?",
+  "releaseNotesSupportPromptMessage": "Een korte review helpt meer mensen Conduit te vinden. Een kleine fooi helpt me om eraan te blijven bouwen. Allebei betekenen veel."
 }

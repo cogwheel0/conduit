@@ -477,21 +477,45 @@ class ConduitExpressiveSheetSurface extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(Spacing.sm, 0, Spacing.sm, Spacing.sm),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          border: Border.all(color: edgeColor, width: BorderWidth.thin),
+      child: Padding(
+        // The expressive route is deliberately edge-agnostic. Reserve a
+        // visible gap ourselves so its spring overshoot reads as a floating
+        // card rather than an edge-attached bottom sheet.
+        padding: const EdgeInsets.fromLTRB(
+          Spacing.md,
+          0,
+          Spacing.md,
+          Spacing.md,
         ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-            child: ColoredBox(
-              color: materialColor,
-              child: Padding(
-                padding: const EdgeInsets.all(Spacing.modalPadding),
-                child: child,
+        // Keep the shadow outside the clipped Material. Clipping it with the
+        // glass made the floating silhouette nearly disappear on Android.
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            boxShadow: ConduitShadows.modal(context),
+          ),
+          child: Material(
+            // `expressive_sheet` is a bare PopupRoute, unlike
+            // showModalBottomSheet. Material supplies the Android ink/text
+            // surface and clips the glass to all four rounded corners.
+            type: MaterialType.transparency,
+            borderRadius: radius,
+            clipBehavior: Clip.antiAlias,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: materialColor,
+                  borderRadius: radius,
+                  border: Border.all(
+                    color: edgeColor,
+                    width: BorderWidth.regular,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(Spacing.modalPadding),
+                  child: child,
+                ),
               ),
             ),
           ),

@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — funguje, ať jste kdekoli",
-      "intro": "Toto je největší vydání od vzniku Conduitu. Vaše chaty nyní žijí nejprve ve vašem zařízení a Conduit umí komunikovat s více druhy backendů — včetně žádného backendu.",
+      "title": "Novinky",
+      "intro": "Ahoj! Tohle je největší aktualizace od vzniku Conduitu a mám obrovskou radost, že se o ni můžu podělit. Vaše chaty teď žijí nejprve ve vašem zařízení a Conduit můžete používat úplně bez serveru.",
       "bullets": [
         {
-          "text": "Offline ukládání: chaty, poznámky a koncepty se ukládají v zařízení a po připojení se synchronizují. Historii čtěte a prohledávejte kdekoli — zprávy odeslané offline se zařadí do fronty a doručí automaticky.",
-          "icon": "offline"
+          "text": "Místní ukládání: chaty, poznámky a koncepty jsou bezpečně uloženy ve vašem zařízení. Poznámky a koncepty zůstávají dostupné bez připojení; pro pokračování v chatu je připojení stále potřeba.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: připojte vlastní server Hermes jako druhý backend — s živým průběhem nástrojů, žádostmi o schválení před citlivými akcemi, plánovanými agenty a lomítkovými příkazy.",
+          "text": "Hermes Agent: připojte vlastní server Hermes a povídejte si s agentem, který opravdu věci dotahuje. Sledujte jeho nástroje naživo, schvalujte citlivé kroky předem a nechte plánované agenty pracovat, zatímco spíte.",
           "icon": "hermes"
         },
         {
-          "text": "Přímá připojení: chatujte s poskytovateli kompatibilními s OpenAI a lokálními modely Ollama přímo z aplikace — bez serveru Open WebUI. Použijte vlastní API klíč, nebo žádný.",
+          "text": "Přímá připojení: mluvte s poskytovateli kompatibilními s OpenAI nebo s modely Ollama na vlastním počítači, přímo z aplikace. Stačí přidat API klíč, nebo se obejít úplně bez něj.",
           "icon": "direct"
         },
         {
-          "text": "Vybroušenější všude: plynulejší streamování a posouvání, vylepšené panely a navigace a opravy příloh, řeči a motivů.",
+          "text": "A spousta péče o detaily: plynulejší streamování a posouvání, příjemnější panely a navigace a desítky oprav příloh, řeči a motivů. Díky, že jste tu!",
           "icon": "polish"
         }
       ]

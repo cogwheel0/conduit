@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — funguje, nech ste kdekoľvek",
-      "intro": "Toto je najväčšie vydanie od vzniku Conduitu. Vaše chaty teraz žijú najprv vo vašom zariadení a Conduit vie komunikovať s viacerými druhmi backendov — vrátane žiadneho backendu.",
+      "title": "Novinky",
+      "intro": "Ahoj! Toto je najväčšia aktualizácia od vzniku Conduitu a mám obrovskú radosť, že sa o ňu môžem podeliť. Vaše chaty teraz žijú najprv vo vašom zariadení a Conduit môžete používať úplne bez servera.",
       "bullets": [
         {
-          "text": "Offline ukladanie: chaty, poznámky a koncepty sa ukladajú v zariadení a po pripojení sa synchronizujú. Históriu čítajte a prehľadávajte kdekoľvek — správy odoslané offline sa zaradia do frontu a doručia automaticky.",
-          "icon": "offline"
+          "text": "Miestne ukladanie: chaty, poznámky a koncepty sú bezpečne uložené vo vašom zariadení. Poznámky a koncepty zostávajú dostupné bez pripojenia; na pokračovanie v chate je pripojenie stále potrebné.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: pripojte vlastný server Hermes ako druhý backend — so živým priebehom nástrojov, žiadosťami o schválenie pred citlivými akciami, plánovanými agentmi a lomkovými príkazmi.",
+          "text": "Hermes Agent: pripojte vlastný server Hermes a píšte si s agentom, ktorý veci naozaj dotiahne. Sledujte jeho nástroje naživo, schvaľujte citlivé kroky vopred a nechajte plánovaných agentov pracovať, kým spíte.",
           "icon": "hermes"
         },
         {
-          "text": "Priame pripojenia: chatujte s poskytovateľmi kompatibilnými s OpenAI a lokálnymi modelmi Ollama priamo z aplikácie — bez servera Open WebUI. Použite vlastný API kľúč, alebo žiadny.",
+          "text": "Priame pripojenia: hovorte s poskytovateľmi kompatibilnými s OpenAI alebo s modelmi Ollama na vlastnom počítači, priamo z aplikácie. Stačí pridať API kľúč, alebo sa zaobísť úplne bez neho.",
           "icon": "direct"
         },
         {
-          "text": "Vyladenejšie všade: plynulejšie streamovanie a posúvanie, vylepšené panely a navigácia a opravy príloh, reči a tém.",
+          "text": "A kopa starostlivosti o detaily: plynulejšie streamovanie a posúvanie, príjemnejšie panely a navigácia a desiatky opráv príloh, reči a tém. Ďakujem, že ste tu!",
           "icon": "polish"
         }
       ]

@@ -2,23 +2,23 @@
   "notes": [
     {
       "version": "4.0.0",
-      "title": "Conduit 4.0 — funziona ovunque tu sia",
-      "intro": "È la versione più grande dalla nascita di Conduit. Le tue chat ora vivono prima di tutto sul dispositivo, e Conduit può parlare con più di un tipo di backend — incluso nessun backend.",
+      "title": "Novità",
+      "intro": "Ciao! È l'aggiornamento più grande dalla nascita di Conduit, e sono felicissimo di condividerlo. Le tue chat ora vivono prima di tutto sul tuo dispositivo, e puoi usare Conduit completamente senza server.",
       "bullets": [
         {
-          "text": "Persistenza offline: chat, note e bozze sono salvate sul dispositivo e si sincronizzano alla riconnessione. Leggi e cerca la cronologia ovunque — i messaggi inviati offline vengono messi in coda e consegnati automaticamente.",
-          "icon": "offline"
+          "text": "Salvataggio locale: chat, note e bozze sono conservate al sicuro sul tuo dispositivo. Note e bozze restano disponibili senza connessione; per continuare una chat serve ancora una connessione.",
+          "icon": "local"
         },
         {
-          "text": "Hermes Agent: collega un server Hermes self-hosted come secondo backend, con avanzamento degli strumenti in tempo reale, richieste di approvazione prima delle azioni sensibili, agenti pianificati e comandi slash.",
+          "text": "Hermes Agent: collega il tuo server Hermes e chatta con un agente che fa davvero le cose. Guarda i suoi strumenti lavorare in diretta, approva i passaggi delicati prima che vengano eseguiti e lascia che gli agenti pianificati lavorino mentre dormi.",
           "icon": "hermes"
         },
         {
-          "text": "Connessioni dirette: chatta con provider compatibili OpenAI e modelli Ollama locali direttamente dall’app — nessun server Open WebUI richiesto. Porta la tua chiave API, o nessuna.",
+          "text": "Connessioni dirette: parla con provider compatibili OpenAI o con modelli Ollama sulla tua macchina, direttamente dall'app. Aggiungi una chiave API, o fai anche senza.",
           "icon": "direct"
         },
         {
-          "text": "Più rifinito ovunque: streaming e scorrimento più fluidi, sheet e navigazione perfezionati, e correzioni ad allegati, voce e temi.",
+          "text": "E tanta cura nei dettagli: streaming e scorrimento più fluidi, sheet e navigazione più piacevoli e decine di correzioni per allegati, voce e temi. Grazie di essere qui!",
           "icon": "polish"
         }
       ]

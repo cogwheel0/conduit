@@ -16,6 +16,7 @@ Future<void> showReleaseNotesSheet({
   required String? previousVersion,
   required List<ReleaseNote> notes,
   String? subtitle,
+  bool showSubtitle = true,
 }) async {
   await ThemedSheets.showExpressive<void>(
     context: context,
@@ -25,12 +26,10 @@ Future<void> showReleaseNotesSheet({
       }
 
       void openUrl(String url) {
-        closeSheet();
         unawaited(launchInAppBrowserLink(url, scope: 'release-notes'));
       }
 
       void openSupport() {
-        closeSheet();
         unawaited(
           launchInAppBrowserLink(
             buyMeACoffeeUrl,
@@ -44,6 +43,7 @@ Future<void> showReleaseNotesSheet({
           currentVersion: currentVersion,
           previousVersion: previousVersion,
           subtitle: subtitle,
+          showSubtitle: showSubtitle,
           notes: notes,
           onOpenUrl: openUrl,
           onOpenSupport: openSupport,
