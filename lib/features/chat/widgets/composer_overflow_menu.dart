@@ -156,17 +156,6 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
 class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   Future<Map<String, dynamic>?>? _userSettingsFuture;
 
-  @override
-  void initState() {
-    super.initState();
-    // Restricted backends have no OpenWebUI integrations to discover. Avoid
-    // issuing a request to an unrelated configured backend just for a hidden
-    // section.
-    _userSettingsFuture = widget.localAttachmentsOnly
-        ? null
-        : _loadUserSettings();
-  }
-
   Future<Map<String, dynamic>?> _loadUserSettings() async {
     final api = ref.read(apiServiceProvider);
     if (api == null) {
@@ -189,6 +178,12 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         selectedModel != null &&
         ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
     final restrictedMode = directMode || widget.localAttachmentsOnly;
+    // Direct and local-only backends have no OpenWebUI integrations to
+    // discover. Resolve the request lazily because direct provenance is only
+    // available once providers can be read during build.
+    final userSettingsFuture = restrictedMode
+        ? null
+        : (_userSettingsFuture ??= _loadUserSettings());
     final attachmentItems =
         buildComposerOverflowAttachmentItems(
           l10n: l10n,
@@ -223,10 +218,12 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
 
     final webSearchAvailable =
         !restrictedMode && ref.watch(webSearchAvailableProvider);
-    final webSearchEnabled = ref.watch(webSearchEnabledProvider);
+    final webSearchEnabled =
+        !restrictedMode && ref.watch(webSearchEnabledProvider);
     final imageGenAvailable =
         !restrictedMode && ref.watch(imageGenerationAvailableProvider);
-    final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
+    final imageGenEnabled =
+        !restrictedMode && ref.watch(imageGenerationEnabledProvider);
     final featureTiles =
         buildComposerOverflowFeatureItems(
           l10n: l10n,
@@ -294,7 +291,7 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
     final integrationsSection = restrictedMode
         ? const SizedBox.shrink()
         : FutureBuilder<Map<String, dynamic>?>(
-            future: _userSettingsFuture,
+            future: userSettingsFuture,
             builder: (context, snapshot) {
               final settings = snapshot.data;
               final directToolServers = _extractConfiguredServers(
