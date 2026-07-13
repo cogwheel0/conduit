@@ -258,6 +258,32 @@ void main() {
       expect(_imageParts(result.single), [image]);
     });
 
+    test('retains the same image in separate user turns', () async {
+      final image = _imageDataUrl([19, 20, 21]);
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'first-image-turn',
+            role: 'user',
+            content: 'Describe this image',
+            attachmentIds: const ['shared-image'],
+          ),
+          _message(
+            id: 'second-image-turn',
+            role: 'user',
+            content: 'Describe it again',
+            attachmentIds: const ['shared-image'],
+          ),
+        ],
+        resolveImage: (_, _) async => image,
+      );
+
+      expect(result, hasLength(2));
+      expect(_imageParts(result[0]), [image]);
+      expect(_imageParts(result[1]), [image]);
+    });
+
     test('rejects more than four images', () async {
       final files = <Map<String, dynamic>>[
         for (var index = 0; index < 5; index++)

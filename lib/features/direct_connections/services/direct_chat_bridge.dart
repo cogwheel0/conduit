@@ -62,12 +62,15 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
   final result = <DirectChatMessage>[];
-  final seenImages = <String>{};
-  final seenImageReferences = <String>{};
   var imageCount = 0;
   var decodedImageBytes = 0;
 
-  Future<void> addImage(List<DirectContentPart> parts, String candidate) async {
+  Future<void> addImage(
+    List<DirectContentPart> parts,
+    String candidate, {
+    required Set<String> seenImages,
+    required Set<String> seenImageReferences,
+  }) async {
     var value = _normalizeDirectFileReference(candidate);
     // Every caller has already classified this value as an image. Missing or
     // inaccessible image data must fail closed instead of changing the prompt.
@@ -124,6 +127,8 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     if (role != 'system' && role != 'user' && role != 'assistant') continue;
 
     final parts = <DirectContentPart>[];
+    final seenImages = <String>{};
+    final seenImageReferences = <String>{};
     final text = ToolCallsParser.sanitizeForApi(message.content).trim();
     if (text.isNotEmpty) parts.add(DirectTextPart(text));
 
@@ -144,12 +149,22 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
       )) {
         continue;
       }
-      await addImage(parts, attachment);
+      await addImage(
+        parts,
+        attachment,
+        seenImages: seenImages,
+        seenImageReferences: seenImageReferences,
+      );
     }
     for (final file in files) {
       if (!_isDirectImageFile(file)) continue;
       final value = _firstDirectFileReference(file);
-      await addImage(parts, value);
+      await addImage(
+        parts,
+        value,
+        seenImages: seenImages,
+        seenImageReferences: seenImageReferences,
+      );
     }
 
     if (parts.isNotEmpty) {
