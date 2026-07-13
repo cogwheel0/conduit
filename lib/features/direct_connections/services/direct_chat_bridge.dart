@@ -9,6 +9,10 @@ const String kDirectTransport = 'direct';
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
 
+final RegExp _directOpenWebUiFileReferencePattern = RegExp(
+  r'/api/v1/files/([^/]+)(?:/content)?/?$',
+);
+
 typedef DirectImageResolver =
     Future<String?> Function(String fileId, int maxDecodedBytes);
 
@@ -59,15 +63,27 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
 }) async {
   final result = <DirectChatMessage>[];
   final seenImages = <String>{};
+  final seenImageReferences = <String>{};
   var imageCount = 0;
   var decodedImageBytes = 0;
 
   Future<void> addImage(List<DirectContentPart> parts, String candidate) async {
-    var value = candidate.trim();
-    if (value.isEmpty) return;
+    var value = _normalizeDirectFileReference(candidate);
+    // Every caller has already classified this value as an image. Missing or
+    // inaccessible image data must fail closed instead of changing the prompt.
+    if (value.isEmpty) {
+      throw const DirectChatInputException(
+        'This direct model does not support this attachment.',
+      );
+    }
+    if (!seenImageReferences.add(value)) return;
     if (!value.startsWith('data:image/')) {
       final resolver = resolveImage;
-      if (resolver == null) return;
+      if (resolver == null) {
+        throw const DirectChatInputException(
+          'This direct model does not support this attachment.',
+        );
+      }
       final remainingBytes = maxDecodedImageBytes - decodedImageBytes;
       if (remainingBytes <= 0) {
         throw DirectChatInputException(
@@ -76,7 +92,11 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         );
       }
       value = (await resolver(value, remainingBytes))?.trim() ?? '';
-      if (value.isEmpty || !value.startsWith('data:image/')) return;
+      if (value.isEmpty || !value.startsWith('data:image/')) {
+        throw const DirectChatInputException(
+          'This direct model does not support this attachment.',
+        );
+      }
     }
     if (!seenImages.add(value)) return;
 
@@ -107,16 +127,28 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     final text = ToolCallsParser.sanitizeForApi(message.content).trim();
     if (text.isNotEmpty) parts.add(DirectTextPart(text));
 
+    final files = message.files ?? const <Map<String, dynamic>>[];
+    final explicitNonImageReferences = <String>{};
+    for (final file in files) {
+      if (!_isExplicitNonImageFile(file)) continue;
+      for (final key in const ['url', 'id', 'data']) {
+        final reference = _normalizeDirectFileReference(
+          file[key]?.toString() ?? '',
+        );
+        if (reference.isNotEmpty) explicitNonImageReferences.add(reference);
+      }
+    }
     for (final attachment in message.attachmentIds ?? const <String>[]) {
+      if (explicitNonImageReferences.contains(
+        _normalizeDirectFileReference(attachment),
+      )) {
+        continue;
+      }
       await addImage(parts, attachment);
     }
-    for (final file in message.files ?? const <Map<String, dynamic>>[]) {
-      if (file['type']?.toString().toLowerCase() != 'image') continue;
-      final value =
-          file['url']?.toString() ??
-          file['id']?.toString() ??
-          file['data']?.toString() ??
-          '';
+    for (final file in files) {
+      if (!_isDirectImageFile(file)) continue;
+      final value = _firstDirectFileReference(file);
       await addImage(parts, value);
     }
 
@@ -125,6 +157,36 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     }
   }
   return List.unmodifiable(result);
+}
+
+bool _isDirectImageFile(Map<String, dynamic> file) {
+  final type = file['type']?.toString().trim().toLowerCase() ?? '';
+  final contentType =
+      file['content_type']?.toString().trim().toLowerCase() ?? '';
+  return type == 'image' || contentType.startsWith('image/');
+}
+
+bool _isExplicitNonImageFile(Map<String, dynamic> file) {
+  final type = file['type']?.toString().trim() ?? '';
+  final contentType = file['content_type']?.toString().trim() ?? '';
+  return (type.isNotEmpty || contentType.isNotEmpty) &&
+      !_isDirectImageFile(file);
+}
+
+String _firstDirectFileReference(Map<String, dynamic> file) {
+  for (final key in const ['url', 'id', 'data']) {
+    final reference = file[key]?.toString().trim() ?? '';
+    if (reference.isNotEmpty) return reference;
+  }
+  return '';
+}
+
+String _normalizeDirectFileReference(String candidate) {
+  final value = candidate.trim();
+  if (!value.contains('/api/v1/files/')) return value;
+  final path = Uri.tryParse(value)?.path ?? value;
+  final match = _directOpenWebUiFileReferencePattern.firstMatch(path);
+  return match?.group(1) ?? value;
 }
 
 String _formatDirectByteLimit(int bytes) {

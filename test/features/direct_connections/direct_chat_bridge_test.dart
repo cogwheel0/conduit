@@ -50,7 +50,7 @@ void main() {
           id: 'user',
           role: 'user',
           content: '  Describe these  ',
-          attachmentIds: const ['protected-image', 'missing-image'],
+          attachmentIds: const ['protected-image'],
           files: [
             {'type': 'image', 'url': inlineImage},
             {'type': 'image', 'url': inlineImage},
@@ -65,7 +65,7 @@ void main() {
         resolveImage: (fileId, maxBytes) async {
           resolvedIds.add(fileId);
           resolverLimits.add(maxBytes);
-          return fileId == 'protected-image' ? resolvedImage : null;
+          return resolvedImage;
         },
       );
 
@@ -78,11 +78,145 @@ void main() {
       expect(_textParts(result[1]), ['Earlier answer']);
       expect(_textParts(result[2]), ['Describe these']);
       expect(_imageParts(result[2]), [resolvedImage, inlineImage]);
-      expect(resolvedIds, ['protected-image', 'missing-image']);
-      expect(resolverLimits, [
-        kDirectMaxDecodedImageBytes,
-        kDirectMaxDecodedImageBytes - 3,
-      ]);
+      expect(resolvedIds, ['protected-image']);
+      expect(resolverLimits, [kDirectMaxDecodedImageBytes]);
+    });
+
+    test('rejects a declared image that cannot be resolved', () async {
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'unavailable-image',
+              role: 'user',
+              content: 'Describe this',
+              files: const [
+                {'type': 'image', 'id': 'protected-image'},
+              ],
+            ),
+          ],
+          resolveImage: (_, _) async => null,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            'This direct model does not support this attachment.',
+          ),
+        ),
+      );
+    });
+
+    test('rejects a declared image with no reference', () async {
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'missing-image-reference',
+              role: 'user',
+              content: 'Describe this',
+              files: const [
+                {'type': 'image'},
+              ],
+            ),
+          ],
+        ),
+        throwsA(isA<DirectChatInputException>()),
+      );
+    });
+
+    test('rejects a protected image when no resolver is available', () async {
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'protected-image',
+              role: 'user',
+              content: 'Describe this',
+              attachmentIds: const ['protected-image'],
+            ),
+          ],
+        ),
+        throwsA(isA<DirectChatInputException>()),
+      );
+    });
+
+    test('skips attachment ids explicitly classified as non-image', () async {
+      var resolverCalls = 0;
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'document-turn',
+            role: 'user',
+            content: 'Use the earlier document context',
+            attachmentIds: const ['document-id'],
+            files: const [
+              {'type': 'file', 'url': '/api/v1/files/document-id/content'},
+            ],
+          ),
+        ],
+        resolveImage: (_, _) async {
+          resolverCalls++;
+          return null;
+        },
+      );
+
+      expect(resolverCalls, 0);
+      expect(_textParts(result.single), ['Use the earlier document context']);
+      expect(_imageParts(result.single), isEmpty);
+    });
+
+    test('deduplicates OpenWebUI file ID and content URL aliases', () async {
+      final image = _imageDataUrl([16, 17, 18]);
+      final resolvedIds = <String>[];
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'legacy-image-turn',
+            role: 'user',
+            content: 'Describe this image',
+            attachmentIds: const ['abc'],
+            files: const [
+              {'type': 'image', 'url': '/api/v1/files/abc/content'},
+            ],
+          ),
+        ],
+        resolveImage: (id, _) async {
+          resolvedIds.add(id);
+          return image;
+        },
+      );
+
+      expect(resolvedIds, ['abc']);
+      expect(_imageParts(result.single), [image]);
+    });
+
+    test('uses image MIME when OpenWebUI reports type file', () async {
+      final image = _imageDataUrl([13, 14, 15]);
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'mime-image-turn',
+            role: 'user',
+            content: 'Describe this image',
+            attachmentIds: const ['image-id'],
+            files: const [
+              {
+                'type': 'file',
+                'content_type': 'image/png',
+                'id': 'image-id',
+                'url': 'image-id',
+              },
+            ],
+          ),
+        ],
+        resolveImage: (_, _) async => image,
+      );
+
+      expect(_imageParts(result.single), [image]);
     });
 
     test('retains an image-only user turn', () async {

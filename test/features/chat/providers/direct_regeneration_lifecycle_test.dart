@@ -12,6 +12,7 @@ import 'package:conduit/features/direct_connections/models/direct_completion.dar
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
@@ -63,6 +64,38 @@ final class _FailingDirectAdapter implements DirectProviderAdapter {
     cancelToken: CancelToken(),
     done: Future<void>.value(),
   );
+}
+
+final class _RecordingDirectAdapter implements DirectProviderAdapter {
+  var startCount = 0;
+
+  @override
+  String get key => kOllamaAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) {
+    startCount++;
+    return DirectCompletionRun(
+      id: 'recording-run',
+      profileId: profile.id,
+      remoteModelId: request.remoteModelId,
+      events: Stream<DirectStreamEvent>.value(const DirectStreamDone()),
+      cancelToken: CancelToken(),
+      done: Future<void>.value(),
+    );
+  }
 }
 
 void main() {
@@ -223,6 +256,101 @@ void main() {
       expect(failed.versions.single.content, previousAssistant.content);
       expect(runRegistry.runFor(previousAssistant.id), isNull);
       expect(runRegistry.cancel(previousAssistant.id), isNull);
+    },
+  );
+
+  test(
+    'direct regeneration fails closed when a historical image is unavailable',
+    () async {
+      final profile = DirectConnectionProfile(
+        id: 'profile-one',
+        name: 'Local provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final modelRegistry = DirectModelRegistry();
+      final model = modelRegistry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'vision-model', isMultimodal: true),
+      ]).single;
+      final adapter = _RecordingDirectAdapter();
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            _TestActiveConversationNotifier.new,
+          ),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedDirectProfilesController(profile),
+          ),
+          directModelRegistryProvider.overrideWithValue(modelRegistry),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final now = DateTime.utc(2026, 7, 11);
+      final user = ChatMessage(
+        id: 'user-with-image',
+        role: 'user',
+        content: 'Describe this image',
+        timestamp: now,
+        attachmentIds: const ['openwebui-image'],
+        files: const [
+          {
+            'type': 'image',
+            'id': 'openwebui-image',
+            'url': 'openwebui-image',
+            'content_type': 'image/png',
+          },
+        ],
+      );
+      final previousAssistant = ChatMessage(
+        id: 'assistant-with-image',
+        role: 'assistant',
+        content: 'Previous image description',
+        timestamp: now,
+        model: model.id,
+      );
+      final conversation = Conversation(
+        id: 'local:direct-image-regeneration',
+        title: 'Direct image chat',
+        createdAt: now,
+        updatedAt: now,
+        messages: [user, previousAssistant],
+      );
+      container.read(activeConversationProvider.notifier).set(conversation);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        user,
+        previousAssistant,
+      ]);
+
+      await expectLater(
+        regenerateMessage(container, user.content, null),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            'This direct model does not support this attachment.',
+          ),
+        ),
+      );
+
+      expect(adapter.startCount, 0);
+      final failed = container.read(chatMessagesProvider).last;
+      expect(failed.id, previousAssistant.id);
+      expect(failed.isStreaming, isFalse);
+      expect(
+        failed.error?.content,
+        'This direct model does not support this attachment.',
+      );
+      expect(failed.versions, hasLength(1));
+      expect(failed.versions.single.content, previousAssistant.content);
     },
   );
 }
