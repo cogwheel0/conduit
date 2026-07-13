@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
@@ -1110,8 +1111,19 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           );
         }
       }
-    } catch (_) {
-      // Swallow errors; upstream error handling will surface if needed
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'inline-edit-failed',
+        scope: 'chat/edit',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'messageId': widget.message.id?.toString()},
+      );
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {

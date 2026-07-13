@@ -4885,6 +4885,7 @@ Future<void> regenerateEditedHermesUserMessage(
   if (active?.metadata['backend'] != 'hermes') {
     throw StateError('The active conversation is not a Hermes session.');
   }
+  final activeConversationId = conversationScopedId(active!);
   final messages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,
@@ -4901,11 +4902,29 @@ Future<void> regenerateEditedHermesUserMessage(
       'childrenIds': const <String>[],
     },
   );
-  ref.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+  final notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  final optimisticMessages = List<ChatMessage>.unmodifiable(<ChatMessage>[
     ...messages.sublist(0, index),
     edited,
   ]);
-  await regenerateMessage(ref, content, null);
+  notifier.setMessages(optimisticMessages);
+  try {
+    await regenerateMessage(ref, content, null);
+  } catch (_) {
+    // Editing is a branch operation, but the original branch must remain
+    // intact when the replacement cannot even be started. Restore only while
+    // our exact optimistic list still owns this storage-scoped conversation;
+    // a chat switch or independent same-chat mutation wins the race.
+    final current = ref.read(activeConversationProvider) as Conversation?;
+    final currentMessages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+    if (current != null &&
+        conversationMatchesScopedId(current, activeConversationId) &&
+        identical(currentMessages, optimisticMessages)) {
+      notifier.setMessages(messages);
+    }
+    rethrow;
+  }
 }
 
 // Regenerate message function that doesn't duplicate user message

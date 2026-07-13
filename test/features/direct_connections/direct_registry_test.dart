@@ -145,25 +145,68 @@ void main() {
     },
   );
 
-  test('display reconciliation removes remote reserved identities', () {
+  test(
+    'display reconciliation preserves server-owned direct-like identities',
+    () {
+      final registry = DirectModelRegistry();
+      final remote = [
+        const Model(id: 'normal', name: 'Normal'),
+        const Model(id: 'direct:server:value', name: 'Direct-like id'),
+        const Model(
+          id: 'backend-metadata',
+          name: 'Backend metadata',
+          metadata: {'backend': 'direct'},
+        ),
+        const Model(
+          id: 'direct-metadata',
+          name: 'Direct metadata',
+          metadata: {'direct': true},
+        ),
+        const Model(
+          id: 'provider-metadata',
+          name: 'Provider metadata',
+          metadata: {'directProvider': 'server-owned'},
+        ),
+      ];
+
+      final reconciled = reconcileDirectModelsForDisplay(
+        remoteModels: remote,
+        directModels: const [],
+        registry: registry,
+      );
+
+      expect(reconciled, remote);
+      expect(remote.where(hasReservedDirectIdentity), isEmpty);
+    },
+  );
+
+  test('display reconciliation appends each locally minted model once', () {
     final registry = DirectModelRegistry();
-    final remote = [
-      const Model(id: 'normal', name: 'Normal'),
-      const Model(id: 'direct:forged:value', name: 'Forged'),
-      const Model(
-        id: 'also-forged',
-        name: 'Forged metadata',
-        metadata: {'direct': true},
-      ),
-    ];
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://example.test/v1',
+    );
+    final minted = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'local-model'),
+    ]).single;
+    const server = Model(id: 'server-model', name: 'Server model');
+    final collidingServerModel = Model(
+      id: minted.id,
+      name: 'Server model claiming the live direct id',
+      metadata: const {'backend': 'direct'},
+    );
 
     final reconciled = reconcileDirectModelsForDisplay(
-      remoteModels: remote,
-      directModels: const [],
+      remoteModels: [server, collidingServerModel, minted],
+      directModels: [minted],
       registry: registry,
     );
 
-    expect(reconciled.map((model) => model.id), ['normal']);
+    expect(reconciled, [server, minted]);
+    expect(hasReservedDirectIdentity(minted), isTrue);
+    expect(reconciled.map((model) => model.id).toSet(), hasLength(2));
   });
 
   test('display reconciliation removes stale locally minted models', () {

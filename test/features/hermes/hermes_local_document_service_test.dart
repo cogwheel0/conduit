@@ -354,6 +354,57 @@ void main() {
       ).equals(HermesLocalDocumentError.sourceTooLarge);
     });
 
+    test(
+      'rejects ZIP symlinks before expanding their unused payloads',
+      () async {
+        final error = await _failureOf(
+          HermesLocalDocumentService().prepare(
+            HermesLocalDocumentSource.fromBytes(
+              name: 'linked.docx',
+              // The extra entry is small on the wire but expands well beyond
+              // the main document. ZipDecoder used to inflate it eagerly just
+              // to discover its symlink target, even though Conduit never
+              // reads that entry.
+              bytes: _docxWithSymlinkEntry('x' * (512 * 1024)),
+            ),
+          ),
+        );
+
+        check(error.code).equals(HermesLocalDocumentError.malformedDocument);
+      },
+    );
+
+    test(
+      'bounds DOCX expansion even when ZIP metadata understates it',
+      () async {
+        final xml =
+            '<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>'
+            '${'x' * (512 * 1024)}'
+            '</w:t></w:r></w:p></w:body></w:document>';
+        final forged = _withForgedUncompressedSize(
+          _docxBytes(xml),
+          entryName: 'word/document.xml',
+          declaredSize: 16,
+        );
+        final service = HermesLocalDocumentService(
+          limits: const HermesLocalDocumentLimits(
+            maxExpandedDocumentBytes: 1024,
+          ),
+        );
+
+        final error = await _failureOf(
+          service.prepare(
+            HermesLocalDocumentSource.fromBytes(
+              name: 'understated.docx',
+              bytes: forged,
+            ),
+          ),
+        );
+
+        check(error.code).equals(HermesLocalDocumentError.sourceTooLarge);
+      },
+    );
+
     test('neutralizes a matching prompt boundary in extracted text', () {
       const prepared = HermesPreparedDocument(
         id: 'hdoc_test',
@@ -395,6 +446,83 @@ Uint8List _docxBytes(String documentXml, {String? password}) {
     )
     ..add(ArchiveFile.string('word/document.xml', documentXml));
   return ZipEncoder(password: password).encodeBytes(archive);
+}
+
+Uint8List _docxWithSymlinkEntry(String linkTarget) {
+  const linkedName = 'word/media/linked.bin';
+  final linkedEntry = ArchiveFile.string(linkedName, linkTarget)..mode = 0xa1ff;
+  final archive = Archive()
+    ..add(
+      ArchiveFile.string(
+        '[Content_Types].xml',
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+      ),
+    )
+    ..add(
+      ArchiveFile.string(
+        'word/document.xml',
+        '<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>safe</w:t></w:r></w:p></w:body></w:document>',
+      ),
+    )
+    ..add(linkedEntry);
+  final bytes = Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+
+  // ZipEncoder preserves the Unix mode but labels entries as MS-DOS. Mark
+  // this one as Unix so it exercises ZipDecoder's eager symlink path.
+  for (var offset = 0; offset + 46 <= bytes.length; offset++) {
+    if (_uint32At(bytes, offset) != ZipFileHeader.signature) continue;
+    final nameLength = _uint16At(bytes, offset + 28);
+    final nameStart = offset + 46;
+    if (nameStart + nameLength > bytes.length) break;
+    final entryName = utf8.decode(
+      bytes.sublist(nameStart, nameStart + nameLength),
+    );
+    if (entryName == linkedName) {
+      bytes[offset + 5] = 3;
+      return bytes;
+    }
+  }
+  fail('Unable to mark the test ZIP entry as a Unix symlink');
+}
+
+Uint8List _withForgedUncompressedSize(
+  Uint8List source, {
+  required String entryName,
+  required int declaredSize,
+}) {
+  final bytes = Uint8List.fromList(source);
+  for (var offset = 0; offset + 46 <= bytes.length; offset++) {
+    if (_uint32At(bytes, offset) != ZipFileHeader.signature) continue;
+    final nameLength = _uint16At(bytes, offset + 28);
+    final nameStart = offset + 46;
+    if (nameStart + nameLength > bytes.length) break;
+    final currentName = utf8.decode(
+      bytes.sublist(nameStart, nameStart + nameLength),
+    );
+    if (currentName != entryName) continue;
+
+    final localHeaderOffset = _uint32At(bytes, offset + 42);
+    _writeUint32At(bytes, offset + 24, declaredSize);
+    _writeUint32At(bytes, localHeaderOffset + 22, declaredSize);
+    return bytes;
+  }
+  fail('Unable to forge the test ZIP entry size');
+}
+
+int _uint16At(Uint8List bytes, int offset) =>
+    bytes[offset] | (bytes[offset + 1] << 8);
+
+int _uint32At(Uint8List bytes, int offset) =>
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24);
+
+void _writeUint32At(Uint8List bytes, int offset, int value) {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >> 8) & 0xff;
+  bytes[offset + 2] = (value >> 16) & 0xff;
+  bytes[offset + 3] = (value >> 24) & 0xff;
 }
 
 Uint8List _simplePdf(String text) {

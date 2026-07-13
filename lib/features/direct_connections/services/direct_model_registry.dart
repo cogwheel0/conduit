@@ -72,31 +72,39 @@ final Expando<DirectModelBinding> _trustedBindings =
 /// [DirectModelRegistry.resolve] so deleted/stale profiles cannot be selected.
 bool isLocallyMintedDirectModel(Model model) => _trustedBindings[model] != null;
 
+/// Whether this exact object belongs to Conduit's local direct namespace.
+/// Server-controlled ids and metadata are never provenance on their own.
 bool hasReservedDirectIdentity(Model model) =>
-    model.id.startsWith(kDirectModelIdPrefix) ||
-    model.metadata?['backend'] == 'direct' ||
-    model.metadata?['direct'] == true ||
-    model.metadata?['directProvider'] != null;
+    isLocallyMintedDirectModel(model);
 
+/// Removes locally minted runtime models before persisting or reconciling a
+/// server-owned model list. An id or metadata field that resembles Conduit's
+/// direct namespace is not provenance and must not hide a valid server model.
 List<Model> sanitizeRemoteDirectModels(Iterable<Model> models) => models
-    .where(
-      (model) =>
-          !isLocallyMintedDirectModel(model) &&
-          !hasReservedDirectIdentity(model),
-    )
+    .where((model) => !isLocallyMintedDirectModel(model))
     .toList(growable: false);
 
 /// Builds the display-only model list without mutating/persisting the
-/// OpenWebUI model cache. Remote attempts to claim Conduit's reserved direct
-/// namespace are removed before locally minted entries are appended.
+/// OpenWebUI model cache. Server models that merely resemble the direct
+/// namespace remain visible. An exact id collision with a live local binding
+/// is reserved for that binding so id-based selectors cannot rebind the user
+/// to an untrusted object with the wrong transport.
 List<Model> reconcileDirectModelsForDisplay({
   required Iterable<Model> remoteModels,
   required Iterable<Model> directModels,
   required DirectModelRegistry registry,
-}) => List.unmodifiable([
-  ...sanitizeRemoteDirectModels(remoteModels),
-  ...directModels.where((model) => registry.resolve(model) != null),
-]);
+}) {
+  final activeDirectModels = directModels
+      .where((model) => registry.resolve(model) != null)
+      .toList(growable: false);
+  final activeDirectIds = activeDirectModels.map((model) => model.id).toSet();
+  return List.unmodifiable([
+    ...sanitizeRemoteDirectModels(
+      remoteModels,
+    ).where((model) => !activeDirectIds.contains(model.id)),
+    ...activeDirectModels,
+  ]);
+}
 
 /// Trusted binding table for discovered/manual direct models.
 final class DirectModelRegistry {

@@ -308,6 +308,61 @@ void main() {
     },
   );
 
+  test('server-owned direct-like model uses OpenWebUI upload', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_server_media_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final image = File('${directory.path}/small.png');
+    await image.writeAsBytes([1, 2, 3]);
+
+    const serverModel = Model(
+      id: 'direct:server:bW9kZWw',
+      name: 'Server-owned direct-like model',
+      metadata: {'backend': 'direct'},
+    );
+    var uploadCalls = 0;
+    var encodeCalls = 0;
+    final uploadQueue = AttachmentUploadQueue();
+    await uploadQueue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploadCalls++;
+        return 'server-file-id';
+      },
+      database: () => null,
+    );
+    addTearDown(uploadQueue.dispose);
+
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWithValue(serverModel),
+        directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+        directImageDataUrlEncoderProvider.overrideWithValue((file) async {
+          encodeCalls++;
+          return 'data:image/png;base64,AQID';
+        }),
+        attachmentUploadQueueProvider.overrideWithValue(uploadQueue),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(image, reportedBytes: 3),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: image.path, fileName: 'small.png', fileSize: 3);
+
+    expect(uploadCalls, 1);
+    expect(encodeCalls, 0);
+    final stored = container.read(attachedFilesProvider).single;
+    expect(stored.fileId, 'server-file-id');
+    expect(stored.base64DataUrl, isNull);
+  });
+
   test('queued image follows a model switch to OpenWebUI', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',

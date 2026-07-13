@@ -484,25 +484,43 @@ final class HermesLocalDocumentService {
   }
 
   _ExtractedDocument _extractDocx(Uint8List bytes, String name) {
-    if (_zipHasEncryptedEntry(bytes)) {
-      throw _documentFailure(
-        HermesLocalDocumentError.encryptedDocument,
-        name,
-        '$name is encrypted or password protected.',
-      );
-    }
-
-    Archive? archive;
+    ZipDirectory? directory;
     try {
-      archive = ZipDecoder().decodeBytes(bytes);
-      final contentTypes = archive.find('[Content_Types].xml');
-      final documentPart = archive.find('word/document.xml');
-      if (contentTypes == null ||
-          documentPart == null ||
-          !documentPart.isFile) {
+      // Parse metadata and retain compressed entry streams, but do not build
+      // an Archive with ZipDecoder. ZipDecoder eagerly expands Unix symlink
+      // entries while determining their target, before callers can enforce an
+      // expansion limit. DOCX does not need links, so reject them from the
+      // central directory and expand only the main XML part below.
+      directory = ZipDirectory()..read(InputMemoryStream(bytes));
+      final headers = directory.fileHeaders;
+      if (headers.any(_zipEntryIsEncrypted)) {
+        throw _documentFailure(
+          HermesLocalDocumentError.encryptedDocument,
+          name,
+          '$name is encrypted or password protected.',
+        );
+      }
+      if (headers.any(_zipEntryIsUnixSymlink)) {
+        throw const FormatException('DOCX links are not allowed');
+      }
+      if (headers.any(
+        (header) =>
+            header.file == null || header.file!.filename != header.filename,
+      )) {
+        throw const FormatException('Mismatched ZIP entry names');
+      }
+
+      final contentTypes = headers
+          .where((header) => header.filename == '[Content_Types].xml')
+          .toList();
+      final documentParts = headers
+          .where((header) => header.filename == 'word/document.xml')
+          .toList();
+      if (contentTypes.length != 1 || documentParts.length != 1) {
         throw const FormatException('Missing DOCX main document part');
       }
-      if (documentPart.size > limits.maxExpandedDocumentBytes) {
+      final documentPart = documentParts.single;
+      if (documentPart.uncompressedSize > limits.maxExpandedDocumentBytes) {
         throw _documentFailure(
           HermesLocalDocumentError.sourceTooLarge,
           name,
@@ -515,7 +533,7 @@ final class HermesLocalDocumentService {
         limits.maxExpandedDocumentBytes,
       );
       try {
-        documentPart.writeContent(documentOutput);
+        documentPart.file!.decompress(documentOutput);
       } on _ExpandedDocumentLimitException {
         throw _documentFailure(
           HermesLocalDocumentError.sourceTooLarge,
@@ -559,7 +577,9 @@ final class HermesLocalDocumentService {
         '$name could not be decoded as a DOCX document.',
       );
     } finally {
-      archive?.clearSync();
+      for (final header in directory?.fileHeaders ?? const <ZipFileHeader>[]) {
+        header.file?.closeSync();
+      }
     }
   }
 }
@@ -858,50 +878,14 @@ bool _hasZipSignature(Uint8List bytes) =>
 bool _hasOleCompoundFileSignature(Uint8List bytes) =>
     _startsWith(bytes, const [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 
-/// Reads the ZIP central directory flags without decompressing any entry.
-bool _zipHasEncryptedEntry(Uint8List bytes) {
-  final earliestEndRecord = bytes.length > 0xffff + 22
-      ? bytes.length - (0xffff + 22)
-      : 0;
-  var endRecord = -1;
-  for (var index = bytes.length - 22; index >= earliestEndRecord; index--) {
-    if (_uint32At(bytes, index) == 0x06054b50 &&
-        index + 22 + _uint16At(bytes, index + 20) == bytes.length) {
-      endRecord = index;
-      break;
-    }
-  }
-  if (endRecord < 0) return false;
+bool _zipEntryIsEncrypted(ZipFileHeader header) =>
+    (header.generalPurposeBitFlag & 0x1) != 0 ||
+    ((header.file?.flags ?? 0) & 0x1) != 0;
 
-  final entryCount = _uint16At(bytes, endRecord + 10);
-  var offset = _uint32At(bytes, endRecord + 16);
-  for (var entry = 0; entry < entryCount; entry++) {
-    if (offset < 0 ||
-        offset + 46 > bytes.length ||
-        _uint32At(bytes, offset) != 0x02014b50) {
-      return false;
-    }
-    final flags = _uint16At(bytes, offset + 8);
-    if ((flags & 0x1) != 0) return true;
-    final nameLength = _uint16At(bytes, offset + 28);
-    final extraLength = _uint16At(bytes, offset + 30);
-    final commentLength = _uint16At(bytes, offset + 32);
-    offset += 46 + nameLength + extraLength + commentLength;
-  }
-  return false;
-}
-
-int _uint16At(Uint8List bytes, int offset) {
-  if (offset < 0 || offset + 2 > bytes.length) return -1;
-  return bytes[offset] | (bytes[offset + 1] << 8);
-}
-
-int _uint32At(Uint8List bytes, int offset) {
-  if (offset < 0 || offset + 4 > bytes.length) return -1;
-  return bytes[offset] |
-      (bytes[offset + 1] << 8) |
-      (bytes[offset + 2] << 16) |
-      (bytes[offset + 3] << 24);
+bool _zipEntryIsUnixSymlink(ZipFileHeader header) {
+  final madeByUnix = header.versionMadeBy >> 8 == 3;
+  final unixFileType = (header.externalFileAttributes >> 16) & 0xf000;
+  return madeByUnix && unixFileType == 0xa000;
 }
 
 String _stableDocumentId(String name, Uint8List bytes) {

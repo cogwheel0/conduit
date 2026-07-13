@@ -109,20 +109,24 @@ void main() {
       ).isTrue();
     });
 
-    test('blocks an untrusted model claiming the direct namespace', () {
-      const forged = Model(
+    test('allows a server model resembling the direct namespace', () {
+      const serverModel = Model(
         id: 'direct:profile-one:bG9jYWwtbW9kZWw',
-        name: 'Forged direct model',
-        metadata: {'backend': 'direct'},
+        name: 'Server-owned direct-like model',
+        metadata: {
+          'backend': 'direct',
+          'direct': true,
+          'directProvider': 'server-owned',
+        },
       );
 
       check(
         isSendBlocked(
           reviewerMode: false,
           api: _FakeApiService(),
-          selectedModel: forged,
+          selectedModel: serverModel,
         ),
-      ).isTrue();
+      ).isFalse();
     });
   });
 
@@ -232,6 +236,28 @@ void main() {
       addTearDown(container.dispose);
 
       check(container.read(visionCapableModelsProvider)).isEmpty();
+    });
+
+    test('direct-like server model keeps OpenWebUI vision behavior', () {
+      const serverModel = Model(
+        id: 'direct:server:bW9kZWw',
+        name: 'Server-owned direct-like model',
+        metadata: {'backend': 'direct'},
+      );
+      final container = ProviderContainer(
+        overrides: [
+          selectedModelProvider.overrideWithValue(serverModel),
+          directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+          directModelDiscoveryProvider.overrideWith(
+            _DiscoveryPulseController.new,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(
+        container.read(visionCapableModelsProvider),
+      ).deepEquals([serverModel.id]);
     });
 
     test(

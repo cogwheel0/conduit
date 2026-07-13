@@ -47,7 +47,13 @@ Stream<HermesRunEvent> _parseHermesStream(
 /// compatibility handling.
 Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
   final raw = frame.data.trim();
-  if (raw.isEmpty) return;
+  if (raw.isEmpty) {
+    // Some Hermes versions put terminal lifecycle state entirely in the SSE
+    // `event` field. The SDK cannot decode an absent JSON payload, but the
+    // tolerant runs mapper deliberately handles these event-only frames.
+    yield* parseHermesRunFrame(frame);
+    return;
+  }
   if (raw == '[DONE]') {
     yield const HermesRunDone();
     return;

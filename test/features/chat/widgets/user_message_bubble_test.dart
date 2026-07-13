@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
@@ -12,6 +14,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -171,6 +174,70 @@ void main() {
 
     final textWidget = tester.widget<Text>(find.text(content));
     expect(textWidget.textWidthBasis, TextWidthBasis.longestLine);
+  });
+
+  testWidgets('failed Hermes inline edit reports the error to the user', (
+    WidgetTester tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'hermes-edit-user',
+      role: 'user',
+      content: 'Original prompt',
+      timestamp: DateTime.utc(2026, 7, 13, 10),
+    );
+    final assistant = ChatMessage(
+      id: 'hermes-edit-assistant',
+      role: 'assistant',
+      content: 'Original answer',
+      timestamp: DateTime.utc(2026, 7, 13, 10, 1),
+    );
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(
+          Conversation(
+            id: 'local:hermes_edit-session',
+            title: 'Hermes edit',
+            createdAt: DateTime.utc(2026, 7, 13, 10),
+            updatedAt: DateTime.utc(2026, 7, 13, 10, 1),
+            messages: <ChatMessage>[message, assistant],
+            metadata: const <String, dynamic>{'backend': 'hermes'},
+          ),
+        );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: UserMessageBubble(
+              message: message,
+              isUser: true,
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final contextMenu = tester.widget<ConduitContextMenu>(
+      find.byType(ConduitContextMenu),
+    );
+    await contextMenu.actions.first.onSelected();
+    await tester.pump();
+    await tester.enterText(find.byType(AdaptiveTextField), 'Edited prompt');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('legacy non-image attachment ids stay on generic file cards', (

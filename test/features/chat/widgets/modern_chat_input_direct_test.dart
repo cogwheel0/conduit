@@ -1,3 +1,4 @@
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
@@ -8,6 +9,72 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'server-owned direct-like model keeps OpenWebUI attachment actions',
+    (tester) async {
+      const serverModel = Model(
+        id: 'direct:server:bW9kZWw',
+        name: 'Server-owned direct-like model',
+        metadata: {'backend': 'direct'},
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directModelRegistryProvider.overrideWithValue(
+              DirectModelRegistry(),
+            ),
+            directModelDiscoveryProvider.overrideWith(
+              _FixedDiscoveryController.new,
+            ),
+            selectedModelProvider.overrideWithValue(serverModel),
+            apiServiceProvider.overrideWithValue(null),
+            webSearchAvailableProvider.overrideWithValue(false),
+            imageGenerationAvailableProvider.overrideWithValue(false),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ModernChatInput(
+                onSendMessage: (_) {},
+                onFileAttachment: () {},
+                onServerFileAttachment: () {},
+                onImageAttachment: () {},
+                onCameraCapture: () {},
+                onWebAttachment: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        directModelAcceptsImageInput(serverModel, DirectModelRegistry()),
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byType(TextField))
+            .contentInsertionConfiguration,
+        isNotNull,
+      );
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+
+      final sheet = tester.widget<ComposerOverflowSheet>(
+        find.byType(ComposerOverflowSheet),
+      );
+      expect(sheet.onFileAttachment, isNotNull);
+      expect(sheet.onServerFileAttachment, isNotNull);
+      expect(sheet.onWebAttachment, isNotNull);
+      expect(sheet.onImageAttachment, isNotNull);
+      expect(sheet.onCameraCapture, isNotNull);
+    },
+  );
+
   testWidgets(
     'fallback overflow sheet receives image callbacks for vision direct models',
     (tester) async {

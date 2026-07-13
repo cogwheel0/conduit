@@ -262,6 +262,35 @@ void main() {
   });
 
   group('parseHermesResponseStream', () {
+    test(
+      'delegates event-only terminal frames to the Hermes fallback',
+      () async {
+        final completed = await parseHermesResponseStream(
+          _sse(['event: response.completed\ndata:\n\n']),
+        ).toList();
+        final failed = await parseHermesResponseStream(
+          _sse(['event: response.failed\ndata:\n\n']),
+        ).toList();
+
+        check(completed).length.equals(1);
+        check(completed.single).isA<HermesRunDone>();
+        check(failed).length.equals(2);
+        check(failed.first)
+            .isA<HermesRunError>()
+            .has((event) => event.message, 'message')
+            .equals('Hermes run failed.');
+        check(failed.last).isA<HermesRunDone>();
+      },
+    );
+
+    test('keeps unrelated empty event frames ignorable', () async {
+      final events = await parseHermesResponseStream(
+        _sse(['event: tool.started\ndata:\n\n']),
+      ).toList();
+
+      check(events).isEmpty();
+    });
+
     test('maps SDK Responses events and preserves frame-declared types', () async {
       final responseCreated = {
         'id': 'resp_sdk',

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -9,6 +10,7 @@ import 'package:conduit/core/services/streaming_response_controller.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
+import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
@@ -280,6 +282,82 @@ class _SeededAttachedFiles extends AttachedFilesNotifier {
   List<FileUploadState> build() => List<FileUploadState>.of(files);
 }
 
+class _GatedProfilesController extends DirectConnectionProfilesController {
+  _GatedProfilesController(this.profiles);
+
+  final Future<List<DirectConnectionProfile>> profiles;
+
+  @override
+  Future<List<DirectConnectionProfile>> build() => profiles;
+}
+
+typedef _DelayedHermesEditFixture = ({
+  ProviderContainer container,
+  Completer<List<DirectConnectionProfile>> profiles,
+  List<ChatMessage> originalMessages,
+});
+
+_DelayedHermesEditFixture _buildDelayedHermesEditFixture() {
+  final profiles = Completer<List<DirectConnectionProfile>>();
+  final profile = DirectConnectionProfile(
+    id: 'edit-profile',
+    name: 'Edit profile',
+    adapterKey: kOpenAiCompatibleAdapterKey,
+    baseUrl: 'https://example.test/v1',
+    apiKey: 'key',
+  );
+  final registry = DirectModelRegistry();
+  final selectedModel = registry.replaceProfileModels(
+    profile,
+    <DirectRemoteModel>[DirectRemoteModel(id: 'edit-model')],
+  ).single;
+  final originalMessages = <ChatMessage>[
+    ChatMessage(
+      id: 'user-edit',
+      role: 'user',
+      content: 'original prompt',
+      timestamp: DateTime(2024, 1, 1),
+    ),
+    _assistantMessage(id: 'assistant-edit', content: 'original answer'),
+  ];
+  final container = ProviderContainer(
+    overrides: [
+      activeConversationProvider.overrideWith(
+        () => _TestActiveConversationNotifier(),
+      ),
+      reviewerModeProvider.overrideWithValue(false),
+      apiServiceProvider.overrideWithValue(null),
+      socketServiceProvider.overrideWithValue(null),
+      directModelRegistryProvider.overrideWithValue(registry),
+      directConnectionProfilesProvider.overrideWith(
+        () => _GatedProfilesController(profiles.future),
+      ),
+    ],
+  );
+  container
+      .read(activeConversationProvider.notifier)
+      .set(
+        withChatStorageProvenance(
+          Conversation(
+            id: 'shared-id',
+            title: 'Hermes edit',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            model: selectedModel.id,
+            messages: originalMessages,
+            metadata: const <String, dynamic>{'backend': 'hermes'},
+          ),
+          ChatStorageKind.openWebUi,
+        ),
+      );
+  container.read(selectedModelProvider.notifier).set(selectedModel);
+  return (
+    container: container,
+    profiles: profiles,
+    originalMessages: originalMessages,
+  );
+}
+
 ProviderContainer _buildContainer({HermesApiService? hermesService}) {
   return ProviderContainer(
     overrides: [
@@ -479,6 +557,148 @@ void main() {
         final editedUser = container.read(chatMessagesProvider).first;
         check(editedUser.content).equals('summarize briefly');
         check(editedUser.files!.single['source']).equals('hermes_local');
+      },
+    );
+
+    test(
+      'failed Hermes inline regeneration restores the original transcript',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final originalMessages = <ChatMessage>[
+          ChatMessage(
+            id: 'user-edit',
+            role: 'user',
+            content: 'original prompt',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+          _assistantMessage(id: 'assistant-edit', content: 'original answer'),
+          ChatMessage(
+            id: 'user-later',
+            role: 'user',
+            content: 'later prompt',
+            timestamp: DateTime(2024, 1, 2),
+          ),
+          _assistantMessage(id: 'assistant-later', content: 'later answer'),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              Conversation(
+                id: 'local:hermes_edit-session',
+                title: 'Hermes edit',
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 2),
+                messages: originalMessages,
+                metadata: const <String, dynamic>{'backend': 'hermes'},
+              ),
+            );
+
+        // A missing selected model fails regeneration after the optimistic
+        // edited prefix has been installed.
+        await expectLater(
+          regenerateEditedHermesUserMessage(
+            container,
+            messageId: 'user-edit',
+            content: 'edited prompt',
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        check(
+          container.read(chatMessagesProvider).map((message) => message.id),
+        ).deepEquals(originalMessages.map((message) => message.id));
+        check(
+          container
+              .read(chatMessagesProvider)
+              .map((message) => message.content),
+        ).deepEquals(originalMessages.map((message) => message.content));
+      },
+    );
+
+    test(
+      'failed Hermes edit does not restore into a colliding storage scope',
+      () async {
+        final fixture = _buildDelayedHermesEditFixture();
+        final container = fixture.container;
+        addTearDown(container.dispose);
+        final failure = expectLater(
+          regenerateEditedHermesUserMessage(
+            container,
+            messageId: 'user-edit',
+            content: 'edited prompt',
+          ),
+          throwsA(isA<Exception>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final collidingMessages = <ChatMessage>[
+          _assistantMessage(
+            id: 'direct-assistant',
+            content: 'independent direct transcript',
+          ),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              withChatStorageProvenance(
+                Conversation(
+                  id: 'shared-id',
+                  title: 'Direct collision',
+                  createdAt: DateTime(2024, 1, 2),
+                  updatedAt: DateTime(2024, 1, 2),
+                  messages: collidingMessages,
+                ),
+                ChatStorageKind.directLocal,
+              ),
+            );
+        fixture.profiles.complete(const <DirectConnectionProfile>[]);
+        await failure;
+
+        check(
+          container.read(chatMessagesProvider).map((message) => message.id),
+        ).deepEquals(collidingMessages.map((message) => message.id));
+        check(
+          chatStorageKindOf(container.read(activeConversationProvider)),
+        ).equals(ChatStorageKind.directLocal);
+      },
+    );
+
+    test(
+      'failed Hermes edit preserves an independent same-chat mutation',
+      () async {
+        final fixture = _buildDelayedHermesEditFixture();
+        final container = fixture.container;
+        addTearDown(container.dispose);
+        final failure = expectLater(
+          regenerateEditedHermesUserMessage(
+            container,
+            messageId: 'user-edit',
+            content: 'edited prompt',
+          ),
+          throwsA(isA<Exception>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final independentlyChanged = <ChatMessage>[
+          ...fixture.originalMessages,
+          ChatMessage(
+            id: 'independent-user',
+            role: 'user',
+            content: 'newer local change',
+            timestamp: DateTime(2024, 1, 2),
+          ),
+        ];
+        container
+            .read(chatMessagesProvider.notifier)
+            .setMessages(independentlyChanged);
+        fixture.profiles.complete(const <DirectConnectionProfile>[]);
+        await failure;
+
+        expect(
+          container.read(chatMessagesProvider),
+          same(independentlyChanged),
+        );
       },
     );
 
