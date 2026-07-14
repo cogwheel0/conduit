@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -9,6 +10,22 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   setUp(debugResetImageAttachmentCaches);
   tearDown(debugResetImageAttachmentCaches);
+
+  test('same-origin image metadata cannot override the Conduit identity', () {
+    final headers = debugMergeImageHeaders(
+      {
+        'Authorization': 'Bearer token',
+        ConduitUserAgent.headerName: ConduitUserAgent.value,
+      },
+      const {'uSeR-aGeNt': 'spoofed-agent', 'X-Image': 'value'},
+    );
+
+    expect(headers, {
+      'Authorization': 'Bearer token',
+      'X-Image': 'value',
+      ConduitUserAgent.headerName: ConduitUserAgent.value,
+    });
+  });
 
   test('resolved image cache evicts the least recently used entry', () {
     for (var index = 0; index < 80; index += 1) {

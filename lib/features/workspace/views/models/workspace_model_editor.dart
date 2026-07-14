@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit/core/network/image_header_utils.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
@@ -1510,10 +1512,18 @@ class _ModelAvatarState extends ConsumerState<_ModelAvatar> {
       }
     }
     if (inline != null && inline.startsWith('http')) {
+      final api = ref.watch(apiServiceProvider);
+      // Draft URLs are user-controlled and can redirect off-origin. Send only
+      // the public product identity; server credentials and custom proxy
+      // headers must never follow them.
+      final headers = imageUrlIsServerOrigin(api?.serverConfig.url, inline)
+          ? ConduitUserAgent.mergeHeaders()
+          : null;
       return wrap(
         Image.network(
           inline,
           fit: BoxFit.cover,
+          headers: headers,
           errorBuilder: (_, _, _) => placeholder,
         ),
       );

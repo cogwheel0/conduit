@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -123,6 +124,7 @@ void main() {
       check(headers).isNotNull().deepEquals({
         'Authorization': 'Bearer token',
         'X-Custom': 'value',
+        ConduitUserAgent.headerName: ConduitUserAgent.value,
       });
     });
 
@@ -148,6 +150,7 @@ void main() {
       check(headers).isNotNull().deepEquals({
         'Authorization': 'Bearer api-key',
         'X-Custom': 'value',
+        ConduitUserAgent.headerName: ConduitUserAgent.value,
       });
     });
   });

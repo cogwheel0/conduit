@@ -65,6 +65,21 @@ void main() {
       check(ioAdapter.createHttpClient).isNotNull();
       check(() => ioAdapter.createHttpClient!()).throws<StateError>();
     });
+
+    test('configures a standard Dio client with a stable User-Agent', () {
+      final dio = Dio();
+
+      ServerTlsHttpClientFactory.configureDio(
+        dio,
+        _server(),
+        userAgent: 'Conduit/test',
+      );
+
+      final adapter = dio.httpClientAdapter as IOHttpClientAdapter;
+      final client = adapter.createHttpClient!();
+      addTearDown(() => client.close(force: true));
+      check(client.userAgent).equals('Conduit/test');
+    });
   });
 }
 

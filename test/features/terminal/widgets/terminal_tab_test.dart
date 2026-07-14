@@ -142,7 +142,10 @@ void main() {
         _buildHarnessWithActivity(
           fakeService,
           isActive,
-          channelConnector: (_) => channels[channelConnectCount++].channel,
+          channelConnector: (_, {required kind}) {
+            expect(kind, TerminalServerKind.direct);
+            return channels[channelConnectCount++].channel;
+          },
         ),
       );
       await tester.pumpAndSettle();

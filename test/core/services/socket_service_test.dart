@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/services/socket_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -106,6 +108,70 @@ void main() {
   );
 
   test(
+    'connect includes the Conduit User-Agent in handshake headers',
+    () async {
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig.copyWith(
+          customHeaders: const {
+            'X-Proxy-Credential': 'proxy-secret',
+            'user-agent': 'spoofed-agent',
+          },
+        ),
+        authToken: 'auth-token',
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+
+      await service.connect();
+
+      final headers = socketFactory.handshakeHeaders.single;
+      expect(headers[ConduitUserAgent.headerName], ConduitUserAgent.value);
+      expect(headers['Authorization'], 'Bearer auth-token');
+      expect(headers['X-Proxy-Credential'], 'proxy-secret');
+      expect(headers.keys.where(ConduitUserAgent.isHeaderName), [
+        ConduitUserAgent.headerName,
+      ]);
+    },
+  );
+
+  test('native handshake sends one Conduit User-Agent value', () async {
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final receivedUserAgents = Completer<List<String>>();
+      server.listen((request) async {
+        if (!receivedUserAgents.isCompleted) {
+          receivedUserAgents.complete(
+            request.headers[HttpHeaders.userAgentHeader] ?? const [],
+          );
+        }
+        request.response.statusCode = HttpStatus.badRequest;
+        await request.response.close();
+      });
+
+      final service = SocketService(
+        serverConfig: ServerConfig(
+          id: 'wire-user-agent',
+          name: 'Wire User-Agent',
+          url: 'http://${server.address.address}:${server.port}',
+        ),
+        websocketOnly: true,
+      );
+
+      try {
+        await service.connect();
+        expect(
+          await receivedUserAgents.future.timeout(const Duration(seconds: 5)),
+          [ConduitUserAgent.value],
+        );
+      } finally {
+        service.dispose();
+        await server.close(force: true);
+      }
+    }, _RealHttpOverrides());
+  });
+
+  test(
     'resume reconnect emits onReconnect after the new socket connects',
     () async {
       final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -204,12 +270,19 @@ class _RecordingSocketService extends SocketService {
 
 class _RecordingSocketFactory {
   final List<io.Socket> sockets = <io.Socket>[];
+  final List<Map<String, String>> handshakeHeaders = <Map<String, String>>[];
 
   io.Socket create(
     String base,
     io.OptionBuilder builder,
     ServerConfig serverConfig,
   ) {
+    final options = builder.build();
+    handshakeHeaders.add(
+      Map<String, String>.from(
+        options['extraHeaders'] as Map<dynamic, dynamic>? ?? const {},
+      ),
+    );
     final socket = io.io(
       'http://localhost:${19000 + sockets.length}',
       <String, dynamic>{
@@ -222,3 +295,5 @@ class _RecordingSocketFactory {
     return socket;
   }
 }
+
+class _RealHttpOverrides extends HttpOverrides {}

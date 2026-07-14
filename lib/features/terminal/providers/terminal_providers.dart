@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 
-typedef TerminalChannelConnector = WebSocketChannel Function(Uri uri);
+typedef TerminalChannelConnector =
+    WebSocketChannel Function(Uri uri, {required TerminalServerKind kind});
 
 final terminalServiceProvider = Provider<TerminalService?>((ref) {
   final api = ref.watch(apiServiceProvider);
@@ -120,7 +124,15 @@ final terminalBrowserRefreshTokenProvider =
 final terminalChannelConnectorProvider = Provider<TerminalChannelConnector>((
   ref,
 ) {
-  return (uri) => WebSocketChannel.connect(uri);
+  final systemClient = HttpClient()..userAgent = ConduitUserAgent.value;
+  ref.onDispose(() => systemClient.close(force: true));
+
+  return (uri, {required kind}) {
+    if (kind == TerminalServerKind.direct) {
+      return WebSocketChannel.connect(uri);
+    }
+    return IOWebSocketChannel.connect(uri, customClient: systemClient);
+  };
 });
 
 final terminalAutoConnectProvider = Provider<bool>((ref) => true);

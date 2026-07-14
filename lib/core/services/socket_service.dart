@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../models/server_config.dart';
 import '../models/socket_health.dart';
+import '../network/conduit_user_agent.dart';
 import '../utils/debug_logger.dart';
 import 'socket_tls_override.dart';
 
@@ -384,7 +385,9 @@ class SocketService with WidgetsBindingObserver {
 
     // Merge Authorization (if any) with user-defined custom headers for the
     // Socket.IO handshake. Avoid overriding reserved headers.
-    final Map<String, String> extraHeaders = {};
+    final Map<String, String> extraHeaders = {
+      ConduitUserAgent.headerName: ConduitUserAgent.value,
+    };
     if (_authToken != null && _authToken!.isNotEmpty) {
       extraHeaders['Authorization'] = 'Bearer $_authToken';
       builder.setAuth({'token': _authToken});
@@ -403,6 +406,7 @@ class SocketService with WidgetsBindingObserver {
         'sec-websocket-version',
         'sec-websocket-extensions',
         'sec-websocket-protocol',
+        'user-agent',
       };
       serverConfig.customHeaders.forEach((key, value) {
         final lower = key.toLowerCase();

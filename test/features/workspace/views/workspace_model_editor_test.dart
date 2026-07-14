@@ -6,8 +6,13 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -125,6 +130,52 @@ void main() {
 
     expect(find.byKey(const Key('workspace-editor-save')), findsNothing);
     expect(find.byKey(const Key('workspace-read-only-badge')), findsOneWidget);
+  });
+
+  testWidgets('same-origin draft avatar uses only the public product header', (
+    tester,
+  ) async {
+    final workerManager = WorkerManager(debugIsWebOverride: true);
+    addTearDown(workerManager.dispose);
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'server',
+        name: 'Server',
+        url: 'https://open-webui.example',
+        customHeaders: {'X-Proxy': 'value'},
+      ),
+      workerManager: workerManager,
+    );
+
+    await tester.pumpWidget(
+      _harness(
+        models: _FakeWorkspaceModels(),
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 'model-1',
+        api: api,
+        detail: const WorkspaceModelSummary(
+          id: 'model-1',
+          name: 'Model 1',
+          userId: 'owner',
+          writeAccess: true,
+          meta: {
+            'profile_image_url':
+                'https://open-webui.example/api/v1/models/model/profile/image?id=model-1',
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final networkImage = tester
+        .widgetList<Image>(find.byType(Image))
+        .map((widget) => widget.image)
+        .whereType<NetworkImage>()
+        .single;
+    expect(networkImage.headers, {
+      ConduitUserAgent.headerName: ConduitUserAgent.value,
+    });
   });
 
   testWidgets('detail overflow deletes after confirmation', (tester) async {
@@ -413,10 +464,11 @@ Widget _harness({
   String? resourceId,
   WorkspaceModelSummary? detail,
   List<WorkspaceToolSummary> tools = const [],
+  ApiService? api,
 }) {
   return ProviderScope(
     overrides: [
-      ..._baseOverrides(models, tools: tools),
+      ..._baseOverrides(models, tools: tools, api: api),
       if (resourceId != null && detail != null)
         workspaceModelDetailProvider(
           resourceId,
@@ -429,10 +481,12 @@ Widget _harness({
 List<Override> _baseOverrides(
   _FakeWorkspaceModels models, {
   List<WorkspaceToolSummary> tools = const [],
+  ApiService? api,
 }) {
   return [
     reviewerModeProvider.overrideWithValue(false),
-    apiServiceProvider.overrideWithValue(null),
+    apiServiceProvider.overrideWithValue(api),
+    authTokenProvider3.overrideWithValue(api == null ? null : 'token'),
     workspaceCapabilitiesProvider.overrideWith(
       (ref) async => WorkspaceCapabilities.all,
     ),

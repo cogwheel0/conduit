@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../network/conduit_user_agent.dart';
 import '../providers/app_providers.dart';
 import 'server_tls_http_client_factory.dart';
 
@@ -346,15 +347,15 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
           followRedirects: true,
           maxRedirects: 5,
           validateStatus: (status) => status != null && status < 400,
-          headers: server.customHeaders.isNotEmpty
-              ? Map<String, String>.from(server.customHeaders)
-              : null,
+          headers: ConduitUserAgent.mergeHeaders(server.customHeaders),
         ),
       );
 
-      if (ServerTlsHttpClientFactory.requiresCustomHttpClient(server)) {
-        ServerTlsHttpClientFactory.configureDio(dio, server);
-      }
+      ServerTlsHttpClientFactory.configureDio(
+        dio,
+        server,
+        userAgent: ConduitUserAgent.value,
+      );
 
       final service = ConnectivityService(dio, ref);
       ref.onDispose(service.dispose);

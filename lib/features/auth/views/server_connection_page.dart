@@ -16,6 +16,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
+import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/worker_manager.dart';
@@ -685,9 +686,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           receiveTimeout: const Duration(seconds: 2),
           followRedirects: false,
           validateStatus: (status) => true,
-          headers: _customHeaders.isNotEmpty
-              ? Map<String, String>.from(_customHeaders)
-              : null,
+          headers: ConduitUserAgent.mergeHeaders(_customHeaders),
         ),
       );
 
