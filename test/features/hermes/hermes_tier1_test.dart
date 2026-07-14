@@ -53,10 +53,11 @@ void main() {
       check(caps.sessions).isTrue();
     });
 
-    test('empty payload is optimistic (all enabled)', () {
+    test('empty payload keeps management optimistic but images disabled', () {
       final caps = HermesCapabilities.fromJson(const {});
       check(caps.runApproval).isTrue();
       check(caps.toolsets).isTrue();
+      check(caps.inputImages).isFalse();
     });
 
     test('null feature values remain optimistic', () {
@@ -64,6 +65,62 @@ void main() {
         'features': {'skills': null},
       });
       check(caps.skills).isTrue();
+    });
+
+    test('image input follows advertised Responses streaming support', () {
+      final viaFeature = HermesCapabilities.fromJson({
+        'features': {'responses_api': true, 'responses_streaming': true},
+      });
+      final viaEndpoint = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/responses'},
+        },
+      });
+      final disabled = HermesCapabilities.fromJson({
+        'features': {'responses_api': true, 'responses_streaming': false},
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/responses'},
+        },
+      });
+      final conflictingFlags = HermesCapabilities.fromJson({
+        'responses_streaming': true,
+        'features': {'responses_streaming': false},
+      });
+      final oldSessionOnly = HermesCapabilities.fromJson({
+        'features': {'session_chat_streaming': true},
+        'endpoints': {
+          'session_chat_stream': {
+            'method': 'POST',
+            'path': '/api/sessions/{session_id}/chat/stream',
+          },
+        },
+      });
+
+      check(viaFeature.inputImages).isTrue();
+      check(viaEndpoint.inputImages).isTrue();
+      check(disabled.inputImages).isFalse();
+      check(conflictingFlags.inputImages).isFalse();
+      check(oldSessionOnly.inputImages).isFalse();
+    });
+
+    test('malformed Responses endpoint does not enable image input', () {
+      final wrongMethod = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'GET', 'path': '/v1/responses'},
+        },
+      });
+      final wrongPath = HermesCapabilities.fromJson({
+        'endpoints': {
+          'responses': {'method': 'POST', 'path': '/v1/runs'},
+        },
+      });
+      final apiWithoutStreaming = HermesCapabilities.fromJson({
+        'features': {'responses_api': true},
+      });
+
+      check(wrongMethod.inputImages).isFalse();
+      check(wrongPath.inputImages).isFalse();
+      check(apiWithoutStreaming.inputImages).isFalse();
     });
   });
 
@@ -92,6 +149,39 @@ void main() {
       });
       check(job!.schedule).equals('0 9 * * *');
       check(job.enabled).isFalse();
+    });
+
+    test('HermesJob keeps structured schedules editable', () {
+      final interval = HermesJob.fromJson({
+        'id': 'interval',
+        'prompt': 'Recurring',
+        'schedule': {'kind': 'interval', 'minutes': 30, 'display': 'every 30m'},
+        'schedule_display': 'Every 30 minutes',
+      });
+      final once = HermesJob.fromJson({
+        'id': 'once',
+        'prompt': 'One shot',
+        'schedule': {
+          'kind': 'once',
+          'run_at': '2027-04-05T09:30:00+00:00',
+          'display': 'once at 2027-04-05 09:30',
+        },
+        'schedule_display': 'once at 2027-04-05 09:30',
+      });
+      final cron = HermesJob.fromJson({
+        'id': 'cron',
+        'prompt': 'Cron',
+        'schedule': {
+          'kind': 'cron',
+          'expr': '0 9 * * *',
+          'display': 'Every morning',
+        },
+        'schedule_display': 'Every morning',
+      });
+
+      check(interval!.schedule).equals('every 30m');
+      check(once!.schedule).equals('2027-04-05T09:30:00+00:00');
+      check(cron!.schedule).equals('0 9 * * *');
     });
   });
 
@@ -126,7 +216,11 @@ void main() {
       final capture = _CaptureInterceptor((_) => {'id': 'j1'});
       final service = _service(capture);
 
-      await service.createJob(prompt: 'p', schedule: '0 9 * * *');
+      await service.createJob(
+        name: 'Daily summary',
+        prompt: 'p',
+        schedule: '0 9 * * *',
+      );
       await service.updateJob('j1', enabled: false);
       await service.pauseJob('j1');
       await service.resumeJob('j1');
@@ -134,6 +228,7 @@ void main() {
       await service.deleteJob('j1');
 
       check(capture.requests[0].path).equals('http://host:8642/api/jobs');
+      check((capture.requests[0].data as Map)['name']).equals('Daily summary');
       check((capture.requests[0].data as Map)['schedule']).equals('0 9 * * *');
       check(capture.requests[1].method).equals('PATCH');
       check((capture.requests[1].data as Map)['enabled']).equals(false);
@@ -147,6 +242,111 @@ void main() {
         capture.requests[4].path,
       ).equals('http://host:8642/api/jobs/j1/run');
       check(capture.requests[5].method).equals('DELETE');
+    });
+
+    test('job creation enforces the current server text contract', () async {
+      final capture = _CaptureInterceptor((_) => {'id': 'j1'});
+      final service = _service(capture);
+
+      await expectLater(
+        service.createJob(name: '', prompt: 'p', schedule: '0 9 * * *'),
+        throwsArgumentError,
+      );
+      await expectLater(
+        service.createJob(
+          name: List<String>.filled(
+            kMaxHermesJobNameCharacters + 1,
+            'n',
+          ).join(),
+          prompt: 'p',
+          schedule: '0 9 * * *',
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        service.createJob(
+          name: 'Name',
+          prompt: List<String>.filled(
+            kMaxHermesJobPromptCharacters + 1,
+            'p',
+          ).join(),
+          schedule: '0 9 * * *',
+        ),
+        throwsArgumentError,
+      );
+      check(capture.requests).isEmpty();
+    });
+
+    test(
+      'job ingestion filters hostile and credential-reflecting ids',
+      () async {
+        const apiSecret = 'configured-api-secret';
+        const sessionSecret = 'configured-session-secret';
+        final oversizedId = List<String>.filled(
+          kMaxHermesOpaqueIdentifierCharacters + 1,
+          'a',
+        ).join();
+        final capture = _CaptureInterceptor(
+          (_) => {
+            'jobs': [
+              {'id': 'job-safe', 'prompt': 'safe'},
+              {'job_id': 'legacy-safe', 'prompt': 'legacy'},
+              {'id': 'prefix-$apiSecret-suffix'},
+              {'id': sessionSecret},
+              {'id': 'bad\ncontrol'},
+              {'id': oversizedId},
+              {'id': ' padded '},
+              {'id': 42},
+            ],
+          },
+        );
+        final service = HermesApiService(
+          config: const HermesConfig(
+            enabled: true,
+            baseUrl: 'http://host:8642/v1',
+            apiKey: apiSecret,
+            sessionKey: sessionSecret,
+          ),
+          dio: Dio()..interceptors.add(capture),
+        );
+
+        final jobs = await service.listJobs();
+
+        check(
+          capture.requests.single.queryParameters['include_disabled'],
+        ).equals(true);
+        check(
+          jobs.map((job) => job['id'] ?? job['job_id']).toList(),
+        ).deepEquals(['job-safe', 'legacy-safe']);
+      },
+    );
+
+    test('short credentials do not hide ordinary job ids', () async {
+      final capture = _CaptureInterceptor(
+        (_) => {
+          'jobs': [
+            {'id': 'abcdef123456', 'prompt': 'contains short API key'},
+            {'id': 'bcdef1234567', 'prompt': 'contains short session key'},
+            {'id': 'a', 'prompt': 'is the API key'},
+            {'id': 'b', 'prompt': 'is the session key'},
+          ],
+        },
+      );
+      final service = HermesApiService(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://host:8642/v1',
+          apiKey: 'a',
+          sessionKey: 'b',
+        ),
+        dio: Dio()..interceptors.add(capture),
+      );
+
+      final jobs = await service.listJobs();
+
+      check(
+        jobs.map((job) => job['id']).toList(),
+      ).deepEquals(['abcdef123456', 'bcdef1234567']);
     });
   });
 

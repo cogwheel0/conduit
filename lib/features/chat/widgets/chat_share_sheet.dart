@@ -47,6 +47,7 @@ Future<void> _showNativeChatShareSheet({
 }) async {
   final container = ProviderScope.containerOf(context, listen: false);
   final l10n = AppLocalizations.of(context)!;
+  final conversationId = conversationScopedId(conversation);
 
   void showMessage(String message) {
     ScaffoldMessenger.maybeOf(
@@ -68,23 +69,9 @@ Future<void> _showNativeChatShareSheet({
       throw StateError('API service not available');
     }
 
-    final shareId = await api.shareConversation(conversation.id);
+    final shareId = await chat.shareConversation(container, conversationId);
     if (shareId == null || shareId.isEmpty) {
       throw StateError('Share id missing');
-    }
-    container
-        .read(conversationsProvider.notifier)
-        .updateConversationFromRemote(
-          conversation.id,
-          (current) =>
-              current.copyWith(shareId: shareId, updatedAt: DateTime.now()),
-        );
-    refreshConversationsCache(container);
-    final activeConversation = container.read(activeConversationProvider);
-    if (activeConversation?.id == conversation.id) {
-      container
-          .read(activeConversationProvider.notifier)
-          .set(activeConversation!.copyWith(shareId: shareId));
     }
     return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
   }
@@ -117,21 +104,7 @@ Future<void> _showNativeChatShareSheet({
       if (api == null) {
         throw StateError('API service not available');
       }
-      await api.deleteSharedConversation(conversation.id);
-      container
-          .read(conversationsProvider.notifier)
-          .updateConversationFromRemote(
-            conversation.id,
-            (current) =>
-                current.copyWith(shareId: null, updatedAt: DateTime.now()),
-          );
-      refreshConversationsCache(container);
-      final activeConversation = container.read(activeConversationProvider);
-      if (activeConversation?.id == conversation.id) {
-        container
-            .read(activeConversationProvider.notifier)
-            .set(activeConversation!.copyWith(shareId: null));
-      }
+      await chat.deleteSharedConversation(container, conversationId);
       ConduitHaptics.success();
       showMessage(l10n.sharedLinkDeleted);
     } catch (_) {
@@ -199,6 +172,7 @@ class ChatShareSheet extends ConsumerStatefulWidget {
 }
 
 class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
+  late final String _conversationSelectionId;
   String? _shareId;
   bool _isSharing = false;
   bool _isDeleting = false;
@@ -206,6 +180,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
   @override
   void initState() {
     super.initState();
+    _conversationSelectionId = conversationScopedId(widget.conversation);
     _shareId = widget.conversation.shareId;
   }
 
@@ -217,7 +192,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
 
     // Open WebUI re-snapshots an existing share each time the user copies the
     // link, so the URL points at the latest persisted conversation state.
-    var shareId = await chat.shareConversation(ref, widget.conversation.id);
+    var shareId = await chat.shareConversation(ref, _conversationSelectionId);
     if (shareId == null || shareId.isEmpty) {
       throw StateError('Server did not return a share ID');
     }
@@ -267,7 +242,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _isDeleting = true);
     try {
-      await chat.deleteSharedConversation(ref, widget.conversation.id);
+      await chat.deleteSharedConversation(ref, _conversationSelectionId);
       if (mounted) {
         setState(() => _shareId = null);
       }

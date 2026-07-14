@@ -70,8 +70,10 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
           final name = model.name.toLowerCase();
           final id = model.id.toLowerCase();
           final tags = model.modelTags.map((tag) => tag.toLowerCase());
+          final profileName = directModelSourceLabel(model)?.toLowerCase();
           return name.contains(normalized) ||
               id.contains(normalized) ||
+              (profileName?.contains(normalized) ?? false) ||
               tags.any((tag) => tag.contains(normalized));
         });
       }

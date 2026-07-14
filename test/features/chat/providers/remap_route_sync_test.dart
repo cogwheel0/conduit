@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
-import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
@@ -11,12 +10,14 @@ import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/remap_route_sync_provider.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_open_webui_server.dart';
 import '../../../support/fake_sync_api_client.dart';
+import '../../../support/openwebui_storage_test_overrides.dart';
 
 /// Wiring C: when a `local:` id is remapped, the active-chat / pending-folder
 /// id must follow IN PLACE (no nav, no visible rebuild — NON-NEGOTIABLE 6).
@@ -39,10 +40,16 @@ void main() {
     await db.close();
   });
 
-  ProviderContainer makeContainer() {
+  ProviderContainer makeContainer({bool apiUnavailable = false}) {
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        ...openWebUiStorageOpenOverrides(database: db),
+        apiServiceProvider.overrideWith(
+          (ref) => apiUnavailable
+              ? throw StateError('API context unavailable')
+              : null,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
         syncApiClientProvider.overrideWith((ref) => client),
         isAuthenticatedProvider2.overrideWith((ref) => true),
       ],
@@ -58,13 +65,15 @@ void main() {
     return remapper!;
   }
 
-  Conversation conv(String id) => Conversation(
+  Conversation rawConv(String id) => Conversation(
     id: id,
     title: 'C',
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
     messages: const [],
   );
+
+  Conversation conv(String id) => rawConv(id);
 
   test('chat remap swaps the active conversation id in place', () async {
     final container = makeContainer();
@@ -110,6 +119,50 @@ void main() {
     check(container.read(activeConversationProvider)?.id).equals('other');
   });
 
+  test(
+    'OpenWebUI remap cannot retarget a colliding native Hermes shell',
+    () async {
+      final container = makeContainer();
+      container.read(remapRouteSyncProvider);
+      const localId = 'local:hermes_remap-collision';
+      final native = markNativeHermesConversation(rawConv(localId));
+      container.read(activeConversationProvider.notifier).set(native);
+
+      await _seedBareLocalChat(db, localId);
+      await _runRemapAndWait(
+        remapperOf(container),
+        (remapper) => remapper.remapChat(
+          localId: localId,
+          serverId: 'server-collision',
+          serverCreatedAt: 1,
+          serverUpdatedAt: 1,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final active = container.read(activeConversationProvider);
+      check(active?.id).equals(localId);
+      check(identical(active, native)).isTrue();
+      check(isNativeHermesConversation(active)).isTrue();
+    },
+  );
+
+  test('defensive in-place remap preserves native Hermes provenance', () {
+    final container = makeContainer();
+    const localId = 'local:hermes_defensive-remap';
+    container
+        .read(activeConversationProvider.notifier)
+        .set(markNativeHermesConversation(rawConv(localId)));
+
+    container
+        .read(activeConversationProvider.notifier)
+        .remapIdInPlace(fromId: localId, toId: 'remapped-hermes-session');
+
+    final active = container.read(activeConversationProvider);
+    check(active?.id).equals('remapped-hermes-session');
+    check(isNativeHermesConversation(active)).isTrue();
+  });
+
   test('folder remap swaps the pending folder id in place', () async {
     final container = makeContainer();
     container.read(remapRouteSyncProvider);
@@ -131,6 +184,25 @@ void main() {
     );
 
     check(container.read(pendingFolderIdProvider)).equals('srv-folder');
+  });
+
+  test('active id remap survives a failing context provider', () {
+    final container = makeContainer(apiUnavailable: true);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(conv('local:context-failure'));
+
+    check(
+      () => container
+          .read(activeConversationProvider.notifier)
+          .remapIdInPlace(
+            fromId: 'local:context-failure',
+            toId: 'server-context-failure',
+          ),
+    ).returnsNormally();
+    check(
+      container.read(activeConversationProvider)?.id,
+    ).equals('server-context-failure');
   });
 
   test('note route remap preserves query params', () {

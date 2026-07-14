@@ -2,7 +2,12 @@ import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/app_startup_providers.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/channel.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
@@ -30,6 +35,9 @@ import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:flutter/cupertino.dart';
@@ -37,6 +45,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../support/openwebui_storage_test_overrides.dart';
 
 /// Label within [NavigationBar] built by adaptive_platform_ui from
 /// [AdaptiveBottomNavigationBar.items].
@@ -48,6 +58,23 @@ void main() {
     check(
       AppLocalizationsEn().hermesSelfHostedAgentLabel,
     ).equals('Self-hosted agent');
+  });
+
+  test('accountless direct native fallback targets direct connections', () {
+    expect(
+      sidebarProfileFallbackRouteName(
+        directPrimary: true,
+        hasOpenWebUiUser: false,
+      ),
+      RouteNames.directConnections,
+    );
+    expect(
+      sidebarProfileFallbackRouteName(
+        directPrimary: true,
+        hasOpenWebUiUser: true,
+      ),
+      RouteNames.profile,
+    );
   });
 
   testWidgets(
@@ -214,6 +241,39 @@ void main() {
     expect(_sidebarBottomNavTabLabel('Terminal'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Notes'), findsOneWidget);
     expect(_sidebarBottomNavTabLabel('Channels'), findsOneWidget);
+  });
+
+  testWidgets('Hermes bottom tab follows dark navigation icon colors', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        hermesEnabled: true,
+        theme: AppTheme.dark(TweakcnThemes.t3Chat),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final context = tester.element(find.byType(SidebarPage));
+    final conduitTheme = context.conduitTheme;
+    Finder hermesImage() => find.byWidgetPredicate(
+      (widget) => widget is Image && widget.image == kHermesTabIcon,
+    );
+
+    expect(
+      tester.widget<Image>(hermesImage()).color,
+      conduitTheme.textSecondary,
+    );
+
+    await tester.tap(_sidebarBottomNavTabLabel('Hermes'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Image>(hermesImage()).color,
+      conduitTheme.buttonPrimary,
+    );
   });
 
   testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
@@ -526,6 +586,60 @@ void main() {
     expect(find.byType(UserAvatar), findsOneWidget);
   });
 
+  testWidgets('accountless direct profile click opens direct connections', (
+    tester,
+  ) async {
+    var nativePresentationCalls = 0;
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) =>
+              const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+        GoRoute(
+          path: Routes.directConnections,
+          name: RouteNames.directConnections,
+          builder: (_, _) => const Scaffold(body: Text('Direct destination')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(
+            _DirectPreferredBackendController.new,
+          ),
+          sidebarNativeProfilePresenterProvider.overrideWithValue((_) async {
+            nativePresentationCalls++;
+            return false;
+          }),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-profile-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Direct destination'), findsOneWidget);
+    expect(nativePresentationCalls, 1);
+  });
+
   testWidgets('sidebar material app bar uses the compact toolbar height', (
     tester,
   ) async {
@@ -609,6 +723,15 @@ void main() {
   ) async {
     final controllers = _SidebarHarnessControllers();
     final timestamp = DateTime(2026, 1, 1);
+    final nestedConversation = Conversation(
+      id: 'nested-chat',
+      title: 'Nested Chat',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      folderId: 'child-folder',
+      messages: const [],
+    );
+    final nestedConversationId = conversationScopedId(nestedConversation);
 
     await tester.pumpWidget(
       _buildSidebarHarness(
@@ -626,16 +749,7 @@ void main() {
             isExpanded: true,
           ),
         ],
-        conversations: [
-          Conversation(
-            id: 'nested-chat',
-            title: 'Nested Chat',
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            folderId: 'child-folder',
-            messages: const [],
-          ),
-        ],
+        conversations: [nestedConversation],
       ),
     );
     await tester.pumpAndSettle();
@@ -652,7 +766,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey<String>('tree-guides-chat-nested-chat')),
+      find.byKey(ValueKey<String>('tree-guides-chat-$nestedConversationId')),
       findsOneWidget,
     );
 
@@ -663,7 +777,7 @@ void main() {
       find.byKey(const ValueKey<String>('folder-open-child-folder')),
     );
     final chatOffset = tester.getTopLeft(
-      find.byKey(const ValueKey<String>('drawer-chat-nested-chat')),
+      find.byKey(ValueKey<String>('drawer-chat-$nestedConversationId')),
     );
 
     expect(childOffset.dx, greaterThan(parentOffset.dx));
@@ -836,6 +950,227 @@ void main() {
 
     expect(orphanOffset.dx, closeTo(rootOffset.dx, 0.1));
   });
+
+  testWidgets('opening an on-device chat loads its full direct history', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    final summary = withChatStorageProvenance(
+      Conversation(
+        id: 'direct-local:drawer-test',
+        title: 'On-device chat',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      ChatStorageKind.directLocal,
+    );
+    final full = withChatStorageProvenance(
+      summary.copyWith(
+        messages: [
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Loaded from the direct database',
+            timestamp: timestamp,
+          ),
+        ],
+      ),
+      ChatStorageKind.directLocal,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [summary],
+        loadedConversations: {conversationScopedId(summary): full},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    await tester.tap(
+      find.byKey(
+        ValueKey<String>('drawer-chat-${conversationScopedId(summary)}'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final active = container.read(activeConversationProvider);
+    expect(active?.messages, hasLength(1));
+    expect(active?.messages.single.content, 'Loaded from the direct database');
+    expect(chatStorageKindOf(active), ChatStorageKind.directLocal);
+
+    // The provenance-aware message watch now correctly subscribes to the
+    // direct-local Drift database. Dispose it inside the test and give Drift's
+    // zero-delay stream cleanup a frame before the binding checks timers.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets(
+    'account switch while a server chat loads cannot republish its body',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      final timestamp = DateTime(2026, 1, 1);
+      final summary = withChatStorageProvenance(
+        Conversation(
+          id: 'server-drawer-test',
+          title: 'Server chat',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      final full = summary.copyWith(
+        messages: [
+          ChatMessage(
+            id: 'private-assistant',
+            role: 'assistant',
+            content: 'Account A private body',
+            timestamp: timestamp,
+          ),
+        ],
+      );
+      final loadGate = Completer<Conversation>();
+
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          conversations: [summary],
+          pendingLoadedConversations: {
+            conversationScopedId(summary): loadGate.future,
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SidebarPage)),
+        listen: false,
+      );
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>('drawer-chat-${conversationScopedId(summary)}'),
+        ),
+      );
+      await tester.pump();
+
+      container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+      loadGate.complete(full);
+      await tester.pumpAndSettle();
+
+      expect(container.read(activeConversationProvider), isNull);
+    },
+  );
+
+  testWidgets('colliding chat ids render and select as distinct rows', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final timestamp = DateTime(2026, 1, 1);
+    final server = withChatStorageProvenance(
+      Conversation(
+        id: 'shared-id',
+        title: 'Server copy',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    final direct = withChatStorageProvenance(
+      Conversation(
+        id: 'shared-id',
+        title: 'Device copy',
+        createdAt: timestamp,
+        updatedAt: timestamp.add(const Duration(seconds: 1)),
+      ),
+      ChatStorageKind.directLocal,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [direct, server],
+        loadedConversations: {
+          conversationScopedId(server): server,
+          conversationScopedId(direct): direct,
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final serverTile = find.byKey(
+      ValueKey<String>('drawer-chat-${conversationScopedId(server)}'),
+    );
+    final directTile = find.byKey(
+      ValueKey<String>('drawer-chat-${conversationScopedId(direct)}'),
+    );
+    expect(serverTile, findsOneWidget);
+    expect(directTile, findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(activeChatIdsProvider.notifier).setActive('shared-id');
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: serverTile,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: directTile,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: directTile,
+        matching: find.byKey(
+          const ValueKey<String>('conversation-unread-indicator'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    container.read(activeChatIdsProvider.notifier).setInactive('shared-id');
+    await tester.pump();
+
+    await tester.tap(directTile);
+    await tester.pumpAndSettle();
+    expect(
+      chatStorageKindOf(container.read(activeConversationProvider)),
+      ChatStorageKind.directLocal,
+    );
+
+    final serverOwnership = captureOpenWebUiConversationRead(container);
+    expect(serverOwnership, isNotNull);
+    expect(
+      openWebUiConversationReadIsCurrent(container, serverOwnership!),
+      isTrue,
+    );
+    await tester.tap(serverTile);
+    await tester.pumpAndSettle();
+    expect(
+      chatStorageKindOf(container.read(activeConversationProvider)),
+      ChatStorageKind.openWebUi,
+    );
+
+    // Disposing the live Drift message watch schedules a zero-delay stream
+    // query cleanup. Unmount explicitly so the test binding can drain it.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }
 
 enum _SidebarTabLayer { chats, terminal, notes, channels }
@@ -912,6 +1247,9 @@ Widget _buildSidebarHarness({
   bool hermesOnly = false,
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
+  Map<String, Conversation> loadedConversations = const {},
+  Map<String, Future<Conversation>> pendingLoadedConversations = const {},
+  ThemeData? theme,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -943,10 +1281,20 @@ Widget _buildSidebarHarness({
 
   return ProviderScope(
     overrides: [
+      ...openWebUiStorageOpenOverrides(),
+      // The sidebar harness owns its in-memory OpenWebUI database explicitly;
+      // unrelated auth bootstrap must not close that test seam underneath it.
+      openWebUiAccountStorageIsolationProvider.overrideWith(
+        _NoopOpenWebUiAccountStorageIsolation.new,
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       appSettingsProvider.overrideWithValue(settings),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(null),
+      // The production auth provider is deliberately incomplete in this
+      // narrow harness; keep its account-generation boundary deterministic.
+      // ignore: scoped_providers_should_specify_dependencies
+      openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
       // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider2.overrideWithValue(currentUser),
       // ignore: scoped_providers_should_specify_dependencies
@@ -958,6 +1306,12 @@ Widget _buildSidebarHarness({
           onRefresh: controllers.recordChatRefresh,
         ),
       ),
+      for (final entry in loadedConversations.entries)
+        loadConversationProvider(
+          entry.key,
+        ).overrideWith((ref) async => entry.value),
+      for (final entry in pendingLoadedConversations.entries)
+        loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(_TestModels.new),
       // ignore: scoped_providers_should_specify_dependencies
@@ -1002,11 +1356,18 @@ Widget _buildSidebarHarness({
       }),
     ],
     child: MaterialApp.router(
+      theme: theme,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
     ),
   );
+}
+
+final class _NoopOpenWebUiAccountStorageIsolation
+    extends OpenWebUiAccountStorageIsolation {
+  @override
+  void build() {}
 }
 
 List<TerminalServerInfo> _defaultTerminalServers() {
@@ -1028,6 +1389,12 @@ List<TerminalServerInfo> _defaultTerminalServers() {
       name: 'Test Terminal 2',
     ),
   ];
+}
+
+final class _DirectPreferredBackendController
+    extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
 }
 
 class _TestHermesJobsController extends HermesJobsController {

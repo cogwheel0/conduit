@@ -21,11 +21,54 @@ void main() {
 
     test('round-trips and overwrites values', () async {
       await db.syncMetaDao.setValue('schema_fixture_hash', 'abc123');
-      check(await db.syncMetaDao.getValue('schema_fixture_hash'))
-          .equals('abc123');
+      check(
+        await db.syncMetaDao.getValue('schema_fixture_hash'),
+      ).equals('abc123');
       await db.syncMetaDao.setValue('schema_fixture_hash', 'def456');
-      check(await db.syncMetaDao.getValue('schema_fixture_hash'))
-          .equals('def456');
+      check(
+        await db.syncMetaDao.getValue('schema_fixture_hash'),
+      ).equals('def456');
+    });
+  });
+
+  group('chat remap targets', () {
+    test('is write-once and idempotent for the same destination', () async {
+      check(await db.syncMetaDao.getChatRemapTarget('local:a')).isNull();
+
+      await db.syncMetaDao.setChatRemapTarget('local:a', 'server:a');
+      await db.syncMetaDao.setChatRemapTarget('local:a', 'server:a');
+
+      check(
+        await db.syncMetaDao.getChatRemapTarget('local:a'),
+      ).equals('server:a');
+      await check(
+        db.syncMetaDao.setChatRemapTarget('local:a', 'server:other'),
+      ).throws<StateError>();
+      check(
+        await db.syncMetaDao.getChatRemapTarget('local:a'),
+      ).equals('server:a');
+    });
+
+    test('can delete a source mapping or every mapping to a target', () async {
+      await db.syncMetaDao.setChatRemapTarget('local:a', 'server:shared');
+      await db.syncMetaDao.setChatRemapTarget('local:b', 'server:shared');
+      await db.syncMetaDao.setChatRemapTarget('local:c', 'server:other');
+      await db.syncMetaDao.setValue('chatXremap:not-a-map', 'server:shared');
+
+      await db.syncMetaDao.deleteChatRemapTarget('local:a');
+      check(await db.syncMetaDao.getChatRemapTarget('local:a')).isNull();
+      check(
+        await db.syncMetaDao.getChatRemapTarget('local:b'),
+      ).equals('server:shared');
+
+      await db.syncMetaDao.deleteChatRemapTargetsForServer('server:shared');
+      check(await db.syncMetaDao.getChatRemapTarget('local:b')).isNull();
+      check(
+        await db.syncMetaDao.getChatRemapTarget('local:c'),
+      ).equals('server:other');
+      check(
+        await db.syncMetaDao.getValue('chatXremap:not-a-map'),
+      ).equals('server:shared');
     });
   });
 

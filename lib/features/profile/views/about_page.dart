@@ -156,6 +156,46 @@ class _AboutPageState extends ConsumerState<AboutPage> {
               ),
             ),
           ),
+          const SizedBox(height: Spacing.md),
+          Divider(color: theme.cardBorder.withValues(alpha: 0.5), height: 1),
+          Semantics(
+            label: l10n.openSourceLicenses,
+            button: true,
+            onTap: () => _showLicenses(context),
+            excludeSemantics: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showLicenses(context),
+              child: Padding(
+                padding: const EdgeInsets.only(top: Spacing.md),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.description_outlined,
+                      size: IconSize.medium,
+                      color: theme.buttonPrimary,
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Expanded(
+                      child: Text(
+                        l10n.openSourceLicenses,
+                        style: theme.bodyMedium?.copyWith(
+                          color: theme.sidebarForeground,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: Spacing.sm),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: IconSize.small,
+                      color: theme.sidebarForeground.withValues(alpha: 0.7),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -190,6 +230,10 @@ class _AboutPageState extends ConsumerState<AboutPage> {
       }
       UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
     }
+  }
+
+  void _showLicenses(BuildContext context) {
+    showLicensePage(context: context, applicationName: 'Conduit');
   }
 }
 

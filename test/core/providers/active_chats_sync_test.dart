@@ -36,6 +36,13 @@ class _CapturedRegistration {
 /// registers and lets the test deliver events to it. `onReconnect` is a
 /// broadcast controller the test can pump.
 class _MockSocketService implements SocketService {
+  @override
+  final ServerConfig serverConfig = const ServerConfig(
+    id: 'test',
+    name: 'Test',
+    url: 'http://localhost:0',
+  );
+
   final List<_CapturedRegistration> registrations = <_CapturedRegistration>[];
   final _reconnectController = StreamController<void>.broadcast();
 
@@ -142,10 +149,11 @@ ProviderContainer _makeContainer({
   _FakeApiService? api,
   List<Conversation> conversations = const <Conversation>[],
 }) {
+  final resolvedApi = api ?? _FakeApiService();
   final container = ProviderContainer(
     overrides: [
       socketServiceProvider.overrideWithValue(socket),
-      if (api != null) apiServiceProvider.overrideWithValue(api),
+      apiServiceProvider.overrideWithValue(resolvedApi),
       conversationsProvider.overrideWith(
         () => _FakeConversations(conversations),
       ),
@@ -309,39 +317,46 @@ void main() {
       check(container.read(activeChatIdsProvider)).deepEquals({'c2'});
     });
 
-    test('reconnect triggers a fresh checkActiveChats reconciliation', () async {
-      final socket = _MockSocketService();
-      addTearDown(socket.disposeController);
-      final api = _FakeApiService();
-      final container = _makeContainer(
-        socket: socket,
-        api: api,
-        conversations: [_conv('c1')],
-      );
+    test(
+      'reconnect triggers a fresh checkActiveChats reconciliation',
+      () async {
+        final socket = _MockSocketService();
+        addTearDown(socket.disposeController);
+        final api = _FakeApiService();
+        final container = _makeContainer(
+          socket: socket,
+          api: api,
+          conversations: [_conv('c1')],
+        );
 
-      container.read(activeChatsSyncProvider);
-      await container.read(conversationsProvider.future);
-      await Future<void>.delayed(Duration.zero);
-      final coldOpenCalls = api.checkActiveChatsCalls;
+        container.read(activeChatsSyncProvider);
+        await container.read(conversationsProvider.future);
+        await Future<void>.delayed(Duration.zero);
+        final coldOpenCalls = api.checkActiveChatsCalls;
 
-      api.nextActive = {'c1'};
-      socket.emitReconnect();
-      await Future<void>.delayed(Duration.zero);
+        api.nextActive = {'c1'};
+        socket.emitReconnect();
+        await Future<void>.delayed(Duration.zero);
 
-      check(api.checkActiveChatsCalls).equals(coldOpenCalls + 1);
-      check(container.read(activeChatIdsProvider)).deepEquals({'c1'});
-    });
+        check(api.checkActiveChatsCalls).equals(coldOpenCalls + 1);
+        check(container.read(activeChatIdsProvider)).deepEquals({'c1'});
+      },
+    );
   });
 
   group('ActiveChatsSync — logout / socket teardown', () {
     test('clears the set when the bound socket becomes null', () {
       final socket = _MockSocketService();
+      final api = _FakeApiService();
       addTearDown(socket.disposeController);
 
       final container = ProviderContainer(
         overrides: [
           socketServiceProvider.overrideWithValue(socket),
-          conversationsProvider.overrideWith(() => _FakeConversations(const [])),
+          apiServiceProvider.overrideWithValue(api),
+          conversationsProvider.overrideWith(
+            () => _FakeConversations(const []),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -356,9 +371,14 @@ void main() {
       // _bindSocket(null) clears the set so no stale spinner survives.
       container.updateOverrides([
         socketServiceProvider.overrideWithValue(null),
+        apiServiceProvider.overrideWithValue(null),
         conversationsProvider.overrideWith(() => _FakeConversations(const [])),
       ]);
 
+      check(container.read(activeChatIdsProvider)).isEmpty();
+      // A queued callback from the disposed authenticated socket must not be
+      // able to repopulate state after logout.
+      reg.handler(_activeEnvelope(chatId: 'late-a', active: true), null);
       check(container.read(activeChatIdsProvider)).isEmpty();
     });
   });
@@ -376,27 +396,24 @@ void main() {
       check(container.read(activeChatIdsProvider)).not((s) => s.contains('c1'));
     });
 
-    test(
-      'setInactiveIfUnchanged is a no-op after a racing re-activation',
-      () {
-        final container = ProviderContainer();
-        addTearDown(container.dispose);
-        final notifier = container.read(activeChatIdsProvider.notifier);
+    test('setInactiveIfUnchanged is a no-op after a racing re-activation', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(activeChatIdsProvider.notifier);
 
-        // Stream A activates the chat and finishes; its async clear captured
-        // the token now.
-        notifier.setActive('c1');
-        final tokenFromA = notifier.activationToken('c1');
+      // Stream A activates the chat and finishes; its async clear captured
+      // the token now.
+      notifier.setActive('c1');
+      final tokenFromA = notifier.activationToken('c1');
 
-        // Stream B starts for the same chat before A's lookup resolves.
-        notifier.setActive('c1');
+      // Stream B starts for the same chat before A's lookup resolves.
+      notifier.setActive('c1');
 
-        // A's stale clear resolves with an empty task list — must NOT clear,
-        // since B re-activated the chat (token changed).
-        notifier.setInactiveIfUnchanged('c1', tokenFromA);
+      // A's stale clear resolves with an empty task list — must NOT clear,
+      // since B re-activated the chat (token changed).
+      notifier.setInactiveIfUnchanged('c1', tokenFromA);
 
-        check(container.read(activeChatIdsProvider)).contains('c1');
-      },
-    );
+      check(container.read(activeChatIdsProvider)).contains('c1');
+    });
   });
 }

@@ -8,10 +8,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
+import '../../../shared/utils/file_type_utils.dart';
+import '../../hermes/services/hermes_session_provenance.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
 import '../utils/file_utils.dart';
@@ -27,15 +31,20 @@ class _UserFilePartitions {
   const _UserFilePartitions({
     required this.imageFiles,
     required this.noteFiles,
+    required this.localReferenceFiles,
     required this.nonImageFiles,
   });
 
   final List<dynamic> imageFiles;
   final List<dynamic> noteFiles;
+  final List<dynamic> localReferenceFiles;
   final List<dynamic> nonImageFiles;
 
   bool get hasRenderableFiles =>
-      imageFiles.isNotEmpty || noteFiles.isNotEmpty || nonImageFiles.isNotEmpty;
+      imageFiles.isNotEmpty ||
+      noteFiles.isNotEmpty ||
+      localReferenceFiles.isNotEmpty ||
+      nonImageFiles.isNotEmpty;
 }
 
 class UserMessageBubble extends ConsumerStatefulWidget {
@@ -97,6 +106,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   Widget _buildUserFileImages(_UserFilePartitions partitions) {
     final imageFiles = partitions.imageFiles;
     final noteFiles = partitions.noteFiles;
+    final localReferenceFiles = partitions.localReferenceFiles;
     final nonImageFiles = partitions.nonImageFiles;
 
     final widgets = <Widget>[];
@@ -112,6 +122,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         widgets.add(const SizedBox(height: Spacing.xs));
       }
       widgets.add(_buildUserNoteFiles(noteFiles));
+    }
+
+    if (localReferenceFiles.isNotEmpty) {
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: Spacing.xs));
+      }
+      widgets.add(_buildHermesLocalReferenceFiles(localReferenceFiles));
     }
 
     if (nonImageFiles.isNotEmpty) {
@@ -138,6 +155,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     return file['type'] == 'note';
   }
 
+  bool _isHermesLocalFileReference(dynamic file) {
+    return file is Map && file['source'] == 'hermes_local';
+  }
+
   _UserFilePartitions? _currentFilePartitions() {
     final files = widget.message.files;
     if (files is! List || files.isEmpty) {
@@ -154,6 +175,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     final imageFiles = <dynamic>[];
     final noteFiles = <dynamic>[];
+    final localReferenceFiles = <dynamic>[];
     final nonImageFiles = <dynamic>[];
 
     for (final file in files) {
@@ -162,6 +184,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       }
       if (_isRenderableNoteAttachment(file)) {
         noteFiles.add(file);
+        continue;
+      }
+      // These descriptors intentionally contain metadata only. Classify them
+      // before MIME/URL handling so even an image content type or malformed URL
+      // can never reach a network-backed attachment widget.
+      if (_isHermesLocalFileReference(file)) {
+        localReferenceFiles.add(file);
         continue;
       }
 
@@ -179,6 +208,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final partitions = _UserFilePartitions(
       imageFiles: imageFiles,
       noteFiles: noteFiles,
+      localReferenceFiles: localReferenceFiles,
       nonImageFiles: nonImageFiles,
     );
     _lastPartitionedFiles = files;
@@ -493,6 +523,106 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildHermesLocalReferenceFiles(List<dynamic> files) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Flexible(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            children: files
+                .map<Widget>(_buildHermesLocalReferenceCard)
+                .toList(growable: false),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHermesLocalReferenceCard(dynamic file) {
+    final theme = context.conduitTheme;
+    final rawName = file is Map
+        ? (file['name'] ?? file['filename'])?.toString().trim() ?? ''
+        : '';
+    final filename = rawName.isEmpty
+        ? AppLocalizations.of(context)!.file
+        : rawName;
+    final rawSize = file is Map ? file['size'] : null;
+    final size = rawSize is num ? rawSize.toInt() : int.tryParse('$rawSize');
+    final sizeLabel = FileTypeUtils.formatFileSize(size);
+    final extension = FileTypeUtils.extensionFromName(filename);
+    final id = file is Map ? file['id']?.toString() ?? '' : '';
+
+    return Semantics(
+      container: true,
+      label: sizeLabel.isEmpty ? filename : '$filename, $sizeLabel',
+      child: ExcludeSemantics(
+        child: Container(
+          key: ValueKey('hermes-local-file-$id'),
+          constraints: const BoxConstraints(maxWidth: 280),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: theme.cardBackground,
+            borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            border: Border.all(
+              color: theme.textPrimary.withValues(alpha: 0.12),
+              width: BorderWidth.regular,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: theme.buttonPrimary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  FileTypeUtils.iconForExtension(extension),
+                  color: theme.buttonPrimary,
+                  size: IconSize.medium,
+                ),
+              ),
+              const SizedBox(width: Spacing.sm),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      filename,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.labelStyle.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (sizeLabel.isNotEmpty)
+                      Text(
+                        sizeLabel,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          color: theme.textSecondary.withValues(alpha: 0.7),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -915,6 +1045,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       if (_isRenderableNoteAttachment(file)) {
         continue;
       }
+      // Hermes local descriptors are historical references, not upload ids.
+      // Re-sending one through the OpenWebUI attachment path would cause an
+      // invalid file-info lookup and could target the wrong backend.
+      if (_isHermesLocalFileReference(file)) {
+        continue;
+      }
       final explicitId = file['id']?.toString();
       if (explicitId != null && explicitId.trim().isNotEmpty) {
         addId(explicitId);
@@ -940,6 +1076,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return;
     }
 
+    ChatSendPlaceholderHandle? pendingSend;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -949,26 +1086,50 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       final messages = ref.read(chatMessagesProvider);
       final idx = indexOfMessageId(messages, messageId);
       if (idx >= 0) {
-        final keep = truncateMessagesAfterId(
-          messages,
-          messageId,
-          includeTarget: false,
-        );
-        ref.read(chatMessagesProvider.notifier).setMessages(keep);
+        final active = ref.read(activeConversationProvider);
+        if (isNativeHermesConversation(active)) {
+          await regenerateEditedHermesUserMessage(
+            ref,
+            messageId: messageId,
+            content: newText,
+          );
+        } else {
+          final keep = truncateMessagesAfterId(
+            messages,
+            messageId,
+            includeTarget: false,
+          );
+          ref.read(chatMessagesProvider.notifier).setMessages(keep);
 
-        // Durable send of the edited text as a new turn (updateChat +
-        // requestCompletion under the chat lock), then drive streaming.
-        final attachments = _inlineEditAttachmentIds();
-        final toolIds = ref.read(selectedToolIdsProvider);
-        await durableSend(
-          ref,
-          newText,
-          attachments,
-          toolIds: toolIds.isNotEmpty ? toolIds : null,
+          // Durable send of the edited text as a new turn (updateChat +
+          // requestCompletion under the chat lock), then drive streaming.
+          final attachments = _inlineEditAttachmentIds();
+          final toolIds = ref.read(selectedToolIdsProvider);
+          await durableSend(
+            ref,
+            newText,
+            attachments,
+            toolIds: toolIds.isNotEmpty ? toolIds : null,
+            onAssistantPlaceholderCreated: (handle) {
+              pendingSend = handle;
+            },
+          );
+        }
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'inline-edit-failed',
+        scope: 'chat/edit',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'messageId': widget.message.id?.toString()},
+      );
+      recoverFailedChatSend(ref, error, pendingSend);
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
         );
       }
-    } catch (_) {
-      // Swallow errors; upstream error handling will surface if needed
     } finally {
       if (mounted) {
         setState(() {

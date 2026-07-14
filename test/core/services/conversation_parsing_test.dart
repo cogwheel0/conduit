@@ -1,5 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/conversation_parsing.dart';
+import 'package:conduit/core/services/direct_replay_output.dart';
+import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -448,6 +450,326 @@ void main() {
         check(content).contains('<details type="reasoning"');
         check(content).contains('Final answer');
         check('Final answer'.allMatches(content).length).equals(1);
+      });
+
+      test(
+        'direct replay mirror preserves escaped presentation and reasoning',
+        () {
+          const raw = '<tag data="a&b"> & literal';
+          const presentation =
+              '<details type="reasoning" done="true">\n'
+              '<summary>Thought for 1 second</summary>\n'
+              '&gt; checked\n'
+              '</details>\n'
+              '&lt;tag data=&quot;a&amp;b&quot;&gt; &amp; literal';
+          final output = buildConduitDirectReplayOutput(
+            assistantMessageId: 'assistant-direct',
+            rawContent: raw,
+          )!;
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'assistant-direct',
+                  'role': 'assistant',
+                  'content': presentation,
+                  'done': true,
+                  'isStreaming': false,
+                  'metadata': {
+                    'transport': kConduitDirectTransport,
+                    kConduitDirectRawAssistantContentMetadataKey: raw,
+                  },
+                  'output': output,
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+
+          final message =
+              (result['messages'] as List<Map<String, dynamic>>).single;
+          check(message['content']).equals(presentation);
+          check(message['output'] as List<Object?>).deepEquals(output);
+          check(
+            (message['metadata']
+                as Map<
+                  String,
+                  dynamic
+                >)[kConduitDirectRawAssistantContentMetadataKey],
+          ).equals(raw);
+        },
+      );
+
+      test('direct replay mirror adopts an OpenWebUI-edited answer safely', () {
+        const priorRaw = '<old answer>';
+        const editedRaw = '<new & answer>';
+        const reasoning =
+            '<details type="reasoning" done="true">\n'
+            '<summary>Thought for 1 second</summary>\n'
+            '&gt; checked\n'
+            '</details>';
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-edited',
+          rawContent: editedRaw,
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-edited',
+                'role': 'assistant',
+                'content': '$reasoning\n&lt;old answer&gt;',
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: priorRaw,
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(
+          message['content'],
+        ).equals('$reasoning\n&lt;new &amp; answer&gt;');
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals(editedRaw);
+      });
+
+      test('Continue Response replacement invalidates stale raw replay', () {
+        const continuedAnswer = 'continued answer';
+        final conversation = parseFullConversationModel({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-continued',
+                'role': 'assistant',
+                'content': continuedAnswer,
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: 'old answer',
+                },
+                // Open WebUI replaces the prior Conduit mirror with the
+                // continued Responses item on the same assistant message.
+                'output': [
+                  {
+                    'type': 'message',
+                    'id': 'msg_openwebui_continue',
+                    'role': 'assistant',
+                    'status': 'completed',
+                    'content': [
+                      {'type': 'output_text', 'text': continuedAnswer},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message = conversation.messages.single;
+        check(message.content).equals(continuedAnswer);
+        check(
+          (message.metadata ?? const <String, dynamic>{}).containsKey(
+            kConduitDirectRawAssistantContentMetadataKey,
+          ),
+        ).isFalse();
+        check(outboundProviderReplayText(message)).equals(continuedAnswer);
+      });
+
+      test('no-final mirror keeps reasoning local and raw replay empty', () {
+        const presentation =
+            '<details type="reasoning" done="true">\n'
+            '<summary>Thought for 1 second</summary>\n'
+            '&gt; private reasoning\n'
+            '</details>';
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-no-final',
+          rawContent: '',
+          useIncompleteAnswerSentinel: true,
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-no-final',
+                'role': 'assistant',
+                'content': presentation,
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: '',
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals(presentation);
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals('');
+        check(
+          parseConduitDirectReplayOutput(
+            (message['output'] as List).cast<Map<String, dynamic>>(),
+          )?.isIncompleteAnswerSentinel,
+        ).equals(true);
+      });
+
+      test('an edited no-final mirror becomes the canonical answer', () {
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-no-final-edit',
+          rawContent: '',
+          useIncompleteAnswerSentinel: true,
+        )!;
+        final item = output.single;
+        ((item['content'] as List).single as Map<String, dynamic>)['text'] =
+            '<edited answer>';
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-no-final-edit',
+                'role': 'assistant',
+                'content':
+                    '<details type="reasoning" done="true">stale</details>',
+                'done': true,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: '',
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals('&lt;edited answer&gt;');
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals('<edited answer>');
+      });
+
+      test('reserved replay shape requires direct terminal provenance', () {
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'not-trusted',
+          rawContent: 'Structured answer',
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'not-trusted',
+                'role': 'assistant',
+                'content': '',
+                'done': false,
+                'metadata': {'transport': kConduitDirectTransport},
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals('Structured answer');
+        check(
+          (message['metadata'] as Map<String, dynamic>).containsKey(
+            kConduitDirectRawAssistantContentMetadataKey,
+          ),
+        ).isFalse();
+      });
+
+      test('unknown and malformed replay markers remain structured output', () {
+        final malformedCases = <Map<String, dynamic>>[
+          {
+            'type': 'message',
+            'id': 'msg_conduit_direct_replay_v2_future',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'Future answer'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': '${kConduitDirectReplayOutputIdPrefix}malformed',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {
+                'type': 'output_text',
+                'text': 'Malformed answer',
+                'unexpected': true,
+              },
+            ],
+          },
+        ];
+
+        for (final item in malformedCases) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'direct-malformed',
+                  'role': 'assistant',
+                  'content': '',
+                  'done': true,
+                  'metadata': {'transport': kConduitDirectTransport},
+                  'output': [item],
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+          final message =
+              (result['messages'] as List<Map<String, dynamic>>).single;
+          check(
+            message['content'],
+          ).equals(((item['content'] as List).single as Map)['text']);
+          check(
+            (message['metadata'] as Map<String, dynamic>).containsKey(
+              kConduitDirectRawAssistantContentMetadataKey,
+            ),
+          ).isFalse();
+        }
       });
 
       test('prefers longer structured output text over stale content', () {

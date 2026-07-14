@@ -10,6 +10,7 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -20,6 +21,8 @@ import 'package:conduit/core/sync/pull_sync.dart';
 import 'package:conduit/core/sync/sync_api_client.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -27,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+import '../../support/openwebui_storage_test_overrides.dart';
 
 class _RecordingSyncEngine extends SyncEngine {
   _RecordingSyncEngine(this.pulls);
@@ -44,13 +48,28 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
+  late AppDatabase directDb;
+  late bool previousDontWarnAboutMultipleDatabases;
+
+  setUpAll(() {
+    previousDontWarnAboutMultipleDatabases =
+        driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
+  tearDownAll(() {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases =
+        previousDontWarnAboutMultipleDatabases;
+  });
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
+    directDb = AppDatabase(NativeDatabase.memory());
   });
 
   tearDown(() async {
     await db.close();
+    await directDb.close();
   });
 
   ProviderContainer makeContainer({
@@ -59,7 +78,9 @@ void main() {
   }) {
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        if (authenticated) ...openWebUiStorageOpenOverrides(database: db),
+        if (!authenticated) appDatabaseProvider.overrideWith((ref) => db),
+        directLocalDatabaseProvider.overrideWith((ref) => directDb),
         isAuthenticatedProvider2.overrideWithValue(authenticated),
         reviewerModeProvider.overrideWithValue(false),
         legacyConversationCachePurgerProvider.overrideWith(
@@ -139,6 +160,37 @@ void main() {
     );
   }
 
+  Future<void> seedDirectChat(
+    String id, {
+    required int updatedAt,
+    String? title,
+  }) {
+    return directDb.chatsDao.upsertLocalOnlyChat(
+      rows: ChatBlobMapper.blobToRows(
+        chatId: id,
+        blob: {
+          'title': title ?? 'Direct $id',
+          'history': {
+            'messages': {
+              '$id-direct-m1': {
+                'id': '$id-direct-m1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'hello from direct $id',
+                'timestamp': updatedAt,
+              },
+            },
+            'currentId': '$id-direct-m1',
+          },
+        },
+        title: title ?? 'Direct $id',
+        createdAt: updatedAt,
+        updatedAt: updatedAt,
+      ),
+    );
+  }
+
   List<String> idsOf(List<Conversation> conversations) =>
       conversations.map((conversation) => conversation.id).toList();
 
@@ -188,6 +240,91 @@ void main() {
         idsOf(container.read(conversationsProvider).requireValue),
       ).deepEquals(['chat-2', 'chat-1']);
     });
+
+    test(
+      'colliding server and on-device ids retain distinct identity',
+      () async {
+        await seedServerChat('collision', updatedAt: 100);
+        await seedDirectChat('collision', updatedAt: 200, title: 'Device copy');
+        final container = makeContainer();
+
+        final conversations = await container.read(
+          conversationsProvider.future,
+        );
+        check(conversations.length).equals(2);
+        check(
+          conversations.map((conversation) => conversation.id).toSet(),
+        ).deepEquals({'collision'});
+        final server = conversations.singleWhere(
+          (conversation) =>
+              chatStorageKindOf(conversation) == ChatStorageKind.openWebUi,
+        );
+        final direct = conversations.singleWhere(isDirectLocalConversation);
+        check(
+          conversationScopedId(server) == conversationScopedId(direct),
+        ).isFalse();
+
+        final loadedServer = await container.read(
+          loadConversationProvider(conversationScopedId(server)).future,
+        );
+        final loadedDirect = await container.read(
+          loadConversationProvider(conversationScopedId(direct)).future,
+        );
+        check(
+          chatStorageKindOf(loadedServer),
+        ).equals(ChatStorageKind.openWebUi);
+        check(
+          chatStorageKindOf(loadedDirect),
+        ).equals(ChatStorageKind.directLocal);
+        check(
+          loadedServer.messages.single.content,
+        ).equals('hello from collision');
+        check(
+          loadedDirect.messages.single.content,
+        ).equals('hello from direct collision');
+
+        container
+            .read(conversationsProvider.notifier)
+            .updateConversation(
+              conversationScopedId(server),
+              (conversation) => conversation.copyWith(title: 'Server renamed'),
+            );
+        final afterRename = container.read(conversationsProvider).requireValue;
+        check(
+          afterRename
+              .singleWhere(
+                (conversation) =>
+                    chatStorageKindOf(conversation) ==
+                    ChatStorageKind.openWebUi,
+              )
+              .title,
+        ).equals('Server renamed');
+        check(
+          afterRename.singleWhere(isDirectLocalConversation).title,
+        ).equals('Device copy');
+
+        container
+            .read(conversationsProvider.notifier)
+            .removeConversation(conversationScopedId(direct));
+        check(
+          container.read(conversationsProvider).requireValue.length,
+        ).equals(1);
+        check(
+          chatStorageKindOf(
+            container.read(conversationsProvider).requireValue.single,
+          ),
+        ).equals(ChatStorageKind.openWebUi);
+        await waitForAsync<ChatRow?>(
+          () => directDb.chatsDao.getChat('collision'),
+          condition: (row) => row == null,
+        );
+        final serverRow = await waitForAsync<ChatRow?>(
+          () => db.chatsDao.getChat('collision'),
+          condition: (row) => row?.title == 'Server renamed',
+        );
+        check(serverRow).isNotNull();
+      },
+    );
 
     test('archived/filtered split with pinned-first ordering', () async {
       await seedServerChat('chat-archived', updatedAt: 400, archived: true);
@@ -292,6 +429,113 @@ void main() {
         ).equals('chat-1');
       },
     );
+
+    test(
+      'scoped read mark retains outgoing ownership after active collision switch',
+      () async {
+        await seedServerChat('collision', updatedAt: 100);
+        await seedDirectChat('collision', updatedAt: 200);
+        final socket = _RecordingSocketService();
+        final container = makeContainer(
+          extraOverrides: [socketServiceProvider.overrideWithValue(socket)],
+        );
+        final conversations = await container.read(
+          conversationsProvider.future,
+        );
+        final direct = conversations.singleWhere(isDirectLocalConversation);
+        final openWebUi = conversations.singleWhere(
+          (conversation) => !isDirectLocalConversation(conversation),
+        );
+        final outgoingSelection = conversationScopedId(direct);
+        final outgoingIdentity = ChatStorageIdentity.parse(outgoingSelection);
+        check(outgoingIdentity.rawId).equals(direct.id);
+        check(outgoingIdentity.storage).equals(ChatStorageKind.directLocal);
+        check(conversationScopedId(direct)).equals(outgoingSelection);
+        check(conversationMatchesScopedId(direct, outgoingSelection)).isTrue();
+        check(
+          conversationMatchesScopedId(openWebUi, outgoingSelection),
+        ).isFalse();
+        container.read(activeConversationProvider.notifier).set(openWebUi);
+        final readAt = DateTime.fromMillisecondsSinceEpoch(500 * 1000);
+
+        // ChatPage captures the outgoing scoped selection before the active
+        // row changes. The newly active colliding row must not steal the mark.
+        markConversationRead(container, outgoingSelection, readAt: readAt);
+
+        final updated = container.read(conversationsProvider).requireValue;
+        check(
+          updated.singleWhere(isDirectLocalConversation).lastReadAt,
+        ).equals(readAt);
+        check(
+          updated
+              .singleWhere(
+                (conversation) => !isDirectLocalConversation(conversation),
+              )
+              .lastReadAt,
+        ).isNull();
+        await waitForAsync(
+          () => directDb.chatsDao.getChat('collision'),
+          condition: (chat) => chat?.lastReadAt == 500,
+        );
+        check((await db.chatsDao.getChat('collision'))?.lastReadAt).isNull();
+        check(socket.emits).isEmpty();
+      },
+    );
+
+    test('storage-scoped collisions never match a native Hermes shell', () {
+      const rawId = 'local:hermes_collision';
+      final native = markNativeHermesConversation(_conversation(rawId));
+      final openWebUi = withChatStorageProvenance(
+        _conversation(rawId),
+        ChatStorageKind.openWebUi,
+      );
+      final direct = withChatStorageProvenance(
+        _conversation(rawId),
+        ChatStorageKind.directLocal,
+      );
+
+      check(conversationMatchesScopedId(native, rawId)).isTrue();
+      check(
+        conversationMatchesScopedId(native, conversationScopedId(openWebUi)),
+      ).isFalse();
+      check(
+        conversationMatchesScopedId(native, conversationScopedId(direct)),
+      ).isFalse();
+      check(
+        conversationMatchesScopedId(openWebUi, conversationScopedId(openWebUi)),
+      ).isTrue();
+    });
+
+    test('storage-scoped collisions never match a temporary direct shell', () {
+      const rawId = 'local:direct_collision';
+      final directShell = _conversation(rawId).copyWith(
+        metadata: const <String, dynamic>{'backend': kDirectChatBackend},
+      );
+      final legacyOpenWebUi = _conversation(rawId);
+      final explicitOpenWebUiDirectTurn = withChatStorageProvenance(
+        directShell,
+        ChatStorageKind.openWebUi,
+      );
+      final openWebUiSelection = ChatStorageIdentity(
+        rawId: rawId,
+        storage: ChatStorageKind.openWebUi,
+      ).scopedId;
+
+      check(conversationMatchesScopedId(directShell, rawId)).isTrue();
+      check(
+        conversationMatchesScopedId(directShell, openWebUiSelection),
+      ).isFalse();
+      check(isSameStoredConversation(directShell, legacyOpenWebUi)).isFalse();
+      check(
+        conversationMatchesScopedId(
+          explicitOpenWebUiDirectTurn,
+          openWebUiSelection,
+        ),
+      ).isTrue();
+      check(
+        isSameStoredConversation(explicitOpenWebUiDirectTurn, legacyOpenWebUi),
+      ).isTrue();
+    });
 
     test('upsertConversation writes an envelope stub the next emission agrees '
         'with', () async {

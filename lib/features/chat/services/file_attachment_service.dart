@@ -14,6 +14,8 @@ import '../../../core/services/share_staging_cleanup.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../direct_connections/direct_connections.dart';
+import '../../hermes/models/hermes_model.dart';
 
 /// Standard web image formats that LLMs can process directly.
 const Set<String> _standardImageFormats = {
@@ -700,9 +702,16 @@ final fileAttachmentServiceProvider = Provider<dynamic>((ref) {
     return MockFileAttachmentService();
   }
 
-  // Guard: only provide service when user is logged in
+  final selectedModel = ref.watch(selectedModelProvider);
+  final directEnabled =
+      selectedModel != null &&
+      ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+  final hermesEnabled = selectedModel != null && isHermesModel(selectedModel);
+
+  // OpenWebUI uploads require an API, while direct/Hermes attachments are
+  // prepared locally before their provider-specific dispatch.
   final apiService = ref.watch(apiServiceProvider);
-  if (apiService == null) return null;
+  if (apiService == null && !directEnabled && !hermesEnabled) return null;
 
   return FileAttachmentService();
 });

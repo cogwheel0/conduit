@@ -46,7 +46,7 @@ class NativeCookieManager {
       DebugLogger.warning(
         'Failed to get native cookies',
         scope: 'auth/cookies',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       return {};
     }

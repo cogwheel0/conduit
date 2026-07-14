@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'api_error.dart';
 import '../utils/current_localizations.dart';
-import '../utils/debug_logger.dart';
 
 /// Comprehensive error response parser
 /// Handles various API error response formats and extracts structured information
@@ -33,10 +32,8 @@ class ErrorParser {
         );
       }
     } catch (e) {
-      DebugLogger.log(
-        'ErrorParser: Error parsing response: $e',
-        scope: 'api/error-parser',
-      );
+      // Parsing provider-controlled payloads is deliberately side-effect free.
+      // The caller decides whether value-free request metadata may be logged.
       return ParsedErrorResponse(
         message: currentAppLocalizations().errorMessage,
         metadata: {

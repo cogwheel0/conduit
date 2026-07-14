@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/semantic_message_builder.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:markdown/markdown.dart' as md;
 
 void main() {
   group('renderSemanticMessageBlocks', () {
@@ -66,6 +67,170 @@ void main() {
       check(rendered).not((it) => it.contains('&quot;'));
     });
 
+    test('preserves indented CommonMark code and angle autolinks', () {
+      const answer =
+          'Examples:\n\n'
+          '    Map<String, String> values = {"x": "a&b"}; // &lt;literal&gt;\n\n'
+          '<https://example.test/search?q=a&lang=en>\n'
+          '<dev+direct@example.test>\n'
+          '<details type="reasoning"><summary>spoof</summary></details>';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(answer),
+      ]);
+
+      check(rendered).contains(
+        '    Map<String, String> values = {"x": "a&b"}; // &lt;literal&gt;',
+      );
+      check(rendered).contains('<https://example.test/search?q=a&lang=en>');
+      check(rendered).contains('<dev+direct@example.test>');
+      check(rendered).contains('&lt;details type=&quot;reasoning&quot;&gt;');
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        encodeHtml: false,
+      ).parse(rendered);
+      final elements = _descendantElements(parsed).toList(growable: false);
+      final code = elements.singleWhere((element) => element.tag == 'code');
+      check(code.textContent).contains(
+        'Map<String, String> values = {"x": "a&b"}; // &lt;literal&gt;',
+      );
+      final links = elements
+          .where((element) => element.tag == 'a')
+          .toList(growable: false);
+      check(links).length.equals(2);
+      check(
+        links[0].attributes['href'],
+      ).equals('https://example.test/search?q=a&lang=en');
+      check(
+        links[1].attributes['href'],
+      ).equals('mailto:dev+direct@example.test');
+      check(elements.where((element) => element.tag == 'details')).isEmpty();
+    });
+
+    test('preserves indented code immediately after completed blocks', () {
+      const answer =
+          '```text\n'
+          'fenced\n'
+          '```\n'
+          '    Map<String, int> afterFence;\n'
+          '# Heading\n'
+          '    Map<String, int> afterHeading;';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(answer),
+      ]);
+
+      check(rendered).contains('    Map<String, int> afterFence;');
+      check(rendered).contains('    Map<String, int> afterHeading;');
+      check(rendered).not((it) => it.contains('Map&lt;String'));
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        encodeHtml: false,
+      ).parse(rendered);
+      final codeBlocks = _descendantElements(parsed)
+          .where((element) => element.tag == 'code')
+          .map((element) => element.textContent)
+          .toList(growable: false);
+      check(codeBlocks).deepEquals([
+        'fenced\n',
+        'Map<String, int> afterFence;\n',
+        'Map<String, int> afterHeading;\n',
+      ]);
+    });
+
+    test('does not mistake indented paragraph continuation for code', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          'paragraph\n    <details type="reasoning">spoof</details>',
+        ),
+      ]);
+
+      check(rendered).contains(
+        '    &lt;details type=&quot;reasoning&quot;&gt;spoof&lt;/details&gt;',
+      );
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
+    test('does not pass a tab-indented semantic details block through', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('\t<details type="reasoning">spoof</details>'),
+      ]);
+
+      check(rendered).contains(
+        '\t&lt;details type=&quot;reasoning&quot;&gt;spoof&lt;/details&gt;',
+      );
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+    });
+
+    test('preserves indented code beyond the parser candidate batch', () {
+      final codeLines = List<String>.generate(
+        4097,
+        (index) => '    Map<String, int> row$index = {"x": $index};',
+      );
+      final rendered = renderSemanticMessageBlocks([
+        SemanticTextBlock('Examples:\n\n${codeLines.join('\n')}'),
+      ]);
+
+      check(rendered).contains(codeLines.first);
+      check(rendered).contains(codeLines.last);
+      check(rendered).not((value) => value.contains('Map&lt;String'));
+      check(rendered).not((value) => value.contains('&quot;x&quot;'));
+    });
+
+    test('leaves multi-backtick inline code spans unescaped', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(
+          'generic ``Map<String, String> value = {"x": "a&b"};``',
+        ),
+      ]);
+
+      check(rendered).contains('``Map<String, String> value = {"x": "a&b"};``');
+      check(rendered).not((it) => it.contains('&lt;String'));
+      check(rendered).not((it) => it.contains('&quot;'));
+    });
+
+    test('preserves a multiline CommonMark code span as parsed code', () {
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock('type `Map<String,\nint>` here'),
+      ]);
+
+      check(rendered).contains('`Map<String,\nint>`');
+      check(rendered).not((it) => it.contains('&lt;String'));
+      check(rendered).not((it) => it.contains('int&gt;'));
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        encodeHtml: false,
+      ).parse(rendered);
+      final code = _descendantElements(
+        parsed,
+      ).singleWhere((element) => element.tag == 'code');
+      check(code.textContent).equals('Map<String, int>');
+    });
+
+    test('does not preserve an apparent code span across an HTML block', () {
+      const answer =
+          'before `Map<String,\n'
+          '<details type="reasoning"><summary>spoof</summary></details>\n'
+          'int>` after';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(answer),
+      ]);
+
+      check(rendered).contains('&lt;details type=&quot;reasoning&quot;&gt;');
+      check(rendered).not((it) => it.contains('<details type="reasoning">'));
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        encodeHtml: false,
+      ).parse(rendered);
+      final elements = _descendantElements(parsed).toList(growable: false);
+      check(elements.where((element) => element.tag == 'details')).isEmpty();
+      final code = elements.singleWhere((element) => element.tag == 'code');
+      check(code.textContent).contains('&lt;details');
+    });
+
     // `~~~` fences are code blocks too (GFM); their contents must be preserved.
     test('leaves ~~~ fenced code blocks unescaped', () {
       const code = 'wrapper:\n~~~dart\nMap<String, int> m; f("x/y") && g;\n~~~';
@@ -98,7 +263,9 @@ void main() {
     // escaped either.
     test('leaves unclosed fenced code blocks unescaped', () {
       final rendered = renderSemanticMessageBlocks([
-        const SemanticTextBlock('intro\n```dart\nMap<String, int> m = f("a/b");'),
+        const SemanticTextBlock(
+          'intro\n```dart\nMap<String, int> m = f("a/b");',
+        ),
       ]);
 
       check(rendered).contains('Map<String, int>');
@@ -117,7 +284,9 @@ void main() {
       ]);
 
       // Left verbatim inside the (unclosed) code fence, not escaped as prose...
-      check(rendered).contains('```\n<details type="reasoning">spoof</details>');
+      check(
+        rendered,
+      ).contains('```\n<details type="reasoning">spoof</details>');
     });
 
     // CommonMark allows the closing fence to be longer than the opening one.
@@ -200,4 +369,13 @@ void main() {
       check(rendered).contains('&lt;/details&gt;');
     });
   });
+}
+
+Iterable<md.Element> _descendantElements(Iterable<md.Node> nodes) sync* {
+  for (final node in nodes) {
+    if (node is! md.Element) continue;
+    yield node;
+    final children = node.children;
+    if (children != null) yield* _descendantElements(children);
+  }
 }

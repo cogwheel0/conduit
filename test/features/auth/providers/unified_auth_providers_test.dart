@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -62,6 +63,43 @@ void main() {
         );
 
         check(persistCalls).equals(0);
+      },
+    );
+
+    test(
+      'successful optional OpenWebUI auth preserves direct primary',
+      () async {
+        var preferred = PreferredBackend.direct;
+        var persistCalls = 0;
+
+        final result = await completeOpenWebUiAuthentication(
+          authenticate: () async => true,
+          persistPreference: () => persistOpenWebUiBackendPreference(
+            current: preferred,
+            persist: (backend) async {
+              persistCalls++;
+              preferred = backend;
+            },
+          ),
+        );
+
+        check(result).isTrue();
+        check(preferred).equals(PreferredBackend.direct);
+        check(persistCalls).equals(0);
+      },
+    );
+
+    test(
+      'successful OpenWebUI auth selects owui for other primaries',
+      () async {
+        var preferred = PreferredBackend.hermes;
+
+        await persistOpenWebUiBackendPreference(
+          current: preferred,
+          persist: (backend) async => preferred = backend,
+        );
+
+        check(preferred).equals(PreferredBackend.owui);
       },
     );
   });

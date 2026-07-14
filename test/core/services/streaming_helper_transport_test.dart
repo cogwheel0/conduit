@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
 import 'package:conduit/core/services/socket_service.dart';
@@ -37,6 +39,44 @@ ApiService _buildFakeApi({
   );
   api.dio.interceptors.clear();
   return api;
+}
+
+class _GatedChatCompletedApi extends ApiService {
+  _GatedChatCompletedApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'completion-gate',
+          name: 'Completion gate',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'account-a',
+      );
+
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  ApiAuthSnapshot? receivedAuthSnapshot;
+
+  @override
+  Future<Map<String, dynamic>?> sendChatCompleted({
+    required String chatId,
+    required String messageId,
+    required List<Map<String, dynamic>> messages,
+    required String model,
+    Map<String, dynamic>? modelItem,
+    String? sessionId,
+    List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    receivedAuthSnapshot = authSnapshot;
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return {
+      'messages': [
+        {'id': messageId, 'content': 'foreign outlet mutation'},
+      ],
+    };
+  }
 }
 
 /// Adapter that optionally returns a canned poll response.
@@ -315,6 +355,9 @@ ActiveChatStream _attach({
   SocketService? socketService,
   String? Function()? getVisibleStreamingContent,
   void Function()? flushStreamingBuffer,
+  bool Function()? ownsStreamContext,
+  ApiAuthSnapshot? chatCompletedAuthSnapshot,
+  Future<Conversation?> Function(String chatId)? pullChatSnapshot,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -325,6 +368,7 @@ ActiveChatStream _attach({
     sessionId: sessionId,
     activeConversationId: activeConversationId,
     api: api ?? _buildFakeApi(),
+    chatCompletedAuthSnapshot: chatCompletedAuthSnapshot,
     socketService: socketService,
     workerManager: workerManager ?? _fakeWorkerManager(),
     appendToLastMessage: log.appendToLastMessage,
@@ -340,6 +384,8 @@ ActiveChatStream _attach({
     getMessages: log.getMessages,
     getVisibleStreamingContent: getVisibleStreamingContent ?? () => null,
     flushStreamingBuffer: flushStreamingBuffer ?? log.flushStreamingBuffer,
+    ownsStreamContext: ownsStreamContext,
+    pullChatSnapshot: pullChatSnapshot,
   );
 }
 
@@ -352,7 +398,9 @@ ActiveChatStream _attach({
 /// SocketService below.
 class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
+  void Function(Map<String, dynamic>, void Function(dynamic)?)? _lastHandler;
   final _channelHandlers = <String, void Function(dynamic)>{};
+  final _lastChannelHandlers = <String, void Function(dynamic)>{};
 
   bool get hasChatHandler => _handler != null;
   int get channelHandlerCount => _channelHandlers.length;
@@ -372,9 +420,32 @@ class FakeSocketInjector {
     _handler?.call(raw, null);
   }
 
+  /// Delivers through the most recently registered handler even after its
+  /// subscription was disposed, modelling an event already queued locally at
+  /// teardown time.
+  void emitQueuedChatEvent(
+    String type,
+    dynamic payload, {
+    String? messageId,
+    String? sessionId,
+  }) {
+    final raw = <String, dynamic>{
+      'data': {'type': type, 'data': payload},
+      'message_id': ?messageId,
+      'session_id': ?sessionId,
+    };
+    _lastHandler?.call(raw, null);
+  }
+
   /// Injects a raw channel event payload for a registered channel name.
   void emitChannelLine(String channel, dynamic payload) {
     _channelHandlers[channel]?.call(payload);
+  }
+
+  /// Delivers through the last channel handler even after `offEvent`, modelling
+  /// a callback that was already queued when normal completion tore it down.
+  void emitQueuedChannelLine(String channel, dynamic payload) {
+    _lastChannelHandlers[channel]?.call(payload);
   }
 }
 
@@ -383,6 +454,9 @@ class FakeSocketInjector {
 class _MockSocketService implements SocketService {
   _MockSocketService(this._injector);
   final FakeSocketInjector _injector;
+  int chatSubscriptionDisposeCount = 0;
+  int channelSubscriptionDisposeCount = 0;
+  int channelOffCount = 0;
 
   @override
   SocketEventSubscription addChatEventHandler({
@@ -393,10 +467,11 @@ class _MockSocketService implements SocketService {
     required SocketChatEventHandler handler,
   }) {
     _injector._handler = handler;
-    return SocketEventSubscription(
-      () => _injector._handler = null,
-      handlerId: 'test',
-    );
+    _injector._lastHandler = handler;
+    return SocketEventSubscription(() {
+      chatSubscriptionDisposeCount++;
+      _injector._handler = null;
+    }, handlerId: 'test');
   }
 
   @override
@@ -405,7 +480,10 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     bool requireFocus = true,
     required SocketChatEventHandler handler,
-  }) => SocketEventSubscription(() {}, handlerId: 'test-ch');
+  }) => SocketEventSubscription(
+    () => channelSubscriptionDisposeCount++,
+    handlerId: 'test-ch',
+  );
 
   @override
   Stream<void> get onReconnect => const Stream.empty();
@@ -419,10 +497,12 @@ class _MockSocketService implements SocketService {
   @override
   void onEvent(String eventName, void Function(dynamic) handler) {
     _injector._channelHandlers[eventName] = handler;
+    _injector._lastChannelHandlers[eventName] = handler;
   }
 
   @override
   void offEvent(String eventName) {
+    channelOffCount++;
     _injector._channelHandlers.remove(eventName);
   }
 
@@ -864,6 +944,46 @@ void main() {
           '</details>\n',
         );
         check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'late channel event after normal completion does not retire or abort',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final socket = _MockSocketService(registrar);
+        var abortCount = 0;
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+            abort: () async => abortCount++,
+          ),
+          log: log,
+          socketService: socket,
+        );
+
+        await pumpMicrotasks();
+        registrar.emitChatEvent('request:chat:completion', {
+          'channel': 'chan-late',
+        }, messageId: 'msg-1');
+        registrar.emitChannelLine('chan-late', 'data: [DONE]');
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+
+        registrar.emitQueuedChannelLine(
+          'chan-late',
+          'data: {"choices":[{"delta":{"content":"too late"}}]}',
+        );
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).isEmpty();
+        check(log.finishCount).equals(1);
+        check(abortCount).equals(0);
       },
     );
 
@@ -1687,6 +1807,103 @@ void main() {
       },
     );
 
+    test(
+      'snapshot pull released after teardown never falls back through the retired API',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'Answer',
+              timestamp: DateTime.now(),
+              isStreaming: true,
+            ),
+          ],
+        );
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [_serverAssistantMessage(content: 'must not fetch')],
+          ),
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+        final pullStarted = Completer<void>();
+        final releasePull = Completer<void>();
+        var ownsContext = true;
+
+        final activeStream = _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          ownsStreamContext: () => ownsContext,
+          pullChatSnapshot: (_) async {
+            if (!pullStarted.isCompleted) pullStarted.complete();
+            await releasePull.future;
+            return null;
+          },
+        );
+
+        await pullStarted.future.timeout(const Duration(seconds: 1));
+        ownsContext = false;
+        activeStream.disposeWatchdog();
+        releasePull.complete();
+        for (var i = 0; i < 10; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+      },
+    );
+
+    test(
+      'chatCompleted released after ownership loss cannot mutate local state',
+      () async {
+        final log = _CallbackLog(
+          initialMessages: fakeStreamingAssistantMessages(
+            content: 'owned response',
+          ),
+        );
+        final api = _GatedChatCompletedApi();
+        final snapshot = api.captureAuthSnapshot();
+        var ownsContext = true;
+
+        _attach(
+          session: ChatCompletionSession.httpStream(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            byteStream: Stream<List<int>>.fromIterable([_sseDone()]),
+            abort: () async {},
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          ownsStreamContext: () => ownsContext,
+          chatCompletedAuthSnapshot: snapshot,
+        );
+
+        await api.entered.future.timeout(const Duration(seconds: 1));
+        ownsContext = false;
+        api.release.complete();
+        for (var i = 0; i < 10; i++) {
+          await pumpMicrotasks();
+        }
+
+        check(identical(api.receivedAuthSnapshot, snapshot)).isTrue();
+        check(log.messages.last.content).equals('owned response');
+        check(log.messageByIdMutationCount).equals(0);
+      },
+    );
+
     // -----------------------------------------------------------------------
     // 2. taskSocket sessions consume socket deltas and finish once on done
     // -----------------------------------------------------------------------
@@ -1710,6 +1927,99 @@ void main() {
       // The stream should be created successfully.
       check(stream.controller).isNotNull();
     });
+
+    test(
+      'taskSocket navigation or stop teardown cancels local recovery and ignores queued events once',
+      () async {
+        final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 5);
+        addTearDown(() {
+          debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        });
+
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final socket = _MockSocketService(registrar);
+        final api = _buildFakeApi(
+          pollResponse: _serverConversationResponse(
+            messages: [
+              _serverAssistantMessage(
+                content: 'Late server answer',
+                done: true,
+              ),
+            ],
+          ),
+        );
+        final adapter = api.dio.httpClientAdapter as _StubAdapter;
+        var abortCount = 0;
+
+        final activeStream = _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+            abort: () async => abortCount++,
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: socket,
+        );
+
+        // Let the empty HTTP initiation side complete and arm terminal poll
+        // recovery while the task remains owned by the server.
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent(
+          'request:chat:completion',
+          {'channel': 'task-channel'},
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
+        check(registrar.channelHandlerCount).equals(1);
+
+        // Conversation switches and explicit local stops both call this same
+        // aggregate hook. Repeated lifecycle signals must be harmless.
+        activeStream.disposeWatchdog();
+        activeStream.disposeWatchdog();
+
+        // Model an already queued socket callback that escaped subscription
+        // cancellation. The retired helper must still reject it.
+        registrar.emitQueuedChatEvent(
+          'chat:completion',
+          {
+            'choices': [
+              {
+                'delta': {'content': 'late chunk'},
+              },
+            ],
+          },
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).isEmpty();
+        check(log.replacedContents).isEmpty();
+        check(log.finishCount).equals(0);
+        check(
+          adapter.requestCount(method: 'GET', path: '/api/v1/chats/conv-1'),
+        ).equals(0);
+        check(socket.chatSubscriptionDisposeCount).equals(1);
+        check(socket.channelSubscriptionDisposeCount).equals(1);
+        check(socket.channelOffCount).equals(1);
+        check(registrar.hasChatHandler).isFalse();
+        check(registrar.channelHandlerCount).equals(0);
+
+        // Local teardown must not broaden into a remote/task abort. The stop
+        // coordinator owns that separate policy.
+        check(abortCount).equals(0);
+      },
+    );
 
     test('taskSocket keeps streaming open after terminal finish_reason '
         'until done arrives', () async {
@@ -2569,6 +2879,40 @@ void main() {
       check(log.replacedContents).deepEquals(['Direct reply']);
       check(log.finishCount).equals(1);
     });
+
+    test(
+      'jsonCompletion teardown before its microtask prevents late mutation',
+      () async {
+        final log = _CallbackLog();
+
+        final activeStream = _attach(
+          session: ChatCompletionSession.jsonCompletion(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            jsonPayload: {
+              'choices': [
+                {
+                  'message': {'content': 'must not land'},
+                },
+              ],
+              'usage': {'total_tokens': 42},
+            },
+          ),
+          log: log,
+        );
+
+        activeStream.disposeWatchdog();
+        activeStream.disposeWatchdog();
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(log.replacedContents).isEmpty();
+        check(log.messageByIdMutationCount).equals(0);
+        check(log.finishCount).equals(0);
+        check(log.messages.last.content).equals('');
+        check(log.messages.last.isStreaming).isTrue();
+      },
+    );
 
     test('jsonCompletion renders output-only payloads', () async {
       final log = _CallbackLog();
@@ -3934,8 +4278,10 @@ void main() {
         controller: null,
         socketSubscriptions: const [],
         disposeWatchdog: () {},
+        isDisposed: () => false,
       );
       check(stream.socketSubscriptions).isEmpty();
+      check(stream.isDisposed()).isFalse();
     });
   });
 

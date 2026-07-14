@@ -1,4 +1,5 @@
 import 'package:conduit/core/models/tool.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/tools_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
@@ -35,6 +36,9 @@ class _FakeToolsService implements ToolsService {
   _FakeToolsService(this._getTools);
 
   final Future<List<Tool>> Function() _getTools;
+
+  @override
+  ApiService get apiService => throw StateError('not used while signed out');
 
   @override
   Future<List<Tool>> getTools() => _getTools();

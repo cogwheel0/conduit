@@ -72,6 +72,24 @@ class VisionCapableModelsNotifier extends Notifier<List<String>> {
       return [];
     }
 
+    final directIdentity =
+        isLocallyMintedDirectModel(selectedModel) ||
+        hasReservedDirectIdentity(selectedModel);
+    if (directIdentity) {
+      // DirectModelRegistry is mutable and its Provider retains object
+      // identity. Discovery is the reactive mutation signal for model
+      // replacement/removal, so watching the registry provider alone cannot
+      // invalidate this capability result.
+      ref.watch(directModelDiscoveryProvider);
+      final directBinding = ref
+          .read(directModelRegistryProvider)
+          .resolve(selectedModel);
+      if (directBinding == null || selectedModel.isMultimodal != true) {
+        return [];
+      }
+      return [selectedModel.id];
+    }
+
     if (selectedModel.isMultimodal == true) {
       return [selectedModel.id];
     }

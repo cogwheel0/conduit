@@ -1,4 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -208,8 +210,11 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final l10n = AppLocalizations.of(context)!;
   final bool isPinned = conversation.pinned == true;
   final bool isArchived = conversation.archived == true;
+  final bool isOnDevice = isDirectLocalConversation(conversation);
+  final selectionId = conversationScopedId(conversation);
   final currentFolderId = _conversationFolderId(conversation);
   final canMove =
+      !isOnDevice &&
       foldersEnabled &&
       (folders.any((folder) => folder.id != currentFolderId) ||
           currentFolderId != null);
@@ -217,7 +222,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   Future<void> togglePin() async {
     final errorMessage = l10n.failedToUpdatePin;
     try {
-      await chat.pinConversation(ref, conversation.id, !isPinned);
+      await chat.pinConversation(ref, selectionId, !isPinned);
     } catch (_) {
       if (!context.mounted) return;
       await _showConversationError(context, errorMessage);
@@ -227,7 +232,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   Future<void> toggleArchive() async {
     final errorMessage = l10n.failedToUpdateArchive;
     try {
-      await chat.archiveConversation(ref, conversation.id, !isArchived);
+      await chat.archiveConversation(ref, selectionId, !isArchived);
     } catch (_) {
       if (!context.mounted) return;
       await _showConversationError(context, errorMessage);
@@ -238,13 +243,19 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     await _renameConversation(
       context,
       ref,
-      conversation.id,
+      selectionId,
       conversation.title ?? '',
+      isOnDevice: isOnDevice,
     );
   }
 
   Future<void> deleteConversation() async {
-    await _confirmAndDeleteConversation(context, ref, conversation.id);
+    await _confirmAndDeleteConversation(
+      context,
+      ref,
+      conversation,
+      isOnDevice: isOnDevice,
+    );
   }
 
   Future<void> shareConversation() async {
@@ -256,7 +267,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     await _moveConversation(
       context,
       ref,
-      conversation.id,
+      selectionId,
       currentFolderId: currentFolderId,
       folders: folders,
     );
@@ -285,14 +296,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
     ),
-    ConduitContextMenuAction(
-      cupertinoIcon: CupertinoIcons.share,
-      sfSymbol: 'square.and.arrow.up',
-      materialIcon: Icons.ios_share_rounded,
-      label: l10n.shareChat,
-      onBeforeClose: () => ConduitHaptics.selectionClick(),
-      onSelected: shareConversation,
-    ),
+    if (!isOnDevice)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.share,
+        sfSymbol: 'square.and.arrow.up',
+        materialIcon: Icons.ios_share_rounded,
+        label: l10n.shareChat,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: shareConversation,
+      ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.pencil,
       sfSymbol: 'pencil',
@@ -345,6 +357,7 @@ Future<void> _moveConversation(
   required String? currentFolderId,
   required List<Folder> folders,
 }) async {
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final target = await _showConversationMoveSheet(
     context,
     folders: folders,
@@ -357,7 +370,7 @@ Future<void> _moveConversation(
   try {
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.moveConversationToFolder(conversationId, target.folderId);
+    await api.moveConversationToFolder(rawConversationId, target.folderId);
     if (!context.mounted) return;
 
     ConduitHaptics.selectionClick();
@@ -374,11 +387,12 @@ Future<void> _moveConversation(
         );
 
     final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation?.id == conversationId) {
+    if (activeConversation != null &&
+        conversationMatchesScopedId(activeConversation, conversationId)) {
       ref
           .read(activeConversationProvider.notifier)
           .set(
-            activeConversation!.copyWith(
+            activeConversation.copyWith(
               folderId: target.folderId,
               updatedAt: DateTime.now(),
             ),
@@ -557,8 +571,10 @@ Future<void> _renameConversation(
   BuildContext context,
   WidgetRef ref,
   String conversationId,
-  String currentTitle,
-) async {
+  String currentTitle, {
+  required bool isOnDevice,
+}) async {
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
   final newName = await ThemedDialogs.promptTextInput(
     context,
@@ -575,9 +591,14 @@ Future<void> _renameConversation(
 
   final renameError = l10n.failedToRenameChat;
   try {
+    if (isOnDevice) {
+      await chat.renameDirectLocalConversation(ref, conversationId, newName);
+      ConduitHaptics.selectionClick();
+      return;
+    }
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.updateConversation(conversationId, title: newName);
+    await api.updateConversation(rawConversationId, title: newName);
     ConduitHaptics.selectionClick();
     ref
         .read(conversationsProvider.notifier)
@@ -588,10 +609,10 @@ Future<void> _renameConversation(
         );
     refreshConversationsCache(ref);
     final active = ref.read(activeConversationProvider);
-    if (active?.id == conversationId) {
+    if (active != null && conversationMatchesScopedId(active, conversationId)) {
       ref
           .read(activeConversationProvider.notifier)
-          .set(active!.copyWith(title: newName));
+          .set(active.copyWith(title: newName));
     }
   } catch (_) {
     if (!context.mounted) return;
@@ -602,8 +623,11 @@ Future<void> _renameConversation(
 Future<void> _confirmAndDeleteConversation(
   BuildContext context,
   WidgetRef ref,
-  String conversationId,
-) async {
+  Conversation conversation, {
+  required bool isOnDevice,
+}) async {
+  final conversationId = conversationScopedId(conversation);
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
   final confirmed = await ThemedDialogs.confirm(
     context,
@@ -618,13 +642,30 @@ Future<void> _confirmAndDeleteConversation(
 
   final deleteError = l10n.failedToDeleteChat;
   try {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) throw Exception('No API service');
-    await api.deleteConversation(conversationId);
+    if (isOnDevice) {
+      await chat.deleteDirectLocalConversation(ref, conversationId);
+    } else {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) throw Exception('No API service');
+      // Revoke first: a thrown DELETE can still mean the server committed and
+      // only its response was lost. A crash must not leave replayable proof for
+      // a remotely deleted conversation. Do not restore proof based on an HTTP
+      // status: 404 already means the chat is absent, while an auth-looking
+      // response may come from an intermediary after an ambiguous upstream
+      // outcome. Losing safe continuity is preferable to authorizing replay
+      // against a deleted or later-reused conversation id.
+      await chat.forgetMixedHermesConversationProvenance(
+        ref,
+        conversation: conversation,
+      );
+      await api.deleteConversation(rawConversationId);
+      ref
+          .read(conversationsProvider.notifier)
+          .removeConversation(conversationId);
+    }
     ConduitHaptics.mediumImpact();
-    ref.read(conversationsProvider.notifier).removeConversation(conversationId);
     final active = ref.read(activeConversationProvider);
-    if (active?.id == conversationId) {
+    if (active != null && conversationMatchesScopedId(active, conversationId)) {
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();
       // Reset to default model for new conversations (fixes #296)

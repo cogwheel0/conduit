@@ -86,13 +86,21 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.channelMessage:
         NavigationService.navigateToChannel(tap.sourceId);
       case NotificationKind.chatCompletion:
+        final ownership = captureOpenWebUiConversationRead(ref);
+        if (ownership == null) return;
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
-        final local = await loadLocalConversation(ref, tap.sourceId);
+        if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
+        final local = await loadLocalConversation(
+          ref,
+          tap.sourceId,
+          ownership: ownership,
+        );
+        if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
           ref.read(activeConversationProvider.notifier).set(local);
         }
-        schedulePullChatNow(ref, tap.sourceId);
+        schedulePullChatNow(ref, tap.sourceId, ownership: ownership);
     }
   } catch (e, st) {
     DebugLogger.error(
@@ -186,8 +194,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     });
   }
 
-  String get _currentUserId =>
-      ref.read(currentUserProvider).value?.id ?? '';
+  String get _currentUserId => ref.read(currentUserProvider).value?.id ?? '';
 
   void _onChatEvent(Map<String, dynamic> event) {
     final notification = _classifier.classifyChatEvent(

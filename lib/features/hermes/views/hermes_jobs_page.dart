@@ -140,7 +140,11 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
       context,
       action: () => ref
           .read(hermesJobsProvider.notifier)
-          .create(prompt: result.prompt, schedule: result.schedule),
+          .create(
+            name: result.name,
+            prompt: result.prompt,
+            schedule: result.schedule,
+          ),
       failureMessage: 'Could not create scheduled job.',
       successMessage: 'Scheduled job created.',
     );
@@ -330,6 +334,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
   Future<void> _editJob() async {
     final result = await showHermesJobEditor(
       context,
+      initialName: job.name ?? job.displayName,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
     );
@@ -338,7 +343,12 @@ class _JobCardState extends ConsumerState<_JobCard> {
       mutation: _JobMutation.edit,
       action: () => ref
           .read(hermesJobsProvider.notifier)
-          .edit(job.id, prompt: result.prompt, schedule: result.schedule),
+          .edit(
+            job.id,
+            name: result.name,
+            prompt: result.prompt,
+            schedule: result.schedule,
+          ),
       failureMessage: 'Could not update scheduled job.',
       successMessage: 'Scheduled job updated.',
     );

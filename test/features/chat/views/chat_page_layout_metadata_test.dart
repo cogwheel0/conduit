@@ -1,6 +1,17 @@
+import 'dart:async';
+
+import 'package:checks/checks.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -110,151 +121,184 @@ void main() {
     expect(controller.isAnchoredToBottom, isFalse);
   });
 
-  test('bottom anchor controller re-pins after detached programmatic scroll', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+  test(
+    'bottom anchor controller re-pins after detached programmatic scroll',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
 
-    controller.updateAnchor(
-      hasScrollableContent: true,
-      distanceFromBottom: 320,
-    );
-    controller.isUserInteractingWithScroll = true;
-    expect(controller.isAnchoredToBottom, isFalse);
-
-    controller.resetForDetachedScroll();
-
-    expect(controller.isAnchoredToBottom, isTrue);
-    expect(controller.isUserInteractingWithScroll, isFalse);
-    // The sticky latch was cleared, so a subsequent scroll away detaches.
-    expect(
       controller.updateAnchor(
         hasScrollableContent: true,
         distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-  });
+      );
+      controller.isUserInteractingWithScroll = true;
+      expect(controller.isAnchoredToBottom, isFalse);
 
-  test('bottom anchor controller never detaches near bottom or when unanchored', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+      controller.resetForDetachedScroll();
 
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    controller.prepareForStickyContentChange(wantsPinToTop: false);
+      expect(controller.isAnchoredToBottom, isTrue);
+      expect(controller.isUserInteractingWithScroll, isFalse);
+      // The sticky latch was cleared, so a subsequent scroll away detaches.
+      expect(
+        controller.updateAnchor(
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isFalse,
+      );
+    },
+  );
 
-    // nearBottom short-circuits regardless of delta.
-    expect(
-      controller.shouldDetachForUserScrollAway(nearBottom: true, scrollDelta: 999),
-      isFalse,
-    );
+  test(
+    'bottom anchor controller never detaches near bottom or when unanchored',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
 
-    // Unanchored short-circuits regardless of delta.
-    controller.detachByUser();
-    expect(controller.isAnchoredToBottom, isFalse);
-    expect(
-      controller.shouldDetachForUserScrollAway(
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 24,
+      );
+      controller.prepareForStickyContentChange(wantsPinToTop: false);
+
+      // nearBottom short-circuits regardless of delta.
+      expect(
+        controller.shouldDetachForUserScrollAway(
+          nearBottom: true,
+          scrollDelta: 999,
+        ),
+        isFalse,
+      );
+
+      // Unanchored short-circuits regardless of delta.
+      controller.detachByUser();
+      expect(controller.isAnchoredToBottom, isFalse);
+      expect(
+        controller.shouldDetachForUserScrollAway(
+          nearBottom: false,
+          scrollDelta: 999,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'bottom anchor controller keeps sticky pending when correction is mid-flight',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
+
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 24,
+      );
+      controller.prepareForStickyContentChange(wantsPinToTop: false);
+
+      // A non-final correction that has not reached the bottom is a no-op: the
+      // latch stays set so the scroll-to-bottom button remains hidden.
+      controller.verifyStickyCorrection(nearBottom: false);
+
+      expect(controller.isAnchoredToBottom, isTrue);
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: false,
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'bottom anchor controller releases latch when sticky correction never reaches bottom',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
+
+      controller.updateAnchor(
+        hasScrollableContent: true,
+        distanceFromBottom: 24,
+      );
+      expect(
+        controller.prepareForStickyContentChange(wantsPinToTop: false),
+        isTrue,
+      );
+
+      // The final correction attempt is still far from the bottom: the latch must
+      // clear so button visibility falls back to distance-based logic.
+      controller.verifyStickyCorrection(
         nearBottom: false,
-        scrollDelta: 999,
-      ),
-      isFalse,
-    );
-  });
+        isFinalAttempt: true,
+      );
 
-  test('bottom anchor controller keeps sticky pending when correction is mid-flight', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: false,
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isTrue,
+      );
+    },
+  );
 
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    controller.prepareForStickyContentChange(wantsPinToTop: false);
+  test(
+    'bottom anchor controller hysteresis keeps the button shown across the band',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
 
-    // A non-final correction that has not reached the bottom is a no-op: the
-    // latch stays set so the scroll-to-bottom button remains hidden.
-    controller.verifyStickyCorrection(nearBottom: false);
-
-    expect(controller.isAnchoredToBottom, isTrue);
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
+      // Detach so the button is currently visible.
+      controller.updateAnchor(
         hasScrollableContent: true,
         distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-  });
+      );
 
-  test('bottom anchor controller releases latch when sticky correction never reaches bottom', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+      // Already showing: in the 150-300 band the button stays shown (the hide
+      // check uses hideThreshold, not showThreshold).
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: true,
+          hasScrollableContent: true,
+          distanceFromBottom: 200,
+        ),
+        isTrue,
+      );
 
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    expect(
-      controller.prepareForStickyContentChange(wantsPinToTop: false),
-      isTrue,
-    );
+      // Already showing: at/under hideThreshold the button hides.
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: true,
+          hasScrollableContent: true,
+          distanceFromBottom: 100,
+        ),
+        isFalse,
+      );
 
-    // The final correction attempt is still far from the bottom: the latch must
-    // clear so button visibility falls back to distance-based logic.
-    controller.verifyStickyCorrection(nearBottom: false, isFinalAttempt: true);
-
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
-  });
-
-  test('bottom anchor controller hysteresis keeps the button shown across the band', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
-
-    // Detach so the button is currently visible.
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 320);
-
-    // Already showing: in the 150-300 band the button stays shown (the hide
-    // check uses hideThreshold, not showThreshold).
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: true,
-        hasScrollableContent: true,
-        distanceFromBottom: 200,
-      ),
-      isTrue,
-    );
-
-    // Already showing: at/under hideThreshold the button hides.
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: true,
-        hasScrollableContent: true,
-        distanceFromBottom: 100,
-      ),
-      isFalse,
-    );
-
-    // Contrast: a hidden button does not appear yet in the same band (the show
-    // check uses showThreshold).
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
-        hasScrollableContent: true,
-        distanceFromBottom: 200,
-      ),
-      isFalse,
-    );
-  });
+      // Contrast: a hidden button does not appear yet in the same band (the show
+      // check uses showThreshold).
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: false,
+          hasScrollableContent: true,
+          distanceFromBottom: 200,
+        ),
+        isFalse,
+      );
+    },
+  );
 
   test('bottom anchor controller re-anchors when content is not scrollable', () {
     final controller = ChatBottomAnchorController(
@@ -263,7 +307,10 @@ void main() {
     );
 
     // Detach first so the re-anchor is observable.
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 320);
+    controller.updateAnchor(
+      hasScrollableContent: true,
+      distanceFromBottom: 320,
+    );
     expect(controller.isAnchoredToBottom, isFalse);
 
     // Even with a large distance, a non-scrollable list counts as nearBottom:
@@ -297,186 +344,217 @@ void main() {
     );
   });
 
-  test('bottom anchor controller re-anchors when the final attempt is near bottom', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+  test(
+    'bottom anchor controller re-anchors when the final attempt is near bottom',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
 
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    controller.prepareForStickyContentChange(wantsPinToTop: false);
-    // Detach so only the nearBottom branch can re-anchor (the isFinalAttempt
-    // branch never sets isAnchoredToBottom back to true).
-    controller.detachByUser();
-    expect(controller.isAnchoredToBottom, isFalse);
-
-    controller.verifyStickyCorrection(nearBottom: true, isFinalAttempt: true);
-
-    // nearBottom wins over isFinalAttempt: re-anchored, not merely latch-dropped.
-    expect(controller.isAnchoredToBottom, isTrue);
-  });
-
-  test('bottom anchor waits for movement, keeps a small drag, and detaches past the threshold', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-      userScrollAwayThreshold: 24,
-    );
-
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    expect(
-      controller.prepareForStickyContentChange(wantsPinToTop: false),
-      isTrue,
-    );
-
-    // User begins dragging during the sticky correction. A small (sub-threshold)
-    // drag must NOT detach: updateAnchor keeps the anchor while the latch holds,
-    // deferring the break to shouldDetachForUserScrollAway's threshold check.
-    controller.isUserInteractingWithScroll = true;
-    expect(
       controller.updateAnchor(
         hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
-    expect(controller.isAnchoredToBottom, isTrue);
-    // Drag-start / directional notifications carry no delta. They must not
-    // synthesize movement and detach before the user's actual drag is measured.
-    expect(
-      controller.shouldDetachForUserScrollAway(
-        nearBottom: false,
-        scrollDelta: null,
-      ),
-      isFalse,
-    );
-    expect(
-      controller.shouldDetachForUserScrollAway(nearBottom: false, scrollDelta: -4),
-      isFalse,
-    );
+        distanceFromBottom: 24,
+      );
+      controller.prepareForStickyContentChange(wantsPinToTop: false);
+      // Detach so only the nearBottom branch can re-anchor (the isFinalAttempt
+      // branch never sets isAnchoredToBottom back to true).
+      controller.detachByUser();
+      expect(controller.isAnchoredToBottom, isFalse);
 
-    // But the scroll-to-bottom button still surfaces while interacting (the
-    // distance-based hysteresis is not suppressed during a drag).
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
+      controller.verifyStickyCorrection(nearBottom: true, isFinalAttempt: true);
 
-    // A drag past userScrollAwayThreshold breaks the latch via the scroll
-    // handler, after which updateAnchor reports detached.
-    expect(
-      controller.shouldDetachForUserScrollAway(
-        nearBottom: false,
-        scrollDelta: -40,
-      ),
-      isTrue,
-    );
-    controller.detachByUser();
-    expect(controller.isAnchoredToBottom, isFalse);
-    expect(
+      // nearBottom wins over isFinalAttempt: re-anchored, not merely latch-dropped.
+      expect(controller.isAnchoredToBottom, isTrue);
+    },
+  );
+
+  test(
+    'bottom anchor waits for movement, keeps a small drag, and detaches past the threshold',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+        userScrollAwayThreshold: 24,
+      );
+
       controller.updateAnchor(
         hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-  });
+        distanceFromBottom: 24,
+      );
+      expect(
+        controller.prepareForStickyContentChange(wantsPinToTop: false),
+        isTrue,
+      );
 
-  test('bottom anchor controller keeps the button hidden when the latch holds even if currently showing', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
+      // User begins dragging during the sticky correction. A small (sub-threshold)
+      // drag must NOT detach: updateAnchor keeps the anchor while the latch holds,
+      // deferring the break to shouldDetachForUserScrollAway's threshold check.
+      controller.isUserInteractingWithScroll = true;
+      expect(
+        controller.updateAnchor(
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isTrue,
+      );
+      expect(controller.isAnchoredToBottom, isTrue);
+      // Drag-start / directional notifications carry no delta. They must not
+      // synthesize movement and detach before the user's actual drag is measured.
+      expect(
+        controller.shouldDetachForUserScrollAway(
+          nearBottom: false,
+          scrollDelta: null,
+        ),
+        isFalse,
+      );
+      expect(
+        controller.shouldDetachForUserScrollAway(
+          nearBottom: false,
+          scrollDelta: -4,
+        ),
+        isFalse,
+      );
 
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    expect(
-      controller.prepareForStickyContentChange(wantsPinToTop: false),
-      isTrue,
-    );
+      // But the scroll-to-bottom button still surfaces while interacting (the
+      // distance-based hysteresis is not suppressed during a drag).
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: false,
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isTrue,
+      );
 
-    // Latch armed: even with the button already visible and a large distance,
-    // the sticky latch short-circuits visibility to hidden.
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: true,
+      // A drag past userScrollAwayThreshold breaks the latch via the scroll
+      // handler, after which updateAnchor reports detached.
+      expect(
+        controller.shouldDetachForUserScrollAway(
+          nearBottom: false,
+          scrollDelta: -40,
+        ),
+        isTrue,
+      );
+      controller.detachByUser();
+      expect(controller.isAnchoredToBottom, isFalse);
+      expect(
+        controller.updateAnchor(
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'bottom anchor controller keeps the button hidden when the latch holds even if currently showing',
+    () {
+      final controller = ChatBottomAnchorController(
+        showThreshold: 300,
+        hideThreshold: 150,
+      );
+
+      controller.updateAnchor(
         hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
+        distanceFromBottom: 24,
+      );
+      expect(
+        controller.prepareForStickyContentChange(wantsPinToTop: false),
+        isTrue,
+      );
 
-    // Once the latch clears, the same call falls through to the hysteresis
-    // branch and reports the button shown.
-    controller.verifyStickyCorrection(nearBottom: false, isFinalAttempt: true);
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: true,
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
-  });
+      // Latch armed: even with the button already visible and a large distance,
+      // the sticky latch short-circuits visibility to hidden.
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: true,
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isFalse,
+      );
 
-  test('scroll update classifier handles touch and pointer input but ignores programmatic updates', () {
-    expect(
-      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-        hasDragDetails: true,
-        isUserInteractingWithScroll: false,
-      ),
-      isTrue,
-      reason: 'touch updates carry drag details',
-    );
-    expect(
-      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-        hasDragDetails: false,
-        isUserInteractingWithScroll: true,
-      ),
-      isTrue,
-      reason: 'wheel/trackpad updates follow a user-direction notification',
-    );
-    expect(
-      debugShouldTreatScrollUpdateAsUserDrivenForTesting(
-        hasDragDetails: false,
-        isUserInteractingWithScroll: false,
-      ),
-      isFalse,
-      reason: 'programmatic updates have neither user signal',
-    );
-  });
+      // Once the latch clears, the same call falls through to the hysteresis
+      // branch and reports the button shown.
+      controller.verifyStickyCorrection(
+        nearBottom: false,
+        isFinalAttempt: true,
+      );
+      expect(
+        controller.shouldShowScrollToBottom(
+          currentlyShowing: true,
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
+        ),
+        isTrue,
+      );
+    },
+  );
 
-  test('live turn only uses smooth bottom-follow while the response is running', () {
-    final running = ChatMessage(
-      id: 'assistant-1',
-      role: 'assistant',
-      content: 'Partial',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: true,
-    );
+  test(
+    'scroll update classifier handles touch and pointer input but ignores programmatic updates',
+    () {
+      expect(
+        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+          hasDragDetails: true,
+          isUserInteractingWithScroll: false,
+        ),
+        isTrue,
+        reason: 'touch updates carry drag details',
+      );
+      expect(
+        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+          hasDragDetails: false,
+          isUserInteractingWithScroll: true,
+        ),
+        isTrue,
+        reason: 'wheel/trackpad updates follow a user-direction notification',
+      );
+      expect(
+        debugShouldTreatScrollUpdateAsUserDrivenForTesting(
+          hasDragDetails: false,
+          isUserInteractingWithScroll: false,
+        ),
+        isFalse,
+        reason: 'programmatic updates have neither user signal',
+      );
+    },
+  );
 
-    expect(
-      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([running]),
-      isTrue,
-    );
-    expect(
-      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
-        running.copyWith(metadata: const {'responseDone': true}),
-      ]),
-      isFalse,
-      reason: 'responseDone is settled even before isStreaming flips',
-    );
-    expect(
-      debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
-        running.copyWith(isStreaming: false, followUps: const ['Ask next']),
-      ]),
-      isFalse,
-      reason: 'follow-up insertion must preserve the bottom without animation',
-    );
-  });
+  test(
+    'live turn only uses smooth bottom-follow while the response is running',
+    () {
+      final running = ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Partial',
+        timestamp: DateTime(2024, 1, 1),
+        isStreaming: true,
+      );
+
+      expect(
+        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([running]),
+        isTrue,
+      );
+      expect(
+        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
+          running.copyWith(metadata: const {'responseDone': true}),
+        ]),
+        isFalse,
+        reason: 'responseDone is settled even before isStreaming flips',
+      );
+      expect(
+        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
+          running.copyWith(isStreaming: false, followUps: const ['Ask next']),
+        ]),
+        isFalse,
+        reason:
+            'follow-up insertion must preserve the bottom without animation',
+      );
+    },
+  );
 
   test('layout metadata keeps archived assistant rows at zero extent', () {
     final messages = <ChatMessage>[
@@ -1214,4 +1292,180 @@ void main() {
       900,
     );
   });
+
+  test(
+    'refresh ignores native Hermes and direct-local id collisions',
+    () async {
+      final workerManager = WorkerManager();
+      final api = _GatedConversationRefreshApi(workerManager);
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      addTearDown(workerManager.dispose);
+      const rawId = 'local:hermes_refresh-collision';
+      final native = markNativeHermesConversation(
+        _refreshConversation(rawId, 'Native Hermes'),
+      );
+      container.read(activeConversationProvider.notifier).set(native);
+
+      await refreshActiveOpenWebUiConversation(container);
+
+      check(api.fetches).equals(0);
+      check(
+        identical(container.read(activeConversationProvider), native),
+      ).isTrue();
+      check(
+        isNativeHermesConversation(container.read(activeConversationProvider)),
+      ).isTrue();
+
+      final direct = _refreshConversation(rawId, 'Temporary direct').copyWith(
+        metadata: const <String, dynamic>{'backend': kDirectChatBackend},
+      );
+      container.read(activeConversationProvider.notifier).set(direct);
+
+      await refreshActiveOpenWebUiConversation(container);
+
+      check(api.fetches).equals(0);
+      check(
+        identical(container.read(activeConversationProvider), direct),
+      ).isTrue();
+    },
+  );
+
+  test('stale refresh cannot replace a same-id active generation', () async {
+    final workerManager = WorkerManager();
+    final api = _GatedConversationRefreshApi(workerManager);
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(workerManager.dispose);
+    const rawId = 'server-refresh-id';
+    final original = withChatStorageProvenance(
+      _refreshConversation(rawId, 'Original'),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(original);
+
+    final refresh = refreshActiveOpenWebUiConversation(container);
+    await api.started.future.timeout(const Duration(seconds: 1));
+    final replacement = withChatStorageProvenance(
+      _refreshConversation(rawId, 'Replacement'),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(replacement);
+    api.response.complete(_refreshConversation(rawId, 'Stale response'));
+    await refresh;
+
+    check(
+      identical(container.read(activeConversationProvider), replacement),
+    ).isTrue();
+  });
+
+  test('refresh replaces an unchanged OpenWebUI conversation', () async {
+    final workerManager = WorkerManager();
+    final api = _GatedConversationRefreshApi(workerManager);
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(workerManager.dispose);
+    const rawId = 'server-refresh-success';
+    final original = withChatStorageProvenance(
+      _refreshConversation(rawId, 'Original'),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(original);
+
+    final refresh = refreshActiveOpenWebUiConversation(container);
+    await api.started.future.timeout(const Duration(seconds: 1));
+    api.response.complete(_refreshConversation(rawId, 'Refreshed'));
+    await refresh;
+
+    final refreshed = container.read(activeConversationProvider)!;
+    check(api.fetches).equals(1);
+    check(refreshed.title).equals('Refreshed');
+    check(chatStorageKindOf(refreshed)).equals(ChatStorageKind.openWebUi);
+  });
+
+  test('refresh rejects a response for a different conversation id', () async {
+    final workerManager = WorkerManager();
+    final api = _GatedConversationRefreshApi(workerManager);
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(workerManager.dispose);
+    const rawId = 'server-refresh-mismatch';
+    final original = withChatStorageProvenance(
+      _refreshConversation(rawId, 'Original'),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(original);
+
+    final refresh = refreshActiveOpenWebUiConversation(container);
+    await api.started.future.timeout(const Duration(seconds: 1));
+    api.response.complete(_refreshConversation('different-id', 'Wrong row'));
+    await refresh;
+
+    check(
+      identical(container.read(activeConversationProvider), original),
+    ).isTrue();
+  });
+
+  test('refresh exposes API errors for the caller to report', () async {
+    final workerManager = WorkerManager();
+    final api = _GatedConversationRefreshApi(workerManager);
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(workerManager.dispose);
+    const rawId = 'server-refresh-error';
+    final original = withChatStorageProvenance(
+      _refreshConversation(rawId, 'Original'),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(original);
+
+    final refresh = refreshActiveOpenWebUiConversation(container);
+    await api.started.future.timeout(const Duration(seconds: 1));
+    api.response.completeError(StateError('refresh failed'));
+
+    await expectLater(refresh, throwsA(isA<StateError>()));
+    check(
+      identical(container.read(activeConversationProvider), original),
+    ).isTrue();
+  });
+}
+
+Conversation _refreshConversation(String id, String title) => Conversation(
+  id: id,
+  title: title,
+  createdAt: DateTime(2024),
+  updatedAt: DateTime(2024),
+);
+
+final class _GatedConversationRefreshApi extends ApiService {
+  _GatedConversationRefreshApi(WorkerManager workerManager)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'refresh-server',
+          name: 'Refresh server',
+          url: 'https://refresh.example',
+        ),
+        workerManager: workerManager,
+      );
+
+  final started = Completer<void>();
+  final response = Completer<Conversation>();
+  int fetches = 0;
+
+  @override
+  Future<Conversation> getConversation(String id) {
+    fetches++;
+    if (!started.isCompleted) started.complete();
+    return response.future;
+  }
 }

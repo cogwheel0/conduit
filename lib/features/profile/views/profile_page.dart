@@ -494,6 +494,19 @@ class ProfilePage extends ConsumerWidget {
             onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
           ),
         ),
+      (
+        destination: SettingsDestination.dataConnection,
+        child: _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.link,
+            android: Icons.hub_outlined,
+          ),
+          title: l10n.directConnectionsTitle,
+          subtitle: l10n.directConnectionsSubtitle,
+          onTap: () => context.pushNamed(RouteNames.directConnections),
+        ),
+      ),
       if (hermesOnly)
         (
           destination: SettingsDestination.connectOpenWebUi,

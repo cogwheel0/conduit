@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
@@ -44,6 +45,79 @@ const int _conversationWorkerByteThreshold = 50 * 1024;
 const int _conversationSummaryWorkerItemThreshold = 24;
 const int _fileUploadTimeoutBytesPerSecondFloor = 128 * 1024;
 const Duration _minimumFileUploadTimeout = Duration(minutes: 5);
+
+final class FileContentTooLargeException implements Exception {
+  const FileContentTooLargeException();
+
+  @override
+  String toString() => 'File content exceeds the configured byte limit.';
+}
+
+/// Forwards caller cancellation without giving request-local guards ownership
+/// of a token that may be shared with other file lookups.
+final class _FileContentCancellationLink {
+  _FileContentCancellationLink(CancelToken? caller) {
+    if (caller == null) return;
+    final cancellation = caller.cancelError;
+    if (cancellation != null) {
+      requestToken.cancel(cancellation.error);
+      return;
+    }
+
+    // CancelToken exposes a Future rather than a removable listener. Keep only
+    // a weak link in that future so a completed request and its transport are
+    // collectible even when a long-lived shared caller token is never cancelled.
+    final weakLink = WeakReference<_FileContentCancellationLink>(this);
+    unawaited(
+      caller.whenCancel.then<void>(
+        (error) => weakLink.target?._forward(error),
+        onError: (Object _, StackTrace _) {},
+      ),
+    );
+  }
+
+  final CancelToken requestToken = CancelToken();
+  bool _attached = true;
+
+  void _forward(DioException error) {
+    if (_attached && !requestToken.isCancelled) {
+      requestToken.cancel(error.error);
+    }
+  }
+
+  void detach() => _attached = false;
+}
+
+Future<bool> _moveFileContentStreamOrCancel(
+  StreamIterator<List<int>> iterator,
+  CancelToken? cancelToken,
+) {
+  final cancellation = cancelToken?.cancelError;
+  if (cancellation != null) return Future<bool>.error(cancellation);
+  final move = iterator.moveNext();
+  if (cancelToken == null) return move;
+  // Future.any observes the losing stream move as well as the cancellation
+  // branch, so a source that reports a late error after cancellation cannot
+  // escape through the zone.
+  return Future.any<bool>(<Future<bool>>[
+    move,
+    cancelToken.whenCancel.then<bool>((error) => throw error),
+  ]);
+}
+
+void _cancelFileContentStreamIterator(StreamIterator<List<int>> iterator) {
+  try {
+    unawaited(
+      iterator.cancel().then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {},
+      ),
+    );
+  } catch (_) {
+    // The request token already revoked transport ownership. Source teardown
+    // is best effort and must not delay Stop or replace the primary error.
+  }
+}
 
 void _traceApi(String message) {
   if (!_traceApiLogs) {
@@ -282,10 +356,6 @@ class ApiService {
            followRedirects: true,
            maxRedirects: 5,
            validateStatus: (status) => status != null && status < 400,
-           // Add custom headers from server config
-           headers: serverConfig.customHeaders.isNotEmpty
-               ? Map<String, String>.from(serverConfig.customHeaders)
-               : null,
          ),
        ),
        _workerManager = workerManager,
@@ -297,6 +367,7 @@ class ApiService {
 
     // Initialize the consistent auth interceptor
     _authInterceptor = ApiAuthInterceptor(
+      serverUrl: serverConfig.url,
       authToken: effectiveAuthToken,
       onAuthTokenInvalid: onAuthTokenInvalid,
       onTokenInvalidated: onTokenInvalidated,
@@ -362,6 +433,22 @@ class ApiService {
   }
 
   String? get authToken => _authInterceptor.authToken;
+
+  /// Freezes the current bearer token for an already-authorized unit of work.
+  /// Passing this snapshot to supported request methods prevents a queued
+  /// request from silently adopting a later account's token on the same
+  /// [ApiService] instance.
+  ApiAuthSnapshot captureAuthSnapshot() => _authInterceptor.captureSnapshot();
+
+  Options _withAuthSnapshot(Options options, ApiAuthSnapshot? authSnapshot) {
+    if (authSnapshot == null) return options;
+    options.extra = <String, dynamic>{
+      ...?options.extra,
+      ApiAuthInterceptor.authSnapshotExtraKey: authSnapshot,
+      'suppressAuthFailureNotification': true,
+    };
+    return options;
+  }
 
   /// Ensure interceptor callbacks stay in sync if they are set after construction
   void setAuthCallbacks({
@@ -431,10 +518,10 @@ class ApiService {
 
       // Check for redirects (proxy authentication pages)
       if (statusCode == 302 || statusCode == 307 || statusCode == 308) {
-        final location = response.headers.value('location');
         DebugLogger.log(
-          'Detected redirect to: $location - likely proxy auth required',
+          'proxy-auth-redirect-detected',
           scope: 'api/proxy-detect',
+          data: {'statusCode': statusCode},
         );
         return HealthCheckResult.proxyAuthRequired;
       }
@@ -533,7 +620,10 @@ class ApiService {
       DebugLogger.error(
         'proxy-detection-failed',
         scope: 'api/proxy-detect',
-        error: e,
+        data: {
+          'errorType': e.runtimeType.toString(),
+          if (e is DioException) 'statusCode': e.response?.statusCode,
+        },
       );
       if (throwOnConnectionError) {
         rethrow;
@@ -688,7 +778,7 @@ class ApiService {
           final location = e.response?.headers.value('location');
           if (location != null) {
             throw Exception(
-              'Server redirect detected. Please check your server URL configuration. Redirect to: $location',
+              'Server redirect detected. Please check your server URL configuration.',
             );
           }
         }
@@ -723,16 +813,18 @@ class ApiService {
         // Handle LDAP not enabled
         if (e.response?.statusCode == 400) {
           final data = e.response?.data;
-          if (data is Map && data['detail'] != null) {
-            throw Exception(data['detail']);
+          if (data is Map &&
+              data['detail'] == 'LDAP authentication is not enabled') {
+            throw Exception('LDAP authentication is not enabled');
           }
+          throw Exception('LDAP authentication failed');
         }
         // Handle specific redirect cases
         if (e.response?.statusCode == 307 || e.response?.statusCode == 308) {
           final location = e.response?.headers.value('location');
           if (location != null) {
             throw Exception(
-              'Server redirect detected. Please check your server URL configuration. Redirect to: $location',
+              'Server redirect detected. Please check your server URL configuration.',
             );
           }
         }
@@ -3038,42 +3130,107 @@ class ApiService {
   }
 
   // Files
-  Future<String> getFileContent(String fileId) async {
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     _traceApi('Fetching file content: $fileId');
+    if (maxBytes != null && maxBytes <= 0) {
+      throw ArgumentError.value(maxBytes, 'maxBytes');
+    }
     // The Open-WebUI endpoint returns the raw file bytes with appropriate
     // Content-Type headers, not JSON. We must read bytes and base64-encode
     // them for consistent handling across platforms/widgets.
-    final response = await _dio.get(
-      '/api/v1/files/$fileId/content',
-      options: Options(responseType: ResponseType.bytes),
-    );
+    // Dio wraps streamed response bodies. A request-local token is therefore
+    // required to tear down the adapter's upstream subscription on a size
+    // rejection; cancelling only the exposed body stream is insufficient. A
+    // caller token may be shared, so it can cancel this token but never vice
+    // versa.
+    final cancellationLink = _FileContentCancellationLink(cancelToken);
+    final requestCancelToken = cancellationLink.requestToken;
+    try {
+      final response = await _dio.get<ResponseBody>(
+        '/api/v1/files/$fileId/content',
+        options: _withAuthSnapshot(
+          Options(responseType: ResponseType.stream),
+          authSnapshot,
+        ),
+        cancelToken: requestCancelToken,
+      );
 
-    // Try to determine the mime type from response headers; fallback to text/plain
-    final contentType =
-        response.headers.value(HttpHeaders.contentTypeHeader) ?? '';
-    String mimeType = 'text/plain';
-    if (contentType.isNotEmpty) {
-      // Strip charset if present
-      mimeType = contentType.split(';').first.trim();
+      // Try to determine the mime type from response headers; fallback to text/plain
+      final contentType =
+          response.headers.value(HttpHeaders.contentTypeHeader) ?? '';
+      String mimeType = 'text/plain';
+      if (contentType.isNotEmpty) {
+        // Strip charset if present
+        mimeType = contentType.split(';').first.trim();
+      }
+
+      final advertisedLength = int.tryParse(
+        response.headers.value(HttpHeaders.contentLengthHeader) ?? '',
+      );
+      final body = response.data;
+      if (body == null) {
+        throw const FormatException('File content response is empty.');
+      }
+      if (maxBytes != null &&
+          advertisedLength != null &&
+          advertisedLength > maxBytes) {
+        requestCancelToken.cancel('File content exceeded the byte limit.');
+        throw const FileContentTooLargeException();
+      }
+      final bytes = BytesBuilder(copy: false);
+      var receivedBytes = 0;
+      final iterator = StreamIterator<List<int>>(body.stream);
+      try {
+        // Per-chunk races must stay on the request-local token. Racing the
+        // shared caller token here would attach one non-removable listener per
+        // chunk instead of the single weak link above.
+        while (await _moveFileContentStreamOrCancel(
+          iterator,
+          requestCancelToken,
+        )) {
+          final chunk = iterator.current;
+          receivedBytes += chunk.length;
+          if (maxBytes != null && receivedBytes > maxBytes) {
+            throw const FileContentTooLargeException();
+          }
+          bytes.add(chunk);
+        }
+      } on FileContentTooLargeException {
+        requestCancelToken.cancel('File content exceeded the byte limit.');
+        rethrow;
+      } finally {
+        _cancelFileContentStreamIterator(iterator);
+      }
+
+      final base64Data = base64Encode(bytes.takeBytes());
+
+      // For images, return a data URL so UI can render directly; otherwise return raw base64
+      if (mimeType.startsWith('image/')) {
+        return 'data:$mimeType;base64,$base64Data';
+      }
+
+      return base64Data;
+    } finally {
+      cancellationLink.detach();
     }
-
-    final bytes = response.data is List<int>
-        ? (response.data as List<int>)
-        : (response.data as Uint8List).toList();
-
-    final base64Data = base64Encode(bytes);
-
-    // For images, return a data URL so UI can render directly; otherwise return raw base64
-    if (mimeType.startsWith('image/')) {
-      return 'data:$mimeType;base64,$base64Data';
-    }
-
-    return base64Data;
   }
 
-  Future<Map<String, dynamic>> getFileInfo(String fileId) async {
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     _traceApi('Fetching file info: $fileId');
-    final response = await _dio.get('/api/v1/files/$fileId');
+    final response = await _dio.get(
+      '/api/v1/files/$fileId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+      cancelToken: cancelToken,
+    );
     return response.data as Map<String, dynamic>;
   }
 
@@ -4413,6 +4570,7 @@ class ApiService {
     Map<String, dynamic>? modelItem,
     String? sessionId,
     List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     // Format messages to match OpenWebUI expected structure exactly
     final formattedMessages = messages.map((msg) {
@@ -4460,9 +4618,12 @@ class ApiService {
       final resp = await _dio.post(
         '/api/chat/completed',
         data: requestData,
-        options: Options(
-          sendTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+        options: _withAuthSnapshot(
+          Options(
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
+          ),
+          authSnapshot,
         ),
       );
       if (resp.data is Map<String, dynamic>) {

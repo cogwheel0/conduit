@@ -15,6 +15,18 @@ bool modelSupportsReasoning(Model model) {
   return params.any((p) => p.toLowerCase().contains('reasoning'));
 }
 
+/// Human-readable source label for locally configured direct models.
+///
+/// The direct registry owns these metadata keys. Remote Open WebUI model
+/// metadata is not treated as direct unless it carries the reserved backend
+/// marker.
+String? directModelSourceLabel(Model model) {
+  final metadata = model.metadata;
+  if (metadata?['backend'] != 'direct') return null;
+  final profileName = metadata?['profileName']?.toString().trim();
+  return profileName == null || profileName.isEmpty ? 'Direct' : profileName;
+}
+
 /// Small chip that displays a model capability (e.g. multimodal, reasoning).
 class ModelCapabilityChip extends StatelessWidget {
   final IconData icon;
@@ -152,7 +164,20 @@ class ModelListTile extends StatelessWidget {
 
     final hasCapabilities =
         !isAutoSelect && (model.isMultimodal || modelSupportsReasoning(model));
-    final modelTags = <String>[if (!isAutoSelect) ...model.modelTags]
+    final directSource = isAutoSelect ? null : directModelSourceLabel(model);
+    final modelTagsByLowercase = <String, String>{};
+    if (!isAutoSelect) {
+      for (final tag in model.modelTags) {
+        modelTagsByLowercase.putIfAbsent(tag.toLowerCase(), () => tag);
+      }
+    }
+    if (directSource != null) {
+      modelTagsByLowercase.putIfAbsent(
+        directSource.toLowerCase(),
+        () => directSource,
+      );
+    }
+    final modelTags = modelTagsByLowercase.values.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final hasTags = modelTags.isNotEmpty;
     final hasMetadataRow = hasCapabilities || hasTags;

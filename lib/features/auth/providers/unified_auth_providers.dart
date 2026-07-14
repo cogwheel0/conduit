@@ -28,11 +28,21 @@ Future<bool> completeOpenWebUiAuthentication({
       DebugLogger.warning(
         'preferred-backend-persist-failed',
         scope: 'auth/backend',
-        data: {'error': error.toString()},
+        data: {'errorType': error.runtimeType.toString()},
       );
     }
   }
   return success;
+}
+
+/// Persists Open WebUI as primary unless it was added as an optional sync
+/// target for an existing direct-primary install.
+Future<void> persistOpenWebUiBackendPreference({
+  required PreferredBackend current,
+  required Future<void> Function(PreferredBackend backend) persist,
+}) async {
+  if (current == PreferredBackend.direct) return;
+  await persist(PreferredBackend.owui);
 }
 
 /// Imperative auth actions wrapper to avoid side-effects during provider build
@@ -45,9 +55,10 @@ class AuthActions {
   Future<bool> _completeOpenWebUiAuth(Future<bool> Function() authenticate) =>
       completeOpenWebUiAuthentication(
         authenticate: authenticate,
-        persistPreference: () => _ref
-            .read(preferredBackendProvider.notifier)
-            .set(PreferredBackend.owui),
+        persistPreference: () => persistOpenWebUiBackendPreference(
+          current: _ref.read(preferredBackendProvider),
+          persist: _ref.read(preferredBackendProvider.notifier).set,
+        ),
       );
 
   Future<bool> login(

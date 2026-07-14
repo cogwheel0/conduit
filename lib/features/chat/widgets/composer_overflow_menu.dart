@@ -14,6 +14,7 @@ import '../../../core/models/toggle_filter.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../../terminal/providers/terminal_providers.dart';
+import '../../direct_connections/direct_connections.dart';
 import '../providers/chat_providers.dart';
 import 'composer_overflow_items.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -129,6 +130,7 @@ List<Widget> withHorizontalSpacing(List<Widget> children, double gap) {
 class ComposerOverflowSheet extends ConsumerStatefulWidget {
   const ComposerOverflowSheet({
     super.key,
+    this.localAttachmentsOnly = false,
     this.onFileAttachment,
     this.onServerFileAttachment,
     this.onImageAttachment,
@@ -136,6 +138,10 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
     this.onWebAttachment,
   });
 
+  /// Restricts the sheet to device-local attachment actions supplied by the
+  /// caller. Used by backends such as Hermes that cannot resolve OpenWebUI
+  /// server files, web pages, feature toggles, tools, integrations, or filters.
+  final bool localAttachmentsOnly;
   final VoidCallback? onFileAttachment;
   final VoidCallback? onServerFileAttachment;
   final VoidCallback? onImageAttachment;
@@ -149,12 +155,6 @@ class ComposerOverflowSheet extends ConsumerStatefulWidget {
 
 class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   Future<Map<String, dynamic>?>? _userSettingsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _userSettingsFuture = _loadUserSettings();
-  }
 
   Future<Map<String, dynamic>?> _loadUserSettings() async {
     final api = ref.read(apiServiceProvider);
@@ -173,16 +173,41 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final attachmentItems = buildComposerOverflowAttachmentItems(
-      l10n: l10n,
-      attachmentAvailability: ComposerOverflowAttachmentAvailability(
-        file: widget.onFileAttachment != null,
-        serverFile: widget.onServerFileAttachment != null,
-        photo: widget.onImageAttachment != null,
-        camera: widget.onCameraCapture != null,
-        web: widget.onWebAttachment != null,
-      ),
-    );
+    final selectedModel = ref.watch(selectedModelProvider);
+    final directMode =
+        selectedModel != null &&
+        ref.watch(directModelRegistryProvider).resolve(selectedModel) != null;
+    final restrictedMode = directMode || widget.localAttachmentsOnly;
+    // Direct and local-only backends have no OpenWebUI integrations to
+    // discover. Resolve the request lazily because direct provenance is only
+    // available once providers can be read during build.
+    final userSettingsFuture = restrictedMode
+        ? null
+        : (_userSettingsFuture ??= _loadUserSettings());
+    final attachmentItems =
+        buildComposerOverflowAttachmentItems(
+          l10n: l10n,
+          attachmentAvailability: ComposerOverflowAttachmentAvailability(
+            file:
+                (!directMode || widget.localAttachmentsOnly) &&
+                widget.onFileAttachment != null,
+            serverFile:
+                !restrictedMode && widget.onServerFileAttachment != null,
+            photo: widget.onImageAttachment != null,
+            camera: widget.onCameraCapture != null,
+            web: !restrictedMode && widget.onWebAttachment != null,
+          ),
+        ).where((item) {
+          if (widget.localAttachmentsOnly) {
+            return item.enabled &&
+                (item.id == ComposerOverflowActionIds.file ||
+                    item.id == ComposerOverflowActionIds.photo ||
+                    item.id == ComposerOverflowActionIds.camera);
+          }
+          return !directMode ||
+              item.id == ComposerOverflowActionIds.photo ||
+              item.id == ComposerOverflowActionIds.camera;
+        });
 
     final attachments = attachmentItems
         .map(
@@ -191,10 +216,14 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         )
         .toList();
 
-    final webSearchAvailable = ref.watch(webSearchAvailableProvider);
-    final webSearchEnabled = ref.watch(webSearchEnabledProvider);
-    final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
-    final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
+    final webSearchAvailable =
+        !restrictedMode && ref.watch(webSearchAvailableProvider);
+    final webSearchEnabled =
+        !restrictedMode && ref.watch(webSearchEnabledProvider);
+    final imageGenAvailable =
+        !restrictedMode && ref.watch(imageGenerationAvailableProvider);
+    final imageGenEnabled =
+        !restrictedMode && ref.watch(imageGenerationEnabledProvider);
     final featureTiles =
         buildComposerOverflowFeatureItems(
           l10n: l10n,
@@ -215,134 +244,153 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
           );
         }).toList();
 
-    final selectedToolIds = ref.watch(selectedToolIdsProvider);
-    final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
-    final availableTerminalServersAsync = ref.watch(
-      terminalAvailableServersProvider,
-    );
-    final toolsAsync = ref.watch(toolsListProvider);
-    final toolsSection = toolsAsync.when(
-      data: (tools) {
-        final toolItems = buildComposerOverflowToolItems(
-          availableTools: tools,
-          selectedToolIds: selectedToolIds,
-        );
-        if (toolItems.isEmpty) return _buildInfoCard(l10n.noToolsAvailable);
-        final tiles = toolItems.map((item) {
-          return _buildOverflowItemTile(
-            item: item,
-            onChanged: (selected) {
-              setComposerOverflowSelection(
-                ref,
-                actionId: item.id,
-                selected: selected,
+    final selectedToolIds = restrictedMode
+        ? const <String>[]
+        : ref.watch(selectedToolIdsProvider);
+    final selectedTerminalId = restrictedMode
+        ? null
+        : ref.watch(selectedTerminalIdProvider);
+    final availableTerminalServersAsync = restrictedMode
+        ? null
+        : ref.watch(terminalAvailableServersProvider);
+    final toolsAsync = restrictedMode ? null : ref.watch(toolsListProvider);
+    final toolsSection = restrictedMode
+        ? const SizedBox.shrink()
+        : toolsAsync!.when(
+            data: (tools) {
+              final toolItems = buildComposerOverflowToolItems(
+                availableTools: tools,
+                selectedToolIds: selectedToolIds,
               );
+              if (toolItems.isEmpty) {
+                return _buildInfoCard(l10n.noToolsAvailable);
+              }
+              final tiles = toolItems.map((item) {
+                return _buildOverflowItemTile(
+                  item: item,
+                  onChanged: (selected) {
+                    setComposerOverflowSelection(
+                      ref,
+                      actionId: item.id,
+                      selected: selected,
+                    );
+                  },
+                );
+              }).toList();
+              return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
+            },
+            loading: () => Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
+              ),
+            ),
+            error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
+          );
+    final integrationsSection = restrictedMode
+        ? const SizedBox.shrink()
+        : FutureBuilder<Map<String, dynamic>?>(
+            future: userSettingsFuture,
+            builder: (context, snapshot) {
+              final settings = snapshot.data;
+              final directToolServers = _extractConfiguredServers(
+                settings,
+                'toolServers',
+              );
+              final directToolTiles = <Widget>[];
+              for (var index = 0; index < directToolServers.length; index++) {
+                final server = directToolServers[index];
+                if (!_isServerEnabled(server)) {
+                  continue;
+                }
+
+                final selectionId = _directServerSelectionId(server, index);
+                final isSelected = selectedToolIds.contains(selectionId);
+                directToolTiles.add(
+                  _buildToggleTile(
+                    icon: Platform.isIOS
+                        ? CupertinoIcons.square_stack_3d_down_right
+                        : Icons.hub_outlined,
+                    title: _serverTitle(
+                      server,
+                      fallbackPrefix: l10n.toolServer,
+                    ),
+                    subtitle: _serverSubtitle(server),
+                    value: isSelected,
+                    onChanged: (_) {
+                      final current = List<String>.from(
+                        ref.read(selectedToolIdsProvider),
+                      );
+                      if (isSelected) {
+                        current.remove(selectionId);
+                      } else {
+                        current.add(selectionId);
+                      }
+                      ref.read(selectedToolIdsProvider.notifier).set(current);
+                    },
+                  ),
+                );
+              }
+
+              final terminalTiles = availableTerminalServersAsync!.maybeWhen(
+                data: (servers) {
+                  return servers
+                      .map((server) {
+                        final isSelected =
+                            selectedTerminalId == server.selectionId;
+                        return _buildToggleTile(
+                          icon: Platform.isIOS
+                              ? CupertinoIcons.chevron_left_slash_chevron_right
+                              : Icons.terminal_rounded,
+                          title: server.displayName,
+                          subtitle: server.subtitle,
+                          value: isSelected,
+                          onChanged: (_) async {
+                            await ref
+                                .read(terminalSelectionControllerProvider)
+                                .toggle(server);
+                          },
+                        );
+                      })
+                      .toList(growable: false);
+                },
+                orElse: () => const <Widget>[],
+              );
+
+              if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              final children = <Widget>[];
+              if (directToolTiles.isNotEmpty) {
+                children
+                  ..add(_buildSectionLabel(l10n.toolServers))
+                  ..add(
+                    Column(
+                      children: withVerticalSpacing(
+                        directToolTiles,
+                        Spacing.xxs,
+                      ),
+                    ),
+                  );
+              }
+              if (terminalTiles.isNotEmpty) {
+                if (children.isNotEmpty) {
+                  children.add(const SizedBox(height: Spacing.sm));
+                }
+                children
+                  ..add(_buildSectionLabel(l10n.terminal))
+                  ..add(
+                    Column(
+                      children: withVerticalSpacing(terminalTiles, Spacing.xxs),
+                    ),
+                  );
+              }
+
+              return Column(children: children);
             },
           );
-        }).toList();
-        return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
-      },
-      loading: () => Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: BorderWidth.thin),
-        ),
-      ),
-      error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
-    );
-    final integrationsSection = FutureBuilder<Map<String, dynamic>?>(
-      future: _userSettingsFuture,
-      builder: (context, snapshot) {
-        final settings = snapshot.data;
-        final directToolServers = _extractConfiguredServers(
-          settings,
-          'toolServers',
-        );
-        final directToolTiles = <Widget>[];
-        for (var index = 0; index < directToolServers.length; index++) {
-          final server = directToolServers[index];
-          if (!_isServerEnabled(server)) {
-            continue;
-          }
-
-          final selectionId = _directServerSelectionId(server, index);
-          final isSelected = selectedToolIds.contains(selectionId);
-          directToolTiles.add(
-            _buildToggleTile(
-              icon: Platform.isIOS
-                  ? CupertinoIcons.square_stack_3d_down_right
-                  : Icons.hub_outlined,
-              title: _serverTitle(server, fallbackPrefix: l10n.toolServer),
-              subtitle: _serverSubtitle(server),
-              value: isSelected,
-              onChanged: (_) {
-                final current = List<String>.from(
-                  ref.read(selectedToolIdsProvider),
-                );
-                if (isSelected) {
-                  current.remove(selectionId);
-                } else {
-                  current.add(selectionId);
-                }
-                ref.read(selectedToolIdsProvider.notifier).set(current);
-              },
-            ),
-          );
-        }
-
-        final terminalTiles = availableTerminalServersAsync.maybeWhen(
-          data: (servers) {
-            return servers
-                .map((server) {
-                  final isSelected = selectedTerminalId == server.selectionId;
-                  return _buildToggleTile(
-                    icon: Platform.isIOS
-                        ? CupertinoIcons.chevron_left_slash_chevron_right
-                        : Icons.terminal_rounded,
-                    title: server.displayName,
-                    subtitle: server.subtitle,
-                    value: isSelected,
-                    onChanged: (_) async {
-                      await ref
-                          .read(terminalSelectionControllerProvider)
-                          .toggle(server);
-                    },
-                  );
-                })
-                .toList(growable: false);
-          },
-          orElse: () => const <Widget>[],
-        );
-
-        if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final children = <Widget>[];
-        if (directToolTiles.isNotEmpty) {
-          children
-            ..add(_buildSectionLabel(l10n.toolServers))
-            ..add(
-              Column(
-                children: withVerticalSpacing(directToolTiles, Spacing.xxs),
-              ),
-            );
-        }
-        if (terminalTiles.isNotEmpty) {
-          if (children.isNotEmpty) {
-            children.add(const SizedBox(height: Spacing.sm));
-          }
-          children
-            ..add(_buildSectionLabel(l10n.terminal))
-            ..add(
-              Column(children: withVerticalSpacing(terminalTiles, Spacing.xxs)),
-            );
-        }
-
-        return Column(children: children);
-      },
-    );
 
     final listItems = <Widget>[
       const SheetHandle(),
@@ -367,15 +415,16 @@ class _ComposerOverflowSheetState extends ConsumerState<ComposerOverflowSheet> {
         const SizedBox(height: Spacing.sm),
         ...withVerticalSpacing(featureTiles, Spacing.xxs),
       ],
-      const SizedBox(height: Spacing.sm),
-      _buildSectionLabel(l10n.tools),
-      toolsSection,
-      integrationsSection,
+      if (!restrictedMode) ...[
+        const SizedBox(height: Spacing.sm),
+        _buildSectionLabel(l10n.tools),
+        toolsSection,
+        integrationsSection,
+      ],
     ];
 
-    final selectedModel = ref.watch(selectedModelProvider);
     final toggleFilters = selectedModel?.filters ?? const <ToggleFilter>[];
-    if (toggleFilters.isNotEmpty) {
+    if (!restrictedMode && toggleFilters.isNotEmpty) {
       final selectedFilterIds = ref.watch(selectedFilterIdsProvider);
       final filterTiles = toggleFilters.map((filter) {
         final isSelected = selectedFilterIds.contains(filter.id);

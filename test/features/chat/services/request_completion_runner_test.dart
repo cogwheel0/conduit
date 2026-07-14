@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/daos/outbox_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/chat_message.dart';
@@ -39,10 +41,16 @@ void main() {
     required bool isStreaming,
     Conversation? active,
     bool attachDatabase = true,
+    int recoveryAttempts = 6,
+    Duration recoveryDelay = const Duration(seconds: 2),
   }) {
-    final runnerProvider = Provider<RequestCompletionRunner>(
-      ChatRequestCompletionRunner.new,
-    );
+    final runnerProvider = Provider<RequestCompletionRunner>((ref) {
+      return ChatRequestCompletionRunner(
+        ref,
+        recoveryAttempts: recoveryAttempts,
+        recoveryDelay: recoveryDelay,
+      );
+    });
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => attachDatabase ? db : null),
@@ -124,6 +132,48 @@ void main() {
       runner.run(chatId: chatId, payload: payload('asst-1')),
     ).throws<CompletionBusyException>();
   });
+
+  test(
+    'recovers a submitted marker while another live stream owns the chat',
+    () async {
+      const chatId = 'chat-submitted-recovery';
+      await seedChat(chatId);
+      await seedMessage(
+        chatId,
+        'asst-submitted',
+        'partial submitted response',
+        payload: const <String, dynamic>{
+          'id': 'asst-submitted',
+          'role': 'assistant',
+          'content': 'partial submitted response',
+          'metadata': <String, dynamic>{'completionSubmitted': true},
+        },
+      );
+
+      final (:container, :runner) = makeRunner(
+        isStreaming: true,
+        active: conv(chatId),
+        recoveryAttempts: 1,
+        recoveryDelay: Duration.zero,
+      );
+      container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'other-live-assistant',
+          role: 'assistant',
+          content: 'another turn is streaming',
+          timestamp: DateTime.utc(2026, 7, 14),
+          isStreaming: true,
+        ),
+      ]);
+
+      // The durable submitted marker makes this pull-only recovery. It must
+      // not wait for the unrelated live stream or issue another completion.
+      await runner.run(chatId: chatId, payload: payload('asst-submitted'));
+
+      final row = await db.messagesDao.getMessage(chatId, 'asst-submitted');
+      check(row?.content).equals('partial submitted response');
+    },
+  );
 
   test('does not defer its own optimistic streaming placeholder', () async {
     const chatId = 'chat-own-placeholder';
@@ -327,6 +377,101 @@ void main() {
       ).throws<StateError>();
       // Headless never sets an active conversation.
       check(container.read(activeConversationProvider)).isNull();
+    },
+  );
+
+  test(
+    'DB await followed by a colliding direct-local active chat chooses headless',
+    () async {
+      const chatId = 'storage-collision';
+      const assistantId = 'shared-assistant';
+      await seedChat(chatId);
+      await seedMessage(chatId, assistantId, '');
+
+      final (:container, :runner) = makeRunner(
+        isStreaming: true,
+        active: conv(chatId),
+      );
+      final aMessages = <ChatMessage>[
+        ChatMessage(
+          id: 'user-a',
+          role: 'user',
+          content: 'A',
+          timestamp: DateTime.utc(2026, 7, 13),
+        ),
+        ChatMessage(
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          isStreaming: true,
+        ),
+      ];
+      container.read(chatMessagesProvider.notifier).setMessages(aMessages);
+
+      final transactionEntered = Completer<void>();
+      final releaseTransaction = Completer<void>();
+      final transaction = db.transaction(() async {
+        transactionEntered.complete();
+        await releaseTransaction.future;
+      });
+      await transactionEntered.future;
+
+      final completion = runner.run(
+        chatId: chatId,
+        payload: payload(assistantId),
+      );
+      final expectation = expectLater(
+        completion,
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('runHeadlessCompletion'),
+          ),
+        ),
+      );
+
+      final bMessages = <ChatMessage>[
+        ChatMessage(
+          id: 'user-b',
+          role: 'user',
+          content: 'B must stay intact',
+          timestamp: DateTime.utc(2026, 7, 13),
+        ),
+        ChatMessage(
+          id: assistantId,
+          role: 'assistant',
+          content: 'B streaming bytes',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          isStreaming: true,
+        ),
+      ];
+      final directB = withChatStorageProvenance(
+        conv(chatId).copyWith(messages: bMessages),
+        ChatStorageKind.directLocal,
+      );
+      container.read(activeConversationProvider.notifier).set(directB);
+      container.read(chatMessagesProvider.notifier).setMessages(bMessages);
+      final bSnapshot = jsonEncode(
+        bMessages.map((message) => message.toJson()).toList(),
+      );
+
+      releaseTransaction.complete();
+      await transaction;
+      await expectation;
+
+      check(
+        jsonEncode(
+          container
+              .read(chatMessagesProvider)
+              .map((message) => message.toJson())
+              .toList(),
+        ),
+      ).equals(bSnapshot);
+      check(
+        chatStorageKindOf(container.read(activeConversationProvider)),
+      ).equals(ChatStorageKind.directLocal);
     },
   );
 }

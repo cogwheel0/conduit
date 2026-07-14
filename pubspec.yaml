@@ -4,7 +4,7 @@ version: 3.4.3+136
 publish_to: 'none'
 
 environment:
-  sdk: ">=3.8.0 <4.0.0"
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -22,6 +22,8 @@ dependencies:
   
   # Network & API
   dio: ^5.9.0
+  ollama_dart: ^2.4.0
+  openai_dart: ^7.0.1
   http_parser: ^4.0.2
   
   
@@ -35,6 +37,8 @@ dependencies:
   # UI Components - Markdown Rendering
   markdown: ^7.3.0
   pdfrx: ^2.4.3
+  archive: ^4.0.9
+  xml: ^7.0.1
   flutter_inappwebview: ^6.1.5
   socket_io_client: ^3.1.2
   yaml: ^3.1.2
@@ -131,6 +135,7 @@ flutter:
   # ARB files live in lib/l10n (configured via l10n.yaml)
   
   assets:
+    - THIRD_PARTY_NOTICES.md
     - assets/icons/
     - assets/mermaid.min.js
     - assets/chartjs.min.js

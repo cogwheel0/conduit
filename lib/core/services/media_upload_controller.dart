@@ -1,12 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../../features/chat/services/file_attachment_service.dart';
 import '../../features/chat/widgets/enhanced_image_attachment.dart';
+import '../../features/direct_connections/direct_connections.dart';
+import '../../features/hermes/models/hermes_chat_input.dart';
+import '../../features/hermes/models/hermes_model.dart';
+import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/hermes/services/hermes_local_document_service.dart';
 import '../models/file_info.dart';
 import '../providers/app_providers.dart';
 import '../utils/debug_logger.dart';
@@ -14,6 +23,35 @@ import 'attachment_upload_queue.dart';
 import 'share_staging_cleanup.dart';
 
 part 'media_upload_controller.g.dart';
+
+typedef DirectImageDataUrlEncoder = Future<String?> Function(File file);
+
+/// Encoding seam used to prove oversized files are rejected before base64
+/// allocation. Production keeps the existing compatibility conversion path.
+final directImageDataUrlEncoderProvider = Provider<DirectImageDataUrlEncoder>(
+  (ref) => convertImageFileToDataUrl,
+);
+
+/// Validates an encoder result without allocating a second decoded image.
+/// Returns the current image's decoded byte count for persisted UI metadata.
+int validatePreparedDirectImageDataUrl(
+  String dataUrl, {
+  required int otherImageBytes,
+  int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
+}) {
+  final decodedBytes = decodedImageByteLength(
+    dataUrl,
+    maxDecodedBytes: maxDecodedImageBytes - otherImageBytes,
+  );
+  if (otherImageBytes + decodedBytes > maxDecodedImageBytes) {
+    throw DirectChatInputException(
+      maxDecodedImageBytes == kDirectMaxDecodedImageBytes
+          ? 'Direct chat images must be 20 MB or less in total.'
+          : 'Direct chat images exceed the decoded byte limit.',
+    );
+  }
+  return decodedBytes;
+}
 
 /// Shared media-upload controller (CDT-RFC-001 §7.2, Group 2 of the task_queue
 /// retirement).
@@ -34,6 +72,7 @@ class MediaUploadController {
   MediaUploadController(this._ref);
 
   final Ref _ref;
+  final Lock _localAttachmentPreparationLock = Lock();
 
   /// In-flight uploads keyed by the ORIGINAL source [filePath] (the key the UI
   /// + cancellation reference, never the converted temp path). Multiple callers
@@ -61,7 +100,29 @@ class MediaUploadController {
         mimeType: mimeType,
         checksum: checksum,
       );
-    } catch (_) {
+    } catch (error) {
+      final current = _ref.read(attachedFilesProvider);
+      final existing = current
+          .where((attachment) => attachment.file.path == filePath)
+          .firstOrNull;
+      if (existing != null && existing.status != FileUploadStatus.completed) {
+        _ref
+            .read(attachedFilesProvider.notifier)
+            .updateFileState(
+              filePath,
+              FileUploadState(
+                file: existing.file,
+                fileName: existing.fileName,
+                fileSize: existing.fileSize,
+                progress: existing.progress,
+                status: FileUploadStatus.failed,
+                fileId: existing.fileId,
+                error: error.toString(),
+                isImage: existing.isImage,
+                base64DataUrl: existing.base64DataUrl,
+              ),
+            );
+      }
       unawaited(deleteShareStagingFile(filePath));
       rethrow;
     }
@@ -88,6 +149,56 @@ class MediaUploadController {
   }) async {
     final lowerName = fileName.toLowerCase();
     final bool isImage = allSupportedImageFormats.any(lowerName.endsWith);
+
+    final selectedModel = _ref.read(selectedModelProvider);
+    if (selectedModel != null && isHermesModel(selectedModel)) {
+      await _localAttachmentPreparationLock.synchronized(() async {
+        // A local attachment must never fall through to a different backend
+        // after a model switch: it may contain private bytes intended only for
+        // the selected Hermes connection.
+        final currentModel = _ref.read(selectedModelProvider);
+        if (currentModel == null || !isHermesModel(currentModel)) {
+          throw const HermesChatInputException(
+            'The selected backend changed while preparing this attachment.',
+          );
+        }
+        await _prepareHermesAttachment(
+          filePath: filePath,
+          fileName: fileName,
+          isImage: isImage,
+        );
+      });
+      return;
+    }
+    if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+      final preparedDirect = await _localAttachmentPreparationLock.synchronized(
+        () async {
+          // Waiting for an earlier image can outlive a model switch. Resolve
+          // the route only after this upload owns the preparation lock so a
+          // queued item cannot write a direct data URL into an OpenWebUI send.
+          final currentModel = _ref.read(selectedModelProvider);
+          if (currentModel == null ||
+              !hasReservedDirectIdentity(currentModel)) {
+            return false;
+          }
+          final directBinding = _ref
+              .read(directModelRegistryProvider)
+              .resolve(currentModel);
+          if (directBinding == null) {
+            throw const DirectChatInputException(
+              'The selected direct model is no longer available.',
+            );
+          }
+          await _prepareDirectImage(
+            filePath: filePath,
+            isImage: isImage,
+            selectedModelSupportsImages: currentModel.isMultimodal == true,
+          );
+          return true;
+        },
+      );
+      if (preparedDirect) return;
+    }
 
     // Upload all files (including images) to the server — mirrors OpenWebUI:
     // images go to /api/v1/files/ and the server resolves them when sending to
@@ -192,83 +303,86 @@ class MediaUploadController {
     }
 
     late final StreamSubscription<List<QueuedAttachment>> sub;
-    sub = uploader.queueStream.listen((items) {
-      final entry = items.where((e) => e.id == id).firstOrNull;
-      if (entry == null) return;
+    sub = uploader.queueStream.listen(
+      (items) {
+        final entry = items.where((e) => e.id == id).firstOrNull;
+        if (entry == null) return;
 
-      try {
-        final current = _ref.read(attachedFilesProvider);
-        final idx = current.indexWhere((f) => f.file.path == filePath);
-        if (idx != -1) {
-          final existing = current[idx];
-          final status = switch (entry.status) {
-            QueuedAttachmentStatus.pending ||
-            QueuedAttachmentStatus.uploading => FileUploadStatus.uploading,
-            QueuedAttachmentStatus.completed => FileUploadStatus.completed,
-            QueuedAttachmentStatus.failed => FileUploadStatus.failed,
-            QueuedAttachmentStatus.cancelled => FileUploadStatus.failed,
-          };
+        try {
+          final current = _ref.read(attachedFilesProvider);
+          final idx = current.indexWhere((f) => f.file.path == filePath);
+          if (idx != -1) {
+            final existing = current[idx];
+            final status = switch (entry.status) {
+              QueuedAttachmentStatus.pending ||
+              QueuedAttachmentStatus.uploading => FileUploadStatus.uploading,
+              QueuedAttachmentStatus.completed => FileUploadStatus.completed,
+              QueuedAttachmentStatus.failed => FileUploadStatus.failed,
+              QueuedAttachmentStatus.cancelled => FileUploadStatus.failed,
+            };
 
-          if (status == FileUploadStatus.completed &&
-              entry.fileId != null &&
-              imageBytes != null) {
-            preCacheImageBytes(entry.fileId!, imageBytes);
+            if (status == FileUploadStatus.completed &&
+                entry.fileId != null &&
+                imageBytes != null) {
+              preCacheImageBytes(entry.fileId!, imageBytes);
+            }
+
+            if (status == FileUploadStatus.completed && entry.fileId != null) {
+              unawaited(_syncUploadedFile(entry.fileId!));
+            }
+
+            final newState = FileUploadState(
+              file: File(filePath),
+              fileName: displayFileName,
+              fileSize: fileSize ?? existing.fileSize,
+              progress: status == FileUploadStatus.completed
+                  ? 1.0
+                  : existing.progress,
+              status: status,
+              fileId: entry.fileId ?? existing.fileId,
+              error: entry.lastError,
+              isImage: isImage,
+            );
+            _ref
+                .read(attachedFilesProvider.notifier)
+                .updateFileState(filePath, newState);
           }
-
-          if (status == FileUploadStatus.completed && entry.fileId != null) {
-            unawaited(_syncUploadedFile(entry.fileId!));
-          }
-
-          final newState = FileUploadState(
-            file: File(filePath),
-            fileName: displayFileName,
-            fileSize: fileSize ?? existing.fileSize,
-            progress: status == FileUploadStatus.completed
-                ? 1.0
-                : existing.progress,
-            status: status,
-            fileId: entry.fileId ?? existing.fileId,
-            error: entry.lastError,
-            isImage: isImage,
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'file-upload-state-update-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'id': id},
           );
-          _ref
-              .read(attachedFilesProvider.notifier)
-              .updateFileState(filePath, newState);
         }
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'file-upload-state-update-failed',
-          scope: 'media/upload',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': id},
-        );
-      }
 
-      switch (entry.status) {
-        case QueuedAttachmentStatus.completed:
-        case QueuedAttachmentStatus.failed:
-        case QueuedAttachmentStatus.cancelled:
-          unawaited(deleteShareStagingFile(filePath));
-          unawaited(sub.cancel());
-          cleanupTemp();
-          removeInflight();
-          if (!completer.isCompleted) completer.complete();
-          break;
-        default:
-          break;
-      }
-    }, onDone: () {
-      // The queue was disposed (server switch / logout) before this upload
-      // reached a terminal status. Resolve the awaiting caller so it does not
-      // hang; the item stays in the previous server's Drift table and resumes
-      // when that server is next active. Do NOT cleanupTemp() here: the kept
-      // row still points at the converted temp file, which must survive for the
-      // resume to succeed. (An interrupted-and-never-resumed upload leaks the
-      // temp dir until OS cleanup — preferable to losing the attachment.)
-      removeInflight();
-      if (!completer.isCompleted) completer.complete();
-    });
+        switch (entry.status) {
+          case QueuedAttachmentStatus.completed:
+          case QueuedAttachmentStatus.failed:
+          case QueuedAttachmentStatus.cancelled:
+            unawaited(deleteShareStagingFile(filePath));
+            unawaited(sub.cancel());
+            cleanupTemp();
+            removeInflight();
+            if (!completer.isCompleted) completer.complete();
+            break;
+          default:
+            break;
+        }
+      },
+      onDone: () {
+        // The queue was disposed (server switch / logout) before this upload
+        // reached a terminal status. Resolve the awaiting caller so it does not
+        // hang; the item stays in the previous server's Drift table and resumes
+        // when that server is next active. Do NOT cleanupTemp() here: the kept
+        // row still points at the converted temp file, which must survive for the
+        // resume to succeed. (An interrupted-and-never-resumed upload leaks the
+        // temp dir until OS cleanup — preferable to losing the attachment.)
+        removeInflight();
+        if (!completer.isCompleted) completer.complete();
+      },
+    );
 
     // Wire the cancel path: stop listening + temp cleanup, then complete so the
     // awaiting caller unblocks (the legacy cancel flipped task state and let the
@@ -283,6 +397,264 @@ class MediaUploadController {
 
     unawaited(uploader.processQueue());
     await completer.future;
+  }
+
+  Future<void> _prepareDirectImage({
+    required String filePath,
+    required bool isImage,
+    required bool selectedModelSupportsImages,
+  }) async {
+    if (!selectedModelSupportsImages) {
+      throw const DirectChatInputException(
+        'This direct model does not support image attachments.',
+      );
+    }
+    if (!isImage) {
+      throw const DirectChatInputException(
+        'Direct chats support image attachments only.',
+      );
+    }
+
+    final attachments = _ref.read(attachedFilesProvider);
+    final imagesByPath = <String, FileUploadState>{
+      for (final attachment in attachments)
+        if (attachment.isImage == true &&
+            attachment.status != FileUploadStatus.failed)
+          attachment.file.path: attachment,
+    };
+    final imagePaths = <String>{...imagesByPath.keys, filePath};
+    if (imagePaths.length > kDirectMaxImages) {
+      throw const DirectChatInputException(
+        'Direct chats support up to 4 images per request.',
+      );
+    }
+
+    var measuredTotalBytes = 0;
+    var currentSourceBytes = 0;
+    for (final path in imagePaths) {
+      final attachment = imagesByPath[path];
+      final preparedDataUrl =
+          attachment?.base64DataUrl ??
+          ((attachment?.fileId?.startsWith('data:image/') ?? false)
+              ? attachment!.fileId
+              : null);
+      final bytes = preparedDataUrl != null
+          ? decodedImageByteLength(
+              preparedDataUrl,
+              maxDecodedBytes: kDirectMaxDecodedImageBytes - measuredTotalBytes,
+            )
+          : await File(path).length();
+      measuredTotalBytes += bytes;
+      if (path == filePath) currentSourceBytes = bytes;
+      if (measuredTotalBytes > kDirectMaxDecodedImageBytes) {
+        throw const DirectChatInputException(
+          'Direct chat images must be 20 MB or less in total.',
+        );
+      }
+    }
+
+    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+      File(filePath),
+    );
+    if (dataUrl == null) {
+      throw const DirectChatInputException(
+        'The selected image could not be prepared for this direct model.',
+      );
+    }
+    final decodedBytes = validatePreparedDirectImageDataUrl(
+      dataUrl,
+      otherImageBytes: measuredTotalBytes - currentSourceBytes,
+    );
+
+    final current = _ref.read(attachedFilesProvider);
+    final existing = current
+        .where((attachment) => attachment.file.path == filePath)
+        .firstOrNull;
+    if (existing != null) {
+      _ref
+          .read(attachedFilesProvider.notifier)
+          .updateFileState(
+            filePath,
+            FileUploadState(
+              file: existing.file,
+              fileName: existing.fileName,
+              fileSize: decodedBytes,
+              progress: 1,
+              status: FileUploadStatus.completed,
+              fileId: dataUrl,
+              isImage: true,
+              base64DataUrl: dataUrl,
+            ),
+          );
+    }
+    // Shared-intent and camera staging files are no longer needed once the
+    // direct attachment owns an in-memory data URL.
+    unawaited(deleteShareStagingFile(filePath));
+  }
+
+  Future<void> _prepareHermesAttachment({
+    required String filePath,
+    required String fileName,
+    required bool isImage,
+  }) async {
+    final attachments = _ref.read(attachedFilesProvider);
+    final activeAttachments = attachments
+        .where((attachment) => attachment.status != FileUploadStatus.failed)
+        .toList(growable: false);
+
+    if (!isImage) {
+      if (!isHermesLocalDocumentFileNameSupported(fileName)) {
+        throw const HermesChatInputException(
+          'Hermes supports local UTF-8 text and DOCX documents.',
+        );
+      }
+      final documentPaths = <String>{
+        for (final attachment in activeAttachments)
+          if (attachment.isImage != true) attachment.file.path,
+        filePath,
+      };
+      if (documentPaths.length > kHermesMaxLocalDocuments) {
+        throw const HermesChatInputException(
+          'Hermes supports up to 4 local documents per message.',
+        );
+      }
+      final file = File(filePath);
+      final stat = await file.stat();
+      if (stat.size > kHermesMaxLocalDocumentBytes) {
+        throw const HermesChatInputException(
+          'This document exceeds the Hermes local-document size limit.',
+        );
+      }
+      final opaqueId = sha256
+          .convert(
+            utf8.encode(
+              '$filePath\u0000${stat.size}\u0000'
+              '${stat.modified.microsecondsSinceEpoch}',
+            ),
+          )
+          .toString();
+      _updatePreparedHermesState(
+        filePath: filePath,
+        fileName: fileName,
+        fileSize: stat.size,
+        fileId: '$kHermesLocalDocumentIdPrefix$opaqueId',
+        isImage: false,
+      );
+      return;
+    }
+
+    final capabilities = hermesCapabilitiesNow(_ref);
+    if (!capabilities.inputImages) {
+      throw const HermesChatInputException(
+        'This Hermes server does not advertise image input support.',
+      );
+    }
+
+    final imagesByPath = <String, FileUploadState>{
+      for (final attachment in activeAttachments)
+        if (attachment.isImage == true) attachment.file.path: attachment,
+    };
+    final imagePaths = <String>{...imagesByPath.keys, filePath};
+    if (imagePaths.length > kHermesMaxInlineImages) {
+      throw const HermesChatInputException(
+        'Hermes supports up to 4 images per message.',
+      );
+    }
+
+    var measuredTotalBytes = 0;
+    var currentSourceBytes = 0;
+    for (final path in imagePaths) {
+      final attachment = imagesByPath[path];
+      final preparedDataUrl =
+          attachment?.base64DataUrl ??
+          ((attachment?.fileId?.startsWith('data:image/') ?? false)
+              ? attachment!.fileId
+              : null);
+      final int bytes;
+      try {
+        bytes = preparedDataUrl != null
+            ? decodedImageByteLength(
+                preparedDataUrl,
+                maxDecodedBytes:
+                    kHermesMaxDecodedImageBytes - measuredTotalBytes,
+              )
+            : await File(path).length();
+      } on DirectChatInputException catch (error) {
+        throw HermesChatInputException(error.message);
+      }
+      measuredTotalBytes += bytes;
+      if (path == filePath) currentSourceBytes = bytes;
+      if (measuredTotalBytes > kHermesMaxDecodedImageBytes) {
+        throw const HermesChatInputException(
+          'Hermes images must be 6 MB or less in total.',
+        );
+      }
+    }
+
+    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+      File(filePath),
+    );
+    if (dataUrl == null) {
+      throw const HermesChatInputException(
+        'The selected image could not be prepared for Hermes.',
+      );
+    }
+    final int decodedBytes;
+    try {
+      decodedBytes = decodedImageByteLength(
+        dataUrl,
+        maxDecodedBytes:
+            kHermesMaxDecodedImageBytes -
+            (measuredTotalBytes - currentSourceBytes),
+      );
+    } on DirectChatInputException catch (error) {
+      throw HermesChatInputException(error.message);
+    }
+    if (measuredTotalBytes - currentSourceBytes + decodedBytes >
+        kHermesMaxDecodedImageBytes) {
+      throw const HermesChatInputException(
+        'Hermes images must be 6 MB or less in total.',
+      );
+    }
+    _updatePreparedHermesState(
+      filePath: filePath,
+      fileName: fileName,
+      fileSize: decodedBytes,
+      fileId: dataUrl,
+      isImage: true,
+      base64DataUrl: dataUrl,
+    );
+    unawaited(deleteShareStagingFile(filePath));
+  }
+
+  void _updatePreparedHermesState({
+    required String filePath,
+    required String fileName,
+    required int fileSize,
+    required String fileId,
+    required bool isImage,
+    String? base64DataUrl,
+  }) {
+    final existing = _ref
+        .read(attachedFilesProvider)
+        .where((attachment) => attachment.file.path == filePath)
+        .firstOrNull;
+    if (existing == null) return;
+    _ref
+        .read(attachedFilesProvider.notifier)
+        .updateFileState(
+          filePath,
+          FileUploadState(
+            file: existing.file,
+            fileName: fileName,
+            fileSize: fileSize,
+            progress: 1,
+            status: FileUploadStatus.completed,
+            fileId: fileId,
+            isImage: isImage,
+            base64DataUrl: base64DataUrl,
+          ),
+        );
   }
 
   Future<void> _syncUploadedFile(String fileId) async {

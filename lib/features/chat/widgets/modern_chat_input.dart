@@ -26,6 +26,7 @@ import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../direct_connections/direct_connections.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
 import '../../../core/models/prompt.dart';
@@ -56,6 +57,25 @@ import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
 import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
+
+/// Whether the selected model may accept locally pasted/picked images.
+/// Reserved direct identities fail closed when their mutable registry binding
+/// has been removed or replaced.
+bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
+  if (model == null || !hasReservedDirectIdentity(model)) return true;
+  return registry.resolve(model) != null && model.isMultimodal == true;
+}
+
+/// Shared visibility rule used by both compact and expanded '+' branches.
+bool shouldShowComposerOverflowButton({
+  required bool isHermesComposer,
+  required bool isDirectComposer,
+  required bool directSupportsImages,
+  bool hermesHasLocalAttachmentActions = false,
+}) {
+  if (isHermesComposer) return hermesHasLocalAttachmentActions;
+  return !isDirectComposer || directSupportsImages;
+}
 
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
@@ -361,22 +381,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _handleNativeKeyboardAttachmentAction(String id) {
     if (!mounted || _isDeactivated) return;
+    final availability = _overflowAttachmentAvailability;
 
     switch (id) {
       case ComposerOverflowActionIds.file:
-        widget.onFileAttachment?.call();
+        if (availability.file) widget.onFileAttachment?.call();
         return;
       case ComposerOverflowActionIds.serverFile:
-        widget.onServerFileAttachment?.call();
+        if (availability.serverFile) widget.onServerFileAttachment?.call();
         return;
       case ComposerOverflowActionIds.photo:
-        widget.onImageAttachment?.call();
+        if (availability.photo) widget.onImageAttachment?.call();
         return;
       case ComposerOverflowActionIds.camera:
-        widget.onCameraCapture?.call();
+        if (availability.camera) widget.onCameraCapture?.call();
         return;
       case ComposerOverflowActionIds.web:
-        widget.onWebAttachment?.call();
+        if (availability.web) widget.onWebAttachment?.call();
         return;
       default:
         toggleComposerOverflowSelection(ref, id);
@@ -389,7 +410,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// This is called when the user pastes rich content into the text field
   /// on iOS and Android.
   Future<void> _handleContentInserted(KeyboardInsertedContent content) async {
-    if (!widget.enabled) return;
+    if (!widget.enabled || !_selectedModelAcceptsImageInput) return;
 
     // Check if we have a callback to handle pasted attachments
     final onPasted = widget.onPastedAttachments;
@@ -435,7 +456,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _handleNativePastePayload(IosNativePastePayload payload) async {
-    if (!mounted || !widget.enabled || !_focusNode.hasFocus) {
+    if (!mounted ||
+        !widget.enabled ||
+        !_focusNode.hasFocus ||
+        !_selectedModelAcceptsImageInput) {
       return;
     }
 
@@ -500,7 +524,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       editableTextState.contextMenuButtonItems,
     );
 
-    if (!kIsWeb && Platform.isIOS && widget.onPastedAttachments != null) {
+    if (!kIsWeb &&
+        Platform.isIOS &&
+        widget.onPastedAttachments != null &&
+        _selectedModelAcceptsImageInput) {
       final pasteIndex = items.indexWhere(
         (item) => item.type == ContextMenuButtonType.paste,
       );
@@ -545,6 +572,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     VoidCallback? defaultPaste,
   }) async {
     if (!mounted || !widget.enabled) {
+      return;
+    }
+
+    if (!_selectedModelAcceptsImageInput) {
+      defaultPaste?.call();
       return;
     }
 
@@ -738,6 +770,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             candidate.startsWith('#') ||
             candidate.startsWith('@'))) {
       return null;
+    }
+
+    // `#` suggestions are OpenWebUI knowledge and server-file resources. A
+    // Hermes session cannot resolve those ids, so do not offer a control whose
+    // result would be silently dropped by the active transport.
+    if (candidate.startsWith('#')) {
+      final model = ref.read(selectedModelProvider);
+      if (model != null && isHermesModel(model)) return null;
     }
 
     return PromptCommandMatch(command: candidate, start: start, end: cursor);
@@ -1308,6 +1348,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
+  bool get _shouldShowPromptOverlay {
+    if (!_showPromptOverlay) return false;
+    final model = ref.read(selectedModelProvider);
+    return !(model != null &&
+        isHermesModel(model) &&
+        _currentPromptCommand.startsWith('#'));
+  }
+
   Future<void> _openKnowledgePicker({String? initialBaseId}) async {
     _hidePromptOverlay();
 
@@ -1784,13 +1832,50 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  bool get _selectedModelAcceptsImageInput {
+    final model = ref.read(selectedModelProvider);
+    if (model != null && isHermesModel(model)) {
+      // Hermes image input is opt-in. Older servers and capabilities still in
+      // flight must remain text-only rather than accepting an attachment the
+      // transport cannot faithfully deliver.
+      return ref.read(hermesCapabilitiesProvider).asData?.value.inputImages ==
+          true;
+    }
+    return directModelAcceptsImageInput(
+      model,
+      ref.read(directModelRegistryProvider),
+    );
+  }
+
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
+    final model = ref.read(selectedModelProvider);
+    final hermesMode = model != null && isHermesModel(model);
+    if (hermesMode) {
+      final inputImages =
+          ref.read(hermesCapabilitiesProvider).asData?.value.inputImages ==
+          true;
+      return ComposerOverflowAttachmentAvailability(
+        // Hermes documents are ingested locally and sent as text, so this is
+        // deliberately independent of the remote image-input capability.
+        file: widget.onFileAttachment != null,
+        serverFile: false,
+        photo: inputImages && widget.onImageAttachment != null,
+        camera: inputImages && widget.onCameraCapture != null,
+        web: false,
+      );
+    }
+
+    final directMode = model != null && hasReservedDirectIdentity(model);
+    final imageInputAvailable = directModelAcceptsImageInput(
+      model,
+      ref.read(directModelRegistryProvider),
+    );
     return ComposerOverflowAttachmentAvailability(
-      file: widget.onFileAttachment != null,
-      serverFile: widget.onServerFileAttachment != null,
-      photo: widget.onImageAttachment != null,
-      camera: widget.onCameraCapture != null,
-      web: widget.onWebAttachment != null,
+      file: !directMode && widget.onFileAttachment != null,
+      serverFile: !directMode && widget.onServerFileAttachment != null,
+      photo: imageInputAvailable && widget.onImageAttachment != null,
+      camera: imageInputAvailable && widget.onCameraCapture != null,
+      web: !directMode && widget.onWebAttachment != null,
     );
   }
 
@@ -1807,23 +1892,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return const <IosKeyboardAttachmentActionConfig>[];
     }
 
-    // Hermes is a single-agent backend with no OWUI tools/web-search/attachments;
-    // suppress the OWUI keyboard-accessory actions for it.
     final selectedModel = ref.read(selectedModelProvider);
-    if (selectedModel != null && isHermesModel(selectedModel)) {
-      return const <IosKeyboardAttachmentActionConfig>[];
-    }
+    final hermesMode = selectedModel != null && isHermesModel(selectedModel);
 
-    return buildComposerOverflowItems(
+    final directMode =
+        selectedModel != null && hasReservedDirectIdentity(selectedModel);
+
+    final items = buildComposerOverflowItems(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
-      webSearchAvailable: webSearchAvailable,
+      webSearchAvailable: !hermesMode && !directMode && webSearchAvailable,
       webSearchEnabled: webSearchEnabled,
-      imageGenerationAvailable: imageGenerationAvailable,
+      imageGenerationAvailable:
+          !hermesMode && !directMode && imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
-      availableTools: availableTools,
+      availableTools: hermesMode || directMode
+          ? const <Tool>[]
+          : availableTools,
       selectedToolIds: selectedToolIds,
-    ).map(_nativeKeyboardAttachmentActionFromItem).toList(growable: false);
+    );
+    return items
+        .where((item) {
+          if (hermesMode) {
+            return item.enabled &&
+                (item.id == ComposerOverflowActionIds.file ||
+                    item.id == ComposerOverflowActionIds.photo ||
+                    item.id == ComposerOverflowActionIds.camera);
+          }
+          return !directMode ||
+              item.id == ComposerOverflowActionIds.photo ||
+              item.id == ComposerOverflowActionIds.camera;
+        })
+        .map(_nativeKeyboardAttachmentActionFromItem)
+        .toList(growable: false);
   }
 
   IosKeyboardAttachmentActionConfig _nativeKeyboardAttachmentActionFromItem(
@@ -1999,6 +2100,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen(hermesCapabilitiesProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
 
     // Use dedicated streaming provider to avoid rebuilding on every message change
     final isGenerating = ref.watch(isChatStreamingProvider);
@@ -2059,11 +2163,33 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         (model) => model?.filters ?? const <ToggleFilter>[],
       ),
     );
-    // Hermes is a single-agent backend with no OWUI tools/web-search/image-gen/
-    // attachments; it uses its own `/` skills. Hide the OWUI composer affordances
-    // (the "+" overflow button and the quick pills) when a Hermes model is active.
+    // Hermes uses its own `/` skills and only exposes local attachment actions.
+    // Keep OpenWebUI quick pills hidden while allowing the attachment button to
+    // follow the server's explicit image-input capability.
     final bool isHermesComposer = ref.watch(
       selectedModelProvider.select((m) => m != null && isHermesModel(m)),
+    );
+    // Watching the capabilities value makes a loading -> data transition
+    // rebuild the composer. Attachment access still fails closed below.
+    ref.watch(hermesCapabilitiesProvider);
+    final selectedComposerModel = ref.watch(selectedModelProvider);
+    final visionCapableModelIds = ref.watch(visionCapableModelsProvider);
+    final attachmentAvailability = _overflowAttachmentAvailability;
+    final bool isDirectComposer =
+        selectedComposerModel != null &&
+        hasReservedDirectIdentity(selectedComposerModel);
+    final directSupportsImages =
+        !isDirectComposer ||
+        (visionCapableModelIds.contains(selectedComposerModel.id) &&
+            (attachmentAvailability.photo || attachmentAvailability.camera));
+    final showOverflowButton = shouldShowComposerOverflowButton(
+      isHermesComposer: isHermesComposer,
+      isDirectComposer: isDirectComposer,
+      directSupportsImages: directSupportsImages,
+      hermesHasLocalAttachmentActions:
+          attachmentAvailability.file ||
+          attachmentAvailability.photo ||
+          attachmentAvailability.camera,
     );
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
@@ -2101,7 +2227,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (isHermesComposer) break; // Hermes has no OWUI quick pills.
+      if (isHermesComposer || isDirectComposer) {
+        break;
+      }
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2229,7 +2357,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
 
     final List<Widget> composerChildren = <Widget>[
-      if (_showPromptOverlay)
+      if (_shouldShowPromptOverlay)
         Padding(
           key: const ValueKey('prompt-overlay'),
           padding: const EdgeInsets.fromLTRB(
@@ -2303,7 +2431,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               if (_isRecording) ...[
                 _buildDictationStopButton(size: 36.0),
                 const SizedBox(width: Spacing.xs),
-              ] else if (!isHermesComposer) ...[
+              ] else if (showOverflowButton) ...[
                 _buildOverflowButton(
                   tooltip: l10n.more,
                   dense: true,
@@ -2461,7 +2589,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           mainAxisSize: MainAxisSize.min,
           children: [
             // Show prompt overlay above the compact input row when active
-            if (_showPromptOverlay)
+            if (_shouldShowPromptOverlay)
               Padding(
                 padding: const EdgeInsets.only(bottom: Spacing.xs),
                 child: _buildActiveOverlay(),
@@ -2474,7 +2602,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 if (_isRecording) ...[
                   _buildDictationStopButton(),
                   const SizedBox(width: Spacing.sm),
-                ] else if (!isHermesComposer) ...[
+                ] else if (showOverflowButton) ...[
                   _buildOverflowButton(
                     tooltip: l10n.more,
                     nativeActions: nativeAttachmentActions,
@@ -2594,7 +2722,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 )] =
                 const InsertNewlineIntent();
           }
-          if (_showPromptOverlay) {
+          if (_shouldShowPromptOverlay) {
             map[LogicalKeySet(LogicalKeyboardKey.arrowDown)] =
                 const SelectNextPromptIntent();
             map[LogicalKeySet(LogicalKeyboardKey.arrowUp)] =
@@ -2608,7 +2736,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           actions: <Type, Action<Intent>>{
             SendMessageIntent: CallbackAction<SendMessageIntent>(
               onInvoke: (intent) {
-                if (_showPromptOverlay) {
+                if (_shouldShowPromptOverlay) {
                   _confirmPromptSelection();
                   return null;
                 }
@@ -2704,12 +2832,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                         : FontStyle.normal,
                     fontWeight: recordingWeight,
                   ),
-                  contentInsertionConfiguration: ContentInsertionConfiguration(
-                    allowedMimeTypes: ClipboardAttachmentService
-                        .supportedImageMimeTypes
-                        .toList(),
-                    onContentInserted: _handleContentInserted,
-                  ),
+                  contentInsertionConfiguration: _selectedModelAcceptsImageInput
+                      ? ContentInsertionConfiguration(
+                          allowedMimeTypes: ClipboardAttachmentService
+                              .supportedImageMimeTypes
+                              .toList(),
+                          onContentInserted: _handleContentInserted,
+                        )
+                      : null,
                   // Transparent decoration — the glass container provides
                   // the visual frame.
                   decoration: const BoxDecoration(),
@@ -2760,12 +2890,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       alignLabelWithHint: true,
                     ),
                 // Enable pasting images and files from clipboard
-                contentInsertionConfiguration: ContentInsertionConfiguration(
-                  allowedMimeTypes: ClipboardAttachmentService
-                      .supportedImageMimeTypes
-                      .toList(),
-                  onContentInserted: _handleContentInserted,
-                ),
+                contentInsertionConfiguration: _selectedModelAcceptsImageInput
+                    ? ContentInsertionConfiguration(
+                        allowedMimeTypes: ClipboardAttachmentService
+                            .supportedImageMimeTypes
+                            .toList(),
+                        onContentInserted: _handleContentInserted,
+                      )
+                    : null,
                 // Use Flutter's standard text-editing context menu. Images
                 // arrive through ContentInsertionConfiguration/native paste.
                 contextMenuBuilder: (context, editableTextState) {
@@ -3359,6 +3491,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _showOverflowSheet() {
     ConduitHaptics.selectionClick();
+    final attachmentAvailability = _overflowAttachmentAvailability;
+    final selectedModel = ref.read(selectedModelProvider);
+    final localAttachmentsOnly =
+        selectedModel != null && isHermesModel(selectedModel);
     final prevCanRequest = _focusNode.canRequestFocus;
     final wasFocused = _focusNode.hasFocus;
     _focusNode.canRequestFocus = false;
@@ -3371,11 +3507,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context: context,
       isScrollControlled: true,
       builder: (_) => ComposerOverflowSheet(
-        onFileAttachment: widget.onFileAttachment,
-        onServerFileAttachment: widget.onServerFileAttachment,
-        onImageAttachment: widget.onImageAttachment,
-        onCameraCapture: widget.onCameraCapture,
-        onWebAttachment: widget.onWebAttachment,
+        localAttachmentsOnly: localAttachmentsOnly,
+        onFileAttachment: attachmentAvailability.file
+            ? widget.onFileAttachment
+            : null,
+        onServerFileAttachment: attachmentAvailability.serverFile
+            ? widget.onServerFileAttachment
+            : null,
+        onImageAttachment: attachmentAvailability.photo
+            ? widget.onImageAttachment
+            : null,
+        onCameraCapture: attachmentAvailability.camera
+            ? widget.onCameraCapture
+            : null,
+        onWebAttachment: attachmentAvailability.web
+            ? widget.onWebAttachment
+            : null,
       ),
     ).whenComplete(() {
       if (mounted) {

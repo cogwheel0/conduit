@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/chat_completion_transport.dart';
@@ -55,6 +56,7 @@ class _TrackingApiService extends ApiService {
     Map<String, dynamic>? modelItem,
     String? sessionId,
     List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     chatCompletedCalls += 1;
     return const <String, dynamic>{};

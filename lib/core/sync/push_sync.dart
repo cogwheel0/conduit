@@ -128,12 +128,29 @@ class PushSync {
       // once this push worker owns the op as inFlight, crash-heal exits before
       // taking localId and cannot form an opposite-order cycle.
       await _chatLocks.runExclusive(pushed.serverId, () async {
-        await _remapper.remapChat(
+        final remapResult = await _remapper.remapChat(
           localId: localId,
           serverId: pushed.serverId,
           serverCreatedAt: pushed.serverCreatedAt,
           serverUpdatedAt: pushed.serverUpdatedAt,
         );
+        switch (remapResult) {
+          case ChatRemapResult.sourceMissing:
+            // The POST is already an authoritative remote success. There is
+            // no local row left to adopt or dirty-clear, and retrying cannot
+            // make that row reappear; it can only repeat the remote side
+            // effect if stale local state is restored. Consume this create as
+            // satisfied, matching pull-side crash-heal's orphan handling.
+            DebugLogger.warning(
+              'create-remap-source-missing-consumed',
+              scope: 'sync/push',
+              data: {'from': localId, 'createdServerId': pushed.serverId},
+            );
+            return;
+          case ChatRemapResult.rewritten:
+          case ChatRemapResult.alreadyCommitted:
+            break;
+        }
         // Dirty-clear (§7.2): the whole reconstruct+POST happened under one
         // local-id lock span, and remap+clear share this server-id lock span.
         // Clear only the captured message snapshot (now living under serverId)

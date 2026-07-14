@@ -29,12 +29,11 @@ Future<void> showHermesJobsSheet(BuildContext context) async {
     try {
       final usedNative = await _showNativeHermesJobsSheet(context);
       if (usedNative) return;
-    } catch (error, stackTrace) {
+    } catch (error) {
       DebugLogger.error(
         'native-jobs-sheet-failed',
         scope: 'hermes/jobs-sheet',
-        error: error,
-        stackTrace: stackTrace,
+        data: {'errorType': error.runtimeType.toString()},
       );
       if (!context.mounted) return;
     }
@@ -125,21 +124,19 @@ Future<void> _toggleNativeJob(
     await container
         .read(hermesJobsProvider.notifier)
         .setEnabled(jobId, enabled);
-  } catch (error, stackTrace) {
-    DebugLogger.error(
-      'toggle-failed',
-      scope: 'hermes/jobs-sheet',
-      error: error,
-      stackTrace: stackTrace,
-      data: {'jobId': jobId, 'enabled': enabled},
-    );
+  } catch (_) {
+    _logHermesJobToggleFailure(enabled: enabled);
     final jobs = container.read(hermesJobsProvider).asData?.value;
     if (jobs != null) {
-      await NativeSheetBridge.instance.applyDetailPatch(
-        detailId: _nativeJobsSheetId,
-        title: 'Scheduled agents',
-        items: _nativeJobItems(jobs, writable: writable),
-      );
+      try {
+        await NativeSheetBridge.instance.applyDetailPatch(
+          detailId: _nativeJobsSheetId,
+          title: 'Scheduled agents',
+          items: _nativeJobItems(jobs, writable: writable),
+        );
+      } catch (_) {
+        DebugLogger.error('toggle-rollback-failed', scope: 'hermes/jobs-sheet');
+      }
     }
   }
 }
@@ -204,6 +201,16 @@ String _nativeJobSubtitle(HermesJob job) {
     if (preview.isNotEmpty) preview,
     if (hermesScheduleNeedsRawDisplay(job.schedule)) 'Cron $rawSchedule',
   ].join('\n');
+}
+
+void _logHermesJobToggleFailure({required bool enabled}) {
+  // A provider error can contain its request URL (and therefore the opaque
+  // job id), so neither the caught object nor the raw id belongs in logs.
+  DebugLogger.error(
+    'toggle-failed',
+    scope: 'hermes/jobs-sheet',
+    data: {'enabled': enabled},
+  );
 }
 
 class HermesJobsSheet extends ConsumerWidget {
@@ -437,14 +444,8 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
       await ref
           .read(hermesJobsProvider.notifier)
           .setEnabled(widget.job.id, enabled);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'toggle-failed',
-        scope: 'hermes/jobs-sheet',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'jobId': widget.job.id, 'enabled': enabled},
-      );
+    } catch (_) {
+      _logHermesJobToggleFailure(enabled: enabled);
       if (mounted) {
         UiUtils.showMessage(
           context,

@@ -1,4 +1,9 @@
 import '../utils/hermes_time_parsing.dart';
+import '../services/hermes_identifier.dart';
+
+const int kMaxHermesSessionTitleCharacters = 512;
+const int kMaxHermesSessionPreviewCharacters = 4096;
+const int kMaxHermesSessionSourceCharacters = 128;
 
 /// Lightweight summary of a Hermes server-side session, for the sessions list.
 class HermesSessionSummary {
@@ -26,17 +31,33 @@ class HermesSessionSummary {
   /// Parses one session object from `GET /api/sessions`, or null when it has no
   /// usable id. Tolerant of the field-name variations across Hermes versions.
   static HermesSessionSummary? fromJson(Map<String, dynamic> json) {
-    final id = (json['id'] ?? json['session_id'])?.toString();
-    if (id == null || id.isEmpty) return null;
+    final id =
+        validateHermesOpaqueIdentifier(json['id']) ??
+        validateHermesOpaqueIdentifier(json['session_id']);
+    if (id == null) return null;
 
-    final rawTitle = (json['title'] ?? json['name'] ?? '').toString().trim();
-    final rawPreview = json['preview']?.toString().trim();
+    final rawTitle =
+        validateHermesBoundedString(
+          json['title'],
+          maxCharacters: kMaxHermesSessionTitleCharacters,
+        ) ??
+        validateHermesBoundedString(
+          json['name'],
+          maxCharacters: kMaxHermesSessionTitleCharacters,
+        );
+    final rawPreview = validateHermesBoundedString(
+      json['preview'],
+      maxCharacters: kMaxHermesSessionPreviewCharacters,
+    );
 
     return HermesSessionSummary(
       id: id,
-      title: rawTitle.isEmpty ? 'Untitled session' : rawTitle,
-      preview: (rawPreview == null || rawPreview.isEmpty) ? null : rawPreview,
-      source: json['source']?.toString(),
+      title: rawTitle ?? 'Untitled session',
+      preview: rawPreview,
+      source: validateHermesBoundedString(
+        json['source'],
+        maxCharacters: kMaxHermesSessionSourceCharacters,
+      ),
       updatedAt: parseHermesTimestamp(
         json['last_active'] ??
             json['updated_at'] ??

@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -6,6 +7,7 @@ import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -27,11 +29,21 @@ class _RecordingShareApiService extends ApiService {
       );
 
   int shareCalls = 0;
+  int deleteCalls = 0;
+  final sharedConversationIds = <String>[];
+  final deletedConversationIds = <String>[];
 
   @override
   Future<String?> shareConversation(String id) async {
     shareCalls += 1;
+    sharedConversationIds.add(id);
     return 'share-$shareCalls';
+  }
+
+  @override
+  Future<void> deleteSharedConversation(String id) async {
+    deleteCalls += 1;
+    deletedConversationIds.add(id);
   }
 
   @override
@@ -173,5 +185,126 @@ void main() {
     check(api.shareCalls).equals(1);
     check(shareAction.shareCalls).equals(1);
     check(shareAction.lastText).equals('https://example.com/s/share-1');
+  });
+
+  testWidgets('sharing a scoped collision never mutates native Hermes', (
+    tester,
+  ) async {
+    final api = _RecordingShareApiService();
+    const rawId = 'local:hermes_share-collision';
+    final selected = withChatStorageProvenance(
+      Conversation(
+        id: rawId,
+        title: 'Server row',
+        createdAt: DateTime.utc(2026, 4, 26),
+        updatedAt: DateTime.utc(2026, 4, 26),
+        shareId: 'existing-share',
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    final native = markNativeHermesConversation(
+      Conversation(
+        id: rawId,
+        title: 'Native Hermes',
+        createdAt: DateTime.utc(2026, 4, 26),
+        updatedAt: DateTime.utc(2026, 4, 26),
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          isAuthenticatedProvider2.overrideWithValue(true),
+          apiServiceProvider.overrideWithValue(api),
+          conversationsProvider.overrideWith(_TestConversations.new),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ChatShareSheet(conversation: selected)),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ChatShareSheet)),
+    );
+    container.read(activeConversationProvider.notifier).set(native);
+
+    await tester.tap(find.text('Update and Copy Link'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    check(api.sharedConversationIds).deepEquals(<String>[rawId]);
+    check(
+      identical(container.read(activeConversationProvider), native),
+    ).isTrue();
+    check(
+      isNativeHermesConversation(container.read(activeConversationProvider)),
+    ).isTrue();
+  });
+
+  testWidgets('deleting a scoped share never mutates native Hermes', (
+    tester,
+  ) async {
+    final api = _RecordingShareApiService();
+    const rawId = 'local:hermes_delete-share-collision';
+    final selected = withChatStorageProvenance(
+      Conversation(
+        id: rawId,
+        title: 'Server row',
+        createdAt: DateTime.utc(2026, 4, 26),
+        updatedAt: DateTime.utc(2026, 4, 26),
+        shareId: 'existing-share',
+      ),
+      ChatStorageKind.openWebUi,
+    );
+    final native = markNativeHermesConversation(
+      Conversation(
+        id: rawId,
+        title: 'Native Hermes',
+        createdAt: DateTime.utc(2026, 4, 26),
+        updatedAt: DateTime.utc(2026, 4, 26),
+        shareId: 'native-share',
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          isAuthenticatedProvider2.overrideWithValue(true),
+          apiServiceProvider.overrideWithValue(api),
+          conversationsProvider.overrideWith(_TestConversations.new),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ChatShareSheet(conversation: selected)),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ChatShareSheet)),
+    );
+    container.read(activeConversationProvider.notifier).set(native);
+
+    final deleteButton = find.widgetWithText(
+      TextButton,
+      'Delete this link and create a new shared link.',
+    );
+    expect(deleteButton, findsOneWidget);
+    await tester.tap(deleteButton);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    check(api.deletedConversationIds).deepEquals(<String>[rawId]);
+    check(
+      identical(container.read(activeConversationProvider), native),
+    ).isTrue();
+    check(
+      container.read(activeConversationProvider)?.shareId,
+    ).equals('native-share');
+    check(
+      isNativeHermesConversation(container.read(activeConversationProvider)),
+    ).isTrue();
   });
 }

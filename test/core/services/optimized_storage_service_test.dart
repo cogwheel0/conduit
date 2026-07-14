@@ -1,12 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit/core/database/app_database.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/socket_transport_availability.dart';
+import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -229,33 +235,30 @@ void main() {
     },
   );
 
-  test(
-    'deleteLegacyConversationCaches removes exactly the legacy keys '
-    '(CDT-RFC-001 §9.3) and is idempotent',
-    () async {
-      await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
-        _conversationJson('legacy-chat'),
-      ]);
-      await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
-        {'id': 'legacy-folder', 'name': 'Legacy Folder'},
-      ]);
-      await seedLegacyJsonCache(HiveStoreKeys.localTools, [
-        {'id': 'tool-1'},
-      ]);
+  test('deleteLegacyConversationCaches removes exactly the legacy keys '
+      '(CDT-RFC-001 §9.3) and is idempotent', () async {
+    await seedLegacyJsonCache(HiveStoreKeys.localConversations, [
+      _conversationJson('legacy-chat'),
+    ]);
+    await seedLegacyJsonCache(HiveStoreKeys.localFolders, [
+      {'id': 'legacy-folder', 'name': 'Legacy Folder'},
+    ]);
+    await seedLegacyJsonCache(HiveStoreKeys.localTools, [
+      {'id': 'tool-1'},
+    ]);
 
-      await storage.deleteLegacyConversationCaches();
+    await storage.deleteLegacyConversationCaches();
 
-      expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
-      expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
-      // Unrelated cache entries stay untouched.
-      expect(caches.containsKey(HiveStoreKeys.localTools), isTrue);
+    expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
+    expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
+    // Unrelated cache entries stay untouched.
+    expect(caches.containsKey(HiveStoreKeys.localTools), isTrue);
 
-      // Idempotent: a second pass is a no-op.
-      await storage.deleteLegacyConversationCaches();
-      expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
-      expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
-    },
-  );
+    // Idempotent: a second pass is a no-op.
+    await storage.deleteLegacyConversationCaches();
+    expect(caches.containsKey(HiveStoreKeys.localConversations), isFalse);
+    expect(caches.containsKey(HiveStoreKeys.localFolders), isFalse);
+  });
 
   test(
     'transport options are per-server: another server is not read back',
@@ -279,6 +282,232 @@ void main() {
       final restored = storage.getLocalTransportOptionsSync();
       expect(restored?.allowPolling, isFalse);
       expect(restored?.allowWebsocketOnly, isTrue);
+    },
+  );
+
+  test(
+    'multi-key user operations hold one database ownership snapshot',
+    () async {
+      final databaseA = AppDatabase(NativeDatabase.memory());
+      final databaseB = AppDatabase(NativeDatabase.memory());
+      addTearDown(() async {
+        await databaseA.close();
+        await databaseB.close();
+      });
+      var resolutions = 0;
+      storage = OptimizedStorageService(
+        secureStorage: const FlutterSecureStorage(),
+        boxes: HiveBoxes(
+          preferences: preferences,
+          caches: caches,
+          attachmentQueue: attachmentQueue,
+          metadata: metadata,
+        ),
+        workerManager: workerManager,
+        databaseAccess: () => OptimizedStorageDatabaseHandle(
+          database: resolutions++ == 0 ? databaseA : databaseB,
+        ),
+      );
+      const user = User(
+        id: 'user-a',
+        username: 'alice',
+        email: 'alice@example.test',
+        role: 'user',
+      );
+
+      await databaseA.appCacheDao.setValue(
+        HiveStoreKeys.localUser,
+        jsonEncode(user.toJson()),
+      );
+      await databaseA.appCacheDao.setValue(
+        HiveStoreKeys.localUserAvatar,
+        'avatar-a',
+      );
+      await databaseB.appCacheDao.setValue(
+        HiveStoreKeys.localUserAvatar,
+        'avatar-b-must-survive',
+      );
+
+      await storage.saveLocalUser(null);
+
+      expect(resolutions, 1);
+      expect(
+        await databaseA.appCacheDao.getValue(HiveStoreKeys.localUser),
+        isNull,
+      );
+      expect(
+        await databaseA.appCacheDao.getValue(HiveStoreKeys.localUserAvatar),
+        isNull,
+      );
+      expect(
+        await databaseB.appCacheDao.getValue(HiveStoreKeys.localUserAvatar),
+        'avatar-b-must-survive',
+      );
+
+      resolutions = 0;
+      await storage.saveLocalUserWithAvatar(user, avatarUrl: 'new-avatar-a');
+      expect(resolutions, 1);
+      expect(
+        await databaseA.appCacheDao.getValue(HiveStoreKeys.localUserAvatar),
+        'new-avatar-a',
+      );
+
+      resolutions = 0;
+      final restored = await storage.getLocalUserWithAvatar();
+      expect(resolutions, 1);
+      expect(restored?.id, user.id);
+      expect(restored?.profileImage, 'new-avatar-a');
+    },
+  );
+
+  test('default model and model list resolve from the same database', () async {
+    final databaseA = AppDatabase(NativeDatabase.memory());
+    final databaseB = AppDatabase(NativeDatabase.memory());
+    addTearDown(() async {
+      await databaseA.close();
+      await databaseB.close();
+    });
+    var resolutions = 0;
+    storage = OptimizedStorageService(
+      secureStorage: const FlutterSecureStorage(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+      databaseAccess: () => OptimizedStorageDatabaseHandle(
+        database: resolutions++ == 0 ? databaseA : databaseB,
+      ),
+    );
+    const modelA = Model(id: 'model-a', name: 'Model A');
+    const modelB = Model(id: 'model-b', name: 'Model B');
+    await databaseA.appCacheDao.setValue(
+      HiveStoreKeys.localDefaultModel,
+      jsonEncode(modelA.toJson()),
+    );
+    await databaseA.appCacheDao.setValue(
+      HiveStoreKeys.localModels,
+      jsonEncode([modelA.toJson()]),
+    );
+    await databaseB.appCacheDao.setValue(
+      HiveStoreKeys.localModels,
+      jsonEncode([modelB.toJson()]),
+    );
+
+    final restored = await storage.getLocalDefaultModel();
+
+    expect(resolutions, 1);
+    expect(restored?.id, modelA.id);
+  });
+
+  test(
+    'user cache cleanup cannot retarget transport options after an A to B switch',
+    () async {
+      final databaseA = AppDatabase(NativeDatabase.memory());
+      addTearDown(databaseA.close);
+      final releaseStarted = Completer<void>();
+      final releaseGate = Completer<void>();
+      addTearDown(() {
+        if (!releaseGate.isCompleted) releaseGate.complete();
+      });
+      storage = OptimizedStorageService(
+        secureStorage: const FlutterSecureStorage(),
+        boxes: HiveBoxes(
+          preferences: preferences,
+          caches: caches,
+          attachmentQueue: attachmentQueue,
+          metadata: metadata,
+        ),
+        workerManager: workerManager,
+        databaseAccess: () => OptimizedStorageDatabaseHandle(
+          database: databaseA,
+          onRelease: () async {
+            if (!releaseStarted.isCompleted) releaseStarted.complete();
+            await releaseGate.future;
+          },
+        ),
+      );
+      const optionsA = SocketTransportAvailability(
+        allowPolling: false,
+        allowWebsocketOnly: true,
+      );
+      const optionsB = SocketTransportAvailability(
+        allowPolling: true,
+        allowWebsocketOnly: false,
+      );
+      await saveServerConfigs(['server-a', 'server-b']);
+      await storage.setActiveServerId('server-a');
+      await storage.saveLocalTransportOptions(optionsA);
+      await storage.setActiveServerId('server-b');
+      await storage.saveLocalTransportOptions(optionsB);
+      await storage.setActiveServerId('server-a');
+
+      final cleanup = storage.clearUserScopedAuthData();
+      await releaseStarted.future;
+
+      await storage.setActiveServerId('server-b');
+      releaseGate.complete();
+      await cleanup;
+
+      expect(storage.getLocalTransportOptionsSync(), optionsB);
+      await storage.setActiveServerId('server-a');
+      expect(storage.getLocalTransportOptionsSync(), isNull);
+    },
+  );
+
+  test(
+    'clearAll keeps its server owner until deferred Drift cleanup finishes',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final resolutionStarted = Completer<void>();
+      final resolutionGate = Completer<void>();
+      addTearDown(() {
+        if (!resolutionGate.isCompleted) resolutionGate.complete();
+      });
+      storage = OptimizedStorageService(
+        secureStorage: const FlutterSecureStorage(),
+        boxes: HiveBoxes(
+          preferences: preferences,
+          caches: caches,
+          attachmentQueue: attachmentQueue,
+          metadata: metadata,
+        ),
+        workerManager: workerManager,
+        databaseAccess: () async {
+          if (!resolutionStarted.isCompleted) resolutionStarted.complete();
+          await resolutionGate.future;
+          if (PreferencesStore.getString(PreferenceKeys.activeServerId) !=
+              'server-a') {
+            return null;
+          }
+          return OptimizedStorageDatabaseHandle(database: database);
+        },
+      );
+      await saveServerConfigs(['server-a']);
+      await storage.setActiveServerId('server-a');
+      await database.appCacheDao.setValue(
+        HiveStoreKeys.localTools,
+        'must-be-cleared',
+      );
+
+      final cleanup = storage.clearAll();
+      await resolutionStarted.future;
+
+      expect(
+        PreferencesStore.getString(PreferenceKeys.activeServerId),
+        'server-a',
+      );
+      resolutionGate.complete();
+      await cleanup;
+
+      expect(
+        await database.appCacheDao.getValue(HiveStoreKeys.localTools),
+        isNull,
+      );
+      expect(PreferencesStore.getString(PreferenceKeys.activeServerId), isNull);
     },
   );
 }

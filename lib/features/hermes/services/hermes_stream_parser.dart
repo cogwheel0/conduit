@@ -1,29 +1,229 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:openai_dart/openai_dart.dart' as openai;
+
+import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/services/sse_frame_scanner.dart';
 import '../models/hermes_run_event.dart';
+import 'hermes_identifier.dart';
+import 'hermes_json_guard.dart';
+
+// Keep the lexical decoder ceiling above the typed-output traversal ceiling so
+// a moderately over-nested terminal output can still become a useful typed
+// error. It remains finite before `jsonDecode` constructs any containers.
+const int _maxHermesStreamJsonDepth = 256;
 
 /// Parses a Hermes runs SSE byte stream into typed [HermesRunEvent]s.
 ///
 /// Reuses the shared [SseFrameScanner] for byte-level framing (split frames,
 /// CRLF, multibyte UTF-8) and layers Hermes-specific decoding on top.
-Stream<HermesRunEvent> parseHermesRunStream(Stream<List<int>> chunks) async* {
+Stream<HermesRunEvent> parseHermesRunStream(Stream<List<int>> chunks) =>
+    _parseHermesStream(chunks, parseHermesRunFrame);
+
+/// Parses the OpenAI-compatible `/v1/responses` stream with `openai_dart`.
+///
+/// Hermes versions predating the strict Responses schema can emit sparse
+/// lifecycle envelopes or custom aliases. Those frames fall back to the
+/// narrow, tolerant Hermes mapper while valid standard frames stay SDK-owned.
+Stream<HermesRunEvent> parseHermesResponseStream(Stream<List<int>> chunks) =>
+    _parseHermesStream(chunks, parseHermesResponseFrame);
+
+Stream<HermesRunEvent> _parseHermesStream(
+  Stream<List<int>> chunks,
+  Iterable<HermesRunEvent> Function(SseFrame frame) decodeFrame,
+) async* {
   final scanner = SseFrameScanner();
   final textChunks = chunks.transform(utf8.decoder);
 
   await for (final chunk in textChunks) {
     for (final frame in scanner.addChunk(chunk)) {
-      for (final event in parseHermesRunFrame(frame)) {
+      for (final event in decodeFrame(frame)) {
         yield event;
       }
     }
   }
   for (final frame in scanner.close()) {
-    for (final event in parseHermesRunFrame(frame)) {
+    for (final event in decodeFrame(frame)) {
       yield event;
     }
   }
+}
+
+/// Decodes one Responses SSE frame using the SDK before applying Hermes-only
+/// compatibility handling.
+Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
+  final raw = frame.data.trim();
+  if (raw.isEmpty) {
+    // Some Hermes versions put terminal lifecycle state entirely in the SSE
+    // `event` field. The SDK cannot decode an absent JSON payload, but the
+    // tolerant runs mapper deliberately handles these event-only frames.
+    yield* parseHermesRunFrame(frame);
+    return;
+  }
+  if (raw == '[DONE]') {
+    yield const HermesRunDone();
+    return;
+  }
+
+  Map<String, dynamic> payload;
+  try {
+    validateHermesJsonSource(raw, maxDepth: _maxHermesStreamJsonDepth);
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return;
+    payload = decoded.cast<String, dynamic>();
+  } catch (_) {
+    return;
+  }
+
+  final declaredType = frame.event?.trim();
+  if (payload['type'] == null &&
+      declaredType != null &&
+      declaredType.isNotEmpty) {
+    payload = <String, dynamic>{...payload, 'type': declaredType};
+  } else if (payload['type'] == null && payload['event'] is String) {
+    payload = <String, dynamic>{...payload, 'type': payload['event']};
+  }
+  final type = _str(payload['type'])?.trim().toLowerCase();
+  if (type == null || type.isEmpty) {
+    yield* parseHermesRunFrame(frame);
+    return;
+  }
+
+  // Hermes exposes tool results as output items for progress rendering. The
+  // OpenAI SDK correctly models function-call results as subsequent *input*
+  // items, so this Hermes extension is intentionally ignored here; the
+  // matching function_call.done frame already closes the visible tool row.
+  if ((type == 'response.output_item.added' ||
+          type == 'response.output_item.done') &&
+      payload['item'] is Map &&
+      (payload['item'] as Map)['type'] == 'function_call_output') {
+    return;
+  }
+
+  if (type == 'error' || type.startsWith('response.')) {
+    try {
+      final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
+      yield* _mapOpenAiResponseEvent(event);
+      return;
+    } catch (_) {
+      // Current and older Hermes servers sometimes omit SDK-required response
+      // or item metadata. Preserve that wire compatibility without weakening
+      // strict direct OpenAI-compatible adapters.
+      yield* parseHermesRunFrame(frame);
+      return;
+    }
+  }
+
+  yield* parseHermesRunFrame(frame);
+}
+
+Iterable<HermesRunEvent> _mapOpenAiResponseEvent(
+  openai.ResponseStreamEvent event,
+) sync* {
+  switch (event) {
+    case openai.ResponseCreatedEvent(:final response):
+      yield HermesResponseCreated(response.id);
+      yield const HermesLifecycle('created');
+
+    case openai.ResponseQueuedEvent(:final response):
+      yield HermesResponseCreated(response.id);
+      yield const HermesLifecycle('queued');
+
+    case openai.ResponseInProgressEvent(:final response):
+      yield HermesResponseCreated(response.id);
+      yield const HermesLifecycle('in_progress');
+
+    case openai.OutputTextDeltaEvent(:final delta):
+      if (delta.isNotEmpty) yield HermesTokenDelta(delta);
+
+    case openai.RefusalDeltaEvent(:final delta):
+      if (delta.isNotEmpty) yield HermesTokenDelta(delta);
+
+    case openai.ReasoningTextDeltaEvent(:final delta):
+      if (delta.isNotEmpty) yield HermesReasoningDelta(delta);
+
+    case openai.ReasoningSummaryTextDeltaEvent(:final delta):
+      if (delta.isNotEmpty) yield HermesReasoningDelta(delta);
+
+    case openai.OutputItemAddedEvent(:final item):
+      final progress = _sdkToolProgress(item, done: false);
+      if (progress != null) yield progress;
+
+    case openai.OutputItemDoneEvent(:final item):
+      final progress = _sdkToolProgress(item, done: true);
+      if (progress != null) yield progress;
+
+    case openai.ResponseCompletedEvent(:final response):
+      yield* _mapTerminalResponse(response);
+
+    case openai.ResponseFailedEvent(:final response):
+      yield HermesResponseCreated(response.id);
+      yield HermesRunError(
+        OpenAiResponsesCodec.statusError(
+              response,
+              subject: 'Hermes response',
+            ) ??
+            'Hermes response failed.',
+      );
+      yield const HermesRunDone();
+
+    case openai.ResponseIncompleteEvent(:final response):
+      yield HermesResponseCreated(response.id);
+      yield HermesRunError(
+        OpenAiResponsesCodec.statusError(
+              response,
+              subject: 'Hermes response',
+            ) ??
+            'The Hermes response was incomplete.',
+      );
+      yield const HermesRunDone();
+
+    case openai.ErrorEvent(:final message):
+      yield HermesRunError(message);
+
+    case openai.UnknownEvent(:final type, :final rawJson)
+        when type == 'response.reasoning.delta' ||
+            type == 'response.reasoning_summary.delta':
+      final delta = rawJson['delta'] ?? rawJson['text'];
+      if (delta is String && delta.isNotEmpty) {
+        yield HermesReasoningDelta(delta);
+      }
+
+    default:
+      break;
+  }
+}
+
+Iterable<HermesRunEvent> _mapTerminalResponse(openai.Response response) sync* {
+  yield HermesResponseCreated(response.id);
+  final statusError = OpenAiResponsesCodec.statusError(
+    response,
+    subject: 'Hermes response',
+  );
+  if (statusError != null) {
+    yield HermesRunError(statusError);
+    yield const HermesRunDone();
+    return;
+  }
+  final content = OpenAiResponsesCodec.content(response);
+  if (content.reasoning.isNotEmpty) {
+    yield HermesReasoningDelta(content.reasoning);
+  }
+  if (content.text.isNotEmpty) yield HermesFinalOutput(content.text);
+  yield const HermesRunDone();
+}
+
+HermesToolProgress? _sdkToolProgress(
+  openai.OutputItem item, {
+  required bool done,
+}) {
+  if (item is! openai.FunctionCallOutputItemResponse) return null;
+  return HermesToolProgress(
+    toolName: item.name.isEmpty ? 'tool' : item.name,
+    detail: item.arguments.isEmpty ? null : item.arguments,
+    done: done,
+  );
 }
 
 /// Decodes a single SSE [frame] into zero or more [HermesRunEvent]s.
@@ -55,6 +255,7 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   Map<String, dynamic> data = const <String, dynamic>{};
   if (raw.isNotEmpty) {
     try {
+      validateHermesJsonSource(raw, maxDepth: _maxHermesStreamJsonDepth);
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
       data = decoded.cast<String, dynamic>();
@@ -66,6 +267,83 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   final eventType =
       (frameEventType ?? _str(data['type']) ?? _str(data['event']))
           ?.toLowerCase();
+
+  // Responses lifecycle envelopes keep their identity, final output, and
+  // errors under `response`. Preserve those details before the generic
+  // lifecycle fallback reduces the frame to a status string.
+  if (eventType == 'response.created') {
+    final response = data['response'];
+    final responseMap = response is Map ? response : null;
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
+    if (responseId != null && responseId.isNotEmpty) {
+      yield HermesResponseCreated(responseId);
+    }
+    yield const HermesLifecycle('created');
+    return;
+  }
+  if (eventType == 'response.completed') {
+    final response = data['response'];
+    final responseMap = response is Map ? response : null;
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
+    if (responseId != null && responseId.isNotEmpty) {
+      yield HermesResponseCreated(responseId);
+    }
+    final status = _str(
+      responseMap?['status'] ?? data['status'],
+    )?.toLowerCase();
+    final statusError = _fallbackResponseStatusError(
+      status,
+      responseMap ?? data,
+    );
+    if (statusError != null) {
+      yield HermesRunError(statusError);
+      yield const HermesRunDone();
+      return;
+    }
+    final output = _extractHermesTerminalOutput(
+      responseMap?['output'] ?? data['output'],
+    );
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
+    if (output.isNotEmpty) yield HermesFinalOutput(output);
+    yield const HermesRunDone();
+    return;
+  }
+  if (eventType == 'response.failed') {
+    final response = data['response'];
+    final responseMap = response is Map ? response : null;
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
+    if (responseId != null && responseId.isNotEmpty) {
+      yield HermesResponseCreated(responseId);
+    }
+    yield HermesRunError(
+      _failureMessage(responseMap?['error'] ?? data['error']),
+    );
+    yield const HermesRunDone();
+    return;
+  }
+  if (eventType == 'response.incomplete') {
+    final response = data['response'];
+    final responseMap = response is Map ? response : null;
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
+    if (responseId != null && responseId.isNotEmpty) {
+      yield HermesResponseCreated(responseId);
+    }
+    yield HermesRunError(
+      _fallbackResponseStatusError('incomplete', responseMap ?? data) ??
+          'The Hermes response was incomplete.',
+    );
+    yield const HermesRunDone();
+    return;
+  }
 
   // Documented Responses-style error events carry `type: "error"` and put
   // their code/message at the top level rather than under an `error` field.
@@ -91,18 +369,34 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if ((eventType?.contains('approval') ?? false) ||
       data.containsKey('approval_id') ||
       data.containsKey('approvalId')) {
+    // Approval identifiers are protocol control values, not display text.
+    // Never call toString() on an arbitrary JSON container before the bounded
+    // opaque-id validator gets a chance to reject it.
+    final legacyApprovalId =
+        _strictString(data['approval_id']) ??
+        _strictString(data['approvalId']) ??
+        _strictString(data['id']);
+    final hasLegacyApprovalId =
+        data.containsKey('approval_id') ||
+        data.containsKey('approvalId') ||
+        data.containsKey('id');
+    // The current runs API scopes one pending approval to the run itself, so
+    // its official approval.request event carries only `run_id`. Accept that
+    // control value only when no legacy approval identifier was supplied and
+    // only after applying the bounded opaque-identifier contract.
     final approvalId =
-        _str(data['approval_id']) ??
-        _str(data['approvalId']) ??
-        _str(data['id']);
+        legacyApprovalId ??
+        (hasLegacyApprovalId
+            ? null
+            : validateHermesOpaqueIdentifier(data['run_id']));
     if (approvalId != null) {
       yield HermesApprovalRequested(
         approvalId: approvalId,
         summary:
-            _str(data['summary']) ??
-            _str(data['description']) ??
-            _str(data['prompt']) ??
-            _str(data['message']),
+            _strictString(data['summary']) ??
+            _strictString(data['description']) ??
+            _strictString(data['prompt']) ??
+            _strictString(data['message']),
         raw: data,
       );
       return;
@@ -119,14 +413,20 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
         status == 'cancelled' ||
         status == 'canceled' ||
         status == 'stopped') {
-      if (status == 'failed') {
-        yield HermesRunError(_failureMessage(data['error']));
-      } else {
-        final output = extractHermesOutputText(data['output']);
+      if (status != 'failed') {
+        final output = _extractHermesTerminalOutput(data['output']);
+        if (output == null) {
+          yield const HermesRunError(
+            'The Hermes response output exceeded Conduit\'s size or shape limit.',
+          );
+          return;
+        }
         if (output.isNotEmpty) {
           yield HermesFinalOutput(output);
         }
       }
+      final statusError = _terminalRunStatusError(status, data['error']);
+      if (statusError != null) yield HermesRunError(statusError);
       yield const HermesRunDone();
       return;
     }
@@ -153,10 +453,12 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // Generic lifecycle fallback (explicit status field / Responses-API events).
   final status = _lifecycleStatus(eventType, data);
   if (status != null) {
-    // A failed terminal lifecycle (e.g. `response.failed`) must surface an
-    // error; a bare HermesLifecycle is treated downstream as an advisory no-op.
-    if (status == 'failed') {
-      yield HermesRunError(_failureMessage(data['error']));
+    // Failed and externally cancelled terminal lifecycles must surface an
+    // error; a bare HermesLifecycle is treated downstream as an advisory no-op
+    // and would otherwise make a cancelled run look successfully completed.
+    final statusError = _terminalRunStatusError(status, data['error']);
+    if (statusError != null) {
+      yield HermesRunError(statusError);
     } else {
       yield HermesLifecycle(status);
     }
@@ -166,24 +468,86 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   }
 }
 
+String? _extractHermesTerminalOutput(Object? output) {
+  try {
+    return extractHermesOutputText(output);
+  } on FormatException {
+    return null;
+  }
+}
+
 /// Extracts visible assistant text from a terminal/recovered Hermes output.
 /// Function-call items are deliberately omitted from the rendered answer.
-String extractHermesOutputText(dynamic output) {
-  if (output == null) return '';
-  if (output is String) return output;
+String extractHermesOutputText(
+  dynamic output, {
+  int maxCharacters = 8 * 1024 * 1024,
+  int maxDepth = 128,
+  int maxNodes = 100000,
+}) {
+  if (maxCharacters <= 0) {
+    throw RangeError.value(maxCharacters, 'maxCharacters');
+  }
+  if (maxDepth <= 0) throw RangeError.value(maxDepth, 'maxDepth');
+  if (maxNodes <= 0) throw RangeError.value(maxNodes, 'maxNodes');
+
   final buffer = StringBuffer();
-  if (output is List) {
-    for (final item in output) {
-      if (item is String) {
-        buffer.write(item);
-      } else if (item is Map) {
-        final type = item['type']?.toString();
-        if (type != null && type.contains('function')) continue;
-        buffer.write(extractHermesOutputText(item['content'] ?? item['text']));
-      }
+  final pending = <({Object? value, int depth})>[(value: output, depth: 0)];
+  final visited = <Object>{};
+  var characters = 0;
+  var nodes = 0;
+  var scheduledNodes = 1;
+
+  void schedule(Object? value, int depth) {
+    scheduledNodes++;
+    if (scheduledNodes > maxNodes) {
+      throw const FormatException('Hermes output exceeds the value limit.');
     }
-  } else if (output is Map) {
-    buffer.write(extractHermesOutputText(output['text'] ?? output['content']));
+    pending.add((value: value, depth: depth));
+  }
+
+  while (pending.isNotEmpty) {
+    final current = pending.removeLast();
+    nodes++;
+    if (nodes > maxNodes) {
+      throw const FormatException('Hermes output exceeds the value limit.');
+    }
+    final value = current.value;
+    if (value == null) continue;
+    if (value is String) {
+      for (final rune in value.runes) {
+        characters++;
+        if (characters > maxCharacters) {
+          throw const FormatException('Hermes output exceeds the size limit.');
+        }
+        buffer.writeCharCode(rune);
+      }
+      continue;
+    }
+    if (current.depth >= maxDepth) {
+      throw const FormatException('Hermes output exceeds the nesting limit.');
+    }
+    if (value is List) {
+      if (!visited.add(value)) {
+        throw const FormatException('Hermes output contains a cycle.');
+      }
+      if (value.length > maxNodes - scheduledNodes) {
+        throw const FormatException('Hermes output exceeds the value limit.');
+      }
+      for (final item in value.reversed) {
+        schedule(item, current.depth + 1);
+      }
+      continue;
+    }
+    if (value is Map) {
+      if (!visited.add(value)) {
+        throw const FormatException('Hermes output contains a cycle.');
+      }
+      final rawType = value['type'];
+      final type = rawType is String ? rawType : null;
+      if (type != null && type.contains('function')) continue;
+      schedule(value['text'] ?? value['content'], current.depth + 1);
+      continue;
+    }
   }
   return buffer.toString();
 }
@@ -206,7 +570,7 @@ HermesToolProgress? _maybeToolProgress(
   final itemMap = item is Map ? item.cast<String, dynamic>() : null;
   if (eventType != null &&
       eventType.startsWith('response.output_item') &&
-      (itemMap?['type']?.toString().contains('function') != true)) {
+      (_str(itemMap?['type'])?.contains('function') != true)) {
     return null;
   }
 
@@ -297,7 +661,10 @@ Iterable<HermesRunEvent> _textDeltas(
   // Incremental reasoning. `reasoning.available` carries the full reasoning
   // (often mirroring the answer), so only stream explicit deltas to avoid
   // duplicating content.
-  if (eventType == 'reasoning.delta') {
+  if (eventType == 'reasoning.delta' ||
+      eventType == 'response.reasoning.delta' ||
+      eventType == 'response.reasoning_text.delta' ||
+      eventType == 'response.reasoning_summary_text.delta') {
     final text = _str(data['delta']) ?? _str(data['text']);
     if (text != null && text.isNotEmpty) {
       yield HermesReasoningDelta(text);
@@ -330,6 +697,8 @@ String? _lifecycleStatus(String? eventType, Map<String, dynamic> data) {
     case 'response.failed':
     case 'run.failed':
       return 'failed';
+    case 'response.incomplete':
+      return 'incomplete';
     case 'run.cancelled':
       return 'cancelled';
     case 'run.canceled':
@@ -344,6 +713,7 @@ String? _lifecycleStatus(String? eventType, Map<String, dynamic> data) {
 bool _isTerminal(String status) =>
     status == 'completed' ||
     status == 'failed' ||
+    status == 'incomplete' ||
     status == 'cancelled' ||
     status == 'canceled' ||
     status == 'stopped';
@@ -369,9 +739,11 @@ bool _isTruthyError(dynamic error) {
 
 String _errorMessage(dynamic error) {
   if (error is Map) {
-    return _str(error['message']) ?? _str(error['detail']) ?? error.toString();
+    return _str(error['message']) ??
+        _str(error['detail']) ??
+        'Hermes run failed.';
   }
-  return error.toString();
+  return _str(error) ?? 'Hermes run failed.';
 }
 
 /// Failure message for a terminal error event, falling back to a generic
@@ -380,8 +752,54 @@ String _errorMessage(dynamic error) {
 String _failureMessage(dynamic error) =>
     _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.';
 
+String? _terminalRunStatusError(String status, dynamic error) {
+  switch (status) {
+    case 'failed':
+      return _failureMessage(error);
+    case 'incomplete':
+      return 'The Hermes response was incomplete.';
+    case 'cancelled':
+    case 'canceled':
+      return 'Hermes run was cancelled.';
+    case 'stopped':
+      return 'Hermes run was stopped.';
+    default:
+      return null;
+  }
+}
+
+String? _fallbackResponseStatusError(String? status, Map response) {
+  switch (status) {
+    case null:
+    case 'completed':
+      return null;
+    case 'failed':
+      final error = response['error'];
+      return _isTruthyError(error)
+          ? _errorMessage(error)
+          : 'Hermes response failed.';
+    case 'incomplete':
+      final details = response['incomplete_details'];
+      final reason = details is Map ? _str(details['reason']) : null;
+      return reason == null || reason.isEmpty
+          ? 'The Hermes response was incomplete.'
+          : 'The Hermes response was incomplete: $reason.';
+    case 'cancelled':
+    case 'canceled':
+      return 'The Hermes response was cancelled.';
+    case 'queued':
+    case 'in_progress':
+      return 'The Hermes response is not complete.';
+    default:
+      return 'The Hermes response has an unsupported status.';
+  }
+}
+
 String? _str(dynamic value) {
   if (value == null) return null;
   if (value is String) return value;
-  return value.toString();
+  if (value is num || value is bool) return value.toString();
+  return null;
 }
+
+String? _strictString(dynamic value) => value is String ? value : null;

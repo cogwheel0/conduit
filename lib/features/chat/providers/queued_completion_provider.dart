@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/database/chat_database_repository.dart';
 import '../../../core/database/daos/outbox_dao.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/providers/app_providers.dart';
@@ -10,7 +11,9 @@ import '../../../core/services/connectivity_service.dart';
 import '../../../core/sync/clock.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/utils/debug_logger.dart';
-import 'chat_providers.dart' show chatMessagesProvider;
+import '../../hermes/services/hermes_session_provenance.dart';
+import 'chat_providers.dart'
+    show chatMessagesProvider, conversationUsesOpenWebUiStorage;
 
 enum QueuedCompletionPhase { pending, failed }
 
@@ -24,6 +27,7 @@ class QueuedCompletionInfo {
   const QueuedCompletionInfo({
     required this.seq,
     required this.chatId,
+    required this.scopedChatId,
     required this.assistantMessageId,
     required this.phase,
     required this.isOffline,
@@ -33,6 +37,7 @@ class QueuedCompletionInfo {
 
   final int seq;
   final String chatId;
+  final String scopedChatId;
   final String assistantMessageId;
   final QueuedCompletionPhase phase;
   final bool isOffline;
@@ -49,14 +54,26 @@ final queuedCompletionInfoForMessageProvider = StreamProvider.autoDispose
         return Stream<QueuedCompletionInfo?>.value(null);
       }
 
-      final chatId = ref.watch(
-        activeConversationProvider.select((conversation) => conversation?.id),
+      final activeTarget = ref.watch(
+        activeConversationProvider.select(
+          (conversation) => (
+            chatId: conversation?.id,
+            isOpenWebUi: conversationUsesOpenWebUiStorage(conversation),
+          ),
+        ),
       );
       final db = ref.watch(appDatabaseProvider);
       final isOnline = ref.watch(isOnlineProvider);
-      if (db == null || chatId == null || chatId.isEmpty) {
+      if (db == null ||
+          !activeTarget.isOpenWebUi ||
+          (activeTarget.chatId?.isEmpty ?? true)) {
         return Stream<QueuedCompletionInfo?>.value(null);
       }
+      final chatId = activeTarget.chatId!;
+      final scopedChatId = ChatStorageIdentity(
+        rawId: chatId,
+        storage: ChatStorageKind.openWebUi,
+      ).scopedId;
 
       return db.outboxDao.watchQueuedCompletionsForChat(chatId).map((ops) {
         for (final op in ops) {
@@ -92,6 +109,7 @@ final queuedCompletionInfoForMessageProvider = StreamProvider.autoDispose
           return QueuedCompletionInfo(
             seq: op.seq,
             chatId: chatId,
+            scopedChatId: scopedChatId,
             assistantMessageId: id,
             phase: phase,
             isOffline: offline,
@@ -136,7 +154,9 @@ class QueuedCompletionActions {
     if (removed == 0) return 0;
 
     final active = _ref.read(activeConversationProvider);
-    if (active?.id == info.chatId) {
+    if (active != null &&
+        conversationUsesOpenWebUiStorage(active) &&
+        conversationMatchesScopedId(active, info.scopedChatId)) {
       final messages = _ref.read(chatMessagesProvider);
       final updatedMessages = messages
           .where((message) => message.id != info.assistantMessageId)
@@ -145,14 +165,14 @@ class QueuedCompletionActions {
         _ref.read(chatMessagesProvider.notifier).setMessages(updatedMessages);
       }
 
-      final updatedActive = active!.copyWith(
-        messages: updatedMessages,
-        updatedAt: DateTime.now(),
+      final updatedActive = inheritNativeHermesConversationProvenance(
+        active,
+        active.copyWith(messages: updatedMessages, updatedAt: DateTime.now()),
       );
       _ref.read(activeConversationProvider.notifier).set(updatedActive);
       _ref
           .read(conversationsProvider.notifier)
-          .updateConversation(info.chatId, (_) => updatedActive);
+          .updateConversation(info.scopedChatId, (_) => updatedActive);
     }
 
     DebugLogger.log(

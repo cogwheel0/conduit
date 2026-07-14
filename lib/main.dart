@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/foundation.dart'
+    show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/widgets/error_boundary.dart';
@@ -71,6 +74,13 @@ Locale? _localeFromNativeTag(String code) {
 
 developer.TimelineTask? _startupTimeline;
 
+void _registerBundledLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
+    yield LicenseEntryWithLineBreaks(const ['Open WebUI icon'], notice);
+  });
+}
+
 void main() {
   if (_enableFlutterDriverExtension) {
     enableFlutterDriverExtension();
@@ -79,6 +89,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      _registerBundledLicenses();
       unawaited(
         pdfrxFlutterInitialize().catchError((
           Object error,
@@ -347,6 +358,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             extra: const NativeSheetNavigationOrigin(),
           ),
         );
+        return;
+      }
+
+      if (event.id == 'open-direct-connections') {
+        await NativeSheetBridge.instance.dismiss();
+        // The native sheet is launched over chat. Preserve chat as the back
+        // destination; while this pushed route is visible the sheet cannot be
+        // triggered again, so duplicate settings routes cannot accumulate.
+        await NavigationService.pushTo(Routes.directConnections);
         return;
       }
 

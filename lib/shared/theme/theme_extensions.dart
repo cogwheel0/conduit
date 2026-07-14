@@ -300,6 +300,14 @@ extension ConduitThemeContext on BuildContext {
   }
 }
 
+/// Platform convention used by adaptive controls and navigation chrome.
+extension ConduitPlatformContext on BuildContext {
+  bool get usesCupertinoChrome => switch (Theme.of(this).platform) {
+    TargetPlatform.iOS || TargetPlatform.macOS => true,
+    _ => false,
+  };
+}
+
 /// Motion preferences shared by interactive and continuously updating UI.
 ///
 /// MediaQuery is authoritative when a subtree overrides the platform setting

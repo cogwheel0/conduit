@@ -144,6 +144,73 @@ final chatVoiceModeBackgroundCoordinatorProvider =
       return ChatVoiceModeBackgroundCoordinator();
     });
 
+@visibleForTesting
+final chatVoiceModeServiceLifecycleTimeoutProvider = Provider<Duration>((ref) {
+  return const Duration(seconds: 30);
+});
+
+final _chatVoiceModeServiceLifecycleGateProvider =
+    Provider<_ChatVoiceModeServiceLifecycleGate>((ref) {
+      return _ChatVoiceModeServiceLifecycleGate(
+        timeout: ref.watch(chatVoiceModeServiceLifecycleTimeoutProvider),
+      );
+    });
+
+class _ChatVoiceModeServiceLifecycleGate {
+  _ChatVoiceModeServiceLifecycleGate({required Duration timeout})
+    : _timeout = timeout;
+
+  final Duration _timeout;
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> runExclusive<T>(Future<T> Function() operation) =>
+      _runExclusive(operation, keepQueuedAfterTimeout: false);
+
+  Future<void> runCleanupExclusive(Future<void> Function() operation) =>
+      _runExclusive(operation, keepQueuedAfterTimeout: true);
+
+  Future<T> _runExclusive<T>(
+    Future<T> Function() operation, {
+    required bool keepQueuedAfterTimeout,
+  }) {
+    var started = false;
+    var cancelledBeforeStart = false;
+    final rawResult = _tail.then<T>((_) {
+      if (cancelledBeforeStart) {
+        throw TimeoutException(
+          'Voice service lifecycle operation expired while queued',
+          _timeout,
+        );
+      }
+      started = true;
+      return operation();
+    });
+
+    // Preserve the raw operation as the serialization tail. A Future timeout
+    // does not cancel its source, so advancing the tail to the bounded wrapper
+    // would let stale teardown overlap a replacement using the same services.
+    _tail = rawResult.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return rawResult.timeout(
+      _timeout,
+      onTimeout: () {
+        // An expired user operation must not start later merely because the
+        // operation ahead of it settles. Mandatory cleanup is different: its
+        // caller may stop waiting, but the raw cleanup must remain in the tail
+        // so captured platform resources are eventually released in order.
+        if (!started && !keepQueuedAfterTimeout) {
+          cancelledBeforeStart = true;
+        }
+        throw TimeoutException(
+          started
+              ? 'Voice service lifecycle operation timed out'
+              : 'Timed out waiting for voice service lifecycle ownership',
+          _timeout,
+        );
+      },
+    );
+  }
+}
+
 class ChatVoiceModeBackgroundCoordinator {
   Future<void> startVoiceLease({
     required String leaseId,
@@ -182,6 +249,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _serial = Future<void>.value();
   int _token = 0;
   int _emptyTranscriptRestarts = 0;
+  bool _disposed = false;
 
   StreamSubscription<VoiceTranscriptEvent>? _transcriptSub;
   StreamSubscription<int>? _intensitySub;
@@ -193,9 +261,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   String _currentTranscript = '';
   String _lastFedAssistantText = '';
   String? _backgroundLeaseId;
+  String? _activeCallId;
   String? _activeAssistantMessageId;
   ChatVoiceModeBackgroundCoordinator? _backgroundCoordinator;
   ChatVoiceAudioSessionCoordinator? _audioSessionCoordinator;
+  late _ChatVoiceModeServiceLifecycleGate _serviceLifecycleGate;
+  VoiceInputService? _voiceInput;
+  TextToSpeechService? _textToSpeech;
+  CallKitService? _callKit;
   Set<String> _assistantMessageIdsBeforeTurn = <String>{};
   bool _awaitingAssistant = false;
   bool _assistantFinalized = false;
@@ -216,13 +289,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   @override
   ChatVoiceModeSnapshot build() {
+    _disposed = false;
     _backgroundCoordinator = ref.read(
       chatVoiceModeBackgroundCoordinatorProvider,
     );
     _audioSessionCoordinator = ref.read(
       chatVoiceAudioSessionCoordinatorProvider,
     );
-
+    _serviceLifecycleGate = ref.read(
+      _chatVoiceModeServiceLifecycleGateProvider,
+    );
     ref.listen<String?>(streamingContentProvider, (_, next) {
       if (next != null) {
         _handleAssistantContentChanged();
@@ -234,13 +310,52 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     });
 
     ref.onDispose(() {
+      // Invalidate every detached transcript/TTS continuation before tearing
+      // down its subscriptions. Async work must use only dependencies captured
+      // while the provider was alive; reading Ref from this point is invalid.
+      _disposed = true;
+      ++_token;
       _elapsedTimer?.cancel();
-      unawaited(_transcriptSub?.cancel());
-      unawaited(_intensitySub?.cancel());
-      unawaited(_ttsSub?.cancel());
-      unawaited(_callKitSub?.cancel());
       _backgroundKeepAliveTimer?.cancel();
-      unawaited(_stopBackgroundVoiceLease(_backgroundCoordinator));
+      final transcriptSub = _transcriptSub;
+      final intensitySub = _intensitySub;
+      final ttsSub = _ttsSub;
+      final callKitSub = _callKitSub;
+      final input = _voiceInput;
+      final tts = _textToSpeech;
+      final backgroundCoordinator = _backgroundCoordinator;
+      final audioSessionCoordinator = _audioSessionCoordinator;
+      final callKit = _callKit;
+      final callId = _activeCallId;
+      _activeCallId = null;
+      unawaited(
+        _serviceLifecycleGate
+            .runCleanupExclusive(() async {
+              await _cancelSubscriptionAfterDispose(transcriptSub);
+              await _cancelSubscriptionAfterDispose(intensitySub);
+              await _stopVoiceInputAfterDispose(input);
+              await _cancelSubscriptionAfterDispose(ttsSub);
+              await _stopTtsAfterDispose(tts);
+              await _stopBackgroundVoiceLeaseAfterDispose(
+                backgroundCoordinator,
+              );
+              await _deactivateAudioSessionAfterDispose(
+                audioSessionCoordinator,
+              );
+              await _cancelSubscriptionAfterDispose(callKitSub);
+              if (callId != null) {
+                await _endCallAfterDispose(callKit, callId);
+              }
+            })
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'dispose-lifecycle-timeout',
+                scope: 'chat/voice_mode',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
     });
 
     return const ChatVoiceModeSnapshot();
@@ -248,63 +363,97 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> start({required bool startNewConversation}) {
     return _enqueue(() async {
-      if (state.isActive) {
-        return;
-      }
-
-      final authState = ref.read(authNavigationStateProvider);
-      if (authState != AuthNavigationState.authenticated) {
-        _setError('Sign in to start a voice call.');
-        return;
-      }
-
-      final model = ref.read(selectedModelProvider);
-      if (model == null) {
-        _setError('Choose a model before starting a voice call.');
-        return;
-      }
-
-      final token = ++_token;
-      _resetRuntime();
-
-      state = state.copyWith(
-        phase: ChatVoiceModePhase.starting,
-        startedAt: DateTime.now(),
-        elapsed: Duration.zero,
-        clearErrorMessage: true,
-        isCollapsed: false,
-        isMuted: false,
-      );
-
-      if (startNewConversation) {
-        startNewChat(ref);
-      }
+      int? token;
 
       try {
-        final input = ref.read(voiceInputServiceProvider);
-        final tts = ref.read(textToSpeechServiceProvider);
-        final settings = ref.read(appSettingsProvider);
+        await _serviceLifecycleGate.runExclusive(() async {
+          if (state.isActive) {
+            return;
+          }
 
-        final inputReady = await input.initialize();
-        if (!inputReady) {
-          throw StateError('Voice input initialization failed.');
-        }
+          final authState = ref.read(authNavigationStateProvider);
+          if (authState != AuthNavigationState.authenticated) {
+            _setError('Sign in to start a voice call.');
+            return;
+          }
 
-        await _requestAndroidVoiceRoutingPermission();
-        await _initializeTts(tts, settings);
-        _listenForTtsEvents(tts, token);
-        await _startCallKit(model.name, token);
-        await _startBackgroundVoiceLease(input, token);
-        _startElapsedTimer(token);
-        await _startListening(token);
+          final model = ref.read(selectedModelProvider);
+          if (model == null) {
+            _setError('Choose a model before starting a voice call.');
+            return;
+          }
+
+          final startToken = ++_token;
+          token = startToken;
+          _resetRuntime();
+
+          // Keep the inactive overlay lightweight. These services can reach
+          // authenticated storage and platform channels, so capture them only
+          // when a voice session actually starts. The retained references also
+          // let disposal finish without reading Ref after invalidation.
+          final VoiceInputService input =
+              _voiceInput ?? ref.read(voiceInputServiceProvider);
+          _voiceInput = input;
+          final TextToSpeechService tts =
+              _textToSpeech ?? ref.read(textToSpeechServiceProvider);
+          _textToSpeech = tts;
+          _callKit ??= ref.read(callKitServiceProvider);
+          final settings = ref.read(appSettingsProvider);
+
+          state = state.copyWith(
+            phase: ChatVoiceModePhase.starting,
+            startedAt: DateTime.now(),
+            elapsed: Duration.zero,
+            clearErrorMessage: true,
+            isCollapsed: false,
+            isMuted: false,
+          );
+
+          if (startNewConversation) {
+            startNewChat(ref);
+          }
+
+          final inputReady = await input.initialize();
+          if (!_isCurrent(startToken)) return;
+          if (!inputReady) {
+            throw StateError('Voice input initialization failed.');
+          }
+
+          await _requestAndroidVoiceRoutingPermission();
+          if (!_isCurrent(startToken)) return;
+          await _initializeTts(tts, settings);
+          if (!_isCurrent(startToken)) return;
+          _listenForTtsEvents(tts, startToken);
+          await _startCallKit(model.name, startToken);
+          if (!_isCurrent(startToken)) return;
+          await _startBackgroundVoiceLease(input, startToken);
+          if (!_isCurrent(startToken)) return;
+          _startElapsedTimer(startToken);
+          await _startListening(startToken);
+        });
       } catch (error, stackTrace) {
+        final startToken = token;
+        if (_disposed || (startToken != null && !_isCurrent(startToken))) {
+          return;
+        }
         DebugLogger.error(
           'start-failed',
           scope: 'chat/voice_mode',
           error: error,
           stackTrace: stackTrace,
         );
-        await _fail(error.toString(), token);
+        if (error is TimeoutException) {
+          if (startToken != null) {
+            final cleanupToken = ++_token;
+            unawaited(
+              _disposeResources(endCallKit: true, ownershipToken: cleanupToken),
+            );
+          }
+          _setError('Voice services timed out. Try again.');
+          return;
+        }
+        if (startToken == null) return;
+        await _fail(error.toString(), startToken);
       }
     });
   }
@@ -350,9 +499,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _pausedDuringSpeech = state.phase == ChatVoiceModePhase.speaking;
       _pausedDuringAssistantTurn = wasAwaitingAssistant;
       await _cancelListening();
+      if (_disposed) return;
       if (wasAwaitingAssistant) {
-        await ref.read(textToSpeechServiceProvider).pause();
+        await _textToSpeech!.pause();
       }
+
+      if (_disposed) return;
 
       state = state.copyWith(phase: ChatVoiceModePhase.paused);
     });
@@ -376,7 +528,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       if (_pausedDuringSpeech) {
         _pausedDuringSpeech = false;
-        await ref.read(textToSpeechServiceProvider).resume();
+        await _textToSpeech!.resume();
+        if (_disposed) return;
         state = state.copyWith(phase: ChatVoiceModePhase.speaking);
         return;
       }
@@ -393,6 +546,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
       if (!state.isMuted) {
         await _cancelListening();
+        if (_disposed) return;
         state = state.copyWith(
           phase: ChatVoiceModePhase.muted,
           isMuted: true,
@@ -412,8 +566,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> cancelSpeaking() {
     return _enqueue(() async {
-      await ref.read(textToSpeechServiceProvider).stopStreamingTts();
-      await ref.read(textToSpeechServiceProvider).stop();
+      final tts = _textToSpeech;
+      if (tts == null) return;
+      await tts.stopStreamingTts();
+      await tts.stop();
+      if (_disposed) return;
       _streamingTtsStarted = false;
       _assistantFinalized = true;
       if (state.isActive && !state.isMuted) {
@@ -452,25 +609,30 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _startCallKit(String modelName, int token) async {
-    final callKit = ref.read(callKitServiceProvider);
+    final callKit = _callKit!;
     if (!callKit.isAvailable) {
       return;
     }
 
     await callKit.checkAndCleanActiveCalls();
-    if (token != _token) return;
+    if (!_isCurrent(token)) return;
 
     await callKit.requestPermissions();
-    if (token != _token) return;
+    if (!_isCurrent(token)) return;
 
     final callId = await callKit.startOutgoingVoiceCall(
       calleeName: modelName,
       handle: 'Conduit AI',
     );
-    if (token != _token || callId == null) {
+    if (callId == null) {
+      return;
+    }
+    if (!_isCurrent(token)) {
+      await _endCallAfterDispose(callKit, callId);
       return;
     }
 
+    _activeCallId = callId;
     state = state.copyWith(activeCallId: callId);
     await _callKitSub?.cancel();
     _callKitSub = callKit.events.listen((event) {
@@ -479,7 +641,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   void _handleCallKitEvent(CallEvent event) {
-    final callId = state.activeCallId;
+    if (_disposed) return;
+    final callId = _activeCallId;
     if (callId == null) return;
 
     final endedCallId = switch (event) {
@@ -507,7 +670,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   void _listenForTtsEvents(TextToSpeechService tts, int token) {
     unawaited(_ttsSub?.cancel());
     _ttsSub = tts.events.listen((event) {
-      if (token != _token) return;
+      if (!_isCurrent(token)) return;
 
       switch (event) {
         case TtsStarted():
@@ -542,7 +705,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     int token,
   ) async {
     await _stopBackgroundVoiceLease();
-    if (token != _token) return;
+    if (!_isCurrent(token)) return;
 
     final leaseId = 'chat-voice-mode-$token';
     final requiresMicrophone = _requiresNativeBackgroundMicrophone(input);
@@ -552,6 +715,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _iosAudioSessionManagedExternally = true;
 
     await background.setExternalAudioSessionOwner(!requiresMicrophone);
+    if (!_isCurrent(token)) {
+      if (_backgroundLeaseId == leaseId) {
+        _backgroundLeaseId = null;
+      }
+      await background.setExternalAudioSessionOwner(false);
+      return;
+    }
 
     try {
       await background.startVoiceLease(
@@ -566,6 +736,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         stackTrace: stackTrace,
         data: {'requiresMicrophone': requiresMicrophone},
       );
+    }
+    if (!_isCurrent(token)) {
+      if (_backgroundLeaseId == leaseId) {
+        _backgroundLeaseId = null;
+      }
+      try {
+        await background.stopVoiceLease(leaseId);
+      } catch (_) {}
+      await background.setExternalAudioSessionOwner(false);
+      return;
     }
 
     _startBackgroundKeepAliveTimer(token, background);
@@ -584,7 +764,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _backgroundKeepAliveTimer = Timer.periodic(_backgroundKeepAliveInterval, (
       _,
     ) {
-      if (token != _token || !state.isActive) {
+      if (!_isCurrent(token) || !state.isActive) {
         _backgroundKeepAliveTimer?.cancel();
         _backgroundKeepAliveTimer = null;
         return;
@@ -622,15 +802,17 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _startListening(int token) async {
-    if (token != _token || state.isMuted) {
+    if (!_isCurrent(token) || state.isMuted) {
       return;
     }
 
-    final input = ref.read(voiceInputServiceProvider);
+    final input = _voiceInput!;
     if (_transcriptSub == null || !input.isListening) {
       await _cancelListening();
     }
+    if (!_isCurrent(token)) return;
     await _audioSessionCoordinator?.configureForListening();
+    if (!_isCurrent(token)) return;
 
     _currentTranscript = '';
     state = state.copyWith(
@@ -645,14 +827,17 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final callId = state.activeCallId;
     if (!_markedCallConnected && callId != null) {
       _markedCallConnected = true;
-      unawaited(ref.read(callKitServiceProvider).markCallConnected(callId));
+      unawaited(_callKit!.markCallConnected(callId));
     }
 
     if (_transcriptSub == null || !input.isListening) {
       final stream = await input.beginListeningEvents(
         iosAudioSessionManagedExternally: _iosAudioSessionManagedExternally,
       );
-      if (token != _token) return;
+      if (!_isCurrent(token)) {
+        await _stopVoiceInputAfterDispose(input);
+        return;
+      }
 
       await _transcriptSub?.cancel();
       _transcriptSub = stream.listen(
@@ -660,7 +845,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           _handleTranscriptEvent(event, token);
         },
         onError: (Object error, StackTrace stackTrace) {
-          if (token != _token) return;
+          if (!_isCurrent(token)) return;
           DebugLogger.error(
             'listen-failed',
             scope: 'chat/voice_mode',
@@ -677,15 +862,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     await _intensitySub?.cancel();
+    if (!_isCurrent(token)) return;
     _intensitySub = input.intensityStream.listen((intensity) {
-      if (token == _token && state.phase == ChatVoiceModePhase.listening) {
+      if (_isCurrent(token) && state.phase == ChatVoiceModePhase.listening) {
         state = state.copyWith(intensity: intensity);
       }
     });
   }
 
   void _handleTranscriptEvent(VoiceTranscriptEvent event, int token) {
-    if (token != _token || state.isMuted) return;
+    if (!_isCurrent(token) || state.isMuted) return;
 
     _currentTranscript = event.text;
     if (state.isActive && state.phase != ChatVoiceModePhase.paused) {
@@ -698,7 +884,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _handleFinalTranscript(String text, int token) async {
-    if (token != _token ||
+    if (!_isCurrent(token) ||
         state.isMuted ||
         state.phase == ChatVoiceModePhase.paused) {
       return;
@@ -718,11 +904,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _handleListeningDone(int token) async {
-    if (token != _token || state.phase != ChatVoiceModePhase.listening) {
+    if (!_isCurrent(token) || state.phase != ChatVoiceModePhase.listening) {
       return;
     }
 
-    final input = ref.read(voiceInputServiceProvider);
+    final input = _voiceInput!;
     final transcript = input.lastCompletedTranscriptSendable
         ? _currentTranscript.trim()
         : '';
@@ -742,7 +928,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     var transcript = initialTranscript;
 
     while (true) {
-      if (token != _token ||
+      if (!_isCurrent(token) ||
           state.isMuted ||
           state.phase == ChatVoiceModePhase.paused) {
         return;
@@ -765,7 +951,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             state.phase == ChatVoiceModePhase.speaking) {
           await _interruptAssistantForBargeIn(token);
         }
-        if (token != _token || state.isMuted) return;
+        if (!_isCurrent(token) || state.isMuted) return;
         _lastSubmittedTranscript = transcript;
         await _sendTranscript(transcript, token);
       } finally {
@@ -818,15 +1004,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _emptyTranscriptMaxDelayMs,
     );
     await Future<void>.delayed(Duration(milliseconds: delayMs));
-    if (token == _token && state.phase == ChatVoiceModePhase.listening) {
+    if (_isCurrent(token) && state.phase == ChatVoiceModePhase.listening) {
       await _startListening(token);
     }
   }
 
   Future<void> _sendTranscript(String transcript, int token) async {
-    if (token != _token) return;
+    if (!_isCurrent(token)) return;
 
-    final input = ref.read(voiceInputServiceProvider);
+    final input = _voiceInput!;
     final keepListening = input.isUsingNativeLocalStt;
     if (!keepListening) {
       await _cancelListening();
@@ -836,10 +1022,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     } else {
       await _audioSessionCoordinator?.configureForSpeaking();
     }
-    final tts = ref.read(textToSpeechServiceProvider);
+    if (!_isCurrent(token)) return;
+    final tts = _textToSpeech!;
     _assistantMessageIdsBeforeTurn = _currentAssistantMessageIds();
     ref.read(streamingContentProvider.notifier).set(null);
     await tts.startStreamingTts();
+    if (!_isCurrent(token)) {
+      await _stopTtsAfterDispose(tts);
+      return;
+    }
 
     _streamingTtsStarted = true;
     _assistantFinalized = false;
@@ -867,12 +1058,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         selectedToolIds,
         true,
       );
-      if (token != _token) return;
+      if (!_isCurrent(token)) return;
 
       _activeAssistantMessageId ??= _activeAssistantMessage()?.id;
       _handleAssistantContentChanged();
       _handleChatMessagesChanged(ref.read(chatMessagesProvider));
     } catch (error, stackTrace) {
+      if (!_isCurrent(token)) return;
       DebugLogger.error(
         'send-failed',
         scope: 'chat/voice_mode',
@@ -884,12 +1076,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _interruptAssistantForBargeIn(int token) async {
-    if (token != _token) return;
+    if (!_isCurrent(token)) return;
 
     DebugLogger.info('barge-in', scope: 'chat/voice_mode');
-    final tts = ref.read(textToSpeechServiceProvider);
+    final tts = _textToSpeech!;
     await tts.stopStreamingTts();
     await tts.stop();
+    if (!_isCurrent(token)) return;
 
     try {
       ref.read(stopGenerationProvider)();
@@ -913,7 +1106,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   void _handleAssistantContentChanged([List<ChatMessage>? messages]) {
-    if (!_awaitingAssistant || !_streamingTtsStarted || _assistantFinalized) {
+    if (_disposed ||
+        !_awaitingAssistant ||
+        !_streamingTtsStarted ||
+        _assistantFinalized) {
       return;
     }
 
@@ -934,11 +1130,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     _lastFedAssistantText = text;
-    unawaited(ref.read(textToSpeechServiceProvider).feedStreamingText(text));
+    unawaited(_textToSpeech!.feedStreamingText(text));
   }
 
   void _handleChatMessagesChanged(List<ChatMessage> messages) {
-    if (!_awaitingAssistant || !_streamingTtsStarted || _assistantFinalized) {
+    if (_disposed ||
+        !_awaitingAssistant ||
+        !_streamingTtsStarted ||
+        _assistantFinalized) {
       return;
     }
 
@@ -956,7 +1155,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _finishAssistantResponse(int token) async {
-    if (token != _token || _assistantFinalized) {
+    if (!_isCurrent(token) || _assistantFinalized) {
       return;
     }
 
@@ -973,9 +1172,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     _assistantFinalized = true;
-    await ref
-        .read(textToSpeechServiceProvider)
-        .finishStreamingTts(finalText: finalText);
+    await _textToSpeech!.finishStreamingTts(finalText: finalText);
   }
 
   Future<void> _resumePausedAssistantTurn(int token) async {
@@ -996,13 +1193,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     );
 
     await _flushPausedAssistantTts(token);
-    if (token != _token || !state.isActive) {
+    if (!_isCurrent(token) || !state.isActive) {
       return;
     }
 
     if (shouldResumePlayback) {
-      await ref.read(textToSpeechServiceProvider).resume();
-      if (token == _token && state.isActive) {
+      await _textToSpeech!.resume();
+      if (_isCurrent(token) && state.isActive) {
         state = state.copyWith(phase: ChatVoiceModePhase.speaking);
       }
       return;
@@ -1015,7 +1212,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _flushPausedAssistantTts(int token) async {
-    final tts = ref.read(textToSpeechServiceProvider);
+    final tts = _textToSpeech!;
     final deferredFinalText = _pendingPausedAssistantFinalText;
     final pendingText = _pendingPausedAssistantText;
     _pendingPausedAssistantText = null;
@@ -1029,7 +1226,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
-    if (token != _token ||
+    if (!_isCurrent(token) ||
         pendingText == null ||
         pendingText == _lastFedAssistantText) {
       return;
@@ -1040,7 +1237,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _resumeAfterAssistantSpeech(int token) async {
-    if (token != _token || !_awaitingAssistant) {
+    if (!_isCurrent(token) || !_awaitingAssistant) {
       return;
     }
 
@@ -1115,18 +1312,24 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _cancelListening() async {
+    final input = _voiceInput;
     await _transcriptSub?.cancel();
     _transcriptSub = null;
     await _intensitySub?.cancel();
     _intensitySub = null;
     try {
-      await ref.read(voiceInputServiceProvider).stopListening();
+      await input?.stopListening();
     } catch (_) {}
   }
 
   Future<void> _fail(String message, int token) async {
-    if (token != _token) return;
-    await _disposeResources(endCallKit: true);
+    if (!_isCurrent(token)) return;
+    // Invalidate transcript/TTS callbacks before resources are detached. The
+    // lifecycle gate may delay subscription cancellation, and a recognizer is
+    // allowed to deliver buffered data or onDone after onError.
+    final failureToken = ++_token;
+    await _disposeResources(endCallKit: true, ownershipToken: failureToken);
+    if (!_isCurrent(failureToken)) return;
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
@@ -1151,8 +1354,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     ++_token;
+    final stopToken = _token;
     state = state.copyWith(phase: ChatVoiceModePhase.ending);
-    await _disposeResources(endCallKit: endCallKit && !_stoppingFromCallKit);
+    await _disposeResources(
+      endCallKit: endCallKit && !_stoppingFromCallKit,
+      ownershipToken: stopToken,
+    );
+    if (!_isCurrent(stopToken)) return;
     _stoppingFromCallKit = false;
     state = state.copyWith(
       phase: ChatVoiceModePhase.ended,
@@ -1167,31 +1375,136 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     );
   }
 
-  Future<void> _disposeResources({required bool endCallKit}) async {
-    _elapsedTimer?.cancel();
+  Future<void> _disposeResources({
+    required bool endCallKit,
+    required int ownershipToken,
+  }) async {
+    final input = _voiceInput;
+    final tts = _textToSpeech;
+    final callKit = _callKit;
+    final callId = _activeCallId;
+    final transcriptSub = _transcriptSub;
+    final intensitySub = _intensitySub;
+    final ttsSub = _ttsSub;
+    final callKitSub = _callKitSub;
+    final elapsedTimer = _elapsedTimer;
+    final backgroundKeepAliveTimer = _backgroundKeepAliveTimer;
+    final backgroundLeaseId = _backgroundLeaseId;
+    final backgroundCoordinator = _backgroundCoordinator;
+    final audioSessionCoordinator = _audioSessionCoordinator;
+
+    // Detach this session's instance state before the first await. A stale
+    // teardown can then finish its captured resources without a later finally
+    // block nulling services or resetting flags installed by a replacement
+    // start.
+    _activeCallId = null;
     _elapsedTimer = null;
-    await _cancelListening();
-    await _ttsSub?.cancel();
+    _transcriptSub = null;
+    _intensitySub = null;
     _ttsSub = null;
-    await ref.read(textToSpeechServiceProvider).stopStreamingTts();
-    await ref.read(textToSpeechServiceProvider).stop();
-    await _stopBackgroundVoiceLease();
-    await _audioSessionCoordinator?.deactivate();
-
-    final callId = state.activeCallId;
-    await _callKitSub?.cancel();
     _callKitSub = null;
-    if (endCallKit && callId != null) {
-      await ref.read(callKitServiceProvider).endCall(callId);
-    }
-
+    _backgroundKeepAliveTimer = null;
+    _backgroundLeaseId = null;
+    _voiceInput = null;
+    _textToSpeech = null;
+    _callKit = null;
+    _iosAudioSessionManagedExternally = false;
+    elapsedTimer?.cancel();
+    backgroundKeepAliveTimer?.cancel();
     _resetRuntime();
+
+    try {
+      await _serviceLifecycleGate.runCleanupExclusive(() async {
+        bool replacementOwnsInput() =>
+            !_isCurrent(ownershipToken) && _voiceInput != null;
+        bool replacementOwnsTts() =>
+            !_isCurrent(ownershipToken) && _textToSpeech != null;
+        bool replacementOwnsSharedAudio() =>
+            !_isCurrent(ownershipToken) &&
+            (_voiceInput != null ||
+                _textToSpeech != null ||
+                _backgroundLeaseId != null);
+
+        await _runTeardownStep('transcript-subscription-cancel', () async {
+          await transcriptSub?.cancel();
+        });
+        await _runTeardownStep('intensity-subscription-cancel', () async {
+          await intensitySub?.cancel();
+        });
+        await _runTeardownStep('voice-input-stop', () async {
+          if (!replacementOwnsInput()) {
+            await input?.stopListening();
+          }
+        });
+        await _runTeardownStep('tts-subscription-cancel', () async {
+          await ttsSub?.cancel();
+        });
+        await _runTeardownStep('streaming-tts-stop', () async {
+          if (!replacementOwnsTts()) {
+            await tts?.stopStreamingTts();
+          }
+        });
+        await _runTeardownStep('tts-stop', () async {
+          if (!replacementOwnsTts()) {
+            await tts?.stop();
+          }
+        });
+        await _runTeardownStep('background-lease-stop', () async {
+          if (backgroundLeaseId != null) {
+            await backgroundCoordinator?.stopVoiceLease(backgroundLeaseId);
+          }
+        });
+        await _runTeardownStep('background-audio-owner-release', () async {
+          if (!replacementOwnsSharedAudio()) {
+            await backgroundCoordinator?.setExternalAudioSessionOwner(false);
+          }
+        });
+        await _runTeardownStep('audio-session-deactivate', () async {
+          if (!replacementOwnsSharedAudio()) {
+            await audioSessionCoordinator?.deactivate();
+          }
+        });
+        await _runTeardownStep('callkit-subscription-cancel', () async {
+          await callKitSub?.cancel();
+        });
+        if (endCallKit && callId != null) {
+          await _runTeardownStep('callkit-end', () async {
+            await callKit?.endCall(callId);
+          });
+        }
+      });
+    } on TimeoutException catch (error, stackTrace) {
+      DebugLogger.error(
+        'teardown-lifecycle-timeout',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _runTeardownStep(
+    String step,
+    Future<void> Function() teardown,
+  ) async {
+    try {
+      await teardown();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'teardown-step-failed',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'step': step},
+      );
+    }
   }
 
   void _resetRuntime() {
     _emptyTranscriptRestarts = 0;
     _currentTranscript = '';
     _lastFedAssistantText = '';
+    _activeCallId = null;
     _activeAssistantMessageId = null;
     _assistantMessageIdsBeforeTurn = <String>{};
     _awaitingAssistant = false;
@@ -1212,9 +1525,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   void _syncAssistantSpeechChunks(String text) {
-    _assistantSpeechChunks = ref
-        .read(textToSpeechServiceProvider)
-        .splitTextForSpeech(text);
+    _assistantSpeechChunks = _textToSpeech!.splitTextForSpeech(text);
 
     final index = _activeAssistantSpeechChunkIndex;
     if (index >= 0 && index < _assistantSpeechChunks.length) {
@@ -1267,7 +1578,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   void _startElapsedTimer(int token) {
     _elapsedTimer?.cancel();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (token != _token) {
+      if (!_isCurrent(token)) {
         _elapsedTimer?.cancel();
         return;
       }
@@ -1278,8 +1589,62 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _enqueue(Future<void> Function() action) {
-    final next = _serial.then((_) => action());
+    if (_disposed) return Future<void>.value();
+    final next = _serial.then((_) async {
+      if (_disposed) return;
+      await action();
+    });
     _serial = next.catchError((_) {});
     return next;
+  }
+
+  bool _isCurrent(int token) => !_disposed && token == _token;
+
+  Future<void> _cancelSubscriptionAfterDispose(
+    StreamSubscription<dynamic>? subscription,
+  ) async {
+    try {
+      await subscription?.cancel();
+    } catch (_) {}
+  }
+
+  Future<void> _stopVoiceInputAfterDispose(VoiceInputService? input) async {
+    try {
+      await input?.stopListening();
+    } catch (_) {}
+  }
+
+  Future<void> _stopTtsAfterDispose(TextToSpeechService? tts) async {
+    try {
+      await tts?.stopStreamingTts();
+    } catch (_) {}
+    try {
+      await tts?.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _stopBackgroundVoiceLeaseAfterDispose(
+    ChatVoiceModeBackgroundCoordinator? coordinator,
+  ) async {
+    try {
+      await _stopBackgroundVoiceLease(coordinator);
+    } catch (_) {}
+  }
+
+  Future<void> _deactivateAudioSessionAfterDispose(
+    ChatVoiceAudioSessionCoordinator? coordinator,
+  ) async {
+    try {
+      await coordinator?.deactivate();
+    } catch (_) {}
+  }
+
+  Future<void> _endCallAfterDispose(
+    CallKitService? callKit,
+    String callId,
+  ) async {
+    try {
+      await callKit?.endCall(callId);
+    } catch (_) {}
   }
 }

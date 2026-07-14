@@ -3,6 +3,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final platform in TargetPlatform.values) {
+    testWidgets('uses Cupertino chrome on ${platform.name}', (tester) async {
+      late bool usesCupertinoChrome;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: Builder(
+            builder: (context) {
+              usesCupertinoChrome = context.usesCupertinoChrome;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      expect(
+        usesCupertinoChrome,
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS,
+      );
+    });
+  }
+
   testWidgets('iOS reduce motion disables motion durations', (tester) async {
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(reduceMotion: true);

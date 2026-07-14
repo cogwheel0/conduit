@@ -11,6 +11,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
 import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
+import '../auth/openwebui_account_owner_marker.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
@@ -31,6 +32,7 @@ import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/conversation_parsing.dart';
 import '../persistence/preferences_store.dart';
 import '../persistence/persistence_keys.dart';
 import '../utils/debug_logger.dart';
@@ -41,10 +43,15 @@ import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/hermes/services/hermes_session_provenance.dart';
+import '../../features/direct_connections/direct_connections.dart';
+import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
+import '../database/app_database.dart';
 import '../database/database_provider.dart';
+import '../database/chat_database_repository.dart';
 import '../database/local_conversation_loader.dart';
 import '../database/mappers/conversation_assembler.dart';
 import '../sync/chat_locks.dart';
@@ -54,6 +61,31 @@ import '../sync/sync_engine.dart';
 export 'storage_providers.dart';
 
 part 'app_providers.g.dart';
+
+typedef _ModelAuthReadiness = ({
+  bool authenticated,
+  bool loading,
+  AuthStatus status,
+});
+
+/// A single, value-deduplicated auth dependency for model resolution. Watching
+/// the three public derivations independently can restart an async provider
+/// several times while one AuthState transition is being published.
+final _modelAuthReadinessProvider = Provider<_ModelAuthReadiness>((ref) {
+  return (
+    authenticated: ref.watch(isAuthenticatedProvider2),
+    loading: ref.watch(isAuthLoadingProvider2),
+    status: ref.watch(authStatusProvider),
+  );
+});
+
+bool _modelAuthRetainsOpenWebUiSession(_ModelAuthReadiness auth) =>
+    auth.authenticated;
+
+bool _modelAuthIsPending(_ModelAuthReadiness auth) =>
+    auth.loading ||
+    auth.status == AuthStatus.initial ||
+    auth.status == AuthStatus.loading;
 
 // Theme provider
 @Riverpod(keepAlive: true)
@@ -256,13 +288,26 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
 
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
-  late final OptimizedStorageService _storage;
+  // AsyncNotifier instances survive dependency-triggered rebuilds. This must
+  // be rebound on every build so auth/server transitions cannot either throw
+  // on a second `late final` assignment or retain the prior storage owner.
+  late OptimizedStorageService _storage;
 
   @override
   Future<BackendConfig?> build() async {
     _storage = ref.watch(optimizedStorageServiceProvider);
+    // These ownership boundaries can change while ApiService itself remains
+    // stable (same-server logout/login). Rebuild so a discarded stale refresh
+    // is followed by a request owned by the new session.
+    ref.watch(openWebUiAuthSessionEpochProvider);
+    ref.watch(openWebUiDatabaseAccessProvider);
+    ref.watch(openWebUiCertifiedDatabaseServerProvider);
+    ref.watch(activeServerProvider);
+    ref.watch(apiServiceProvider);
     final cached = await _storage.getLocalBackendConfig();
-    unawaited(_refreshBackendConfig());
+    if (ref.mounted) {
+      unawaited(_refreshBackendConfig());
+    }
     return cached;
   }
 
@@ -272,52 +317,83 @@ class BackendConfigNotifier extends _$BackendConfigNotifier {
   /// [serverId]. This avoids a stale global cache hiding server-specific
   /// capability state during the first authenticated frame.
   Future<void> cacheForServer(BackendConfig config, String serverId) async {
-    final activeId = ref.read(activeServerProvider).asData?.value?.id;
-    if (activeId != serverId) return;
+    final api = ref.read(apiServiceProvider);
+    if (api == null || api.serverConfig.id != serverId) return;
+    final ownership = captureOpenWebUiCacheOwnership(
+      ref,
+      api: api,
+      requireAuthenticated: false,
+    );
+    if (ownership == null) return;
 
     final tagged = config.copyWith(serverId: serverId);
-    state = AsyncData(tagged);
     await _storage.saveLocalBackendConfig(tagged);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
     final options = _resolveTransportAvailability(tagged);
     await _storage.saveLocalTransportOptions(options);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
+    state = AsyncData(tagged);
   }
 
   Future<void> _refreshBackendConfig() async {
-    final fresh = await _loadBackendConfig(ref);
-    if (fresh == null || !ref.mounted) {
+    final loaded = await _loadBackendConfig(ref);
+    if (loaded == null || !ref.mounted) {
       return;
     }
+    final config = loaded.config;
+    final ownership = loaded.ownership;
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
-    state = AsyncData(fresh);
-    await _storage.saveLocalBackendConfig(fresh);
+    await _storage.saveLocalBackendConfig(config);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
     // Persist resolved transport options based on backend config
-    if (!ref.mounted) return;
-    final options = _resolveTransportAvailability(fresh);
+    final options = _resolveTransportAvailability(config);
     await _storage.saveLocalTransportOptions(options);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
+    state = AsyncData(config);
   }
 }
 
-Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
-  final api = ref.watch(apiServiceProvider);
+typedef _OwnedBackendConfig = ({
+  BackendConfig config,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
+
+Future<_OwnedBackendConfig?> _loadBackendConfig(Ref ref) async {
+  if (!ref.mounted) return null;
+  // The notifier's build method owns dependency subscriptions. Refresh can
+  // also be invoked later by UI actions, where adding a new `watch` dependency
+  // is invalid; take point-in-time values and fence their async result below.
+  final api = ref.read(apiServiceProvider);
   if (api == null) {
     return null;
   }
 
-  final server = await ref.watch(activeServerProvider.future);
+  final server = await ref.read(activeServerProvider.future);
+  if (!ref.mounted) return null;
   if (server == null) {
     return null;
   }
+  if (api.serverConfig.id != server.id) return null;
+  final ownership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (ownership == null) return null;
 
   try {
     final config = await api.getBackendConfig();
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     if (config != null) {
       final forcedMode = config.enforcedTransportMode;
       if (forcedMode != null) {
         final settings = ref.read(appSettingsProvider);
         if (settings.socketTransportMode != forcedMode) {
           Future.microtask(() {
+            if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
             ref
                 .read(appSettingsProvider.notifier)
                 .setSocketTransportMode(forcedMode);
@@ -329,7 +405,8 @@ Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
     // warning can ignore a globally-cached config that belongs to a different
     // server (e.g. after a server switch, or a stale config restored on a
     // cold start). See serverIncompatibleProvider.
-    return config?.copyWith(serverId: server.id);
+    final tagged = config?.copyWith(serverId: api.serverConfig.id);
+    return tagged == null ? null : (config: tagged, ownership: ownership);
   } catch (_) {
     return null;
   }
@@ -424,12 +501,370 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
 });
 
 // Socket.IO service provider
+/// Monotonic identity for one OpenWebUI authentication session.
+///
+/// API and database objects are intentionally stable across logout on the same
+/// server. Their identity therefore cannot distinguish user A's late async work
+/// from a later user B session. Rebuilding this object on every auth-state
+/// transition gives all server-bound work an ABA-safe ownership boundary.
+final openWebUiAuthSessionEpochProvider = Provider<Object>((ref) {
+  ref.watch(isAuthenticatedProvider2);
+  ref.watch(authTokenProvider3);
+  ref.watch(currentUserProvider2.select((user) => user?.id));
+  return Object();
+});
+
+/// Immutable ownership fence for async OpenWebUI API results that may update
+/// server-scoped state or cache rows after an await.
+///
+/// ApiService identity alone is insufficient: it can remain stable across a
+/// same-server account transition. The auth epoch, token, active server,
+/// database certification phase, and raw storage owner close that ABA window.
+@immutable
+final class OpenWebUiCacheOwnershipSnapshot {
+  const OpenWebUiCacheOwnershipSnapshot({
+    required this.api,
+    required this.serverId,
+    required this.activeServerId,
+    required this.authSessionEpoch,
+    required this.authToken,
+    required this.authenticated,
+    required this.databaseAccessPhase,
+    required this.certifiedDatabaseServerId,
+    required this.rawActiveServerId,
+  });
+
+  final ApiService api;
+  final String serverId;
+  final String? activeServerId;
+  final Object authSessionEpoch;
+  final String? authToken;
+  final bool authenticated;
+  final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  final String? certifiedDatabaseServerId;
+  final String? rawActiveServerId;
+}
+
+OpenWebUiCacheOwnershipSnapshot? captureOpenWebUiCacheOwnership(
+  Ref ref, {
+  required ApiService api,
+  bool requireAuthenticated = true,
+}) {
+  if (!ref.mounted) return null;
+  final serverId = api.serverConfig.id;
+  // Keep the last resolved owner through an AsyncLoading/AsyncError refresh.
+  // Treating every transient refresh as "no server" can retire otherwise
+  // valid same-server cache/API work while the server is being revalidated.
+  final activeServerId = ref.read(activeServerProvider).value?.id;
+  final rawActiveServerId = PreferencesStore.getString(
+    PreferenceKeys.activeServerId,
+  );
+  final authenticated = ref.read(isAuthenticatedProvider2);
+  final authToken = ref.read(authTokenProvider3);
+  if (!identical(ref.read(apiServiceProvider), api) ||
+      (activeServerId != null && activeServerId != serverId) ||
+      (rawActiveServerId != null && rawActiveServerId != serverId) ||
+      (requireAuthenticated &&
+          (!authenticated || authToken == null || authToken.isEmpty))) {
+    return null;
+  }
+  return OpenWebUiCacheOwnershipSnapshot(
+    api: api,
+    serverId: serverId,
+    activeServerId: activeServerId,
+    authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+    authToken: authToken,
+    authenticated: authenticated,
+    databaseAccessPhase: ref.read(openWebUiDatabaseAccessProvider),
+    certifiedDatabaseServerId: ref.read(
+      openWebUiCertifiedDatabaseServerProvider,
+    ),
+    rawActiveServerId: rawActiveServerId,
+  );
+}
+
+bool openWebUiCacheOwnershipIsCurrent(
+  Ref ref,
+  OpenWebUiCacheOwnershipSnapshot snapshot,
+) {
+  if (!ref.mounted ||
+      !identical(ref.read(apiServiceProvider), snapshot.api) ||
+      ref.read(activeServerProvider).value?.id != snapshot.activeServerId ||
+      !identical(
+        ref.read(openWebUiAuthSessionEpochProvider),
+        snapshot.authSessionEpoch,
+      ) ||
+      ref.read(authTokenProvider3) != snapshot.authToken ||
+      ref.read(isAuthenticatedProvider2) != snapshot.authenticated ||
+      ref.read(openWebUiDatabaseAccessProvider) !=
+          snapshot.databaseAccessPhase ||
+      ref.read(openWebUiCertifiedDatabaseServerProvider) !=
+          snapshot.certifiedDatabaseServerId ||
+      PreferencesStore.getString(PreferenceKeys.activeServerId) !=
+          snapshot.rawActiveServerId) {
+    return false;
+  }
+  return (snapshot.activeServerId == null ||
+          snapshot.activeServerId == snapshot.serverId) &&
+      (snapshot.rawActiveServerId == null ||
+          snapshot.rawActiveServerId == snapshot.serverId);
+}
+
+/// Ownership token for an asynchronous OpenWebUI conversation read.
+///
+/// Conversation bodies can come from either the server database or the API.
+/// Both objects may outlive the account that started a read, so object identity
+/// alone is not an adequate fence. This token also captures the authentication
+/// epoch and the database/server certification boundary used by account
+/// isolation.
+@immutable
+final class OpenWebUiConversationReadSnapshot {
+  const OpenWebUiConversationReadSnapshot._({
+    required this.database,
+    required this.api,
+    required this.authSessionEpoch,
+    required this.databaseAccessPhase,
+    required this.certifiedDatabaseServerId,
+    required this.activeServerId,
+    required this.rawActiveServerId,
+    required this.managedDatabaseServerId,
+    required this.apiServerId,
+  });
+
+  final AppDatabase? database;
+  final ApiService? api;
+  final Object authSessionEpoch;
+  final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  final String? certifiedDatabaseServerId;
+  final String? activeServerId;
+  final String? rawActiveServerId;
+  final String? managedDatabaseServerId;
+  final String? apiServerId;
+}
+
+typedef _OpenWebUiConversationReadContext = ({
+  AppDatabase? database,
+  ApiService? api,
+  Object authSessionEpoch,
+  OpenWebUiDatabaseAccessPhase databaseAccessPhase,
+  String? certifiedDatabaseServerId,
+  String? activeServerId,
+  String? rawActiveServerId,
+  String? managedDatabaseServerId,
+  String? apiServerId,
+});
+
+bool _openWebUiConversationReaderIsMounted(dynamic ref) {
+  try {
+    final mounted = ref.mounted;
+    return mounted is! bool || mounted;
+  } catch (_) {
+    // ProviderContainer intentionally has no mounted property. Its reads below
+    // still fail after disposal, which is handled by the context reader.
+    return true;
+  }
+}
+
+_OpenWebUiConversationReadContext? _readOpenWebUiConversationContext(
+  dynamic ref,
+) {
+  if (!_openWebUiConversationReaderIsMounted(ref)) return null;
+
+  // The database and API are independent read sources. In particular, the
+  // account database may be unavailable while it is opening (or a narrow test
+  // may deliberately omit it), but that must not erase an otherwise exact API
+  // ownership token. Read optional context components independently and keep
+  // the mandatory auth/database-isolation fence fail-closed.
+  AppDatabase? database;
+  try {
+    database = ref.read(appDatabaseProvider) as AppDatabase?;
+  } catch (_) {}
+
+  ApiService? api;
+  try {
+    api = ref.read(apiServiceProvider) as ApiService?;
+  } catch (_) {}
+  if (database == null && api == null) return null;
+
+  late final Object authSessionEpoch;
+  late final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  String? certifiedDatabaseServerId;
+  try {
+    authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider) as Object;
+    databaseAccessPhase =
+        ref.read(openWebUiDatabaseAccessProvider)
+            as OpenWebUiDatabaseAccessPhase;
+    certifiedDatabaseServerId =
+        ref.read(openWebUiCertifiedDatabaseServerProvider) as String?;
+  } catch (_) {
+    return null;
+  }
+
+  String? managedDatabaseServerId;
+  if (database != null) {
+    try {
+      managedDatabaseServerId = ref
+          .read(databaseManagerProvider)
+          .serverIdForDatabase(database);
+    } catch (_) {
+      // Provider overrides commonly use unmanaged in-memory databases. Exact
+      // database identity remains their ownership boundary.
+    }
+  }
+
+  String? apiServerId;
+  if (api != null) {
+    try {
+      apiServerId = api.serverConfig.id;
+    } catch (_) {
+      // Lightweight ApiService fakes may not implement serverConfig. Real
+      // services always do, and the remaining captured identities still
+      // provide a deterministic test seam.
+    }
+  }
+
+  String? rawActiveServerId;
+  try {
+    rawActiveServerId = PreferencesStore.isReady
+        ? PreferencesStore.getString(PreferenceKeys.activeServerId)
+        : null;
+  } catch (_) {
+    // A narrow test or early bootstrap can expose a synchronously torn-down
+    // preferences seam. Provider/database/auth identity still forms the
+    // ownership fence; absence of this optional corroborating id is safer
+    // than making every otherwise coherent read unavailable.
+    rawActiveServerId = null;
+  }
+
+  String? activeServerId;
+  try {
+    final activeServer = ref.read(activeServerProvider);
+    activeServerId = activeServer is AsyncData<ServerConfig?>
+        ? activeServer.value?.id
+        : null;
+  } catch (_) {
+    // During server bootstrap the independently captured API/database identity
+    // remains authoritative. A later active-server publication changes this
+    // tuple and invalidates the snapshot before its result can be published.
+  }
+
+  return (
+    database: database,
+    api: api,
+    authSessionEpoch: authSessionEpoch,
+    databaseAccessPhase: databaseAccessPhase,
+    certifiedDatabaseServerId: certifiedDatabaseServerId,
+    activeServerId: activeServerId,
+    rawActiveServerId: rawActiveServerId,
+    managedDatabaseServerId: managedDatabaseServerId,
+    apiServerId: apiServerId,
+  );
+}
+
+/// Captures the single ownership token shared by all OpenWebUI conversation
+/// read and publication paths.
+///
+/// [database] and [api], when supplied, must still be the current provider
+/// instances. At least one current OpenWebUI data source must exist.
+OpenWebUiConversationReadSnapshot? captureOpenWebUiConversationRead(
+  dynamic ref, {
+  AppDatabase? database,
+  ApiService? api,
+}) {
+  final context = _readOpenWebUiConversationContext(ref);
+  if (context == null ||
+      (database != null && !identical(database, context.database)) ||
+      (api != null && !identical(api, context.api)) ||
+      (context.database == null && context.api == null) ||
+      context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.purging ||
+      context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.closed) {
+    return null;
+  }
+
+  final databaseServerId = context.managedDatabaseServerId;
+  if (databaseServerId != null) {
+    if (context.databaseAccessPhase != OpenWebUiDatabaseAccessPhase.open ||
+        context.certifiedDatabaseServerId != databaseServerId ||
+        context.activeServerId != databaseServerId ||
+        (context.rawActiveServerId != null &&
+            context.rawActiveServerId != databaseServerId) ||
+        (context.api != null && context.apiServerId != databaseServerId)) {
+      return null;
+    }
+  }
+
+  final apiServerId = context.apiServerId;
+  if (apiServerId != null &&
+      ((context.activeServerId != null &&
+              context.activeServerId != apiServerId) ||
+          (context.rawActiveServerId != null &&
+              context.rawActiveServerId != apiServerId) ||
+          (context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.open &&
+              context.certifiedDatabaseServerId != null &&
+              context.certifiedDatabaseServerId != apiServerId))) {
+    return null;
+  }
+
+  return OpenWebUiConversationReadSnapshot._(
+    database: context.database,
+    api: context.api,
+    authSessionEpoch: context.authSessionEpoch,
+    databaseAccessPhase: context.databaseAccessPhase,
+    certifiedDatabaseServerId: context.certifiedDatabaseServerId,
+    activeServerId: context.activeServerId,
+    rawActiveServerId: context.rawActiveServerId,
+    managedDatabaseServerId: context.managedDatabaseServerId,
+    apiServerId: context.apiServerId,
+  );
+}
+
+/// Whether [snapshot] still owns the exact OpenWebUI account/server context.
+bool openWebUiConversationReadIsCurrent(
+  dynamic ref,
+  OpenWebUiConversationReadSnapshot snapshot,
+) {
+  final context = _readOpenWebUiConversationContext(ref);
+  return context != null &&
+      identical(context.database, snapshot.database) &&
+      identical(context.api, snapshot.api) &&
+      identical(context.authSessionEpoch, snapshot.authSessionEpoch) &&
+      context.databaseAccessPhase == snapshot.databaseAccessPhase &&
+      context.certifiedDatabaseServerId == snapshot.certifiedDatabaseServerId &&
+      context.activeServerId == snapshot.activeServerId &&
+      context.rawActiveServerId == snapshot.rawActiveServerId &&
+      context.managedDatabaseServerId == snapshot.managedDatabaseServerId &&
+      context.apiServerId == snapshot.apiServerId;
+}
+
+typedef SocketServiceFactory =
+    SocketService Function({
+      required ServerConfig serverConfig,
+      required String authToken,
+      required bool websocketOnly,
+      required bool allowWebsocketUpgrade,
+    });
+
+final socketServiceFactoryProvider = Provider<SocketServiceFactory>((ref) {
+  return ({
+    required serverConfig,
+    required authToken,
+    required websocketOnly,
+    required allowWebsocketUpgrade,
+  }) => SocketService(
+    serverConfig: serverConfig,
+    authToken: authToken,
+    websocketOnly: websocketOnly,
+    allowWebsocketUpgrade: allowWebsocketUpgrade,
+  );
+});
+
 @Riverpod(keepAlive: true)
 class SocketServiceManager extends _$SocketServiceManager {
   SocketService? _service;
-  ProviderSubscription<String?>? _tokenSubscription;
   ProviderSubscription<ConnectivityStatus>? _connectivitySubscription;
+  String? _serviceToken;
   int _connectToken = 0;
+  int _buildGeneration = 0;
 
   /// The current live service, available even while [build] is re-running (the
   /// async provider is briefly `loading` on every rebuild). [socketServiceProvider]
@@ -441,13 +876,49 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   @override
   FutureOr<SocketService?> build() async {
+    final buildGeneration = ++_buildGeneration;
+    _registerDisposeHook(buildGeneration);
     final reviewerMode = ref.watch(reviewerModeProvider);
-    if (reviewerMode) {
+    final authenticated = ref.watch(isAuthenticatedProvider2);
+    final token = ref.watch(authTokenProvider3);
+    final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+    if (reviewerMode || !authenticated || token == null || token.isEmpty) {
       _disposeService();
       return null;
     }
 
+    // A token transition may represent another user on the same server. Drop
+    // the old socket synchronously, before the first await, so the provider's
+    // loading fallback can never expose the prior session or its room handlers.
+    if (_service != null && _serviceToken != token) {
+      _disposeService();
+    }
+
+    final activeServerSnapshot = ref.watch(activeServerProvider);
+    final immediatelyKnownServer = activeServerSnapshot.asData?.value;
+    if (_service != null &&
+        (immediatelyKnownServer == null ||
+            _service!.serverConfig.id != immediatelyKnownServer.id)) {
+      // A live socket is safe to expose during an ordinary rebuild only while
+      // the active server is still provably the same. Server selection enters
+      // loading before its replacement resolves, so fail closed instead of
+      // letting socketServiceProvider's loading fallback expose the old host.
+      _disposeService();
+    }
+
     final server = await ref.watch(activeServerProvider.future);
+    if (!_buildStillOwnsContext(
+      buildGeneration: buildGeneration,
+      token: token,
+      authSessionEpoch: authSessionEpoch,
+      server: server,
+    )) {
+      // AsyncNotifier ignores an obsolete build's returned state, but the
+      // continuation can still execute side effects. Never let that stale
+      // continuation dispose or replace the socket installed by a newer auth or
+      // server generation.
+      return null;
+    }
     if (server == null) {
       _disposeService();
       return null;
@@ -460,34 +931,23 @@ class SocketServiceManager extends _$SocketServiceManager {
     final transportAvailability = ref.watch(socketTransportOptionsProvider);
     final allowWebsocketUpgrade = transportAvailability.allowWebsocketOnly;
 
-    // Don't watch authTokenProvider3 here to avoid rebuilding on token changes
-    // Token updates are handled via the subscription below
-    final token = ref.read(authTokenProvider3);
-
     final requiresNewService =
         _service == null ||
+        _serviceToken != token ||
         _service!.serverConfig.id != server.id ||
         _service!.websocketOnly != websocketOnly ||
         _service!.allowWebsocketUpgrade != allowWebsocketUpgrade;
     if (requiresNewService) {
       _disposeService();
-      _service = SocketService(
+      _service = ref.read(socketServiceFactoryProvider)(
         serverConfig: server,
         authToken: token,
         websocketOnly: websocketOnly,
         allowWebsocketUpgrade: allowWebsocketUpgrade,
       );
+      _serviceToken = token;
       _scheduleConnect(_service!);
-    } else {
-      _service!.updateAuthToken(token);
     }
-
-    _tokenSubscription ??= ref.listen<String?>(authTokenProvider3, (
-      previous,
-      next,
-    ) {
-      _service?.updateAuthToken(next);
-    });
 
     // Listen to connectivity changes to proactively manage socket connection.
     // When network goes offline, we can save resources by not attempting
@@ -517,15 +977,47 @@ class SocketServiceManager extends _$SocketServiceManager {
       },
     );
 
+    return _service;
+  }
+
+  void _registerDisposeHook(int buildGeneration) {
     ref.onDispose(() {
-      _tokenSubscription?.close();
-      _tokenSubscription = null;
+      if (buildGeneration != _buildGeneration) return;
+
+      // Fence every continuation before releasing the currently-owned service.
+      _buildGeneration++;
       _connectivitySubscription?.close();
       _connectivitySubscription = null;
-      _disposeService();
-    });
 
-    return _service;
+      // Riverpod runs onDispose both before a rebuild and when the provider is
+      // destroyed. Let a replacement build retain a same-context socket, but
+      // release it once the notifier is genuinely unmounted.
+      scheduleMicrotask(() {
+        if (!ref.mounted) {
+          _disposeService();
+        }
+      });
+    });
+  }
+
+  bool _buildStillOwnsContext({
+    required int buildGeneration,
+    required String token,
+    required Object authSessionEpoch,
+    required ServerConfig? server,
+  }) {
+    if (!ref.mounted || buildGeneration != _buildGeneration) return false;
+    if (ref.read(reviewerModeProvider) ||
+        !ref.read(isAuthenticatedProvider2) ||
+        ref.read(authTokenProvider3) != token ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
+      return false;
+    }
+    final currentServer = ref.read(activeServerProvider).asData;
+    return currentServer != null && currentServer.value == server;
   }
 
   void _scheduleConnect(SocketService service) {
@@ -542,6 +1034,7 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   void _disposeService() {
     _connectToken++;
+    _serviceToken = null;
     if (_service == null) return;
     try {
       _service!.dispose();
@@ -624,8 +1117,12 @@ final apiTokenUpdaterProvider = Provider<void>((ref) {
 
 @Riverpod(keepAlive: true)
 Future<User?> currentUser(Ref ref) async {
-  final api = ref.read(apiServiceProvider);
+  final api = ref.watch(apiServiceProvider);
   final authState = ref.watch(authStateManagerProvider);
+  ref.watch(openWebUiAuthSessionEpochProvider);
+  ref.watch(openWebUiDatabaseAccessProvider);
+  ref.watch(openWebUiCertifiedDatabaseServerProvider);
+  ref.watch(activeServerProvider);
   final isAuthenticated = authState.maybeWhen(
     data: (state) => state.isAuthenticated,
     orElse: () => false,
@@ -640,10 +1137,30 @@ Future<User?> currentUser(Ref ref) async {
   );
   if (authUser != null) return authUser;
 
+  final cacheOwnership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (cacheOwnership == null) return null;
+
   // Next: try cached user from storage, then refresh in the background.
   final storage = ref.read(optimizedStorageServiceProvider);
   final cachedUser = await _getCachedUserWithAvatar(storage);
-  if (cachedUser != null) {
+  if (!openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) return null;
+  final token = cacheOwnership.authToken;
+  final marker = ref
+      .read(openWebUiAccountOwnerMarkerStoreProvider)
+      .read(cacheOwnership.serverId);
+  final cachedOwnerMatches =
+      cachedUser != null &&
+      token != null &&
+      openWebUiAccountOwnerMarkerMatches(
+        marker: marker,
+        token: token,
+        userId: cachedUser.id,
+      );
+  if (cachedOwnerMatches) {
     final lastRefresh = ref.read(_lastUserRefreshProvider);
     final now = DateTime.now();
     final shouldRefresh =
@@ -664,35 +1181,35 @@ Future<User?> currentUser(Ref ref) async {
 
   // Fallback: fetch fresh.
   final fresh = await _refreshCurrentUser(ref);
-  if (fresh != null) {
+  if (fresh != null && ref.mounted) {
     ref.read(_lastUserRefreshProvider.notifier).set(DateTime.now());
   }
-  return fresh;
+  return ref.mounted ? fresh : null;
 }
 
-Future<User?> _getCachedUserWithAvatar(OptimizedStorageService storage) async {
-  final cachedUser = await storage.getLocalUser();
-  if (cachedUser == null) return null;
-  final cachedAvatar = await storage.getLocalUserAvatar();
-  if (cachedAvatar == null ||
-      cachedAvatar.isEmpty ||
-      cachedUser.profileImage == cachedAvatar) {
-    return cachedUser;
-  }
-  return cachedUser.copyWith(profileImage: cachedAvatar);
-}
+Future<User?> _getCachedUserWithAvatar(OptimizedStorageService storage) =>
+    storage.getLocalUserWithAvatar();
 
 Future<User?> _refreshCurrentUser(Ref ref) async {
+  // A warm refresh is queued in a microtask. Authentication/server changes can
+  // invalidate the provider build before that task starts, so do not perform
+  // even the first provider read through a retired Ref.
+  if (!ref.mounted) return null;
   final api = ref.read(apiServiceProvider);
   if (api == null) return null;
+  final ownership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (ownership == null) return null;
 
   try {
     final user = await api.getCurrentUser();
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     final storage = ref.read(optimizedStorageServiceProvider);
-    await storage.saveLocalUser(user);
-    if (user.profileImage != null && user.profileImage!.isNotEmpty) {
-      await storage.saveLocalUserAvatar(user.profileImage);
-    }
+    await storage.saveLocalUserWithAvatar(user, avatarUrl: user.profileImage);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     return user;
   } catch (_) {
     return null;
@@ -720,14 +1237,26 @@ List<Model> appendHermesModelIfUsable(
   List<Model> models, {
   required bool hermesUsable,
 }) {
-  final safeModels = sanitizeRemoteHermesModels(models);
+  final directModels = models.where(isLocallyMintedDirectModel);
+  final safeModels = sanitizeRemoteHermesModels(
+    sanitizeRemoteDirectModels(models),
+  );
   return hermesUsable
-      ? <Model>[...safeModels, hermesSyntheticModel()]
-      : safeModels;
+      ? <Model>[...safeModels, ...directModels, hermesSyntheticModel()]
+      : <Model>[...safeModels, ...directModels];
+}
+
+String _modelBackendForDiagnostics(Model? model) {
+  if (model == null) return 'none';
+  if (isLocallyMintedDirectModel(model)) return 'direct';
+  if (isHermesModel(model)) return 'hermes';
+  return 'openwebui';
 }
 
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
+  bool _terminalDirectDiscoveryNeedsReconciliation = false;
+
   @override
   Future<List<Model>> build() async {
     // Reviewer mode returns mock models
@@ -737,6 +1266,29 @@ class Models extends _$Models {
 
     final hermesUsable = ref.watch(
       hermesConfigProvider.select((config) => config.isUsable),
+    );
+    final directModels = ref.watch(
+      directModelDiscoveryProvider.select((value) {
+        final models = value.value?.models;
+        // Keep loading -> empty discovery transitions referentially stable.
+        // Otherwise an empty, newly wrapped list can cancel a concurrent
+        // modelsProvider rebuild and leave callers awaiting its old future.
+        return models == null || models.isEmpty ? const <Model>[] : models;
+      }),
+    );
+    // Initial discovery loading is reconciliation context, not a model-list
+    // dependency. Watching it would turn loading -> empty into an otherwise
+    // spurious rebuild and could cancel a concurrent Hermes/auth rebuild.
+    final directDiscovery = ref.read(directModelDiscoveryProvider);
+    final deferDirectSelectionReconciliation =
+        directDiscovery.isLoading && !directDiscovery.hasValue;
+    // A backend switch must also reconcile a keepAlive model selection. This
+    // is especially important after OpenWebUI logout, where the old remote
+    // model can otherwise survive while the retained server remains present.
+    ref.watch(preferredBackendProvider);
+    ref.listen<AsyncValue<DirectModelDiscoveryState>>(
+      directModelDiscoveryProvider,
+      _handleDirectDiscoveryTransition,
     );
     ref.listen<bool>(hermesConfigProvider.select((config) => config.isUsable), (
       previous,
@@ -756,24 +1308,83 @@ class Models extends _$Models {
       );
     }
 
-    if (!ref.watch(isAuthenticatedProvider2)) {
-      // Hermes-only mode: no OpenWebUI auth, but a usable Hermes agent — surface
-      // just the synthetic Hermes model so the picker/composer work.
-      if (hermesUsable) {
-        return _withHermes(const <Model>[]);
+    final modelAuth = ref.watch(_modelAuthReadinessProvider);
+    // `isAuthenticated` is false during a token-preserving refresh too. Watch
+    // the richer auth signals so loading -> terminal sign-out triggers a
+    // second reconciliation without clobbering a live mixed-mode selection in
+    // the transient loading state.
+    if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
+      // Pending credentials are not authority for cache/API work. Preserve an
+      // already-rendered in-memory list until auth reaches a terminal state;
+      // on cold start, expose only app-owned transports without mutating the
+      // persisted OpenWebUI cache.
+      final previous = state.value;
+      if (previous != null) return previous;
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    }
+    if (!_modelAuthRetainsOpenWebUiSession(modelAuth)) {
+      // Standalone mode surfaces app-owned transports without requiring an
+      // Open WebUI session.
+      final localModels = _withLocalModels(
+        const <Model>[],
+        directModels: directModels,
+      );
+      if (localModels.isNotEmpty) {
+        return _returnWithSelectionReconciliation(
+          localModels,
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return const <Model>[];
+      return _returnWithSelectionReconciliation(
+        const <Model>[],
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
     }
+
+    // These ownership dependencies fence only OpenWebUI cache/API work. Do
+    // not initialize or subscribe to server storage in accountless
+    // Direct/Hermes mode: doing so can repeatedly cancel the otherwise
+    // synchronous local-model build while an optional retained server settles.
+    ref.watch(openWebUiAuthSessionEpochProvider);
+    ref.watch(openWebUiDatabaseAccessProvider);
+    ref.watch(openWebUiCertifiedDatabaseServerProvider);
+    ref.watch(activeServerProvider.select((value) => value.value?.id));
 
     // Re-run whenever Hermes connection usability changes so the synthetic
     // model cannot outlive (or appear before) its configured service.
+    final api = ref.watch(apiServiceProvider);
+    final cacheOwnership = api == null
+        ? null
+        : captureOpenWebUiCacheOwnership(
+            ref,
+            api: api,
+            requireAuthenticated: false,
+          );
+    if (api != null && cacheOwnership == null) {
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    }
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
       final cached = await storage.getLocalModels();
+      if (cacheOwnership != null &&
+          !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(const <Model>[], directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
       if (cached.isNotEmpty) {
-        final visibleCached = _visibleModels(cached);
+        final visibleCached = sanitizeRemoteHermesModels(
+          sanitizeRemoteDirectModels(_visibleModels(cached)),
+        );
         DebugLogger.log(
           'cache-restored',
           scope: 'models/cache',
@@ -782,10 +1393,11 @@ class Models extends _$Models {
             'hidden': cached.length - visibleCached.length,
           },
         );
-        if (visibleCached.length != cached.length) {
-          _persistModelsAsync(visibleCached);
+        if (visibleCached.length != cached.length && cacheOwnership != null) {
+          _persistModelsAsync(visibleCached, ownership: cacheOwnership);
         }
         Future.microtask(() async {
+          if (!ref.mounted) return;
           try {
             await refresh();
           } catch (error, stackTrace) {
@@ -797,7 +1409,10 @@ class Models extends _$Models {
             );
           }
         });
-        return _withHermes(visibleCached);
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(visibleCached, directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -808,23 +1423,119 @@ class Models extends _$Models {
       );
     }
 
-    final api = ref.watch(apiServiceProvider);
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
       _persistModelsAsync(const <Model>[]);
-      return _withHermes(const <Model>[]);
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
     }
 
-    final fresh = await _load(api);
-    return _withHermes(fresh);
+    try {
+      final loaded = await _load(api);
+      if (loaded == null ||
+          !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership)) {
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(const <Model>[], directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(loaded.models, directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    } catch (_) {
+      final localModels = _withLocalModels(
+        const <Model>[],
+        directModels: directModels,
+      );
+      if (localModels.isNotEmpty) {
+        return _returnWithSelectionReconciliation(
+          localModels,
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
+      _returnWithSelectionReconciliation(
+        localModels,
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+      rethrow;
+    }
   }
 
-  /// Appends the synthetic Hermes agent model when the connection is usable.
-  /// Called after OpenWebUI models are persisted so Hermes never lands in the
-  /// model cache, and guarded against duplicates on rebuild.
-  List<Model> _withHermes(List<Model> models) {
+  List<Model> _returnWithSelectionReconciliation(
+    List<Model> models, {
+    bool deferDirectSelection = false,
+  }) {
+    unawaited(
+      Future<void>(() {
+        if (ref.mounted) {
+          final reconcileTerminalDiscovery =
+              _terminalDirectDiscoveryNeedsReconciliation;
+          if (reconcileTerminalDiscovery) {
+            _terminalDirectDiscoveryNeedsReconciliation = false;
+          }
+          _reconcileLocalSelection(
+            models,
+            deferDirectSelection:
+                deferDirectSelection && !reconcileTerminalDiscovery,
+          );
+        }
+      }),
+    );
+    return models;
+  }
+
+  void _handleDirectDiscoveryTransition(
+    AsyncValue<DirectModelDiscoveryState>? previous,
+    AsyncValue<DirectModelDiscoveryState> next,
+  ) {
+    final isInitialLoading = next.isLoading && !next.hasValue;
+    if (isInitialLoading) {
+      _terminalDirectDiscoveryNeedsReconciliation = false;
+      return;
+    }
+    final wasInitialLoading =
+        previous?.isLoading == true && previous?.hasValue == false;
+    if (!wasInitialLoading) return;
+
+    final discoveredModels = next.value?.models ?? const <Model>[];
+    if (discoveredModels.isNotEmpty) {
+      _terminalDirectDiscoveryNeedsReconciliation = false;
+      return;
+    }
+
+    _terminalDirectDiscoveryNeedsReconciliation = true;
+    unawaited(
+      Future<void>(() {
+        if (!ref.mounted ||
+            !_terminalDirectDiscoveryNeedsReconciliation ||
+            (state.isLoading && !state.hasValue)) {
+          return;
+        }
+        _terminalDirectDiscoveryNeedsReconciliation = false;
+        _reconcileLocalSelection(state.value ?? const <Model>[]);
+      }),
+    );
+  }
+
+  /// Appends locally minted direct/Hermes models after the OpenWebUI list has
+  /// been sanitized and persisted. Local transport models remain runtime-only.
+  List<Model> _withLocalModels(
+    List<Model> models, {
+    List<Model>? directModels,
+  }) {
+    final withDirect = reconcileDirectModelsForDisplay(
+      remoteModels: models,
+      directModels:
+          directModels ??
+          ref.read(directModelDiscoveryProvider).value?.models ??
+          const <Model>[],
+      registry: ref.read(directModelRegistryProvider),
+    );
     return appendHermesModelIfUsable(
-      models,
+      withDirect,
       hermesUsable: ref.read(hermesConfigProvider).isUsable,
     );
   }
@@ -832,11 +1543,81 @@ class Models extends _$Models {
   /// Prevents a disabled or incomplete Hermes connection from leaving the
   /// composer bound to a transport that can no longer handle the selection.
   /// Prefer the first available OpenWebUI model; Hermes-only mode clears it.
-  List<Model> _reconcileHermesSelection(List<Model> models) {
+  List<Model> _reconcileLocalSelection(
+    List<Model> models, {
+    bool deferDirectSelection = false,
+  }) {
     final currentSelected = ref.read(selectedModelProvider);
-    if (currentSelected == null ||
-        !isHermesModel(currentSelected) ||
-        models.any(isHermesModel)) {
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (!modelAuth.authenticated) {
+      final shouldReconcile = _shouldUseAccountlessModelSelection(
+        isAuthenticated: false,
+        isAuthLoading: modelAuth.loading,
+        authStatus: modelAuth.status,
+        preferredBackend: ref.read(preferredBackendProvider),
+        hasApiService: ref.read(apiServiceProvider) != null,
+      );
+      if (!shouldReconcile) return models;
+
+      if (deferDirectSelection &&
+          currentSelected != null &&
+          isLocallyMintedDirectModel(currentSelected)) {
+        return models;
+      }
+
+      final replacement = _accountlessSelection(
+        models: models,
+        current: currentSelected,
+        preferredBackend: ref.read(preferredBackendProvider),
+      );
+      if (identical(currentSelected, replacement)) return models;
+
+      // Rebinding the same trusted model id after discovery should preserve a
+      // deliberate manual selection. Crossing transports (or clearing a stale
+      // remote selection) restores automatic selection semantics.
+      if (currentSelected?.id != replacement?.id) {
+        ref.read(isManualModelSelectionProvider.notifier).set(false);
+      }
+      ref.read(selectedModelProvider.notifier).set(replacement);
+      DebugLogger.warning(
+        'accountless-selection-reconciled',
+        scope: 'models',
+        data: {
+          'previousBackend': _modelBackendForDiagnostics(currentSelected),
+          'replacementBackend': _modelBackendForDiagnostics(replacement),
+          'source': 'reconciliation',
+        },
+      );
+      return models;
+    }
+
+    final isLocalTransport =
+        currentSelected != null &&
+        (isHermesModel(currentSelected) ||
+            isLocallyMintedDirectModel(currentSelected));
+    if (currentSelected == null || !isLocalTransport) {
+      return models;
+    }
+    if (deferDirectSelection && isLocallyMintedDirectModel(currentSelected)) {
+      return models;
+    }
+
+    final matching = models
+        .where((model) => model.id == currentSelected.id)
+        .firstOrNull;
+    if (matching != null) {
+      if (isLocallyMintedDirectModel(currentSelected)) {
+        final registry = ref.read(directModelRegistryProvider);
+        if (!identical(matching, currentSelected) ||
+            registry.resolve(currentSelected) == null) {
+          ref.read(selectedModelProvider.notifier).set(matching);
+          DebugLogger.log(
+            'direct-selection-rebound',
+            scope: 'models',
+            data: {'backend': 'direct', 'source': 'discovery'},
+          );
+        }
+      }
       return models;
     }
 
@@ -844,9 +1625,12 @@ class Models extends _$Models {
     ref.read(isManualModelSelectionProvider.notifier).set(false);
     ref.read(selectedModelProvider.notifier).set(replacement);
     DebugLogger.warning(
-      'hermes-selection-unavailable',
+      'local-selection-unavailable',
       scope: 'models',
-      data: {'replacement': replacement?.id},
+      data: {
+        'replacementBackend': _modelBackendForDiagnostics(replacement),
+        'source': 'reconciliation',
+      },
     );
     return models;
   }
@@ -862,37 +1646,70 @@ class Models extends _$Models {
 
   Future<void> refresh() async {
     if (ref.read(reviewerModeProvider)) {
-      state = AsyncData<List<Model>>(_reconcileHermesSelection(_demoModels()));
+      state = AsyncData<List<Model>>(_reconcileLocalSelection(_demoModels()));
       return;
     }
-    if (!ref.read(isAuthenticatedProvider2)) {
-      final models = ref.read(hermesConfigProvider).isUsable
-          ? _withHermes(const <Model>[])
-          : const <Model>[];
-      state = AsyncData<List<Model>>(_reconcileHermesSelection(models));
-      // Keep the locally minted Hermes sentinel runtime-only.
+    await ref.read(directModelDiscoveryProvider.notifier).refresh();
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
+      // An explicit refresh during login/revalidation is deferred. This keeps
+      // the current in-memory list intact without treating retained or
+      // candidate credentials as permission to touch OpenWebUI cache/API data.
+      return;
+    }
+    if (!_modelAuthRetainsOpenWebUiSession(modelAuth)) {
+      final models = _withLocalModels(const <Model>[]);
+      state = AsyncData<List<Model>>(_reconcileLocalSelection(models));
+      // Keep locally minted transport models runtime-only.
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) {
       state = AsyncData<List<Model>>(
-        _reconcileHermesSelection(_withHermes(const <Model>[])),
+        _reconcileLocalSelection(_withLocalModels(const <Model>[])),
       );
       _persistModelsAsync(const <Model>[]);
       return;
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
-    final withHermes = result.whenData(
-      (models) => _reconcileHermesSelection(_withHermes(models)),
+    final loaded = result.value;
+    if (result.hasValue &&
+        (loaded == null ||
+            !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership))) {
+      return;
+    }
+    final withLocal = result.whenData(
+      (owned) => _reconcileLocalSelection(_withLocalModels(owned!.models)),
     );
-    state = withHermes;
+    if (withLocal.hasError) {
+      final selected = ref.read(selectedModelProvider);
+      final preserveRemoteSelection =
+          selected != null &&
+          !isHermesModel(selected) &&
+          !isLocallyMintedDirectModel(selected);
+      if (preserveRemoteSelection) {
+        // A transient OpenWebUI refresh failure must not replace an active
+        // server model with the first standalone transport model.
+        state = withLocal;
+      } else {
+        final localModels = _reconcileLocalSelection(
+          _withLocalModels(const <Model>[]),
+        );
+        state = localModels.isEmpty
+            ? withLocal
+            : AsyncData<List<Model>>(localModels);
+      }
+    } else {
+      state = withLocal;
+    }
 
     // Update selected model with fresh data (e.g., filters) if it exists
     // in the new models list
-    if (withHermes.hasValue) {
-      final freshModels = withHermes.value!;
+    final currentState = state;
+    if (currentState.hasValue) {
+      final freshModels = currentState.value!;
       final currentSelected = ref.read(selectedModelProvider);
       if (currentSelected != null) {
         if (currentSelected.isHidden) {
@@ -909,8 +1726,9 @@ class Models extends _$Models {
               'selected-model-refreshed',
               scope: 'models',
               data: {
-                'id': freshModel.id,
+                'backend': _modelBackendForDiagnostics(freshModel),
                 'filters': freshModel.filters?.length ?? 0,
+                'source': 'refresh',
               },
             );
           }
@@ -921,18 +1739,31 @@ class Models extends _$Models {
           DebugLogger.warning(
             'selected-model-unavailable',
             scope: 'models',
-            data: {'id': currentSelected.id, 'replacement': replacement?.id},
+            data: {
+              'previousBackend': _modelBackendForDiagnostics(currentSelected),
+              'replacementBackend': _modelBackendForDiagnostics(replacement),
+              'source': 'refresh',
+            },
           );
         }
       }
     }
   }
 
-  Future<List<Model>> _load(ApiService api) async {
+  Future<_OwnedModels?> _load(ApiService api) async {
+    final ownership = captureOpenWebUiCacheOwnership(
+      ref,
+      api: api,
+      requireAuthenticated: false,
+    );
+    if (ownership == null) return null;
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
-      final visibleModels = sanitizeRemoteHermesModels(_visibleModels(models));
+      if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
+      final visibleModels = sanitizeRemoteHermesModels(
+        sanitizeRemoteDirectModels(_visibleModels(models)),
+      );
       DebugLogger.log(
         'fetch-ok',
         scope: 'models',
@@ -941,8 +1772,8 @@ class Models extends _$Models {
           'hidden': models.length - visibleModels.length,
         },
       );
-      _persistModelsAsync(visibleModels);
-      return visibleModels;
+      _persistModelsAsync(visibleModels, ownership: ownership);
+      return (models: visibleModels, ownership: ownership);
     } catch (e, stackTrace) {
       DebugLogger.error(
         'fetch-failed',
@@ -968,7 +1799,14 @@ class Models extends _$Models {
     return models.where((model) => !model.isHidden).toList();
   }
 
-  void _persistModelsAsync(List<Model> models) {
+  void _persistModelsAsync(
+    List<Model> models, {
+    OpenWebUiCacheOwnershipSnapshot? ownership,
+  }) {
+    if (ownership != null &&
+        !openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+      return;
+    }
     final storage = ref.read(optimizedStorageServiceProvider);
     unawaited(
       storage.saveLocalModels(models).onError((error, stack) {
@@ -1002,10 +1840,198 @@ class Models extends _$Models {
   ];
 }
 
+typedef _OwnedModels = ({
+  List<Model> models,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
+
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
+  bool _authenticatedDefaultRestoreScheduled = false;
+
   @override
-  Model? build() => null;
+  Model? build() {
+    // This provider is consumed before auth and secure Hermes secrets finish
+    // hydrating on a cold start. Reconcile again when either one settles;
+    // callers such as the chat page only await defaultModelProvider once.
+    ref.listen<_ModelAuthReadiness>(_modelAuthReadinessProvider, (
+      previous,
+      next,
+    ) {
+      if (next.authenticated) {
+        _scheduleAuthenticatedDefaultRestore();
+      } else {
+        _schedulePrimaryAccountlessRestore();
+      }
+    });
+    ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
+      _schedulePrimaryAccountlessRestore();
+    });
+    ref.listen<bool>(
+      hermesConfigProvider.select((config) => config.isUsable),
+      (previous, next) => _schedulePrimaryAccountlessRestore(),
+    );
+    ref.listen<AsyncValue<DirectModelDiscoveryState>>(
+      directModelDiscoveryProvider,
+      (previous, next) => _schedulePrimaryAccountlessRestore(),
+    );
+    ref.listen<ApiService?>(apiServiceProvider, (previous, next) {
+      if (next != null) _scheduleAuthenticatedDefaultRestore();
+    });
+    ref.listen<String?>(authTokenProvider3, (previous, next) {
+      if (previous != next &&
+          ref.read(_modelAuthReadinessProvider).authenticated) {
+        _scheduleAuthenticatedDefaultRestore();
+      }
+    });
+
+    final initialDecision = _primaryAccountlessDecision(current: null);
+    if (initialDecision.shouldReconcile &&
+        ref.read(isManualModelSelectionProvider)) {
+      // User-scoped sign-out cleanup invalidates the selected model but not the
+      // manual-selection bit. Once selection is rebuilt automatically, that
+      // bit must not later suppress an authenticated OpenWebUI default.
+      unawaited(
+        Future<void>(() {
+          if (ref.mounted) {
+            ref.read(isManualModelSelectionProvider.notifier).set(false);
+          }
+        }),
+      );
+    }
+    return initialDecision.model;
+  }
+
+  ({bool shouldReconcile, Model? model}) _primaryAccountlessDecision({
+    required Model? current,
+  }) {
+    // Sign-out cleanup invalidates user-scoped model state after auth settles.
+    // A retained OpenWebUI server must not make that cleanup erase the primary
+    // accountless transport that the router has already admitted to chat.
+    final preferredBackend = ref.read(preferredBackendProvider);
+    if (preferredBackend != PreferredBackend.hermes &&
+        preferredBackend != PreferredBackend.direct) {
+      return (shouldReconcile: false, model: null);
+    }
+
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (modelAuth.authenticated || modelAuth.loading) {
+      return (shouldReconcile: false, model: null);
+    }
+    if (modelAuth.status == AuthStatus.initial ||
+        modelAuth.status == AuthStatus.loading ||
+        modelAuth.status == AuthStatus.authenticated) {
+      return (shouldReconcile: false, model: null);
+    }
+
+    if (preferredBackend == PreferredBackend.hermes) {
+      if (!ref.read(hermesConfigProvider).isUsable) {
+        // A false value can be the initial secure-secret hydration state.
+        // Models owns clearing a connection that is definitively unusable.
+        return (shouldReconcile: false, model: null);
+      }
+      return (
+        shouldReconcile: true,
+        model: current != null && isHermesModel(current)
+            ? current
+            : hermesSyntheticModel(),
+      );
+    }
+
+    final discovery = ref.read(directModelDiscoveryProvider);
+    if (discovery.isLoading && !discovery.hasValue) {
+      return (shouldReconcile: false, model: null);
+    }
+    final registry = ref.read(directModelRegistryProvider);
+    final trustedModels = (discovery.value?.models ?? const <Model>[])
+        .where((model) => registry.resolve(model) != null)
+        .toList(growable: false);
+    return (
+      shouldReconcile: true,
+      model: _accountlessSelection(
+        models: trustedModels,
+        current: current,
+        preferredBackend: preferredBackend,
+      ),
+    );
+  }
+
+  void _schedulePrimaryAccountlessRestore() {
+    unawaited(
+      Future<void>(() {
+        if (!ref.mounted) return;
+        final current = state;
+        final decision = _primaryAccountlessDecision(current: current);
+        if (!decision.shouldReconcile) return;
+        final replacement = decision.model;
+        final currentBindingIsValid =
+            current != null &&
+            isLocallyMintedDirectModel(current) &&
+            ref.read(directModelRegistryProvider).resolve(current) != null;
+        if (current == null && replacement == null) return;
+        if (current != null &&
+            replacement != null &&
+            current.id == replacement.id &&
+            (!isLocallyMintedDirectModel(replacement) ||
+                currentBindingIsValid)) {
+          return;
+        }
+
+        if (current?.id != replacement?.id) {
+          ref.read(isManualModelSelectionProvider.notifier).set(false);
+        }
+        state = replacement;
+        DebugLogger.warning(
+          'primary-accountless-selection-restored',
+          scope: 'models/default',
+          data: {
+            'previousBackend': _modelBackendForDiagnostics(current),
+            'replacementBackend': _modelBackendForDiagnostics(replacement),
+            'source': 'reconciliation',
+          },
+        );
+      }),
+    );
+  }
+
+  void _scheduleAuthenticatedDefaultRestore() {
+    if (_authenticatedDefaultRestoreScheduled) return;
+    _authenticatedDefaultRestoreScheduled = true;
+    unawaited(
+      Future<void>(() {
+        _authenticatedDefaultRestoreScheduled = false;
+        if (!ref.mounted) return;
+        final current = state;
+        final staleLocalTransport =
+            current != null &&
+            (isHermesModel(current) || isLocallyMintedDirectModel(current));
+        if (current != null && !staleLocalTransport) return;
+        final auth = ref.read(_modelAuthReadinessProvider);
+        if (!auth.authenticated || ref.read(apiServiceProvider) == null) return;
+
+        // A background saved-credential login can finish after an earlier
+        // one-shot read cached null. Force a fresh authenticated resolution.
+        // Dispatch instead of awaiting so a later token/session transition can
+        // invalidate this attempt and immediately start the authoritative one.
+        ref.invalidate(defaultModelProvider);
+        final restore = ref.read(defaultModelProvider.future);
+        unawaited(
+          restore.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stackTrace) {
+              if (!ref.mounted) return;
+              DebugLogger.error(
+                'authenticated-default-restore-failed',
+                scope: 'models/default',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
+        );
+      }),
+    );
+  }
 
   void set(Model? model, {bool allowHidden = false}) {
     if (model?.isHidden == true && !allowHidden) {
@@ -1102,7 +2128,11 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
       DebugLogger.log(
         'auto-apply-tools',
         scope: 'models/tools',
-        data: {'modelId': model.id, 'toolCount': validToolIds.length},
+        data: {
+          'backend': _modelBackendForDiagnostics(model),
+          'toolCount': validToolIds.length,
+          'source': 'selection',
+        },
       );
     }
 
@@ -1182,7 +2212,10 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
     DebugLogger.log(
       'auto-apply-terminal',
       scope: 'models/terminal',
-      data: {'modelId': model?.id},
+      data: {
+        'backend': _modelBackendForDiagnostics(model),
+        'source': 'selection',
+      },
     );
   }
 
@@ -1221,9 +2254,10 @@ final modelFiltersAutoSelectionProvider = Provider<void>((ref) {
         'filter-selection-validated',
         scope: 'models/filters',
         data: {
-          'modelId': model?.id,
+          'backend': _modelBackendForDiagnostics(model),
           'previousCount': currentFilterIds.length,
           'validCount': validSelection.length,
+          'source': 'selection',
         },
       );
     }
@@ -1310,7 +2344,10 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
           DebugLogger.log(
             'auto-apply',
             scope: 'models/default',
-            data: {'name': selected.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(selected),
+              'source': 'preference',
+            },
           );
         }
       } catch (e) {
@@ -1332,20 +2369,36 @@ void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
   final folderConversationRefresh = ref.read(
     _folderConversationRefreshTickProvider.notifier,
   );
+  final syncEngine = ref.read(syncEngineProvider.notifier);
+  // Invoke the notifier synchronously while the caller's provider/widget ref
+  // is still known to be alive. Scheduling the invocation itself in a detached
+  // Future leaves a teardown window where the owner can be disposed before
+  // [requestPull] gets a chance to read its Riverpod dependencies.
+  Future<PullResult?> pull;
+  try {
+    pull = syncEngine.requestPull(reason: 'cache-refresh');
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'refresh-cache-failed',
+      scope: 'conversations',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return;
+  }
   unawaited(
-    Future<void>(() async {
-      await ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'cache-refresh');
-      folderConversationRefresh.bumpIfMounted();
-    }).catchError((Object error, StackTrace stackTrace) {
-      DebugLogger.error(
-        'refresh-cache-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }),
+    pull
+        .then<void>((_) {
+          folderConversationRefresh.bumpIfMounted();
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          DebugLogger.error(
+            'refresh-cache-failed',
+            scope: 'conversations',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }),
   );
 }
 
@@ -1446,6 +2499,135 @@ void _submitReconcilePull(
   );
 }
 
+/// Runtime provenance attached to conversation summaries and full loads.
+///
+/// Chat ids are not a sufficient discriminator because independent databases
+/// can legally contain the same id. This marker is app-owned and never used as
+/// routing authority for model requests.
+const String kDirectChatBackend = 'direct';
+
+Conversation withChatStorageProvenance(
+  Conversation conversation,
+  ChatStorageKind storage,
+) {
+  final annotated = annotateConversationStorage(conversation, storage);
+  final metadata = <String, dynamic>{
+    ...annotated.metadata,
+    if (storage == ChatStorageKind.directLocal) ...{
+      'backend': kDirectChatBackend,
+      'onDevice': true,
+    },
+  };
+  return annotated.copyWith(metadata: metadata);
+}
+
+ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
+  if (conversation == null) return null;
+  return chatStorageFromConversation(conversation);
+}
+
+bool isDirectLocalConversation(Conversation? conversation) =>
+    chatStorageKindOf(conversation) == ChatStorageKind.directLocal;
+
+/// Whether [conversation] is a process-local direct shell that has not yet
+/// acquired durable storage provenance.
+///
+/// An explicit storage annotation always wins: OpenWebUI-owned conversations
+/// may legitimately record that their latest turn used the direct transport.
+bool _isUnstoredDirectConversation(Conversation? conversation) =>
+    conversation != null &&
+    chatStorageKindOf(conversation) == null &&
+    conversation.metadata['backend'] == kDirectChatBackend;
+
+/// Collision-free identity for selections and widget/provider keys.
+///
+/// [Conversation.id] remains the provider/server id. This value is only for
+/// app-internal identity where two independent databases may contain that id.
+String conversationScopedId(Conversation conversation) {
+  var storage = chatStorageKindOf(conversation);
+  // Unannotated persisted conversations predate multi-store history and have
+  // always meant OpenWebUI. Scope that legacy default too; otherwise a newly
+  // created server chat can briefly expose an ambiguous raw id to listeners.
+  if (storage == null &&
+      !isTemporaryChat(conversation.id) &&
+      !isNativeHermesConversation(conversation) &&
+      !_isUnstoredDirectConversation(conversation)) {
+    storage = ChatStorageKind.openWebUi;
+  }
+  return ChatStorageIdentity(rawId: conversation.id, storage: storage).scopedId;
+}
+
+bool conversationMatchesScopedId(Conversation conversation, String scopedId) {
+  final identity = ChatStorageIdentity.parse(scopedId);
+  if (conversation.id != identity.rawId) return false;
+  final storage = identity.storage;
+  // Native Hermes shells are runtime-owned and intentionally unscoped. A
+  // persisted row can legally reuse the same raw id, but its scoped selection
+  // must never match or mutate the native shell.
+  if (storage != null &&
+      (isNativeHermesConversation(conversation) ||
+          _isUnstoredDirectConversation(conversation))) {
+    return false;
+  }
+  return storage == null ||
+      (chatStorageKindOf(conversation) ?? ChatStorageKind.openWebUi) == storage;
+}
+
+bool isSameStoredConversation(Conversation? left, Conversation? right) {
+  if (left == null || right == null || left.id != right.id) return false;
+  // A native Hermes shell is process-owned and deliberately has no persisted
+  // storage annotation. Do not let a server row with the same raw id collide
+  // with it through the legacy "unannotated means OpenWebUI" fallback.
+  final leftIsNativeHermes = isNativeHermesConversation(left);
+  final rightIsNativeHermes = isNativeHermesConversation(right);
+  if (leftIsNativeHermes != rightIsNativeHermes) return false;
+  if (leftIsNativeHermes) return true;
+  // A temporary direct shell is runtime-owned just like a native Hermes
+  // shell. It must not alias a colliding legacy OpenWebUI row merely because
+  // both currently lack a storage annotation.
+  final leftIsUnstoredDirect = _isUnstoredDirectConversation(left);
+  final rightIsUnstoredDirect = _isUnstoredDirectConversation(right);
+  if (leftIsUnstoredDirect != rightIsUnstoredDirect) return false;
+  if (leftIsUnstoredDirect) return true;
+  // Unannotated conversations predate multi-store history and therefore
+  // retain their historical Open WebUI meaning.
+  final leftStorage = chatStorageKindOf(left) ?? ChatStorageKind.openWebUi;
+  final rightStorage = chatStorageKindOf(right) ?? ChatStorageKind.openWebUi;
+  return leftStorage == rightStorage;
+}
+
+int _conversationIndexForSelection(
+  List<Conversation> conversations,
+  String scopedId,
+) {
+  final identity = ChatStorageIdentity.parse(scopedId);
+  if (identity.storage != null) {
+    return conversations.indexWhere(
+      (conversation) => conversationMatchesScopedId(conversation, scopedId),
+    );
+  }
+
+  final matchingIndexes = <int>[];
+  for (var index = 0; index < conversations.length; index++) {
+    if (conversations[index].id == identity.rawId) {
+      matchingIndexes.add(index);
+    }
+  }
+  if (matchingIndexes.length <= 1) {
+    return matchingIndexes.firstOrNull ?? -1;
+  }
+
+  // Legacy unscoped callers historically referred to Open WebUI ids. Keep
+  // that behavior deterministic when a new local row happens to collide.
+  return matchingIndexes.firstWhere(
+    (index) =>
+        (chatStorageKindOf(conversations[index]) ??
+            ChatStorageKind.openWebUi) ==
+        ChatStorageKind.openWebUi,
+    orElse: () => matchingIndexes.first,
+  );
+}
+
 // Conversation list provider — Drift-backed read path (CDT-RFC-001 Phase 1).
 //
 // The list renders from `ChatsDao.watchChatList()` (a narrow projection that
@@ -1455,36 +2637,82 @@ void _submitReconcilePull(
 // optimistic state.
 @Riverpod(keepAlive: true)
 class Conversations extends _$Conversations {
+  int _databaseWatchGeneration = 0;
+  StreamSubscription<List<LocatedChatListEntry>>? _databaseSubscription;
+  Future<void> _databaseWatchCancellation = Future<void>.value();
+
   /// Every chat row is local now; pagination is permanently exhausted.
   bool hasMoreRegularChats() => false;
   bool isLoadingMoreRegularChats() => false;
 
   @override
   Future<List<Conversation>> build() async {
-    final authed = ref.watch(isAuthenticatedProvider2);
-    if (!authed) {
-      DebugLogger.log('skip-unauthed', scope: 'conversations');
-      return const [];
+    final generation = ++_databaseWatchGeneration;
+    final previousSubscription = _databaseSubscription;
+    _databaseSubscription = null;
+    ref.onDispose(() {
+      if (generation == _databaseWatchGeneration) {
+        _databaseWatchGeneration++;
+        final subscription = _databaseSubscription;
+        _databaseSubscription = null;
+        unawaited(_queueDatabaseWatchCancellation(subscription));
+      }
+    });
+    await _queueDatabaseWatchCancellation(previousSubscription);
+    if (!ref.mounted || generation != _databaseWatchGeneration) {
+      return const <Conversation>[];
     }
 
     if (ref.watch(reviewerModeProvider)) {
       return _demoConversations();
     }
 
-    final db = ref.watch(appDatabaseProvider);
-    if (db == null) {
-      return const [];
-    }
+    final accessPhase = ref.watch(openWebUiDatabaseAccessProvider);
+    final certifiedServerId = ref.watch(
+      openWebUiCertifiedDatabaseServerProvider,
+    );
+    final activeServerId = ref.watch(
+      activeServerProvider.select((value) => value.asData?.value?.id),
+    );
+    final openWebUiDatabase = ref.watch(appDatabaseProvider);
+    final unmanagedOpenWebUiDatabase =
+        openWebUiDatabase != null &&
+        ref
+                .watch(databaseManagerProvider)
+                .serverIdForDatabase(openWebUiDatabase) ==
+            null;
+    final includeOpenWebUi =
+        accessPhase == OpenWebUiDatabaseAccessPhase.open &&
+        ((certifiedServerId != null && certifiedServerId == activeServerId) ||
+            unmanagedOpenWebUiDatabase);
+
+    // Rebuild the repository when the active Open WebUI database changes. The
+    // direct-local database is independent and remains available while signed
+    // out or while switching servers.
+    final repository = ref.watch(chatDatabaseRepositoryProvider);
 
     final completer = Completer<List<Conversation>>();
     // Cold-start instrumentation (CDT-RFC-001 §10 Budget 1): time from build()
     // start to the FIRST narrow-projection emission. Numeric-only data (no chat
     // content) so nothing untrusted is logged.
     final coldStart = Stopwatch()..start();
-    final subscription = db.chatsDao.watchChatList().listen(
+    final subscription = repository.watchMergedChatList().listen(
       (entries) {
+        if (generation != _databaseWatchGeneration) return;
+        final visibleEntries = includeOpenWebUi
+            ? entries
+            : entries
+                  .where(
+                    (located) => located.storage == ChatStorageKind.directLocal,
+                  )
+                  .toList(growable: false);
         final conversations = List<Conversation>.unmodifiable(
-          entries.map(conversationFromListEntry),
+          visibleEntries.map((located) {
+            return withChatStorageProvenance(
+              conversationFromListEntry(located.entry),
+              located.storage,
+            );
+          }),
         );
         if (!completer.isCompleted) {
           coldStart.stop();
@@ -1501,6 +2729,7 @@ class Conversations extends _$Conversations {
         }
       },
       onError: (Object error, StackTrace stackTrace) {
+        if (generation != _databaseWatchGeneration) return;
         DebugLogger.error(
           'watch-failed',
           scope: 'conversations',
@@ -1512,8 +2741,29 @@ class Conversations extends _$Conversations {
         }
       },
     );
-    ref.onDispose(subscription.cancel);
+    _databaseSubscription = subscription;
     return completer.future;
+  }
+
+  Future<void> _queueDatabaseWatchCancellation(
+    StreamSubscription<List<LocatedChatListEntry>>? subscription,
+  ) {
+    final prior = _databaseWatchCancellation;
+    final cancellation = () async {
+      await prior;
+      if (subscription == null) return;
+      try {
+        await subscription.cancel();
+      } catch (_) {
+        // A stale/closed Drift executor must not reject an async provider build
+        // or escape as an unhandled error during provider disposal.
+        try {
+          DebugLogger.error('watch-cancel-failed', scope: 'conversations');
+        } catch (_) {}
+      }
+    }();
+    _databaseWatchCancellation = cancellation;
+    return cancellation;
   }
 
   /// Refreshing is a pull request; the database stream delivers the result.
@@ -1526,7 +2776,14 @@ class Conversations extends _$Conversations {
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
-    await ref.read(syncEngineProvider.notifier).requestPull(reason: 'refresh');
+    // Local-only direct chats are already live through Drift. Refresh the
+    // optional Open WebUI side when it is available.
+    if (ref.read(appDatabaseProvider) != null &&
+        ref.read(isAuthenticatedProvider2)) {
+      await ref
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'refresh');
+    }
     folderConversationRefresh.bumpIfMounted();
   }
 
@@ -1534,27 +2791,42 @@ class Conversations extends _$Conversations {
   Future<void> loadMore() async {}
 
   void removeConversation(String id) {
+    final identity = ChatStorageIdentity.parse(id);
     final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    final removedConversation = index >= 0 ? current![index] : null;
     if (current != null) {
-      final removal = _removeItemById(
-        current,
-        id,
-        idOf: (conversation) => conversation.id,
-      );
-      if (removal.didRemove) {
-        _replaceState(removal.items);
+      if (index >= 0) {
+        final updated = <Conversation>[...current]..removeAt(index);
+        _replaceState(updated);
       }
     }
-    // Caller already deleted the chat server-side; drop the local row.
-    final db = ref.read(appDatabaseProvider);
-    if (db == null || isTemporaryChat(id)) return;
+    // The caller already confirmed any required remote deletion. Drop the row
+    // from the database that owns it. Local-only direct chats never touch the
+    // active Open WebUI database or its outbox.
+    final directLocal =
+        isDirectLocalConversation(removedConversation) ||
+        (removedConversation == null &&
+            identity.storage == ChatStorageKind.directLocal);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
+    final rawId = identity.rawId;
+    if (db == null || isTemporaryChat(rawId)) return;
     final locks = ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
     unawaited(
       locks
-          .runExclusive(id, () => db.chatsDao.hardDelete(id))
+          .runExclusive(
+            rawId,
+            () => directLocal
+                ? db.chatsDao.deleteLocalOnlyChat(rawId)
+                : db.chatsDao.hardDelete(rawId),
+          )
           .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
@@ -1562,7 +2834,7 @@ class Conversations extends _$Conversations {
               scope: 'conversations',
               error: error,
               stackTrace: stackTrace,
-              data: {'id': id},
+              data: {'id': rawId},
             );
           }),
     );
@@ -1573,11 +2845,12 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value ?? const <Conversation>[];
-    final existingIndex = current.indexWhere(
-      (item) => item.id == conversation.id,
+    final existingIndex = _conversationIndexForSelection(
+      current,
+      conversationScopedId(conversation),
     );
     final existing = existingIndex >= 0 ? current[existingIndex] : null;
-    final preparedConversation = existing == null
+    var preparedConversation = existing == null
         ? conversation
         : conversation.copyWith(
             lastReadAt: _latestDateTime(
@@ -1585,9 +2858,20 @@ class Conversations extends _$Conversations {
               conversation.lastReadAt,
             ),
           );
-    _replaceState(
-      _upsertItemById(current, preparedConversation, idOf: (item) => item.id),
-    );
+    final existingStorage = chatStorageKindOf(existing);
+    if (existingStorage != null) {
+      preparedConversation = withChatStorageProvenance(
+        preparedConversation,
+        existingStorage,
+      );
+    }
+    final updated = <Conversation>[...current];
+    if (existingIndex >= 0) {
+      updated[existingIndex] = preparedConversation;
+    } else {
+      updated.add(preparedConversation);
+    }
+    _replaceState(updated);
     _writeEnvelopeStub(preparedConversation);
   }
 
@@ -1606,15 +2890,10 @@ class Conversations extends _$Conversations {
     bool trustFolderConversation = false,
   }) {
     final current = state.asData?.value;
-    final update = current == null
-        ? null
-        : _transformItemById(
-            current,
-            id,
-            transform,
-            idOf: (conversation) => conversation.id,
-          );
-    if (update == null) {
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    if (current == null || index < 0) {
       // The chat list stream has not loaded yet, or this id is absent from the
       // loaded projection. Request a reconcile pull so the server-confirmed
       // envelope mutation is not lost (mirrors Folders.updateFolder).
@@ -1623,8 +2902,15 @@ class Conversations extends _$Conversations {
       );
       return;
     }
-    _replaceState(update.items);
-    _writeEnvelopeUpdate(update.item);
+    final existing = current[index];
+    var transformed = transform(existing);
+    final storage = chatStorageKindOf(existing);
+    if (storage != null) {
+      transformed = withChatStorageProvenance(transformed, storage);
+    }
+    final updated = <Conversation>[...current]..[index] = transformed;
+    _replaceState(updated);
+    _writeEnvelopeUpdate(transformed);
   }
 
   void _requestConversationReconcilePull({required String action}) {
@@ -1638,26 +2924,37 @@ class Conversations extends _$Conversations {
 
   void markConversationRead(String id, DateTime readAt) {
     if (id.isEmpty) return;
+    final identity = ChatStorageIdentity.parse(id);
     final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    Conversation? target = index >= 0 ? current![index] : null;
     if (current != null) {
-      final update = _transformItemById(current, id, (conversation) {
+      if (index >= 0) {
+        final conversation = current[index];
         final existing = conversation.lastReadAt;
         if (existing != null && !readAt.isAfter(existing)) {
-          return conversation;
+          return;
         }
-        return conversation.copyWith(lastReadAt: readAt);
-      }, idOf: (conversation) => conversation.id);
-      if (update != null) {
-        _replaceState(update.items);
+        target = conversation.copyWith(lastReadAt: readAt);
+        final updated = <Conversation>[...current]..[index] = target;
+        _replaceState(updated);
       }
     }
-    final db = ref.read(appDatabaseProvider);
-    if (db == null || isTemporaryChat(id)) return;
+    final directLocal =
+        isDirectLocalConversation(target) ||
+        (target == null && identity.storage == ChatStorageKind.directLocal);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
+    final rawId = identity.rawId;
+    if (db == null || isTemporaryChat(rawId)) return;
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
     unawaited(
-      db.chatsDao.setLastReadAt(id, _epochSecondsOf(readAt)).catchError((
+      db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt)).catchError((
         Object error,
         StackTrace stackTrace,
       ) {
@@ -1666,7 +2963,7 @@ class Conversations extends _$Conversations {
           scope: 'conversations',
           error: error,
           stackTrace: stackTrace,
-          data: {'id': id},
+          data: {'id': rawId},
         );
       }),
     );
@@ -1689,7 +2986,10 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeStub(Conversation conversation) {
-    final db = ref.read(appDatabaseProvider);
+    final directLocal = isDirectLocalConversation(conversation);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(conversation.id)) return;
     final lastReadAt = conversation.lastReadAt;
     // ChatLocks discipline: every write touching one chat's rows serializes
@@ -1702,6 +3002,16 @@ class Conversations extends _$Conversations {
     unawaited(
       locks
           .runExclusive(conversation.id, () {
+            if (directLocal) {
+              return db.chatsDao.updateLocalOnlyEnvelope(
+                conversation.id,
+                title: Value(conversation.title),
+                folderId: Value(conversation.folderId),
+                pinned: Value(conversation.pinned),
+                archived: Value(conversation.archived),
+                updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+              );
+            }
             return db.chatsDao.upsertEnvelopeStub(
               id: conversation.id,
               title: conversation.title,
@@ -1729,7 +3039,10 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeUpdate(Conversation conversation) {
-    final db = ref.read(appDatabaseProvider);
+    final directLocal = isDirectLocalConversation(conversation);
+    final db = directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : ref.read(appDatabaseProvider);
     if (db == null || isTemporaryChat(conversation.id)) return;
     final locks = ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
@@ -1738,14 +3051,23 @@ class Conversations extends _$Conversations {
     unawaited(
       locks
           .runExclusive(conversation.id, () {
-            return db.chatsDao.updateEnvelope(
-              conversation.id,
-              title: Value(conversation.title),
-              folderId: Value(conversation.folderId),
-              pinned: Value(conversation.pinned),
-              archived: Value(conversation.archived),
-              updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
-            );
+            return directLocal
+                ? db.chatsDao.updateLocalOnlyEnvelope(
+                    conversation.id,
+                    title: Value(conversation.title),
+                    folderId: Value(conversation.folderId),
+                    pinned: Value(conversation.pinned),
+                    archived: Value(conversation.archived),
+                    updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                  )
+                : db.chatsDao.updateEnvelope(
+                    conversation.id,
+                    title: Value(conversation.title),
+                    folderId: Value(conversation.folderId),
+                    pinned: Value(conversation.pinned),
+                    archived: Value(conversation.archived),
+                    updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                  );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())
           .catchError((Object error, StackTrace stackTrace) {
@@ -1852,22 +3174,44 @@ void markConversationRead(
   String? conversationId, {
   DateTime? readAt,
 }) {
-  final id = conversationId?.trim();
-  if (id == null || id.isEmpty || isTemporaryChat(id)) {
+  final scopedId = conversationId?.trim();
+  if (scopedId == null || scopedId.isEmpty) {
+    return;
+  }
+  final identity = ChatStorageIdentity.parse(scopedId);
+  final id = identity.rawId;
+  if (isTemporaryChat(id)) {
     return;
   }
 
   final timestamp = readAt ?? DateTime.now();
+  Conversation? targetConversation;
+  var resolvedSelectionId = scopedId;
   try {
+    final conversations =
+        (ref.read(conversationsProvider) as AsyncValue<List<Conversation>>)
+            .asData
+            ?.value;
+    if (conversations != null) {
+      final index = _conversationIndexForSelection(conversations, scopedId);
+      if (index >= 0) {
+        targetConversation = conversations[index];
+        resolvedSelectionId = conversationScopedId(targetConversation);
+      }
+    }
     ref
         .read(conversationsProvider.notifier)
-        .markConversationRead(id, timestamp);
+        .markConversationRead(resolvedSelectionId, timestamp);
   } catch (_) {}
 
   try {
-    final active = ref.read(activeConversationProvider);
-    if (active?.id == id) {
-      final current = active!.lastReadAt;
+    final active = ref.read(activeConversationProvider) as Conversation?;
+    if (active != null &&
+        (targetConversation != null
+            ? isSameStoredConversation(active, targetConversation)
+            : conversationMatchesScopedId(active, resolvedSelectionId))) {
+      targetConversation ??= active;
+      final current = active.lastReadAt;
       if (current == null || timestamp.isAfter(current)) {
         ref
             .read(activeConversationProvider.notifier)
@@ -1875,6 +3219,12 @@ void markConversationRead(
       }
     }
   } catch (_) {}
+
+  if (isDirectLocalConversation(targetConversation) ||
+      identity.storage == ChatStorageKind.directLocal ||
+      (identity.storage == null && id.startsWith('direct-local:'))) {
+    return;
+  }
 
   try {
     ref.read(socketServiceProvider)?.emit('events:chat', {
@@ -1889,18 +3239,44 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
+enum ActiveConversationRemapNamespace { openWebUi, direct, hermes }
+
 @immutable
 class ActiveConversationInPlaceRemap {
   const ActiveConversationInPlaceRemap({
     required this.fromId,
     required this.toId,
+    this.namespace = ActiveConversationRemapNamespace.openWebUi,
+    this.openWebUiDatabase,
+    this.openWebUiApi,
+    this.openWebUiAuthSessionEpoch,
   });
 
   final String fromId;
   final String toId;
+  final ActiveConversationRemapNamespace namespace;
+  final Object? openWebUiDatabase;
+  final Object? openWebUiApi;
+  final Object? openWebUiAuthSessionEpoch;
 
-  bool matches(String? previousId, String? nextId) =>
-      previousId == fromId && nextId == toId;
+  bool matches(
+    String? previousId,
+    String? nextId, {
+    ActiveConversationRemapNamespace? namespace,
+  }) =>
+      previousId == fromId &&
+      nextId == toId &&
+      (namespace == null || this.namespace == namespace);
+
+  bool matchesOpenWebUiContext({
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) =>
+      namespace == ActiveConversationRemapNamespace.openWebUi &&
+      identical(openWebUiDatabase, database) &&
+      identical(openWebUiApi, api) &&
+      identical(openWebUiAuthSessionEpoch, authSessionEpoch);
 }
 
 final activeConversationInPlaceRemapProvider =
@@ -1914,8 +3290,39 @@ class ActiveConversationInPlaceRemapNotifier
   @override
   ActiveConversationInPlaceRemap? build() => null;
 
-  void mark({required String fromId, required String toId}) {
-    state = ActiveConversationInPlaceRemap(fromId: fromId, toId: toId);
+  void mark({
+    required String fromId,
+    required String toId,
+    ActiveConversationRemapNamespace namespace =
+        ActiveConversationRemapNamespace.openWebUi,
+  }) {
+    Object? database;
+    Object? api;
+    Object? authSessionEpoch;
+    if (namespace == ActiveConversationRemapNamespace.openWebUi) {
+      // Remapping the durable row has already happened by the time this
+      // navigation marker is emitted. A temporarily failing context provider
+      // must not poison the remap stream or leave the UI on the deleted local
+      // id. Capture what is available; the later exact-context check fails
+      // closed when any captured component cannot be reproduced.
+      try {
+        database = ref.read(appDatabaseProvider);
+      } catch (_) {}
+      try {
+        api = ref.read(apiServiceProvider);
+      } catch (_) {}
+      try {
+        authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+      } catch (_) {}
+    }
+    state = ActiveConversationInPlaceRemap(
+      fromId: fromId,
+      toId: toId,
+      namespace: namespace,
+      openWebUiDatabase: database,
+      openWebUiApi: api,
+      openWebUiAuthSessionEpoch: authSessionEpoch,
+    );
   }
 }
 
@@ -1925,10 +3332,34 @@ bool isActiveConversationInPlaceRemap(
   String? nextId,
 ) {
   try {
-    return ref
-            .read(activeConversationInPlaceRemapProvider)
-            ?.matches(previousId, nextId) ??
-        false;
+    if (previousId == null || nextId == null) return false;
+    final previousIdentity = ChatStorageIdentity.parse(previousId);
+    final nextIdentity = ChatStorageIdentity.parse(nextId);
+    if (previousIdentity.storage != null &&
+        nextIdentity.storage != null &&
+        previousIdentity.storage != nextIdentity.storage) {
+      return false;
+    }
+    final active = ref.read(activeConversationProvider) as Conversation?;
+    if (active == null || !conversationMatchesScopedId(active, nextId)) {
+      return false;
+    }
+    final namespace = _activeConversationRemapNamespaceFor(active);
+    final remap = ref.read(activeConversationInPlaceRemapProvider);
+    if (remap?.matches(
+          previousIdentity.rawId,
+          nextIdentity.rawId,
+          namespace: namespace,
+        ) !=
+        true) {
+      return false;
+    }
+    if (namespace != ActiveConversationRemapNamespace.openWebUi) return true;
+    return remap!.matchesOpenWebUiContext(
+      database: ref.read(appDatabaseProvider),
+      api: ref.read(apiServiceProvider),
+      authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+    );
   } catch (_) {
     return false;
   }
@@ -1938,37 +3369,178 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
   @override
   Conversation? build() => null;
 
-  void set(Conversation? conversation) => state = conversation;
+  void set(Conversation? conversation) {
+    final previous = state;
+    final selectionChanged = previous == null
+        ? conversation != null
+        : conversation == null ||
+              !isSameStoredConversation(previous, conversation);
+    if (selectionChanged) {
+      ref.read(hermesSessionNavigationEpochProvider.notifier).bump();
+    }
+    state = conversation;
+  }
 
   void remapIdInPlace({required String fromId, required String toId}) {
     final current = state;
     if (current == null || current.id != fromId) return;
+    final namespace = _activeConversationRemapNamespaceFor(current);
     ref
         .read(activeConversationInPlaceRemapProvider.notifier)
-        .mark(fromId: fromId, toId: toId);
-    state = current.copyWith(id: toId);
+        .mark(fromId: fromId, toId: toId, namespace: namespace);
+    state = inheritNativeHermesConversationProvenance(
+      current,
+      current.copyWith(id: toId),
+    );
   }
 
-  void clear() => state = null;
+  void clear() {
+    ref.read(hermesSessionNavigationEpochProvider.notifier).bump();
+    state = null;
+  }
+}
+
+ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
+  Conversation conversation,
+) {
+  final storage = chatStorageKindOf(conversation);
+  // Storage ownership and the transport used by the latest turn are separate.
+  // A direct/Hermes turn inside a server-owned chat still needs the exact
+  // OpenWebUI database/API remap fence.
+  if (storage == ChatStorageKind.openWebUi) {
+    return ActiveConversationRemapNamespace.openWebUi;
+  }
+  if (isNativeHermesConversation(conversation)) {
+    return ActiveConversationRemapNamespace.hermes;
+  }
+  if (conversation.metadata['backend'] == 'direct' ||
+      storage == ChatStorageKind.directLocal) {
+    return ActiveConversationRemapNamespace.direct;
+  }
+  return ActiveConversationRemapNamespace.openWebUi;
 }
 
 // Provider to load full conversation with messages
 @riverpod
 Future<Conversation> loadConversation(Ref ref, String conversationId) async {
-  // DB-first open (CDT-RFC-001 Phase 1): synced rows render without the
-  // network; a background pull freshens them.
-  final local = await loadLocalConversation(ref, conversationId);
-  if (local != null) {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawConversationId = identity.rawId;
+  // Preserve database provenance from the selected summary when possible.
+  // Prefixing makes locally-created ids collision-resistant, while the marker
+  // handles imported or legacy rows whose ids do collide.
+  Conversation? summary;
+  final active = ref.read(activeConversationProvider);
+  final activeConfirmsOpenWebUiOwnership =
+      identity.storage == null &&
+      chatStorageKindOf(active) == ChatStorageKind.openWebUi;
+  if (active != null &&
+      (identity.storage != null || activeConfirmsOpenWebUiOwnership) &&
+      conversationMatchesScopedId(active, conversationId)) {
+    // Legacy callers still pass raw OpenWebUI ids. An explicitly annotated
+    // active summary can restore that ownership while the merged list loads;
+    // a Direct-local or unannotated active row is never trusted for this.
+    summary = active;
+  } else {
+    final conversations = ref.read(conversationsProvider).asData?.value;
+    if (conversations != null) {
+      final index = _conversationIndexForSelection(
+        conversations,
+        conversationId,
+      );
+      if (index >= 0) {
+        summary = conversations[index];
+      }
+    }
+  }
+  final preferredStorage =
+      identity.storage ??
+      (rawConversationId.startsWith('direct-local:')
+          ? ChatStorageKind.directLocal
+          : null) ??
+      chatStorageKindOf(summary);
+
+  final openWebUiOwnership = captureOpenWebUiConversationRead(ref);
+  final repository = ref.read(chatDatabaseRepositoryProvider);
+  LocatedConversation? located;
+  try {
+    located = await repository.loadConversation(
+      rawConversationId,
+      preferred: preferredStorage,
+      locationIsCurrent: (location) =>
+          location.storage != ChatStorageKind.openWebUi ||
+          (openWebUiOwnership != null &&
+              identical(location.database, openWebUiOwnership.database) &&
+              openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)),
+      offload: (envelope) => ref
+          .read(workerManagerProvider)
+          .schedule(
+            parseFullConversationModelWorker,
+            envelope,
+            debugLabel: 'db.assembleConversation',
+          ),
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'load-failed',
+      scope: 'conversation/cache',
+      error: error,
+      stackTrace: stackTrace,
+      data: {
+        'id': conversationId,
+        'storage': preferredStorage?.name ?? 'unknown',
+      },
+    );
+    // Only an explicitly OpenWebUI-owned summary may use the network fallback.
+    // Unknown provenance can mean the same raw id exists in both stores; in
+    // that case fetching OpenWebUI would silently cross the storage boundary.
+    if (preferredStorage != ChatStorageKind.openWebUi) {
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+  if (located != null) {
+    if (located.location.storage == ChatStorageKind.openWebUi &&
+        (openWebUiOwnership == null ||
+            !identical(
+              located.location.database,
+              openWebUiOwnership.database,
+            ) ||
+            !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership))) {
+      throw StateError(
+        'OpenWebUI conversation ownership changed while loading',
+      );
+    }
+    final local = withChatStorageProvenance(
+      located.conversation,
+      located.location.storage,
+    );
     DebugLogger.log(
       'load-local-ok',
       scope: 'conversation',
-      data: {'id': conversationId, 'messages': local.messages.length},
+      data: {
+        'id': conversationId,
+        'messages': local.messages.length,
+        'storage': located.location.storage.name,
+      },
     );
-    schedulePullChatNow(ref, conversationId);
+    if (located.location.storage == ChatStorageKind.openWebUi) {
+      schedulePullChatNow(
+        ref,
+        rawConversationId,
+        ownership: openWebUiOwnership,
+      );
+    }
     return local;
   }
 
-  final api = ref.watch(apiServiceProvider);
+  if (preferredStorage == ChatStorageKind.directLocal) {
+    throw StateError('On-device conversation is unavailable');
+  }
+
+  if (openWebUiOwnership == null ||
+      !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+    throw StateError('OpenWebUI conversation ownership is unavailable');
+  }
+  final api = openWebUiOwnership.api;
   if (api == null) {
     throw Exception('No API service available');
   }
@@ -1978,16 +3550,19 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'id': conversationId},
   );
-  final fullConversation = await api.getConversation(conversationId);
+  final fullConversation = await api.getConversation(rawConversationId);
+  if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+    throw StateError('OpenWebUI conversation ownership changed while fetching');
+  }
   DebugLogger.log(
     'load-ok',
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
   // Materialize the local row so the next open is DB-first.
-  schedulePullChatNow(ref, conversationId);
+  schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
 
-  return fullConversation;
+  return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }
 
 // Provider to automatically load and set the default model from user settings or OpenWebUI
@@ -1996,6 +3571,8 @@ Future<Model?> defaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
   final storage = ref.read(optimizedStorageServiceProvider);
+  final preferredBackend = ref.watch(preferredBackendProvider);
+  final hermesConfig = ref.watch(hermesConfigProvider);
   // Read settings without subscribing to rebuilds to avoid watch/await hazards
   final reviewerMode = ref.read(reviewerModeProvider);
   if (reviewerMode) {
@@ -2008,7 +3585,10 @@ Future<Model?> defaultModel(Ref ref) async {
       DebugLogger.log(
         'manual',
         scope: 'models/default',
-        data: {'name': currentSelected.name},
+        data: {
+          'backend': _modelBackendForDiagnostics(currentSelected),
+          'source': 'user',
+        },
       );
       return currentSelected;
     }
@@ -2023,7 +3603,10 @@ Future<Model?> defaultModel(Ref ref) async {
         DebugLogger.log(
           'auto-select',
           scope: 'models/default',
-          data: {'name': defaultModel.name},
+          data: {
+            'backend': _modelBackendForDiagnostics(defaultModel),
+            'source': 'reviewer',
+          },
         );
       }
       return defaultModel;
@@ -2033,22 +3616,168 @@ Future<Model?> defaultModel(Ref ref) async {
   }
 
   final api = ref.watch(apiServiceProvider);
-  if (api == null) {
-    // Hermes-only mode: auto-select the synthetic Hermes agent model.
-    if (ref.watch(hermesConfigProvider.select((config) => config.isUsable))) {
+  var modelAuth = ref.read(_modelAuthReadinessProvider);
+  final selectedBeforeAuthSettles = ref.read(selectedModelProvider);
+  final authBuildFuture =
+      !modelAuth.authenticated &&
+          modelAuth.loading &&
+          selectedBeforeAuthSettles == null
+      ? ref.read(authStateManagerProvider.future)
+      : null;
+  if (authBuildFuture != null) {
+    // A cold-start chat may ask for its default before the initial secure
+    // storage read resolves. If this invocation completes with null, there may
+    // be no remaining listener to retry when auth settles. Wait for that first
+    // AuthStateManager build; inner token refreshes already have AsyncData and
+    // return immediately.
+    final settledAuth = await authBuildFuture;
+    if (!ref.mounted) return null;
+    modelAuth = (
+      authenticated: settledAuth.isAuthenticated,
+      loading:
+          settledAuth.isLoading ||
+          settledAuth.status == AuthStatus.initial ||
+          settledAuth.status == AuthStatus.loading,
+      status: settledAuth.status,
+    );
+  }
+  if (!modelAuth.authenticated) {
+    if (!_shouldUseAccountlessModelSelection(
+      isAuthenticated: false,
+      isAuthLoading: modelAuth.loading,
+      authStatus: modelAuth.status,
+      preferredBackend: preferredBackend,
+      hasApiService: api != null,
+    )) {
+      // Authentication hydration/revalidation is not logout. Keep the current
+      // model and avoid protected OpenWebUI calls until auth settles.
+      return ref.read(selectedModelProvider);
+    }
+
+    final currentSelected = ref.read(selectedModelProvider);
+    final Model? standalone;
+    if (preferredBackend == PreferredBackend.hermes) {
+      standalone = hermesConfig.isUsable
+          ? (currentSelected != null && isHermesModel(currentSelected)
+                ? currentSelected
+                : hermesSyntheticModel())
+          : null;
+    } else if (preferredBackend == PreferredBackend.direct) {
+      final discovery = await ref.read(directModelDiscoveryProvider.future);
+      if (!ref.mounted) return null;
+      final registry = ref.read(directModelRegistryProvider);
+      standalone = _accountlessSelection(
+        models: discovery.models.where(
+          (model) => registry.resolve(model) != null,
+        ),
+        current: currentSelected,
+        preferredBackend: preferredBackend,
+      );
+    } else {
       final models = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
-      Model? hermes;
-      for (final model in models) {
-        if (isHermesModel(model)) {
-          hermes = model;
-          break;
-        }
+      standalone = _accountlessSelection(
+        models: models,
+        current: currentSelected,
+        preferredBackend: preferredBackend,
+      );
+    }
+    // Provider initialization may not synchronously mutate another provider.
+    // The remote/default paths already cross an async boundary; keep the
+    // locally minted Hermes fast path under the same Riverpod contract.
+    await Future<void>.delayed(Duration.zero);
+    if (!ref.mounted) return null;
+    final latestSelected = ref.read(selectedModelProvider);
+    final latestAuth = ref.read(_modelAuthReadinessProvider);
+    final preferenceIsCurrent =
+        ref.read(preferredBackendProvider) == preferredBackend;
+    final authStillAllowsAccountless = _shouldUseAccountlessModelSelection(
+      isAuthenticated: latestAuth.authenticated,
+      isAuthLoading: latestAuth.loading,
+      authStatus: latestAuth.status,
+      preferredBackend: preferredBackend,
+      hasApiService: ref.read(apiServiceProvider) != null,
+    );
+    final hermesSnapshotIsCurrent =
+        preferredBackend != PreferredBackend.hermes ||
+        ref.read(hermesConfigProvider).isUsable;
+    final directBindingIsCurrent =
+        standalone == null ||
+        !isLocallyMintedDirectModel(standalone) ||
+        ref.read(directModelRegistryProvider).resolve(standalone) != null;
+    if (!preferenceIsCurrent ||
+        !authStillAllowsAccountless ||
+        !hermesSnapshotIsCurrent ||
+        !directBindingIsCurrent ||
+        !identical(latestSelected, currentSelected)) {
+      return latestSelected;
+    }
+    if (!identical(currentSelected, standalone)) {
+      if (currentSelected?.id != standalone?.id) {
+        ref.read(isManualModelSelectionProvider.notifier).set(false);
       }
-      if (hermes != null && !ref.read(isManualModelSelectionProvider)) {
-        ref.read(selectedModelProvider.notifier).set(hermes);
-      }
-      return hermes;
+      ref.read(selectedModelProvider.notifier).set(standalone);
+    }
+    if (standalone != null) return standalone;
+    DebugLogger.warning('no-accountless-model', scope: 'models/default');
+    return null;
+  }
+
+  // Accountless Direct/Hermes selection is independent from the optional
+  // OpenWebUI server. Authenticated work captures a point-in-time ownership
+  // token below; startup/account listeners invalidate this provider when a
+  // fresh resolution is required, so no server dependency needs to be watched
+  // across the authentication await above.
+  final authenticatedTokenSnapshot = ref.read(authTokenProvider3);
+  final apiSnapshot = api;
+  final authenticatedOwnershipSnapshot = api == null
+      ? null
+      : captureOpenWebUiCacheOwnership(
+          ref,
+          api: api,
+          requireAuthenticated: false,
+        );
+
+  bool authenticatedResolutionIsCurrent(Model? selectionSnapshot) {
+    if (!ref.mounted) return false;
+    final latestAuth = ref.read(_modelAuthReadinessProvider);
+    final ownershipIsCurrent = apiSnapshot == null
+        ? authenticatedOwnershipSnapshot == null
+        : authenticatedOwnershipSnapshot != null &&
+              openWebUiCacheOwnershipIsCurrent(
+                ref,
+                authenticatedOwnershipSnapshot,
+              );
+    return latestAuth.authenticated &&
+        ownershipIsCurrent &&
+        ref.read(authTokenProvider3) == authenticatedTokenSnapshot &&
+        identical(ref.read(apiServiceProvider), apiSnapshot) &&
+        ref.read(preferredBackendProvider) == preferredBackend &&
+        identical(ref.read(selectedModelProvider), selectionSnapshot);
+  }
+
+  if (api == null) {
+    final manuallySelected = ref.read(selectedModelProvider);
+    if (ref.read(isManualModelSelectionProvider) &&
+        manuallySelected != null &&
+        (isHermesModel(manuallySelected) ||
+            ref.read(directModelRegistryProvider).resolve(manuallySelected) !=
+                null)) {
+      return manuallySelected;
+    }
+
+    final selectionSnapshot = ref.read(selectedModelProvider);
+    final models = await ref.read(modelsProvider.future);
+    if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
+    final standalone =
+        _modelForPreferredBackend(models, preferredBackend) ??
+        models.firstOrNull;
+    if (standalone != null && !ref.read(isManualModelSelectionProvider)) {
+      ref.read(selectedModelProvider.notifier).set(standalone);
+      return standalone;
     }
     DebugLogger.warning('no-api', scope: 'models/default');
     return null;
@@ -2064,6 +3793,7 @@ Future<Model?> defaultModel(Ref ref) async {
       ref.read(isManualModelSelectionProvider.notifier).set(false);
       ref.read(selectedModelProvider.notifier).clear();
     }
+    final selectionSnapshot = ref.read(selectedModelProvider);
 
     // 1) Priority: app-local default model preference.
     final settingsDefaultId = ref.read(appSettingsProvider).defaultModel;
@@ -2071,10 +3801,52 @@ Future<Model?> defaultModel(Ref ref) async {
         settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
     if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
 
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
+      final availableModels = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
+      final availableMatch = availableModels
+          .where((model) => model.id == storedDefaultId)
+          .firstOrNull;
+      if (availableMatch != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(availableMatch);
+        if (!isLocallyMintedDirectModel(availableMatch) &&
+            !isHermesModel(availableMatch)) {
+          unawaited(
+            storage.saveLocalDefaultModel(availableMatch).onError((
+              error,
+              stack,
+            ) {
+              DebugLogger.error(
+                'Failed to save default model to cache',
+                scope: 'models/default',
+                error: error,
+                stackTrace: stack,
+              );
+            }),
+          );
+        }
+        DebugLogger.log(
+          'settings-default',
+          scope: 'models/default',
+          data: {
+            'backend': _modelBackendForDiagnostics(availableMatch),
+            'source': 'available',
+          },
+        );
+        return availableMatch;
+      }
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (cachedMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(cachedMatch);
         unawaited(
@@ -2083,9 +3855,30 @@ Future<Model?> defaultModel(Ref ref) async {
         DebugLogger.log(
           'settings-default',
           scope: 'models/default',
-          data: {'name': cachedMatch.name, 'source': 'settings'},
+          data: {
+            'backend': _modelBackendForDiagnostics(cachedMatch),
+            'source': 'settings',
+          },
         );
         return cachedMatch;
+      }
+    }
+
+    // Onboarding into a direct backend should not be silently replaced by an
+    // Open WebUI server default merely because both are configured.
+    if (preferredBackend == PreferredBackend.direct) {
+      final availableModels = await ref.read(modelsProvider.future);
+      if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
+      final preferred = _modelForPreferredBackend(
+        availableModels,
+        preferredBackend,
+      );
+      if (preferred != null && !ref.read(isManualModelSelectionProvider)) {
+        ref.read(selectedModelProvider.notifier).set(preferred);
+        return preferred;
       }
     }
 
@@ -2093,17 +3886,30 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final cached = await storage.getLocalDefaultModel();
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
         final cachedMatch = await selectCachedModel(storage, cached.id);
         if (!ref.mounted) return null;
+        if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+          return ref.read(selectedModelProvider);
+        }
         if (cachedMatch == null) {
           await storage.saveLocalDefaultModel(null);
+          if (!ref.mounted) return null;
+          if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+            return ref.read(selectedModelProvider);
+          }
         } else {
           ref.read(selectedModelProvider.notifier).set(cachedMatch);
           DebugLogger.log(
             'cached-default',
             scope: 'models/default',
-            data: {'name': cachedMatch.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(cachedMatch),
+              'source': 'cache',
+            },
           );
           return cachedMatch;
         }
@@ -2115,9 +3921,15 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final serverDefault = await api.getDefaultModel();
       if (!ref.mounted) return null;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final models = await api.getModels();
         if (!ref.mounted) return null;
+        if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+          return ref.read(selectedModelProvider);
+        }
         final resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
 
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
@@ -2135,7 +3947,10 @@ Future<Model?> defaultModel(Ref ref) async {
           DebugLogger.log(
             'server-default',
             scope: 'models/default',
-            data: {'name': resolved.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(resolved),
+              'source': 'server',
+            },
           );
           return resolved;
         }
@@ -2146,6 +3961,9 @@ Future<Model?> defaultModel(Ref ref) async {
     DebugLogger.log('fallback-path', scope: 'models/default');
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+      return ref.read(selectedModelProvider);
+    }
     DebugLogger.log(
       'models-loaded',
       scope: 'models/default',
@@ -2155,23 +3973,30 @@ Future<Model?> defaultModel(Ref ref) async {
       DebugLogger.warning('no-models', scope: 'models/default');
       return null;
     }
-    final selectedModel = models.first;
+    final selectedModel =
+        _modelForPreferredBackend(models, preferredBackend) ?? models.first;
     if (!ref.read(isManualModelSelectionProvider)) {
       ref.read(selectedModelProvider.notifier).set(selectedModel);
-      unawaited(
-        storage.saveLocalDefaultModel(selectedModel).onError((error, stack) {
-          DebugLogger.error(
-            'Failed to save default model to cache',
-            scope: 'models/default',
-            error: error,
-            stackTrace: stack,
-          );
-        }),
-      );
+      if (!isLocallyMintedDirectModel(selectedModel) &&
+          !isHermesModel(selectedModel)) {
+        unawaited(
+          storage.saveLocalDefaultModel(selectedModel).onError((error, stack) {
+            DebugLogger.error(
+              'Failed to save default model to cache',
+              scope: 'models/default',
+              error: error,
+              stackTrace: stack,
+            );
+          }),
+        );
+      }
       DebugLogger.log(
         'fallback-selected',
         scope: 'models/default',
-        data: {'name': selectedModel.name, 'id': selectedModel.id},
+        data: {
+          'backend': _modelBackendForDiagnostics(selectedModel),
+          'source': 'fallback',
+        },
       );
     } else {
       DebugLogger.log('skip-manual-override', scope: 'models/default');
@@ -2183,6 +4008,66 @@ Future<Model?> defaultModel(Ref ref) async {
   }
 }
 
+Model? _modelForPreferredBackend(
+  Iterable<Model> models,
+  PreferredBackend preferredBackend,
+) {
+  return switch (preferredBackend) {
+    PreferredBackend.direct =>
+      models.where(isLocallyMintedDirectModel).firstOrNull,
+    PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
+    PreferredBackend.owui || PreferredBackend.unset => null,
+  };
+}
+
+Model? _accountlessSelection({
+  required Iterable<Model> models,
+  required Model? current,
+  required PreferredBackend preferredBackend,
+}) {
+  final available = models.toList(growable: false);
+  final currentMatch = current == null
+      ? null
+      : available.where((model) => model.id == current.id).firstOrNull;
+
+  bool matchesPreferred(Model model) => switch (preferredBackend) {
+    PreferredBackend.direct => isLocallyMintedDirectModel(model),
+    PreferredBackend.hermes => isHermesModel(model),
+    PreferredBackend.owui || PreferredBackend.unset =>
+      isLocallyMintedDirectModel(model) || isHermesModel(model),
+  };
+
+  if (currentMatch != null && matchesPreferred(currentMatch)) {
+    return currentMatch;
+  }
+  return _modelForPreferredBackend(available, preferredBackend) ??
+      switch (preferredBackend) {
+        PreferredBackend.owui ||
+        PreferredBackend.unset => available.firstOrNull,
+        PreferredBackend.direct || PreferredBackend.hermes => null,
+      };
+}
+
+bool _shouldUseAccountlessModelSelection({
+  required bool isAuthenticated,
+  required bool isAuthLoading,
+  required AuthStatus authStatus,
+  required PreferredBackend preferredBackend,
+  required bool hasApiService,
+}) {
+  if (isAuthenticated || isAuthLoading) return false;
+  return switch (authStatus) {
+    AuthStatus.unauthenticated ||
+    AuthStatus.tokenExpired ||
+    AuthStatus.credentialError => true,
+    AuthStatus.error || AuthStatus.initial || AuthStatus.loading =>
+      preferredBackend == PreferredBackend.direct ||
+          preferredBackend == PreferredBackend.hermes ||
+          !hasApiService,
+    AuthStatus.authenticated => false,
+  };
+}
+
 /// Resolves a server-provided default only after removing identities reserved
 /// for Conduit's locally minted Hermes transport.
 @visibleForTesting
@@ -2190,7 +4075,9 @@ Model? resolveSafeRemoteDefaultModel(
   List<Model> remoteModels,
   String? serverDefault,
 ) {
-  final models = sanitizeRemoteHermesModels(remoteModels);
+  final models = sanitizeRemoteHermesModels(
+    sanitizeRemoteDirectModels(remoteModels),
+  );
   if (models.isEmpty) return null;
 
   if (serverDefault != null && serverDefault.isNotEmpty) {
@@ -2243,7 +4130,10 @@ final backgroundModelLoadProvider = Provider<void>((ref) {
         DebugLogger.log(
           'bg-complete',
           scope: 'models/background',
-          data: {'model': model?.name ?? 'null'},
+          data: {
+            'backend': _modelBackendForDiagnostics(model),
+            'source': 'background',
+          },
         );
       } catch (e) {
         DebugLogger.error('bg-failed', scope: 'models/background', error: e);
@@ -2273,12 +4163,28 @@ class SearchQuery extends _$SearchQuery {
 /// active database (no server / reviewer mode) or before the index is built
 /// (the DAO short-circuits on the `fts_built` gate). Results are already bm25
 /// ascending (most relevant first); order is preserved.
-Future<List<Conversation>> _offlineSearch(Ref ref, String query) async {
-  final db = ref.read(appDatabaseProvider);
-  if (db == null) return const [];
+Future<List<Conversation>> _offlineSearch(
+  Ref ref,
+  String query, {
+  ChatStorageKind? storage,
+}) async {
   try {
-    final hits = await db.searchDao.search(query, limit: 50);
-    return hits.map(conversationFromSearchHit).toList(growable: false);
+    final repository = ref.read(chatDatabaseRepositoryProvider);
+    final hits = storage == null
+        ? await repository.searchMergedChats(query, limit: 50)
+        : await repository.searchChatsInStorage(
+            query,
+            storage: storage,
+            limit: 50,
+          );
+    return hits
+        .map((located) {
+          return withChatStorageProvenance(
+            conversationFromSearchHit(located.hit),
+            located.storage,
+          );
+        })
+        .toList(growable: false);
   } catch (e) {
     DebugLogger.error('offline-search-failed', scope: 'search', error: e);
     return const [];
@@ -2325,6 +4231,11 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
     );
 
     // Use the new server-side search API
+    final localResultsFuture = _offlineSearch(
+      ref,
+      trimmedQuery,
+      storage: ChatStorageKind.directLocal,
+    );
     final chatHits = await api.searchChats(
       query: trimmedQuery,
       archived: false, // Only search non-archived conversations
@@ -2332,8 +4243,16 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       sortBy: 'updated_at',
       sortOrder: 'desc',
     );
-    // chatHits is already List<Conversation>
-    final List<Conversation> conversations = List.of(chatHits);
+    // Server search results are explicitly scoped before they are merged with
+    // the independent on-device index. Equal raw ids are valid across stores.
+    final List<Conversation> conversations = chatHits
+        .map(
+          (conversation) => withChatStorageProvenance(
+            conversation,
+            ChatStorageKind.openWebUi,
+          ),
+        )
+        .toList();
 
     // Perform message-level search and merge chat hits
     try {
@@ -2343,7 +4262,7 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       );
 
       // Build a set of conversation IDs already present from chat search
-      final existingIds = conversations.map((c) => c.id).toSet();
+      final existingIds = conversations.map(conversationScopedId).toSet();
 
       // Extract chat ids from message hits (supporting multiple key casings)
       final messageChatIds = <String>{};
@@ -2357,7 +4276,14 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
 
       // Determine which chat ids we still need to fetch
       final idsToFetch = messageChatIds
-          .where((id) => !existingIds.contains(id))
+          .where(
+            (id) => !existingIds.contains(
+              ChatStorageIdentity(
+                rawId: id,
+                storage: ChatStorageKind.openWebUi,
+              ).scopedId,
+            ),
+          )
           .toList();
 
       // Fetch conversations for those ids in parallel (cap to avoid overload)
@@ -2381,9 +4307,14 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
 
         // Merge fetched conversations
         for (final conv in fetched) {
-          if (conv != null && !existingIds.contains(conv.id)) {
-            conversations.add(conv);
-            existingIds.add(conv.id);
+          if (conv != null) {
+            final scoped = withChatStorageProvenance(
+              conv,
+              ChatStorageKind.openWebUi,
+            );
+            if (existingIds.add(conversationScopedId(scoped))) {
+              conversations.add(scoped);
+            }
           }
         }
 
@@ -2392,6 +4323,17 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
       }
     } catch (e) {
       DebugLogger.error('message-search-failed', scope: 'search', error: e);
+    }
+
+    // Server search cannot see chats intentionally kept in the dedicated
+    // direct-local database. Merge ranked local results after the remote
+    // response, preserving remote ordering and avoiding duplicate server rows.
+    final existingIds = conversations.map(conversationScopedId).toSet();
+    final localResults = await localResultsFuture;
+    for (final local in localResults) {
+      if (existingIds.add(conversationScopedId(local))) {
+        conversations.add(local);
+      }
     }
 
     DebugLogger.log(
@@ -4055,7 +5997,7 @@ Future<Model?> selectCachedModel(
 ) async {
   try {
     final cachedModels = sanitizeRemoteHermesModels(
-      await storage.getLocalModels(),
+      sanitizeRemoteDirectModels(await storage.getLocalModels()),
     ).where((model) => !model.isHidden).toList();
     if (cachedModels.isEmpty) return null;
 
@@ -4151,20 +6093,39 @@ class ActiveChatsSync extends _$ActiveChatsSync {
   SocketEventSubscription? _globalActiveSub;
   StreamSubscription<void>? _reconnectSub;
   SocketService? _boundSocket;
+  ApiService? _boundApi;
+  Object? _boundAuthSessionEpoch;
+  int _bindingGeneration = 0;
   bool _initialFetchDone = false;
 
   @override
   void build() {
     ref.onDispose(() {
+      _bindingGeneration++;
       _globalActiveSub?.dispose();
       _globalActiveSub = null;
       _reconnectSub?.cancel();
       _reconnectSub = null;
     });
 
+    _boundApi = ref.read(apiServiceProvider);
+    _boundAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     _bindSocket(ref.read(socketServiceProvider));
     ref.listen<SocketService?>(socketServiceProvider, (prev, next) {
       _bindSocket(next);
+    });
+    ref.listen<ApiService?>(apiServiceProvider, (prev, next) {
+      if (identical(prev, next)) return;
+      _boundApi = next;
+      _bindSocket(ref.read(socketServiceProvider), force: true);
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+    });
+    ref.listen<Object>(openWebUiAuthSessionEpochProvider, (prev, next) {
+      if (identical(prev, next)) return;
+      _boundAuthSessionEpoch = next;
+      _boundApi = ref.read(apiServiceProvider);
+      _bindSocket(ref.read(socketServiceProvider), force: true);
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
     });
 
     // Cold-open population: refresh once the conversation list first resolves.
@@ -4181,10 +6142,20 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     }, fireImmediately: true);
   }
 
-  void _bindSocket(SocketService? socket) {
-    if (identical(socket, _boundSocket)) {
+  void _bindSocket(SocketService? socket, {bool force = false}) {
+    final api = _boundApi;
+    if (socket != null &&
+        (api == null || socket.serverConfig.id != api.serverConfig.id)) {
+      // During an async server switch socketServiceProvider intentionally
+      // exposes the retiring service as a connectivity fallback. Never bind
+      // that A socket to B's API/global active-chat state.
+      socket = null;
+    }
+    if (!force && identical(socket, _boundSocket)) {
       return;
     }
+    final generation = ++_bindingGeneration;
+    final authSessionEpoch = _boundAuthSessionEpoch;
     _boundSocket = socket;
     _globalActiveSub?.dispose();
     _globalActiveSub = null;
@@ -4211,11 +6182,33 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     // the badge.
     _globalActiveSub = socket.addChatEventHandler(
       requireFocus: false,
-      handler: (map, _) => _handleChatActiveEvent(map),
+      handler: (map, _) {
+        if (generation != _bindingGeneration ||
+            !identical(socket, _boundSocket) ||
+            !identical(socket, ref.read(socketServiceProvider)) ||
+            !identical(_boundApi, ref.read(apiServiceProvider)) ||
+            !identical(
+              authSessionEpoch,
+              ref.read(openWebUiAuthSessionEpochProvider),
+            )) {
+          return;
+        }
+        _handleChatActiveEvent(map);
+      },
     );
 
     // Redis task state may have changed while disconnected: refresh on connect.
     _reconnectSub = socket.onReconnect.listen((_) {
+      if (generation != _bindingGeneration ||
+          !identical(socket, _boundSocket) ||
+          !identical(socket, ref.read(socketServiceProvider)) ||
+          !identical(_boundApi, ref.read(apiServiceProvider)) ||
+          !identical(
+            authSessionEpoch,
+            ref.read(openWebUiAuthSessionEpochProvider),
+          )) {
+        return;
+      }
       final convos = ref.read(conversationsProvider).asData?.value;
       if (convos == null || convos.isEmpty) {
         return;
@@ -4279,8 +6272,21 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     if (ids.isEmpty) {
       return;
     }
+    final socket = _boundSocket;
+    final generation = _bindingGeneration;
+    final authSessionEpoch = _boundAuthSessionEpoch;
     try {
       final active = await api.checkActiveChats(ids);
+      if (generation != _bindingGeneration ||
+          !identical(api, ref.read(apiServiceProvider)) ||
+          !identical(socket, _boundSocket) ||
+          !identical(socket, ref.read(socketServiceProvider)) ||
+          !identical(
+            authSessionEpoch,
+            ref.read(openWebUiAuthSessionEpochProvider),
+          )) {
+        return;
+      }
       ref.read(activeChatIdsProvider.notifier).setAll(active);
     } catch (error, stackTrace) {
       DebugLogger.error(

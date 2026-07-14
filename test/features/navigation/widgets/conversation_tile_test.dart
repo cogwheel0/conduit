@@ -69,9 +69,7 @@ void main() {
     );
 
     expect(
-      find.byKey(
-        const ValueKey<String>('conversation-generating-indicator'),
-      ),
+      find.byKey(const ValueKey<String>('conversation-generating-indicator')),
       findsOneWidget,
     );
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -97,11 +95,34 @@ void main() {
     // Only one spinner, and it is not keyed as the generating indicator.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(
-      find.byKey(
-        const ValueKey<String>('conversation-generating-indicator'),
-      ),
+      find.byKey(const ValueKey<String>('conversation-generating-indicator')),
       findsNothing,
     );
+  });
+
+  testWidgets('long provenance badges stay compact and truncate', (
+    tester,
+  ) async {
+    const badge = 'A very long direct connection profile name';
+
+    await tester.pumpWidget(
+      _harness(
+        const ConversationTile(
+          title: 'Direct chat',
+          pinned: false,
+          selected: false,
+          isLoading: false,
+          badge: badge,
+          onTap: null,
+        ),
+      ),
+    );
+
+    final badgeText = tester.widget<Text>(find.text(badge));
+    expect(badgeText.maxLines, 1);
+    expect(badgeText.overflow, TextOverflow.ellipsis);
+    expect(tester.getSize(find.text(badge)).width, lessThanOrEqualTo(104));
+    expect(tester.takeException(), isNull);
   });
 }
 

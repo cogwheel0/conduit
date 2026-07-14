@@ -10,6 +10,13 @@ sealed class HermesRunEvent {
   const HermesRunEvent();
 }
 
+/// Identity announced by the OpenAI-compatible Responses stream.
+final class HermesResponseCreated extends HermesRunEvent {
+  const HermesResponseCreated(this.responseId);
+
+  final String responseId;
+}
+
 /// Incremental assistant text (token delta).
 final class HermesTokenDelta extends HermesRunEvent {
   const HermesTokenDelta(this.content);

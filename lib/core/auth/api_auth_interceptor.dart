@@ -3,10 +3,24 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import '../utils/debug_logger.dart';
 
+/// Immutable authorization value captured for work that must remain bound to
+/// the account session that created it, even if the shared [ApiService]
+/// interceptor is updated before the queued request reaches [onRequest].
+final class ApiAuthSnapshot {
+  const ApiAuthSnapshot._(this._token, this._revision);
+
+  final String? _token;
+  final int _revision;
+}
+
 /// Consistent authentication interceptor for all API requests
 /// Implements security requirements from OpenAPI specification
 class ApiAuthInterceptor extends Interceptor {
+  static const String authSnapshotExtraKey = 'conduit.api.auth_snapshot';
+
   String? _authToken;
+  int _authRevision = 0;
+  final Uri _serverUri;
   final Map<String, String> customHeaders;
 
   // Callbacks for auth events
@@ -36,17 +50,31 @@ class ApiAuthInterceptor extends Interceptor {
   };
 
   ApiAuthInterceptor({
+    required String serverUrl,
     String? authToken,
     this.onAuthTokenInvalid,
     this.onTokenInvalidated,
     this.customHeaders = const {},
-  }) : _authToken = authToken;
+  }) : _serverUri = Uri.parse(serverUrl),
+       _authToken = authToken;
 
   void updateAuthToken(String? token) {
+    if (token == _authToken) return;
     _authToken = token;
+    _authRevision++;
   }
 
   String? get authToken => _authToken;
+
+  ApiAuthSnapshot captureSnapshot() =>
+      ApiAuthSnapshot._(_authToken, _authRevision);
+
+  String _endpointPath(String rawPath) {
+    final parsed = Uri.tryParse(rawPath);
+    final path = parsed?.path ?? rawPath.split(RegExp(r'[?#]')).first;
+    if (path.isEmpty) return '/';
+    return path.startsWith('/') ? path : '/$path';
+  }
 
   _EndpointAuthMode _authModeFor(String path) {
     if (_publicEndpoints.contains(path)) {
@@ -62,11 +90,71 @@ class ApiAuthInterceptor extends Interceptor {
     return _authFailureEndpoints.contains(path);
   }
 
+  bool _targetsServerOrigin(RequestOptions options) {
+    final Uri requestUri;
+    try {
+      requestUri = options.uri;
+    } on FormatException {
+      return false;
+    }
+    if (!requestUri.hasScheme && !requestUri.hasAuthority) return true;
+
+    final requestScheme = requestUri.scheme.toLowerCase();
+    final serverScheme = _serverUri.scheme.toLowerCase();
+    return requestScheme == serverScheme &&
+        requestUri.host.toLowerCase() == _serverUri.host.toLowerCase() &&
+        _effectivePort(requestUri, requestScheme) ==
+            _effectivePort(_serverUri, serverScheme);
+  }
+
+  int? _effectivePort(Uri uri, String scheme) {
+    if (uri.hasPort) return uri.port;
+    return switch (scheme) {
+      'http' => 80,
+      'https' => 443,
+      _ => null,
+    };
+  }
+
+  void _removeServerCredentials(RequestOptions options) {
+    final serverCredentialHeaders = <String>{
+      'authorization',
+      ...customHeaders.keys.map((header) => header.toLowerCase()),
+    };
+    options.headers.removeWhere(
+      (header, _) => serverCredentialHeaders.contains(header.toLowerCase()),
+    );
+  }
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    final path = options.path;
+    if (!_targetsServerOrigin(options)) {
+      // The shared Dio instance is also used for externally hosted images.
+      // Never forward credentials belonging to the selected Open WebUI server
+      // to an absolute URL on another origin.
+      _removeServerCredentials(options);
+      options.headers['Content-Type'] ??= 'application/json';
+      options.headers['Accept'] ??= 'application/json';
+      handler.next(options);
+      return;
+    }
+
+    final path = _endpointPath(options.path);
     final authMode = _authModeFor(path);
-    final token = _authToken;
+    final snapshot = options.extra[authSnapshotExtraKey];
+    if (snapshot is ApiAuthSnapshot &&
+        (snapshot._revision != _authRevision ||
+            snapshot._token != _authToken)) {
+      handler.reject(
+        DioException(
+          requestOptions: options,
+          type: DioExceptionType.cancel,
+          error: 'Authorization session changed before request dispatch.',
+        ),
+      );
+      return;
+    }
+    final token = snapshot is ApiAuthSnapshot ? snapshot._token : _authToken;
 
     if (authMode == _EndpointAuthMode.required) {
       if (token == null || token.isEmpty) {
@@ -113,8 +201,16 @@ class ApiAuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
+    if (!_targetsServerOrigin(err.requestOptions)) {
+      handler.next(err);
+      return;
+    }
+
     final statusCode = err.response?.statusCode;
-    final path = err.requestOptions.path;
+    // Classify the endpoint-relative path rather than the fully resolved URI.
+    // The latter includes a configured Open WebUI base-path prefix and would
+    // otherwise hide auth failures for subpath-hosted installations.
+    final path = _endpointPath(err.requestOptions.path);
 
     final suppressAuthFailureNotification =
         err.requestOptions.extra['suppressAuthFailureNotification'] == true;
@@ -136,21 +232,21 @@ class ApiAuthInterceptor extends Interceptor {
     if (authMode == _EndpointAuthMode.required &&
         _shouldNotifyAuthFailure(path)) {
       _notifyAuthFailure(
-        '$statusCode $statusLabel on $path - '
+        '$statusCode $statusLabel on required endpoint - '
         'notifying app without clearing token',
       );
       return;
     }
 
     DebugLogger.auth(
-      '$statusCode on non-essential endpoint $path - keeping auth token',
+      '$statusCode on non-essential endpoint - keeping auth token',
     );
   }
 
   /// Clear auth token and notify callbacks
   /// Note: This should only be called for explicit logout, not for connection errors
   void _clearAuthToken() {
-    _authToken = null;
+    updateAuthToken(null);
     final future = onTokenInvalidated?.call();
     if (future != null) {
       unawaited(future);

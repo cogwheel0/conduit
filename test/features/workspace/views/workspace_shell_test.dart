@@ -16,6 +16,7 @@ import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/workspace_page.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 
 void main() {
@@ -42,6 +43,23 @@ void main() {
 
     expect(find.text('Models'), findsWidgets);
     expect(find.text('Tools'), findsOneWidget);
+  });
+
+  testWidgets('compact Android exit surface stays at toolbar action size', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_workspaceHarness());
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const Key('workspace-exit'))),
+      const Size.square(TouchTarget.minimum),
+    );
   });
 
   testWidgets('compact shell switches sections through the app bar menu', (

@@ -38,19 +38,89 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     required String chatId,
     required String messageId,
   }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final metadata = _asJsonMap(payload['metadata']);
+        payload.remove('error');
+        payload
+          ..['isStreaming'] = false
+          ..['done'] = true
+          ..['metadata'] = <String, dynamic>{...metadata, 'responseDone': true};
+      },
+    );
+  }
+
+  /// Durability barrier written immediately before the completion POST.
+  ///
+  /// The marker means submission may have started; it deliberately does not
+  /// claim that the server accepted the request or that a response landed. A
+  /// recreated outbox runner recovers by pull only, preventing a duplicate POST
+  /// across crashes in the ambiguous marker-to-response window.
+  Future<bool> markAssistantCompletionSubmitted({
+    required String chatId,
+    required String messageId,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final metadata = _asJsonMap(payload['metadata'])
+          ..remove('responseDone');
+        payload
+          ..remove('error')
+          ..remove('done')
+          ..['isStreaming'] = true
+          ..['metadata'] = <String, dynamic>{
+            ...metadata,
+            'completionSubmitted': true,
+          };
+      },
+    );
+  }
+
+  /// Settles a submitted placeholder with an explicit recovery error when the
+  /// accepted request cannot be drained or found on the server. A later server
+  /// pull may still replace this row with the authoritative response.
+  Future<bool> markAssistantCompletionRecoveryFailed({
+    required String chatId,
+    required String messageId,
+    required String error,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final metadata = _asJsonMap(payload['metadata']);
+        payload
+          ..['isStreaming'] = false
+          ..['done'] = true
+          ..['error'] = <String, dynamic>{'content': error}
+          ..['metadata'] = <String, dynamic>{
+            ...metadata,
+            'completionSubmitted': true,
+            'responseDone': true,
+          };
+      },
+    );
+  }
+
+  Future<bool> _updateAssistantPayload({
+    required String chatId,
+    required String messageId,
+    required void Function(Map<String, dynamic> payload) mutate,
+  }) {
     return transaction(() async {
       final existing = await _messageById(chatId, messageId);
       if (existing == null) return false;
 
       final payload = _decodePayloadMap(existing.payload);
-      final metadata = _asJsonMap(payload['metadata']);
       payload
         ..putIfAbsent('id', () => messageId)
         ..putIfAbsent('role', () => existing.role)
-        ..putIfAbsent('content', () => existing.content)
-        ..['isStreaming'] = false
-        ..['done'] = true
-        ..['metadata'] = <String, dynamic>{...metadata, 'responseDone': true};
+        ..putIfAbsent('content', () => existing.content);
+      mutate(payload);
 
       await (update(
         messages,

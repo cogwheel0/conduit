@@ -28,6 +28,60 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase>
     ).insertOnConflictUpdate(SyncMetaCompanion.insert(key: key, value: value));
   }
 
+  /// Durable proof that a locally-created chat id was committed as
+  /// [serverId]. Unlike a message-id lookup, this relation cannot be inferred
+  /// from an unrelated chat that happens to contain the same message id.
+  ///
+  /// A local id is write-once. Replaying the same remap is idempotent, while a
+  /// different destination is an integrity violation: silently overwriting it
+  /// would let delayed work for the first chat jump to a newer destination.
+  static String chatRemapKey(String localId) => 'chat_remap:$localId';
+
+  Future<String?> getChatRemapTarget(String localId) {
+    return getValue(chatRemapKey(localId));
+  }
+
+  Future<void> setChatRemapTarget(String localId, String serverId) async {
+    await into(syncMeta).insert(
+      SyncMetaCompanion.insert(key: chatRemapKey(localId), value: serverId),
+      mode: InsertMode.insertOrIgnore,
+    );
+    final committed = await getChatRemapTarget(localId);
+    if (committed == serverId) return;
+    throw StateError(
+      'Chat remap target is immutable once committed: '
+      '$localId -> $committed',
+    );
+  }
+
+  Future<void> deleteChatRemapTarget(String localId) {
+    return (delete(
+      syncMeta,
+    )..where((t) => t.key.equals(chatRemapKey(localId)))).go();
+  }
+
+  Future<void> deleteChatRemapTargetsForServer(String serverId) {
+    return (delete(syncMeta)..where(
+          (t) =>
+              t.key.like(r'chat\_remap:%', escapeChar: '\\') &
+              t.value.equals(serverId),
+        ))
+        .go();
+  }
+
+  Future<bool> hasChatRemapTargetForServer(String serverId) async {
+    final row =
+        await (select(syncMeta)
+              ..where(
+                (t) =>
+                    t.key.like(r'chat\_remap:%', escapeChar: '\\') &
+                    t.value.equals(serverId),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
+  }
+
   static String noteRemapKey(String localId) => 'note_remap:$localId';
 
   Future<String?> getNoteRemapTarget(String localId) {

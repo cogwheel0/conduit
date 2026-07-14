@@ -126,21 +126,18 @@ IconData _materialTabIcon(_SidebarTabId id, {bool selected = false}) {
 /// the Hermes tab instead of a generic glyph.
 const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
 
-/// Tab-bar rendering of the Hermes logo for the Material bottom bar — circular,
-/// full color (not tinted), matching the iOS bar's image rendering.
+/// Tab-bar rendering of the Hermes logo as a theme-aware alpha mask.
+///
+/// The bundled asset is black with transparency, so a raw [Image] would stay
+/// black in dark mode instead of inheriting the navigation icon color.
 class _HermesTabImage extends StatelessWidget {
   const _HermesTabImage();
 
   @override
   Widget build(BuildContext context) {
-    return ClipOval(
-      child: Image(
-        image: kHermesTabIcon,
-        width: _kSidebarNavigationBarIconSize,
-        height: _kSidebarNavigationBarIconSize,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.medium,
-      ),
+    return const ImageIcon(
+      kHermesTabIcon,
+      size: _kSidebarNavigationBarIconSize,
     );
   }
 }
@@ -294,13 +291,14 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
         _SidebarNavigationItem(
           label: def.label,
           destination: AdaptiveNavigationDestination(
-            // Pass an ImageProvider (not a Widget): the iOS/native bar renders
-            // ImageProviders (full-color, circular) but ignores Widget icons.
+            // ImageIcon keeps the alpha-mask asset tintable on Cupertino and
+            // is also recognized by the native iOS tab-bar asset extractor.
+            // Let Cupertino supply size so selected/unselected icons match.
             icon: def.id == _SidebarTabId.hermes
-                ? kHermesTabIcon
+                ? const ImageIcon(kHermesTabIcon)
                 : _sfSymbolTabIcon(def.id),
             selectedIcon: def.id == _SidebarTabId.hermes
-                ? kHermesTabIcon
+                ? const ImageIcon(kHermesTabIcon)
                 : _sfSymbolTabIcon(def.id, selected: true),
             label: def.label,
           ),

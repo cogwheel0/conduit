@@ -6,18 +6,27 @@ import '../services/conversation_parsing.dart';
 import '../services/worker_manager.dart';
 import '../sync/sync_engine.dart';
 import '../utils/debug_logger.dart';
-import 'database_provider.dart';
 import 'mappers/conversation_assembler.dart';
 
 // kLocalConversationWorkerThreshold is defined in
 // mappers/conversation_assembler.dart and re-exported here for callers that
 // already import local_conversation_loader.dart. Do NOT redeclare it.
-export 'mappers/conversation_assembler.dart' show kLocalConversationWorkerThreshold;
+export 'mappers/conversation_assembler.dart'
+    show kLocalConversationWorkerThreshold;
 
 /// Fire-and-forget background pull for one chat. Best-effort freshening:
 /// swallows every failure (engine unavailable, network down) so DB-first
 /// opens never degrade to network-first.
-void schedulePullChatNow(dynamic ref, String id) {
+void schedulePullChatNow(
+  dynamic ref,
+  String id, {
+  OpenWebUiConversationReadSnapshot? ownership,
+}) {
+  final effectiveOwnership = ownership ?? captureOpenWebUiConversationRead(ref);
+  if (effectiveOwnership == null ||
+      !openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) {
+    return;
+  }
   try {
     final future =
         ref.read(syncEngineProvider.notifier).pullChatNow(id)
@@ -52,14 +61,19 @@ void schedulePullChatNow(dynamic ref, String id) {
 /// nothing AND no API service is available. Shared by the passive/resume
 /// refresh paths (CDT-RFC-001 Phase 1).
 Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
+  final ownership = captureOpenWebUiConversationRead(ref);
+  if (ownership == null) return null;
+  final api = ownership.api;
+  final syncEngine = ref.read(syncEngineProvider.notifier);
+
   Conversation? refreshed;
   try {
-    refreshed = await ref.read(syncEngineProvider.notifier).pullChatNow(id);
+    refreshed = await syncEngine.pullChatNow(id);
   } catch (_) {
     refreshed = null;
   }
+  if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   if (refreshed == null) {
-    final api = ref.read(apiServiceProvider);
     if (api == null) return null;
     try {
       refreshed = await api.getConversation(id);
@@ -73,6 +87,7 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
       );
       return null;
     }
+    if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   }
   return refreshed;
 }
@@ -83,23 +98,43 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
 /// body is synced; `null` otherwise so the caller can fall back to the
 /// network path. Accepts any Riverpod ref/container via dynamic dispatch
 /// (mirrors `refreshConversationsCache`).
-Future<Conversation?> loadLocalConversation(dynamic ref, String id) async {
+Future<Conversation?> loadLocalConversation(
+  dynamic ref,
+  String id, {
+  OpenWebUiConversationReadSnapshot? ownership,
+}) async {
+  final effectiveOwnership = ownership ?? captureOpenWebUiConversationRead(ref);
+  final db = effectiveOwnership?.database;
+  if (effectiveOwnership == null ||
+      db == null ||
+      !openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) {
+    return null;
+  }
   try {
-    final db = ref.read(appDatabaseProvider);
-    if (db == null) return null;
     final chat = await db.chatsDao.getChat(id);
+    if (!openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) {
+      return null;
+    }
     if (chat == null || !chat.bodySynced) return null;
     final messages = await db.messagesDao.getForChat(id);
+    if (!openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) {
+      return null;
+    }
+    late final Conversation conversation;
     if (messages.length > kLocalConversationWorkerThreshold) {
       final envelope = buildChatResponseEnvelope(chat, messages);
       final workerManager = ref.read(workerManagerProvider);
-      return await workerManager.schedule(
+      conversation = await workerManager.schedule(
         parseFullConversationModelWorker,
         envelope,
         debugLabel: 'db.assembleConversation',
       );
+    } else {
+      conversation = assembleConversation(chat, messages);
     }
-    return assembleConversation(chat, messages);
+    return openWebUiConversationReadIsCurrent(ref, effectiveOwnership)
+        ? conversation
+        : null;
   } catch (error, stackTrace) {
     DebugLogger.error(
       'local-load-failed',

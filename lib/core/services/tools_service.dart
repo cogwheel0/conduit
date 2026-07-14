@@ -1,14 +1,17 @@
 import 'package:dio/dio.dart';
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/error/api_error_handler.dart';
-import 'package:conduit/core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../error/api_error_handler.dart';
+import '../models/tool.dart';
+import '../providers/app_providers.dart';
+import 'api_service.dart';
 
 class ToolsService {
   final ApiService _apiService;
 
   ToolsService(this._apiService);
+
+  ApiService get apiService => _apiService;
 
   Future<List<Tool>> getTools() async {
     try {

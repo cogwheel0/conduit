@@ -16,7 +16,10 @@ import '../../navigation/widgets/conversation_tile.dart';
 import '../models/hermes_model.dart';
 import '../models/hermes_session.dart';
 import '../providers/hermes_providers.dart';
+import '../services/hermes_api_service.dart';
+import '../services/hermes_local_document_trust_store.dart';
 import '../services/hermes_message_mapper.dart';
+import '../services/hermes_session_provenance.dart';
 
 /// A single Hermes session row, styled to match the chat conversation tiles —
 /// single-line title, selected highlight, and an in-progress spinner while a
@@ -139,7 +142,7 @@ class HermesSessionTile extends ConsumerWidget {
       DebugLogger.error(
         'session-action-failed',
         scope: 'hermes/sessions',
-        error: error,
+        data: {'errorType': error.runtimeType.toString()},
       );
       if (context.mounted) {
         UiUtils.showMessage(context, failureMessage, isError: true);
@@ -190,21 +193,80 @@ class HermesSessionTile extends ConsumerWidget {
   }
 }
 
+({String? endpointIdentity, String? connectionIdentity})
+_sessionConnectionIdentity(HermesApiService service, String principalId) {
+  final endpointIdentity = HermesConfigController.connectionEndpoint(
+    service.config.baseUrl,
+  );
+  return (
+    endpointIdentity: endpointIdentity,
+    connectionIdentity: endpointIdentity == null
+        ? null
+        : HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpointIdentity,
+            principalId: principalId,
+          ),
+  );
+}
+
 /// Deletes a Hermes session and tears down its active chat binding.
 ///
 /// Clearing both providers prevents the next send from reusing a server-side
 /// session id that no longer exists. Unrelated active chats are left intact.
 Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
-  await ref.read(hermesSessionsProvider.notifier).delete(sessionId);
+  // Supersede an older in-flight open immediately. A newer open is allowed to
+  // finish, but a successful delete below still tears down the same remote
+  // session when the endpoint/principal have not changed.
+  ref.read(hermesSessionNavigationEpochProvider.notifier).bump();
+  final configController = ref.read(hermesConfigProvider.notifier);
+  final admission = configController.captureSessionActionAdmission();
+  if (admission == null) {
+    throw StateError('Hermes connection is changing. Try again.');
+  }
+  final service = ref.read(hermesApiServiceProvider);
+  if (service == null) return;
+  final principalId = configController.documentTrustPrincipalId();
+  final connection = _sessionConnectionIdentity(service, principalId);
+  final endpointIdentity = connection.endpointIdentity;
+  final connectionIdentity = connection.connectionIdentity;
+  final deleteCommitted = await ref
+      .read(hermesSessionsProvider.notifier)
+      .delete(sessionId);
+  if (!deleteCommitted) return;
+
+  // An endpoint/principal replacement supersedes this completion. Transient
+  // service recreation does not: disabling and re-enabling the same connection
+  // while local trust cleanup settles must still tear down the remotely deleted
+  // session. Likewise, a same-identity open may have won its GET immediately
+  // before this DELETE committed and cannot preserve the now-stale binding.
+  final configuredEndpointIdentity = HermesConfigController.connectionEndpoint(
+    ref.read(hermesConfigProvider).baseUrl,
+  );
+  // Narrow tests may inject a service without also seeding persisted config.
+  // Production config remains authoritative whenever it contains an endpoint.
+  final currentEndpointIdentity =
+      configuredEndpointIdentity ??
+      HermesConfigController.connectionEndpoint(
+        ref.read(hermesApiServiceProvider)?.config.baseUrl ?? '',
+      );
+  if (currentEndpointIdentity != endpointIdentity ||
+      configController.documentTrustPrincipalId() != principalId) {
+    return;
+  }
 
   if (ref.read(hermesActiveSessionProvider) == sessionId) {
     ref.read(hermesActiveSessionProvider.notifier).set(null);
   }
 
   final activeConversation = ref.read(activeConversationProvider);
+  final activeConnectionIdentity =
+      activeConversation?.metadata[kHermesConnectionIdentityMetadataKey];
   final belongsToDeletedSession =
-      activeConversation?.id == 'local:hermes_$sessionId' ||
-      activeConversation?.metadata['hermesSessionId'] == sessionId;
+      isNativeHermesConversation(activeConversation) &&
+      (activeConversation!.id == 'local:hermes_$sessionId' ||
+          activeConversation.metadata['hermesSessionId'] == sessionId) &&
+      (activeConnectionIdentity == connectionIdentity ||
+          activeConnectionIdentity == null);
   if (belongsToDeletedSession) {
     ref.read(activeConversationProvider.notifier).clear();
   }
@@ -218,8 +280,15 @@ Future<void> openHermesSession(
   WidgetRef ref,
   HermesSessionSummary session,
 ) async {
+  final openEpoch = ref
+      .read(hermesSessionNavigationEpochProvider.notifier)
+      .bump();
+  final configController = ref.read(hermesConfigProvider.notifier);
+  final admission = configController.captureSessionActionAdmission();
+  if (admission == null) return;
   final service = ref.read(hermesApiServiceProvider);
   if (service == null) return;
+  final trustPrincipalId = configController.documentTrustPrincipalId();
 
   List<Map<String, dynamic>> raw;
   try {
@@ -230,7 +299,7 @@ Future<void> openHermesSession(
     DebugLogger.error(
       'open-session-failed',
       scope: 'hermes/sessions',
-      error: error,
+      data: {'errorType': error.runtimeType.toString()},
     );
     if (context.mounted) {
       UiUtils.showMessage(
@@ -256,7 +325,31 @@ Future<void> openHermesSession(
     // Keep the locally minted fallback so transport routing stays Hermes-safe.
   }
 
-  final messages = hermesMessagesToChatMessages(raw, modelId: hermesModel.id);
+  // Connection edits rebuild the service. Never bind a transcript fetched
+  // with an old endpoint or principal into the newly configured account.
+  if (!context.mounted ||
+      openEpoch != ref.read(hermesSessionNavigationEpochProvider) ||
+      !configController.sessionActionAdmissionIsCurrent(admission) ||
+      !identical(ref.read(hermesApiServiceProvider), service) ||
+      configController.documentTrustPrincipalId() != trustPrincipalId) {
+    return;
+  }
+
+  final connectionIdentity = _sessionConnectionIdentity(
+    service,
+    trustPrincipalId,
+  ).connectionIdentity;
+  final trustedDocuments = connectionIdentity == null
+      ? const <String>{}
+      : HermesLocalDocumentTrustStore.trustedDocumentKeys(
+          connectionIdentity: connectionIdentity,
+          sessionId: session.id,
+        );
+  final messages = hermesMessagesToChatMessages(
+    raw,
+    modelId: hermesModel.id,
+    trustedLocalDocumentKeys: trustedDocuments,
+  );
 
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-
@@ -269,14 +362,20 @@ Future<void> openHermesSession(
   // `local:` prefix keeps the OpenWebUI socket/Drift machinery out of this chat
   // (isTemporaryChat == true); the real session id lives in metadata + the
   // hermesActiveSessionProvider binding.
-  final conversation = Conversation(
-    id: 'local:hermes_${session.id}',
-    title: session.title,
-    createdAt: now,
-    updatedAt: session.updatedAt ?? now,
-    model: hermesModel.id,
-    messages: messages,
-    metadata: {'backend': 'hermes', 'hermesSessionId': session.id},
+  final conversation = markNativeHermesConversation(
+    Conversation(
+      id: 'local:hermes_${session.id}',
+      title: session.title,
+      createdAt: now,
+      updatedAt: session.updatedAt ?? now,
+      model: hermesModel.id,
+      messages: messages,
+      metadata: {
+        'backend': 'hermes',
+        'hermesSessionId': session.id,
+        kHermesConnectionIdentityMetadataKey: ?connectionIdentity,
+      },
+    ),
   );
   ref.read(activeConversationProvider.notifier).set(conversation);
 

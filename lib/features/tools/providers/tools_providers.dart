@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/tools_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 
@@ -18,9 +19,23 @@ class ToolsList extends _$ToolsList {
       return const <Tool>[];
     }
 
+    ref.watch(openWebUiAuthSessionEpochProvider);
+    ref.watch(openWebUiDatabaseAccessProvider);
+    ref.watch(openWebUiCertifiedDatabaseServerProvider);
+    ref.watch(activeServerProvider);
     final storage = ref.watch(optimizedStorageServiceProvider);
     final toolsService = ref.watch(toolsServiceProvider);
+    final cacheOwnership = toolsService == null
+        ? null
+        : _captureOwnership(toolsService);
+    if (toolsService != null && cacheOwnership == null) {
+      return const <Tool>[];
+    }
     final cached = await storage.getLocalTools();
+    if (cacheOwnership != null &&
+        !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
+      return const <Tool>[];
+    }
 
     if (cached.isNotEmpty) {
       _scheduleWarmRefresh(toolsService);
@@ -31,7 +46,7 @@ class ToolsList extends _$ToolsList {
       return const [];
     }
 
-    return _fetchAndPersist(toolsService);
+    return (await _fetchAndPersist(toolsService))?.tools ?? const <Tool>[];
   }
 
   Future<void> refresh() async {
@@ -46,7 +61,9 @@ class ToolsList extends _$ToolsList {
     }
     final result = await AsyncValue.guard(() => _fetchAndPersist(toolsService));
     if (!ref.mounted) return;
-    state = result;
+    final owned = result.value;
+    if (result.hasValue && owned == null) return;
+    state = result.whenData((value) => value!.tools);
   }
 
   void _scheduleWarmRefresh(ToolsService? service) {
@@ -59,13 +76,30 @@ class ToolsList extends _$ToolsList {
     });
   }
 
-  Future<List<Tool>> _fetchAndPersist(ToolsService service) async {
+  Future<_OwnedTools?> _fetchAndPersist(ToolsService service) async {
+    final ownership = _captureOwnership(service);
+    if (ownership == null) return null;
     final tools = await service.getTools();
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveLocalTools(tools);
-    return tools;
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
+    return (tools: tools, ownership: ownership);
+  }
+
+  OpenWebUiCacheOwnershipSnapshot? _captureOwnership(ToolsService service) {
+    return captureOpenWebUiCacheOwnership(
+      ref,
+      api: service.apiService,
+      requireAuthenticated: false,
+    );
   }
 }
+
+typedef _OwnedTools = ({
+  List<Tool> tools,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
 
 @Riverpod(keepAlive: true)
 class SelectedToolIds extends _$SelectedToolIds {

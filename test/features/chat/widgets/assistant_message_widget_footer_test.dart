@@ -1079,6 +1079,7 @@ void main() {
               const QueuedCompletionInfo(
                 seq: 42,
                 chatId: 'chat-1',
+                scopedChatId: 'chat-1',
                 assistantMessageId: 'queued-assistant',
                 phase: QueuedCompletionPhase.pending,
                 isOffline: true,
@@ -1143,6 +1144,7 @@ void main() {
               const QueuedCompletionInfo(
                 seq: 43,
                 chatId: 'chat-1',
+                scopedChatId: 'chat-1',
                 assistantMessageId: 'partial-assistant',
                 phase: QueuedCompletionPhase.failed,
                 isOffline: false,
@@ -1203,6 +1205,7 @@ void main() {
               const QueuedCompletionInfo(
                 seq: 44,
                 chatId: 'chat-1',
+                scopedChatId: 'chat-1',
                 assistantMessageId: 'pending-partial-assistant',
                 phase: QueuedCompletionPhase.pending,
                 isOffline: true,

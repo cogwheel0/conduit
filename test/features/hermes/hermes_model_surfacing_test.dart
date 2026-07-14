@@ -14,6 +14,12 @@ import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _modelsServer = ServerConfig(
+  id: 'models-test',
+  name: 'Models test',
+  url: 'https://openwebui.example',
+);
+
 /// A [HermesConfigController] stand-in yielding a fixed config without touching
 /// shared preferences or secure storage.
 class _FakeHermesConfigController extends HermesConfigController {
@@ -48,21 +54,20 @@ class _MutableHermesConfigController extends HermesConfigController {
 }
 
 class _ModelsApiService extends ApiService {
-  _ModelsApiService(this.workerManager)
-    : super(
-        serverConfig: const ServerConfig(
-          id: 'models-test',
-          name: 'Models test',
-          url: 'https://openwebui.example',
-        ),
-        workerManager: workerManager,
-      );
+  _ModelsApiService(this.workerManager, {this.responseGate})
+    : super(serverConfig: _modelsServer, workerManager: workerManager);
 
   final WorkerManager workerManager;
+  final Completer<void>? responseGate;
+  final Completer<void> getModelsStarted = Completer<void>();
+  int getModelsCalls = 0;
   bool fail = false;
 
   @override
   Future<List<Model>> getModels({bool includeHidden = false}) async {
+    getModelsCalls += 1;
+    if (!getModelsStarted.isCompleted) getModelsStarted.complete();
+    await responseGate?.future;
     if (fail) throw StateError('temporary models outage');
     return const <Model>[Model(id: 'owui-model', name: 'OpenWebUI model')];
   }
@@ -218,6 +223,67 @@ void main() {
     );
 
     test(
+      'active server reload does not retire an in-flight models future',
+      () async {
+        final workerManager = WorkerManager();
+        final responseGate = Completer<void>();
+        final reloadGate = Completer<ServerConfig?>();
+        final reloadStarted = Completer<void>();
+        final api = _ModelsApiService(
+          workerManager,
+          responseGate: responseGate,
+        );
+        var activeServerBuilds = 0;
+        addTearDown(workerManager.dispose);
+        addTearDown(() {
+          if (!responseGate.isCompleted) responseGate.complete();
+          if (!reloadGate.isCompleted) reloadGate.complete(_modelsServer);
+        });
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            activeServerProvider.overrideWith((_) {
+              activeServerBuilds += 1;
+              if (activeServerBuilds == 1) return _modelsServer;
+              if (!reloadStarted.isCompleted) reloadStarted.complete();
+              return reloadGate.future;
+            }),
+            apiServiceProvider.overrideWithValue(api),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_incompleteHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        check(
+          await container.read(activeServerProvider.future),
+        ).equals(_modelsServer);
+        final pendingModels = container.read(modelsProvider.future);
+        await api.getModelsStarted.future;
+
+        container.invalidate(activeServerProvider);
+        await reloadStarted.future;
+
+        final reloadingServer = container.read(activeServerProvider);
+        check(reloadingServer.isLoading).isTrue();
+        check(reloadingServer.value?.id).equals(_modelsServer.id);
+
+        responseGate.complete();
+        final models = await pendingModels;
+
+        check(
+          models.map((model) => model.id).toList(),
+        ).deepEquals(<String>['owui-model']);
+        check(api.getModelsCalls).equals(1);
+      },
+    );
+
+    test(
       'defaultModelProvider auto-selects Hermes when there is no api',
       () async {
         final container = ProviderContainer(
@@ -243,6 +309,32 @@ void main() {
         final selected = container.read(selectedModelProvider);
         check(selected).isNotNull();
         check(isHermesModel(selected!)).isTrue();
+      },
+    );
+
+    test(
+      'authenticated default still selects Hermes when the api is unavailable',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            apiServiceProvider.overrideWithValue(null),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final model = await container.read(defaultModelProvider.future);
+
+        check(model).isNotNull();
+        check(isHermesModel(model!)).isTrue();
+        check(container.read(selectedModelProvider)).identicalTo(model);
       },
     );
 

@@ -19,6 +19,8 @@ void main() {
       'features': {
         'run_approval_response': true,
         'approval_events': true,
+        'responses_api': true,
+        'responses_streaming': true,
         'skills_api': true,
         'session_resources': true,
         'session_fork': true,
@@ -26,6 +28,7 @@ void main() {
       },
       'endpoints': {
         'toolsets': {'method': 'GET', 'path': '/v1/toolsets'},
+        'responses': {'method': 'POST', 'path': '/v1/responses'},
         'sessions': {'method': 'GET', 'path': '/api/sessions'},
       },
     });
@@ -35,6 +38,7 @@ void main() {
     check(caps.toolsets).isTrue();
     check(caps.jobs).isTrue(); // list surface shown
     check(caps.jobsAdmin).isFalse(); // writes disabled
+    check(caps.inputImages).isTrue();
   });
 
   test('toolsets: real payload parses tools', () {
@@ -75,16 +79,29 @@ void main() {
     check(s!.title).equals('Untitled session');
   });
 
-  test('message mapper: skips session_meta, parses numeric-string timestamps', () {
-    final messages = hermesMessagesToChatMessages([
-      {'id': '367', 'role': 'user', 'content': 'hi', 'timestamp': '1781947673.7'},
-      {'id': '368', 'role': 'assistant', 'content': 'hello', 'timestamp': '1781947673.71'},
-      {'id': '369', 'role': 'session_meta', 'content': 'None'},
-    ], modelId: 'hermes:agent:default');
-    check(messages).has((m) => m.length, 'length').equals(2);
-    check(messages[0].timestamp.year).equals(2026);
-    check(messages[1].role).equals('assistant');
-  });
+  test(
+    'message mapper: skips session_meta, parses numeric-string timestamps',
+    () {
+      final messages = hermesMessagesToChatMessages([
+        {
+          'id': '367',
+          'role': 'user',
+          'content': 'hi',
+          'timestamp': '1781947673.7',
+        },
+        {
+          'id': '368',
+          'role': 'assistant',
+          'content': 'hello',
+          'timestamp': '1781947673.71',
+        },
+        {'id': '369', 'role': 'session_meta', 'content': 'None'},
+      ], modelId: 'hermes:agent:default');
+      check(messages).has((m) => m.length, 'length').equals(2);
+      check(messages[0].timestamp.year).equals(2026);
+      check(messages[1].role).equals('assistant');
+    },
+  );
 
   test('job: nested schedule object + name', () {
     final job = HermesJob.fromJson({
@@ -103,22 +120,24 @@ void main() {
     check(job.nextRun).isNotNull();
   });
 
-  test('SSE: decodes a Uint8List byte stream (Dio shape) without variance error',
-      () async {
-    // Dio delivers Stream<Uint8List>; runEvents casts to Stream<List<int>>.
-    final bytes = utf8.encode(
-      'data: {"event":"message.delta","delta":"hi"}\n\n'
-      'data: {"event":"run.completed","output":"hi"}\n\n',
-    );
-    final uint8Stream = Stream<Uint8List>.value(Uint8List.fromList(bytes));
-    final events =
-        await parseHermesRunStream(uint8Stream.cast<List<int>>()).toList();
-    check(events.first)
-        .isA<HermesTokenDelta>()
-        .has((e) => e.content, 'content')
-        .equals('hi');
-    check(events.last).isA<HermesRunDone>();
-  });
+  test(
+    'SSE: decodes a Uint8List byte stream (Dio shape) without variance error',
+    () async {
+      // Dio delivers Stream<Uint8List>; runEvents casts to Stream<List<int>>.
+      final bytes = utf8.encode(
+        'data: {"event":"message.delta","delta":"hi"}\n\n'
+        'data: {"event":"run.completed","output":"hi"}\n\n',
+      );
+      final uint8Stream = Stream<Uint8List>.value(Uint8List.fromList(bytes));
+      final events = await parseHermesRunStream(
+        uint8Stream.cast<List<int>>(),
+      ).toList();
+      check(
+        events.first,
+      ).isA<HermesTokenDelta>().has((e) => e.content, 'content').equals('hi');
+      check(events.last).isA<HermesRunDone>();
+    },
+  );
 
   test('SSE: real tool.started / tool.completed events', () async {
     final frames = [
@@ -150,12 +169,76 @@ void main() {
 
     // message.delta → token; reasoning.available skipped (would duplicate);
     // run.completed → final output fallback + done.
-    check(events[0])
-        .isA<HermesTokenDelta>()
-        .has((e) => e.content, 'content')
-        .equals('pong');
+    check(
+      events[0],
+    ).isA<HermesTokenDelta>().has((e) => e.content, 'content').equals('pong');
     check(events.any((e) => e is HermesReasoningDelta)).isFalse();
     check(events.whereType<HermesFinalOutput>().single.text).equals('pong');
+    check(events.last).isA<HermesRunDone>();
+  });
+
+  test('SSE: real Responses created / delta / completed envelopes', () async {
+    final created = {
+      'type': 'response.created',
+      'sequence_number': 0,
+      'response': {
+        'id': 'resp_123',
+        'object': 'response',
+        'status': 'in_progress',
+        'created_at': 1781947673,
+        'model': 'hermes-agent',
+        'output': <dynamic>[],
+      },
+    };
+    final delta = {
+      'type': 'response.output_text.delta',
+      'sequence_number': 1,
+      'item_id': 'msg_123',
+      'output_index': 0,
+      'content_index': 0,
+      'delta': 'hello',
+      'logprobs': <dynamic>[],
+    };
+    final completed = {
+      'type': 'response.completed',
+      'sequence_number': 2,
+      'response': {
+        'id': 'resp_123',
+        'object': 'response',
+        'status': 'completed',
+        'created_at': 1781947673,
+        'model': 'hermes-agent',
+        'output': [
+          {
+            'type': 'message',
+            'role': 'assistant',
+            'content': [
+              {'type': 'output_text', 'text': 'hello'},
+            ],
+          },
+        ],
+        'usage': {'input_tokens': 1, 'output_tokens': 1, 'total_tokens': 2},
+      },
+    };
+    final frames = [
+      'event: response.created\n'
+          'data: ${jsonEncode(created)}\n\n',
+      'event: response.output_text.delta\n'
+          'data: ${jsonEncode(delta)}\n\n',
+      'event: response.completed\n'
+          'data: ${jsonEncode(completed)}\n\n',
+    ];
+
+    final events = await parseHermesResponseStream(
+      Stream<List<int>>.fromIterable(frames.map(utf8.encode)),
+    ).toList();
+
+    check(
+      events.whereType<HermesResponseCreated>().map((e) => e.responseId),
+    ).deepEquals(['resp_123', 'resp_123']);
+    check(events.whereType<HermesLifecycle>().single.status).equals('created');
+    check(events.whereType<HermesTokenDelta>().single.content).equals('hello');
+    check(events.whereType<HermesFinalOutput>().single.text).equals('hello');
     check(events.last).isA<HermesRunDone>();
   });
 }

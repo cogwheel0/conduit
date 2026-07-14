@@ -295,6 +295,7 @@ void main() {
             'id': 'assistant-headless',
             'role': 'assistant',
             'content': '',
+            'error': {'content': 'stale recovery failure'},
             'metadata': {'checkpoint': true},
           },
         ),
@@ -317,7 +318,56 @@ void main() {
       check(
         (payload['metadata'] as Map<String, dynamic>)['checkpoint'],
       ).equals(true);
+      check(payload.containsKey('error')).isFalse();
       check(row.content).equals('');
+      check(row.dirty).isFalse();
+    });
+
+    test('completion resubmission clears stale terminal failure state',
+        () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-retry',
+        title: 'Retry',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await db.messagesDao.upsertLocalEcho(
+        echo(
+          chatId: 'chat-retry',
+          id: 'assistant-retry',
+          content: 'partial',
+          payload: const {
+            'id': 'assistant-retry',
+            'role': 'assistant',
+            'content': 'partial',
+            'isStreaming': false,
+            'done': true,
+            'error': {'content': 'previous attempt failed'},
+            'metadata': {
+              'checkpoint': true,
+              'completionSubmitted': true,
+              'responseDone': true,
+            },
+          },
+        ),
+      );
+
+      final marked = await db.messagesDao.markAssistantCompletionSubmitted(
+        chatId: 'chat-retry',
+        messageId: 'assistant-retry',
+      );
+
+      check(marked).isTrue();
+      final row =
+          (await db.messagesDao.getForChat('chat-retry')).single;
+      final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+      final metadata = payload['metadata'] as Map<String, dynamic>;
+      check(payload['isStreaming']).equals(true);
+      check(payload.containsKey('done')).isFalse();
+      check(payload.containsKey('error')).isFalse();
+      check(metadata['completionSubmitted']).equals(true);
+      check(metadata.containsKey('responseDone')).isFalse();
+      check(metadata['checkpoint']).equals(true);
       check(row.dirty).isFalse();
     });
   });

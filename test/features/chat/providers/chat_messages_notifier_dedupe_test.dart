@@ -214,6 +214,78 @@ void main() {
       );
     });
 
+    test(
+      'reasoning updates keep one row without splitting an interleaved Hermes tool',
+      () {
+        final container = buildContainer();
+        addTearDown(container.dispose);
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([_assistantMessage(isStreaming: true)]);
+
+        var maxHistoryLength = 0;
+        final subscription = container.listen<List<ChatMessage>>(
+          chatMessagesProvider,
+          (_, next) {
+            maxHistoryLength =
+                next.single.statusHistory.length > maxHistoryLength
+                ? next.single.statusHistory.length
+                : maxHistoryLength;
+          },
+          fireImmediately: false,
+        );
+        addTearDown(subscription.close);
+
+        notifier.appendStatusUpdate(
+          'assistant-1',
+          const ChatStatusUpdate(
+            action: 'hermes_tool_web_search',
+            description: 'web_search',
+            done: false,
+          ),
+        );
+        for (var index = 0; index < 2000; index++) {
+          notifier.appendStatusUpdate(
+            'assistant-1',
+            ChatStatusUpdate(
+              action: 'reasoning',
+              description: 'Thinking… fragment $index',
+              done: false,
+            ),
+          );
+        }
+        notifier.appendStatusUpdate(
+          'assistant-1',
+          const ChatStatusUpdate(
+            action: 'hermes_tool_web_search',
+            description: 'web_search',
+            done: true,
+          ),
+        );
+
+        final history = container
+            .read(chatMessagesProvider)
+            .single
+            .statusHistory;
+        expect(maxHistoryLength, 2);
+        expect(history, hasLength(2));
+        expect(
+          history.where((status) => status.action == 'reasoning'),
+          hasLength(1),
+        );
+        expect(
+          history
+              .singleWhere((status) => status.action == 'reasoning')
+              .description,
+          'Thinking… fragment 1999',
+        );
+        final tool = history.singleWhere(
+          (status) => status.action == 'hermes_tool_web_search',
+        );
+        expect(tool.done, isTrue);
+      },
+    );
+
     test('a repeated Hermes tool keeps its completed history row', () {
       final container = buildContainer();
       addTearDown(container.dispose);

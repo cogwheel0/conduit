@@ -49,6 +49,14 @@ void main() {
       ).equals(PreferredBackend.hermes);
     });
 
+    test('parses a persisted direct value at build time', () async {
+      await PreferencesStore.put(PreferenceKeys.preferredBackend, 'direct');
+      final container = makeContainer();
+      check(
+        container.read(preferredBackendProvider),
+      ).equals(PreferredBackend.direct);
+    });
+
     test('falls back to unset for an unrecognized persisted value', () async {
       await PreferencesStore.put(PreferenceKeys.preferredBackend, 'garbage');
       final container = makeContainer();
@@ -61,14 +69,14 @@ void main() {
       final container = makeContainer();
       await container
           .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.hermes);
+          .set(PreferredBackend.direct);
 
       check(
         container.read(preferredBackendProvider),
-      ).equals(PreferredBackend.hermes);
+      ).equals(PreferredBackend.direct);
       check(
         PreferencesStore.getString(PreferenceKeys.preferredBackend),
-      ).equals('hermes');
+      ).equals('direct');
     });
 
     test('set() round-trips through a fresh container (persistence)', () async {

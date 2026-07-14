@@ -444,6 +444,7 @@ class ConduitButton extends ConsumerWidget {
   final double? width;
   final bool isFullWidth;
   final bool isCompact;
+  final bool useNativeLabel;
 
   const ConduitButton({
     super.key,
@@ -456,6 +457,7 @@ class ConduitButton extends ConsumerWidget {
     this.width,
     this.isFullWidth = false,
     this.isCompact = false,
+    this.useNativeLabel = false,
   });
 
   @override
@@ -510,56 +512,84 @@ class ConduitButton extends ConsumerWidget {
             return SizedBox(
               width: isFullWidth ? double.infinity : width,
               height: height,
-              child: AdaptiveButton.child(
-                onPressed: onPressed,
-                enabled: !isLoading && onPressed != null,
-                color: backgroundColor,
-                style: variant.adaptiveStyle,
-                size: isCompact
-                    ? AdaptiveButtonSize.small
-                    : AdaptiveButtonSize.medium,
-                padding: EdgeInsets.symmetric(
-                  horizontal: horizontalPadding,
-                  vertical: Spacing.sm,
-                ),
-                borderRadius: BorderRadius.circular(AppBorderRadius.button),
-                minSize: Size(effectiveMinWidth, height),
-                child: isLoading
-                    ? Semantics(
-                        label:
-                            AppLocalizations.of(context)?.loadingContent ??
-                            'Loading',
-                        excludeSemantics: true,
-                        child: SizedBox(
-                          width: IconSize.small,
-                          height: IconSize.small,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              textColor,
-                            ),
-                          ),
-                        ),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (icon != null) ...[
-                            Icon(icon, size: IconSize.small, color: textColor),
-                            SizedBox(width: Spacing.iconSpacing),
-                          ],
-                          Flexible(
-                            child:
-                                EnhancedAccessibilityService.createAccessibleText(
-                                  text,
-                                  style: textStyle,
-                                  maxLines: 1,
-                                ),
-                          ),
-                        ],
+              child: useNativeLabel && icon == null && !isLoading
+                  ? AdaptiveButton(
+                      onPressed: onPressed,
+                      label: text,
+                      enabled: onPressed != null,
+                      color: backgroundColor,
+                      textColor: textColor,
+                      style: variant.adaptiveStyle,
+                      size: isCompact
+                          ? AdaptiveButtonSize.small
+                          : AdaptiveButtonSize.medium,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: Spacing.sm,
                       ),
-              ),
+                      borderRadius: BorderRadius.circular(
+                        AppBorderRadius.button,
+                      ),
+                      minSize: Size(effectiveMinWidth, height),
+                    )
+                  : AdaptiveButton.child(
+                      onPressed: onPressed,
+                      enabled: !isLoading && onPressed != null,
+                      color: backgroundColor,
+                      style: variant.adaptiveStyle,
+                      size: isCompact
+                          ? AdaptiveButtonSize.small
+                          : AdaptiveButtonSize.medium,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: horizontalPadding,
+                        vertical: Spacing.sm,
+                      ),
+                      borderRadius: BorderRadius.circular(
+                        AppBorderRadius.button,
+                      ),
+                      minSize: Size(effectiveMinWidth, height),
+                      child: isLoading
+                          ? Semantics(
+                              label:
+                                  AppLocalizations.of(
+                                    context,
+                                  )?.loadingContent ??
+                                  'Loading',
+                              excludeSemantics: true,
+                              child: SizedBox(
+                                width: IconSize.small,
+                                height: IconSize.small,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    textColor,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (icon != null) ...[
+                                  Icon(
+                                    icon,
+                                    size: IconSize.small,
+                                    color: textColor,
+                                  ),
+                                  SizedBox(width: Spacing.iconSpacing),
+                                ],
+                                Flexible(
+                                  child:
+                                      EnhancedAccessibilityService.createAccessibleText(
+                                        text,
+                                        style: textStyle,
+                                        maxLines: 1,
+                                      ),
+                                ),
+                              ],
+                            ),
+                    ),
             );
           },
         ),
@@ -1366,6 +1396,7 @@ class AccessibleFormField extends StatelessWidget {
   final bool enabled;
   final String? errorText;
   final int? maxLines;
+  final int? minLines;
   final Widget? suffixIcon;
   final Widget? prefixIcon;
   final TextInputType? keyboardType;
@@ -1375,6 +1406,9 @@ class AccessibleFormField extends StatelessWidget {
   final bool isRequired;
   final bool isCompact;
   final Iterable<String>? autofillHints;
+  final FocusNode? focusNode;
+  final TextInputAction? textInputAction;
+  final bool autocorrect;
 
   const AccessibleFormField({
     super.key,
@@ -1388,6 +1422,7 @@ class AccessibleFormField extends StatelessWidget {
     this.enabled = true,
     this.errorText,
     this.maxLines = 1,
+    this.minLines,
     this.suffixIcon,
     this.prefixIcon,
     this.keyboardType,
@@ -1397,10 +1432,15 @@ class AccessibleFormField extends StatelessWidget {
     this.isRequired = false,
     this.isCompact = false,
     this.autofillHints,
+    this.focusNode,
+    this.textInputAction,
+    this.autocorrect = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasExternalError = errorText?.trim().isNotEmpty ?? false;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1438,13 +1478,17 @@ class AccessibleFormField extends StatelessWidget {
           textField: true,
           child: AdaptiveTextFormField(
             controller: controller,
+            focusNode: focusNode,
             onChanged: onChanged,
             onTap: onTap,
             onSubmitted: onSubmitted,
             obscureText: obscureText,
             enabled: enabled,
             maxLines: maxLines,
+            minLines: minLines,
             keyboardType: keyboardType,
+            textInputAction: textInputAction,
+            autocorrect: autocorrect,
             autofocus: autofocus,
             validator: validator != null
                 ? (value) => validator!(value ?? controller?.text)
@@ -1508,14 +1552,44 @@ class AccessibleFormField extends StatelessWidget {
               ),
               suffixIcon: suffixIcon,
               prefixIcon: prefixIcon,
-              errorText: errorText,
+              errorText: context.usesCupertinoChrome ? null : errorText,
               errorStyle: AppTypography.small.copyWith(
                 color: context.conduitTheme.error,
               ),
             ),
-            cupertinoDecoration: null,
+            cupertinoDecoration: BoxDecoration(
+              color: enabled
+                  ? CupertinoColors.tertiarySystemFill.resolveFrom(context)
+                  : CupertinoColors.quaternarySystemFill.resolveFrom(context),
+              border: hasExternalError
+                  ? Border.all(
+                      color: CupertinoColors.systemRed.resolveFrom(context),
+                      width: BorderWidth.standard,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(AppBorderRadius.input),
+            ),
           ),
         ),
+        if (context.usesCupertinoChrome && hasExternalError)
+          Semantics(
+            liveRegion: true,
+            label: errorText,
+            child: ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  top: Spacing.xs,
+                  left: Spacing.inputPadding,
+                ),
+                child: Text(
+                  errorText!,
+                  style: AppTypography.small.copyWith(
+                    color: context.conduitTheme.error,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

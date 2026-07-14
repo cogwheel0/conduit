@@ -953,5 +953,46 @@ void main() {
       check(await db.chatsDao.getChat('srv-unrelated')).isNotNull();
       check(await db.outboxDao.pendingForChat(localId)).length.equals(1);
     });
+
+    test('an orphaned matching create does not synthesize a remap', () async {
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final healingPull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        remapper: remapper,
+      );
+      const localId = 'local:orphaned-create';
+      final blob = blobFor('orphaned', messageCount: 2);
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: localId,
+        blob: blob,
+        title: 'Title orphaned',
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await db.chatsDao.insertLocalChatWithCreateOp(
+        chat: rows.chat,
+        messages: rows.messages,
+        blobRows: rows,
+        contentHash: createChatContentHash(rows),
+      );
+      // Simulate legacy/non-atomic loss of the source while its create op
+      // remains. A raw delete intentionally leaves the outbox record behind.
+      await (db.delete(db.chats)..where((t) => t.id.equals(localId))).go();
+      final serverResponse = server.createChat({...blob, 'id': ''});
+      final serverId = serverResponse['id'] as String;
+
+      final result = await healingPull.run();
+
+      check(result.success).isTrue();
+      check(await db.chatsDao.getChat(serverId)).isNotNull();
+      check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
+      check(await db.outboxDao.pendingForChat(localId)).isEmpty();
+      check(
+        (await db.select(db.chats).get()).map((chat) => chat.id),
+      ).deepEquals([serverId]);
+    });
   });
 }

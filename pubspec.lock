@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "2.0.3"
   archive:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: archive
       sha256: a96e8b390886ee8abb49b7bd3ac8df6f451c621619f52a26e815fdcf568959ff
@@ -1311,6 +1311,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  ollama_dart:
+    dependency: "direct main"
+    description:
+      name: ollama_dart
+      sha256: "8636167784e4a24ca3d943213e891bae671379a122e6deff7d953c9f9a91894e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.0"
+  openai_dart:
+    dependency: "direct main"
+    description:
+      name: openai_dart
+      sha256: c2d690fb68ae56a913872a1347fa11294fea9cf373e6fdf0b253754d83f1e779
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.0.1"
   package_config:
     dependency: transitive
     description:
@@ -2334,7 +2350,7 @@ packages:
     source: hosted
     version: "1.1.0"
   xml:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: xml
       sha256: "67f0aff7be013d107995e9b75bf4e7f2c3ef2dfdb2c8e68024bba0a7fd5756a4"
