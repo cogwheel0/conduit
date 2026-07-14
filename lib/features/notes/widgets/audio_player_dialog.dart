@@ -187,6 +187,8 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
       await _player.play();
     } catch (error, stackTrace) {
+      // dispose() owns remote-temp cleanup once native teardown has started.
+      if (_isDisposed) return;
       await _deleteOwnedTempFile();
       if (_isDisposed) return;
       DebugLogger.error(
@@ -284,6 +286,21 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
     }
   }
 
+  Future<void> _disposePlayerAndOwnedTempFile() async {
+    try {
+      await _player.dispose();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'audio-player-dispose-failed',
+        scope: 'notes/audio/player',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      await _deleteOwnedTempFile();
+    }
+  }
+
   Future<void> _togglePlayPause() async {
     if (_isPlaying) {
       await _player.pause();
@@ -321,11 +338,9 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
     _positionSub?.cancel();
     _durationSub?.cancel();
     // AudioPlayer.dispose() is async but Flutter's dispose() is sync.
-    // Fire-and-forget is acceptable here as just_audio handles cleanup internally.
-    unawaited(_player.dispose());
-    // Only remote downloads are owned by this dialog. A durable local pending
-    // recording remains available for playback, retry, and export.
-    unawaited(_deleteOwnedTempFile());
+    // Wait for its native file handle to close before deleting an owned remote
+    // download. Durable local pending recordings are never owned or deleted.
+    unawaited(_disposePlayerAndOwnedTempFile());
     super.dispose();
   }
 
