@@ -4,13 +4,21 @@ import 'package:web_socket/io_web_socket.dart' show IOWebSocket;
 import 'package:web_socket/web_socket.dart' as ws;
 
 import '../models/server_config.dart';
+import '../network/conduit_user_agent.dart';
 import 'server_tls_http_client_factory.dart';
+
+// Match dart:io WebSocket's shared-client lifecycle while replacing its
+// generic runtime identity with the public product identity.
+final _defaultWebSocketConnector = _ScopedWebSocketConnector(
+  HttpClient()..userAgent = ConduitUserAgent.value,
+);
 
 io.Socket createSocketWithOptionalBadCertOverride(
   String base,
   io.OptionBuilder builder,
   ServerConfig serverConfig,
 ) {
+  builder.setWebSocketConnector(_defaultWebSocketConnector.connect);
   if (!ServerTlsHttpClientFactory.requiresCustomHttpClient(serverConfig)) {
     return io.io(base, builder.build());
   }
@@ -36,26 +44,36 @@ Uri? _tryParseUri(String url) {
   return null;
 }
 
-class _CustomTlsWebSocketConnector {
-  _CustomTlsWebSocketConnector(ServerConfig serverConfig)
-    : _httpClient = ServerTlsHttpClientFactory.createHttpClient(serverConfig);
+class _ScopedWebSocketConnector {
+  _ScopedWebSocketConnector(this._httpClient);
 
   final HttpClient _httpClient;
 
   // socket_io_client's connector contract returns package:web_socket sockets.
-  // Keep the custom dart:io HttpClient so self-signed TLS policy is preserved;
-  // callers force WebSocket-only because HTTP polling cannot use this connector.
   Future<ws.WebSocket> connect(
     Uri uri, {
     Iterable<String>? protocols,
     Map<String, String>? headers,
   }) async {
+    Map<String, String>? forwardedHeaders;
+    if (headers != null) {
+      forwardedHeaders = Map<String, String>.from(headers)
+        ..removeWhere((name, _) => ConduitUserAgent.isHeaderName(name));
+    }
     final socket = await WebSocket.connect(
       uri.toString(),
       protocols: protocols,
-      headers: headers,
+      headers: forwardedHeaders,
       customClient: _httpClient,
     );
     return IOWebSocket.fromWebSocket(socket);
   }
+}
+
+class _CustomTlsWebSocketConnector extends _ScopedWebSocketConnector {
+  _CustomTlsWebSocketConnector(ServerConfig serverConfig)
+    : super(
+        ServerTlsHttpClientFactory.createHttpClient(serverConfig)
+          ..userAgent = ConduitUserAgent.value,
+      );
 }

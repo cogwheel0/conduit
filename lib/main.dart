@@ -7,12 +7,14 @@ import 'package:flutter_driver/driver_extension.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/widgets/error_boundary.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/providers/app_providers.dart';
+import 'core/network/conduit_user_agent.dart';
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/persistence/hive_prefs_migrator.dart';
 import 'core/persistence/persistence_migrator.dart';
@@ -89,6 +91,17 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      try {
+        final packageInfo = await PackageInfo.fromPlatform();
+        ConduitUserAgent.configure(appVersion: packageInfo.version);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'user-agent-version-unavailable',
+          scope: 'app/startup',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
       _registerBundledLicenses();
       unawaited(
         pdfrxFlutterInitialize().catchError((

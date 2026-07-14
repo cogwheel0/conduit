@@ -18,6 +18,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/network/self_signed_image_cache_manager.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
@@ -532,8 +533,18 @@ Map<String, String>? _mergeHeaders(
       (overrides == null || overrides.isEmpty)) {
     return null;
   }
-  return {...?defaults, ...?overrides};
+  final merged = <String, String>{...?defaults, ...?overrides};
+  if (defaults?.keys.any(ConduitUserAgent.isHeaderName) == true) {
+    ConduitUserAgent.applyTo(merged);
+  }
+  return merged;
 }
+
+@visibleForTesting
+Map<String, String>? debugMergeImageHeaders(
+  Map<String, String>? defaults,
+  Map<String, String>? overrides,
+) => _mergeHeaders(defaults, overrides);
 
 class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final String attachmentId;

@@ -21,6 +21,7 @@ import '../models/server_config.dart';
 import '../models/server_memory.dart';
 import '../models/server_user_settings.dart';
 import '../models/user.dart';
+import '../network/conduit_user_agent.dart';
 import '../../features/workspace/models/workspace_common.dart';
 import '../../features/workspace/models/workspace_knowledge.dart';
 import '../../features/workspace/models/workspace_prompt_command.dart';
@@ -360,7 +361,11 @@ class ApiService {
        ),
        _workerManager = workerManager,
        _now = now ?? DateTime.now {
-    ServerTlsHttpClientFactory.configureDio(_dio, serverConfig);
+    ServerTlsHttpClientFactory.configureDio(
+      _dio,
+      serverConfig,
+      userAgent: ConduitUserAgent.value,
+    );
 
     // Use API key from server config if provided and no explicit auth token
     final effectiveAuthToken = authToken ?? serverConfig.apiKey;
@@ -500,9 +505,7 @@ class ApiService {
           receiveTimeout: const Duration(seconds: 15),
           followRedirects: false,
           validateStatus: (status) => true, // Accept all status codes
-          headers: serverConfig.customHeaders.isNotEmpty
-              ? Map<String, String>.from(serverConfig.customHeaders)
-              : null,
+          headers: ConduitUserAgent.mergeHeaders(serverConfig.customHeaders),
         ),
       );
 

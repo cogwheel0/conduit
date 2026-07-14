@@ -275,7 +275,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               initials: initials,
               avatarUrl: avatarBytes == null ? avatarUrl : null,
               avatarBytes: avatarBytes,
-              avatarHeaders: buildImageHeadersFromWidgetRef(ref) ?? const {},
+              avatarHeaders: avatarUrl == null
+                  ? const {}
+                  : buildImageHeadersForUrlFromWidgetRef(ref, avatarUrl) ??
+                        const {},
               bio: accountProfile?.bio,
               gender: accountProfile?.gender,
               dateOfBirth: accountProfile?.dateOfBirth,

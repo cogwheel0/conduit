@@ -1,4 +1,5 @@
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,14 @@ void main() {
           .toSet();
       expect(headerNames, isNot(contains('authorization')));
       expect(headerNames, isNot(contains('x-proxy-credential')));
+      expect(
+        forwarded.headers[ConduitUserAgent.headerName],
+        ConduitUserAgent.runtimeDefaultValue,
+      );
+      expect(
+        forwarded.headers[ConduitUserAgent.headerName],
+        isNot(ConduitUserAgent.value),
+      );
       expect(forwarded.headers['X-Request-Header'], 'preserved');
     });
 
@@ -107,7 +116,35 @@ void main() {
       expect(forwarded, isNotNull);
       expect(forwarded!.headers['Authorization'], 'Bearer server-token');
       expect(forwarded.headers['X-Proxy-Credential'], 'proxy-secret');
+      expect(
+        forwarded.headers[ConduitUserAgent.headerName],
+        ConduitUserAgent.value,
+      );
     });
+
+    test(
+      'configured User-Agent cannot override the Conduit identity',
+      () async {
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          customHeaders: const {'uSeR-aGeNt': 'spoofed-agent'},
+        );
+        final handler = _TestRequestInterceptorHandler();
+        final options = RequestOptions(path: '/health');
+
+        interceptor.onRequest(options, handler);
+        final forwarded = await handler.forwardedRequest;
+
+        expect(forwarded, isNotNull);
+        expect(
+          forwarded!.headers[ConduitUserAgent.headerName],
+          ConduitUserAgent.value,
+        );
+        expect(forwarded.headers.keys.where(ConduitUserAgent.isHeaderName), [
+          ConduitUserAgent.headerName,
+        ]);
+      },
+    );
 
     test('current auth snapshot forwards its captured token', () async {
       final interceptor = ApiAuthInterceptor(

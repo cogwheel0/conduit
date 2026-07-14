@@ -394,6 +394,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       }
       final channel = ref.read(terminalChannelConnectorProvider)(
         service.buildWebSocketUri(server, session.sessionId),
+        kind: server.kind,
       );
       await channel.ready;
 

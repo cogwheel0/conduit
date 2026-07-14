@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import '../network/conduit_user_agent.dart';
 import '../utils/debug_logger.dart';
 
 /// Immutable authorization value captured for work that must remain bound to
@@ -133,6 +134,12 @@ class ApiAuthInterceptor extends Interceptor {
       // Never forward credentials belonging to the selected Open WebUI server
       // to an absolute URL on another origin.
       _removeServerCredentials(options);
+      if (!options.headers.keys.any(ConduitUserAgent.isHeaderName)) {
+        final runtimeDefault = ConduitUserAgent.runtimeDefaultValue;
+        if (runtimeDefault != null) {
+          options.headers[ConduitUserAgent.headerName] = runtimeDefault;
+        }
+      }
       options.headers['Content-Type'] ??= 'application/json';
       options.headers['Accept'] ??= 'application/json';
       handler.next(options);
@@ -182,7 +189,8 @@ class ApiAuthInterceptor extends Interceptor {
     if (customHeaders.isNotEmpty) {
       customHeaders.forEach((key, value) {
         final lowerKey = key.toLowerCase();
-        if (lowerKey == 'authorization') {
+        if (lowerKey == 'authorization' ||
+            ConduitUserAgent.isHeaderName(lowerKey)) {
           DebugLogger.warning(
             'Skipping reserved header override attempt: $key',
           );
@@ -195,6 +203,7 @@ class ApiAuthInterceptor extends Interceptor {
     // Add other common headers for API consistency
     options.headers['Content-Type'] ??= 'application/json';
     options.headers['Accept'] ??= 'application/json';
+    ConduitUserAgent.applyTo(options.headers);
 
     handler.next(options);
   }

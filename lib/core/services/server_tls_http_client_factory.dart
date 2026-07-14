@@ -36,8 +36,13 @@ class ServerTlsHttpClientFactory {
       !kIsWeb && serverConfig.needsCustomTlsClient;
 
   /// Configures Dio to use the server's TLS settings for all requests.
-  static void configureDio(Dio dio, ServerConfig serverConfig) {
-    if (!requiresCustomHttpClient(serverConfig)) {
+  static void configureDio(
+    Dio dio,
+    ServerConfig serverConfig, {
+    String? userAgent,
+  }) {
+    if (kIsWeb ||
+        (!requiresCustomHttpClient(serverConfig) && userAgent == null)) {
       return;
     }
 
@@ -46,7 +51,15 @@ class ServerTlsHttpClientFactory {
       return;
     }
 
-    adapter.createHttpClient = () => createHttpClient(serverConfig);
+    adapter.createHttpClient = () {
+      final client = requiresCustomHttpClient(serverConfig)
+          ? createHttpClient(serverConfig)
+          : HttpClient();
+      if (userAgent != null) {
+        client.userAgent = userAgent;
+      }
+      return client;
+    };
   }
 
   /// Creates a server-scoped [HttpClient] with self-signed and mTLS support.

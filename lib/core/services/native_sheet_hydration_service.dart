@@ -54,11 +54,7 @@ class NativeSheetHydrationService {
     bool rethrowErrors = true,
   }) async {
     final api = _ref.read(apiServiceProvider);
-    final avatarHeaders =
-        buildImageHeadersFromContainer(
-          ProviderScope.containerOf(context, listen: false),
-        ) ??
-        const <String, String>{};
+    final container = ProviderScope.containerOf(context, listen: false);
     final l10n = AppLocalizations.of(context);
     final pinnedModelIds = allowsPinning
         ? _ref.read(effectivePinnedModelIdsProvider)
@@ -73,15 +69,21 @@ class NativeSheetHydrationService {
 
     final modelOptions = [
       ...leadingOptions,
-      for (final model in orderedModels)
-        NativeSheetModelOption(
+      ...orderedModels.map((model) {
+        final avatarUrl = resolveModelIconUrlForModel(api, model);
+        final avatarHeaders = avatarUrl == null
+            ? const <String, String>{}
+            : buildImageHeadersForUrlFromContainer(container, avatarUrl) ??
+                  const <String, String>{};
+        return NativeSheetModelOption(
           id: model.id,
           name: model.name,
           subtitle: model.description,
-          avatarUrl: resolveModelIconUrlForModel(api, model),
+          avatarUrl: avatarUrl,
           avatarHeaders: avatarHeaders,
           tags: model.modelTags,
-        ),
+        );
+      }),
     ];
 
     final hydratedModelOptions = await _ref
