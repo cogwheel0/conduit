@@ -666,6 +666,7 @@ Future<void> _confirmAndDeleteConversation(
     ConduitHaptics.mediumImpact();
     final active = ref.read(activeConversationProvider);
     if (active != null && conversationMatchesScopedId(active, conversationId)) {
+      chat.clearSelectedFiltersForConversationBoundary(ref);
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();
       // Reset to default model for new conversations (fixes #296)

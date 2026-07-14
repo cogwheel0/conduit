@@ -1476,6 +1476,12 @@
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },
+  "sttDeviceLanguage": "認識言語",
+  "sttDeviceLanguageDescription": "オンデバイス認識に使用する言語を選択します。",
+  "sttDeviceLanguageAutoDescription": "対応している場合、インストール済みの言語を自動的に切り替えます。",
+  "sttDeviceLanguageSystemDescription": "現在の Android システム言語を使用します。",
+  "sttDeviceLanguagePlaceholder": "BCP-47 コード（例: pl-PL）",
+  "sttDeviceLanguageInvalid": "pl-PL のような有効なロケールコードを入力してください。",
   "ttsEngineLabel": "エンジン",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."

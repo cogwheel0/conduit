@@ -300,6 +300,213 @@ void main() {
       });
     });
 
+    group('preserves Open WebUI file descriptors', () {
+      test('keeps id-only knowledge, note, and collection descriptors', () {
+        const descriptors = <Map<String, dynamic>>[
+          {
+            'type': 'file',
+            'id': 'knowledge-file-1',
+            'name': 'docker1.txt',
+            'knowledge': true,
+            'collection_name': 'Servers',
+          },
+          {'type': 'note', 'id': 'note-1', 'name': 'Runbook'},
+          {'type': 'collection', 'id': 'collection-1', 'name': 'Operations'},
+        ];
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Use the attached context',
+                'files': descriptors,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(
+          messages.single['files'],
+        ).isA<List<dynamic>>().deepEquals(descriptors);
+        check(messages.single['attachmentIds']).isNull();
+      });
+
+      test('keeps nested text and YouTube context data intact', () {
+        const descriptor = <String, dynamic>{
+          'type': 'text',
+          'name': 'https://www.youtube.com/watch?v=example',
+          'url': 'https://www.youtube.com/watch?v=example',
+          'context': 'full',
+          'collection_name': 'Videos',
+          'file': {
+            'data': {
+              'content': 'Full transcript',
+              'metadata': {'duration': 42},
+            },
+            'meta': {
+              'name': 'Example video',
+              'source': 'https://www.youtube.com/watch?v=example',
+            },
+          },
+        };
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Summarize this video',
+                'files': [descriptor],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(
+          messages.single['files'],
+        ).isA<List<dynamic>>().deepEquals([descriptor]);
+      });
+
+      test(
+        'retains uploaded image fields without remote transport headers',
+        () {
+          const imageDescriptor = <String, dynamic>{
+            'type': 'image',
+            'id': 'image-file-1',
+            'url': '/api/v1/files/image-file-1/content',
+            'name': 'photo.png',
+            'size': 123,
+            'content_type': 'image/png',
+            'headers': {'Authorization': 'Bearer test-token'},
+          };
+          const safeImageDescriptor = <String, dynamic>{
+            'type': 'image',
+            'id': 'image-file-1',
+            'url': '/api/v1/files/image-file-1/content',
+            'name': 'photo.png',
+            'size': 123,
+            'content_type': 'image/png',
+          };
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'user-1',
+                  'role': 'user',
+                  'content': 'Describe these files',
+                  'files': [
+                    {'file_id': 'legacy-file-1'},
+                    imageDescriptor,
+                  ],
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          check(
+            messages.single['files'],
+          ).isA<List<dynamic>>().deepEquals([safeImageDescriptor]);
+          check(
+            messages.single['attachmentIds'],
+          ).isA<List<dynamic>>().deepEquals(['legacy-file-1', 'image-file-1']);
+        },
+      );
+
+      test('derives only supported legacy URL attachment ids', () {
+        const descriptors = <Map<String, dynamic>>[
+          {'type': 'file', 'url': 'bare-file-id'},
+          {'type': 'image', 'url': 'data:image/png;base64,AAAA'},
+          {'type': 'file', 'url': 'https://example.com/file.txt'},
+          {'type': 'file', 'url': '/uploads/file.txt'},
+        ];
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Use these files',
+                'files': descriptors,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(
+          messages.single['files'],
+        ).isA<List<dynamic>>().deepEquals(descriptors);
+        check(
+          messages.single['attachmentIds'],
+        ).isA<List<dynamic>>().deepEquals(['bare-file-id']);
+      });
+
+      test('keeps safe protocol fields on sibling message versions', () {
+        const descriptor = <String, dynamic>{
+          'type': 'collection',
+          'id': 'collection-1',
+          'name': 'Operations',
+          'context': 'full',
+          'headers': {'Cookie': 'remote-cookie'},
+        };
+        const safeDescriptor = <String, dynamic>{
+          'type': 'collection',
+          'id': 'collection-1',
+          'name': 'Operations',
+          'context': 'full',
+        };
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'assistant-1',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Use the collection',
+                  'childrenIds': ['assistant-1', 'assistant-2'],
+                  'timestamp': 1700000000,
+                },
+                'assistant-1': {
+                  'role': 'assistant',
+                  'content': 'Current answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                },
+                'assistant-2': {
+                  'role': 'assistant',
+                  'content': 'Alternative answer',
+                  'parentId': 'user-1',
+                  'files': [descriptor],
+                  'timestamp': 1700000002,
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final versions =
+            messages.last['versions'] as List<Map<String, dynamic>>;
+        check(versions.single['id']).equals('assistant-2');
+        check(
+          versions.single['files'],
+        ).isA<List<dynamic>>().deepEquals([safeDescriptor]);
+      });
+    });
+
     group('extracts messages from history', () {
       test('follows parent chain from currentId', () {
         final result = parseFullConversation({

@@ -247,6 +247,60 @@ void _addVersionsFromSiblings(
   }
 }
 
+({List<String>? attachmentIds, List<Map<String, dynamic>>? files})
+_parseOpenWebUiFiles(Object? raw) {
+  if (raw is! List) {
+    return (attachmentIds: null, files: null);
+  }
+
+  final attachmentIds = <String>[];
+  final files = <Map<String, dynamic>>[];
+  for (final entry in raw) {
+    if (entry is! Map) continue;
+
+    // Open WebUI file/context entries are protocol descriptors, not a fixed
+    // display-only shape. Retrieval can depend on an id, context mode, or
+    // nested file data, so retain the complete JSON-compatible descriptor.
+    final descriptor = _coerceJsonMap(entry);
+    // Transport headers in a persisted conversation are remote input. Image
+    // renderers derive authentication from the configured server instead;
+    // retaining payload-supplied headers here could forward credentials to an
+    // arbitrary descriptor URL when a conversation or sibling is opened.
+    descriptor.remove('headers');
+    if (descriptor['type'] != null) {
+      files.add(descriptor);
+    }
+
+    // attachmentIds is Conduit's legacy uploaded-file projection. Derive it
+    // independently so that its requirements never decide whether a complete
+    // Open WebUI descriptor survives the conversation round-trip.
+    if (descriptor['file_id'] != null) {
+      attachmentIds.add(descriptor['file_id'].toString());
+    } else if (descriptor['type'] != null && descriptor['url'] != null) {
+      final url = descriptor['url'].toString();
+      // Handle all URL formats:
+      // 1. /api/v1/files/{id} and /api/v1/files/{id}/content (old format)
+      // 2. Just a file ID like "abc-123-def" (new OpenWebUI format)
+      final match = RegExp(
+        r'/api/v1/files/([^/]+)(?:/content)?$',
+      ).firstMatch(url);
+      if (match != null) {
+        attachmentIds.add(match.group(1)!);
+      } else if (!url.startsWith('data:') &&
+          !url.startsWith('http') &&
+          !url.startsWith('/') &&
+          url.isNotEmpty) {
+        attachmentIds.add(url);
+      }
+    }
+  }
+
+  return (
+    attachmentIds: attachmentIds.isEmpty ? null : attachmentIds,
+    files: files.isEmpty ? null : files,
+  );
+}
+
 /// Parse a sibling message as a ChatMessageVersion JSON map.
 Map<String, dynamic>? _parseSiblingAsVersion(
   Map<String, dynamic> msgData, {
@@ -314,26 +368,7 @@ Map<String, dynamic>? _parseSiblingAsVersion(
 
   // Extract files
   final effectiveFiles = msgData['files'] ?? historyMsg?['files'];
-  List<Map<String, dynamic>>? files;
-  if (effectiveFiles is List) {
-    final allFiles = <Map<String, dynamic>>[];
-    for (final entry in effectiveFiles) {
-      if (entry is! Map) continue;
-      if (entry['type'] != null && entry['url'] != null) {
-        final fileMap = <String, dynamic>{
-          'type': entry['type'],
-          'url': entry['url'],
-        };
-        if (entry['name'] != null) fileMap['name'] = entry['name'];
-        if (entry['size'] != null) fileMap['size'] = entry['size'];
-        if (entry['content_type'] != null) {
-          fileMap['content_type'] = entry['content_type'];
-        }
-        allFiles.add(fileMap);
-      }
-    }
-    files = allFiles.isNotEmpty ? allFiles : null;
-  }
+  final files = _parseOpenWebUiFiles(effectiveFiles).files;
 
   final embeds = normalizeEmbedList(msgData['embeds'] ?? historyMsg?['embeds']);
 
@@ -606,54 +641,9 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
   final errorData = _extractErrorData(msgData, historyMsg);
 
   final effectiveFiles = msgData['files'] ?? historyMsg?['files'];
-  List<String>? attachmentIds;
-  List<Map<String, dynamic>>? files;
-  if (effectiveFiles is List) {
-    final attachments = <String>[];
-    final allFiles = <Map<String, dynamic>>[];
-    for (final entry in effectiveFiles) {
-      if (entry is! Map) continue;
-      if (entry['file_id'] != null) {
-        attachments.add(entry['file_id'].toString());
-      } else if (entry['type'] != null && entry['url'] != null) {
-        final fileMap = <String, dynamic>{
-          'type': entry['type'],
-          'url': entry['url'],
-        };
-        if (entry['name'] != null) fileMap['name'] = entry['name'];
-        if (entry['size'] != null) fileMap['size'] = entry['size'];
-        if (entry['content_type'] != null) {
-          fileMap['content_type'] = entry['content_type'];
-        }
-        final headers = _coerceStringMap(entry['headers']);
-        if (headers != null && headers.isNotEmpty) {
-          fileMap['headers'] = headers;
-        }
-        allFiles.add(fileMap);
-
-        final url = entry['url'].toString();
-        // Handle all URL formats:
-        // 1. /api/v1/files/{id} and /api/v1/files/{id}/content (old format)
-        // 2. Just a file ID like "abc-123-def" (new OpenWebUI format)
-        final match = RegExp(
-          r'/api/v1/files/([^/]+)(?:/content)?$',
-        ).firstMatch(url);
-        if (match != null) {
-          attachments.add(match.group(1)!);
-        } else if (!url.startsWith('data:') &&
-            !url.startsWith('http') &&
-            !url.startsWith('/')) {
-          // New format: URL is just a bare file ID (UUID-like)
-          // Validate it looks like a reasonable ID (not an empty string)
-          if (url.isNotEmpty) {
-            attachments.add(url);
-          }
-        }
-      }
-    }
-    attachmentIds = attachments.isNotEmpty ? attachments : null;
-    files = allFiles.isNotEmpty ? allFiles : null;
-  }
+  final parsedFiles = _parseOpenWebUiFiles(effectiveFiles);
+  final attachmentIds = parsedFiles.attachmentIds;
+  final files = parsedFiles.files;
   final embeds = normalizeEmbedList(msgData['embeds'] ?? historyMsg?['embeds']);
 
   final statusHistoryRaw = historyMsg != null
@@ -796,24 +786,6 @@ List<Map<String, dynamic>> _parseStatusHistoryField(dynamic raw) {
     return results;
   }
   return const <Map<String, dynamic>>[];
-}
-
-Map<String, String>? _coerceStringMap(dynamic raw) {
-  if (raw is Map) {
-    final result = <String, String>{};
-    raw.forEach((key, value) {
-      final keyString = key?.toString();
-      final valueString = value?.toString();
-      if (keyString != null &&
-          keyString.isNotEmpty &&
-          valueString != null &&
-          valueString.isNotEmpty) {
-        result[keyString] = valueString;
-      }
-    });
-    return result.isEmpty ? null : result;
-  }
-  return null;
 }
 
 List<String> _coerceStringList(dynamic raw) {

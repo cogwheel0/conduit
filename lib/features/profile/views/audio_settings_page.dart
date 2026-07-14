@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,6 +19,14 @@ import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
 import '../widgets/stt_language_picker.dart';
+
+bool shouldShowDeviceSttLanguageSetting(
+  TargetPlatform platform,
+  SttPreference preference,
+) {
+  return platform == TargetPlatform.android &&
+      preference == SttPreference.deviceOnly;
+}
 
 class AudioSettingsPage extends ConsumerWidget {
   const AudioSettingsPage({super.key});
@@ -115,6 +124,23 @@ class AudioSettingsPage extends ConsumerWidget {
             ],
           ),
         ),
+        if (shouldShowDeviceSttLanguageSetting(
+          defaultTargetPlatform,
+          settings.sttPreference,
+        )) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            key: const Key('device-stt-language-tile'),
+            leading: SettingsIconBadge(
+              icon: Icons.language,
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.sttDeviceLanguage,
+            subtitle: deviceSttLanguageSubtitle(l10n, settings),
+            onTap: () =>
+                showDeviceSttLanguagePickerSheet(context, ref, settings),
+          ),
+        ],
         if (settings.sttPreference == SttPreference.serverOnly) ...[
           const SizedBox(height: Spacing.sm),
           CustomizationTile(

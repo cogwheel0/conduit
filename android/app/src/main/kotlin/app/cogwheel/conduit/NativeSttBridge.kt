@@ -79,7 +79,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             }
             "getLocales" -> {
                 val deviceLocaleId = call.argument<String>("deviceLocaleId")
-                result.success(localesPayload(deviceLocaleId))
+                scope.launch {
+                    result.success(localesPayload(deviceLocaleId))
+                }
             }
             "start" -> {
                 val localeId = call.argument<String>("localeId")
@@ -597,6 +599,19 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         if (!NativeSttLanguagePolicy.usesPlatformLanguageSwitch(localeId, Build.VERSION.SDK_INT)) {
             return null
         }
+        return platformRecognitionLanguages(
+            allowOnlineFallback = allowOnlineFallback,
+            requestLanguageSwitch = true
+        )?.takeIf { NativeSttLanguagePolicy.hasMultipleLanguages(it) }
+    }
+
+    private suspend fun platformRecognitionLanguages(
+        allowOnlineFallback: Boolean,
+        requestLanguageSwitch: Boolean
+    ): List<String>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return null
+        }
         val context = activity.applicationContext
         val recognizerAvailable = if (allowOnlineFallback) {
             AndroidSpeechRecognizer.isRecognitionAvailable(context)
@@ -625,11 +640,13 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
-                    putExtra(
-                        RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
-                        RecognizerIntent.LANGUAGE_SWITCH_BALANCED
-                    )
+                    if (requestLanguageSwitch && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                        putExtra(
+                            RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                            RecognizerIntent.LANGUAGE_SWITCH_BALANCED
+                        )
+                    }
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !allowOnlineFallback)
                 }
                 recognizer.checkRecognitionSupport(
@@ -654,12 +671,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     if (allowOnlineFallback) {
                         addAll(support.onlineLanguages)
                     }
-                }.map { it.replace('_', '-') }
-                    .filter { it.isNotBlank() }
-                    .distinctBy { it.lowercase(Locale.ROOT) }
-                usableLanguages.takeIf {
-                    NativeSttLanguagePolicy.hasMultipleLanguages(it)
                 }
+                NativeSttLanguagePolicy.normalizeLocaleIds(usableLanguages)
+                    .takeIf { it.isNotEmpty() }
             } catch (error: Throwable) {
                 Log.w(TAG, "Android language-switch support check failed", error)
                 null
@@ -735,9 +749,18 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
-    private fun localesPayload(deviceLocaleId: String?): Map<String, Any?> {
+    private suspend fun localesPayload(deviceLocaleId: String?): Map<String, Any?> {
         val systemLocale = parseLocale(deviceLocaleId)
-        val locales = Locale.getAvailableLocales()
+        val installedLocales = platformRecognitionLanguages(
+            allowOnlineFallback = false,
+            requestLanguageSwitch = false
+        ).orEmpty()
+            .map(Locale::forLanguageTag)
+            .filter { it.language.isNotBlank() }
+        val candidateLocales = installedLocales.ifEmpty {
+            Locale.getAvailableLocales().toList()
+        }
+        val locales = candidateLocales
             .filter { it.language.isNotBlank() }
             .distinctBy { localeIdentifier(it) }
             .sortedBy { localeIdentifier(it) }

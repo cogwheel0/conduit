@@ -337,6 +337,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void startNewChat() {
     resetHermesForNewChat(ref);
+    clearSelectedFiltersForConversationBoundary(ref);
 
     // Clear current conversation
     ref.read(chatMessagesProvider.notifier).clearMessages();

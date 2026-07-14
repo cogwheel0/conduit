@@ -1,6 +1,7 @@
 package app.cogwheel.conduit
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,5 +65,15 @@ class NativeSttLanguagePolicyTest {
     fun automaticSwitchRequiresTwoDistinctLanguages() {
         assertTrue(NativeSttLanguagePolicy.hasMultipleLanguages(listOf("en-US", "pl-PL")))
         assertFalse(NativeSttLanguagePolicy.hasMultipleLanguages(listOf("en-US", "en-GB")))
+    }
+
+    @Test
+    fun installedLocaleIdsAreNormalizedDeduplicatedAndSorted() {
+        assertEquals(
+            listOf("en-US", "pl-PL"),
+            NativeSttLanguagePolicy.normalizeLocaleIds(
+                listOf("pl_PL", " en-US ", "EN-us", "")
+            )
+        )
     }
 }

@@ -1579,6 +1579,30 @@
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },
+  "sttDeviceLanguage": "Recognition language",
+  "@sttDeviceLanguage": {
+    "description": "Title for the Android on-device speech recognition language setting."
+  },
+  "sttDeviceLanguageDescription": "Choose the language used for on-device recognition.",
+  "@sttDeviceLanguageDescription": {
+    "description": "Description for the Android on-device speech recognition language picker."
+  },
+  "sttDeviceLanguageAutoDescription": "Switch between installed languages automatically when supported.",
+  "@sttDeviceLanguageAutoDescription": {
+    "description": "Description for automatic on-device speech recognition language selection."
+  },
+  "sttDeviceLanguageSystemDescription": "Use the current Android system language.",
+  "@sttDeviceLanguageSystemDescription": {
+    "description": "Description for following the Android system language during speech recognition."
+  },
+  "sttDeviceLanguagePlaceholder": "BCP-47 code, e.g. pl-PL",
+  "@sttDeviceLanguagePlaceholder": {
+    "description": "Placeholder for a custom on-device recognition locale."
+  },
+  "sttDeviceLanguageInvalid": "Enter a valid locale code like pl-PL.",
+  "@sttDeviceLanguageInvalid": {
+    "description": "Validation message for an invalid on-device recognition locale."
+  },
   "ttsEngineLabel": "Engine",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."

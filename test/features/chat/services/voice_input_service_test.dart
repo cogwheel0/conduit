@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -116,7 +117,7 @@ void main() {
     });
   });
 
-  group('VoiceInputService automatic on-device language', () {
+  group('VoiceInputService on-device recognition language', () {
     test('leaves the native locale unset for automatic recognition', () async {
       final nativeStt = _FakeNativeSttService();
       final service = _SupportedVoiceInputService(nativeStt: nativeStt);
@@ -140,6 +141,58 @@ void main() {
 
         check(nativeStt.availabilityLocaleId).equals('en-US');
         check(service.selectedLocaleId).equals('en-US');
+      },
+    );
+
+    test('resolves the system sentinel to the current device tag', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(
+        nativeStt: nativeStt,
+        deviceLocaleTag: 'en-GB',
+      );
+      service.setLocale(SettingsService.voiceLocaleSystemDefault);
+
+      await service.initialize(forceLocalStt: true);
+
+      check(nativeStt.availabilityLocaleId).equals('en-GB');
+      check(service.selectedLocaleId).equals('en-GB');
+    });
+
+    test('preserves an explicit full locale while loading locales', () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: nativeStt);
+      service.setLocale('pl_PL');
+
+      await service.initialize(forceLocalStt: true);
+      await service.startListening();
+
+      check(nativeStt.availabilityLocaleId).equals('pl-PL');
+      check(nativeStt.startLocaleId).equals('pl-PL');
+      check(service.selectedLocaleId).equals('pl-PL');
+      await service.stopListening();
+    });
+
+    test(
+      'applies live explicit, system, and auto preference changes',
+      () async {
+        final nativeStt = _FakeNativeSttService();
+        final service = _SupportedVoiceInputService(
+          nativeStt: nativeStt,
+          deviceLocaleTag: 'en-GB',
+        );
+        await service.initialize(forceLocalStt: true);
+
+        service.setLocale('pl-PL');
+        await service.initialize(forceLocalStt: true);
+        service.setLocale(SettingsService.voiceLocaleSystemDefault);
+        await service.initialize(forceLocalStt: true);
+        service.setLocale(null);
+        await service.initialize(forceLocalStt: true);
+
+        check(
+          nativeStt.availabilityLocaleIds,
+        ).deepEquals([null, 'pl-PL', 'en-GB', null]);
+        check(service.selectedLocaleId).isNull();
       },
     );
   });
@@ -281,7 +334,48 @@ void main() {
       check(available).isTrue();
       check(fakeService.initializeForceLocalSttArgs).deepEquals([true]);
     });
+
+    test('reprobes when the configured recognition locale changes', () async {
+      final fakeService = _FakeVoiceInputService(
+        hasLocalSttValue: true,
+        onDeviceSupportValue: true,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          voiceInputServiceProvider.overrideWithValue(fakeService),
+          appSettingsProvider.overrideWith(
+            () => _VoiceLocaleSettingsNotifier(const AppSettings()),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(localVoiceRecognitionAvailableProvider.future);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setVoiceLocaleId('pl-PL');
+      await container.read(localVoiceRecognitionAvailableProvider.future);
+
+      check(fakeService.localeIds).deepEquals([null, 'pl-PL']);
+      check(fakeService.initializeForceLocalSttArgs).deepEquals([true, true]);
+    });
   });
+}
+
+class _VoiceLocaleSettingsNotifier extends AppSettingsNotifier {
+  _VoiceLocaleSettingsNotifier(this._initial);
+
+  final AppSettings _initial;
+
+  @override
+  AppSettings build() => _initial;
+
+  @override
+  Future<void> setVoiceLocaleId(String? localeId) async {
+    state = state.copyWith(
+      voiceLocaleId: SettingsService.normalizeVoiceLocaleId(localeId),
+    );
+  }
 }
 
 class _FakeVoiceInputService extends VoiceInputService {
@@ -293,6 +387,12 @@ class _FakeVoiceInputService extends VoiceInputService {
   final bool hasLocalSttValue;
   final bool onDeviceSupportValue;
   final List<bool> initializeForceLocalSttArgs = <bool>[];
+  final List<String?> localeIds = <String?>[];
+
+  @override
+  void setLocale(String? localeId) {
+    localeIds.add(SettingsService.normalizeVoiceLocaleId(localeId));
+  }
 
   @override
   bool get hasLocalStt => hasLocalSttValue;
@@ -317,8 +417,12 @@ class _MockPermissionHandlerPlatform extends Mock
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
+    this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,
   });
+
+  @override
+  final String deviceLocaleTag;
 
   @override
   final bool usesAutomaticNativeLanguage;
@@ -334,6 +438,8 @@ class _FakeNativeSttService extends NativeSttService {
   final StreamController<NativeSttEvent> _events =
       StreamController<NativeSttEvent>.broadcast();
   String? availabilityLocaleId;
+  final List<String?> availabilityLocaleIds = <String?>[];
+  String? startLocaleId;
 
   void emit(NativeSttEvent event) => _events.add(event);
 
@@ -359,6 +465,7 @@ class _FakeNativeSttService extends NativeSttService {
     bool allowOnlineFallback = true,
   }) async {
     availabilityLocaleId = localeId;
+    availabilityLocaleIds.add(localeId);
     return const NativeSttAvailability(
       available: true,
       engine: 'automatic-test',
@@ -373,6 +480,7 @@ class _FakeNativeSttService extends NativeSttService {
     bool accumulateResults = true,
     bool allowOnlineFallback = true,
   }) async {
+    startLocaleId = localeId;
     return _events.stream;
   }
 

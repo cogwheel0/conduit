@@ -33,6 +33,7 @@ import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
+import 'package:conduit/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -992,6 +993,7 @@ void main() {
       tester.element(find.byType(SidebarPage)),
       listen: false,
     );
+    container.read(selectedFilterIdsProvider.notifier).set(const ['filter-a']);
     await tester.tap(
       find.byKey(
         ValueKey<String>('drawer-chat-${conversationScopedId(summary)}'),
@@ -1003,6 +1005,7 @@ void main() {
     expect(active?.messages, hasLength(1));
     expect(active?.messages.single.content, 'Loaded from the direct database');
     expect(chatStorageKindOf(active), ChatStorageKind.directLocal);
+    expect(container.read(selectedFilterIdsProvider), isEmpty);
 
     // The provenance-aware message watch now correctly subscribes to the
     // direct-local Drift database. Dispose it inside the test and give Drift's

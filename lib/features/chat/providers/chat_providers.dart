@@ -5566,10 +5566,34 @@ void resetDirectRunsForNewChat(dynamic ref) {
   }
 }
 
+/// Toggle filters are composer state, not a default that should cross a
+/// conversation boundary when the same model remains selected.
+void clearSelectedFiltersForConversationBoundary(dynamic ref) {
+  ref.read(selectedFilterIdsProvider.notifier).clear();
+}
+
+/// Returns only selected toggle filters exposed by [model].
+///
+/// Conversation-boundary clears remain the primary lifecycle rule. This
+/// request-time intersection is defense in depth for stale state after model
+/// changes or an unanticipated navigation path.
+List<String> selectedFilterIdsForModel(dynamic ref, Model model) {
+  final allowedIds = <String>{
+    for (final filter in model.filters ?? const []) filter.id,
+  };
+  if (allowedIds.isEmpty) return const <String>[];
+
+  return ref
+      .read(selectedFilterIdsProvider)
+      .where(allowedIds.contains)
+      .toList(growable: false);
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref) {
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
+  clearSelectedFiltersForConversationBoundary(ref);
 
   // Clear active conversation
   ref.read(activeConversationProvider.notifier).clear();
@@ -5598,6 +5622,7 @@ void startNewChat(dynamic ref) {
 Future<void> startNewHermesChat(dynamic ref) async {
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
+  clearSelectedFiltersForConversationBoundary(ref);
 
   ref.read(activeConversationProvider.notifier).clear();
   ref.read(chatMessagesProvider.notifier).clearMessages();
@@ -7315,7 +7340,7 @@ Future<void> regenerateMessage(
     final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
     final selectedTerminalId = ref.read(selectedTerminalIdProvider);
     // Include selected filter ids (toggle filters enabled by user)
-    final selectedFilterIds = ref.read(selectedFilterIdsProvider);
+    final selectedFilterIds = selectedFilterIdsForModel(ref, selectedModel);
     // Get conversation history for context, skipping archived variants that are
     // kept locally only for the version switcher.
     final List<ChatMessage> messages = ref.read(chatMessagesProvider);
@@ -9039,7 +9064,7 @@ Future<void> durableSend(
     return;
   }
 
-  final filterIds = ref.read(selectedFilterIdsProvider);
+  final filterIds = selectedFilterIdsForModel(ref, selectedModel);
   final now = ref.read(syncClockProvider).nowEpochSeconds();
   final selectedTerminalId = ref.read(selectedTerminalIdProvider);
   final terminalIdForCompletion = modelSupportsTerminal(selectedModel)
@@ -14953,7 +14978,7 @@ Future<void> _sendMessageInternal(
       ref.read(imageGenerationAvailableProvider);
 
   // Get selected toggle filter IDs
-  final selectedFilterIds = ref.read(selectedFilterIdsProvider);
+  final selectedFilterIds = selectedFilterIdsForModel(ref, selectedModel);
   final List<String>? filterIdsForApi = selectedFilterIds.isNotEmpty
       ? selectedFilterIds
       : null;
@@ -15572,6 +15597,12 @@ Future<void> archiveConversation(
     ref,
     conversationId,
   );
+  final leavingActiveConversation =
+      archived &&
+      _activeConversationMatchesSelection(activeConversation, conversationId);
+  final previousFilterIds = leavingActiveConversation
+      ? List<String>.of(ref.read(selectedFilterIdsProvider))
+      : const <String>[];
 
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
@@ -15599,6 +15630,7 @@ Future<void> archiveConversation(
       conversationId,
     )) {
       if (archived) {
+        clearSelectedFiltersForConversationBoundary(ref);
         ref.read(activeConversationProvider.notifier).clear();
         ref.read(chatMessagesProvider.notifier).clearMessages();
       } else {
@@ -15613,6 +15645,7 @@ Future<void> archiveConversation(
   // Update local state first
   if (_activeConversationMatchesSelection(activeConversation, conversationId) &&
       archived) {
+    clearSelectedFiltersForConversationBoundary(ref);
     ref.read(activeConversationProvider.notifier).clear();
     ref.read(chatMessagesProvider.notifier).clearMessages();
   }
@@ -15647,6 +15680,7 @@ Future<void> archiveConversation(
         ) &&
         archived) {
       ref.read(activeConversationProvider.notifier).set(activeConversation);
+      ref.read(selectedFilterIdsProvider.notifier).set(previousFilterIds);
       // Messages will be restored through the listener
     }
 
@@ -15739,6 +15773,7 @@ Future<void> cloneConversation(WidgetRef ref, String conversationId) async {
     final clonedConversation = await api.cloneConversation(conversationId);
 
     // Set the cloned conversation as active
+    clearSelectedFiltersForConversationBoundary(ref);
     ref.read(activeConversationProvider.notifier).set(clonedConversation);
     // Load messages through the listener mechanism
     // The ChatMessagesNotifier will automatically load messages when activeConversation changes

@@ -1,5 +1,7 @@
 package app.cogwheel.conduit
 
+import java.util.Locale
+
 internal object NativeSttLanguagePolicy {
     private const val ON_DEVICE_RECOGNIZER_MIN_SDK = 31
     private const val LANGUAGE_SWITCH_MIN_SDK = 34
@@ -26,6 +28,14 @@ internal object NativeSttLanguagePolicy {
             .mapNotNull(::primaryLanguage)
             .distinct()
             .size >= 2
+    }
+
+    fun normalizeLocaleIds(localeIds: List<String>): List<String> {
+        return localeIds
+            .map { it.trim().replace('_', '-') }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .sortedBy { it.lowercase(Locale.ROOT) }
     }
 
     private fun primaryLanguage(localeId: String): String? {
