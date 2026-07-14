@@ -1689,6 +1689,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     container.read(temporaryChatEnabledProvider.notifier).set(false);
     final outgoing = container.read(activeConversationProvider);
     if (!isSameStoredConversation(outgoing, conversation)) {
+      chat.clearSelectedFiltersForConversationBoundary(container);
       if (outgoing != null) {
         markConversationRead(container, conversationScopedId(outgoing));
       }

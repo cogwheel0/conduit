@@ -12,6 +12,7 @@ import '../../../core/services/socket_service.dart';
 import '../../../core/utils/current_localizations.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../channels/providers/channel_providers.dart';
+import '../../chat/providers/chat_providers.dart';
 import '../models/app_notification.dart';
 import '../services/active_view_tracker.dart';
 import '../services/local_notification_service.dart';
@@ -88,6 +89,11 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.chatCompletion:
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
+        final outgoing = ref.read(activeConversationProvider);
+        if (outgoing == null ||
+            !conversationMatchesScopedId(outgoing, tap.sourceId)) {
+          clearSelectedFiltersForConversationBoundary(ref);
+        }
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;

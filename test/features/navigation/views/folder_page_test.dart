@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/models/model.dart';
+import 'package:conduit/core/models/toggle_filter.dart';
 import 'package:conduit/core/models/tool.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
@@ -306,11 +309,17 @@ void main() {
       folders: const [Folder(id: 'work', name: 'Work')],
       isAuthenticated: true,
       database: db,
+      selectedModel: const Model(
+        id: 'model-1',
+        name: 'Model 1',
+        filters: [ToggleFilter(id: 'filter-a', name: 'Filter A')],
+      ),
     );
     addTearDown(container.dispose);
 
     await tester.pumpWidget(_buildHarnessFromContainer(container));
     await tester.pumpAndSettle();
+    container.read(selectedFilterIdsProvider.notifier).set(const ['filter-a']);
 
     final composer = tester.widget<ModernChatInput>(
       find.byType(ModernChatInput),
@@ -348,6 +357,13 @@ void main() {
           .firstWhere((o) => o.kind == OutboxKind.requestCompletion.name)
           .seq;
       expect(createSeq, lessThan(completionSeq));
+      final completion = ops.firstWhere(
+        (o) => o.kind == OutboxKind.requestCompletion.name,
+      );
+      final payload = RequestCompletionPayload.fromJson(
+        jsonDecode(completion.payload) as Map<String, dynamic>,
+      );
+      expect(payload.filterIds, const ['filter-a']);
     });
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -459,6 +475,9 @@ void main() {
       await tester.pumpWidget(_buildHarnessFromContainer(container));
       await tester.pumpAndSettle();
 
+      container.read(selectedFilterIdsProvider.notifier).set(const [
+        'filter-a',
+      ]);
       await tester.tap(
         find.byKey(const ValueKey<String>('folder-chat-folder-chat-1')),
       );
@@ -467,6 +486,7 @@ void main() {
       expect(api.requestedConversationIds, ['folder-chat-1']);
       expect(container.read(activeConversationProvider)?.id, 'folder-chat-1');
       expect(container.read(activeConversationProvider)?.title, 'Folder Chat');
+      expect(container.read(selectedFilterIdsProvider), isEmpty);
 
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;

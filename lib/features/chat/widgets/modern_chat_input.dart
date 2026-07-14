@@ -77,6 +77,67 @@ bool shouldShowComposerOverflowButton({
   return !isDirectComposer || directSupportsImages;
 }
 
+/// Builds the actions rendered by the iOS keyboard attachment panel.
+///
+/// Kept platform-independent so its model-specific restrictions and action
+/// payload can be covered by widget tests without an iOS host process.
+List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
+  required AppLocalizations l10n,
+  required ComposerOverflowAttachmentAvailability attachmentAvailability,
+  required bool hermesMode,
+  required bool directMode,
+  required bool webSearchAvailable,
+  required bool webSearchEnabled,
+  required bool imageGenerationAvailable,
+  required bool imageGenerationEnabled,
+  required List<Tool> availableTools,
+  required List<String> selectedToolIds,
+  required List<ToggleFilter> availableFilters,
+  required List<String> selectedFilterIds,
+}) {
+  final restrictedMode = hermesMode || directMode;
+  final items = buildComposerOverflowItems(
+    l10n: l10n,
+    attachmentAvailability: attachmentAvailability,
+    webSearchAvailable: !restrictedMode && webSearchAvailable,
+    webSearchEnabled: webSearchEnabled,
+    imageGenerationAvailable: !restrictedMode && imageGenerationAvailable,
+    imageGenerationEnabled: imageGenerationEnabled,
+    availableTools: restrictedMode ? const <Tool>[] : availableTools,
+    selectedToolIds: selectedToolIds,
+    availableFilters: restrictedMode
+        ? const <ToggleFilter>[]
+        : availableFilters,
+    selectedFilterIds: selectedFilterIds,
+  );
+
+  return items
+      .where((item) {
+        if (hermesMode) {
+          return item.enabled &&
+              (item.id == ComposerOverflowActionIds.file ||
+                  item.id == ComposerOverflowActionIds.photo ||
+                  item.id == ComposerOverflowActionIds.camera);
+        }
+        return !directMode ||
+            item.id == ComposerOverflowActionIds.photo ||
+            item.id == ComposerOverflowActionIds.camera;
+      })
+      .map(
+        (item) => IosKeyboardAttachmentActionConfig(
+          id: item.id,
+          label: item.label,
+          subtitle: item.subtitle,
+          sfSymbol: item.sfSymbol,
+          section: item.section.nativeValue,
+          enabled: item.enabled,
+          selected: item.selected,
+          dismissesKeyboard: item.dismissesKeyboard,
+        ),
+      )
+      .toList(growable: false);
+}
+
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
   final bool enabled;
@@ -1887,6 +1948,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool imageGenerationEnabled,
     required List<Tool> availableTools,
     required List<String> selectedToolIds,
+    required List<ToggleFilter> availableFilters,
+    required List<String> selectedFilterIds,
   }) {
     if (kIsWeb || !Platform.isIOS) {
       return const <IosKeyboardAttachmentActionConfig>[];
@@ -1898,47 +1961,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final directMode =
         selectedModel != null && hasReservedDirectIdentity(selectedModel);
 
-    final items = buildComposerOverflowItems(
+    return buildIosKeyboardAttachmentActions(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
-      webSearchAvailable: !hermesMode && !directMode && webSearchAvailable,
+      hermesMode: hermesMode,
+      directMode: directMode,
+      webSearchAvailable: webSearchAvailable,
       webSearchEnabled: webSearchEnabled,
-      imageGenerationAvailable:
-          !hermesMode && !directMode && imageGenerationAvailable,
+      imageGenerationAvailable: imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
-      availableTools: hermesMode || directMode
-          ? const <Tool>[]
-          : availableTools,
+      availableTools: availableTools,
       selectedToolIds: selectedToolIds,
-    );
-    return items
-        .where((item) {
-          if (hermesMode) {
-            return item.enabled &&
-                (item.id == ComposerOverflowActionIds.file ||
-                    item.id == ComposerOverflowActionIds.photo ||
-                    item.id == ComposerOverflowActionIds.camera);
-          }
-          return !directMode ||
-              item.id == ComposerOverflowActionIds.photo ||
-              item.id == ComposerOverflowActionIds.camera;
-        })
-        .map(_nativeKeyboardAttachmentActionFromItem)
-        .toList(growable: false);
-  }
-
-  IosKeyboardAttachmentActionConfig _nativeKeyboardAttachmentActionFromItem(
-    ComposerOverflowItem item,
-  ) {
-    return IosKeyboardAttachmentActionConfig(
-      id: item.id,
-      label: item.label,
-      subtitle: item.subtitle,
-      sfSymbol: item.sfSymbol,
-      section: item.section.nativeValue,
-      enabled: item.enabled,
-      selected: item.selected,
-      dismissesKeyboard: item.dismissesKeyboard,
+      availableFilters: availableFilters,
+      selectedFilterIds: selectedFilterIds,
     );
   }
 
@@ -1959,6 +1994,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       imageGenerationEnabled: ref.read(imageGenerationEnabledProvider),
       availableTools: availableTools,
       selectedToolIds: ref.read(selectedToolIdsProvider),
+      availableFilters:
+          ref.read(selectedModelProvider)?.filters ?? const <ToggleFilter>[],
+      selectedFilterIds: ref.read(selectedFilterIdsProvider),
     );
   }
 
@@ -2094,6 +2132,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<List<String>>(selectedToolIdsProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen<List<String>>(selectedFilterIdsProvider, (previous, next) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
     ref.listen<AsyncValue<List<Tool>>>(toolsListProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
@@ -2199,6 +2240,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       imageGenerationEnabled: imageGenEnabled,
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
+      availableFilters: availableFilters,
+      selectedFilterIds: selectedFilterIds,
     );
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
@@ -2230,6 +2273,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (isHermesComposer || isDirectComposer) {
         break;
       }
+      final filterId = ComposerOverflowActionIds.filterIdFrom(id);
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2268,9 +2312,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             onTap: widget.enabled && !_isRecording ? handleTap : null,
           ),
         );
-      } else if (id.startsWith('filter:')) {
+      } else if (filterId != null) {
         // Handle filter quick pills
-        final filterId = id.substring(7); // Remove 'filter:' prefix
         ToggleFilter? filter;
         for (final f in availableFilters) {
           if (f.id == filterId) {

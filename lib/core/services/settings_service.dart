@@ -33,6 +33,11 @@ extension AndroidAssistantTriggerStorage on AndroidAssistantTrigger {
 
 /// Service for managing app-wide settings including accessibility preferences
 class SettingsService {
+  /// Persisted marker for following the current Android system locale.
+  ///
+  /// A null [AppSettings.voiceLocaleId] means automatic language detection,
+  /// while any other value is an explicit BCP-47 recognition locale.
+  static const String voiceLocaleSystemDefault = '__system__';
   static const int minVoiceSilenceDurationMs = 300;
   static const int defaultVoiceSilenceDurationMs = 2000;
   static const int maxVoiceSilenceDurationMs = 5000;
@@ -292,9 +297,7 @@ class SettingsService {
     await _putOrRemove(_defaultModelKey, settings.defaultModel);
     await _putOrRemove(
       _voiceLocaleKey,
-      (settings.voiceLocaleId?.isNotEmpty ?? false)
-          ? settings.voiceLocaleId
-          : null,
+      normalizeVoiceLocaleId(settings.voiceLocaleId),
     );
     await _putOrRemove(
       _voiceSttLanguageCodeKey,
@@ -393,17 +396,62 @@ class SettingsService {
         lower == 'system';
   }
 
+  /// Normalizes the on-device recognition language without dropping region,
+  /// script, or variant subtags.
+  ///
+  /// Null and `auto` select native automatic language detection. `system`
+  /// selects the current device locale. All other accepted values are stored
+  /// as canonicalized BCP-47-style locale tags.
+  static String? normalizeVoiceLocaleId(String? raw) {
+    final trimmed = raw?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+
+    final lower = trimmed.toLowerCase();
+    if (lower == 'auto') {
+      return null;
+    }
+    if (lower == voiceLocaleSystemDefault ||
+        lower == 'system' ||
+        lower == 'default') {
+      return voiceLocaleSystemDefault;
+    }
+
+    final normalized = trimmed.replaceAll('_', '-');
+    if (!RegExp(
+      r'^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$',
+    ).hasMatch(normalized)) {
+      return null;
+    }
+
+    final parts = normalized.split('-');
+    return <String>[
+      parts.first.toLowerCase(),
+      for (final part in parts.skip(1)) _canonicalizeLocaleSubtag(part),
+    ].join('-');
+  }
+
+  static String _canonicalizeLocaleSubtag(String subtag) {
+    final lettersOnly = RegExp(r'^[A-Za-z]+$').hasMatch(subtag);
+    if (lettersOnly && subtag.length == 4) {
+      return '${subtag[0].toUpperCase()}${subtag.substring(1).toLowerCase()}';
+    }
+    if ((lettersOnly && subtag.length == 2) ||
+        RegExp(r'^\d{3}$').hasMatch(subtag)) {
+      return subtag.toUpperCase();
+    }
+    return subtag.toLowerCase();
+  }
+
   // Voice input specific settings
   static Future<String?> getVoiceLocaleId() {
     final value = _getPreference<String>(_voiceLocaleKey);
-    return Future.value(value);
+    return Future.value(normalizeVoiceLocaleId(value));
   }
 
   static Future<void> setVoiceLocaleId(String? localeId) {
-    return _putOrRemove(
-      _voiceLocaleKey,
-      (localeId?.isNotEmpty ?? false) ? localeId : null,
-    );
+    return _putOrRemove(_voiceLocaleKey, normalizeVoiceLocaleId(localeId));
   }
 
   static Future<String?> getSttLanguageCode() {
@@ -591,7 +639,9 @@ class SettingsService {
       highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
       darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
       defaultModel: PreferencesStore.get<String>(_defaultModelKey),
-      voiceLocaleId: PreferencesStore.get<String>(_voiceLocaleKey),
+      voiceLocaleId: normalizeVoiceLocaleId(
+        PreferencesStore.get<String>(_voiceLocaleKey),
+      ),
       voiceHoldToTalk: PreferencesStore.get<bool>(_voiceHoldToTalkKey) ?? false,
       voiceAutoSendFinal:
           PreferencesStore.get<bool>(_voiceAutoSendKey) ?? false,
@@ -1062,8 +1112,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setVoiceLocaleId(String? localeId) async {
-    state = state.copyWith(voiceLocaleId: localeId);
-    await SettingsService.setVoiceLocaleId(localeId);
+    final normalized = SettingsService.normalizeVoiceLocaleId(localeId);
+    state = state.copyWith(voiceLocaleId: normalized);
+    await SettingsService.setVoiceLocaleId(normalized);
   }
 
   Future<void> setVoiceHoldToTalk(bool value) async {

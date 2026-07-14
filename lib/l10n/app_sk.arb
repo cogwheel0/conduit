@@ -1476,6 +1476,12 @@
   "@sttTranscriptionLanguageInvalid": {
     "description": "Validation message for invalid speech-to-text language codes."
   },
+  "sttDeviceLanguage": "Jazyk rozpoznávania",
+  "sttDeviceLanguageDescription": "Vyberte jazyk používaný na rozpoznávanie v zariadení.",
+  "sttDeviceLanguageAutoDescription": "Ak je to podporované, automaticky prepínať medzi nainštalovanými jazykmi.",
+  "sttDeviceLanguageSystemDescription": "Použiť aktuálny systémový jazyk Androidu.",
+  "sttDeviceLanguagePlaceholder": "Kód BCP-47, napr. pl-PL",
+  "sttDeviceLanguageInvalid": "Zadajte platný kód miestneho nastavenia, napríklad pl-PL.",
   "ttsEngineLabel": "Modul",
   "@ttsEngineLabel": {
     "description": "Label for selecting the text-to-speech engine."

@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/toggle_filter.dart';
 import '../../../core/models/tool.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
@@ -17,9 +18,21 @@ class ComposerOverflowActionIds {
   static const web = 'web';
   static const webSearch = 'webSearch';
   static const imageGeneration = 'imageGeneration';
+  static const _filterPrefix = 'filter:';
   static const _toolPrefix = 'tool:';
 
+  static String filter(String filterId) => '$_filterPrefix$filterId';
+
   static String tool(String toolId) => '$_toolPrefix$toolId';
+
+  static String? filterIdFrom(String actionId) {
+    if (!actionId.startsWith(_filterPrefix)) {
+      return null;
+    }
+
+    final filterId = actionId.substring(_filterPrefix.length);
+    return filterId.isEmpty ? null : filterId;
+  }
 
   static String? toolIdFrom(String actionId) {
     if (!actionId.startsWith(_toolPrefix)) {
@@ -36,7 +49,8 @@ enum ComposerOverflowItemKind { attachment, toggle }
 enum ComposerOverflowSection {
   attachments('attachments'),
   features('features'),
-  tools('tools');
+  tools('tools'),
+  filters('filters');
 
   const ComposerOverflowSection(this.nativeValue);
 
@@ -100,6 +114,8 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   required bool imageGenerationEnabled,
   required List<Tool> availableTools,
   required List<String> selectedToolIds,
+  required List<ToggleFilter> availableFilters,
+  required List<String> selectedFilterIds,
 }) {
   return <ComposerOverflowItem>[
     ...buildComposerOverflowAttachmentItems(
@@ -116,6 +132,10 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
     ...buildComposerOverflowToolItems(
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
+    ),
+    ...buildComposerOverflowFilterItems(
+      availableFilters: availableFilters,
+      selectedFilterIds: selectedFilterIds,
     ),
   ];
 }
@@ -247,6 +267,29 @@ List<ComposerOverflowItem> buildComposerOverflowToolItems({
   ];
 }
 
+List<ComposerOverflowItem> buildComposerOverflowFilterItems({
+  required List<ToggleFilter> availableFilters,
+  required List<String> selectedFilterIds,
+}) {
+  final selectedFilterIdSet = selectedFilterIds.toSet();
+
+  return <ComposerOverflowItem>[
+    for (final filter in availableFilters)
+      ComposerOverflowItem(
+        id: ComposerOverflowActionIds.filter(filter.id),
+        kind: ComposerOverflowItemKind.toggle,
+        section: ComposerOverflowSection.filters,
+        label: filter.name,
+        subtitle: filter.description,
+        cupertinoIcon: CupertinoIcons.sparkles,
+        materialIcon: Icons.auto_awesome,
+        sfSymbol: 'sparkles',
+        selected: selectedFilterIdSet.contains(filter.id),
+        dismissesKeyboard: false,
+      ),
+  ];
+}
+
 void setComposerOverflowSelection(
   WidgetRef ref, {
   required String actionId,
@@ -259,6 +302,23 @@ void setComposerOverflowSelection(
     case ComposerOverflowActionIds.imageGeneration:
       ref.read(imageGenerationEnabledProvider.notifier).set(selected);
       return;
+  }
+
+  final filterId = ComposerOverflowActionIds.filterIdFrom(actionId);
+  if (filterId != null) {
+    final current = List<String>.from(ref.read(selectedFilterIdsProvider));
+    final alreadySelected = current.contains(filterId);
+
+    if (selected) {
+      if (!alreadySelected) {
+        current.add(filterId);
+      }
+    } else if (alreadySelected) {
+      current.remove(filterId);
+    }
+
+    ref.read(selectedFilterIdsProvider.notifier).set(current);
+    return;
   }
 
   final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);
@@ -299,6 +359,11 @@ bool? composerOverflowSelectionState(WidgetRef ref, String actionId) {
       return ref.read(webSearchEnabledProvider);
     case ComposerOverflowActionIds.imageGeneration:
       return ref.read(imageGenerationEnabledProvider);
+  }
+
+  final filterId = ComposerOverflowActionIds.filterIdFrom(actionId);
+  if (filterId != null) {
+    return ref.read(selectedFilterIdsProvider).contains(filterId);
   }
 
   final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);

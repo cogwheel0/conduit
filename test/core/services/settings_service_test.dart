@@ -1,6 +1,9 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/settings_service.dart';
 
 void main() {
@@ -356,6 +359,78 @@ void main() {
         check(a.hashCode).equals(b.hashCode);
       });
     });
+  });
+
+  group('SettingsService.normalizeVoiceLocaleId', () {
+    test('uses null for native automatic language detection', () {
+      check(SettingsService.normalizeVoiceLocaleId(null)).isNull();
+      check(SettingsService.normalizeVoiceLocaleId('')).isNull();
+      check(SettingsService.normalizeVoiceLocaleId('auto')).isNull();
+    });
+
+    test('uses a distinct sentinel for the Android system language', () {
+      check(
+        SettingsService.normalizeVoiceLocaleId('system'),
+      ).equals(SettingsService.voiceLocaleSystemDefault);
+      check(
+        SettingsService.normalizeVoiceLocaleId('default'),
+      ).equals(SettingsService.voiceLocaleSystemDefault);
+      check(
+        SettingsService.normalizeVoiceLocaleId(
+          SettingsService.voiceLocaleSystemDefault,
+        ),
+      ).equals(SettingsService.voiceLocaleSystemDefault);
+    });
+
+    test('preserves and canonicalizes full locale tags', () {
+      check(SettingsService.normalizeVoiceLocaleId('PL_pl')).equals('pl-PL');
+      check(
+        SettingsService.normalizeVoiceLocaleId('zh_hant_tw'),
+      ).equals('zh-Hant-TW');
+      check(SettingsService.normalizeVoiceLocaleId('es-419')).equals('es-419');
+    });
+
+    test('rejects invalid custom locale tags', () {
+      check(SettingsService.normalizeVoiceLocaleId('p')).isNull();
+      check(SettingsService.normalizeVoiceLocaleId('pl--PL')).isNull();
+      check(SettingsService.normalizeVoiceLocaleId('Polish language')).isNull();
+    });
+
+    test('is independent from the server STT language normalization', () {
+      check(SettingsService.normalizeVoiceLocaleId('pl-PL')).equals('pl-PL');
+      check(SettingsService.normalizeSttLanguageCode('pl-PL')).equals('pl');
+    });
+  });
+
+  group('SettingsService voice locale persistence', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test(
+      'round-trips explicit and system selections and clears auto',
+      () async {
+        await SettingsService.setVoiceLocaleId('pl_PL');
+        check(await SettingsService.getVoiceLocaleId()).equals('pl-PL');
+        check(
+          PreferencesStore.getString(PreferenceKeys.voiceLocaleId),
+        ).equals('pl-PL');
+
+        await SettingsService.setVoiceLocaleId('system');
+        check(
+          await SettingsService.getVoiceLocaleId(),
+        ).equals(SettingsService.voiceLocaleSystemDefault);
+
+        await SettingsService.setVoiceLocaleId(null);
+        check(await SettingsService.getVoiceLocaleId()).isNull();
+        check(
+          PreferencesStore.containsKey(PreferenceKeys.voiceLocaleId),
+        ).isFalse();
+      },
+    );
   });
 
   group('SettingsService.normalizeSttLanguageCode', () {

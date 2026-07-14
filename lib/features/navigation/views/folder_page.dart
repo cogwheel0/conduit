@@ -92,6 +92,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   void _primeFolderDraftState({bool resetComposer = false}) {
+    chat.clearSelectedFiltersForConversationBoundary(ref);
     ref.read(pendingFolderIdProvider.notifier).set(widget.folderId);
     ref.read(chat.chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).clear();
@@ -1111,6 +1112,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
     try {
       if (ownership == null) return;
+      final outgoing = container.read(activeConversationProvider);
+      if (outgoing == null ||
+          !conversationMatchesScopedId(outgoing, conversationId)) {
+        chat.clearSelectedFiltersForConversationBoundary(container);
+      }
       container.read(temporaryChatEnabledProvider.notifier).set(false);
       container.read(chat.isLoadingConversationProvider.notifier).set(true);
       _pendingConversationId = conversationId;

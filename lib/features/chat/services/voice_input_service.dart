@@ -108,6 +108,7 @@ class VoiceInputService {
   bool _usingServerStt = false;
   bool _usingNativeLocalStt = false;
   bool _nativeAccumulateResultsForCurrentListen = true;
+  String? _configuredLocaleId;
   String? _selectedLocaleId;
   List<LocaleName> _locales = const [];
   bool _usingFallbackLocales = false;
@@ -142,6 +143,9 @@ class VoiceInputService {
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
   @protected
   bool get usesAutomaticNativeLanguage => Platform.isAndroid;
+  @protected
+  String get deviceLocaleTag =>
+      WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag();
   bool get hasServerStt => _api != null;
   SttPreference get preference => _preference;
   bool get prefersServerOnly => _preference == SttPreference.serverOnly;
@@ -161,9 +165,9 @@ class VoiceInputService {
 
   Future<bool> initialize({bool forceLocalStt = false}) async {
     if (!isSupportedPlatform) return false;
-    final deviceTag = WidgetsBinding.instance.platformDispatcher.locale
-        .toLanguageTag();
+    final deviceTag = deviceLocaleTag;
     _ensureFallbackLocale(deviceTag);
+    _resolveSelectedLocale(deviceTag);
 
     if (_isIosSimulator) {
       _localSttAvailable = false;
@@ -294,7 +298,38 @@ class VoiceInputService {
   List<LocaleName> get locales => _locales;
 
   void setLocale(String? localeId) {
-    _selectedLocaleId = localeId;
+    final normalized = SettingsService.normalizeVoiceLocaleId(localeId);
+    if (_configuredLocaleId == normalized) {
+      return;
+    }
+
+    _configuredLocaleId = normalized;
+    _resolveSelectedLocale(deviceLocaleTag);
+    _didAttemptLocalInitialization = false;
+    _isInitialized = false;
+    _nativeLocalSttAvailable = false;
+    _localSttAvailable = false;
+  }
+
+  void _resolveSelectedLocale(
+    String deviceTag, {
+    String? nativeSystemLocaleId,
+  }) {
+    if (_configuredLocaleId == SettingsService.voiceLocaleSystemDefault) {
+      _selectedLocaleId =
+          SettingsService.normalizeVoiceLocaleId(deviceTag) ??
+          deviceTag.replaceAll('_', '-');
+      return;
+    }
+    if (_configuredLocaleId != null || usesAutomaticNativeLanguage) {
+      _selectedLocaleId = _configuredLocaleId;
+      return;
+    }
+
+    final systemTag = nativeSystemLocaleId?.trim();
+    _selectedLocaleId = _matchLocale(
+      systemTag == null || systemTag.isEmpty ? deviceTag : systemTag,
+    ).localeId;
   }
 
   Future<void> _loadLocales(String deviceTag) async {
@@ -315,16 +350,10 @@ class VoiceInputService {
           .map((loc) => LocaleName(loc.localeId, loc.name))
           .toList();
       _usingFallbackLocales = false;
-
-      if (usesAutomaticNativeLanguage) {
-        _selectedLocaleId = null;
-      } else {
-        final systemTag = nativeLocales.systemLocaleId;
-        final tagForMatch = (systemTag != null && systemTag.isNotEmpty)
-            ? systemTag
-            : deviceTag;
-        _selectedLocaleId = _matchLocale(tagForMatch).localeId;
-      }
+      _resolveSelectedLocale(
+        deviceTag,
+        nativeSystemLocaleId: nativeLocales.systemLocaleId,
+      );
 
       DebugLogger.info(
         'native-stt-locales-loaded',
@@ -1268,9 +1297,13 @@ final voiceInputServiceProvider = Provider<VoiceInputService>((ref) {
   final service = VoiceInputService(api: api, ref: ref);
   final currentSettings = ref.read(appSettingsProvider);
   service.updatePreference(currentSettings.sttPreference);
+  service.setLocale(currentSettings.voiceLocaleId);
   ref.listen<AppSettings>(appSettingsProvider, (previous, next) {
     if (previous?.sttPreference != next.sttPreference) {
       service.updatePreference(next.sttPreference);
+    }
+    if (previous?.voiceLocaleId != next.voiceLocaleId) {
+      service.setLocale(next.voiceLocaleId);
     }
   });
   ref.onDispose(service.dispose);
@@ -1319,7 +1352,14 @@ final voiceIntensityStreamProvider = StreamProvider<int>((ref) {
 final localVoiceRecognitionAvailableProvider = FutureProvider<bool>((
   ref,
 ) async {
+  final localeId = ref.watch(
+    appSettingsProvider.select((settings) => settings.voiceLocaleId),
+  );
   final service = ref.watch(voiceInputServiceProvider);
+  // Keep this probe keyed to the selected recognition language. The service
+  // itself is stable and mutates in place, so watching it alone would leave a
+  // cached result after the user changes locale in Audio Settings.
+  service.setLocale(localeId);
   final initialized = await service.initialize(forceLocalStt: true);
   if (!initialized) return false;
   if (service.hasLocalStt) return true;
