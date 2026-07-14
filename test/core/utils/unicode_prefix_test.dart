@@ -23,6 +23,19 @@ void main() {
     check(safe).equals('[REDACTED]');
   });
 
+  test('early redaction does not expose the long detection tail', () {
+    final safe = redactSensitiveValuesInUnicodePrefix(
+      'absecret0123456789abcdefghijklmnopqrstuvwxyz',
+      sensitiveValues: const [
+        'secret',
+        'a-much-longer-secret-that-does-not-match',
+      ],
+      maxVisibleScalars: 8,
+    );
+
+    check(safe).equals('ab[REDACTED]012345');
+  });
+
   test('no-match output still respects the visible scalar limit', () {
     check(
       redactSensitiveValuesInUnicodePrefix(

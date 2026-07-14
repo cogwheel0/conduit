@@ -280,7 +280,11 @@ class AuthStateManager extends _$AuthStateManager {
     } else if (_shouldClearPersistedUser(next)) {
       unawaited(
         storage.saveLocalUser(null).onError((error, stack) {
-          _logAuthenticationFailure('local-user-clear-failed', error);
+          _logAuthenticationFailure(
+            'local-user-clear-failed',
+            error,
+            stackTrace: stack,
+          );
         }),
       );
     }
@@ -784,7 +788,7 @@ class AuthStateManager extends _$AuthStateManager {
       }
     } catch (e, stack) {
       final failureMessage = _safeLoginFailureMessage(e);
-      _logAuthenticationFailure('api-key-login-failed', e);
+      _logAuthenticationFailure('api-key-login-failed', e, stackTrace: stack);
       // A failed login must not leave its token/credentials in storage; value-
       // match roll them back so a cold start can't restore a failed session.
       if (persistedToken != null) {
@@ -948,7 +952,7 @@ class AuthStateManager extends _$AuthStateManager {
         e,
         credentialRequest: true,
       );
-      _logAuthenticationFailure('login-failed', e);
+      _logAuthenticationFailure('login-failed', e, stackTrace: stack);
       // A failed login must not leave its token/credentials in storage (a later
       // exception can follow a successful token write); value-match roll them
       // back so a cold start can't restore a session presented as failed.
@@ -1133,7 +1137,7 @@ class AuthStateManager extends _$AuthStateManager {
         e,
         credentialRequest: true,
       );
-      _logAuthenticationFailure('ldap-login-failed', e);
+      _logAuthenticationFailure('ldap-login-failed', e, stackTrace: stack);
       // A failed login must not leave its token/credentials in storage; value-
       // match roll them back so a cold start can't restore a failed session.
       if (persistedToken != null) {
@@ -1200,9 +1204,14 @@ class AuthStateManager extends _$AuthStateManager {
         text.contains('Forbidden');
   }
 
-  void _logAuthenticationFailure(String event, Object? error) {
+  void _logAuthenticationFailure(
+    String event,
+    Object? error, {
+    StackTrace? stackTrace,
+  }) {
     DebugLogger.error(
       event,
+      stackTrace: stackTrace,
       scope: 'auth/state',
       data: {
         'errorType': error?.runtimeType.toString() ?? 'unknown',

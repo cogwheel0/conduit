@@ -356,10 +356,6 @@ class ApiService {
            followRedirects: true,
            maxRedirects: 5,
            validateStatus: (status) => status != null && status < 400,
-           // Add custom headers from server config
-           headers: serverConfig.customHeaders.isNotEmpty
-               ? Map<String, String>.from(serverConfig.customHeaders)
-               : null,
          ),
        ),
        _workerManager = workerManager,
@@ -371,6 +367,7 @@ class ApiService {
 
     // Initialize the consistent auth interceptor
     _authInterceptor = ApiAuthInterceptor(
+      serverUrl: serverConfig.url,
       authToken: effectiveAuthToken,
       onAuthTokenInvalid: onAuthTokenInvalid,
       onTokenInvalidated: onTokenInvalidated,

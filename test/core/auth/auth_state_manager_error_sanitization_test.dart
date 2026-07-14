@@ -98,6 +98,7 @@ void main() {
       check(logs).contains('login-failed');
       check(logs).contains('ldap-login-failed');
       check(logs).contains('server-logout-failed');
+      check(logs).contains('stack=');
       for (final secret in const [
         _passwordSecret,
         _tokenSecret,

@@ -3,10 +3,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
+const _serverUrl = 'https://host.example/openwebui';
+
 void main() {
   group('ApiAuthInterceptor', () {
     test('signin request remains public without auth header', () async {
-      final interceptor = ApiAuthInterceptor();
+      final interceptor = ApiAuthInterceptor(serverUrl: _serverUrl);
       final handler = _TestRequestInterceptorHandler();
       final options = RequestOptions(path: '/api/v1/auths/signin');
 
@@ -20,7 +22,10 @@ void main() {
     test(
       'optional config request attaches auth header when token exists',
       () async {
-        final interceptor = ApiAuthInterceptor(authToken: 'token');
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'token',
+        );
         final handler = _TestRequestInterceptorHandler();
         final options = RequestOptions(path: '/api/config');
 
@@ -32,8 +37,83 @@ void main() {
       },
     );
 
+    test('cross-origin absolute request strips server credentials', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'server-token',
+        customHeaders: const {'X-Proxy-Credential': 'server-proxy-secret'},
+      );
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(
+        path: 'https://cdn.example/avatar.png',
+        headers: {
+          'authorization': 'Bearer inherited-token',
+          'x-proxy-credential': 'inherited-proxy-secret',
+          'X-Request-Header': 'preserved',
+        },
+      );
+
+      interceptor.onRequest(options, handler);
+      final forwarded = await handler.forwardedRequest;
+
+      expect(forwarded, isNotNull);
+      final headerNames = forwarded!.headers.keys
+          .map((header) => header.toLowerCase())
+          .toSet();
+      expect(headerNames, isNot(contains('authorization')));
+      expect(headerNames, isNot(contains('x-proxy-credential')));
+      expect(forwarded.headers['X-Request-Header'], 'preserved');
+    });
+
+    test('cross-origin base URL strips server credentials', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'server-token',
+        customHeaders: const {'X-Proxy-Credential': 'server-proxy-secret'},
+      );
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(
+        baseUrl: 'https://cdn.example',
+        path: '/avatar.png',
+        headers: {
+          'Authorization': 'Bearer inherited-token',
+          'X-Proxy-Credential': 'inherited-proxy-secret',
+        },
+      );
+
+      interceptor.onRequest(options, handler);
+      final forwarded = await handler.forwardedRequest;
+
+      expect(forwarded, isNotNull);
+      final headerNames = forwarded!.headers.keys
+          .map((header) => header.toLowerCase())
+          .toSet();
+      expect(headerNames, isNot(contains('authorization')));
+      expect(headerNames, isNot(contains('x-proxy-credential')));
+    });
+
+    test('same-origin absolute request receives server credentials', () async {
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'server-token',
+        customHeaders: const {'X-Proxy-Credential': 'proxy-secret'},
+      );
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(path: 'https://host.example/api/models');
+
+      interceptor.onRequest(options, handler);
+      final forwarded = await handler.forwardedRequest;
+
+      expect(forwarded, isNotNull);
+      expect(forwarded!.headers['Authorization'], 'Bearer server-token');
+      expect(forwarded.headers['X-Proxy-Credential'], 'proxy-secret');
+    });
+
     test('current auth snapshot forwards its captured token', () async {
-      final interceptor = ApiAuthInterceptor(authToken: 'account-a');
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'account-a',
+      );
       final snapshot = interceptor.captureSnapshot();
       final handler = _TestRequestInterceptorHandler();
       final options = RequestOptions(
@@ -48,7 +128,10 @@ void main() {
     });
 
     test('stale auth snapshot rejects locally after token rotation', () async {
-      final interceptor = ApiAuthInterceptor(authToken: 'account-a');
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'account-a',
+      );
       final snapshot = interceptor.captureSnapshot();
       interceptor.updateAuthToken('account-b');
       final handler = _TestRequestInterceptorHandler();
@@ -67,7 +150,10 @@ void main() {
     test(
       'logout and reauthentication invalidate a snapshot even if the token repeats',
       () async {
-        final interceptor = ApiAuthInterceptor(authToken: 'shared-token');
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'shared-token',
+        );
         final snapshot = interceptor.captureSnapshot();
         interceptor.updateAuthToken(null);
         interceptor.updateAuthToken('shared-token');
@@ -86,7 +172,7 @@ void main() {
     );
 
     test('admin configs models request requires auth', () async {
-      final interceptor = ApiAuthInterceptor();
+      final interceptor = ApiAuthInterceptor(serverUrl: _serverUrl);
       final handler = _TestRequestInterceptorHandler();
       final options = RequestOptions(path: '/api/v1/configs/models');
 
@@ -98,7 +184,7 @@ void main() {
     });
 
     test('ollama ps request requires auth', () async {
-      final interceptor = ApiAuthInterceptor();
+      final interceptor = ApiAuthInterceptor(serverUrl: _serverUrl);
       final handler = _TestRequestInterceptorHandler();
       final options = RequestOptions(path: '/ollama/api/ps');
 
@@ -112,6 +198,7 @@ void main() {
     test('401 on auth validation endpoint notifies auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
         authToken: 'token',
         onAuthTokenInvalid: () {
           authFailureCount++;
@@ -126,10 +213,34 @@ void main() {
     });
 
     test(
+      '401 from cross-origin auth-shaped path does not notify auth failure',
+      () async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'token',
+          onAuthTokenInvalid: () {
+            authFailureCount++;
+          },
+        );
+        final handler = _TestErrorInterceptorHandler();
+
+        interceptor.onError(
+          _dioError(401, 'https://cdn.example/api/v1/auths/'),
+          handler,
+        );
+        await handler.done;
+
+        expect(authFailureCount, 0);
+      },
+    );
+
+    test(
       'auth validation under a server base-path still notifies auth failure',
       () async {
         var authFailureCount = 0;
         final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
           authToken: 'token',
           onAuthTokenInvalid: () {
             authFailureCount++;
@@ -164,6 +275,7 @@ void main() {
       () async {
         var authFailureCount = 0;
         final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
           authToken: 'token',
           onAuthTokenInvalid: () {
             authFailureCount++;
@@ -188,6 +300,7 @@ void main() {
     test('403 on audio config endpoint does not notify auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
         authToken: 'token',
         onAuthTokenInvalid: () {
           authFailureCount++;
@@ -204,6 +317,7 @@ void main() {
     test('403 on notes endpoint does not notify auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
         authToken: 'token',
         onAuthTokenInvalid: () {
           authFailureCount++;
@@ -225,7 +339,10 @@ void main() {
       debugPrint = (message, {wrapWidth}) {
         if (message != null) logs.add(message);
       };
-      final interceptor = ApiAuthInterceptor(authToken: 'token');
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'token',
+      );
       final handler = _TestErrorInterceptorHandler();
 
       try {

@@ -20,6 +20,7 @@ class ApiAuthInterceptor extends Interceptor {
 
   String? _authToken;
   int _authRevision = 0;
+  final Uri _serverUri;
   final Map<String, String> customHeaders;
 
   // Callbacks for auth events
@@ -49,11 +50,13 @@ class ApiAuthInterceptor extends Interceptor {
   };
 
   ApiAuthInterceptor({
+    required String serverUrl,
     String? authToken,
     this.onAuthTokenInvalid,
     this.onTokenInvalidated,
     this.customHeaders = const {},
-  }) : _authToken = authToken;
+  }) : _serverUri = Uri.parse(serverUrl),
+       _authToken = authToken;
 
   void updateAuthToken(String? token) {
     if (token == _authToken) return;
@@ -87,8 +90,55 @@ class ApiAuthInterceptor extends Interceptor {
     return _authFailureEndpoints.contains(path);
   }
 
+  bool _targetsServerOrigin(RequestOptions options) {
+    final Uri requestUri;
+    try {
+      requestUri = options.uri;
+    } on FormatException {
+      return false;
+    }
+    if (!requestUri.hasScheme && !requestUri.hasAuthority) return true;
+
+    final requestScheme = requestUri.scheme.toLowerCase();
+    final serverScheme = _serverUri.scheme.toLowerCase();
+    return requestScheme == serverScheme &&
+        requestUri.host.toLowerCase() == _serverUri.host.toLowerCase() &&
+        _effectivePort(requestUri, requestScheme) ==
+            _effectivePort(_serverUri, serverScheme);
+  }
+
+  int? _effectivePort(Uri uri, String scheme) {
+    if (uri.hasPort) return uri.port;
+    return switch (scheme) {
+      'http' => 80,
+      'https' => 443,
+      _ => null,
+    };
+  }
+
+  void _removeServerCredentials(RequestOptions options) {
+    final serverCredentialHeaders = <String>{
+      'authorization',
+      ...customHeaders.keys.map((header) => header.toLowerCase()),
+    };
+    options.headers.removeWhere(
+      (header, _) => serverCredentialHeaders.contains(header.toLowerCase()),
+    );
+  }
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (!_targetsServerOrigin(options)) {
+      // The shared Dio instance is also used for externally hosted images.
+      // Never forward credentials belonging to the selected Open WebUI server
+      // to an absolute URL on another origin.
+      _removeServerCredentials(options);
+      options.headers['Content-Type'] ??= 'application/json';
+      options.headers['Accept'] ??= 'application/json';
+      handler.next(options);
+      return;
+    }
+
     final path = _endpointPath(options.path);
     final authMode = _authModeFor(path);
     final snapshot = options.extra[authSnapshotExtraKey];
@@ -151,6 +201,11 @@ class ApiAuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
+    if (!_targetsServerOrigin(err.requestOptions)) {
+      handler.next(err);
+      return;
+    }
+
     final statusCode = err.response?.statusCode;
     // Classify the endpoint-relative path rather than the fully resolved URI.
     // The latter includes a configured Open WebUI base-path prefix and would

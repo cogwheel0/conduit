@@ -18,7 +18,9 @@ String takeUnicodeScalarPrefix(String value, int maxScalars) {
 /// Matches are collected as intervals before replacement, so self-overlapping,
 /// mutually overlapping, and truncation-crossing values are redacted as one
 /// union. The working prefix extends beyond [maxVisibleScalars] just far enough
-/// to recognize a secret that begins inside the eventual visible result.
+/// to recognize a secret that begins inside the eventual visible result. At
+/// most [maxVisibleScalars] non-sensitive source scalars are emitted; complete
+/// [replacement] markers are preserved and do not consume that budget.
 String redactSensitiveValuesInUnicodePrefix(
   String value, {
   required Iterable<String> sensitiveValues,
@@ -87,12 +89,19 @@ String redactSensitiveValuesInUnicodePrefix(
 
   final safe = StringBuffer();
   var cursor = 0;
+  var remainingPlainScalars = maxVisibleScalars;
+  void writePlainText(String text) {
+    if (text.isEmpty || remainingPlainScalars == 0) return;
+    final bounded = takeUnicodeScalarPrefix(text, remainingPlainScalars);
+    safe.write(bounded);
+    remainingPlainScalars -= bounded.runes.length;
+  }
+
   for (final interval in merged) {
-    safe
-      ..write(prefix.substring(cursor, interval.start))
-      ..write(replacement);
+    writePlainText(prefix.substring(cursor, interval.start));
+    safe.write(replacement);
     cursor = interval.end;
   }
-  safe.write(prefix.substring(cursor));
+  writePlainText(prefix.substring(cursor));
   return safe.toString();
 }
