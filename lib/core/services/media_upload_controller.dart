@@ -39,7 +39,10 @@ int validatePreparedDirectImageDataUrl(
   required int otherImageBytes,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) {
-  final decodedBytes = decodedImageByteLength(dataUrl);
+  final decodedBytes = decodedImageByteLength(
+    dataUrl,
+    maxDecodedBytes: maxDecodedImageBytes - otherImageBytes,
+  );
   if (otherImageBytes + decodedBytes > maxDecodedImageBytes) {
     throw DirectChatInputException(
       maxDecodedImageBytes == kDirectMaxDecodedImageBytes
@@ -436,7 +439,10 @@ class MediaUploadController {
               ? attachment!.fileId
               : null);
       final bytes = preparedDataUrl != null
-          ? decodedImageByteLength(preparedDataUrl)
+          ? decodedImageByteLength(
+              preparedDataUrl,
+              maxDecodedBytes: kDirectMaxDecodedImageBytes - measuredTotalBytes,
+            )
           : await File(path).length();
       measuredTotalBytes += bytes;
       if (path == filePath) currentSourceBytes = bytes;
@@ -497,6 +503,11 @@ class MediaUploadController {
         .toList(growable: false);
 
     if (!isImage) {
+      if (!isHermesLocalDocumentFileNameSupported(fileName)) {
+        throw const HermesChatInputException(
+          'Hermes supports local UTF-8 text and DOCX documents.',
+        );
+      }
       final documentPaths = <String>{
         for (final attachment in activeAttachments)
           if (attachment.isImage != true) attachment.file.path,
@@ -562,7 +573,11 @@ class MediaUploadController {
       final int bytes;
       try {
         bytes = preparedDataUrl != null
-            ? decodedImageByteLength(preparedDataUrl)
+            ? decodedImageByteLength(
+                preparedDataUrl,
+                maxDecodedBytes:
+                    kHermesMaxDecodedImageBytes - measuredTotalBytes,
+              )
             : await File(path).length();
       } on DirectChatInputException catch (error) {
         throw HermesChatInputException(error.message);
@@ -586,7 +601,12 @@ class MediaUploadController {
     }
     final int decodedBytes;
     try {
-      decodedBytes = decodedImageByteLength(dataUrl);
+      decodedBytes = decodedImageByteLength(
+        dataUrl,
+        maxDecodedBytes:
+            kHermesMaxDecodedImageBytes -
+            (measuredTotalBytes - currentSourceBytes),
+      );
     } on DirectChatInputException catch (error) {
       throw HermesChatInputException(error.message);
     }

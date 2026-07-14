@@ -6,6 +6,8 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
+import 'package:xml/xml_events.dart'
+    show XmlEndElementEvent, XmlStartElementEvent, parseEvents;
 
 const int kHermesMaxLocalDocuments = 4;
 const int kHermesMaxLocalDocumentBytes = 8 * 1024 * 1024;
@@ -13,6 +15,73 @@ const int kHermesMaxAggregateLocalDocumentBytes = 16 * 1024 * 1024;
 const int kHermesMaxLocalDocumentPdfPages = 50;
 const int kHermesMaxLocalDocumentCharacters = 120000;
 const int kHermesMaxExpandedLocalDocumentBytes = 8 * 1024 * 1024;
+const int kHermesMaxLocalDocumentXmlNodes = 250000;
+const int kHermesMaxLocalDocumentXmlDepth = 256;
+const int kHermesMaxLocalDocumentZipEntries = 512;
+const int kHermesMaxLocalDocumentCentralDirectoryBytes = 1024 * 1024;
+
+/// Extensions offered by the production Hermes local-document picker.
+///
+/// PDF is intentionally absent: the current PDF engine cannot enforce a hard
+/// text-expansion bound before materializing each page. The injected extractor
+/// below remains a test seam for the bounded contract.
+const List<String> kHermesLocalDocumentPickerExtensions = <String>[
+  'cfg',
+  'conf',
+  'css',
+  'csv',
+  'dart',
+  'dockerignore',
+  'docx',
+  'editorconfig',
+  'env',
+  'gitignore',
+  'go',
+  'h',
+  'hpp',
+  'htm',
+  'html',
+  'ini',
+  'java',
+  'js',
+  'json',
+  'jsonl',
+  'kt',
+  'log',
+  'markdown',
+  'md',
+  'npmrc',
+  'php',
+  'properties',
+  'py',
+  'rb',
+  'rs',
+  'sh',
+  'sql',
+  'swift',
+  'toml',
+  'ts',
+  'tsv',
+  'txt',
+  'xml',
+  'yaml',
+  'yml',
+];
+
+bool isHermesLocalDocumentFileNameSupported(String name) {
+  final basename = _portableBasename(name).toLowerCase();
+  if (basename == 'dockerfile' ||
+      basename == 'makefile' ||
+      basename == 'license' ||
+      basename == 'readme') {
+    return true;
+  }
+  final dot = basename.lastIndexOf('.');
+  if (dot < 0 || dot == basename.length - 1) return false;
+  return kHermesLocalDocumentPickerExtensions.contains(
+    basename.substring(dot + 1),
+  );
+}
 
 /// Resource limits for local-only document preparation.
 ///
@@ -27,12 +96,21 @@ final class HermesLocalDocumentLimits {
     this.maxPdfPages = kHermesMaxLocalDocumentPdfPages,
     this.maxAggregateCharacters = kHermesMaxLocalDocumentCharacters,
     this.maxExpandedDocumentBytes = kHermesMaxExpandedLocalDocumentBytes,
+    this.maxDocxXmlNodes = kHermesMaxLocalDocumentXmlNodes,
+    this.maxDocxXmlDepth = kHermesMaxLocalDocumentXmlDepth,
+    this.maxDocxZipEntries = kHermesMaxLocalDocumentZipEntries,
+    this.maxDocxCentralDirectoryBytes =
+        kHermesMaxLocalDocumentCentralDirectoryBytes,
   }) : assert(maxFiles > 0),
        assert(maxSourceBytes > 0),
        assert(maxAggregateSourceBytes > 0),
        assert(maxPdfPages > 0),
        assert(maxAggregateCharacters > 0),
-       assert(maxExpandedDocumentBytes > 0);
+       assert(maxExpandedDocumentBytes > 0),
+       assert(maxDocxXmlNodes > 0),
+       assert(maxDocxXmlDepth > 0),
+       assert(maxDocxZipEntries > 0),
+       assert(maxDocxCentralDirectoryBytes > 0);
 
   final int maxFiles;
   final int maxSourceBytes;
@@ -44,6 +122,18 @@ final class HermesLocalDocumentLimits {
   /// This is independent from the compressed source-byte limit and prevents
   /// small archive bombs from being accepted as DOCX files.
   final int maxExpandedDocumentBytes;
+
+  /// Maximum XML nodes visited while extracting the DOCX main document.
+  final int maxDocxXmlNodes;
+
+  /// Maximum element nesting accepted before constructing a DOCX XML tree.
+  final int maxDocxXmlDepth;
+
+  /// Maximum number of central-directory records accepted in a DOCX archive.
+  final int maxDocxZipEntries;
+
+  /// Maximum encoded size of the DOCX ZIP central directory.
+  final int maxDocxCentralDirectoryBytes;
 }
 
 /// A local source whose bytes can be read without exposing its filesystem path
@@ -163,6 +253,7 @@ typedef HermesPdfExtractor =
     Future<HermesPdfExtraction> Function(
       Uint8List bytes, {
       required int maxPages,
+      required int maxCharacters,
     });
 
 /// A bounded local document ready to be represented in a Hermes text prompt.
@@ -240,10 +331,10 @@ final class HermesLocalDocumentService {
   HermesLocalDocumentService({
     this.limits = const HermesLocalDocumentLimits(),
     HermesPdfExtractor? pdfExtractor,
-  }) : _pdfExtractor = pdfExtractor ?? _extractPdfWithPdfrx;
+  }) : _pdfExtractor = pdfExtractor;
 
   final HermesLocalDocumentLimits limits;
-  final HermesPdfExtractor _pdfExtractor;
+  final HermesPdfExtractor? _pdfExtractor;
 
   Future<HermesPreparedDocument> prepare(
     HermesLocalDocumentSource source,
@@ -325,20 +416,6 @@ final class HermesLocalDocumentService {
         );
       }
 
-      final extracted = await _extract(
-        bytes: bytes,
-        name: safeName,
-        declaredMimeType: source.mimeType,
-      );
-      final normalizedText = _normalizeExtractedText(extracted.text);
-      if (normalizedText.isEmpty) {
-        throw _documentFailure(
-          HermesLocalDocumentError.emptyDocument,
-          safeName,
-          '$safeName contains no extractable text.',
-        );
-      }
-
       final remainingCharacters =
           limits.maxAggregateCharacters - totalCharacters;
       if (remainingCharacters <= 0) {
@@ -349,6 +426,21 @@ final class HermesLocalDocumentService {
               '${limits.maxAggregateCharacters}-character text limit.',
         );
       }
+      final extracted = await _extract(
+        bytes: bytes,
+        name: safeName,
+        declaredMimeType: source.mimeType,
+        maxCharacters: remainingCharacters,
+      );
+      final normalizedText = _normalizeExtractedText(extracted.text);
+      if (normalizedText.isEmpty) {
+        throw _documentFailure(
+          HermesLocalDocumentError.emptyDocument,
+          safeName,
+          '$safeName contains no extractable text.',
+        );
+      }
+
       final sourceCharacterCount = normalizedText.runes.length;
       final truncated = sourceCharacterCount > remainingCharacters;
       final boundedText = truncated
@@ -379,6 +471,7 @@ final class HermesLocalDocumentService {
     required Uint8List bytes,
     required String name,
     required String? declaredMimeType,
+    required int maxCharacters,
   }) async {
     if (bytes.isEmpty) {
       throw _documentFailure(
@@ -392,6 +485,13 @@ final class HermesLocalDocumentService {
     final mimeType = _normalizeMimeType(declaredMimeType);
     final hasPdfSignature = _startsWith(bytes, const [0x25, 0x50, 0x44, 0x46]);
     final expectsPdf = extension == '.pdf' || mimeType == 'application/pdf';
+    if ((expectsPdf || hasPdfSignature) && _pdfExtractor == null) {
+      throw _documentFailure(
+        HermesLocalDocumentError.unsupportedType,
+        name,
+        '$name is not a supported local document.',
+      );
+    }
     if (expectsPdf && !hasPdfSignature) {
       throw _documentFailure(
         HermesLocalDocumentError.malformedDocument,
@@ -400,7 +500,7 @@ final class HermesLocalDocumentService {
       );
     }
     if (hasPdfSignature) {
-      return _extractPdf(bytes, name);
+      return _extractPdf(bytes, name, maxCharacters);
     }
 
     final expectsDocx = extension == '.docx' || mimeType == _docxMimeType;
@@ -434,7 +534,7 @@ final class HermesLocalDocumentService {
       throw _documentFailure(
         HermesLocalDocumentError.unsupportedType,
         name,
-        '$name is not a supported text, PDF, or DOCX document.',
+        '$name is not a supported UTF-8 text or DOCX document.',
       );
     }
 
@@ -444,10 +544,30 @@ final class HermesLocalDocumentService {
     );
   }
 
-  Future<_ExtractedDocument> _extractPdf(Uint8List bytes, String name) async {
+  Future<_ExtractedDocument> _extractPdf(
+    Uint8List bytes,
+    String name,
+    int maxCharacters,
+  ) async {
+    final pdfExtractor = _pdfExtractor;
+    if (pdfExtractor == null) {
+      // pdfrx exposes only whole-page text objects. A compressed page can
+      // expand without a character bound before Conduit sees the result, and
+      // a Dart isolate cannot impose a process memory ceiling. Fail closed
+      // until the engine offers an incremental or hard-bounded text API.
+      throw _documentFailure(
+        HermesLocalDocumentError.unsupportedType,
+        name,
+        '$name is not a supported local document.',
+      );
+    }
     late final HermesPdfExtraction extraction;
     try {
-      extraction = await _pdfExtractor(bytes, maxPages: limits.maxPdfPages);
+      extraction = await pdfExtractor(
+        bytes,
+        maxPages: limits.maxPdfPages,
+        maxCharacters: maxCharacters,
+      );
     } on PdfPasswordException {
       throw _documentFailure(
         HermesLocalDocumentError.encryptedDocument,
@@ -486,6 +606,11 @@ final class HermesLocalDocumentService {
   _ExtractedDocument _extractDocx(Uint8List bytes, String name) {
     ZipDirectory? directory;
     try {
+      final zipPreflight = _validateDocxZipCentralDirectory(
+        bytes,
+        maxEntries: limits.maxDocxZipEntries,
+        maxCentralDirectoryBytes: limits.maxDocxCentralDirectoryBytes,
+      );
       // Parse metadata and retain compressed entry streams, but do not build
       // an Archive with ZipDecoder. ZipDecoder eagerly expands Unix symlink
       // entries while determining their target, before callers can enforce an
@@ -493,6 +618,9 @@ final class HermesLocalDocumentService {
       // central directory and expand only the main XML part below.
       directory = ZipDirectory()..read(InputMemoryStream(bytes));
       final headers = directory.fileHeaders;
+      if (headers.length != zipPreflight.entryCount) {
+        throw const FormatException('Mismatched ZIP entry count');
+      }
       if (headers.any(_zipEntryIsEncrypted)) {
         throw _documentFailure(
           HermesLocalDocumentError.encryptedDocument,
@@ -561,9 +689,18 @@ final class HermesLocalDocumentService {
       ).hasMatch(xmlSource)) {
         throw const FormatException('DOCX declarations are not allowed');
       }
+      _validateDocxXmlComplexity(
+        xmlSource,
+        maxNodes: limits.maxDocxXmlNodes,
+        maxDepth: limits.maxDocxXmlDepth,
+      );
       final document = XmlDocument.parse(xmlSource);
       final buffer = StringBuffer();
-      _appendDocxText(document.rootElement, buffer);
+      _appendDocxText(
+        document.rootElement,
+        buffer,
+        maxNodes: limits.maxDocxXmlNodes,
+      );
       return _ExtractedDocument(
         text: buffer.toString(),
         mimeType: _docxMimeType,
@@ -630,46 +767,9 @@ final class _BoundedOutputMemoryStream extends OutputMemoryStream {
 const _docxMimeType =
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-const _textExtensions = <String>{
-  '.cfg',
-  '.conf',
-  '.css',
-  '.csv',
-  '.dart',
-  '.dockerignore',
-  '.editorconfig',
-  '.env',
-  '.gitignore',
-  '.go',
-  '.h',
-  '.hpp',
-  '.htm',
-  '.html',
-  '.ini',
-  '.java',
-  '.js',
-  '.json',
-  '.jsonl',
-  '.kt',
-  '.log',
-  '.markdown',
-  '.md',
-  '.npmrc',
-  '.php',
-  '.properties',
-  '.py',
-  '.rb',
-  '.rs',
-  '.sh',
-  '.sql',
-  '.swift',
-  '.toml',
-  '.ts',
-  '.tsv',
-  '.txt',
-  '.xml',
-  '.yaml',
-  '.yml',
+final _textExtensions = <String>{
+  for (final extension in kHermesLocalDocumentPickerExtensions)
+    if (extension != 'docx') '.$extension',
 };
 
 const _textMimeTypes = <String>{
@@ -700,48 +800,6 @@ const _extensionMimeTypes = <String, String>{
   '.yaml': 'application/yaml',
   '.yml': 'application/yaml',
 };
-
-Future<HermesPdfExtraction> _extractPdfWithPdfrx(
-  Uint8List bytes, {
-  required int maxPages,
-}) async {
-  await pdfrxFlutterInitialize();
-  PdfDocument? document;
-  try {
-    final digest = sha256.convert(bytes).toString().substring(0, 16);
-    document = await PdfDocument.openData(
-      bytes,
-      sourceName: 'hermes-local-$digest',
-      passwordProvider: () => null,
-    );
-    if (document.isEncrypted) {
-      return HermesPdfExtraction(
-        text: '',
-        pageCount: document.pages.length,
-        isEncrypted: true,
-      );
-    }
-    if (document.pages.length > maxPages) {
-      return HermesPdfExtraction(text: '', pageCount: document.pages.length);
-    }
-
-    final pageTexts = <String>[];
-    for (final page in document.pages) {
-      final text = (await page.loadStructuredText()).fullText.trim();
-      if (text.isNotEmpty) {
-        pageTexts.add('[Page ${page.pageNumber}]\n$text');
-      }
-    }
-    return HermesPdfExtraction(
-      text: pageTexts.join('\n\n'),
-      pageCount: document.pages.length,
-    );
-  } on PdfPasswordException {
-    return const HermesPdfExtraction(text: '', pageCount: 0, isEncrypted: true);
-  } finally {
-    await document?.dispose();
-  }
-}
 
 String _decodeUtf8Text(Uint8List bytes, String name) {
   var start = 0;
@@ -787,36 +845,106 @@ String _decodeUtf8Text(Uint8List bytes, String name) {
   return decoded;
 }
 
-void _appendDocxText(XmlNode node, StringBuffer buffer) {
-  if (node is XmlElement) {
-    final localName = node.name.local.toLowerCase();
-    if (localName == 'del' || localName == 'movefrom') {
-      return;
+void _validateDocxXmlComplexity(
+  String source, {
+  required int maxNodes,
+  required int maxDepth,
+}) {
+  var nodes = 0;
+  var depth = 0;
+  for (final event in parseEvents(
+    source,
+    validateNesting: true,
+    validateDocument: true,
+  )) {
+    if (event is XmlStartElementEvent) {
+      nodes += 1 + event.attributes.length;
+      if (!event.isSelfClosing) {
+        depth++;
+        if (depth > maxDepth) {
+          throw const FormatException('DOCX XML depth limit exceeded');
+        }
+      }
+    } else if (event is XmlEndElementEvent) {
+      depth--;
+    } else {
+      nodes++;
     }
+    if (nodes > maxNodes) {
+      throw const FormatException('DOCX XML node limit exceeded');
+    }
+  }
+  if (depth != 0) {
+    throw const FormatException('DOCX XML nesting is incomplete');
+  }
+}
+
+void _appendDocxText(
+  XmlNode root,
+  StringBuffer buffer, {
+  required int maxNodes,
+}) {
+  final pending = <({XmlNode node, bool exiting})>[
+    (node: root, exiting: false),
+  ];
+  var visitedNodes = 0;
+
+  void countVisit() {
+    visitedNodes++;
+    if (visitedNodes > maxNodes) {
+      throw const FormatException('DOCX XML node limit exceeded');
+    }
+  }
+
+  while (pending.isNotEmpty) {
+    final current = pending.removeLast();
+    final node = current.node;
+    if (current.exiting) {
+      final localName = (node as XmlElement).name.local.toLowerCase();
+      if (localName == 'p' || localName == 'tr') {
+        buffer.write('\n');
+      } else if (localName == 'tc') {
+        buffer.write('\t');
+      }
+      continue;
+    }
+
+    countVisit();
+    if (node is! XmlElement) {
+      for (var index = node.children.length - 1; index >= 0; index--) {
+        pending.add((node: node.children[index], exiting: false));
+      }
+      continue;
+    }
+
+    final localName = node.name.local.toLowerCase();
+    if (localName == 'del' || localName == 'movefrom') continue;
     if (localName == 't') {
-      buffer.write(node.innerText);
-      return;
+      // XmlElement.innerText uses an iterative descendant walk. Repeat it here
+      // so descendants count toward the same explicit work budget.
+      for (final descendant in node.descendants) {
+        countVisit();
+        if (descendant is XmlText) {
+          buffer.write(descendant.value);
+        } else if (descendant is XmlCDATA) {
+          buffer.write(descendant.value);
+        }
+      }
+      continue;
     }
     if (localName == 'tab') {
       buffer.write('\t');
-      return;
+      continue;
     }
     if (localName == 'br' || localName == 'cr') {
       buffer.write('\n');
-      return;
+      continue;
     }
-    for (final child in node.children) {
-      _appendDocxText(child, buffer);
+
+    pending.add((node: node, exiting: true));
+    for (var index = node.children.length - 1; index >= 0; index--) {
+      pending.add((node: node.children[index], exiting: false));
     }
-    if (localName == 'p' || localName == 'tr') {
-      buffer.write('\n');
-    } else if (localName == 'tc') {
-      buffer.write('\t');
-    }
-    return;
-  }
-  for (final child in node.children) {
-    _appendDocxText(child, buffer);
   }
 }
 
@@ -874,6 +1002,247 @@ bool _hasZipSignature(Uint8List bytes) =>
     _startsWith(bytes, const [0x50, 0x4b, 0x03, 0x04]) ||
     _startsWith(bytes, const [0x50, 0x4b, 0x05, 0x06]) ||
     _startsWith(bytes, const [0x50, 0x4b, 0x07, 0x08]);
+
+final class _DocxZipPreflight {
+  const _DocxZipPreflight({required this.entryCount});
+
+  final int entryCount;
+}
+
+_DocxZipPreflight _validateDocxZipCentralDirectory(
+  Uint8List bytes, {
+  required int maxEntries,
+  required int maxCentralDirectoryBytes,
+}) {
+  const endOfCentralDirectorySignature = 0x06054b50;
+  const zip64EndOfCentralDirectorySignature = 0x06064b50;
+  const zip64LocatorSignature = 0x07064b50;
+  const centralDirectoryHeaderSignature = 0x02014b50;
+  const localFileHeaderSignature = 0x04034b50;
+  const endOfCentralDirectoryBytes = 22;
+  const zip64LocatorBytes = 20;
+  const zip64EndOfCentralDirectoryMinimumBytes = 56;
+  const centralDirectoryHeaderBytes = 46;
+
+  if (bytes.length < endOfCentralDirectoryBytes) {
+    throw const FormatException('Missing ZIP end record');
+  }
+
+  // The EOCD signature may occur inside the archive comment. Accept only a
+  // candidate whose declared comment consumes the exact remaining bytes.
+  final searchFloor = bytes.length > endOfCentralDirectoryBytes + 0xffff
+      ? bytes.length - endOfCentralDirectoryBytes - 0xffff
+      : 0;
+  var eocdOffset = -1;
+  for (
+    var offset = bytes.length - endOfCentralDirectoryBytes;
+    offset >= searchFloor;
+    offset--
+  ) {
+    if (_zipUint32At(bytes, offset) != endOfCentralDirectorySignature) {
+      continue;
+    }
+    final commentLength = _zipUint16At(bytes, offset + 20);
+    if (offset + endOfCentralDirectoryBytes + commentLength == bytes.length) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw const FormatException('Missing ZIP end record');
+  }
+  // archive 4.0.9 searches backward in non-overlapping 1024-byte chunks. It can
+  // both select an incomplete signature in the selected EOCD's comment and
+  // miss a real EOCD that straddles a chunk boundary, falling back to an older
+  // attacker-controlled signature. Require the selected exact record to be the
+  // archive's only raw EOCD signature before invoking ZipDirectory.
+  for (var offset = 0; offset <= bytes.length - 4; offset++) {
+    if (offset != eocdOffset &&
+        _zipUint32At(bytes, offset) == endOfCentralDirectorySignature) {
+      throw const FormatException('Ambiguous ZIP end record');
+    }
+  }
+
+  final diskNumber = _zipUint16At(bytes, eocdOffset + 4);
+  final centralDirectoryDisk = _zipUint16At(bytes, eocdOffset + 6);
+  if (diskNumber != 0 || centralDirectoryDisk != 0) {
+    throw const FormatException('Multi-disk DOCX archives are not allowed');
+  }
+  final classicEntriesOnDisk = _zipUint16At(bytes, eocdOffset + 8);
+  final classicEntryCount = _zipUint16At(bytes, eocdOffset + 10);
+  final classicCentralDirectorySize = _zipUint32At(bytes, eocdOffset + 12);
+  final classicCentralDirectoryOffset = _zipUint32At(bytes, eocdOffset + 16);
+  final needsZip64 =
+      classicEntriesOnDisk == 0xffff ||
+      classicEntryCount == 0xffff ||
+      classicCentralDirectorySize == 0xffffffff ||
+      classicCentralDirectoryOffset == 0xffffffff;
+  final zip64LocatorOffset = eocdOffset - zip64LocatorBytes;
+  final hasZip64Locator =
+      zip64LocatorOffset >= 0 &&
+      _zipUint32At(bytes, zip64LocatorOffset) == zip64LocatorSignature;
+  // ZipDirectory honors an adjacent ZIP64 locator even when every classic
+  // field is non-sentinel. Treat that mixed representation as ambiguous rather
+  // than validating the classic directory while the dependency parses ZIP64.
+  if (hasZip64Locator && !needsZip64) {
+    throw const FormatException('Unexpected ZIP64 locator');
+  }
+
+  var entryCount = classicEntryCount;
+  var centralDirectorySize = classicCentralDirectorySize;
+  var centralDirectoryOffset = classicCentralDirectoryOffset;
+  var expectedCentralDirectoryEnd = eocdOffset;
+  if (needsZip64) {
+    final locatorOffset = zip64LocatorOffset;
+    if (!hasZip64Locator) {
+      throw const FormatException('Missing ZIP64 locator');
+    }
+    if (_zipUint32At(bytes, locatorOffset + 4) != 0 ||
+        _zipUint32At(bytes, locatorOffset + 16) != 1) {
+      throw const FormatException('Multi-disk ZIP64 archives are not allowed');
+    }
+    final zip64Offset = _zipUint64BoundedAt(
+      bytes,
+      locatorOffset + 8,
+      maxValue: locatorOffset,
+    );
+    if (zip64Offset > locatorOffset - zip64EndOfCentralDirectoryMinimumBytes ||
+        _zipUint32At(bytes, zip64Offset) !=
+            zip64EndOfCentralDirectorySignature) {
+      throw const FormatException('Invalid ZIP64 end record');
+    }
+    final maximumRecordBody = locatorOffset - zip64Offset - 12;
+    final recordBodySize = _zipUint64BoundedAt(
+      bytes,
+      zip64Offset + 4,
+      maxValue: maximumRecordBody,
+    );
+    if (recordBodySize < 44 ||
+        zip64Offset + 12 + recordBodySize != locatorOffset) {
+      throw const FormatException('Inconsistent ZIP64 end record');
+    }
+    if (_zipUint32At(bytes, zip64Offset + 16) != 0 ||
+        _zipUint32At(bytes, zip64Offset + 20) != 0) {
+      throw const FormatException('Multi-disk ZIP64 archives are not allowed');
+    }
+    final zip64EntriesOnDisk = _zipUint64BoundedAt(
+      bytes,
+      zip64Offset + 24,
+      maxValue: maxEntries,
+    );
+    entryCount = _zipUint64BoundedAt(
+      bytes,
+      zip64Offset + 32,
+      maxValue: maxEntries,
+    );
+    if (zip64EntriesOnDisk != entryCount) {
+      throw const FormatException('Inconsistent ZIP64 entry count');
+    }
+    centralDirectorySize = _zipUint64BoundedAt(
+      bytes,
+      zip64Offset + 40,
+      maxValue: maxCentralDirectoryBytes,
+    );
+    centralDirectoryOffset = _zipUint64BoundedAt(
+      bytes,
+      zip64Offset + 48,
+      maxValue: bytes.length,
+    );
+    if ((classicEntriesOnDisk != 0xffff &&
+            classicEntriesOnDisk != zip64EntriesOnDisk) ||
+        (classicEntryCount != 0xffff && classicEntryCount != entryCount) ||
+        (classicCentralDirectorySize != 0xffffffff &&
+            classicCentralDirectorySize != centralDirectorySize) ||
+        (classicCentralDirectoryOffset != 0xffffffff &&
+            classicCentralDirectoryOffset != centralDirectoryOffset)) {
+      throw const FormatException('Inconsistent ZIP64 fallback fields');
+    }
+    expectedCentralDirectoryEnd = zip64Offset;
+  } else {
+    if (classicEntriesOnDisk != entryCount) {
+      throw const FormatException('Inconsistent ZIP entry count');
+    }
+    if (entryCount > maxEntries) {
+      throw const FormatException('DOCX ZIP entry limit exceeded');
+    }
+    if (centralDirectorySize > maxCentralDirectoryBytes) {
+      throw const FormatException('DOCX central directory limit exceeded');
+    }
+  }
+
+  if (centralDirectoryOffset > expectedCentralDirectoryEnd ||
+      centralDirectorySize >
+          expectedCentralDirectoryEnd - centralDirectoryOffset ||
+      centralDirectoryOffset + centralDirectorySize !=
+          expectedCentralDirectoryEnd) {
+    throw const FormatException('Inconsistent ZIP central directory range');
+  }
+
+  var cursor = centralDirectoryOffset;
+  var walkedEntries = 0;
+  while (cursor < expectedCentralDirectoryEnd) {
+    if (walkedEntries >= maxEntries) {
+      throw const FormatException('DOCX ZIP entry limit exceeded');
+    }
+    if (expectedCentralDirectoryEnd - cursor < centralDirectoryHeaderBytes ||
+        _zipUint32At(bytes, cursor) != centralDirectoryHeaderSignature) {
+      throw const FormatException('Invalid ZIP central directory record');
+    }
+    final nameLength = _zipUint16At(bytes, cursor + 28);
+    final extraLength = _zipUint16At(bytes, cursor + 30);
+    final commentLength = _zipUint16At(bytes, cursor + 32);
+    if (_zipUint16At(bytes, cursor + 34) != 0) {
+      throw const FormatException('Multi-disk DOCX entries are not allowed');
+    }
+    final localHeaderOffset = _zipUint32At(bytes, cursor + 42);
+    if (localHeaderOffset != 0xffffffff &&
+        (localHeaderOffset > centralDirectoryOffset - 30 ||
+            _zipUint32At(bytes, localHeaderOffset) !=
+                localFileHeaderSignature)) {
+      throw const FormatException('Invalid ZIP local-header offset');
+    }
+    final variableLength = nameLength + extraLength + commentLength;
+    if (variableLength >
+        expectedCentralDirectoryEnd - cursor - centralDirectoryHeaderBytes) {
+      throw const FormatException('Truncated ZIP central directory record');
+    }
+    cursor += centralDirectoryHeaderBytes + variableLength;
+    walkedEntries++;
+  }
+  if (cursor != expectedCentralDirectoryEnd || walkedEntries != entryCount) {
+    throw const FormatException('Mismatched ZIP entry count');
+  }
+  return _DocxZipPreflight(entryCount: walkedEntries);
+}
+
+int _zipUint16At(Uint8List bytes, int offset) {
+  if (offset < 0 || offset > bytes.length - 2) {
+    throw const FormatException('Truncated ZIP metadata');
+  }
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+int _zipUint32At(Uint8List bytes, int offset) {
+  if (offset < 0 || offset > bytes.length - 4) {
+    throw const FormatException('Truncated ZIP metadata');
+  }
+  return bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24);
+}
+
+int _zipUint64BoundedAt(Uint8List bytes, int offset, {required int maxValue}) {
+  if (maxValue < 0 || offset < 0 || offset > bytes.length - 8) {
+    throw const FormatException('Truncated ZIP64 metadata');
+  }
+  final low = _zipUint32At(bytes, offset);
+  final high = _zipUint32At(bytes, offset + 4);
+  if (high != 0 || low > maxValue) {
+    throw const FormatException('ZIP64 metadata exceeds document limits');
+  }
+  return low;
+}
 
 bool _hasOleCompoundFileSignature(Uint8List bytes) =>
     _startsWith(bytes, const [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);

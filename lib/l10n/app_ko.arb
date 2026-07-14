@@ -2231,6 +2231,7 @@
   "directConnectionCredentialTransferMessage": "API 키와 사용자 지정 헤더 전체를 새 서버로 전송합니다. 신뢰하는 서버인 경우에만 계속하세요.",
   "directConnectionCredentialTransferConfirm": "자격 증명 사용",
   "directConnectionSaveFailed": "이 연결을 저장할 수 없습니다.",
+  "directConnectionSaveConflict": "이 연결이 다른 곳에서 변경되었습니다. 저장하기 전에 다시 열어 주세요.",
   "directConnectionReachFailed": "제공업체에 연결할 수 없습니다.",
   "directConnectionDeleteTitle": "연결을 삭제하시겠습니까?",
   "directConnectionDeleteMessage": "이 기기에서 {name} 연결과 해당 자격 증명이 삭제됩니다.",

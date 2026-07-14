@@ -53,6 +53,12 @@ final class PreferenceKeys {
   // long-term memory session key are secrets and live in SecureCredentialStorage.
   static const String hermesEnabled = 'hermes_enabled_v1';
   static const String hermesBaseUrl = 'hermes_base_url_v1';
+  static const String hermesLocalDocumentTrust =
+      'hermes_local_document_trust_v1';
+  static const String hermesLocalDocumentTrustPrincipal =
+      'hermes_local_document_trust_principal_v1';
+  static const String hermesMixedSessionBindingTrust =
+      'hermes_mixed_session_binding_trust_v1';
 
   /// Which backend onboarding completed against
   /// ('owui' | 'direct' | 'hermes' | unset).

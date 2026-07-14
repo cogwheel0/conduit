@@ -26,6 +26,7 @@ import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
@@ -338,8 +339,15 @@ _harness({
   bool expectInitiallyOpen = true,
   bool seedMatchingOwnerMarker = true,
   OpenWebUiAccountOwnerMarker? ownerMarker,
+  OpenWebUiAccountCacheClear? accountCacheClear,
+  OpenWebUiDatabasePurge? databasePurge,
   List<Override> additionalOverrides = const <Override>[],
 }) async {
+  if (!PreferencesStore.isReady) {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    addTearDown(PreferencesStore.debugReset);
+  }
   final serverA = AppDatabase(NativeDatabase.memory());
   final serverB = AppDatabase(NativeDatabase.memory());
   final direct = AppDatabase(NativeDatabase.memory());
@@ -389,15 +397,20 @@ _harness({
       directLocalDatabaseProvider.overrideWithValue(direct),
       authStateManagerProvider.overrideWith(() => auth),
       openWebUiAccountOwnerMarkerStoreProvider.overrideWithValue(markerStore),
-      openWebUiAccountCacheClearProvider.overrideWithValue(() async {}),
+      openWebUiAccountCacheClearProvider.overrideWithValue(
+        accountCacheClear ?? () async {},
+      ),
       openWebUiCertifiedUserPersistProvider.overrideWithValue((_) async {}),
-      openWebUiDatabasePurgeProvider.overrideWithValue((serverId) async {
-        if (serverId == _serverTwo.id) {
-          await serverB.delete(serverB.messages).go();
-          await serverB.delete(serverB.chats).go();
-        }
-        await manager.deleteFor(serverId);
-      }),
+      openWebUiDatabasePurgeProvider.overrideWithValue(
+        databasePurge ??
+            (serverId) async {
+              if (serverId == _serverTwo.id) {
+                await serverB.delete(serverB.messages).go();
+                await serverB.delete(serverB.chats).go();
+              }
+              await manager.deleteFor(serverId);
+            },
+      ),
       ...additionalOverrides,
     ],
   );
@@ -527,7 +540,14 @@ void main() {
     check(
       conversationUsesOpenWebUiStorage(transport(kDirectTransport)),
     ).isFalse();
-    check(conversationUsesOpenWebUiStorage(transport('hermes'))).isFalse();
+    // Serialized backend metadata is server-controlled and therefore cannot
+    // claim a process-owned native Hermes shell.
+    check(conversationUsesOpenWebUiStorage(transport('hermes'))).isTrue();
+    check(
+      conversationUsesOpenWebUiStorage(
+        markNativeHermesConversation(transport('hermes')),
+      ),
+    ).isFalse();
     check(
       conversationUsesOpenWebUiStorage(
         withChatStorageProvenance(
@@ -1336,6 +1356,83 @@ void main() {
         after.map((chat) => chat.id).toList(),
       ).deepEquals(<String>['direct-chat']);
       check(await loadLocalConversation(container, 'account-a-chat')).isNull();
+    },
+  );
+
+  test(
+    'purge retries trust once and does not repeat it after success',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.activeServerId: _server.id,
+      });
+      PreferencesStore.debugReset();
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      final preferences = await SharedPreferences.getInstance();
+      var revocationWrites = 0;
+      var enforceSingleRevocation = false;
+      PreferencesStore.debugOverride(
+        preferences,
+        writeInterceptor: (_, key, value) async {
+          if (enforceSingleRevocation &&
+              key == PreferenceKeys.hermesMixedSessionBindingTrust) {
+            revocationWrites++;
+            if (revocationWrites == 1) return false;
+            return revocationWrites == 2 ? null : false;
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+
+      final marker = openWebUiAccountOwnerMarker(
+        token: 'token-a',
+        userId: _userA.id,
+      )!;
+      final storageAccountIdentity =
+          HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+            serverId: _server.id,
+            userId: _userA.id,
+            tokenFingerprint: marker.tokenFingerprint,
+          );
+      await HermesMixedSessionBindingTrustStore.remember(
+        storageAccountIdentity: storageAccountIdentity,
+        conversationId: 'account-a-chat',
+        assistantMessageId: 'assistant-a',
+        sessionId: 'session-a',
+        connectionIdentity: 'connection-a',
+      );
+      enforceSingleRevocation = true;
+
+      var cacheClearCalls = 0;
+      var purgeCalls = 0;
+      final harness = await _harness(
+        accountCacheClear: () async {
+          cacheClearCalls++;
+          if (cacheClearCalls == 1) {
+            throw StateError('transient cache cleanup failure');
+          }
+        },
+        databasePurge: (_) async {
+          purgeCalls++;
+        },
+      );
+
+      harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
+      await Future<void>.delayed(Duration.zero);
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      check(revocationWrites).equals(2);
+      check(cacheClearCalls).equals(2);
+      check(purgeCalls).equals(1);
+      check(harness.markerStore.read(_server.id)).isNull();
+      check(
+        harness.container.read(openWebUiDatabaseAccessProvider),
+      ).equals(OpenWebUiDatabaseAccessPhase.closed);
     },
   );
 

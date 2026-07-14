@@ -11,6 +11,7 @@ import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -198,13 +199,15 @@ void main() {
     container
         .read(activeConversationProvider.notifier)
         .set(
-          Conversation(
-            id: 'local:hermes_edit-session',
-            title: 'Hermes edit',
-            createdAt: DateTime.utc(2026, 7, 13, 10),
-            updatedAt: DateTime.utc(2026, 7, 13, 10, 1),
-            messages: <ChatMessage>[message, assistant],
-            metadata: const <String, dynamic>{'backend': 'hermes'},
+          markNativeHermesConversation(
+            Conversation(
+              id: 'local:hermes_edit-session',
+              title: 'Hermes edit',
+              createdAt: DateTime.utc(2026, 7, 13, 10),
+              updatedAt: DateTime.utc(2026, 7, 13, 10, 1),
+              messages: <ChatMessage>[message, assistant],
+              metadata: const <String, dynamic>{'backend': 'hermes'},
+            ),
           ),
         );
 

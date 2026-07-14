@@ -13,6 +13,8 @@ import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/server_config.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/streaming_response_controller.dart';
@@ -30,13 +32,18 @@ import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
@@ -260,6 +267,30 @@ class _GatedHermesConfigController extends HermesConfigController {
     if (!started.isCompleted) started.complete();
     return gate.future;
   }
+}
+
+class _RotatableAdmissionHermesConfigController
+    extends _FixedHermesConfigController {
+  var _epoch = 0;
+
+  @override
+  int? captureSessionActionAdmission() => _epoch;
+
+  @override
+  bool sessionActionAdmissionIsCurrent(int admission) => admission == _epoch;
+
+  void rotateServer() => _epoch++;
+}
+
+final class _HermesServiceGeneration extends Notifier<HermesApiService?> {
+  _HermesServiceGeneration(this.initial);
+
+  final HermesApiService? initial;
+
+  @override
+  HermesApiService? build() => initial;
+
+  void set(HermesApiService? service) => state = service;
 }
 
 final class _HermesAuthEpoch extends Notifier<Object> {
@@ -646,27 +677,45 @@ class _CreateRunRaceHermesApi extends HermesApiService {
 }
 
 class _ResponsesHermesApi extends HermesApiService {
-  _ResponsesHermesApi()
-    : super(
-        config: const HermesConfig(
-          enabled: true,
-          baseUrl: 'http://hermes',
-          apiKey: 'key',
-        ),
-        dio: Dio(),
-      );
+  _ResponsesHermesApi({
+    this.uniqueSessionIds = false,
+    this.establishedSessionIdOverride,
+  }) : super(
+         config: const HermesConfig(
+           enabled: true,
+           baseUrl: 'http://hermes',
+           apiKey: 'key',
+         ),
+         dio: Dio(),
+       );
+
+  final bool uniqueSessionIds;
+  final String? establishedSessionIdOverride;
 
   final List<HermesChatInput> inputs = [];
   final List<String?> sessionIds = [];
   final List<String?> previousResponseIds = [];
   final List<List<Map<String, dynamic>>?> histories = [];
+  final Map<String, List<Map<String, dynamic>>> committedUserMessagesBySession =
+      {};
   var createRunCalls = 0;
+  var createSessionCalls = 0;
+  var failNextResponse = false;
+
+  List<Map<String, dynamic>> get committedUserMessages => [
+    for (final messages in committedUserMessagesBySession.values) ...messages,
+  ];
 
   @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
-  }) async => 'responses-session';
+  }) async {
+    createSessionCalls++;
+    return uniqueSessionIds
+        ? 'responses-session-$createSessionCalls'
+        : 'responses-session';
+  }
 
   @override
   Future<String> createRun({
@@ -690,13 +739,28 @@ class _ResponsesHermesApi extends HermesApiService {
     List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async {
+    if (failNextResponse) {
+      failNextResponse = false;
+      throw StateError('response rejected before acceptance');
+    }
     inputs.add(input);
     sessionIds.add(sessionId);
     previousResponseIds.add(previousResponseId);
     histories.add(conversationHistory);
+    final committedSessionId =
+        establishedSessionIdOverride ?? sessionId ?? 'responses-session';
+    final sessionMessages = committedUserMessagesBySession.putIfAbsent(
+      committedSessionId,
+      () => <Map<String, dynamic>>[],
+    );
+    sessionMessages.add(<String, dynamic>{
+      'id': 'server-user-${committedUserMessages.length + 1}',
+      'role': 'user',
+      'content': input.toJson(),
+    });
     final responseId = 'resp-${inputs.length}';
     return HermesResponseStream(
-      sessionId: 'responses-session',
+      sessionId: committedSessionId,
       events: Stream<HermesRunEvent>.fromIterable([
         HermesResponseCreated(responseId),
         HermesTokenDelta('answer ${inputs.length}'),
@@ -704,6 +768,117 @@ class _ResponsesHermesApi extends HermesApiService {
         const HermesRunDone(),
       ]),
     );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getSessionMessages(
+    String sessionId, {
+    CancelToken? cancelToken,
+  }) async => List<Map<String, dynamic>>.unmodifiable(
+    (committedUserMessagesBySession[sessionId] ?? const []).map(
+      Map<String, dynamic>.from,
+    ),
+  );
+}
+
+class _TrailingStaleHistoryHermesApi extends _ResponsesHermesApi {
+  _TrailingStaleHistoryHermesApi({
+    required this.stalePrompt,
+    this.failSessionCreation = false,
+  });
+
+  final String stalePrompt;
+  final bool failSessionCreation;
+
+  @override
+  Future<String> createSession({String? title, CancelToken? cancelToken}) {
+    if (failSessionCreation) {
+      throw StateError('session creation unavailable');
+    }
+    return super.createSession(title: title, cancelToken: cancelToken);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getSessionMessages(
+    String sessionId, {
+    CancelToken? cancelToken,
+  }) async => <Map<String, dynamic>>[
+    ...await super.getSessionMessages(sessionId, cancelToken: cancelToken),
+    <String, dynamic>{
+      'id': ' stale-message ',
+      'role': 'user',
+      'content': stalePrompt,
+    },
+  ];
+}
+
+class _StalledDocumentBaselineHermesApi extends HermesApiService {
+  _StalledDocumentBaselineHermesApi({this.stallPostCommit = false})
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://hermes',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  final bool stallPostCommit;
+  final historyStarted = Completer<void>();
+  final historyCancelled = Completer<void>();
+  final _uncancellableHistory = Completer<List<Map<String, dynamic>>>();
+  final historyCancelTokens = <CancelToken?>[];
+  CancelToken? historyCancelToken;
+  CancelToken? responseCancelToken;
+  var historyCalls = 0;
+  var responseCalls = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getSessionMessages(
+    String sessionId, {
+    CancelToken? cancelToken,
+  }) async {
+    historyCalls++;
+    historyCancelTokens.add(cancelToken);
+    if (stallPostCommit && historyCalls == 1) {
+      return const <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'existing-user-row',
+          'role': 'user',
+          'content': 'older prompt',
+        },
+      ];
+    }
+    historyCancelToken = cancelToken;
+    if (!historyStarted.isCompleted) historyStarted.complete();
+    if (cancelToken == null) return _uncancellableHistory.future;
+    await cancelToken.whenCancel;
+    if (!historyCancelled.isCompleted) historyCancelled.complete();
+    throw StateError('history request cancelled');
+  }
+
+  @override
+  Future<HermesResponseStream> streamResponse(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    CancelToken? cancelToken,
+  }) async {
+    responseCalls++;
+    responseCancelToken = cancelToken;
+    return HermesResponseStream(
+      sessionId: sessionId,
+      events: Stream<HermesRunEvent>.value(const HermesRunDone()),
+    );
+  }
+
+  void dispose() {
+    if (!_uncancellableHistory.isCompleted) {
+      _uncancellableHistory.complete(const <Map<String, dynamic>>[]);
+    }
   }
 }
 
@@ -714,6 +889,8 @@ class _SeededAttachedFiles extends AttachedFilesNotifier {
 
   @override
   List<FileUploadState> build() => List<FileUploadState>.of(files);
+
+  void reseed() => state = List<FileUploadState>.of(files);
 }
 
 class _GatedProfilesController extends DirectConnectionProfilesController {
@@ -771,7 +948,7 @@ _DelayedHermesEditFixture _buildDelayedHermesEditFixture() {
   container
       .read(activeConversationProvider.notifier)
       .set(
-        withChatStorageProvenance(
+        markNativeHermesConversation(
           Conversation(
             id: 'shared-id',
             title: 'Hermes edit',
@@ -781,7 +958,6 @@ _DelayedHermesEditFixture _buildDelayedHermesEditFixture() {
             messages: originalMessages,
             metadata: const <String, dynamic>{'backend': 'hermes'},
           ),
-          ChatStorageKind.openWebUi,
         ),
       );
   container.read(selectedModelProvider.notifier).set(selectedModel);
@@ -810,6 +986,18 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ChatMessagesNotifier streaming seams', () {
+    setUp(() async {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      HermesLocalDocumentTrustStore.debugResetRuntimeState();
+    });
+
+    tearDown(() {
+      HermesLocalDocumentTrustStore.debugResetRuntimeState();
+      PreferencesStore.debugReset();
+    });
+
     test('send recovery follows an OpenWebUI local-to-server remap', () {
       final container = _buildContainer();
       addTearDown(container.dispose);
@@ -898,7 +1086,10 @@ void main() {
           isA<HermesAttachmentsUnsupportedException>().having(
             (error) => error.message,
             'message',
-            contains('cannot use this attachment'),
+            allOf(
+              contains('cannot use this attachment'),
+              isNot(contains('PDF')),
+            ),
           ),
         ),
       );
@@ -1636,6 +1827,133 @@ void main() {
     );
 
     test(
+      'Hermes config cancellation after mixed commit settles durable start',
+      () async {
+        final manager = DatabaseManager(
+          openDatabase: (_) => AppDatabase(NativeDatabase.memory()),
+        );
+        final database = manager.openForServerId('post-commit-cancel-server');
+        final oldService = _ResponsesHermesApi();
+        final replacementService = _ResponsesHermesApi();
+        final config = _RotatableAdmissionHermesConfigController();
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final cancellationFutures = <Future<void>>[];
+        var postCommitHookCalls = 0;
+        late final ProviderContainer container;
+        container = ProviderContainer(
+          overrides: [
+            openWebUiDatabaseAccessProvider.overrideWith(
+              _OpenDatabaseAccess.new,
+            ),
+            databaseManagerProvider.overrideWithValue(manager),
+            appDatabaseProvider.overrideWithValue(database),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(() => config),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+            hermesTurnStartPostCommitHookProvider.overrideWithValue(() {
+              postCommitHookCalls++;
+              config.rotateServer();
+              container
+                  .read(serviceGeneration.notifier)
+                  .set(replacementService);
+              cancellationFutures.addAll(
+                container.read(hermesRunRegistryProvider).cancelAll(),
+              );
+            }),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await manager.closeActive();
+        });
+        final parent = _assistantMessage(
+          id: 'post-commit-cancel-parent',
+          content: 'Before cancellation',
+          metadata: const <String, dynamic>{'childrenIds': <String>[]},
+        );
+        final rows = ChatBlobMapper.blobToRows(
+          chatId: 'post-commit-cancel-chat',
+          blob: <String, dynamic>{
+            'title': 'Post-commit cancellation',
+            'history': <String, dynamic>{
+              'currentId': parent.id,
+              'messages': <String, dynamic>{
+                parent.id: <String, dynamic>{
+                  'id': parent.id,
+                  'role': parent.role,
+                  'content': parent.content,
+                  'childrenIds': <String>[],
+                  'timestamp': parent.timestamp.millisecondsSinceEpoch ~/ 1000,
+                },
+              },
+            },
+          },
+          title: 'Post-commit cancellation',
+          createdAt: 1,
+          updatedAt: 1,
+        );
+        await database.chatsDao.upsertServerChat(rows: rows);
+        final conversation = withChatStorageProvenance(
+          Conversation(
+            id: 'post-commit-cancel-chat',
+            title: 'Post-commit cancellation',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[parent],
+          ),
+          ChatStorageKind.openWebUi,
+        );
+        container.read(activeConversationProvider.notifier).set(conversation);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        await Future<void>.delayed(Duration.zero);
+
+        await sendMessageWithContainer(
+          container,
+          'Cancel immediately after commit',
+          null,
+        ).timeout(const Duration(seconds: 1));
+        await Future.wait<void>(
+          cancellationFutures,
+        ).timeout(const Duration(seconds: 1));
+
+        check(postCommitHookCalls).equals(1);
+        check(oldService.inputs).isEmpty();
+        check(replacementService.inputs).isEmpty();
+        check(oldService.createSessionCalls).equals(0);
+        check(replacementService.createSessionCalls).equals(0);
+        final durableRows = await database.messagesDao.getForChat(
+          conversation.id,
+        );
+        check(durableRows).length.equals(3);
+        final durableAssistant = durableRows.last;
+        final durablePayload =
+            jsonDecode(durableAssistant.payload) as Map<String, dynamic>;
+        check(durableAssistant.role).equals('assistant');
+        check(durablePayload['isStreaming']).equals(false);
+        check(
+          container
+              .read(hermesRunRegistryProvider)
+              .cancelMessage(durableAssistant.id),
+        ).isNull();
+
+        // A leaked turn-start lease would leave closeActive blocked here.
+        await manager.closeActive().timeout(const Duration(seconds: 1));
+      },
+    );
+
+    test(
       'projection beyond the recovery count still persists its exact final',
       () async {
         final service = _MultiRunHermesApi();
@@ -1811,6 +2129,237 @@ void main() {
     );
 
     test(
+      'existing-session Responses rejects a different established session',
+      () async {
+        final service = _ResponsesHermesApi(
+          establishedSessionIdOverride: 'foreign-session',
+        );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final placeholder = _assistantMessage(
+          id: 'mismatched-session-assistant',
+          content: '',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kHermesTransport},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes_expected-session',
+                  title: 'Expected session',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                  messages: <ChatMessage>[placeholder],
+                  metadata: const <String, dynamic>{
+                    'backend': 'hermes',
+                    'hermesSessionId': 'expected-session',
+                  },
+                ),
+              ),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: placeholder.id,
+          assistantSeed: placeholder,
+          input: 'continue',
+          existingMessages: const <ChatMessage>[],
+          responseInput: HermesChatInput.text('continue'),
+        ).timeout(const Duration(seconds: 1));
+
+        check(service.sessionIds).deepEquals(<String?>['expected-session']);
+        check(
+          container
+              .read(activeConversationProvider)!
+              .metadata['hermesSessionId'],
+        ).equals('expected-session');
+        check(
+          container.read(hermesActiveSessionProvider),
+        ).equals('expected-session');
+        final assistant = container.read(chatMessagesProvider).single;
+        check(assistant.isStreaming).isFalse();
+        check(assistant.content).isEmpty();
+        check(
+          assistant.error?.content,
+        ).equals('Hermes could not safely initialize this session.');
+        check(
+          assistant.metadata?['hermesSessionId'],
+        ).equals('expected-session');
+        check(
+          assistant.metadata?['hermesSessionId'],
+        ).not((value) => value.equals('foreign-session'));
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
+      'new-session document trust excludes stale and padded history rows',
+      () async {
+        const envelope =
+            '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_TEST>>>\nsource\n'
+            '<<<END_HERMES_UNTRUSTED_REFERENCE_TEST>>>';
+        const prompt = 'summarize\n\n$envelope';
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        HermesLocalDocumentTrustStore.debugResetRuntimeState();
+        addTearDown(() {
+          HermesLocalDocumentTrustStore.debugResetRuntimeState();
+          PreferencesStore.debugReset();
+        });
+
+        final service = _TrailingStaleHistoryHermesApi(stalePrompt: prompt);
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final placeholder = _assistantMessage(
+          id: 'new-session-document-assistant',
+          content: '',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kHermesTransport},
+        );
+        container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+          placeholder,
+        ]);
+
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: placeholder.id,
+          assistantSeed: placeholder,
+          input: 'summarize',
+          existingMessages: const <ChatMessage>[],
+          responseInput: HermesChatInput.text(prompt),
+          localDocumentPromptText: prompt,
+          localDocumentEnvelopes: const <String>[envelope],
+        ).timeout(const Duration(seconds: 1));
+
+        final endpointIdentity = HermesConfigController.connectionEndpoint(
+          service.config.baseUrl,
+        )!;
+        final connectionIdentity =
+            HermesLocalDocumentTrustStore.connectionIdentity(
+              endpointIdentity: endpointIdentity,
+              principalId: container
+                  .read(hermesConfigProvider.notifier)
+                  .documentTrustPrincipalId(),
+            );
+        final trusted = HermesLocalDocumentTrustStore.trustedDocumentKeys(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'responses-session',
+        );
+        check(trusted).deepEquals(<String>{
+          HermesLocalDocumentTrustStore.documentTrustKey(
+            messageId: 'server-user-1',
+            promptText: prompt,
+            documentEnvelope: envelope,
+            startOffset: prompt.length - envelope.length,
+          ),
+        });
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
+      'response-created sessions do not persist unverifiable document trust',
+      () async {
+        const envelope =
+            '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_TEST>>>\nsource\n'
+            '<<<END_HERMES_UNTRUSTED_REFERENCE_TEST>>>';
+        const prompt = 'summarize\n\n$envelope';
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        HermesLocalDocumentTrustStore.debugResetRuntimeState();
+        addTearDown(() {
+          HermesLocalDocumentTrustStore.debugResetRuntimeState();
+          PreferencesStore.debugReset();
+        });
+
+        final service = _TrailingStaleHistoryHermesApi(
+          stalePrompt: prompt,
+          failSessionCreation: true,
+        );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final placeholder = _assistantMessage(
+          id: 'response-created-document-assistant',
+          content: '',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kHermesTransport},
+        );
+        container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+          placeholder,
+        ]);
+
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: placeholder.id,
+          assistantSeed: placeholder,
+          input: 'summarize',
+          existingMessages: const <ChatMessage>[],
+          responseInput: HermesChatInput.text(prompt),
+          localDocumentPromptText: prompt,
+          localDocumentEnvelopes: const <String>[envelope],
+        ).timeout(const Duration(seconds: 1));
+
+        final endpointIdentity = HermesConfigController.connectionEndpoint(
+          service.config.baseUrl,
+        )!;
+        final connectionIdentity =
+            HermesLocalDocumentTrustStore.connectionIdentity(
+              endpointIdentity: endpointIdentity,
+              principalId: container
+                  .read(hermesConfigProvider.notifier)
+                  .documentTrustPrincipalId(),
+            );
+        check(
+          HermesLocalDocumentTrustStore.trustedDocumentKeys(
+            connectionIdentity: connectionIdentity,
+            sessionId: 'responses-session',
+          ),
+        ).isEmpty();
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
       'Hermes document text is local-only and hidden from the bubble',
       () async {
         final directory = await Directory.systemTemp.createTemp(
@@ -1885,6 +2434,474 @@ void main() {
     );
 
     test(
+      'server switch during document extraction cannot route local text',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_admission_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final document = File('${directory.path}/notes.pdf');
+        await document.writeAsBytes(const <int>[0x25, 0x50, 0x44, 0x46]);
+        final attachment = FileUploadState(
+          file: document,
+          fileName: 'notes.pdf',
+          fileSize: await document.length(),
+          progress: 1,
+          status: FileUploadStatus.completed,
+          fileId: 'hermes-local:gated-pdf',
+          isImage: false,
+        );
+        final extractionStarted = Completer<void>();
+        final extractionGate = Completer<HermesPdfExtraction>();
+        final documentService = HermesLocalDocumentService(
+          pdfExtractor:
+              (bytes, {required maxPages, required maxCharacters}) async {
+                if (!extractionStarted.isCompleted) {
+                  extractionStarted.complete();
+                }
+                return extractionGate.future;
+              },
+        );
+        final oldService = _ResponsesHermesApi();
+        final replacementService = _ResponsesHermesApi();
+        final config = _RotatableAdmissionHermesConfigController();
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(() => config),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+            hermesLocalDocumentServiceProvider.overrideWithValue(
+              documentService,
+            ),
+            attachedFilesProvider.overrideWith(
+              () => _SeededAttachedFiles([attachment]),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+
+        final send = sendMessageWithContainer(container, 'summarize', [
+          attachment.fileId!,
+        ]);
+        await extractionStarted.future.timeout(const Duration(seconds: 1));
+        config.rotateServer();
+        container.read(serviceGeneration.notifier).set(replacementService);
+        extractionGate.complete(
+          const HermesPdfExtraction(
+            text: 'private replacement-bound text',
+            pageCount: 1,
+          ),
+        );
+        await send.timeout(const Duration(seconds: 1));
+
+        check(oldService.inputs).isEmpty();
+        check(replacementService.inputs).isEmpty();
+        check(oldService.createSessionCalls).equals(0);
+        check(replacementService.createSessionCalls).equals(0);
+        check(container.read(chatMessagesProvider)).isEmpty();
+      },
+    );
+
+    test(
+      'server switch during initial send routing cannot capture replacement',
+      () async {
+        final oldService = _ResponsesHermesApi();
+        final replacementService = _ResponsesHermesApi();
+        final config = _RotatableAdmissionHermesConfigController();
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(() => config),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+
+        final send = sendMessageWithContainer(
+          container,
+          'old-endpoint text',
+          null,
+        );
+        config.rotateServer();
+        container.read(serviceGeneration.notifier).set(replacementService);
+        await send.timeout(const Duration(seconds: 1));
+
+        check(oldService.inputs).isEmpty();
+        check(replacementService.inputs).isEmpty();
+        check(oldService.createSessionCalls).equals(0);
+        check(replacementService.createSessionCalls).equals(0);
+        check(container.read(chatMessagesProvider)).isEmpty();
+      },
+    );
+
+    test(
+      'server switch during regeneration routing cannot capture replacement',
+      () async {
+        final oldService = _ResponsesHermesApi();
+        final replacementService = _ResponsesHermesApi();
+        final config = _RotatableAdmissionHermesConfigController();
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(() => config),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final user = ChatMessage(
+          id: 'route-regeneration-user',
+          role: 'user',
+          content: 'old-endpoint prompt',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final assistant = _assistantMessage(
+          id: 'route-regeneration-assistant',
+          content: 'original answer',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesTransportMode': kHermesResponsesMode,
+            'hermesResponseId': 'old-response',
+          },
+        );
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:route-regeneration',
+                  title: 'Route regeneration',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                  messages: <ChatMessage>[user, assistant],
+                  metadata: const <String, dynamic>{
+                    'backend': 'hermes',
+                    'hermesSessionId': 'old-session',
+                  },
+                ),
+              ),
+            );
+        container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+          user,
+          assistant,
+        ]);
+
+        final regeneration = regenerateMessage(container, user.content, null);
+        config.rotateServer();
+        container.read(serviceGeneration.notifier).set(replacementService);
+        await regeneration.timeout(const Duration(seconds: 1));
+
+        check(oldService.inputs).isEmpty();
+        check(replacementService.inputs).isEmpty();
+        check(oldService.createSessionCalls).equals(0);
+        check(replacementService.createSessionCalls).equals(0);
+        check(
+          container.read(chatMessagesProvider).last.content,
+        ).equals('original answer');
+      },
+    );
+
+    for (final stallPostCommit in <bool>[false, true]) {
+      for (final configMutation in <bool>[false, true]) {
+        test(
+          '${configMutation ? 'config mutation' : 'Stop'} cancels a stalled '
+          'existing-session document '
+          '${stallPostCommit ? 'post-commit' : 'baseline'} request',
+          () async {
+            SharedPreferences.setMockInitialValues(<String, Object>{
+              PreferenceKeys.hermesEnabled: true,
+            });
+            PreferencesStore.debugOverride(
+              await SharedPreferences.getInstance(),
+            );
+            addTearDown(PreferencesStore.debugReset);
+
+            final service = _StalledDocumentBaselineHermesApi(
+              stallPostCommit: stallPostCommit,
+            );
+            addTearDown(service.dispose);
+            final container = _testContainer(
+              overrides: [
+                activeConversationProvider.overrideWith(
+                  () => _TestActiveConversationNotifier(),
+                ),
+                apiServiceProvider.overrideWithValue(null),
+                socketServiceProvider.overrideWithValue(null),
+                hermesConfigProvider.overrideWith(
+                  () => _FixedHermesConfigController(),
+                ),
+                hermesApiServiceProvider.overrideWithValue(service),
+              ],
+            );
+            addTearDown(container.dispose);
+
+            final placeholder = _assistantMessage(
+              id: 'stalled-document-baseline',
+              content: '',
+              isStreaming: true,
+              metadata: const <String, dynamic>{'transport': kHermesTransport},
+            );
+            container
+                .read(activeConversationProvider.notifier)
+                .set(
+                  markNativeHermesConversation(
+                    Conversation(
+                      id: 'local:hermes-baseline',
+                      title: 'Hermes baseline',
+                      createdAt: DateTime(2024, 1, 1),
+                      updatedAt: DateTime(2024, 1, 1),
+                      messages: <ChatMessage>[placeholder],
+                      metadata: const <String, dynamic>{
+                        'backend': 'hermes',
+                        'hermesSessionId': 'existing-session',
+                      },
+                    ),
+                  ),
+                );
+            await Future<void>.delayed(Duration.zero);
+
+            final dispatch = dispatchHermesRunFromChatForTest(
+              container,
+              assistantMessageId: placeholder.id,
+              assistantSeed: placeholder,
+              input: 'summarize',
+              existingMessages: const <ChatMessage>[],
+              responseInput: HermesChatInput.text(
+                'summarize\nBEGIN_HERMES_UNTRUSTED_REFERENCE\nprivate\n'
+                'END_HERMES_UNTRUSTED_REFERENCE',
+              ),
+              localDocumentPromptText: 'summarize',
+              localDocumentEnvelopes: const <String>[
+                'BEGIN_HERMES_UNTRUSTED_REFERENCE\nprivate\n'
+                    'END_HERMES_UNTRUSTED_REFERENCE',
+              ],
+            );
+            await service.historyStarted.future.timeout(
+              const Duration(seconds: 1),
+            );
+
+            check(service.historyCancelToken).isNotNull();
+            final Future<void> cancellation;
+            if (configMutation) {
+              cancellation = container
+                  .read(hermesConfigProvider.notifier)
+                  .setEnabled(false);
+            } else {
+              cancellation = container
+                  .read(hermesRunRegistryProvider)
+                  .cancelMessage(placeholder.id)!;
+            }
+
+            await service.historyCancelled.future.timeout(
+              const Duration(seconds: 1),
+            );
+            await cancellation.timeout(const Duration(seconds: 1));
+            await dispatch.timeout(const Duration(seconds: 1));
+
+            check(service.historyCancelToken!.isCancelled).isTrue();
+            check(service.historyCalls).equals(stallPostCommit ? 2 : 1);
+            check(service.responseCalls).equals(stallPostCommit ? 1 : 0);
+            if (stallPostCommit) {
+              check(service.historyCancelTokens).length.equals(2);
+              check(
+                service.historyCancelTokens[0],
+              ).identicalTo(service.historyCancelTokens[1]);
+              check(
+                service.historyCancelTokens[1],
+              ).identicalTo(service.responseCancelToken);
+            }
+            check(
+              container.read(chatMessagesProvider).single.isStreaming,
+            ).isFalse();
+            if (configMutation) {
+              check(container.read(hermesConfigProvider).enabled).isFalse();
+            }
+            container.read(chatMessagesProvider.notifier).clearMessages();
+          },
+        );
+      }
+    }
+
+    test(
+      'successful document sends persist exact server provenance for reopen',
+      () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        HermesLocalDocumentTrustStore.debugResetRuntimeState();
+        addTearDown(() {
+          HermesLocalDocumentTrustStore.debugResetRuntimeState();
+          PreferencesStore.debugReset();
+        });
+
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_trust_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final document = File('${directory.path}/notes.txt');
+        await document.writeAsString('private reference text');
+        final attachment = FileUploadState(
+          file: document,
+          fileName: 'notes.txt',
+          fileSize: await document.length(),
+          progress: 1,
+          status: FileUploadStatus.completed,
+          fileId: 'hermes-local:trusted-composer-token',
+          isImage: false,
+        );
+        final attachedFiles = _SeededAttachedFiles([attachment]);
+        final service = _ResponsesHermesApi(uniqueSessionIds: true);
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesCapabilitiesProvider.overrideWith(
+              (ref) async => const HermesCapabilities(inputImages: false),
+            ),
+            attachedFilesProvider.overrideWith(() => attachedFiles),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        container.read(attachedFilesProvider);
+
+        Future<void> sendDocument() async {
+          attachedFiles.reseed();
+          await sendMessageWithContainer(container, 'summarize', [
+            attachment.fileId!,
+          ]);
+        }
+
+        await sendDocument();
+        final firstPrompt = service.inputs.single.toJson() as String;
+        final firstServerHistory = await service.getSessionMessages(
+          'responses-session-1',
+        );
+        check(firstServerHistory).length.equals(1);
+        check(
+          firstServerHistory
+              .map((raw) => raw['id']?.toString().trim())
+              .whereType<String>()
+              .where((id) => id.isNotEmpty)
+              .toSet(),
+        ).deepEquals(<String>{'server-user-1'});
+        await sendDocument();
+        check(service.inputs.last.toJson()).equals(firstPrompt);
+
+        final endpointIdentity = HermesConfigController.connectionEndpoint(
+          service.config.baseUrl,
+        )!;
+        final connectionIdentity =
+            HermesLocalDocumentTrustStore.connectionIdentity(
+              endpointIdentity: endpointIdentity,
+              principalId: container
+                  .read(hermesConfigProvider.notifier)
+                  .documentTrustPrincipalId(),
+            );
+        final trustedKeys = HermesLocalDocumentTrustStore.trustedDocumentKeys(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'responses-session-1',
+        );
+        // Both identical prompts have distinct server ids. The second send's
+        // pre-dispatch baseline must exclude the older row, not bless it in
+        // place of the newly committed request.
+        check(trustedKeys).length.equals(2);
+        final reopened = hermesMessagesToChatMessages(
+          await service.getSessionMessages('responses-session-1'),
+          trustedLocalDocumentKeys: trustedKeys,
+        );
+        check(reopened).length.equals(2);
+        check(
+          reopened.every((message) => message.content == 'summarize'),
+        ).isTrue();
+        check(
+          reopened.every(
+            (message) => message.files?.single['source'] == 'hermes_local',
+          ),
+        ).isTrue();
+
+        await regenerateMessage(container, 'summarize', <String>[
+          attachment.fileId!,
+        ]);
+        final regeneratedTrust =
+            HermesLocalDocumentTrustStore.trustedDocumentKeys(
+              connectionIdentity: connectionIdentity,
+              sessionId: 'responses-session-2',
+            );
+        check(regeneratedTrust).length.equals(1);
+        final reopenedRegeneration = hermesMessagesToChatMessages(
+          await service.getSessionMessages('responses-session-2'),
+          trustedLocalDocumentKeys: regeneratedTrust,
+        );
+        check(reopenedRegeneration).length.equals(1);
+        check(reopenedRegeneration.single.content).equals('summarize');
+        check(
+          reopenedRegeneration.single.files?.single['source'],
+        ).equals('hermes_local');
+
+        service.failNextResponse = true;
+        await sendDocument();
+        check(service.committedUserMessages).length.equals(3);
+        check(
+          HermesLocalDocumentTrustStore.trustedDocumentKeys(
+            connectionIdentity: connectionIdentity,
+            sessionId: 'responses-session-2',
+          ),
+        ).length.equals(1);
+      },
+    );
+
+    test(
       'failed Hermes inline regeneration restores the original transcript',
       () async {
         final container = _buildContainer();
@@ -1908,13 +2925,15 @@ void main() {
         container
             .read(activeConversationProvider.notifier)
             .set(
-              Conversation(
-                id: 'local:hermes_edit-session',
-                title: 'Hermes edit',
-                createdAt: DateTime(2024, 1, 1),
-                updatedAt: DateTime(2024, 1, 2),
-                messages: originalMessages,
-                metadata: const <String, dynamic>{'backend': 'hermes'},
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes_edit-session',
+                  title: 'Hermes edit',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 2),
+                  messages: originalMessages,
+                  metadata: const <String, dynamic>{'backend': 'hermes'},
+                ),
               ),
             );
 
@@ -2233,13 +3252,18 @@ void main() {
           isStreaming: true,
           metadata: const {'transport': 'hermesRun'},
         );
-        final conversationA = Conversation(
-          id: 'local:hermes_session-a',
-          title: 'Hermes A',
-          createdAt: DateTime(2024, 1, 1),
-          updatedAt: DateTime(2024, 1, 1),
-          messages: [sharedAssistant],
-          metadata: const {'backend': 'hermes', 'hermesSessionId': 'session-a'},
+        final conversationA = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_session-a',
+            title: 'Hermes A',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: [sharedAssistant],
+            metadata: const {
+              'backend': 'hermes',
+              'hermesSessionId': 'session-a',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(conversationA);
         await Future<void>.delayed(Duration.zero);
@@ -2252,20 +3276,25 @@ void main() {
         );
         await config.started.future.timeout(const Duration(seconds: 1));
 
-        final conversationB = Conversation(
-          id: 'local:hermes_session-b',
-          title: 'Hermes B',
-          createdAt: DateTime(2024, 1, 1),
-          updatedAt: DateTime(2024, 1, 1),
-          messages: [
-            _assistantMessage(
-              id: 'copied-assistant',
-              content: 'B untouched',
-              isStreaming: true,
-              metadata: const {'transport': 'hermesRun'},
-            ),
-          ],
-          metadata: const {'backend': 'hermes', 'hermesSessionId': 'session-b'},
+        final conversationB = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_session-b',
+            title: 'Hermes B',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: [
+              _assistantMessage(
+                id: 'copied-assistant',
+                content: 'B untouched',
+                isStreaming: true,
+                metadata: const {'transport': 'hermesRun'},
+              ),
+            ],
+            metadata: const {
+              'backend': 'hermes',
+              'hermesSessionId': 'session-b',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(conversationB);
         await Future<void>.delayed(Duration.zero);
@@ -2370,16 +3399,18 @@ void main() {
           container
               .read(activeConversationProvider.notifier)
               .set(
-                Conversation(
-                  id: 'local:hermes_legacy-$index',
-                  title: 'Legacy Hermes chat',
-                  createdAt: DateTime(2024, 1, 1),
-                  updatedAt: DateTime(2024, 1, 1),
-                  messages: [placeholder],
-                  metadata: <String, dynamic>{
-                    'backend': 'hermes',
-                    'hermesSessionId': invalidSessionIds[index],
-                  },
+                markNativeHermesConversation(
+                  Conversation(
+                    id: 'local:hermes_legacy-$index',
+                    title: 'Legacy Hermes chat',
+                    createdAt: DateTime(2024, 1, 1),
+                    updatedAt: DateTime(2024, 1, 1),
+                    messages: [placeholder],
+                    metadata: <String, dynamic>{
+                      'backend': 'hermes',
+                      'hermesSessionId': invalidSessionIds[index],
+                    },
+                  ),
                 ),
               );
           await Future<void>.delayed(Duration.zero);
@@ -2450,10 +3481,28 @@ void main() {
         container.read(activeConversationProvider.notifier).set(conversationA);
         await Future<void>.delayed(Duration.zero);
 
+        final endpointIdentity = HermesConfigController.connectionEndpoint(
+          service.config.baseUrl,
+        )!;
+        final connectionIdentity =
+            HermesLocalDocumentTrustStore.connectionIdentity(
+              endpointIdentity: endpointIdentity,
+              principalId: container
+                  .read(hermesConfigProvider.notifier)
+                  .documentTrustPrincipalId(),
+            );
         final history = _assistantMessage(
           id: 'history-a',
           content: 'earlier',
-          metadata: const {'hermesSessionId': 'session-a'},
+          metadata: {
+            'hermesSessionId': 'session-a',
+            kHermesConnectionIdentityMetadataKey: connectionIdentity,
+          },
+        );
+        await rememberMixedHermesMessageProvenanceForTest(
+          container,
+          conversation: conversationA,
+          assistantMessage: history,
         );
         final dispatch = dispatchHermesRunFromChatForTest(
           container,
@@ -2626,16 +3675,18 @@ void main() {
           isStreaming: true,
           metadata: const <String, dynamic>{'transport': kHermesTransport},
         );
-        final conversationB = Conversation(
-          id: 'local:hermes_retry-session-b',
-          title: 'Native Hermes B',
-          createdAt: DateTime(2024, 1, 1),
-          updatedAt: DateTime(2024, 1, 1),
-          messages: <ChatMessage>[assistantB],
-          metadata: const <String, dynamic>{
-            'backend': 'hermes',
-            'hermesSessionId': 'retry-session-b',
-          },
+        final conversationB = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_retry-session-b',
+            title: 'Native Hermes B',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[assistantB],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'retry-session-b',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(conversationB);
         await Future<void>.delayed(Duration.zero);
@@ -2705,16 +3756,18 @@ void main() {
           isStreaming: true,
           metadata: const <String, dynamic>{'transport': kHermesTransport},
         );
-        final conversationA = Conversation(
-          id: 'local:hermes_approval-a',
-          title: 'Hermes approval A',
-          createdAt: DateTime(2024, 1, 1),
-          updatedAt: DateTime(2024, 1, 1),
-          messages: <ChatMessage>[placeholder],
-          metadata: const <String, dynamic>{
-            'backend': 'hermes',
-            'hermesSessionId': 'approval-a',
-          },
+        final conversationA = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_approval-a',
+            title: 'Hermes approval A',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[placeholder],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'approval-a',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(conversationA);
         await Future<void>.delayed(Duration.zero);
@@ -3206,16 +4259,18 @@ void main() {
         isStreaming: true,
         metadata: const <String, dynamic>{'transport': kHermesTransport},
       );
-      final conversation = withChatStorageProvenance(
-        _conversation('local:hermes_live-session', <ChatMessage>[
-          placeholder,
-        ]).copyWith(
-          metadata: const <String, dynamic>{
-            'backend': 'hermes',
-            'hermesSessionId': 'live-session',
-          },
+      final conversation = markNativeHermesConversation(
+        withChatStorageProvenance(
+          _conversation('local:hermes_live-session', <ChatMessage>[
+            placeholder,
+          ]).copyWith(
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'live-session',
+            },
+          ),
+          ChatStorageKind.directLocal,
         ),
-        ChatStorageKind.directLocal,
       );
       container.read(activeConversationProvider.notifier).set(conversation);
       container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
@@ -3269,16 +4324,18 @@ void main() {
       container
           .read(activeConversationProvider.notifier)
           .set(
-            Conversation(
-              id: 'local:hermes_old-session',
-              title: 'Hermes session',
-              createdAt: DateTime(2024, 1, 1),
-              updatedAt: DateTime(2024, 1, 1),
-              messages: [assistant],
-              metadata: const {
-                'backend': 'hermes',
-                'hermesSessionId': 'old-session',
-              },
+            markNativeHermesConversation(
+              Conversation(
+                id: 'local:hermes_old-session',
+                title: 'Hermes session',
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 1),
+                messages: [assistant],
+                metadata: const {
+                  'backend': 'hermes',
+                  'hermesSessionId': 'old-session',
+                },
+              ),
             ),
           );
       await Future<void>.delayed(Duration.zero);
@@ -3336,16 +4393,18 @@ void main() {
         container
             .read(activeConversationProvider.notifier)
             .set(
-              Conversation(
-                id: 'local:hermes_old-session',
-                title: 'Hermes session',
-                createdAt: DateTime(2024, 1, 1),
-                updatedAt: DateTime(2024, 1, 1),
-                messages: [user, previousAssistant],
-                metadata: const {
-                  'backend': 'hermes',
-                  'hermesSessionId': 'old-session',
-                },
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes_old-session',
+                  title: 'Hermes session',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                  messages: [user, previousAssistant],
+                  metadata: const {
+                    'backend': 'hermes',
+                    'hermesSessionId': 'old-session',
+                  },
+                ),
               ),
             );
         await Future<void>.delayed(Duration.zero);
@@ -3365,6 +4424,290 @@ void main() {
         check(messages.last.versions).length.equals(1);
         check(messages.last.versions.single.content).equals('previous answer');
         check(container.read(imageGenerationEnabledProvider)).isFalse();
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
+      'Hermes regeneration cannot mutate a chat switched during capability lookup',
+      () async {
+        final service = _ResponsesHermesApi();
+        final capabilities = Completer<HermesCapabilities>();
+        final capabilitiesRequested = Completer<void>();
+        final model = hermesSyntheticModel();
+        final user = ChatMessage(
+          id: 'old-user',
+          role: 'user',
+          content: 'old question',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final previousAssistant = _assistantMessage(
+          id: 'old-assistant',
+          content: 'old answer',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesTransportMode': kHermesResponsesMode,
+          },
+        );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            selectedModelProvider.overrideWithValue(model),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesCapabilitiesProvider.overrideWith((ref) {
+              if (!capabilitiesRequested.isCompleted) {
+                capabilitiesRequested.complete();
+              }
+              return capabilities.future;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        final oldConversation = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes-old',
+            title: 'Old Hermes chat',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[user, previousAssistant],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'old-session',
+            },
+          ),
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(oldConversation);
+        container
+            .read(chatMessagesProvider.notifier)
+            .setMessages(oldConversation.messages);
+
+        final regeneration = regenerateMessage(container, user.content, null);
+        await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+
+        final newMessages = <ChatMessage>[
+          _assistantMessage(id: 'new-sentinel', content: 'new chat answer'),
+        ];
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes-new',
+                  title: 'New Hermes chat',
+                  createdAt: DateTime(2024, 1, 2),
+                  updatedAt: DateTime(2024, 1, 2),
+                  messages: newMessages,
+                  metadata: const <String, dynamic>{
+                    'backend': 'hermes',
+                    'hermesSessionId': 'new-session',
+                  },
+                ),
+              ),
+            );
+        container.read(chatMessagesProvider.notifier).setMessages(newMessages);
+        capabilities.complete(const HermesCapabilities(inputImages: true));
+        await regeneration.timeout(const Duration(seconds: 1));
+
+        check(container.read(chatMessagesProvider)).deepEquals(newMessages);
+        check(service.inputs).isEmpty();
+      },
+    );
+
+    for (final disableHermes in <bool>[false, true]) {
+      test('${disableHermes ? 'config cancellation' : 'Stop'} during image '
+          'capability lookup prevents normal Hermes dispatch', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          PreferenceKeys.hermesEnabled: true,
+        });
+        PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+        addTearDown(PreferencesStore.debugReset);
+        final capabilities = Completer<HermesCapabilities>();
+        final capabilitiesRequested = Completer<void>();
+        final service = _ResponsesHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesCapabilitiesProvider.overrideWith((ref) {
+              if (!capabilitiesRequested.isCompleted) {
+                capabilitiesRequested.complete();
+              }
+              return capabilities.future;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(selectedModelProvider.notifier)
+            .set(hermesSyntheticModel());
+        final user = ChatMessage(
+          id: 'normal-capability-user',
+          role: 'user',
+          content: 'first question',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final previousAssistant = _assistantMessage(
+          id: 'normal-capability-previous',
+          content: 'first answer',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesTransportMode': kHermesResponsesMode,
+            'hermesResponseId': 'previous-response',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes-capability-send',
+            title: 'Capability send',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[user, previousAssistant],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'capability-session',
+            },
+          ),
+        );
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await Future<void>.delayed(Duration.zero);
+
+        final send = sendMessageWithContainer(
+          container,
+          'second question',
+          null,
+        );
+        await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+        final placeholder = container.read(chatMessagesProvider).last;
+        check(placeholder.metadata?['transport']).equals(kHermesTransport);
+        check(placeholder.isStreaming).isTrue();
+
+        if (disableHermes) {
+          await container
+              .read(hermesConfigProvider.notifier)
+              .setEnabled(false)
+              .timeout(const Duration(seconds: 1));
+        } else {
+          container.read(stopGenerationProvider)();
+        }
+        await Future<void>.delayed(Duration.zero);
+        check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+
+        capabilities.complete(const HermesCapabilities(inputImages: true));
+        await send.timeout(const Duration(seconds: 1));
+
+        check(service.inputs).isEmpty();
+        check(service.createSessionCalls).equals(0);
+        if (disableHermes) {
+          check(container.read(hermesConfigProvider).enabled).isFalse();
+        }
+        check(
+          container
+              .read(hermesRunRegistryProvider)
+              .cancelMessage(placeholder.id),
+        ).isNull();
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      });
+    }
+
+    test(
+      'server switch during capability lookup cannot route Hermes regeneration',
+      () async {
+        final capabilities = Completer<HermesCapabilities>();
+        final capabilitiesRequested = Completer<void>();
+        final oldService = _ResponsesHermesApi();
+        final replacementService = _ResponsesHermesApi();
+        final config = _RotatableAdmissionHermesConfigController();
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            selectedModelProvider.overrideWithValue(hermesSyntheticModel()),
+            reviewerModeProvider.overrideWithValue(false),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(() => config),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+            hermesCapabilitiesProvider.overrideWith((ref) {
+              if (!capabilitiesRequested.isCompleted) {
+                capabilitiesRequested.complete();
+              }
+              return capabilities.future;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        final user = ChatMessage(
+          id: 'regeneration-capability-user',
+          role: 'user',
+          content: 'repeat this',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final previousAssistant = _assistantMessage(
+          id: 'regeneration-capability-assistant',
+          content: 'original answer',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesTransportMode': kHermesResponsesMode,
+            'hermesResponseId': 'original-response',
+          },
+        );
+        final originalMessages = <ChatMessage>[user, previousAssistant];
+        final conversation = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes-capability-regeneration',
+            title: 'Capability regeneration',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: originalMessages,
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'regeneration-session',
+            },
+          ),
+        );
+        container.read(activeConversationProvider.notifier).set(conversation);
+        container
+            .read(chatMessagesProvider.notifier)
+            .setMessages(originalMessages);
+
+        final regeneration = regenerateMessage(container, user.content, null);
+        await capabilitiesRequested.future.timeout(const Duration(seconds: 1));
+
+        config.rotateServer();
+        container.read(serviceGeneration.notifier).set(replacementService);
+        capabilities.complete(const HermesCapabilities(inputImages: true));
+        await regeneration.timeout(const Duration(seconds: 1));
+
+        check(oldService.inputs).isEmpty();
+        check(replacementService.inputs).isEmpty();
+        check(
+          container.read(chatMessagesProvider),
+        ).deepEquals(originalMessages);
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
@@ -3821,11 +5164,13 @@ void main() {
         isStreaming: true,
         metadata: const <String, dynamic>{'transport': kHermesTransport},
       );
-      final hermesConversation = withChatStorageProvenance(
-        _conversation('hermes-stop-chat', <ChatMessage>[
-          hermesAssistant,
-        ]).copyWith(metadata: const <String, dynamic>{'backend': 'hermes'}),
-        ChatStorageKind.directLocal,
+      final hermesConversation = markNativeHermesConversation(
+        withChatStorageProvenance(
+          _conversation('hermes-stop-chat', <ChatMessage>[
+            hermesAssistant,
+          ]).copyWith(metadata: const <String, dynamic>{'backend': 'hermes'}),
+          ChatStorageKind.directLocal,
+        ),
       );
       container
           .read(activeConversationProvider.notifier)
@@ -3990,16 +5335,18 @@ void main() {
           isStreaming: true,
           metadata: const <String, dynamic>{'transport': kHermesTransport},
         );
-        final conversation = Conversation(
-          id: 'local:hermes_failed-stop-session',
-          title: 'Failed stop',
-          createdAt: DateTime(2024, 1, 1),
-          updatedAt: DateTime(2024, 1, 1),
-          messages: <ChatMessage>[assistant],
-          metadata: const <String, dynamic>{
-            'backend': 'hermes',
-            'hermesSessionId': 'failed-stop-session',
-          },
+        final conversation = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_failed-stop-session',
+            title: 'Failed stop',
+            createdAt: DateTime(2024, 1, 1),
+            updatedAt: DateTime(2024, 1, 1),
+            messages: <ChatMessage>[assistant],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'failed-stop-session',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(conversation);
         await Future<void>.delayed(Duration.zero);
@@ -5094,6 +6441,113 @@ void main() {
         check(active.id).equals('assistant-b');
         check(active.isStreaming).isTrue();
         check(active.error).isNull();
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'non-tail failure retires only its transport and preserves the newer tail',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(
+            id: 'failed-assistant',
+            content: 'failed partial',
+            isStreaming: true,
+          ),
+        ]);
+        final upstream = StreamController<String>();
+        addTearDown(upstream.close);
+        final lateChunks = <String>[];
+        final controller = StreamingResponseController(
+          stream: upstream.stream,
+          onChunk: lateChunks.add,
+          onComplete: () {},
+          onError: (_, _) {},
+        );
+        var socketDisposed = false;
+        notifier.setMessageStream('failed-assistant', controller);
+        notifier.setSocketSubscriptions('failed-assistant', [
+          () => socketDisposed = true,
+        ]);
+        notifier.addMessage(
+          _assistantMessage(
+            id: 'newer-assistant',
+            content: 'newer partial',
+            isStreaming: true,
+          ),
+        );
+
+        notifier.failLastStreamingAssistant(
+          Exception('old run failed'),
+          assistantMessageId: 'failed-assistant',
+        );
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages.first.isStreaming).isFalse();
+        check(messages.first.error).isNotNull();
+        check(messages.last.id).equals('newer-assistant');
+        check(messages.last.isStreaming).isTrue();
+        check(messages.last.error).isNull();
+        check(controller.isActive).isFalse();
+        check(socketDisposed).isTrue();
+        upstream.add('late old chunk');
+        await Future<void>.delayed(Duration.zero);
+        check(lateChunks).isEmpty();
+        notifier.clearMessages();
+      },
+    );
+
+    test(
+      'non-tail failure retires its poll-only monitor, not newer transport',
+      () {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(
+            id: 'failed-assistant',
+            content: 'failed partial',
+            isStreaming: true,
+          ),
+        ]);
+        notifier.addMessage(
+          _assistantMessage(
+            id: 'newer-assistant',
+            content: 'newer partial',
+            isStreaming: true,
+          ),
+        );
+        var newerSocketDisposed = false;
+        notifier.setSocketSubscriptions('newer-assistant', [
+          () => newerSocketDisposed = true,
+        ]);
+        notifier.debugInstallRemoteTaskMonitor('failed-assistant');
+        notifier.recordResumeBoundRemoteMessageId(
+          'newer-assistant',
+          'newer-remote-assistant',
+        );
+        check(notifier.debugHasRemoteTaskMonitor).isTrue();
+
+        notifier.failLastStreamingAssistant(
+          Exception('old poll-only run failed'),
+          assistantMessageId: 'failed-assistant',
+        );
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages.first.isStreaming).isFalse();
+        check(messages.first.error).isNotNull();
+        check(messages.last.id).equals('newer-assistant');
+        check(messages.last.isStreaming).isTrue();
+        check(notifier.debugHasRemoteTaskMonitor).isFalse();
+        check(newerSocketDisposed).isFalse();
+        check(
+          notifier.debugBoundRemoteMessageId,
+        ).equals('newer-remote-assistant');
+        notifier.cancelSocketSubscriptions();
+        check(newerSocketDisposed).isTrue();
         notifier.clearMessages();
       },
     );

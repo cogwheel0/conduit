@@ -296,7 +296,7 @@ void main() {
       );
       String? establishedSession;
 
-      await dispatchHermesResponse(
+      final completed = await dispatchHermesResponse(
         service: fake,
         registry: HermesRunRegistry(),
         assistantMessageId: 'response-message',
@@ -321,6 +321,31 @@ void main() {
       expect(fake.lastResponseConversationHistory, equals(history));
       check(fake.lastResponseInstructions).equals('Be concise');
       check(establishedSession).equals('session-from-header');
+      check(completed).isTrue();
+    });
+
+    test('pre-cancelled response reports no successful dispatch', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesRunDone()],
+      );
+      final cancelToken = CancelToken()..cancel('stopped');
+
+      final completed = await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'cancelled-response',
+        input: HermesChatInput.text('hello'),
+        cancelToken: cancelToken,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(completed).isFalse();
+      check(fake.streamResponseCalls).equals(0);
     });
 
     test('records response identity and transport metadata', () async {

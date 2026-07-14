@@ -139,6 +139,40 @@ void main() {
     });
   });
 
+  group('decodedImageByteLength', () {
+    test('counts padded and unpadded base64 without decoding it', () {
+      expect(decodedImageByteLength('data:image/png;base64,AA=='), 1);
+      expect(decodedImageByteLength('data:image/png;base64,AQI'), 2);
+    });
+
+    test('rejects whitespace and malformed padding', () {
+      expect(
+        () => decodedImageByteLength('data:image/png;base64,AQ I='),
+        throwsA(isA<DirectChatInputException>()),
+      );
+      expect(
+        () => decodedImageByteLength('data:image/png;base64,AA=A'),
+        throwsA(isA<DirectChatInputException>()),
+      );
+    });
+
+    test('preflights the decoded-byte limit', () {
+      expect(
+        () => decodedImageByteLength(
+          'data:image/png;base64,AQI=',
+          maxDecodedBytes: 1,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('too large'),
+          ),
+        ),
+      );
+    });
+  });
+
   group('buildDirectChatMessages', () {
     test('preserves supported history and resolves protected images', () async {
       final resolvedImage = _imageDataUrl([1, 2, 3]);

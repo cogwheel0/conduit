@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
@@ -521,6 +522,55 @@ void main() {
       expect(http.requests.single.uri.toString(), 'https://api.test/v1/models');
       expect(http.requests.single.followRedirects, isFalse);
       expect(http.requests.single.headers['Authorization'], 'Bearer secret');
+    },
+  );
+
+  test(
+    'OpenAI discovery honors advertised image modalities with absent fallback',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'data': [
+            {
+              'id': 'text-only',
+              'architecture': {
+                'input_modalities': ['text'],
+              },
+            },
+            {
+              'id': 'vision',
+              'architecture': {
+                'input_modalities': ['text', 'IMAGE'],
+              },
+            },
+            {'id': 'explicit-text', 'is_multimodal': false},
+            {
+              'id': 'metadata-without-modalities',
+              'architecture': {'tokenizer': 'example'},
+            },
+            {'id': 'metadata-absent'},
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final models = await adapter.listModels(_openAiProfile());
+      DirectRemoteModel model(String id) =>
+          models.firstWhere((candidate) => candidate.id == id);
+
+      expect(model('text-only').isMultimodal, isFalse);
+      expect(model('vision').isMultimodal, isTrue);
+      expect(model('explicit-text').isMultimodal, isFalse);
+      expect(model('metadata-without-modalities').isMultimodal, isTrue);
+      expect(model('metadata-absent').isMultimodal, isTrue);
+      expect(model('text-only').capabilities['advertised_multimodal'], isFalse);
+      expect(
+        model('metadata-absent').capabilities,
+        isNot(contains('advertised_multimodal')),
+      );
     },
   );
 

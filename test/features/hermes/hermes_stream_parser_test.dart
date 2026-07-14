@@ -64,6 +64,19 @@ void main() {
       check(events.last).isA<HermesRunDone>();
     });
 
+    test('status-only incomplete response is a terminal error', () async {
+      final events = await parseHermesRunStream(
+        _sse(['data: {"status":"incomplete"}\n\n']),
+      ).toList();
+
+      check(events).length.equals(2);
+      check(events.first)
+          .isA<HermesRunError>()
+          .has((event) => event.message, 'message')
+          .equals('The Hermes response was incomplete.');
+      check(events.last).isA<HermesRunDone>();
+    });
+
     test('empty non-terminal Hermes events remain ignorable', () async {
       final events = await parseHermesRunStream(
         _sse(['event: tool.started\ndata:\n\n']),
@@ -409,6 +422,65 @@ void main() {
       check(
         events.single,
       ).isA<HermesRunError>().has((e) => e.message, 'message').equals('boom');
+    });
+
+    test('does not coerce a nested type into protocol routing text', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"type":{"nested":"message.delta"},"delta":"secret"}\n\n',
+        ]),
+      ).toList();
+
+      check(events).isEmpty();
+    });
+
+    test('does not coerce a nested status into lifecycle text', () async {
+      final events = await parseHermesRunStream(
+        _sse(['data: {"status":{"nested":"completed"}}\n\n']),
+      ).toList();
+
+      check(events).isEmpty();
+    });
+
+    test('does not render a nested error container as display text', () async {
+      final events = await parseHermesRunStream(
+        _sse(['data: {"error":{"message":{"nested":"boom"}}}\n\n']),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single)
+          .isA<HermesRunError>()
+          .has((event) => event.message, 'message')
+          .equals('Hermes run failed.');
+    });
+
+    test('does not render nested tool metadata as display text', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: tool.started\n'
+              'data: {"tool":{"nested":"shell"},'
+              '"status":{"nested":"completed"},'
+              '"detail":["secret"]}\n\n',
+        ]),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single).isA<HermesToolProgress>()
+        ..has((event) => event.toolName, 'toolName').equals('tool')
+        ..has((event) => event.detail, 'detail').isNull()
+        ..has((event) => event.done, 'done').isFalse();
+    });
+
+    test('drops a compact frame with more than 100k JSON nodes', () async {
+      final values = List<String>.filled(100000, '0').join(',');
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"type":"message.delta","delta":"visible",'
+              '"ignored":[$values]}\n\n',
+        ]),
+      ).toList();
+
+      check(events).isEmpty();
     });
   });
 

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/direct_replay_output.dart';
 import '../../../core/services/semantic_message_builder.dart';
@@ -157,7 +155,13 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     }
     if (!seenImages.add(value)) return;
 
-    final bytes = decodedImageByteLength(value);
+    final bytes = decodedImageByteLength(
+      value,
+      maxDecodedBytes: maxDecodedImageBytes - decodedImageBytes,
+      tooLargeMessage:
+          'Direct chat images must be '
+          '${_formatDirectByteLimit(maxDecodedImageBytes)} or less in total.',
+    );
     imageCount++;
     decodedImageBytes += bytes;
     if (imageCount > maxImages) {
@@ -276,10 +280,24 @@ String _formatDirectByteLimit(int bytes) {
   return '$bytes ${bytes == 1 ? 'byte' : 'bytes'}';
 }
 
-/// Returns the decoded byte size without allocating the decoded image.
-int decodedImageByteLength(String dataUrl) {
+/// Returns the decoded byte size without allocating or copying the payload.
+int decodedImageByteLength(
+  String dataUrl, {
+  int maxDecodedBytes = kDirectMaxDecodedImageBytes,
+  String tooLargeMessage = 'A direct image is too large.',
+}) {
+  if (maxDecodedBytes <= 0) {
+    throw DirectChatInputException(tooLargeMessage);
+  }
+  const maxMetadataCharacters = 256;
+  final maxPayloadCharacters = ((maxDecodedBytes + 2) ~/ 3) * 4;
+  if (dataUrl.length > maxMetadataCharacters + 1 + maxPayloadCharacters) {
+    throw DirectChatInputException(tooLargeMessage);
+  }
   final comma = dataUrl.indexOf(',');
-  if (!dataUrl.startsWith('data:image/') || comma < 0) {
+  if (!dataUrl.startsWith('data:image/') ||
+      comma < 0 ||
+      comma > maxMetadataCharacters) {
     throw const DirectChatInputException('A direct image is not a data URL.');
   }
   final metadata = dataUrl.substring(0, comma).toLowerCase();
@@ -288,23 +306,38 @@ int decodedImageByteLength(String dataUrl) {
       'Direct images must use base64 data URLs.',
     );
   }
-  final payload = dataUrl.substring(comma + 1).replaceAll(RegExp(r'\s'), '');
-  if (payload.isEmpty) {
+  final payloadStart = comma + 1;
+  final payloadLength = dataUrl.length - payloadStart;
+  if (payloadLength <= 0) {
     throw const DirectChatInputException('A direct image is empty.');
   }
-  try {
-    // Validate the alphabet and padding. The arithmetic below avoids keeping a
-    // second full image copy in memory merely to enforce the size limit.
-    base64.normalize(payload);
-  } on FormatException {
+  if (payloadLength > maxPayloadCharacters || payloadLength % 4 == 1) {
+    throw DirectChatInputException(tooLargeMessage);
+  }
+  var padding = 0;
+  for (var index = payloadStart; index < dataUrl.length; index++) {
+    final code = dataUrl.codeUnitAt(index);
+    final isAlphabet =
+        (code >= 0x41 && code <= 0x5A) ||
+        (code >= 0x61 && code <= 0x7A) ||
+        (code >= 0x30 && code <= 0x39) ||
+        code == 0x2B ||
+        code == 0x2F;
+    if (isAlphabet && padding == 0) continue;
+    if (code == 0x3D && index >= dataUrl.length - 2) {
+      padding++;
+      continue;
+    }
     throw const DirectChatInputException('A direct image is invalid.');
   }
-  final padding = payload.endsWith('==')
-      ? 2
-      : payload.endsWith('=')
-      ? 1
-      : 0;
-  return (payload.length * 3 ~/ 4) - padding;
+  if (padding > 0 && payloadLength % 4 != 0) {
+    throw const DirectChatInputException('A direct image is invalid.');
+  }
+  final decodedBytes = (payloadLength * 3 ~/ 4) - padding;
+  if (decodedBytes > maxDecodedBytes) {
+    throw DirectChatInputException(tooLargeMessage);
+  }
+  return decodedBytes;
 }
 
 /// A bounded-cost update for projecting a direct stream into the active chat.

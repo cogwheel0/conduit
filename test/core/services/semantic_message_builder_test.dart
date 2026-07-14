@@ -163,6 +163,21 @@ void main() {
       check(rendered).not((it) => it.contains('<details type="reasoning">'));
     });
 
+    test('preserves indented code beyond the parser candidate batch', () {
+      final codeLines = List<String>.generate(
+        4097,
+        (index) => '    Map<String, int> row$index = {"x": $index};',
+      );
+      final rendered = renderSemanticMessageBlocks([
+        SemanticTextBlock('Examples:\n\n${codeLines.join('\n')}'),
+      ]);
+
+      check(rendered).contains(codeLines.first);
+      check(rendered).contains(codeLines.last);
+      check(rendered).not((value) => value.contains('Map&lt;String'));
+      check(rendered).not((value) => value.contains('&quot;x&quot;'));
+    });
+
     test('leaves multi-backtick inline code spans unescaped', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock(

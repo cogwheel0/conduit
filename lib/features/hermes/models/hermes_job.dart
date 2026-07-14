@@ -1,7 +1,11 @@
 import '../../../core/utils/unicode_prefix.dart';
+import '../services/hermes_identifier.dart';
+import '../utils/hermes_time_parsing.dart';
 
 const int kMaxHermesJobNameCharacters = 200;
 const int kMaxHermesJobPromptCharacters = 5000;
+const int kMaxHermesJobScheduleCharacters = 2048;
+const int kMaxHermesJobStatusCharacters = 256;
 
 /// A Hermes scheduled job (`/api/jobs/*`): a prompt run on a cron, interval,
 /// duration, or one-shot schedule.
@@ -30,9 +34,12 @@ class HermesJob {
 
   /// Best label for the job: name, else a prompt preview.
   String get displayName {
-    if (name != null && name!.trim().isNotEmpty) return name!.trim();
-    if (prompt.trim().isEmpty) return '(no prompt)';
-    final oneLine = prompt.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final boundedName = _boundedDisplayValue(name, kMaxHermesJobNameCharacters);
+    if (boundedName != null && boundedName.isNotEmpty) return boundedName;
+    final boundedPrompt =
+        _boundedDisplayValue(prompt, kMaxHermesJobPromptCharacters) ?? '';
+    if (boundedPrompt.isEmpty) return '(no prompt)';
+    final oneLine = boundedPrompt.replaceAll(RegExp(r'\s+'), ' ');
     if (oneLine.runes.length <= 80) return oneLine;
     return '${takeUnicodeScalarPrefix(oneLine, 80)}…';
   }
@@ -45,8 +52,19 @@ class HermesJob {
   final DateTime? lastRun;
 
   static HermesJob? fromJson(Map<String, dynamic> json) {
-    final id = (json['id'] ?? json['job_id'])?.toString();
-    if (id == null || id.isEmpty) return null;
+    final id = validateHermesOpaqueIdentifier(json['id'] ?? json['job_id']);
+    if (id == null) return null;
+
+    final rawPrompt = json['prompt'];
+    final prompt = rawPrompt == null
+        ? ''
+        : validateHermesBoundedString(
+            rawPrompt,
+            maxCharacters: kMaxHermesJobPromptCharacters,
+            trim: false,
+            allowEmpty: true,
+          );
+    if (prompt == null) return null;
 
     final bool enabled;
     if (json['enabled'] is bool) {
@@ -59,13 +77,19 @@ class HermesJob {
 
     return HermesJob(
       id: id,
-      name: json['name']?.toString(),
-      prompt: (json['prompt'] ?? '').toString(),
+      name: validateHermesBoundedString(
+        json['name'],
+        maxCharacters: kMaxHermesJobNameCharacters,
+      ),
+      prompt: prompt,
       schedule: _parseSchedule(json),
       enabled: enabled,
-      lastStatus: (json['last_status'] ?? json['status'])?.toString(),
-      nextRun: _parseTime(json['next_run_at'] ?? json['next_run']),
-      lastRun: _parseTime(json['last_run_at'] ?? json['last_run']),
+      lastStatus: validateHermesBoundedString(
+        json['last_status'] ?? json['status'],
+        maxCharacters: kMaxHermesJobStatusCharacters,
+      ),
+      nextRun: parseHermesTimestamp(json['next_run_at'] ?? json['next_run']),
+      lastRun: parseHermesTimestamp(json['last_run_at'] ?? json['last_run']),
     );
   }
 
@@ -74,9 +98,16 @@ class HermesJob {
   /// labels such as `once at …`; those labels are not accepted by create/edit.
   static String _parseSchedule(Map<String, dynamic> json) {
     final schedule = json['schedule'];
-    if (schedule is String && schedule.trim().isNotEmpty) return schedule;
+    final scalarSchedule = validateHermesBoundedString(
+      schedule,
+      maxCharacters: kMaxHermesJobScheduleCharacters,
+    );
+    if (scalarSchedule != null) return scalarSchedule;
     if (schedule is Map) {
-      final kind = schedule['kind']?.toString().trim().toLowerCase();
+      final kind = validateHermesBoundedString(
+        schedule['kind'],
+        maxCharacters: 32,
+      )?.toLowerCase();
       if (kind == 'cron') {
         final expression = _nonEmptyScheduleValue(
           schedule['expr'] ?? schedule['cron'] ?? schedule['value'],
@@ -84,7 +115,7 @@ class HermesJob {
         if (expression != null) return expression;
       }
       if (kind == 'interval') {
-        final minutes = int.tryParse(schedule['minutes']?.toString() ?? '');
+        final minutes = _parseWholeMinutes(schedule['minutes']);
         if (minutes != null && minutes >= 0) return 'every ${minutes}m';
       }
       if (kind == 'once') {
@@ -112,17 +143,27 @@ class HermesJob {
   }
 
   static String? _nonEmptyScheduleValue(Object? value) {
-    if (value == null) return null;
-    final text = value.toString().trim();
-    return text.isEmpty ? null : text;
+    return validateHermesBoundedString(
+      value,
+      maxCharacters: kMaxHermesJobScheduleCharacters,
+    );
   }
 
-  static DateTime? _parseTime(dynamic value) {
-    if (value == null) return null;
-    if (value is int) {
-      final ms = value < 100000000000 ? value * 1000 : value;
-      return DateTime.fromMillisecondsSinceEpoch(ms);
+  static int? _parseWholeMinutes(Object? value) {
+    if (value is int) return value;
+    if (value is num && value.isFinite && value == value.roundToDouble()) {
+      return value.toInt();
     }
-    return DateTime.tryParse(value.toString());
+    if (value is String && value.length <= 32) return int.tryParse(value);
+    return null;
+  }
+
+  static String? _boundedDisplayValue(String? value, int maxCharacters) {
+    if (value == null || value.isEmpty) return null;
+    final bounded = value.length <= maxCharacters
+        ? value
+        : takeUnicodeScalarPrefix(value, maxCharacters);
+    final normalized = bounded.trim();
+    return normalized.isEmpty ? null : normalized;
   }
 }

@@ -14,6 +14,7 @@ import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
@@ -78,6 +79,12 @@ final class _LiveHermesApi extends HermesApiService {
   final List<String> stoppedRuns = <String>[];
 
   @override
+  Future<String> createSession({String? title, CancelToken? cancelToken}) =>
+      Future<String>.error(
+        StateError('The remap test must bind its existing Hermes session.'),
+      );
+
+  @override
   Future<String> createRun({
     required String input,
     String? sessionId,
@@ -140,12 +147,25 @@ void main() {
       });
 
       final now = DateTime.utc(2026, 7, 13);
+      final endpointIdentity = HermesConfigController.connectionEndpoint(
+        service.config.baseUrl,
+      )!;
+      final connectionIdentity =
+          HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpointIdentity,
+            principalId: container
+                .read(hermesConfigProvider.notifier)
+                .documentTrustPrincipalId(),
+          );
       final previousAssistant = ChatMessage(
         id: 'previous-assistant',
         role: 'assistant',
         content: 'Earlier response',
         timestamp: now,
-        metadata: const <String, dynamic>{'hermesSessionId': 'session-1'},
+        metadata: <String, dynamic>{
+          'hermesSessionId': 'session-1',
+          kHermesConnectionIdentityMetadataKey: connectionIdentity,
+        },
       );
       final placeholder = ChatMessage(
         id: assistantId,

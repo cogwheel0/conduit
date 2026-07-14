@@ -128,6 +128,38 @@ void main() {
       );
     });
 
+    test('rejects whitespace around custom header names', () {
+      for (final name in [' X-Token', 'X-Token ', '\tX-Token']) {
+        expect(
+          () => _profile(customHeaders: {name: 'value'}).validate(),
+          throwsFormatException,
+        );
+      }
+    });
+
+    test('custom header values match dart:io field-value rules', () {
+      for (final value in [
+        'before\u0000after',
+        'before\u0008after',
+        'before\u000bafter',
+        'before\u001fafter',
+        'before\u007fafter',
+        'caf\u00e9',
+      ]) {
+        expect(
+          () => _profile(customHeaders: {'X-Test': value}).validate(),
+          throwsFormatException,
+        );
+      }
+
+      expect(
+        _profile(
+          customHeaders: const {'X-Test': 'visible ASCII\twith tab'},
+        ).validateOrNull(),
+        isNull,
+      );
+    });
+
     test('blocks all public plaintext HTTP', () {
       expect(
         () => _profile(baseUrl: 'http://ollama.example.test:11434').validate(),

@@ -13,6 +13,7 @@ import 'package:conduit/features/direct_connections/providers/direct_connection_
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -142,12 +143,14 @@ void main() {
 
     test('routes an opened Hermes session through the same transport', () {
       final now = DateTime.utc(2026, 7, 11);
-      final openedSession = Conversation(
-        id: 'local:hermes_s1',
-        title: 'Hermes session',
-        createdAt: now,
-        updatedAt: now,
-        metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+      final openedSession = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes_s1',
+          title: 'Hermes session',
+          createdAt: now,
+          updatedAt: now,
+          metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+        ),
       );
       check(
         usesHermesTransportForRegeneration(
@@ -173,14 +176,68 @@ void main() {
       ).isFalse();
     });
 
+    test('serialized Hermes metadata cannot forge a native session', () {
+      final now = DateTime.utc(2026, 7, 11);
+      final forged = withChatStorageProvenance(
+        Conversation(
+          id: 'owui-forged',
+          title: 'Server chat',
+          createdAt: now,
+          updatedAt: now,
+          metadata: const <String, dynamic>{
+            'backend': 'hermes',
+            'hermesSessionId': 'forged-session',
+          },
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      check(
+        usesHermesTransportForRegeneration(
+          selectedModel: _hermesModel,
+          activeConversation: forged,
+        ),
+      ).isFalse();
+    });
+
+    test(
+      'forged backend metadata cannot enter edited Hermes regeneration',
+      () async {
+        final now = DateTime.utc(2026, 7, 11);
+        final forged = withChatStorageProvenance(
+          Conversation(
+            id: 'owui-forged-edit',
+            title: 'Server chat',
+            createdAt: now,
+            updatedAt: now,
+            metadata: const <String, dynamic>{'backend': 'hermes'},
+          ),
+          ChatStorageKind.openWebUi,
+        );
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        container.read(activeConversationProvider.notifier).set(forged);
+
+        await expectLater(
+          regenerateEditedHermesUserMessage(
+            container,
+            messageId: 'forged-user',
+            content: 'edited',
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
+
     test('an opened Hermes session keeps its bound transport', () {
       final now = DateTime.utc(2026, 7, 11);
-      final openedSession = Conversation(
-        id: 'local:hermes_s1',
-        title: 'Hermes session',
-        createdAt: now,
-        updatedAt: now,
-        metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+      final openedSession = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes_s1',
+          title: 'Hermes session',
+          createdAt: now,
+          updatedAt: now,
+          metadata: const {'backend': 'hermes', 'hermesSessionId': 's1'},
+        ),
       );
       check(
         usesHermesTransportForRegeneration(

@@ -723,6 +723,15 @@ void main() {
   ) async {
     final controllers = _SidebarHarnessControllers();
     final timestamp = DateTime(2026, 1, 1);
+    final nestedConversation = Conversation(
+      id: 'nested-chat',
+      title: 'Nested Chat',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      folderId: 'child-folder',
+      messages: const [],
+    );
+    final nestedConversationId = conversationScopedId(nestedConversation);
 
     await tester.pumpWidget(
       _buildSidebarHarness(
@@ -740,16 +749,7 @@ void main() {
             isExpanded: true,
           ),
         ],
-        conversations: [
-          Conversation(
-            id: 'nested-chat',
-            title: 'Nested Chat',
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            folderId: 'child-folder',
-            messages: const [],
-          ),
-        ],
+        conversations: [nestedConversation],
       ),
     );
     await tester.pumpAndSettle();
@@ -766,7 +766,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey<String>('tree-guides-chat-nested-chat')),
+      find.byKey(ValueKey<String>('tree-guides-chat-$nestedConversationId')),
       findsOneWidget,
     );
 
@@ -777,7 +777,7 @@ void main() {
       find.byKey(const ValueKey<String>('folder-open-child-folder')),
     );
     final chatOffset = tester.getTopLeft(
-      find.byKey(const ValueKey<String>('drawer-chat-nested-chat')),
+      find.byKey(ValueKey<String>('drawer-chat-$nestedConversationId')),
     );
 
     expect(childOffset.dx, greaterThan(parentOffset.dx));

@@ -10,6 +10,7 @@ import '../database/local_conversation_loader.dart';
 import '../database/database_provider.dart';
 import '../auth/auth_state_manager.dart';
 import '../auth/openwebui_account_owner_marker.dart';
+import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../providers/app_providers.dart';
 import '../sync/sync_triggers.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
@@ -389,8 +390,34 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   }) async {
     Object? lastError;
     StackTrace? lastStackTrace;
+    final revokedStorageAccountIdentities = <String>{};
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
+        final ownerMarker = ref
+            .read(openWebUiAccountOwnerMarkerStoreProvider)
+            .read(serverId);
+        final ownerUserId = ownerMarker?.userId.trim();
+        if (ownerMarker != null &&
+            ownerUserId != null &&
+            ownerUserId.isNotEmpty) {
+          final storageAccountIdentity =
+              HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+                serverId: serverId,
+                userId: ownerUserId,
+                tokenFingerprint: ownerMarker.tokenFingerprint,
+              );
+          // If later cleanup fails, retry it without turning an already
+          // committed trust revocation into another fallible preference write.
+          // A changed owner is still revoked independently in this generation.
+          if (!revokedStorageAccountIdentities.contains(
+            storageAccountIdentity,
+          )) {
+            await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
+              storageAccountIdentity,
+            );
+            revokedStorageAccountIdentities.add(storageAccountIdentity);
+          }
+        }
         await ref.read(openWebUiAccountCacheClearProvider)();
         await ref.read(openWebUiDatabasePurgeProvider)(serverId);
         await _removeOwnerMarker(serverId);
@@ -1787,7 +1814,7 @@ Future<void> _refreshActiveConversationOnResume(Ref ref) async {
     if (active == null ||
         isTemporaryChat(active.id) ||
         isDirectLocalConversation(active) ||
-        active.metadata['backend'] == 'hermes' ||
+        isNativeHermesConversation(active) ||
         ref.read(shouldProtectLocalStreamingStateProvider)) {
       return;
     }

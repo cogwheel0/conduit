@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -11,6 +12,7 @@ import '../models/hermes_config.dart';
 import '../models/hermes_job.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
+import 'hermes_json_guard.dart';
 import 'hermes_stream_parser.dart';
 
 export 'hermes_identifier.dart'
@@ -23,11 +25,23 @@ const int kMaxHermesStreamRawFrames = 100000;
 const int kMaxHermesStreamCharacters = 8 * 1024 * 1024;
 const int kMaxHermesStreamEvents = 100000;
 const int kMaxHermesRecoveryBytes = 16 * 1024 * 1024;
-const int kMaxHermesRecoveryJsonDepth = 128;
-const int kMaxHermesRecoveryJsonNodes = 100000;
+const int kMaxHermesRecoveryJsonDepth = kMaxHermesJsonDepth;
+const int kMaxHermesRecoveryJsonNodes = kMaxHermesJsonNodes;
+const int kMaxHermesRecoveryJsonTokens = kMaxHermesJsonTokens;
+const int _hermesDecodedJsonNodeCost = 8;
 const int kMaxHermesCreateResponseBytes = 64 * 1024;
 const int kMaxHermesCreateResponseCharacters = 32 * 1024;
 const Duration kHermesCreateResponseTimeout = Duration(seconds: 60);
+const int kMaxHermesSessionHistoryBytes = 16 * 1024 * 1024;
+const int kMaxHermesSessionHistoryCharacters = 8 * 1024 * 1024;
+const int kMaxHermesSessionHistoryMessages = 10000;
+const Duration kHermesSessionHistoryTimeout = Duration(seconds: 60);
+const int kMaxHermesJsonResponseBytes = 4 * 1024 * 1024;
+const int kMaxHermesJsonResponseCharacters = 2 * 1024 * 1024;
+const int kMaxHermesJsonCollectionItems = 10000;
+const int kMaxHermesMutationResponseBytes = 64 * 1024;
+const int kMaxHermesMutationResponseCharacters = 32 * 1024;
+const Duration kHermesJsonResponseTimeout = Duration(seconds: 60);
 
 /// Resource and liveness ceilings for one Hermes SSE request.
 final class HermesStreamLimits {
@@ -228,12 +242,17 @@ Stream<HermesRunEvent> guardHermesEventStream(
           'The Hermes stream exceeded Conduit\'s event limit.',
         );
       }
-      characters += _hermesEventCharacters(event);
-      if (characters > limits.maxCharacters) {
+      final remainingCharacters = limits.maxCharacters - characters;
+      final eventCharacters = _hermesEventCharacters(
+        event,
+        maxCharacters: remainingCharacters,
+      );
+      if (eventCharacters > remainingCharacters) {
         throw const HermesStreamGuardException(
           'The Hermes stream exceeded Conduit\'s size limit.',
         );
       }
+      characters += eventCharacters;
 
       final terminal = event is HermesRunDone || event is HermesRunError;
       if (terminal) sawTerminal = true;
@@ -260,19 +279,58 @@ Stream<HermesRunEvent> guardHermesEventStream(
   }
 }
 
-int _hermesEventCharacters(HermesRunEvent event) => switch (event) {
+int _hermesEventCharacters(
+  HermesRunEvent event, {
+  required int maxCharacters,
+}) => switch (event) {
   HermesResponseCreated(:final responseId) => responseId.length,
   HermesTokenDelta(:final content) => content.length,
   HermesReasoningDelta(:final content) => content.length,
   HermesToolProgress(:final toolName, :final detail) =>
     toolName.length + (detail?.length ?? 0),
-  HermesApprovalRequested(:final approvalId, :final summary) =>
-    approvalId.length + (summary?.length ?? 0),
+  HermesApprovalRequested(:final approvalId, :final summary, :final raw) =>
+    _hermesApprovalEventCharacters(
+      approvalId: approvalId,
+      summary: summary,
+      raw: raw,
+      maxCharacters: maxCharacters,
+    ),
   HermesLifecycle(:final status) => status.length,
   HermesFinalOutput(:final text) => text.length,
   HermesRunError(:final message) => message.length,
   HermesRunDone() => 0,
 };
+
+int _hermesApprovalEventCharacters({
+  required String approvalId,
+  required String? summary,
+  required Map<String, dynamic> raw,
+  required int maxCharacters,
+}) {
+  final visibleCharacters = approvalId.length + (summary?.length ?? 0);
+  if (visibleCharacters > maxCharacters) return maxCharacters + 1;
+
+  try {
+    final remainingCharacters = maxCharacters - visibleCharacters;
+    final rawSize = _validateHermesRecoveryValue(
+      raw,
+      maxCharacters: remainingCharacters,
+    );
+    final remainingAfterStrings = remainingCharacters - rawSize.characters;
+    if (rawSize.nodes > remainingAfterStrings ~/ _hermesDecodedJsonNodeCost) {
+      return maxCharacters + 1;
+    }
+    return visibleCharacters +
+        rawSize.characters +
+        rawSize.nodes * _hermesDecodedJsonNodeCost;
+  } on FormatException {
+    // Injected event streams can contain non-JSON values or cyclic containers.
+    // Fail the bounded event guard without ever coercing them through toString.
+    return maxCharacters + 1;
+  } on HermesStreamGuardException {
+    return maxCharacters + 1;
+  }
+}
 
 final Object _hermesInternalCancellationReason = Object();
 
@@ -320,6 +378,25 @@ Future<Map<String, dynamic>> _decodeHermesRecoveryObject(
   required HermesStreamLimits limits,
   required _HermesRecoveryBudget recoveryBudget,
 }) async {
+  final decoded = await _decodeHermesBoundedJsonValue(
+    data,
+    cancelToken: cancelToken,
+    limits: limits,
+    recoveryBudget: recoveryBudget,
+  );
+  if (decoded is! Map) {
+    _signalHermesStreamCancellation(cancelToken);
+    throw const FormatException('Hermes recovery payload is not an object');
+  }
+  return Map<String, dynamic>.from(decoded);
+}
+
+Future<Object?> _decodeHermesBoundedJsonValue(
+  Object? data, {
+  required CancelToken cancelToken,
+  required HermesStreamLimits limits,
+  required _HermesRecoveryBudget recoveryBudget,
+}) async {
   final byteLimit = limits.maxBytes < kMaxHermesRecoveryBytes
       ? limits.maxBytes
       : kMaxHermesRecoveryBytes;
@@ -348,7 +425,7 @@ Future<Map<String, dynamic>> _decodeHermesRecoveryObject(
       );
       recoveryBudget.requireRemainingDuration();
       final source = utf8.decode(bytes, allowMalformed: false);
-      _validateHermesJsonNesting(source);
+      _validateHermesJsonStructure(source);
       decoded = jsonDecode(source);
     } else if (data is String) {
       final bytes = utf8.encode(data);
@@ -358,7 +435,7 @@ Future<Map<String, dynamic>> _decodeHermesRecoveryObject(
         );
       }
       recoveryBudget.consume(bytes.length);
-      _validateHermesJsonNesting(data);
+      _validateHermesJsonStructure(data);
       decoded = jsonDecode(data);
     } else {
       // Interceptors used by tests and embedders can resolve an already-decoded
@@ -373,13 +450,69 @@ Future<Map<String, dynamic>> _decodeHermesRecoveryObject(
       maxCharacters: limits.maxCharacters,
     );
     if (data is! ResponseBody && data is! String) {
-      recoveryBudget.consume(valueSize.characters + valueSize.nodes * 8);
+      recoveryBudget.consume(
+        valueSize.characters + valueSize.nodes * _hermesDecodedJsonNodeCost,
+      );
     }
     recoveryBudget.requireRemainingDuration();
-    if (decoded is! Map) {
-      throw const FormatException('Hermes recovery payload is not an object');
+    return decoded;
+  } on HermesStreamGuardException {
+    _signalHermesStreamCancellation(cancelToken);
+    rethrow;
+  } on FormatException {
+    _signalHermesStreamCancellation(cancelToken);
+    rethrow;
+  }
+}
+
+Future<void> _consumeHermesBoundedBody(
+  Object? data, {
+  required CancelToken cancelToken,
+  required HermesStreamLimits limits,
+  required _HermesRecoveryBudget recoveryBudget,
+}) async {
+  final byteLimit = limits.maxBytes < kMaxHermesRecoveryBytes
+      ? limits.maxBytes
+      : kMaxHermesRecoveryBytes;
+  try {
+    recoveryBudget.requireRemainingDuration();
+    if (data is ResponseBody) {
+      final contentLengthValues =
+          data.headers[Headers.contentLengthHeader] ?? const <String>[];
+      final advertisedLength = int.tryParse(
+        contentLengthValues.isEmpty ? '' : contentLengthValues.first,
+      );
+      if (advertisedLength != null &&
+          (advertisedLength > byteLimit ||
+              advertisedLength > recoveryBudget.remainingBytes)) {
+        throw const HermesStreamGuardException(
+          'The Hermes response exceeded Conduit\'s transfer limit.',
+        );
+      }
+      await _readHermesRecoveryBytes(
+        data.stream.cast<List<int>>(),
+        maxBytes: byteLimit,
+        idleTimeout: limits.idleTimeout,
+        recoveryBudget: recoveryBudget,
+      );
+    } else if (data is String) {
+      final bytes = utf8.encode(data);
+      if (bytes.length > byteLimit) {
+        throw const HermesStreamGuardException(
+          'The Hermes response exceeded Conduit\'s transfer limit.',
+        );
+      }
+      recoveryBudget.consume(bytes.length);
+    } else if (data != null) {
+      final valueSize = _validateHermesRecoveryValue(
+        data,
+        maxCharacters: limits.maxCharacters,
+      );
+      recoveryBudget.consume(
+        valueSize.characters + valueSize.nodes * _hermesDecodedJsonNodeCost,
+      );
     }
-    return Map<String, dynamic>.from(decoded);
+    recoveryBudget.requireRemainingDuration();
   } on HermesStreamGuardException {
     _signalHermesStreamCancellation(cancelToken);
     rethrow;
@@ -500,33 +633,26 @@ Duration Function() _createHermesRecoveryClock() {
   return () => stopwatch.elapsed;
 }
 
-void _validateHermesJsonNesting(String source) {
-  var depth = 0;
-  var inString = false;
-  var escaped = false;
-  for (final codeUnit in source.codeUnits) {
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (codeUnit == 0x5C) {
-        escaped = true;
-      } else if (codeUnit == 0x22) {
-        inString = false;
-      }
-      continue;
-    }
-    if (codeUnit == 0x22) {
-      inString = true;
-    } else if (codeUnit == 0x7B || codeUnit == 0x5B) {
-      depth++;
-      if (depth > kMaxHermesRecoveryJsonDepth) {
-        throw const HermesStreamGuardException(
-          'The Hermes recovery response exceeded Conduit\'s nesting limit.',
-        );
-      }
-    } else if (codeUnit == 0x7D || codeUnit == 0x5D) {
-      depth--;
-    }
+void _validateHermesJsonStructure(String source) {
+  try {
+    validateHermesJsonSource(
+      source,
+      maxDepth: kMaxHermesRecoveryJsonDepth,
+      maxNodes: kMaxHermesRecoveryJsonNodes,
+      maxTokens: kMaxHermesRecoveryJsonTokens,
+    );
+  } on HermesJsonGuardException catch (error) {
+    throw switch (error.limit) {
+      HermesJsonLimit.depth => const HermesStreamGuardException(
+        'The Hermes recovery response exceeded Conduit\'s nesting limit.',
+      ),
+      HermesJsonLimit.nodes => const HermesStreamGuardException(
+        'The Hermes recovery response exceeded Conduit\'s value limit.',
+      ),
+      HermesJsonLimit.tokens => const HermesStreamGuardException(
+        'The Hermes recovery response exceeded Conduit\'s token limit.',
+      ),
+    };
   }
 }
 
@@ -534,8 +660,10 @@ void _validateHermesJsonNesting(String source) {
   Object? root, {
   required int maxCharacters,
 }) {
-  final stack = <({Object? value, int depth})>[(value: root, depth: 0)];
-  final visited = <Object>{};
+  final stack = <({Object? value, int depth, bool exiting})>[
+    (value: root, depth: 0, exiting: false),
+  ];
+  final activeContainers = HashSet<Object>.identity();
   var nodes = 0;
   var scheduledNodes = 1;
   var characters = 0;
@@ -548,12 +676,16 @@ void _validateHermesJsonNesting(String source) {
           'The Hermes recovery response exceeded Conduit\'s value limit.',
         );
       }
-      stack.add((value: child, depth: depth));
+      stack.add((value: child, depth: depth, exiting: false));
     }
   }
 
   while (stack.isNotEmpty) {
     final current = stack.removeLast();
+    if (current.exiting) {
+      activeContainers.remove(current.value);
+      continue;
+    }
     nodes++;
     if (nodes > kMaxHermesRecoveryJsonNodes) {
       throw const HermesStreamGuardException(
@@ -573,7 +705,7 @@ void _validateHermesJsonNesting(String source) {
     }
     if (value == null || value is num || value is bool) continue;
     if (value is Map) {
-      if (!visited.add(value)) {
+      if (!activeContainers.add(value)) {
         throw const FormatException('Hermes recovery payload contains a cycle');
       }
       if (current.depth >= kMaxHermesRecoveryJsonDepth && value.isNotEmpty) {
@@ -600,11 +732,12 @@ void _validateHermesJsonNesting(String source) {
           );
         }
       }
+      stack.add((value: value, depth: current.depth, exiting: true));
       scheduleChildren(value.values, current.depth + 1);
       continue;
     }
     if (value is List) {
-      if (!visited.add(value)) {
+      if (!activeContainers.add(value)) {
         throw const FormatException('Hermes recovery payload contains a cycle');
       }
       if (current.depth >= kMaxHermesRecoveryJsonDepth && value.isNotEmpty) {
@@ -617,6 +750,7 @@ void _validateHermesJsonNesting(String source) {
           'The Hermes recovery response exceeded Conduit\'s value limit.',
         );
       }
+      stack.add((value: value, depth: current.depth, exiting: true));
       scheduleChildren(value, current.depth + 1);
       continue;
     }
@@ -686,6 +820,11 @@ class HermesApiService {
     // boundary there: Dio preserves custom headers across redirects, so an
     // automatic cross-origin redirect could leak bearer/session credentials.
     _dio.options.followRedirects = false;
+    // Streamed error bodies are never useful to callers and Dio otherwise
+    // exposes them on badResponse exceptions without our bounded consumer.
+    // Disable receipt so an endless/oversized 4xx body cannot retain a socket
+    // or bypass the success-path transfer guard.
+    _dio.options.receiveDataWhenStatusError = false;
   }
 
   final HermesConfig config;
@@ -734,6 +873,167 @@ class HermesApiService {
   String? _validatedOptionalSessionId(String? sessionId) {
     if (sessionId == null || sessionId.isEmpty) return null;
     return _requireOpaqueIdentifier(sessionId);
+  }
+
+  HermesStreamLimits _boundedResponseLimits({
+    required int maxBytes,
+    required int maxCharacters,
+    Duration maxDuration = kHermesJsonResponseTimeout,
+  }) {
+    var timeout = maxDuration;
+    if (streamLimits.idleTimeout < timeout) timeout = streamLimits.idleTimeout;
+    if (streamLimits.maxDuration < timeout) {
+      timeout = streamLimits.maxDuration;
+    }
+    return HermesStreamLimits(
+      idleTimeout: timeout,
+      maxDuration: timeout,
+      maxBytes: streamLimits.maxBytes < maxBytes
+          ? streamLimits.maxBytes
+          : maxBytes,
+      maxRawFrames: 1,
+      maxCharacters: streamLimits.maxCharacters < maxCharacters
+          ? streamLimits.maxCharacters
+          : maxCharacters,
+      maxEvents: 1,
+    );
+  }
+
+  Future<Response<dynamic>> _requestBoundedResponse(
+    String method,
+    String path, {
+    required CancelToken cancelToken,
+    required HermesStreamLimits limits,
+    required _HermesRecoveryBudget recoveryBudget,
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+    Map<String, String>? headers,
+    bool Function(int?)? validateStatus,
+  }) async {
+    late final Duration remaining;
+    try {
+      remaining = recoveryBudget.requireRemainingDuration();
+    } on HermesStreamGuardException {
+      _signalHermesStreamCancellation(cancelToken);
+      rethrow;
+    }
+    final receiveTimeout = remaining < limits.idleTimeout
+        ? remaining
+        : limits.idleTimeout;
+    final deadlineConstrainsReceive = receiveTimeout == remaining;
+    try {
+      final response = await _dio
+          .request<dynamic>(
+            path,
+            data: data,
+            queryParameters: queryParameters,
+            cancelToken: cancelToken,
+            options: Options(
+              method: method,
+              responseType: ResponseType.stream,
+              receiveTimeout: receiveTimeout,
+              headers: headers,
+              validateStatus: validateStatus,
+            ),
+          )
+          .timeout(
+            remaining,
+            onTimeout: () {
+              _signalHermesStreamCancellation(cancelToken);
+              throw const HermesStreamGuardException(
+                'The Hermes response exceeded Conduit\'s time limit.',
+              );
+            },
+          );
+      recoveryBudget.requireRemainingDuration();
+      return response;
+    } on HermesStreamGuardException {
+      _signalHermesStreamCancellation(cancelToken);
+      rethrow;
+    } on DioException catch (error) {
+      if (recoveryBudget.remainingDuration <= Duration.zero ||
+          (deadlineConstrainsReceive &&
+              error.type == DioExceptionType.receiveTimeout)) {
+        _signalHermesStreamCancellation(cancelToken);
+        throw const HermesStreamGuardException(
+          'The Hermes response exceeded Conduit\'s time limit.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<Object?> _requestBoundedJson(
+    String method,
+    String path, {
+    CancelToken? cancelToken,
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+    int maxBytes = kMaxHermesJsonResponseBytes,
+    int maxCharacters = kMaxHermesJsonResponseCharacters,
+  }) async {
+    final requestCancelToken = cancelToken ?? CancelToken();
+    final limits = _boundedResponseLimits(
+      maxBytes: maxBytes,
+      maxCharacters: maxCharacters,
+    );
+    final budget = _HermesRecoveryBudget(
+      remainingBytes: limits.maxBytes,
+      maxDuration: limits.maxDuration,
+      clock: _recoveryClock,
+    );
+    final response = await _requestBoundedResponse(
+      method,
+      path,
+      cancelToken: requestCancelToken,
+      limits: limits,
+      recoveryBudget: budget,
+      data: data,
+      queryParameters: queryParameters,
+    );
+    return _decodeHermesBoundedJsonValue(
+      response.data,
+      cancelToken: requestCancelToken,
+      limits: limits,
+      recoveryBudget: budget,
+    );
+  }
+
+  Future<Response<dynamic>> _requestAndConsumeBounded(
+    String method,
+    String path, {
+    CancelToken? cancelToken,
+    Object? data,
+    Map<String, dynamic>? queryParameters,
+    bool Function(int?)? validateStatus,
+  }) async {
+    final requestCancelToken = cancelToken ?? CancelToken();
+    final limits = _boundedResponseLimits(
+      maxBytes: kMaxHermesMutationResponseBytes,
+      maxCharacters: kMaxHermesMutationResponseCharacters,
+    );
+    final budget = _HermesRecoveryBudget(
+      remainingBytes: limits.maxBytes,
+      maxDuration: limits.maxDuration,
+      clock: _recoveryClock,
+    );
+    final response = await _requestBoundedResponse(
+      method,
+      path,
+      cancelToken: requestCancelToken,
+      limits: limits,
+      recoveryBudget: budget,
+      data: data,
+      queryParameters: queryParameters,
+      validateStatus: validateStatus,
+    );
+    await _consumeHermesBoundedBody(
+      response.data,
+      cancelToken: requestCancelToken,
+      limits: limits,
+      recoveryBudget: budget,
+    );
+    return response;
   }
 
   Future<Map<String, dynamic>> _postBoundedCreateObject(
@@ -811,54 +1111,14 @@ class HermesApiService {
     String path, {
     required CancelToken cancelToken,
     required _HermesRecoveryBudget recoveryBudget,
-  }) async {
-    late final Duration remaining;
-    try {
-      remaining = recoveryBudget.requireRemainingDuration();
-    } on HermesStreamGuardException {
-      _signalHermesStreamCancellation(cancelToken);
-      rethrow;
-    }
-    final receiveTimeout = remaining < streamLimits.idleTimeout
-        ? remaining
-        : streamLimits.idleTimeout;
-    final deadlineConstrainsReceive = receiveTimeout == remaining;
-    try {
-      final response = await _dio
-          .get<dynamic>(
-            path,
-            cancelToken: cancelToken,
-            options: Options(
-              responseType: ResponseType.stream,
-              receiveTimeout: receiveTimeout,
-            ),
-          )
-          .timeout(
-            remaining,
-            onTimeout: () {
-              _signalHermesStreamCancellation(cancelToken);
-              throw const HermesStreamGuardException(
-                'The Hermes recovery response exceeded Conduit\'s time limit.',
-              );
-            },
-          );
-      recoveryBudget.requireRemainingDuration();
-      return response;
-    } on HermesStreamGuardException {
-      _signalHermesStreamCancellation(cancelToken);
-      rethrow;
-    } on DioException catch (error) {
-      if (recoveryBudget.remainingDuration <= Duration.zero ||
-          (deadlineConstrainsReceive &&
-              error.type == DioExceptionType.receiveTimeout)) {
-        _signalHermesStreamCancellation(cancelToken);
-        throw const HermesStreamGuardException(
-          'The Hermes recovery response exceeded Conduit\'s time limit.',
-        );
-      }
-      rethrow;
-    }
-  }
+    HermesStreamLimits? limits,
+  }) => _requestBoundedResponse(
+    'GET',
+    path,
+    cancelToken: cancelToken,
+    limits: limits ?? streamLimits,
+    recoveryBudget: recoveryBudget,
+  );
 
   /// Strips a trailing slash and optional `/v1` so endpoints can be composed
   /// uniformly as `<root>/v1/...` and `<root>/health`.
@@ -885,9 +1145,10 @@ class HermesApiService {
   /// Returns true when the server answers `GET /health` with a 2xx.
   Future<bool> health() async {
     try {
-      final resp = await _dio.get<dynamic>(
+      final resp = await _requestAndConsumeBounded(
+        'GET',
         '$_root/health',
-        options: Options(validateStatus: (s) => s != null && s < 500),
+        validateStatus: (status) => status != null && status < 500,
       );
       final code = resp.statusCode ?? 0;
       return code >= 200 && code < 300;
@@ -901,21 +1162,18 @@ class HermesApiService {
 
   /// Lists models exposed by the Hermes server (`GET /v1/models`).
   Future<List<Map<String, dynamic>>> getModels() async {
-    final resp = await _dio.get<dynamic>('$_root/v1/models');
-    final data = resp.data;
-    final list = data is Map ? data['data'] : data;
-    if (list is! List) return const [];
-    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final data = await _requestBoundedJson('GET', '$_root/v1/models');
+    return _boundedHermesMapList(data, envelopeKeys: const <String>['data']);
   }
 
   /// Lists the agent's skills (`GET /v1/skills`), the slash-commands invokable
   /// in chat input as `/skill-name args`. Read-only, bearer-gated.
   Future<List<Map<String, dynamic>>> listSkills() async {
-    final resp = await _dio.get<dynamic>('$_root/v1/skills');
-    final data = resp.data;
-    final list = data is Map ? (data['skills'] ?? data['data']) : data;
-    if (list is! List) return const [];
-    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final data = await _requestBoundedJson('GET', '$_root/v1/skills');
+    return _boundedHermesMapList(
+      data,
+      envelopeKeys: const <String>['skills', 'data'],
+    );
   }
 
   /// Creates a run (`POST /v1/runs`) and returns its `run_id`.
@@ -1013,7 +1271,8 @@ class HermesApiService {
   Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
     try {
       final encodedRunId = Uri.encodeComponent(runId);
-      await _dio.post<dynamic>(
+      await _requestAndConsumeBounded(
+        'POST',
         '$_root/v1/runs/$encodedRunId/stop',
         cancelToken: cancelToken,
       );
@@ -1043,24 +1302,67 @@ class HermesApiService {
 
   /// Lists sessions (`GET /api/sessions`).
   Future<List<Map<String, dynamic>>> listSessions() async {
-    final resp = await _dio.get<dynamic>('$_root/api/sessions');
-    final data = resp.data;
-    final list = data is Map
-        ? (data['sessions'] ?? data['data'] ?? data['items'])
-        : data;
-    if (list is! List) return const [];
-    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final data = await _requestBoundedJson('GET', '$_root/api/sessions');
+    return _boundedHermesMapList(
+      data,
+      envelopeKeys: const <String>['sessions', 'data', 'items'],
+    );
   }
 
   /// Fetches a session's message history (`GET /api/sessions/{id}/messages`).
-  Future<List<Map<String, dynamic>>> getSessionMessages(String id) async {
+  Future<List<Map<String, dynamic>>> getSessionMessages(
+    String id, {
+    CancelToken? cancelToken,
+  }) async {
+    final requestCancelToken = cancelToken ?? CancelToken();
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    final resp = await _dio.get<dynamic>(
-      '$_root/api/sessions/$encodedId/messages',
+    var timeout = kHermesSessionHistoryTimeout;
+    if (streamLimits.idleTimeout < timeout) {
+      timeout = streamLimits.idleTimeout;
+    }
+    if (streamLimits.maxDuration < timeout) {
+      timeout = streamLimits.maxDuration;
+    }
+    final maxBytes = streamLimits.maxBytes < kMaxHermesSessionHistoryBytes
+        ? streamLimits.maxBytes
+        : kMaxHermesSessionHistoryBytes;
+    final maxCharacters =
+        streamLimits.maxCharacters < kMaxHermesSessionHistoryCharacters
+        ? streamLimits.maxCharacters
+        : kMaxHermesSessionHistoryCharacters;
+    final limits = HermesStreamLimits(
+      idleTimeout: timeout,
+      maxDuration: timeout,
+      maxBytes: maxBytes,
+      maxRawFrames: 1,
+      maxCharacters: maxCharacters,
+      maxEvents: 1,
     );
-    final data = resp.data;
+    final budget = _HermesRecoveryBudget(
+      remainingBytes: maxBytes,
+      maxDuration: timeout,
+      clock: _recoveryClock,
+    );
+    final resp = await _getRecoveryResponse(
+      '$_root/api/sessions/$encodedId/messages',
+      cancelToken: requestCancelToken,
+      recoveryBudget: budget,
+      limits: limits,
+    );
+    final data = await _decodeHermesBoundedJsonValue(
+      resp.data,
+      cancelToken: requestCancelToken,
+      limits: limits,
+      recoveryBudget: budget,
+    );
     final list = data is Map ? (data['messages'] ?? data['data']) : data;
     if (list is! List) return const [];
+    if (list.length > kMaxHermesSessionHistoryMessages) {
+      _signalHermesStreamCancellation(requestCancelToken);
+      throw const HermesStreamGuardException(
+        'The Hermes session history exceeded Conduit\'s message limit.',
+      );
+    }
     return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   }
 
@@ -1155,7 +1457,8 @@ class HermesApiService {
   /// Renames a session (`PATCH /api/sessions/{id}`).
   Future<void> renameSession(String id, String title) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.patch<dynamic>(
+    await _requestAndConsumeBounded(
+      'PATCH',
       '$_root/api/sessions/$encodedId',
       data: {'title': title},
     );
@@ -1164,7 +1467,8 @@ class HermesApiService {
   /// Deletes a session (`DELETE /api/sessions/{id}`).
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.delete<dynamic>(
+    await _requestAndConsumeBounded(
+      'DELETE',
       '$_root/api/sessions/$encodedId',
       cancelToken: cancelToken,
     );
@@ -1187,26 +1491,24 @@ class HermesApiService {
 
   /// Machine-readable server capabilities (`GET /v1/capabilities`).
   Future<Map<String, dynamic>> getCapabilities() async {
-    final resp = await _dio.get<dynamic>('$_root/v1/capabilities');
-    final data = resp.data;
+    final data = await _requestBoundedJson('GET', '$_root/v1/capabilities');
     return data is Map ? data.cast<String, dynamic>() : const {};
   }
 
   /// Resolved toolsets and their concrete tools (`GET /v1/toolsets`).
   Future<List<Map<String, dynamic>>> listToolsets() async {
-    final resp = await _dio.get<dynamic>('$_root/v1/toolsets');
-    final data = resp.data;
-    final list = data is Map ? (data['toolsets'] ?? data['data']) : data;
-    if (list is! List) return const [];
-    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final data = await _requestBoundedJson('GET', '$_root/v1/toolsets');
+    return _boundedHermesMapList(
+      data,
+      envelopeKeys: const <String>['toolsets', 'data'],
+    );
   }
 
   /// Extended health (`GET /health/detailed`): active sessions, running agents,
   /// resource usage. Returns an empty map on any failure.
   Future<Map<String, dynamic>> healthDetailed() async {
     try {
-      final resp = await _dio.get<dynamic>('$_root/health/detailed');
-      final data = resp.data;
+      final data = await _requestBoundedJson('GET', '$_root/health/detailed');
       return data is Map ? data.cast<String, dynamic>() : const {};
     } catch (_) {
       return const {};
@@ -1218,16 +1520,17 @@ class HermesApiService {
   // ---------------------------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> listJobs() async {
-    final resp = await _dio.get<dynamic>(
+    final data = await _requestBoundedJson(
+      'GET',
       '$_root/api/jobs',
       queryParameters: const {'include_disabled': true},
     );
-    final data = resp.data;
-    final list = data is Map ? (data['jobs'] ?? data['data']) : data;
-    if (list is! List) return const [];
+    final list = _boundedHermesMapList(
+      data,
+      envelopeKeys: const <String>['jobs', 'data'],
+    );
     final jobs = <Map<String, dynamic>>[];
-    for (final item in list.whereType<Map>()) {
-      final job = item.cast<String, dynamic>();
+    for (final job in list) {
       final rawId = job['id'] ?? job['job_id'];
       if (validateHermesOpaqueIdentifier(
             rawId,
@@ -1258,13 +1561,16 @@ class HermesApiService {
       field: 'prompt',
       maxCharacters: kMaxHermesJobPromptCharacters,
     );
-    final safeSchedule = _requireHermesJobText(schedule, field: 'schedule');
-    final resp = await _dio.post<dynamic>(
+    final safeSchedule = _requireHermesJobText(
+      schedule,
+      field: 'schedule',
+      maxCharacters: kMaxHermesJobScheduleCharacters,
+    );
+    final data = await _postBoundedCreateObject(
       '$_root/api/jobs',
       data: {'name': safeName, 'prompt': safePrompt, 'schedule': safeSchedule},
     );
-    final data = resp.data;
-    return data is Map ? data.cast<String, dynamic>() : const {};
+    return data;
   }
 
   /// Partially updates a job (any of prompt / schedule / enabled).
@@ -1276,7 +1582,8 @@ class HermesApiService {
     bool? enabled,
   }) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.patch<dynamic>(
+    await _requestAndConsumeBounded(
+      'PATCH',
       '$_root/api/jobs/$encodedId',
       data: {
         if (name != null)
@@ -1292,7 +1599,11 @@ class HermesApiService {
             maxCharacters: kMaxHermesJobPromptCharacters,
           ),
         if (schedule != null)
-          'schedule': _requireHermesJobText(schedule, field: 'schedule'),
+          'schedule': _requireHermesJobText(
+            schedule,
+            field: 'schedule',
+            maxCharacters: kMaxHermesJobScheduleCharacters,
+          ),
         'enabled': ?enabled,
       },
     );
@@ -1300,23 +1611,26 @@ class HermesApiService {
 
   Future<void> deleteJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.delete<dynamic>('$_root/api/jobs/$encodedId');
+    await _requestAndConsumeBounded('DELETE', '$_root/api/jobs/$encodedId');
   }
 
   Future<void> pauseJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.post<dynamic>('$_root/api/jobs/$encodedId/pause');
+    await _requestAndConsumeBounded('POST', '$_root/api/jobs/$encodedId/pause');
   }
 
   Future<void> resumeJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.post<dynamic>('$_root/api/jobs/$encodedId/resume');
+    await _requestAndConsumeBounded(
+      'POST',
+      '$_root/api/jobs/$encodedId/resume',
+    );
   }
 
   /// Triggers an immediate run outside the schedule (`POST /api/jobs/{id}/run`).
   Future<void> runJob(String id) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
-    await _dio.post<dynamic>('$_root/api/jobs/$encodedId/run');
+    await _requestAndConsumeBounded('POST', '$_root/api/jobs/$encodedId/run');
   }
 
   static Object? _sessionId(Object? data) {
@@ -1338,7 +1652,8 @@ class HermesApiService {
     required bool approved,
   }) async {
     final encodedRunId = Uri.encodeComponent(runId);
-    await _dio.post<dynamic>(
+    await _requestAndConsumeBounded(
+      'POST',
       '$_root/v1/runs/$encodedRunId/approval',
       data: {
         'choice': approved ? 'once' : 'deny',
@@ -1350,6 +1665,33 @@ class HermesApiService {
   }
 
   void close() => _dio.close(force: true);
+}
+
+List<Map<String, dynamic>> _boundedHermesMapList(
+  Object? data, {
+  List<String> envelopeKeys = const <String>[],
+}) {
+  Object? candidate = data;
+  if (data is Map) {
+    candidate = null;
+    for (final key in envelopeKeys) {
+      final value = data[key];
+      if (value != null) {
+        candidate = value;
+        break;
+      }
+    }
+  }
+  if (candidate is! List) return const <Map<String, dynamic>>[];
+  if (candidate.length > kMaxHermesJsonCollectionItems) {
+    throw const HermesStreamGuardException(
+      'The Hermes response exceeded Conduit\'s item limit.',
+    );
+  }
+  return candidate
+      .whereType<Map>()
+      .map((item) => item.cast<String, dynamic>())
+      .toList(growable: false);
 }
 
 String _requireHermesJobText(

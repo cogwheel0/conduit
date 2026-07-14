@@ -20,7 +20,9 @@ import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
+import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -45,6 +47,12 @@ class _GatedApprovalService extends HermesApiService {
   final StreamController<HermesRunEvent> events =
       StreamController<HermesRunEvent>(sync: true);
   final Completer<void> runEventsStarted = Completer<void>();
+
+  @override
+  Future<String> createSession({String? title, CancelToken? cancelToken}) =>
+      Future<String>.error(
+        StateError('Approval ownership tests must bind an existing session.'),
+      );
 
   @override
   Future<String> createRun({
@@ -111,6 +119,25 @@ class _RemapSyncEngine extends SyncEngine {
 class _TestTextToSpeechController extends TextToSpeechController {
   @override
   TextToSpeechState build() => const TextToSpeechState();
+}
+
+Map<String, dynamic> _boundHermesSessionMetadata(
+  ProviderContainer container,
+  String sessionId,
+) {
+  final endpointIdentity = HermesConfigController.connectionEndpoint(
+    'https://hermes.example',
+  )!;
+  return <String, dynamic>{
+    'hermesSessionId': sessionId,
+    kHermesConnectionIdentityMetadataKey:
+        HermesLocalDocumentTrustStore.connectionIdentity(
+          endpointIdentity: endpointIdentity,
+          principalId: container
+              .read(hermesConfigProvider.notifier)
+              .documentTrustPrincipalId(),
+        ),
+  };
 }
 
 ChatMessage _approvalMessage({
@@ -195,13 +222,15 @@ void main() {
       runId: 'same-run',
       approvalId: 'same-approval',
     );
-    final conversation = Conversation(
-      id: 'hermes-chat',
-      title: 'Hermes chat',
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      messages: [first],
-      metadata: const {'backend': 'hermes'},
+    final conversation = markNativeHermesConversation(
+      Conversation(
+        id: 'hermes-chat',
+        title: 'Hermes chat',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        messages: [first],
+        metadata: const {'backend': 'hermes'},
+      ),
     );
     container.read(activeConversationProvider.notifier).set(conversation);
     container.read(chatMessagesProvider.notifier).setMessages([first]);
@@ -302,13 +331,15 @@ void main() {
     addTearDown(service.close);
 
     final first = _approvalMessage(runId: 'run-a', approvalId: 'approval-a');
-    final conversation = Conversation(
-      id: 'hermes-chat',
-      title: 'Hermes chat',
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      messages: [first],
-      metadata: const {'backend': 'hermes'},
+    final conversation = markNativeHermesConversation(
+      Conversation(
+        id: 'hermes-chat',
+        title: 'Hermes chat',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        messages: [first],
+        metadata: const {'backend': 'hermes'},
+      ),
     );
     container.read(activeConversationProvider.notifier).set(conversation);
     container.read(chatMessagesProvider.notifier).setMessages([first]);
@@ -442,16 +473,18 @@ void main() {
               isStreaming: true,
               metadata: const <String, dynamic>{'transport': kHermesTransport},
             );
-        final owner = Conversation(
-          id: 'local:hermes_approval-owner',
-          title: 'Approval owner',
-          createdAt: DateTime(2026),
-          updatedAt: DateTime(2026),
-          messages: <ChatMessage>[placeholder],
-          metadata: const <String, dynamic>{
-            'backend': 'hermes',
-            'hermesSessionId': 'approval-owner',
-          },
+        final owner = markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_approval-owner',
+            title: 'Approval owner',
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+            messages: <ChatMessage>[placeholder],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 'approval-owner',
+            },
+          ),
         );
         container.read(activeConversationProvider.notifier).set(owner);
         container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
@@ -623,9 +656,10 @@ void main() {
             role: 'assistant',
             content: 'Earlier',
             timestamp: DateTime(2026),
-            metadata: const <String, dynamic>{
-              'hermesSessionId': 'terminal-approval-session',
-            },
+            metadata: _boundHermesSessionMetadata(
+              container,
+              'terminal-approval-session',
+            ),
           ),
         ],
       );
@@ -801,9 +835,10 @@ void main() {
           role: 'assistant',
           content: 'Earlier',
           timestamp: DateTime(2026),
-          metadata: const <String, dynamic>{
-            'hermesSessionId': 'approval-remap-session',
-          },
+          metadata: _boundHermesSessionMetadata(
+            container,
+            'approval-remap-session',
+          ),
         ),
       ],
     );

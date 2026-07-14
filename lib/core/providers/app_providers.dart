@@ -43,6 +43,7 @@ import '../../shared/theme/app_theme.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/hermes/providers/hermes_providers.dart';
+import '../../features/hermes/services/hermes_session_provenance.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
@@ -2528,25 +2529,66 @@ ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
 bool isDirectLocalConversation(Conversation? conversation) =>
     chatStorageKindOf(conversation) == ChatStorageKind.directLocal;
 
+/// Whether [conversation] is a process-local direct shell that has not yet
+/// acquired durable storage provenance.
+///
+/// An explicit storage annotation always wins: OpenWebUI-owned conversations
+/// may legitimately record that their latest turn used the direct transport.
+bool _isUnstoredDirectConversation(Conversation? conversation) =>
+    conversation != null &&
+    chatStorageKindOf(conversation) == null &&
+    conversation.metadata['backend'] == kDirectChatBackend;
+
 /// Collision-free identity for selections and widget/provider keys.
 ///
 /// [Conversation.id] remains the provider/server id. This value is only for
 /// app-internal identity where two independent databases may contain that id.
-String conversationScopedId(Conversation conversation) => ChatStorageIdentity(
-  rawId: conversation.id,
-  storage: chatStorageKindOf(conversation),
-).scopedId;
+String conversationScopedId(Conversation conversation) {
+  var storage = chatStorageKindOf(conversation);
+  // Unannotated persisted conversations predate multi-store history and have
+  // always meant OpenWebUI. Scope that legacy default too; otherwise a newly
+  // created server chat can briefly expose an ambiguous raw id to listeners.
+  if (storage == null &&
+      !isTemporaryChat(conversation.id) &&
+      !isNativeHermesConversation(conversation) &&
+      !_isUnstoredDirectConversation(conversation)) {
+    storage = ChatStorageKind.openWebUi;
+  }
+  return ChatStorageIdentity(rawId: conversation.id, storage: storage).scopedId;
+}
 
 bool conversationMatchesScopedId(Conversation conversation, String scopedId) {
   final identity = ChatStorageIdentity.parse(scopedId);
   if (conversation.id != identity.rawId) return false;
   final storage = identity.storage;
+  // Native Hermes shells are runtime-owned and intentionally unscoped. A
+  // persisted row can legally reuse the same raw id, but its scoped selection
+  // must never match or mutate the native shell.
+  if (storage != null &&
+      (isNativeHermesConversation(conversation) ||
+          _isUnstoredDirectConversation(conversation))) {
+    return false;
+  }
   return storage == null ||
       (chatStorageKindOf(conversation) ?? ChatStorageKind.openWebUi) == storage;
 }
 
 bool isSameStoredConversation(Conversation? left, Conversation? right) {
   if (left == null || right == null || left.id != right.id) return false;
+  // A native Hermes shell is process-owned and deliberately has no persisted
+  // storage annotation. Do not let a server row with the same raw id collide
+  // with it through the legacy "unannotated means OpenWebUI" fallback.
+  final leftIsNativeHermes = isNativeHermesConversation(left);
+  final rightIsNativeHermes = isNativeHermesConversation(right);
+  if (leftIsNativeHermes != rightIsNativeHermes) return false;
+  if (leftIsNativeHermes) return true;
+  // A temporary direct shell is runtime-owned just like a native Hermes
+  // shell. It must not alias a colliding legacy OpenWebUI row merely because
+  // both currently lack a storage annotation.
+  final leftIsUnstoredDirect = _isUnstoredDirectConversation(left);
+  final rightIsUnstoredDirect = _isUnstoredDirectConversation(right);
+  if (leftIsUnstoredDirect != rightIsUnstoredDirect) return false;
+  if (leftIsUnstoredDirect) return true;
   // Unannotated conversations predate multi-store history and therefore
   // retain their historical Open WebUI meaning.
   final leftStorage = chatStorageKindOf(left) ?? ChatStorageKind.openWebUi;
@@ -3144,27 +3186,32 @@ void markConversationRead(
 
   final timestamp = readAt ?? DateTime.now();
   Conversation? targetConversation;
+  var resolvedSelectionId = scopedId;
   try {
-    final conversations = ref.read(conversationsProvider).asData?.value;
+    final conversations =
+        (ref.read(conversationsProvider) as AsyncValue<List<Conversation>>)
+            .asData
+            ?.value;
     if (conversations != null) {
       final index = _conversationIndexForSelection(conversations, scopedId);
       if (index >= 0) {
         targetConversation = conversations[index];
+        resolvedSelectionId = conversationScopedId(targetConversation);
       }
     }
     ref
         .read(conversationsProvider.notifier)
-        .markConversationRead(scopedId, timestamp);
+        .markConversationRead(resolvedSelectionId, timestamp);
   } catch (_) {}
 
   try {
-    final active = ref.read(activeConversationProvider);
+    final active = ref.read(activeConversationProvider) as Conversation?;
     if (active != null &&
         (targetConversation != null
             ? isSameStoredConversation(active, targetConversation)
-            : conversationMatchesScopedId(active, scopedId))) {
+            : conversationMatchesScopedId(active, resolvedSelectionId))) {
       targetConversation ??= active;
-      final current = active!.lastReadAt;
+      final current = active.lastReadAt;
       if (current == null || timestamp.isAfter(current)) {
         ref
             .read(activeConversationProvider.notifier)
@@ -3285,11 +3332,26 @@ bool isActiveConversationInPlaceRemap(
   String? nextId,
 ) {
   try {
+    if (previousId == null || nextId == null) return false;
+    final previousIdentity = ChatStorageIdentity.parse(previousId);
+    final nextIdentity = ChatStorageIdentity.parse(nextId);
+    if (previousIdentity.storage != null &&
+        nextIdentity.storage != null &&
+        previousIdentity.storage != nextIdentity.storage) {
+      return false;
+    }
     final active = ref.read(activeConversationProvider) as Conversation?;
-    if (active == null || active.id != nextId) return false;
+    if (active == null || !conversationMatchesScopedId(active, nextId)) {
+      return false;
+    }
     final namespace = _activeConversationRemapNamespaceFor(active);
     final remap = ref.read(activeConversationInPlaceRemapProvider);
-    if (remap?.matches(previousId, nextId, namespace: namespace) != true) {
+    if (remap?.matches(
+          previousIdentity.rawId,
+          nextIdentity.rawId,
+          namespace: namespace,
+        ) !=
+        true) {
       return false;
     }
     if (namespace != ActiveConversationRemapNamespace.openWebUi) return true;
@@ -3307,7 +3369,17 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
   @override
   Conversation? build() => null;
 
-  void set(Conversation? conversation) => state = conversation;
+  void set(Conversation? conversation) {
+    final previous = state;
+    final selectionChanged = previous == null
+        ? conversation != null
+        : conversation == null ||
+              !isSameStoredConversation(previous, conversation);
+    if (selectionChanged) {
+      ref.read(hermesSessionNavigationEpochProvider.notifier).bump();
+    }
+    state = conversation;
+  }
 
   void remapIdInPlace({required String fromId, required String toId}) {
     final current = state;
@@ -3316,10 +3388,16 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
     ref
         .read(activeConversationInPlaceRemapProvider.notifier)
         .mark(fromId: fromId, toId: toId, namespace: namespace);
-    state = current.copyWith(id: toId);
+    state = inheritNativeHermesConversationProvenance(
+      current,
+      current.copyWith(id: toId),
+    );
   }
 
-  void clear() => state = null;
+  void clear() {
+    ref.read(hermesSessionNavigationEpochProvider.notifier).bump();
+    state = null;
+  }
 }
 
 ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
@@ -3332,7 +3410,7 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
   if (storage == ChatStorageKind.openWebUi) {
     return ActiveConversationRemapNamespace.openWebUi;
   }
-  if (conversation.metadata['backend'] == 'hermes') {
+  if (isNativeHermesConversation(conversation)) {
     return ActiveConversationRemapNamespace.hermes;
   }
   if (conversation.metadata['backend'] == 'direct' ||

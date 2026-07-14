@@ -244,7 +244,6 @@ final _multilineCodeSpanCandidate = RegExp(
   r'(?<!`)(`+(?!`))((?:.|\n)*?[^`])\1(?!`)',
 );
 const int _maxMultilineCodeSpanCandidates = 4096;
-const int _maxIndentedCodeLineCandidates = 4096;
 
 final class _SourceSpan {
   const _SourceSpan(this.start, this.end);
@@ -310,10 +309,7 @@ Set<int> _parserConfirmedIndentedCodeLines(String value) {
       candidates.add(index);
     }
   }
-  if (candidates.isEmpty ||
-      candidates.length > _maxIndentedCodeLineCandidates) {
-    return const <int>{};
-  }
+  if (candidates.isEmpty) return const <int>{};
 
   var markerStart = '\uE000conduit-indented-code';
   while (value.contains(markerStart)) {

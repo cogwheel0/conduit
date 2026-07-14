@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
@@ -203,6 +205,44 @@ void main() {
   });
 
   group('merged reads', () {
+    test('raw backend ids cannot be mistaken for scoped selections', () {
+      const rawIds = <String>[
+        'conduit-chat://openWebUi/backend-chat',
+        'conduit-chat://scoped/openWebUi/backend-chat',
+        'conduit-chat://scoped/v1/not-a-runtime-nonce/openWebUi/backend-chat',
+      ];
+      for (final rawId in rawIds) {
+        final raw = ChatStorageIdentity.parse(rawId);
+        check(raw.rawId).equals(rawId);
+        check(raw.storage).isNull();
+      }
+
+      final scoped = const ChatStorageIdentity(
+        rawId: 'conduit-chat://scoped/openWebUi/backend-chat',
+        storage: ChatStorageKind.openWebUi,
+      );
+      final reparsed = ChatStorageIdentity.parse(scoped.scopedId);
+      check(reparsed.rawId).equals(scoped.rawId);
+      check(reparsed.storage).equals(ChatStorageKind.openWebUi);
+      check(scoped.scopedId).startsWith('conduit-chat://scoped/v1/');
+      check(
+        RegExp(
+          r'^conduit-chat://scoped/v1/[0-9a-f]{32}/openWebUi/',
+        ).hasMatch(scoped.scopedId),
+      ).isTrue();
+      check(scoped.scopedId).not((it) => it.equals(rawIds[1]));
+    });
+
+    test('runtime nonce falls back when secure entropy is unsupported', () {
+      final nonce = ChatStorageIdentity.debugCreateRuntimeNonce(
+        secureRandomFactory: () => throw UnsupportedError('unavailable'),
+        fallbackRandomFactory: (_) => Random(7),
+      );
+
+      check(nonce.length).equals(32);
+      check(RegExp(r'^[0-9a-f]{32}$').hasMatch(nonce)).isTrue();
+    });
+
     test('lists, loads, and searches with no Open WebUI database', () async {
       final localOnlyRepository = ChatDatabaseRepository(
         openWebUiDatabase: null,

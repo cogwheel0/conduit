@@ -20,6 +20,9 @@ import '../services/direct_run_registry.dart';
 import '../services/ollama_adapter.dart';
 import '../services/openai_compatible_adapter.dart';
 
+export '../services/direct_connection_profile_store.dart'
+    show DirectConnectionProfileConflictException;
+
 enum DirectHistoryPolicy {
   /// Mirror direct chats to the active OpenWebUI server when one is available;
   /// otherwise keep them in Conduit's local database.
@@ -138,44 +141,43 @@ class DirectConnectionProfilesController
   /// [secretsConfirmedForNewOrigin] records an explicit user confirmation.
   Future<void> upsert(
     DirectConnectionProfile profile, {
+    DirectConnectionProfile? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
   }) => _serializeMutation(
     () => _upsert(
       profile,
+      expectedPrevious: expectedPrevious,
       secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
     ),
   );
 
   Future<void> _upsert(
     DirectConnectionProfile profile, {
+    DirectConnectionProfile? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
   }) async {
     profile.validate();
     final current = state.value ?? await _store.load();
     final index = current.indexWhere((item) => item.id == profile.id);
     final previous = index < 0 ? null : current[index];
-    final safeProfile = previous == null
-        ? profile
-        : DirectConnectionProfile.secureUpdate(
-            previous: previous,
-            next: profile,
-            secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
-          );
-    safeProfile.validate();
-    final updated = [...current];
-    if (index < 0) {
-      updated.add(safeProfile);
-    } else {
-      updated[index] = safeProfile;
-    }
     final runRegistry = ref.read(directRunRegistryProvider);
     final modelRegistry = ref.read(directModelRegistryProvider);
-    final persisted = await _store.save(
-      updated,
-      secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin
-          ? {profile.id}
-          : const {},
-    );
+    late final List<DirectConnectionProfile> persisted;
+    try {
+      persisted = await _store.upsert(
+        profile,
+        expectedPrevious: expectedPrevious,
+        secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+      );
+    } on DirectConnectionProfileConflictException catch (conflict) {
+      _publishConflictWinner(
+        previous: current,
+        persisted: conflict.currentProfiles,
+        runRegistry: runRegistry,
+        modelRegistry: modelRegistry,
+      );
+      rethrow;
+    }
     final persistedProfile = persisted
         .where((item) => item.id == profile.id)
         .single;
@@ -190,6 +192,30 @@ class DirectConnectionProfilesController
     if (ref.mounted) state = AsyncValue.data(persisted);
     if (transportChanged) {
       _cancelProfileRunsBestEffort(runRegistry, profile.id);
+    }
+  }
+
+  void _publishConflictWinner({
+    required List<DirectConnectionProfile> previous,
+    required List<DirectConnectionProfile> persisted,
+    required DirectRunRegistry runRegistry,
+    required DirectModelRegistry modelRegistry,
+  }) {
+    final persistedById = <String, DirectConnectionProfile>{
+      for (final profile in persisted) profile.id: profile,
+    };
+    final invalidatedProfileIds = <String>{};
+    for (final oldProfile in previous) {
+      final nextProfile = persistedById[oldProfile.id];
+      if (nextProfile == null || _transportChanged(oldProfile, nextProfile)) {
+        invalidatedProfileIds.add(oldProfile.id);
+        _removeProfileModelsBestEffort(modelRegistry, oldProfile.id);
+      }
+    }
+    modelRegistry.retainProfiles(persistedById.keys);
+    if (ref.mounted) state = AsyncValue.data(persisted);
+    for (final profileId in invalidatedProfileIds) {
+      _cancelProfileRunsBestEffort(runRegistry, profileId);
     }
   }
 
@@ -483,7 +509,7 @@ class DirectModelDiscoveryController
           previousProfile != null &&
           previousCached != null &&
           listEquals(previousCached, cached) &&
-          _sameDirectProfile(previousProfile, outcome.profile) &&
+          sameDirectConnectionProfileValues(previousProfile, outcome.profile) &&
           previousMinted.every((item) => registry.resolve(item) != null);
       final profileModels = canReuseMinted
           ? previousMinted
@@ -644,28 +670,3 @@ bool _sameModelIdentities(List<model.Model> left, List<model.Model> right) {
   }
   return true;
 }
-
-bool _sameDirectProfile(
-  DirectConnectionProfile left,
-  DirectConnectionProfile right,
-) =>
-    left.schemaVersion == right.schemaVersion &&
-    left.id == right.id &&
-    left.name == right.name &&
-    left.adapterKey == right.adapterKey &&
-    left.baseUrl == right.baseUrl &&
-    left.openAiApiMode == right.openAiApiMode &&
-    left.apiKeyAuthMode == right.apiKeyAuthMode &&
-    left.apiVersion == right.apiVersion &&
-    left.modelIdPrefix == right.modelIdPrefix &&
-    listEquals(left.tags, right.tags) &&
-    left.enabled == right.enabled &&
-    left.apiKey == right.apiKey &&
-    mapEquals(left.customHeaders, right.customHeaders) &&
-    listEquals(left.manualModelIds, right.manualModelIds) &&
-    left.allowSelfSignedCertificates == right.allowSelfSignedCertificates &&
-    left.mtlsCertificateChainPem == right.mtlsCertificateChainPem &&
-    left.mtlsCertificateLabel == right.mtlsCertificateLabel &&
-    left.mtlsPrivateKeyPem == right.mtlsPrivateKeyPem &&
-    left.mtlsPrivateKeyLabel == right.mtlsPrivateKeyLabel &&
-    left.mtlsPrivateKeyPassword == right.mtlsPrivateKeyPassword;

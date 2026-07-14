@@ -4442,6 +4442,10 @@
   "@directConnectionSaveFailed": {
     "description": "Error shown when a direct connection profile cannot be saved."
   },
+  "directConnectionSaveConflict": "This connection changed elsewhere. Reopen it before saving.",
+  "@directConnectionSaveConflict": {
+    "description": "Error shown when a direct connection profile changed after the editor loaded it."
+  },
   "directConnectionReachFailed": "Could not reach the provider.",
   "@directConnectionReachFailed": {
     "description": "Error shown when a direct provider connection test cannot reach the provider."

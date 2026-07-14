@@ -353,18 +353,22 @@ final class _DeferredAttachmentApi extends ApiService {
 }
 
 final class _ProvenanceApi extends ApiService {
-  _ProvenanceApi({required this.label, this.gateFirstInfo = false})
-    : super(
-        serverConfig: ServerConfig(
-          id: 'server-$label',
-          name: 'Server $label',
-          url: 'https://$label.example.test',
-        ),
-        workerManager: WorkerManager(),
-      );
+  _ProvenanceApi({
+    required this.label,
+    this.gateFirstInfo = false,
+    this.contentType,
+  }) : super(
+         serverConfig: ServerConfig(
+           id: 'server-$label',
+           name: 'Server $label',
+           url: 'https://$label.example.test',
+         ),
+         workerManager: WorkerManager(),
+       );
 
   final String label;
   final bool gateFirstInfo;
+  final String? contentType;
   final Completer<void> firstInfoStarted = Completer<void>();
   final Completer<void> firstInfoGate = Completer<void>();
   var infoCalls = 0;
@@ -382,7 +386,7 @@ final class _ProvenanceApi extends ApiService {
       await firstInfoGate.future;
     }
     return {
-      'meta': {'content_type': 'image/png;source=$label'},
+      'meta': {'content_type': contentType ?? 'image/png;source=$label'},
     };
   }
 
@@ -528,6 +532,45 @@ final class _GatedCompletionPersistRepository extends ChatDatabaseRepository {
       currentMessageId: currentMessageId,
       updatedAt: updatedAt,
     );
+  }
+}
+
+final class _RotateAuthAfterTurnStartCommitRepository
+    extends ChatDatabaseRepository {
+  _RotateAuthAfterTurnStartCommitRepository({
+    required super.openWebUiDatabase,
+    required super.directLocalDatabase,
+    required this.userContent,
+    required this.rotateAuthSession,
+  });
+
+  final String userContent;
+  final void Function() rotateAuthSession;
+  var rotated = false;
+
+  @override
+  Future<void> persistDirectMessages(
+    ChatDatabaseLocation location, {
+    required String chatId,
+    required List<MessageRowData> messages,
+    String? currentMessageId,
+    int? updatedAt,
+  }) async {
+    await super.persistDirectMessages(
+      location,
+      chatId: chatId,
+      messages: messages,
+      currentMessageId: currentMessageId,
+      updatedAt: updatedAt,
+    );
+    if (!rotated &&
+        messages.any(
+          (message) => message.role == 'user' && message.content == userContent,
+        ) &&
+        messages.any((message) => message.role == 'assistant')) {
+      rotated = true;
+      rotateAuthSession();
+    }
   }
 }
 
@@ -874,6 +917,22 @@ _createInvalidatedOwnerRefreshHarness(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'OpenWebUI image resolution accepts case-insensitive MIME types',
+    () async {
+      final api = _ProvenanceApi(label: 'upper', contentType: 'Image/PNG');
+
+      final resolved = await resolveDirectImageFromOpenWebUiForTest(
+        api,
+        'server-image',
+      );
+
+      expect(resolved, startsWith('data:image/png;base64,'));
+      expect(api.infoCalls, 1);
+      expect(api.contentCalls, 1);
+    },
+  );
 
   test(
     'direct follow-up settles reasoning and preserves linked history on reload',
@@ -1489,8 +1548,13 @@ void main() {
     () async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
+      final dbB = AppDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
       final directLocal = AppDatabase(NativeDatabase.memory());
       addTearDown(directLocal.close);
+      final databaseState = NotifierProvider<_DatabaseState, AppDatabase?>(
+        () => _DatabaseState(db),
+      );
       final api = _ProvenanceApi(label: 'shared', gateFirstInfo: true);
       final epochState = NotifierProvider<_EpochState, Object>(
         () => _EpochState(Object()),
@@ -1516,16 +1580,11 @@ void main() {
         ChatStorageKind.openWebUi,
       );
       final chatB = withChatStorageProvenance(
-        chatA.copyWith(
-          title: 'User B',
-          messages: [
-            ChatMessage(
-              id: 'b-sentinel',
-              role: 'assistant',
-              content: 'User B sentinel',
-              timestamp: DateTime.utc(2026, 7, 13),
-            ),
-          ],
+        await _seedDirectConversation(
+          db: dbB,
+          chatId: chatA.id,
+          modelId: model.id,
+          suffix: 'auth-b',
         ),
         ChatStorageKind.openWebUi,
       );
@@ -1537,8 +1596,14 @@ void main() {
           isAuthenticatedProvider2.overrideWithValue(false),
           apiServiceProvider.overrideWithValue(api),
           socketServiceProvider.overrideWithValue(null),
-          appDatabaseProvider.overrideWithValue(db),
+          appDatabaseProvider.overrideWith((ref) => ref.watch(databaseState)),
           directLocalDatabaseProvider.overrideWithValue(directLocal),
+          chatDatabaseRepositoryProvider.overrideWith((ref) {
+            return ChatDatabaseRepository(
+              openWebUiDatabase: ref.watch(appDatabaseProvider),
+              directLocalDatabase: ref.watch(directLocalDatabaseProvider),
+            );
+          }),
           directModelRegistryProvider.overrideWithValue(modelRegistry),
           directConnectionProfilesProvider.overrideWith(
             () => _Profiles(profile),
@@ -1565,8 +1630,15 @@ void main() {
       await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
 
       container.read(epochState.notifier).rotate();
+      container.read(databaseState.notifier).set(dbB);
       container.read(activeConversationProvider.notifier).set(chatB);
       container.read(chatMessagesProvider.notifier).setMessages(chatB.messages);
+      await _waitUntil(() async {
+        final visible = container.read(chatMessagesProvider);
+        return visible.length == 2 &&
+            visible.first.id == 'user-auth-b' &&
+            visible.first.timestamp.year == 1970;
+      });
       final bBefore = jsonEncode(
         container.read(chatMessagesProvider).map((m) => m.toJson()).toList(),
       );
@@ -1584,6 +1656,107 @@ void main() {
         ),
         bBefore,
       );
+      final durableRows = await db.messagesDao.getForChat(chatA.id);
+      final committedUser = durableRows.singleWhere(
+        (row) => row.role == 'user' && row.content == 'Do not leak this image',
+      );
+      final committedAssistant = durableRows.singleWhere(
+        (row) => row.role == 'assistant' && row.parentId == committedUser.id,
+      );
+      final assistantPayload =
+          jsonDecode(committedAssistant.payload) as Map<String, dynamic>;
+      expect(assistantPayload['isStreaming'], isFalse);
+      expect(assistantPayload['done'], isTrue);
+    },
+  );
+
+  test(
+    'OpenWebUI auth rotation after turn commit settles the placeholder',
+    () async {
+      const userContent = 'Rotate immediately after commit';
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final directLocal = AppDatabase(NativeDatabase.memory());
+      addTearDown(directLocal.close);
+      final epochState = NotifierProvider<_EpochState, Object>(
+        () => _EpochState(Object()),
+      );
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final modelRegistry = DirectModelRegistry();
+      final model = modelRegistry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model'),
+      ]).single;
+      final adapter = _Adapter();
+      final chat = withChatStorageProvenance(
+        await _seedDirectConversation(
+          db: db,
+          chatId: 'post-commit-auth-rotation',
+          modelId: model.id,
+          suffix: 'post-commit-auth-rotation',
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      late ProviderContainer container;
+      final repository = _RotateAuthAfterTurnStartCommitRepository(
+        openWebUiDatabase: db,
+        directLocalDatabase: directLocal,
+        userContent: userContent,
+        rotateAuthSession: () {
+          container.read(epochState.notifier).rotate();
+        },
+      );
+      container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(db),
+          directLocalDatabaseProvider.overrideWithValue(directLocal),
+          chatDatabaseRepositoryProvider.overrideWithValue(repository),
+          directModelRegistryProvider.overrideWithValue(modelRegistry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(epochState),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(openWebUiDatabaseAccessProvider.notifier).open();
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      await sendMessageWithContainer(
+        container,
+        userContent,
+        null,
+      ).timeout(const Duration(seconds: 1));
+
+      expect(repository.rotated, isTrue);
+      expect(adapter.startCalls, 0);
+      final durableRows = await db.messagesDao.getForChat(chat.id);
+      final committedUser = durableRows.singleWhere(
+        (row) => row.role == 'user' && row.content == userContent,
+      );
+      final committedAssistant = durableRows.singleWhere(
+        (row) => row.role == 'assistant' && row.parentId == committedUser.id,
+      );
+      final assistantPayload =
+          jsonDecode(committedAssistant.payload) as Map<String, dynamic>;
+      expect(assistantPayload['isStreaming'], isFalse);
+      expect(assistantPayload['done'], isTrue);
     },
   );
 

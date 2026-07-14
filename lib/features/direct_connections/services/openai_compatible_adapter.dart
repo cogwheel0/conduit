@@ -113,9 +113,15 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         final inputModalities = architecture is Map
             ? architecture['input_modalities']
             : null;
+        final hasAdvertisedModalities =
+            map?['is_multimodal'] != null || inputModalities != null;
         final advertisedMultimodal =
             map?['is_multimodal'] == true ||
-            (inputModalities is Iterable && inputModalities.contains('image'));
+            (inputModalities is Iterable &&
+                inputModalities.any(
+                  (modality) =>
+                      modality.toString().trim().toLowerCase() == 'image',
+                ));
         models.add(
           DirectRemoteModel(
             id: sdkModel.id,
@@ -123,9 +129,10 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             description: map?['description']?.toString(),
             // The protocol supports image content even when a provider's
             // catalog omits modalities (as LM Studio catalogs often do).
-            isMultimodal: true,
+            isMultimodal: hasAdvertisedModalities ? advertisedMultimodal : true,
             capabilities: {
-              'advertised_multimodal': advertisedMultimodal,
+              if (hasAdvertisedModalities)
+                'advertised_multimodal': advertisedMultimodal,
               if (architecture is Map) 'architecture': architecture,
               if (map?['context_length'] != null)
                 'context_length': map!['context_length'],

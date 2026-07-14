@@ -6,6 +6,27 @@ final RegExp _hermesOpaqueIdentifierPattern = RegExp(
   r'^[A-Za-z0-9][A-Za-z0-9._~:+/=\-]*$',
 );
 
+/// Accepts only a scalar provider string and bounds it by Unicode scalar
+/// count. The cheap UTF-16 preflight prevents trimming or rune iteration over
+/// hostile multi-megabyte display fields.
+String? validateHermesBoundedString(
+  Object? value, {
+  required int maxCharacters,
+  bool trim = true,
+  bool allowEmpty = false,
+}) {
+  if (value is! String || maxCharacters <= 0) return null;
+  if (value.length > maxCharacters * 2) return null;
+  final normalized = trim ? value.trim() : value;
+  if ((!allowEmpty && normalized.isEmpty) ||
+      normalized.length > maxCharacters * 2 ||
+      normalized.runes.length > maxCharacters ||
+      normalized.contains('\u0000')) {
+    return null;
+  }
+  return normalized;
+}
+
 /// Validates an opaque provider identifier without coercing provider values.
 ///
 /// Hermes identifiers are persisted, reused as headers, and interpolated into

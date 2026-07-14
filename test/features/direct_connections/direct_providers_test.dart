@@ -290,6 +290,157 @@ void main() {
     expect(saved.enabled, isFalse);
   });
 
+  test('stale expected profile cannot overwrite a newer edit', () async {
+    final original = _profile(apiKey: 'original-secret');
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+
+    await controller.upsert(
+      original.copyWith(name: 'Concurrent', apiKey: 'concurrent-secret'),
+    );
+
+    await expectLater(
+      controller.upsert(
+        original.copyWith(name: 'Stale rename'),
+        expectedPrevious: original,
+      ),
+      throwsA(isA<DirectConnectionProfileConflictException>()),
+    );
+
+    final saved = container
+        .read(directConnectionProfilesProvider)
+        .requireValue
+        .single;
+    expect(saved.name, 'Concurrent');
+    expect(saved.apiKey, 'concurrent-secret');
+    final durable = await _loadDurableProfiles();
+    expect(durable.single.name, 'Concurrent');
+    expect(durable.single.apiKey, 'concurrent-secret');
+  });
+
+  test('durable expected profile check rejects a stale controller', () async {
+    final original = _profile(apiKey: 'original-secret');
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final store = container.read(directConnectionProfileStoreProvider);
+    final modelRegistry = container.read(directModelRegistryProvider);
+    final staleModel = modelRegistry.replaceProfileModels(original, [
+      DirectRemoteModel(id: 'stale-model'),
+    ]).single;
+    expect(modelRegistry.resolve(staleModel), isNotNull);
+    final concurrent = original.copyWith(
+      name: 'Concurrent',
+      apiKey: 'concurrent-secret',
+    );
+    final unrelated = _profile(
+      id: 'profile-two',
+      name: 'Unrelated',
+      apiKey: 'unrelated-secret',
+    );
+    await store.save([concurrent, unrelated]);
+
+    await expectLater(
+      controller.upsert(
+        original.copyWith(name: 'Stale rename'),
+        expectedPrevious: original,
+      ),
+      throwsA(isA<DirectConnectionProfileConflictException>()),
+    );
+
+    final published = container
+        .read(directConnectionProfilesProvider)
+        .requireValue;
+    expect(published, hasLength(2));
+    expect(
+      published.singleWhere((profile) => profile.id == original.id).name,
+      'Concurrent',
+    );
+    expect(
+      published.singleWhere((profile) => profile.id == original.id).apiKey,
+      'concurrent-secret',
+    );
+    expect(
+      published.singleWhere((profile) => profile.id == unrelated.id).apiKey,
+      'unrelated-secret',
+    );
+    expect(modelRegistry.resolve(staleModel), isNull);
+
+    final durable = await store.load();
+    expect(durable, hasLength(2));
+    expect(
+      durable.singleWhere((profile) => profile.id == original.id).name,
+      'Concurrent',
+    );
+    expect(
+      durable.singleWhere((profile) => profile.id == original.id).apiKey,
+      'concurrent-secret',
+    );
+    expect(
+      durable.singleWhere((profile) => profile.id == unrelated.id).apiKey,
+      'unrelated-secret',
+    );
+  });
+
+  test('atomic profile edit preserves unrelated durable profiles', () async {
+    final original = _profile(apiKey: 'original-secret');
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final store = container.read(directConnectionProfileStoreProvider);
+    final unrelated = _profile(
+      id: 'profile-two',
+      name: 'Unrelated',
+      apiKey: 'unrelated-secret',
+    );
+    await store.save([original, unrelated]);
+
+    await controller.upsert(
+      original.copyWith(name: 'Renamed'),
+      expectedPrevious: original,
+    );
+
+    final durable = await store.load();
+    expect(durable, hasLength(2));
+    expect(
+      durable.singleWhere((profile) => profile.id == original.id).name,
+      'Renamed',
+    );
+    expect(
+      durable.singleWhere((profile) => profile.id == original.id).apiKey,
+      'original-secret',
+    );
+    expect(
+      durable.singleWhere((profile) => profile.id == unrelated.id).apiKey,
+      'unrelated-secret',
+    );
+  });
+
   test('reload is serialized with profile mutations', () async {
     final original = _profile();
     final storage = _ReloadGateSecureStorage(

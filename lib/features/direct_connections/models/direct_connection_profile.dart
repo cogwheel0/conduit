@@ -179,7 +179,8 @@ final class DirectConnectionProfile {
     }
 
     for (final entry in customHeaders.entries) {
-      if (!_isValidHeaderName(entry.key) || _containsLineBreak(entry.value)) {
+      if (!isValidCustomHeaderName(entry.key) ||
+          !isValidCustomHeaderValue(entry.value)) {
         return 'A custom header is invalid.';
       }
       if (reservedHeaderNames.contains(entry.key.trim().toLowerCase())) {
@@ -402,6 +403,21 @@ final class DirectConnectionProfile {
     'content-length',
   };
 
+  /// Mirrors the field-name validation performed by `dart:io`.
+  static bool isValidCustomHeaderName(String value) =>
+      RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(value);
+
+  /// Mirrors the field-value validation performed by `dart:io`: printable
+  /// ASCII, including spaces, plus horizontal tabs.
+  static bool isValidCustomHeaderValue(String value) {
+    for (final codeUnit in value.codeUnits) {
+      if (codeUnit != 0x09 && (codeUnit < 0x20 || codeUnit >= 0x7f)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   static const Object _keep = Object();
 }
 
@@ -502,9 +518,6 @@ List<String> _stringList(Object? value) {
   }
   return value.map((item) => item.toString()).toList(growable: false);
 }
-
-bool _isValidHeaderName(String value) =>
-    RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(value.trim());
 
 bool _containsLineBreak(String value) =>
     value.contains('\r') || value.contains('\n');

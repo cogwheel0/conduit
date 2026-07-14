@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../core/models/chat_message.dart';
 import '../../../core/services/openai_responses_codec.dart';
@@ -32,6 +33,7 @@ const int _maxHermesProviderSecretCharacters = 8 * 1024;
 const int kMaxHermesToolNameCharacters = 80;
 const int kMaxHermesStatusDetailCharacters = 120;
 const int kMaxHermesApprovalSummaryCharacters = 512;
+const int _maxHermesRecoveryStatusCharacters = 64;
 
 /// Maximum number of status-history rows one Hermes turn may introduce.
 ///
@@ -44,7 +46,13 @@ const int kMaxHermesStatusRowsPerTurn = 64;
 /// Drives an attachment-capable Hermes turn over the existing Responses SSE
 /// endpoint. The endpoint has no separate stop API; cancelling its request
 /// closes the stream, which current Hermes servers use to interrupt the agent.
-Future<void> dispatchHermesResponse({
+/// Returns whether Hermes reported a successful terminal response.
+///
+/// Callers that persist provenance must use this result rather than treating
+/// normal Future completion as proof that the request was accepted: transport
+/// failures and user cancellation are deliberately converted into message
+/// state and do not escape this function as errors.
+Future<bool> dispatchHermesResponse({
   required HermesApiService service,
   required HermesRunRegistry registry,
   required String assistantMessageId,
@@ -59,7 +67,8 @@ Future<void> dispatchHermesResponse({
   CancelToken? cancelToken,
   int maxRecoveryPolls = 120,
   Duration recoveryPollInterval = const Duration(seconds: 1),
-  void Function(String? sessionId)? onSessionEstablished,
+  FutureOr<void> Function(String? sessionId)? onSessionEstablished,
+  FutureOr<void> Function()? onCompletedSuccessfully,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -81,7 +90,7 @@ Future<void> dispatchHermesResponse({
   if (responseCancelToken.isCancelled) {
     finishStreaming();
     completeStreamingUi();
-    return;
+    return false;
   }
   registry.registerPending(
     registryKey(),
@@ -114,7 +123,7 @@ Future<void> dispatchHermesResponse({
       registryKey(),
       cancelToken: responseCancelToken,
     );
-    if (!owned) return;
+    if (!owned) return false;
     if (!responseCancelToken.isCancelled) {
       DebugLogger.error(
         'create-response-stream-failed',
@@ -128,7 +137,7 @@ Future<void> dispatchHermesResponse({
     }
     finishStreaming();
     completeStreamingUi();
-    return;
+    return false;
   }
 
   if (responseCancelToken.isCancelled) {
@@ -140,14 +149,45 @@ Future<void> dispatchHermesResponse({
       finishStreaming();
       completeStreamingUi();
     }
-    return;
+    return false;
   }
-  onSessionEstablished?.call(
-    _validatedHermesOpaqueIdentifier(
-      responseStream.sessionId,
-      sensitiveValues: sensitiveProviderValues,
-    ),
-  );
+  try {
+    await onSessionEstablished?.call(
+      _validatedHermesOpaqueIdentifier(
+        responseStream.sessionId,
+        sensitiveValues: sensitiveProviderValues,
+      ),
+    );
+  } catch (_) {
+    _signalHermesTransportCancellation(responseCancelToken);
+    final owned = registry.complete(
+      registryKey(),
+      cancelToken: responseCancelToken,
+    );
+    if (owned) {
+      updateMessage(
+        (message) => message.copyWith(
+          error: const ChatMessageError(
+            content: 'Hermes could not safely initialize this session.',
+          ),
+        ),
+      );
+      finishStreaming();
+      completeStreamingUi();
+    }
+    return false;
+  }
+  if (responseCancelToken.isCancelled) {
+    final owned = registry.complete(
+      registryKey(),
+      cancelToken: responseCancelToken,
+    );
+    if (owned) {
+      finishStreaming();
+      completeStreamingUi();
+    }
+    return false;
+  }
   updateMessage((message) {
     final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
     metadata['transport'] = kHermesTransport;
@@ -156,6 +196,7 @@ Future<void> dispatchHermesResponse({
   });
 
   var sawTerminal = false;
+  var completedSuccessfully = false;
   var gotContent = false;
   final streamedText = StringBuffer();
   String? finalOutput;
@@ -189,7 +230,11 @@ Future<void> dispatchHermesResponse({
               return message.copyWith(metadata: metadata);
             });
           }
-        case HermesRunDone() || HermesRunError():
+        case HermesRunDone():
+          sawTerminal = true;
+          completedSuccessfully = true;
+          if (!completer.isCompleted) completer.complete();
+        case HermesRunError():
           sawTerminal = true;
           if (!completer.isCompleted) completer.complete();
         default:
@@ -231,7 +276,7 @@ Future<void> dispatchHermesResponse({
   );
   if (!attached) {
     // attachStream already starts detached cancellation for a stale owner.
-    return;
+    return false;
   }
 
   try {
@@ -263,7 +308,7 @@ Future<void> dispatchHermesResponse({
           maxPolls: maxRecoveryPolls,
           pollInterval: recoveryPollInterval,
         );
-        if (recovered == null) return;
+        if (recovered == null) return false;
         if (recovered.text.isNotEmpty) {
           _appendAuthoritativeOutput(
             recovered.text,
@@ -273,7 +318,8 @@ Future<void> dispatchHermesResponse({
             replaceContent: replaceContent,
           );
         }
-        if (recovered.status != 'completed') {
+        completedSuccessfully = recovered.status == 'completed';
+        if (!completedSuccessfully) {
           updateMessage(
             (message) => message.copyWith(
               error: ChatMessageError(
@@ -290,7 +336,7 @@ Future<void> dispatchHermesResponse({
             : (streamError ?? error);
         if (responseCancelToken.isCancelled &&
             !_isActiveHermesProtocolFailure(failure, responseCancelToken)) {
-          return;
+          return false;
         }
         DebugLogger.error('response-stream-error', scope: 'hermes/transport');
         updateMessage(
@@ -299,6 +345,10 @@ Future<void> dispatchHermesResponse({
           ),
         );
       }
+    }
+    if (completedSuccessfully && !responseCancelToken.isCancelled) {
+      await onCompletedSuccessfully?.call();
+      if (responseCancelToken.isCancelled) completedSuccessfully = false;
     }
   } finally {
     _signalHermesTransportCancellation(responseCancelToken);
@@ -315,6 +365,7 @@ Future<void> dispatchHermesResponse({
       completeStreamingUi();
     }
   }
+  return completedSuccessfully;
 }
 
 /// Drives one Hermes run end-to-end: creates the run, subscribes to its event
@@ -731,7 +782,7 @@ Future<({String text, String status})?> _recoverRunOutput(
       await Future<void>.delayed(pollInterval);
       continue;
     }
-    final status = run['status']?.toString().toLowerCase();
+    final status = _hermesRecoveryStatus(run['status']);
     final text = _extractBoundedHermesRecoveryOutput(
       run['output'] ?? run['response'] ?? run['message'],
       maxCharacters: service.streamLimits.maxCharacters,
@@ -806,7 +857,7 @@ Future<({String text, String status})?> _recoverResponseOutput(
       // Stored responses from older Hermes releases can omit OpenAI-required
       // item metadata. Keep recovery compatible without making the direct
       // provider adapter's standard Responses decoding permissive.
-      status = response['status']?.toString().toLowerCase() ?? 'unknown';
+      status = _hermesRecoveryStatus(response['status']) ?? 'unknown';
       text = _extractBoundedHermesRecoveryOutput(
         response['output'],
         maxCharacters: service.streamLimits.maxCharacters,
@@ -819,6 +870,19 @@ Future<({String text, String status})?> _recoverResponseOutput(
   }
   return null;
 }
+
+String? _hermesRecoveryStatus(Object? value) {
+  if (value is! String ||
+      value.isEmpty ||
+      value.length > _maxHermesRecoveryStatusCharacters) {
+    return null;
+  }
+  return value.toLowerCase();
+}
+
+@visibleForTesting
+String? hermesRecoveryStatusForTest(Object? value) =>
+    _hermesRecoveryStatus(value);
 
 String _extractBoundedHermesRecoveryOutput(
   Object? output, {

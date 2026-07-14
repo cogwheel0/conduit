@@ -15,6 +15,7 @@ import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
+import '../../hermes/services/hermes_session_provenance.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../providers/chat_providers.dart';
 import '../utils/file_utils.dart';
@@ -1086,7 +1087,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       final idx = indexOfMessageId(messages, messageId);
       if (idx >= 0) {
         final active = ref.read(activeConversationProvider);
-        if (active?.metadata['backend'] == 'hermes') {
+        if (isNativeHermesConversation(active)) {
           await regenerateEditedHermesUserMessage(
             ref,
             messageId: messageId,

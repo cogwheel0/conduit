@@ -7,6 +7,12 @@ import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/services/sse_frame_scanner.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
+import 'hermes_json_guard.dart';
+
+// Keep the lexical decoder ceiling above the typed-output traversal ceiling so
+// a moderately over-nested terminal output can still become a useful typed
+// error. It remains finite before `jsonDecode` constructs any containers.
+const int _maxHermesStreamJsonDepth = 256;
 
 /// Parses a Hermes runs SSE byte stream into typed [HermesRunEvent]s.
 ///
@@ -62,6 +68,7 @@ Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
 
   Map<String, dynamic> payload;
   try {
+    validateHermesJsonSource(raw, maxDepth: _maxHermesStreamJsonDepth);
     final decoded = jsonDecode(raw);
     if (decoded is! Map) return;
     payload = decoded.cast<String, dynamic>();
@@ -77,7 +84,7 @@ Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
   } else if (payload['type'] == null && payload['event'] is String) {
     payload = <String, dynamic>{...payload, 'type': payload['event']};
   }
-  final type = payload['type']?.toString().trim().toLowerCase();
+  final type = _str(payload['type'])?.trim().toLowerCase();
   if (type == null || type.isEmpty) {
     yield* parseHermesRunFrame(frame);
     return;
@@ -248,6 +255,7 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   Map<String, dynamic> data = const <String, dynamic>{};
   if (raw.isNotEmpty) {
     try {
+      validateHermesJsonSource(raw, maxDepth: _maxHermesStreamJsonDepth);
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return;
       data = decoded.cast<String, dynamic>();
@@ -562,7 +570,7 @@ HermesToolProgress? _maybeToolProgress(
   final itemMap = item is Map ? item.cast<String, dynamic>() : null;
   if (eventType != null &&
       eventType.startsWith('response.output_item') &&
-      (itemMap?['type']?.toString().contains('function') != true)) {
+      (_str(itemMap?['type'])?.contains('function') != true)) {
     return null;
   }
 
@@ -731,9 +739,11 @@ bool _isTruthyError(dynamic error) {
 
 String _errorMessage(dynamic error) {
   if (error is Map) {
-    return _str(error['message']) ?? _str(error['detail']) ?? error.toString();
+    return _str(error['message']) ??
+        _str(error['detail']) ??
+        'Hermes run failed.';
   }
-  return error.toString();
+  return _str(error) ?? 'Hermes run failed.';
 }
 
 /// Failure message for a terminal error event, falling back to a generic
@@ -746,6 +756,8 @@ String? _terminalRunStatusError(String status, dynamic error) {
   switch (status) {
     case 'failed':
       return _failureMessage(error);
+    case 'incomplete':
+      return 'The Hermes response was incomplete.';
     case 'cancelled':
     case 'canceled':
       return 'Hermes run was cancelled.';
@@ -786,7 +798,8 @@ String? _fallbackResponseStatusError(String? status, Map response) {
 String? _str(dynamic value) {
   if (value == null) return null;
   if (value is String) return value;
-  return value.toString();
+  if (value is num || value is bool) return value.toString();
+  return null;
 }
 
 String? _strictString(dynamic value) => value is String ? value : null;

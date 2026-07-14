@@ -3793,6 +3793,7 @@
   "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
   "directConnectionCredentialTransferConfirm": "Use credentials",
   "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionSaveConflict": "この接続は別の場所で変更されました。保存する前に開き直してください。",
   "directConnectionReachFailed": "Could not reach the provider.",
   "directConnectionDeleteTitle": "Delete connection?",
   "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",

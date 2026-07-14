@@ -342,7 +342,7 @@ class _DirectConnectionEditorPageState
     final name = source.trim();
     final l10n = AppLocalizations.of(context)!;
     if (name.isEmpty) return null;
-    if (!RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(name)) {
+    if (!DirectConnectionProfile.isValidCustomHeaderName(name)) {
       return l10n.headerNameInvalidChars;
     }
     if (DirectConnectionProfile.reservedHeaderNames.contains(
@@ -358,7 +358,7 @@ class _DirectConnectionEditorPageState
   }
 
   String? _validateHeaderValue(String source) {
-    if (source.contains('\r') || source.contains('\n')) {
+    if (!DirectConnectionProfile.isValidCustomHeaderValue(source)) {
       return AppLocalizations.of(context)!.headerValueInvalidChars;
     }
     return null;
@@ -460,6 +460,7 @@ class _DirectConnectionEditorPageState
           .read(directConnectionProfilesProvider.notifier)
           .upsert(
             draft,
+            expectedPrevious: _savedProfile,
             secretsConfirmedForNewOrigin:
                 !_originChanged ||
                 !_savedHasOriginBoundSecrets ||
@@ -467,6 +468,20 @@ class _DirectConnectionEditorPageState
           );
       if (!mounted) return;
       context.pop(true);
+    } on DirectConnectionProfileConflictException {
+      if (!mounted) return;
+      final message = AppLocalizations.of(
+        context,
+      )!.directConnectionSaveConflict;
+      setState(() {
+        _saving = false;
+        _formError = message;
+      });
+      AdaptiveSnackBar.show(
+        context,
+        message: message,
+        type: AdaptiveSnackBarType.error,
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);

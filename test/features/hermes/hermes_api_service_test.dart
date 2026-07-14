@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
+import 'package:conduit/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:dio/dio.dart';
@@ -39,6 +40,11 @@ final class _MutableRecoveryClock {
   Duration call() => elapsed;
 
   void advance(Duration duration) => elapsed += duration;
+}
+
+final class _ExplosiveToString {
+  @override
+  String toString() => throw StateError('approval raw must not be stringified');
 }
 
 final class _AdvancingCaptureInterceptor extends _CaptureInterceptor {
@@ -184,6 +190,7 @@ void main() {
       );
 
       check(dio.options.followRedirects).isFalse();
+      check(dio.options.receiveDataWhenStatusError).isFalse();
     });
 
     test('health and stop diagnostics never log provider data', () async {
@@ -321,6 +328,98 @@ void main() {
       check(models.first['id']).equals('hermes-1');
     });
 
+    test('getSessionMessages streams and unwraps bounded history', () async {
+      final capture = _CaptureInterceptor({
+        'messages': [
+          {'id': 'message-1', 'role': 'user', 'content': 'hello'},
+        ],
+      });
+
+      final messages = await _service(capture).getSessionMessages('session-1');
+
+      check(messages).length.equals(1);
+      check(messages.single['id']).equals('message-1');
+      check(capture.requests.single.responseType).equals(ResponseType.stream);
+    });
+
+    test(
+      'getSessionMessages bounds bytes before materializing history JSON',
+      () async {
+        final cancelToken = CancelToken();
+        final capture = _CaptureInterceptor(
+          ResponseBody.fromString(
+            jsonEncode({
+              'messages': [
+                {
+                  'id': 'message-1',
+                  'role': 'user',
+                  'content': List<String>.filled(128, 'x').join(),
+                },
+              ],
+            }),
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['application/json'],
+            },
+          ),
+        );
+        final service = _service(
+          capture,
+          streamLimits: const HermesStreamLimits(
+            maxBytes: 64,
+            maxCharacters: 1024,
+          ),
+        );
+
+        await check(
+          service.getSessionMessages('session-1', cancelToken: cancelToken),
+        ).throws<HermesStreamGuardException>();
+
+        check(cancelToken.isCancelled).isTrue();
+        check(hermesCancellationWasInternal(cancelToken)).isTrue();
+      },
+    );
+
+    test('getSessionMessages rejects excessive message counts', () async {
+      final cancelToken = CancelToken();
+      final capture = _CaptureInterceptor({
+        'messages': List<Map<String, dynamic>>.generate(
+          kMaxHermesSessionHistoryMessages + 1,
+          (index) => <String, dynamic>{'id': 'message-$index'},
+          growable: false,
+        ),
+      });
+
+      await check(
+        _service(
+          capture,
+        ).getSessionMessages('session-1', cancelToken: cancelToken),
+      ).throws<HermesStreamGuardException>();
+
+      check(cancelToken.isCancelled).isTrue();
+      check(hermesCancellationWasInternal(cancelToken)).isTrue();
+    });
+
+    test('getSessionMessages enforces one absolute request deadline', () async {
+      final clock = _MutableRecoveryClock();
+      final cancelToken = CancelToken();
+      final capture = _AdvancingCaptureInterceptor(
+        const <String, dynamic>{'messages': <Object?>[]},
+        clock: clock,
+        advances: const <Duration>[Duration(seconds: 61)],
+      );
+
+      await check(
+        _service(
+          capture,
+          recoveryClock: clock.call,
+        ).getSessionMessages('session-1', cancelToken: cancelToken),
+      ).throws<HermesStreamGuardException>();
+
+      check(cancelToken.isCancelled).isTrue();
+      check(hermesCancellationWasInternal(cancelToken)).isTrue();
+    });
+
     test('getRun unwraps common response envelopes', () async {
       final capture = _CaptureInterceptor({
         'data': {'id': 'r1', 'status': 'completed', 'output': 'done'},
@@ -405,6 +504,35 @@ void main() {
       ).throws<HermesStreamGuardException>();
 
       check(cancelToken.isCancelled).isTrue();
+    });
+
+    test('decoded recovery accepts shared acyclic containers', () async {
+      final shared = <Object?>['shared'];
+      final run = await _service(
+        _CaptureInterceptor({
+          'status': 'completed',
+          'first': shared,
+          'second': shared,
+        }),
+      ).getRun('r1');
+
+      check(run['first']).identicalTo(shared);
+      check(run['second']).identicalTo(shared);
+    });
+
+    test('decoded recovery still rejects actual container cycles', () async {
+      final cyclic = <String, dynamic>{'status': 'completed'};
+      cyclic['self'] = cyclic;
+      final cancelToken = CancelToken();
+
+      await check(
+        _service(
+          _CaptureInterceptor(cyclic),
+        ).getRun('r1', cancelToken: cancelToken),
+      ).throws<FormatException>();
+
+      check(cancelToken.isCancelled).isTrue();
+      check(hermesCancellationWasInternal(cancelToken)).isTrue();
     });
 
     test('recovery polls get independent transfer budgets', () async {
@@ -523,6 +651,38 @@ void main() {
           await source.cancellationStarted.future.timeout(
             const Duration(seconds: 1),
           );
+        });
+
+        test('counts nested approval payloads at the character budget', () async {
+          final body = ResponseBody.fromString(
+            'event: approval.requested\n'
+            'data: ${jsonEncode({'approval_id': 'a1', 'summary': 'Allow?', 'payload': List<String>.filled(64, 'x').join()})}\n\n',
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['text/event-stream'],
+            },
+          );
+          final cancelToken = CancelToken();
+          final service = _service(
+            _CaptureInterceptor(body),
+            streamLimits: const HermesStreamLimits(
+              maxCharacters: 32,
+              maxEvents: 100,
+            ),
+          );
+
+          await expectLater(
+            _collectEvents(service, endpoint, cancelToken),
+            throwsA(
+              isA<HermesStreamGuardException>().having(
+                (error) => error.message,
+                'message',
+                contains('size limit'),
+              ),
+            ),
+          );
+
+          check(cancelToken.isCancelled).isTrue();
         });
 
         test('rejects endless valid events at the event budget', () async {
@@ -818,6 +978,47 @@ void main() {
     }
 
     test(
+      'approval payload validation never stringifies unknown values',
+      () async {
+        final cancelToken = CancelToken();
+        final events = guardHermesEventStream(
+          Stream<HermesRunEvent>.value(
+            HermesApprovalRequested(
+              approvalId: 'a1',
+              raw: <String, dynamic>{'value': _ExplosiveToString()},
+            ),
+          ),
+          cancelToken: cancelToken,
+          limits: const HermesStreamLimits(maxCharacters: 100),
+        );
+
+        await check(events.toList()).throws<HermesStreamGuardException>();
+        check(cancelToken.isCancelled).isTrue();
+        check(hermesCancellationWasInternal(cancelToken)).isTrue();
+      },
+    );
+
+    test('approval payload budget includes non-string structure', () async {
+      final cancelToken = CancelToken();
+      final events = guardHermesEventStream(
+        Stream<HermesRunEvent>.value(
+          HermesApprovalRequested(
+            approvalId: 'a1',
+            raw: <String, dynamic>{
+              'values': List<int>.filled(16, 0, growable: false),
+            },
+          ),
+        ),
+        cancelToken: cancelToken,
+        limits: const HermesStreamLimits(maxCharacters: 100),
+      );
+
+      await check(events.toList()).throws<HermesStreamGuardException>();
+      check(cancelToken.isCancelled).isTrue();
+      check(hermesCancellationWasInternal(cancelToken)).isTrue();
+    });
+
+    test(
       'streamResponse sends chained multimodal input and exposes session',
       () async {
         final body = ResponseBody.fromString(
@@ -1000,6 +1201,35 @@ void main() {
     });
 
     test(
+      'getResponse rejects compact node excess before JSON decoding',
+      () async {
+        final cancelToken = CancelToken();
+        final values = List<String>.filled(
+          kMaxHermesRecoveryJsonNodes,
+          '0',
+        ).join(',');
+        // The trailing comma is intentionally malformed. The structural node
+        // ceiling must win before jsonDecode reaches that syntax error.
+        final capture = _CaptureInterceptor(
+          ResponseBody.fromString(
+            '{"output":[$values],}',
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['application/json'],
+            },
+          ),
+        );
+
+        await check(
+          _service(capture).getResponse('resp_1', cancelToken: cancelToken),
+        ).throws<HermesStreamGuardException>();
+
+        check(cancelToken.isCancelled).isTrue();
+        check(hermesCancellationWasInternal(cancelToken)).isTrue();
+      },
+    );
+
+    test(
       'getResponse rejects a wide decoded payload before queueing it',
       () async {
         final cancelToken = CancelToken();
@@ -1019,6 +1249,28 @@ void main() {
         check(hermesCancellationWasInternal(cancelToken)).isTrue();
       },
     );
+
+    test('job mutations reject oversized outbound schedules', () async {
+      final capture = _CaptureInterceptor({});
+      final service = _service(capture);
+      final oversizedSchedule = List<String>.filled(
+        kMaxHermesJobScheduleCharacters + 1,
+        's',
+      ).join();
+
+      await check(
+        service.createJob(
+          name: 'Daily summary',
+          prompt: 'Summarize today',
+          schedule: oversizedSchedule,
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        service.updateJob('job-1', schedule: oversizedSchedule),
+      ).throws<ArgumentError>();
+
+      check(capture.requests).isEmpty();
+    });
 
     test(
       'stopRun forwards cancellation and propagates request errors',

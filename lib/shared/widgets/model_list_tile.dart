@@ -165,9 +165,19 @@ class ModelListTile extends StatelessWidget {
     final hasCapabilities =
         !isAutoSelect && (model.isMultimodal || modelSupportsReasoning(model));
     final directSource = isAutoSelect ? null : directModelSourceLabel(model);
-    final modelTagSet = <String>{if (!isAutoSelect) ...model.modelTags};
-    if (directSource != null) modelTagSet.add(directSource);
-    final modelTags = modelTagSet.toList()
+    final modelTagsByLowercase = <String, String>{};
+    if (!isAutoSelect) {
+      for (final tag in model.modelTags) {
+        modelTagsByLowercase.putIfAbsent(tag.toLowerCase(), () => tag);
+      }
+    }
+    if (directSource != null) {
+      modelTagsByLowercase.putIfAbsent(
+        directSource.toLowerCase(),
+        () => directSource,
+      );
+    }
+    final modelTags = modelTagsByLowercase.values.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final hasTags = modelTags.isNotEmpty;
     final hasMetadataRow = hasCapabilities || hasTags;

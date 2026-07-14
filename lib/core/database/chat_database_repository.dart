@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/conversation.dart';
 import 'app_database.dart';
@@ -18,21 +21,67 @@ enum ChatStorageKind { openWebUi, directLocal }
 ///
 /// [scopedId] is deliberately an app-internal transport value. It is safe to
 /// use as a Riverpod family argument or widget key, but callers must use
-/// [rawId] for database and network operations.
+/// [rawId] for database and network operations. Scoped values are transient:
+/// they intentionally cannot be decoded by a later app runtime.
 class ChatStorageIdentity {
   const ChatStorageIdentity({required this.rawId, this.storage});
 
   final String rawId;
   final ChatStorageKind? storage;
 
-  static const String _prefix = 'conduit-chat://';
+  // Only this runtime can mint a decodable scoped selection. A fixed marker
+  // still lets a backend id imitate the transport envelope, so include a
+  // versioned nonce in the prefix. It uses platform entropy when available and
+  // a process-local uniqueness fallback on runtimes without a secure RNG.
+  // Scoped ids never cross the database/API boundary and are not persisted;
+  // after restart an old scoped-looking value safely remains a raw backend id.
+  static const String _scopedVersionPrefix = 'conduit-chat://scoped/v1/';
+  static final String _scopedPrefix =
+      '$_scopedVersionPrefix${_createRuntimeNonce()}/';
+  static int _fallbackNonceSequence = 0;
+
+  static String _createRuntimeNonce({
+    Random Function()? secureRandomFactory,
+    Random Function(int seed)? fallbackRandomFactory,
+  }) {
+    try {
+      return _nonceFromRandom((secureRandomFactory ?? Random.secure)());
+    } on UnsupportedError {
+      // Some embedded runtimes expose no OS entropy. Scoped ids remain local
+      // to this runtime, so combine clock, object identity, and a monotonic
+      // sequence to keep the fallback distinct without failing navigation.
+      final seed =
+          DateTime.now().microsecondsSinceEpoch ^
+          identityHashCode(Object()) ^
+          ++_fallbackNonceSequence;
+      final fallback = fallbackRandomFactory ?? (seed) => Random(seed);
+      return _nonceFromRandom(fallback(seed));
+    }
+  }
+
+  static String _nonceFromRandom(Random random) {
+    return List<int>.generate(
+      16,
+      (_) => random.nextInt(256),
+      growable: false,
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  @visibleForTesting
+  static String debugCreateRuntimeNonce({
+    required Random Function() secureRandomFactory,
+    required Random Function(int seed) fallbackRandomFactory,
+  }) => _createRuntimeNonce(
+    secureRandomFactory: secureRandomFactory,
+    fallbackRandomFactory: fallbackRandomFactory,
+  );
 
   factory ChatStorageIdentity.parse(String value) {
-    if (!value.startsWith(_prefix)) {
+    if (!value.startsWith(_scopedPrefix)) {
       return ChatStorageIdentity(rawId: value);
     }
 
-    final remainder = value.substring(_prefix.length);
+    final remainder = value.substring(_scopedPrefix.length);
     final separator = remainder.indexOf('/');
     if (separator <= 0 || separator == remainder.length - 1) {
       return ChatStorageIdentity(rawId: value);
@@ -62,7 +111,7 @@ class ChatStorageIdentity {
   String get scopedId {
     final owner = storage;
     if (owner == null) return rawId;
-    return '$_prefix${owner.name}/${Uri.encodeComponent(rawId)}';
+    return '$_scopedPrefix${owner.name}/${Uri.encodeComponent(rawId)}';
   }
 }
 

@@ -4,6 +4,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/sync/sync_engine.dart';
 import '../../../core/utils/debug_logger.dart';
+import 'chat_providers.dart' show conversationUsesOpenWebUiStorage;
 
 part 'remap_route_sync_provider.g.dart';
 
@@ -46,7 +47,9 @@ void remapRouteSync(Ref ref) {
   final sub = ref.read(syncEngineProvider.notifier).remapEvents.listen((event) {
     if (event.entityKind == 'chat') {
       final active = ref.read(activeConversationProvider);
-      if (active != null && active.id == event.fromId) {
+      if (active != null &&
+          active.id == event.fromId &&
+          conversationUsesOpenWebUiStorage(active)) {
         DebugLogger.log(
           'remap-active-chat',
           scope: 'chat/remap',

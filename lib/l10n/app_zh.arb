@@ -2453,6 +2453,7 @@
   "directConnectionCredentialTransferMessage": "This sends the API key and complete custom-header map to the new server. Only continue if you trust it.",
   "directConnectionCredentialTransferConfirm": "Use credentials",
   "directConnectionSaveFailed": "Could not save this connection.",
+  "directConnectionSaveConflict": "此连接已在其他位置更改。请重新打开后再保存。",
   "directConnectionReachFailed": "Could not reach the provider.",
   "directConnectionDeleteTitle": "Delete connection?",
   "directConnectionDeleteMessage": "This removes {name} and its credentials from this device.",

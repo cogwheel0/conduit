@@ -1,4 +1,18 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Test-only interception point for preference writes.
+///
+/// Returning null continues to the real platform write. Returning true or
+/// false replaces its result, which lets tests pause or fail a specific write
+/// without replacing SharedPreferences' transitive platform implementation.
+@visibleForTesting
+typedef PreferenceWriteInterceptor =
+    Future<bool?> Function(
+      SharedPreferences preferences,
+      String key,
+      Object? value,
+    );
 
 /// Synchronous key-value preference store backed by a single preloaded
 /// [SharedPreferences] instance.
@@ -21,6 +35,7 @@ class PreferencesStore {
   PreferencesStore._();
 
   static SharedPreferences? _prefs;
+  static PreferenceWriteInterceptor? _debugWriteInterceptor;
 
   /// True once [ensureInitialized] has completed and synchronous reads are safe.
   static bool get isReady => _prefs != null;
@@ -44,12 +59,19 @@ class PreferencesStore {
 
   /// Test seam: inject a (mock) instance. Pair with
   /// `SharedPreferences.setMockInitialValues({...})`.
-  static void debugOverride(SharedPreferences prefs) {
+  @visibleForTesting
+  static void debugOverride(
+    SharedPreferences prefs, {
+    PreferenceWriteInterceptor? writeInterceptor,
+  }) {
     _prefs = prefs;
+    _debugWriteInterceptor = writeInterceptor;
   }
 
+  @visibleForTesting
   static void debugReset() {
     _prefs = null;
+    _debugWriteInterceptor = null;
   }
 
   // --- reads (synchronous) -------------------------------------------------
@@ -77,29 +99,57 @@ class PreferencesStore {
   /// the key. Lists are coerced to `List<String>` (the only list type
   /// shared_preferences supports).
   static Future<void> put(String key, Object? value) async {
+    await _writeValue(key, value);
+  }
+
+  /// Persists [value] and throws if the platform reports a failed disk write.
+  ///
+  /// Use this for security boundaries whose in-memory cache must not be treated
+  /// as durable when SharedPreferences returns false (notably trust revocation
+  /// and principal rotation). Ordinary UI preferences retain [put]'s legacy
+  /// best-effort behavior.
+  static Future<void> putChecked(String key, Object? value) async {
+    if (_prefs == null) {
+      throw StateError(
+        'PreferencesStore.ensureInitialized() must be awaited before a checked '
+        'preference write.',
+      );
+    }
+    if (!await _writeValue(key, value)) {
+      throw StateError('Preference write failed for "$key".');
+    }
+  }
+
+  static Future<bool> _writeValue(String key, Object? value) async {
     final prefs = _prefs;
-    if (prefs == null) return;
+    // Ordinary preference writes are best-effort before bootstrap: true means
+    // the write was intentionally skipped, not that anything reached disk.
+    if (prefs == null) return true;
+    final interceptor = _debugWriteInterceptor;
+    if (interceptor != null) {
+      final intercepted = await interceptor(prefs, key, value);
+      if (intercepted != null) return intercepted;
+    }
     if (value == null) {
-      await prefs.remove(key);
-      return;
+      return prefs.remove(key);
     }
     if (value is bool) {
-      await prefs.setBool(key, value);
+      return prefs.setBool(key, value);
     } else if (value is int) {
-      await prefs.setInt(key, value);
+      return prefs.setInt(key, value);
     } else if (value is double) {
-      await prefs.setDouble(key, value);
+      return prefs.setDouble(key, value);
     } else if (value is String) {
-      await prefs.setString(key, value);
+      return prefs.setString(key, value);
     } else if (value is List<String>) {
-      await prefs.setStringList(key, value);
+      return prefs.setStringList(key, value);
     } else if (value is List) {
-      await prefs.setStringList(
+      return prefs.setStringList(
         key,
         value.map((e) => e.toString()).toList(growable: false),
       );
     } else {
-      await prefs.setString(key, value.toString());
+      return prefs.setString(key, value.toString());
     }
   }
 

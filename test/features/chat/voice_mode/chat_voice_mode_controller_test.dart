@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/callkit_service.dart';
@@ -632,6 +633,243 @@ void main() {
     },
   );
 
+  test('listen failure ignores a buffered final transcript', () async {
+    final input = _FakeVoiceInputService()
+      ..bufferedErrorWhenIntensityStarts = StateError('recognizer failed')
+      ..bufferedFinalWhenIntensityStarts = 'must not be sent after failure';
+    final tts = _FakeTextToSpeechService();
+    final uncaught = <Object>[];
+    late List<ChatMessage> messages;
+    late ChatVoiceModeSnapshot snapshot;
+
+    await runZonedGuarded(() async {
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(
+            _UnavailableCallKitService(),
+          ),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceAudioSessionCoordinator(),
+          ),
+        ],
+      );
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+      await _until(
+        () =>
+            container.read(chatVoiceModeControllerProvider).phase ==
+            ChatVoiceModePhase.error,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      messages = container.read(chatMessagesProvider);
+      snapshot = container.read(chatVoiceModeControllerProvider);
+      container.dispose();
+      await Future<void>.delayed(Duration.zero);
+    }, (error, stackTrace) => uncaught.add(error));
+
+    check(uncaught).isEmpty();
+    check(messages).isEmpty();
+    check(tts.startedStreaming).isFalse();
+    check(snapshot.errorMessage).isNotNull().contains('recognizer failed');
+  });
+
+  test('replacement waits for stale teardown and keeps services live', () async {
+    final input = _FakeVoiceInputService();
+    final staleTtsGate = Completer<void>();
+    final tts = _FakeTextToSpeechService()
+      ..firstStopStreamingGate = staleTtsGate;
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.start(startNewConversation: false);
+    input.emitError(StateError('old session failure'));
+    await _until(() => tts.stopStreamingCalls == 1);
+
+    // Stop invalidates the detached failure. The replacement must not reuse
+    // either singleton while the old teardown is still blocked in TTS cleanup.
+    final stopFuture = controller.stop();
+    final replacementStart = controller.start(startNewConversation: false);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    check(input.beginCalls).equals(1);
+
+    staleTtsGate.complete();
+    await stopFuture;
+    await replacementStart;
+
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.listening);
+    check(input.isListening).isTrue();
+
+    await input.completeCurrent('replacement session turn');
+    await _until(() => tts.startedStreaming && tts.fedTexts.isNotEmpty);
+    check(tts.startedStreaming).isTrue();
+    await controller.stop();
+  });
+
+  test('recreated controller waits for stale input stop', () async {
+    final staleInputGate = Completer<void>();
+    final input = _FakeVoiceInputService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.start(startNewConversation: false);
+    input.nextStopListeningGate = staleInputGate;
+    container.invalidate(chatVoiceModeControllerProvider);
+    final replacementController = container.read(
+      chatVoiceModeControllerProvider.notifier,
+    );
+    final replacementStart = replacementController.start(
+      startNewConversation: false,
+    );
+    await _until(() => input.stopCalls == 2);
+
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    check(input.beginCalls).equals(1);
+
+    staleInputGate.complete();
+    await replacementStart;
+
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.listening);
+    check(input.isListening).isTrue();
+    await replacementController.stop();
+  });
+
+  test('timed-out queued replacement never overlaps stale teardown', () async {
+    final staleInputGate = Completer<void>();
+    final input = _FakeVoiceInputService();
+    final container = ProviderContainer(
+      overrides: [
+        ...openWebUiStorageOpenOverrides(),
+        authNavigationStateProvider.overrideWithValue(
+          AuthNavigationState.authenticated,
+        ),
+        selectedModelProvider.overrideWithValue(_model),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        reviewerModeProvider.overrideWithValue(true),
+        voiceInputServiceProvider.overrideWithValue(input),
+        textToSpeechServiceProvider.overrideWithValue(
+          _FakeTextToSpeechService(),
+        ),
+        callKitServiceProvider.overrideWithValue(_UnavailableCallKitService()),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+        chatVoiceModeServiceLifecycleTimeoutProvider.overrideWithValue(
+          const Duration(milliseconds: 100),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.start(startNewConversation: false);
+    input.nextStopListeningGate = staleInputGate;
+    container.invalidate(chatVoiceModeControllerProvider);
+    await _until(() => input.stopCalls == 2);
+
+    final replacementController = container.read(
+      chatVoiceModeControllerProvider.notifier,
+    );
+    await replacementController
+        .start(startNewConversation: false)
+        .timeout(const Duration(seconds: 1));
+
+    check(input.beginCalls).equals(1);
+    check(input.isListening).isTrue();
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.error);
+    check(
+      container.read(chatVoiceModeControllerProvider).errorMessage,
+    ).isNotNull().contains('timed out');
+
+    staleInputGate.complete();
+    await _until(() => !input.isListening);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    check(input.beginCalls).equals(1);
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.error);
+
+    await replacementController
+        .start(startNewConversation: false)
+        .timeout(const Duration(seconds: 1));
+
+    check(input.beginCalls).equals(2);
+    check(input.isListening).isTrue();
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.listening);
+    await replacementController.stop();
+  });
+
   test(
     'provider disposal observes detached lease and audio cleanup errors',
     () async {
@@ -697,6 +935,10 @@ class _FakeVoiceInputService extends VoiceInputService {
   bool nativeLocalStt = false;
   bool listening = false;
   int stopCalls = 0;
+  Completer<void>? nextStopListeningGate;
+  Object? bufferedErrorWhenIntensityStarts;
+  String? bufferedFinalWhenIntensityStarts;
+  bool _emittedBufferedFailure = false;
   final managedAudioFlags = <bool>[];
   StreamController<VoiceTranscriptEvent>? _transcriptController;
   StreamController<int>? _intensityController;
@@ -736,14 +978,30 @@ class _FakeVoiceInputService extends VoiceInputService {
     listening = true;
     completedTranscriptSendable = false;
     managedAudioFlags.add(iosAudioSessionManagedExternally);
-    _transcriptController = StreamController<VoiceTranscriptEvent>.broadcast();
+    _transcriptController = StreamController<VoiceTranscriptEvent>.broadcast(
+      sync: bufferedErrorWhenIntensityStarts != null,
+    );
     _intensityController = StreamController<int>.broadcast();
     return _transcriptController!.stream;
   }
 
   @override
-  Stream<int> get intensityStream =>
-      _intensityController?.stream ?? const Stream<int>.empty();
+  Stream<int> get intensityStream {
+    final error = bufferedErrorWhenIntensityStarts;
+    if (!_emittedBufferedFailure && error != null) {
+      _emittedBufferedFailure = true;
+      final controller = _transcriptController;
+      controller?.addError(error, StackTrace.current);
+      final finalTranscript = bufferedFinalWhenIntensityStarts;
+      if (controller != null && finalTranscript != null) {
+        controller.add(
+          VoiceTranscriptEvent(text: finalTranscript, isFinal: true),
+        );
+        completedTranscriptSendable = true;
+      }
+    }
+    return _intensityController?.stream ?? const Stream<int>.empty();
+  }
 
   Future<void> completeCurrent(
     String transcript, {
@@ -762,9 +1020,16 @@ class _FakeVoiceInputService extends VoiceInputService {
     }
   }
 
+  void emitError(Object error) {
+    _transcriptController?.addError(error, StackTrace.current);
+  }
+
   @override
   Future<void> stopListening() async {
     stopCalls += 1;
+    final stopGate = nextStopListeningGate;
+    nextStopListeningGate = null;
+    await stopGate?.future;
     listening = false;
     final controller = _transcriptController;
     _transcriptController = null;
@@ -787,6 +1052,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   int stopStreamingCalls = 0;
   int stopCalls = 0;
   bool throwOnStopStreaming = false;
+  Completer<void>? firstStopStreamingGate;
   bool _didStart = false;
 
   @override
@@ -840,6 +1106,10 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   @override
   Future<void> stopStreamingTts() async {
     stopStreamingCalls += 1;
+    if (stopStreamingCalls == 1) {
+      await firstStopStreamingGate?.future;
+    }
+    startedStreaming = false;
     if (throwOnStopStreaming) {
       throw StateError('stop streaming TTS failed');
     }
@@ -860,6 +1130,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   @override
   Future<void> stop() async {
     stopCalls += 1;
+    startedStreaming = false;
   }
 
   void emitChunkStarted(int index) {

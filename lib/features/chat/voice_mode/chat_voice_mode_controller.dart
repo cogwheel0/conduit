@@ -144,6 +144,73 @@ final chatVoiceModeBackgroundCoordinatorProvider =
       return ChatVoiceModeBackgroundCoordinator();
     });
 
+@visibleForTesting
+final chatVoiceModeServiceLifecycleTimeoutProvider = Provider<Duration>((ref) {
+  return const Duration(seconds: 30);
+});
+
+final _chatVoiceModeServiceLifecycleGateProvider =
+    Provider<_ChatVoiceModeServiceLifecycleGate>((ref) {
+      return _ChatVoiceModeServiceLifecycleGate(
+        timeout: ref.watch(chatVoiceModeServiceLifecycleTimeoutProvider),
+      );
+    });
+
+class _ChatVoiceModeServiceLifecycleGate {
+  _ChatVoiceModeServiceLifecycleGate({required Duration timeout})
+    : _timeout = timeout;
+
+  final Duration _timeout;
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> runExclusive<T>(Future<T> Function() operation) =>
+      _runExclusive(operation, keepQueuedAfterTimeout: false);
+
+  Future<void> runCleanupExclusive(Future<void> Function() operation) =>
+      _runExclusive(operation, keepQueuedAfterTimeout: true);
+
+  Future<T> _runExclusive<T>(
+    Future<T> Function() operation, {
+    required bool keepQueuedAfterTimeout,
+  }) {
+    var started = false;
+    var cancelledBeforeStart = false;
+    final rawResult = _tail.then<T>((_) {
+      if (cancelledBeforeStart) {
+        throw TimeoutException(
+          'Voice service lifecycle operation expired while queued',
+          _timeout,
+        );
+      }
+      started = true;
+      return operation();
+    });
+
+    // Preserve the raw operation as the serialization tail. A Future timeout
+    // does not cancel its source, so advancing the tail to the bounded wrapper
+    // would let stale teardown overlap a replacement using the same services.
+    _tail = rawResult.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return rawResult.timeout(
+      _timeout,
+      onTimeout: () {
+        // An expired user operation must not start later merely because the
+        // operation ahead of it settles. Mandatory cleanup is different: its
+        // caller may stop waiting, but the raw cleanup must remain in the tail
+        // so captured platform resources are eventually released in order.
+        if (!started && !keepQueuedAfterTimeout) {
+          cancelledBeforeStart = true;
+        }
+        throw TimeoutException(
+          started
+              ? 'Voice service lifecycle operation timed out'
+              : 'Timed out waiting for voice service lifecycle ownership',
+          _timeout,
+        );
+      },
+    );
+  }
+}
+
 class ChatVoiceModeBackgroundCoordinator {
   Future<void> startVoiceLease({
     required String leaseId,
@@ -198,6 +265,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   String? _activeAssistantMessageId;
   ChatVoiceModeBackgroundCoordinator? _backgroundCoordinator;
   ChatVoiceAudioSessionCoordinator? _audioSessionCoordinator;
+  late _ChatVoiceModeServiceLifecycleGate _serviceLifecycleGate;
   VoiceInputService? _voiceInput;
   TextToSpeechService? _textToSpeech;
   CallKitService? _callKit;
@@ -228,6 +296,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _audioSessionCoordinator = ref.read(
       chatVoiceAudioSessionCoordinatorProvider,
     );
+    _serviceLifecycleGate = ref.read(
+      _chatVoiceModeServiceLifecycleGateProvider,
+    );
     ref.listen<String?>(streamingContentProvider, (_, next) {
       if (next != null) {
         _handleAssistantContentChanged();
@@ -245,20 +316,46 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _disposed = true;
       ++_token;
       _elapsedTimer?.cancel();
-      unawaited(_cancelSubscriptionAfterDispose(_transcriptSub));
-      unawaited(_cancelSubscriptionAfterDispose(_intensitySub));
-      unawaited(_cancelSubscriptionAfterDispose(_ttsSub));
-      unawaited(_cancelSubscriptionAfterDispose(_callKitSub));
       _backgroundKeepAliveTimer?.cancel();
-      unawaited(_stopVoiceInputAfterDispose(_voiceInput));
-      unawaited(_stopTtsAfterDispose(_textToSpeech));
-      unawaited(_stopBackgroundVoiceLeaseAfterDispose(_backgroundCoordinator));
-      unawaited(_deactivateAudioSessionAfterDispose(_audioSessionCoordinator));
+      final transcriptSub = _transcriptSub;
+      final intensitySub = _intensitySub;
+      final ttsSub = _ttsSub;
+      final callKitSub = _callKitSub;
+      final input = _voiceInput;
+      final tts = _textToSpeech;
+      final backgroundCoordinator = _backgroundCoordinator;
+      final audioSessionCoordinator = _audioSessionCoordinator;
+      final callKit = _callKit;
       final callId = _activeCallId;
       _activeCallId = null;
-      if (callId != null) {
-        unawaited(_endCallAfterDispose(_callKit, callId));
-      }
+      unawaited(
+        _serviceLifecycleGate
+            .runCleanupExclusive(() async {
+              await _cancelSubscriptionAfterDispose(transcriptSub);
+              await _cancelSubscriptionAfterDispose(intensitySub);
+              await _stopVoiceInputAfterDispose(input);
+              await _cancelSubscriptionAfterDispose(ttsSub);
+              await _stopTtsAfterDispose(tts);
+              await _stopBackgroundVoiceLeaseAfterDispose(
+                backgroundCoordinator,
+              );
+              await _deactivateAudioSessionAfterDispose(
+                audioSessionCoordinator,
+              );
+              await _cancelSubscriptionAfterDispose(callKitSub);
+              if (callId != null) {
+                await _endCallAfterDispose(callKit, callId);
+              }
+            })
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'dispose-lifecycle-timeout',
+                scope: 'chat/voice_mode',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
     });
 
     return const ChatVoiceModeSnapshot();
@@ -266,76 +363,97 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> start({required bool startNewConversation}) {
     return _enqueue(() async {
-      if (state.isActive) {
-        return;
-      }
-
-      final authState = ref.read(authNavigationStateProvider);
-      if (authState != AuthNavigationState.authenticated) {
-        _setError('Sign in to start a voice call.');
-        return;
-      }
-
-      final model = ref.read(selectedModelProvider);
-      if (model == null) {
-        _setError('Choose a model before starting a voice call.');
-        return;
-      }
-
-      final token = ++_token;
-      _resetRuntime();
+      int? token;
 
       try {
-        // Keep the inactive overlay lightweight. These services can reach
-        // authenticated storage and platform channels, so capture them only
-        // when a voice session actually starts. The retained references also
-        // let disposal finish without reading Ref after invalidation.
-        final input = (_voiceInput ?? ref.read(voiceInputServiceProvider))!;
-        _voiceInput = input;
-        final tts = (_textToSpeech ?? ref.read(textToSpeechServiceProvider))!;
-        _textToSpeech = tts;
-        _callKit ??= ref.read(callKitServiceProvider);
-        final settings = ref.read(appSettingsProvider);
+        await _serviceLifecycleGate.runExclusive(() async {
+          if (state.isActive) {
+            return;
+          }
 
-        state = state.copyWith(
-          phase: ChatVoiceModePhase.starting,
-          startedAt: DateTime.now(),
-          elapsed: Duration.zero,
-          clearErrorMessage: true,
-          isCollapsed: false,
-          isMuted: false,
-        );
+          final authState = ref.read(authNavigationStateProvider);
+          if (authState != AuthNavigationState.authenticated) {
+            _setError('Sign in to start a voice call.');
+            return;
+          }
 
-        if (startNewConversation) {
-          startNewChat(ref);
-        }
+          final model = ref.read(selectedModelProvider);
+          if (model == null) {
+            _setError('Choose a model before starting a voice call.');
+            return;
+          }
 
-        final inputReady = await input.initialize();
-        if (!_isCurrent(token)) return;
-        if (!inputReady) {
-          throw StateError('Voice input initialization failed.');
-        }
+          final startToken = ++_token;
+          token = startToken;
+          _resetRuntime();
 
-        await _requestAndroidVoiceRoutingPermission();
-        if (!_isCurrent(token)) return;
-        await _initializeTts(tts, settings);
-        if (!_isCurrent(token)) return;
-        _listenForTtsEvents(tts, token);
-        await _startCallKit(model.name, token);
-        if (!_isCurrent(token)) return;
-        await _startBackgroundVoiceLease(input, token);
-        if (!_isCurrent(token)) return;
-        _startElapsedTimer(token);
-        await _startListening(token);
+          // Keep the inactive overlay lightweight. These services can reach
+          // authenticated storage and platform channels, so capture them only
+          // when a voice session actually starts. The retained references also
+          // let disposal finish without reading Ref after invalidation.
+          final VoiceInputService input =
+              _voiceInput ?? ref.read(voiceInputServiceProvider);
+          _voiceInput = input;
+          final TextToSpeechService tts =
+              _textToSpeech ?? ref.read(textToSpeechServiceProvider);
+          _textToSpeech = tts;
+          _callKit ??= ref.read(callKitServiceProvider);
+          final settings = ref.read(appSettingsProvider);
+
+          state = state.copyWith(
+            phase: ChatVoiceModePhase.starting,
+            startedAt: DateTime.now(),
+            elapsed: Duration.zero,
+            clearErrorMessage: true,
+            isCollapsed: false,
+            isMuted: false,
+          );
+
+          if (startNewConversation) {
+            startNewChat(ref);
+          }
+
+          final inputReady = await input.initialize();
+          if (!_isCurrent(startToken)) return;
+          if (!inputReady) {
+            throw StateError('Voice input initialization failed.');
+          }
+
+          await _requestAndroidVoiceRoutingPermission();
+          if (!_isCurrent(startToken)) return;
+          await _initializeTts(tts, settings);
+          if (!_isCurrent(startToken)) return;
+          _listenForTtsEvents(tts, startToken);
+          await _startCallKit(model.name, startToken);
+          if (!_isCurrent(startToken)) return;
+          await _startBackgroundVoiceLease(input, startToken);
+          if (!_isCurrent(startToken)) return;
+          _startElapsedTimer(startToken);
+          await _startListening(startToken);
+        });
       } catch (error, stackTrace) {
-        if (!_isCurrent(token)) return;
+        final startToken = token;
+        if (_disposed || (startToken != null && !_isCurrent(startToken))) {
+          return;
+        }
         DebugLogger.error(
           'start-failed',
           scope: 'chat/voice_mode',
           error: error,
           stackTrace: stackTrace,
         );
-        await _fail(error.toString(), token);
+        if (error is TimeoutException) {
+          if (startToken != null) {
+            final cleanupToken = ++_token;
+            unawaited(
+              _disposeResources(endCallKit: true, ownershipToken: cleanupToken),
+            );
+          }
+          _setError('Voice services timed out. Try again.');
+          return;
+        }
+        if (startToken == null) return;
+        await _fail(error.toString(), startToken);
       }
     });
   }
@@ -692,6 +810,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (_transcriptSub == null || !input.isListening) {
       await _cancelListening();
     }
+    if (!_isCurrent(token)) return;
     await _audioSessionCoordinator?.configureForListening();
     if (!_isCurrent(token)) return;
 
@@ -743,6 +862,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
 
     await _intensitySub?.cancel();
+    if (!_isCurrent(token)) return;
     _intensitySub = input.intensityStream.listen((intensity) {
       if (_isCurrent(token) && state.phase == ChatVoiceModePhase.listening) {
         state = state.copyWith(intensity: intensity);
@@ -1204,8 +1324,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> _fail(String message, int token) async {
     if (!_isCurrent(token)) return;
-    await _disposeResources(endCallKit: true);
-    if (!_isCurrent(token)) return;
+    // Invalidate transcript/TTS callbacks before resources are detached. The
+    // lifecycle gate may delay subscription cancellation, and a recognizer is
+    // allowed to deliver buffered data or onDone after onError.
+    final failureToken = ++_token;
+    await _disposeResources(endCallKit: true, ownershipToken: failureToken);
+    if (!_isCurrent(failureToken)) return;
     state = state.copyWith(
       phase: ChatVoiceModePhase.error,
       errorMessage: message,
@@ -1232,7 +1356,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     ++_token;
     final stopToken = _token;
     state = state.copyWith(phase: ChatVoiceModePhase.ending);
-    await _disposeResources(endCallKit: endCallKit && !_stoppingFromCallKit);
+    await _disposeResources(
+      endCallKit: endCallKit && !_stoppingFromCallKit,
+      ownershipToken: stopToken,
+    );
     if (!_isCurrent(stopToken)) return;
     _stoppingFromCallKit = false;
     state = state.copyWith(
@@ -1248,7 +1375,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     );
   }
 
-  Future<void> _disposeResources({required bool endCallKit}) async {
+  Future<void> _disposeResources({
+    required bool endCallKit,
+    required int ownershipToken,
+  }) async {
     final input = _voiceInput;
     final tts = _textToSpeech;
     final callKit = _callKit;
@@ -1257,57 +1387,99 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final intensitySub = _intensitySub;
     final ttsSub = _ttsSub;
     final callKitSub = _callKitSub;
+    final elapsedTimer = _elapsedTimer;
+    final backgroundKeepAliveTimer = _backgroundKeepAliveTimer;
+    final backgroundLeaseId = _backgroundLeaseId;
+    final backgroundCoordinator = _backgroundCoordinator;
+    final audioSessionCoordinator = _audioSessionCoordinator;
 
+    // Detach this session's instance state before the first await. A stale
+    // teardown can then finish its captured resources without a later finally
+    // block nulling services or resetting flags installed by a replacement
+    // start.
     _activeCallId = null;
-    _elapsedTimer?.cancel();
     _elapsedTimer = null;
     _transcriptSub = null;
     _intensitySub = null;
     _ttsSub = null;
     _callKitSub = null;
+    _backgroundKeepAliveTimer = null;
+    _backgroundLeaseId = null;
+    _voiceInput = null;
+    _textToSpeech = null;
+    _callKit = null;
+    _iosAudioSessionManagedExternally = false;
+    elapsedTimer?.cancel();
+    backgroundKeepAliveTimer?.cancel();
+    _resetRuntime();
 
     try {
-      await _runTeardownStep('transcript-subscription-cancel', () async {
-        await transcriptSub?.cancel();
-      });
-      await _runTeardownStep('intensity-subscription-cancel', () async {
-        await intensitySub?.cancel();
-      });
-      await _runTeardownStep('voice-input-stop', () async {
-        await input?.stopListening();
-      });
-      await _runTeardownStep('tts-subscription-cancel', () async {
-        await ttsSub?.cancel();
-      });
-      await _runTeardownStep('streaming-tts-stop', () async {
-        await tts?.stopStreamingTts();
-      });
-      await _runTeardownStep('tts-stop', () async {
-        await tts?.stop();
-      });
-      await _runTeardownStep(
-        'background-lease-stop',
-        _stopBackgroundVoiceLease,
-      );
-      await _runTeardownStep('audio-session-deactivate', () async {
-        await _audioSessionCoordinator?.deactivate();
-      });
-      await _runTeardownStep('callkit-subscription-cancel', () async {
-        await callKitSub?.cancel();
-      });
-      if (endCallKit && callId != null) {
-        await _runTeardownStep('callkit-end', () async {
-          await callKit?.endCall(callId);
+      await _serviceLifecycleGate.runCleanupExclusive(() async {
+        bool replacementOwnsInput() =>
+            !_isCurrent(ownershipToken) && _voiceInput != null;
+        bool replacementOwnsTts() =>
+            !_isCurrent(ownershipToken) && _textToSpeech != null;
+        bool replacementOwnsSharedAudio() =>
+            !_isCurrent(ownershipToken) &&
+            (_voiceInput != null ||
+                _textToSpeech != null ||
+                _backgroundLeaseId != null);
+
+        await _runTeardownStep('transcript-subscription-cancel', () async {
+          await transcriptSub?.cancel();
         });
-      }
-    } finally {
-      _backgroundKeepAliveTimer?.cancel();
-      _backgroundKeepAliveTimer = null;
-      _backgroundLeaseId = null;
-      _voiceInput = null;
-      _textToSpeech = null;
-      _callKit = null;
-      _resetRuntime();
+        await _runTeardownStep('intensity-subscription-cancel', () async {
+          await intensitySub?.cancel();
+        });
+        await _runTeardownStep('voice-input-stop', () async {
+          if (!replacementOwnsInput()) {
+            await input?.stopListening();
+          }
+        });
+        await _runTeardownStep('tts-subscription-cancel', () async {
+          await ttsSub?.cancel();
+        });
+        await _runTeardownStep('streaming-tts-stop', () async {
+          if (!replacementOwnsTts()) {
+            await tts?.stopStreamingTts();
+          }
+        });
+        await _runTeardownStep('tts-stop', () async {
+          if (!replacementOwnsTts()) {
+            await tts?.stop();
+          }
+        });
+        await _runTeardownStep('background-lease-stop', () async {
+          if (backgroundLeaseId != null) {
+            await backgroundCoordinator?.stopVoiceLease(backgroundLeaseId);
+          }
+        });
+        await _runTeardownStep('background-audio-owner-release', () async {
+          if (!replacementOwnsSharedAudio()) {
+            await backgroundCoordinator?.setExternalAudioSessionOwner(false);
+          }
+        });
+        await _runTeardownStep('audio-session-deactivate', () async {
+          if (!replacementOwnsSharedAudio()) {
+            await audioSessionCoordinator?.deactivate();
+          }
+        });
+        await _runTeardownStep('callkit-subscription-cancel', () async {
+          await callKitSub?.cancel();
+        });
+        if (endCallKit && callId != null) {
+          await _runTeardownStep('callkit-end', () async {
+            await callKit?.endCall(callId);
+          });
+        }
+      });
+    } on TimeoutException catch (error, stackTrace) {
+      DebugLogger.error(
+        'teardown-lifecycle-timeout',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

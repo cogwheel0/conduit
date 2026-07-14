@@ -33,6 +33,12 @@ void main() {
       ).throws<FormatException>();
     });
 
+    test('normalizes surrounding custom header name whitespace', () {
+      check(
+        parseDirectCustomHeaders('{" X-Organization ":"team-a"}'),
+      ).deepEquals({'X-Organization': 'team-a'});
+    });
+
     test('deduplicates manual model ids while preserving order', () {
       check(
         parseDirectManualModelIds('model-a\n model-b,model-a\n'),
@@ -138,6 +144,33 @@ void main() {
     ).isNull();
   });
 
+  testWidgets('direct source and model tags deduplicate case-insensitively', (
+    tester,
+  ) async {
+    const model = Model(
+      id: 'direct:work:model',
+      name: 'Local model',
+      metadata: {
+        'backend': 'direct',
+        'profileName': 'Work',
+        'tags': ['work'],
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModelListTile(model: model, isSelected: false, onTap: _noop),
+        ),
+      ),
+    );
+
+    expect(find.byType(ModelTagChip), findsOneWidget);
+    expect(find.text('WORK'), findsOneWidget);
+  });
+
   testWidgets('management content shows profiles and history policy', (
     tester,
   ) async {
@@ -219,6 +252,79 @@ void main() {
     expect(selector.value, DirectOpenAiApiMode.responses);
     expect(find.text('Chat Completions'), findsOneWidget);
     expect(find.text('Responses'), findsOneWidget);
+  });
+
+  testWidgets('editor rejects a save from a stale profile snapshot', (
+    tester,
+  ) async {
+    final profile = DirectConnectionProfile(
+      id: 'shared-profile',
+      name: 'Original provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      apiKey: 'original-secret',
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'shared-profile'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(DirectConnectionEditorPage)),
+    );
+
+    await container
+        .read(directConnectionProfilesProvider.notifier)
+        .upsert(
+          profile.copyWith(
+            name: 'Concurrent provider',
+            apiKey: 'concurrent-secret',
+          ),
+        );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('direct-connection-name-field')),
+      'Stale rename',
+    );
+    await tester.scrollUntilVisible(
+      find.text('Save'),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    final save = tester.widget<ConduitButton>(
+      find.byWidgetPredicate(
+        (widget) => widget is ConduitButton && widget.text == 'Save',
+        skipOffstage: false,
+      ),
+    );
+    save.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('This connection changed elsewhere. Reopen it before saving.'),
+      findsAtLeastNWidgets(1),
+    );
+    final saved = container
+        .read(directConnectionProfilesProvider)
+        .requireValue
+        .single;
+    expect(saved.name, 'Concurrent provider');
+    expect(saved.apiKey, 'concurrent-secret');
   });
 
   testWidgets('delete confirmation serializes editor operations', (
@@ -502,6 +608,8 @@ void main() {
     },
   );
 }
+
+void _noop() {}
 
 final class _FailingPreferredBackendController
     extends PreferredBackendController {

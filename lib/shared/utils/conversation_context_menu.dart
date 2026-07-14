@@ -1,5 +1,6 @@
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -252,7 +253,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     await _confirmAndDeleteConversation(
       context,
       ref,
-      selectionId,
+      conversation,
       isOnDevice: isOnDevice,
     );
   }
@@ -622,9 +623,10 @@ Future<void> _renameConversation(
 Future<void> _confirmAndDeleteConversation(
   BuildContext context,
   WidgetRef ref,
-  String conversationId, {
+  Conversation conversation, {
   required bool isOnDevice,
 }) async {
+  final conversationId = conversationScopedId(conversation);
   final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
   final confirmed = await ThemedDialogs.confirm(
@@ -645,6 +647,17 @@ Future<void> _confirmAndDeleteConversation(
     } else {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
+      // Revoke first: a thrown DELETE can still mean the server committed and
+      // only its response was lost. A crash must not leave replayable proof for
+      // a remotely deleted conversation. Do not restore proof based on an HTTP
+      // status: 404 already means the chat is absent, while an auth-looking
+      // response may come from an intermediary after an ambiguous upstream
+      // outcome. Losing safe continuity is preferable to authorizing replay
+      // against a deleted or later-reused conversation id.
+      await chat.forgetMixedHermesConversationProvenance(
+        ref,
+        conversation: conversation,
+      );
       await api.deleteConversation(rawConversationId);
       ref
           .read(conversationsProvider.notifier)

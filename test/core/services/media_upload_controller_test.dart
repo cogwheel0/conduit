@@ -642,6 +642,49 @@ void main() {
       expect(queue.queue, isEmpty);
     });
 
+    test('PDF is rejected before local attachment preparation', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_hermes_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/private-notes.pdf');
+      await document.writeAsBytes(utf8.encode('%PDF-fake'));
+      var uploadCalls = 0;
+      final queue = await _recordingUploadQueue(onUpload: () => uploadCalls++);
+      addTearDown(queue.dispose);
+      final container = await _hermesContainer(
+        capabilities: const HermesCapabilities(),
+        attachments: [_pendingDocument(document, reportedBytes: 1)],
+        encoder: (file) async => throw StateError('not an image'),
+        uploadQueue: queue,
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: document.path,
+              fileName: 'private-notes.pdf',
+              fileSize: 1,
+            ),
+        throwsA(
+          isA<HermesChatInputException>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('UTF-8 text'), isNot(contains('PDF'))),
+          ),
+        ),
+      );
+
+      expect(uploadCalls, 0);
+      expect(queue.queue, isEmpty);
+      expect(
+        container.read(attachedFilesProvider).single.status,
+        FileUploadStatus.failed,
+      );
+    });
+
     test('oversized local document is rejected before preparation', () async {
       final directory = await Directory.systemTemp.createTemp(
         'conduit_hermes_media_',

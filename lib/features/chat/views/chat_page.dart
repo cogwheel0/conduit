@@ -24,10 +24,13 @@ import '../../../core/services/api_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
+import '../../../core/database/chat_database_repository.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_local_document_service.dart';
+import '../../hermes/services/hermes_session_provenance.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
 import '../../../core/utils/user_display_name.dart';
@@ -82,6 +85,12 @@ bool shouldShowChatModelDropdown({
 }
 
 @visibleForTesting
+List<String>? chatLocalFilePickerExtensions(Model? selectedModel) =>
+    selectedModel != null && isHermesModel(selectedModel)
+    ? kHermesLocalDocumentPickerExtensions
+    : null;
+
+@visibleForTesting
 Future<void> handleChatBackNavigation({
   required bool hasInputFocus,
   required VoidCallback dismissInputFocus,
@@ -108,6 +117,35 @@ Future<void> handleChatBackNavigation({
   if (isAndroid) {
     exitApplication();
   }
+}
+
+/// Refreshes only an unchanged OpenWebUI-owned active conversation.
+///
+/// Native Hermes and direct-local shells can legally share a raw id with a
+/// server row. They must never be replaced by a colliding OpenWebUI response.
+@visibleForTesting
+Future<void> refreshActiveOpenWebUiConversation(dynamic ref) async {
+  final api = ref.read(apiServiceProvider) as ApiService?;
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (api == null ||
+      active == null ||
+      !conversationUsesOpenWebUiStorage(active)) {
+    return;
+  }
+
+  final full = await api.getConversation(active.id);
+  final currentApi = ref.read(apiServiceProvider) as ApiService?;
+  final current = ref.read(activeConversationProvider) as Conversation?;
+  if (!identical(currentApi, api) ||
+      !identical(current, active) ||
+      current == null ||
+      !conversationUsesOpenWebUiStorage(current) ||
+      full.id != active.id) {
+    return;
+  }
+  ref
+      .read(activeConversationProvider.notifier)
+      .set(withChatStorageProvenance(full, ChatStorageKind.openWebUi));
 }
 
 class _PendingChatScrollAction {
@@ -507,7 +545,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       });
     });
     _conversationIdSub = ref.listenManual(
-      activeConversationProvider.select((conv) => conv?.id),
+      activeConversationProvider.select(
+        (conversation) =>
+            conversation == null ? null : conversationScopedId(conversation),
+      ),
       (_, next) => _handleConversationChanged(next),
       fireImmediately: true,
     );
@@ -669,7 +710,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     try {
-      final attachments = await fileService.pickFiles();
+      final attachments = await fileService.pickFiles(
+        allowedExtensions: chatLocalFilePickerExtensions(
+          ref.read(selectedModelProvider),
+        ),
+      );
       if (attachments.isEmpty) return;
 
       // Keep the 20 MB guardrail for images; non-image uploads can be larger.
@@ -1183,24 +1228,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _refreshActiveConversation() async {
-    final api = ref.read(apiServiceProvider);
-    final active = ref.read(activeConversationProvider);
-    if (api != null && active != null) {
-      try {
-        final full = await api.getConversation(active.id);
-        ref.read(activeConversationProvider.notifier).set(full);
-      } catch (e) {
-        DebugLogger.log(
-          'Failed to refresh conversation: $e',
-          scope: 'chat/page',
-        );
-      }
+    try {
+      await refreshActiveOpenWebUiConversation(ref);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'active-conversation-refresh-failed',
+        scope: 'chat/page',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     try {
       refreshConversationsCache(ref);
       await ref.read(conversationsProvider.future);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'conversation-list-refresh-failed',
+        scope: 'chat/page',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
 
     await Future.delayed(const Duration(milliseconds: 300));
   }
@@ -2554,9 +2603,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     final activeConversation = ref.read(activeConversationProvider);
     if (activeConversation != null) {
-      final updatedConversation = activeConversation.copyWith(
-        messages: updatedMessages,
-        updatedAt: DateTime.now(),
+      final updatedConversation = inheritNativeHermesConversationProvenance(
+        activeConversation,
+        activeConversation.copyWith(
+          messages: updatedMessages,
+          updatedAt: DateTime.now(),
+        ),
       );
       ref.read(activeConversationProvider.notifier).set(updatedConversation);
       ref

@@ -2453,6 +2453,7 @@
   "directConnectionCredentialTransferMessage": "Esto enviará la clave de API y todos los encabezados personalizados al nuevo servidor. Continúa solo si confías en él.",
   "directConnectionCredentialTransferConfirm": "Usar credenciales",
   "directConnectionSaveFailed": "No se pudo guardar esta conexión.",
+  "directConnectionSaveConflict": "Esta conexión se modificó en otro lugar. Vuelve a abrirla antes de guardar.",
   "directConnectionReachFailed": "No se pudo contactar con el proveedor.",
   "directConnectionDeleteTitle": "¿Eliminar la conexión?",
   "directConnectionDeleteMessage": "Esto elimina {name} y sus credenciales de este dispositivo.",

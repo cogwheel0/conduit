@@ -63,6 +63,331 @@ void main() {
     ).equals('https://one.example/v1');
   });
 
+  test('runtime trust principals are isolated by config controller', () async {
+    PreferencesStore.debugReset();
+    const storage = FlutterSecureStorage();
+    final firstContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    final secondContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(firstContainer.dispose);
+    addTearDown(secondContainer.dispose);
+    final first = firstContainer.read(hermesConfigProvider.notifier);
+    final second = secondContainer.read(hermesConfigProvider.notifier);
+
+    final firstFallback = first.documentTrustPrincipalId();
+    final secondFallback = second.documentTrustPrincipalId();
+    check(firstFallback == secondFallback).isFalse();
+
+    const durablePrincipal = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      PreferenceKeys.hermesLocalDocumentTrustPrincipal: durablePrincipal,
+    });
+    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+
+    check(first.documentTrustPrincipalId()).equals(durablePrincipal);
+    check(second.documentTrustPrincipalId()).equals(durablePrincipal);
+  });
+
+  test(
+    'failed trust-principal rotation does not commit new credentials',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final previousPrincipal = controller.documentTrustPrincipalId();
+      await _waitUntil(
+        () =>
+            PreferencesStore.getString(
+              PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+            ) ==
+            previousPrincipal,
+      );
+
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (preferences, key, value) async =>
+            key == PreferenceKeys.hermesLocalDocumentTrustPrincipal
+            ? false
+            : null,
+      );
+
+      await expectLater(
+        controller.saveConnection(
+          baseUrl: 'https://one.example/v1',
+          apiKeyChanged: true,
+          apiKey: 'replacement-key',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
+      check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
+      check(
+        PreferencesStore.getString(
+          PreferenceKeys.hermesLocalDocumentTrustPrincipal,
+        ),
+      ).equals(previousPrincipal);
+    },
+  );
+
+  test('failed endpoint persistence restores previous credentials', () async {
+    const storage = FlutterSecureStorage();
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    var failNextEndpointWrite = true;
+    PreferencesStore.debugOverride(
+      PreferencesStore.instance,
+      writeInterceptor: (preferences, key, value) async {
+        if (key == PreferenceKeys.hermesBaseUrl &&
+            value == 'https://two.example/v1' &&
+            failNextEndpointWrite) {
+          failNextEndpointWrite = false;
+          return false;
+        }
+        return null;
+      },
+    );
+
+    await expectLater(
+      controller.saveConnection(
+        baseUrl: 'https://two.example/v1',
+        apiKeyChanged: true,
+        apiKey: 'key-for-two',
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final config = container.read(hermesConfigProvider);
+    check(config.baseUrl).equals('https://one.example/v1');
+    check(config.apiKey).equals('key-for-one');
+    check(config.sessionKey).equals('memory-for-one');
+    check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
+    check(
+      await storage.read(key: 'hermes_session_key_v1'),
+    ).equals('memory-for-one');
+    check(
+      PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
+    ).equals('https://one.example/v1');
+  });
+
+  test(
+    'failed replacement and recovery endpoint writes stay quarantined',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      var replacementWriteFailed = false;
+      var recoveryWriteFailed = false;
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (preferences, key, value) async {
+          if (key != PreferenceKeys.hermesBaseUrl) return null;
+          if (value == 'https://two.example/v1' && !replacementWriteFailed) {
+            replacementWriteFailed = true;
+            return false;
+          }
+          if (value == 'https://one.example/v1' &&
+              replacementWriteFailed &&
+              !recoveryWriteFailed) {
+            recoveryWriteFailed = true;
+            return false;
+          }
+          return null;
+        },
+      );
+
+      await expectLater(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              baseUrl: 'https://two.example/v1',
+              apiKeyChanged: true,
+              apiKey: 'key-for-two',
+              sessionKeyChanged: true,
+              sessionKey: 'memory-for-two',
+            ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(replacementWriteFailed).isTrue();
+      check(recoveryWriteFailed).isTrue();
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+      check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
+      check(
+        await storage.read(key: 'hermes_session_key_v1'),
+      ).equals('memory-for-one');
+      final failedRuntimeConfig = container.read(hermesConfigProvider);
+      check(failedRuntimeConfig.baseUrl).isEmpty();
+      check(failedRuntimeConfig.apiKey).isNull();
+      check(container.read(hermesApiServiceProvider)).isNull();
+
+      final restarted = await _readyHermesContainer(storage);
+      addTearDown(restarted.dispose);
+      check(restarted.read(hermesConfigProvider).baseUrl).isEmpty();
+      check(restarted.read(hermesConfigProvider).apiKey).equals('key-for-one');
+      check(restarted.read(hermesApiServiceProvider)).isNull();
+    },
+  );
+
+  test(
+    'origin switch quarantines the endpoint before replacement secrets land',
+    () async {
+      final storage = _FailOnceSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      });
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final endpointCommitStarted = Completer<void>();
+      final endpointCommitGate = Completer<void>();
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (preferences, key, value) async {
+          if (key == PreferenceKeys.hermesBaseUrl &&
+              value == 'https://two.example/v1') {
+            if (!endpointCommitStarted.isCompleted) {
+              endpointCommitStarted.complete();
+            }
+            await endpointCommitGate.future;
+          }
+          return null;
+        },
+      );
+
+      final save = container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            baseUrl: 'https://two.example/v1',
+            apiKeyChanged: true,
+            apiKey: 'key-for-two',
+            sessionKeyChanged: true,
+            sessionKey: 'memory-for-two',
+          );
+      await endpointCommitStarted.future.timeout(const Duration(seconds: 1));
+
+      check(storage.values['hermes_api_key_v1']).equals('key-for-two');
+      check(storage.values['hermes_session_key_v1']).equals('memory-for-two');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+
+      // A new container at this exact await boundary models process death and
+      // restart. Replacement credentials may hydrate, but no endpoint can use
+      // them until the connection commit itself succeeds.
+      final restarted = await _readyHermesContainer(storage);
+      addTearDown(restarted.dispose);
+      check(restarted.read(hermesConfigProvider).baseUrl).isEmpty();
+      check(restarted.read(hermesConfigProvider).apiKey).equals('key-for-two');
+      check(restarted.read(hermesApiServiceProvider)).isNull();
+
+      endpointCommitGate.complete();
+      await save.timeout(const Duration(seconds: 1));
+      check(
+        PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
+      ).equals('https://two.example/v1');
+      check(container.read(hermesApiServiceProvider)).isNotNull();
+    },
+  );
+
+  test(
+    'same-origin identity rotation quarantines endpoint between secret writes',
+    () async {
+      final storage = _GatedSecureStorage(<String, String>{
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      }, gatedWriteKey: 'hermes_session_key_v1');
+      addTearDown(storage.releaseAll);
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+
+      final save = container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(
+            baseUrl: 'https://one.example/v1',
+            apiKeyChanged: true,
+            apiKey: 'key-for-one-replacement',
+            sessionKeyChanged: true,
+            sessionKey: 'memory-for-one-replacement',
+          );
+      await storage.writeStarted.future.timeout(const Duration(seconds: 1));
+
+      // The API key has landed while the second secret is still old. A process
+      // killed at this exact boundary must restart without a usable endpoint.
+      check(
+        storage.values['hermes_api_key_v1'],
+      ).equals('key-for-one-replacement');
+      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+
+      final restarted = await _readyHermesContainer(storage);
+      addTearDown(restarted.dispose);
+      final restartedConfig = restarted.read(hermesConfigProvider);
+      check(restartedConfig.baseUrl).isEmpty();
+      check(restartedConfig.apiKey).equals('key-for-one-replacement');
+      check(restartedConfig.sessionKey).equals('memory-for-one');
+      check(restarted.read(hermesApiServiceProvider)).isNull();
+
+      storage.releaseWrite();
+      await save.timeout(const Duration(seconds: 1));
+      final committed = container.read(hermesConfigProvider);
+      check(committed.baseUrl).equals('https://one.example/v1');
+      check(committed.apiKey).equals('key-for-one-replacement');
+      check(committed.sessionKey).equals('memory-for-one-replacement');
+    },
+  );
+
+  test(
+    'failed partial secret rollback quarantines the durable endpoint',
+    () async {
+      final storage = _FailOnceSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      });
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+
+      // The replacement API key lands, the following session-key write fails,
+      // and restoring the old API key fails too. This leaves the replacement
+      // key in secure storage unless the controller quarantines the endpoint.
+      storage.failWriteSequence.addAll(<String>[
+        'hermes_session_key_v1',
+        'hermes_api_key_v1',
+      ]);
+
+      await expectLater(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              baseUrl: 'https://two.example/v1',
+              apiKeyChanged: true,
+              apiKey: 'key-for-two',
+              sessionKeyChanged: true,
+              sessionKey: 'memory-for-two',
+            ),
+        throwsA(isA<StateError>()),
+      );
+
+      check(storage.values['hermes_api_key_v1']).equals('key-for-two');
+      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+      final failedRuntimeConfig = container.read(hermesConfigProvider);
+      check(failedRuntimeConfig.baseUrl).isEmpty();
+      check(failedRuntimeConfig.apiKey).isNull();
+      check(container.read(hermesApiServiceProvider)).isNull();
+
+      // A fresh provider container models restart hydration: the uncertain new
+      // key may still exist, but no durable endpoint can receive it.
+      final restarted = await _readyHermesContainer(storage);
+      addTearDown(restarted.dispose);
+      final restartedConfig = restarted.read(hermesConfigProvider);
+      check(restartedConfig.baseUrl).isEmpty();
+      check(restartedConfig.apiKey).equals('key-for-two');
+      check(restarted.read(hermesApiServiceProvider)).isNull();
+    },
+  );
+
   test(
     'changing origin stops owner-bound runs before rotating credentials',
     () async {
@@ -204,6 +529,52 @@ void main() {
     check(config.apiKey).equals('key-for-one-replacement');
     check(config.sessionKey).equals('memory-for-one-replacement');
   });
+
+  test(
+    'connection mutation blocks admission through the credential commit',
+    () async {
+      final storage = _GatedSecureStorage({
+        'hermes_api_key_v1': 'key-for-one',
+        'hermes_session_key_v1': 'memory-for-one',
+      }, gatedWriteKey: 'hermes_api_key_v1');
+      addTearDown(storage.releaseAll);
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final previousPrincipal = controller.documentTrustPrincipalId();
+
+      final save = controller.saveConnection(
+        baseUrl: 'https://one.example/v1',
+        apiKeyChanged: true,
+        apiKey: 'key-for-one-replacement',
+      );
+      await storage.writeStarted.future.timeout(const Duration(seconds: 1));
+
+      // The provenance principal has rotated, but the old in-memory service is
+      // still visible until the secure write commits. No send may cross this
+      // mixed-identity window.
+      final rotatedPrincipal = controller.documentTrustPrincipalId();
+      check(rotatedPrincipal == previousPrincipal).isFalse();
+      check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
+      Object? admissionError;
+      try {
+        await controller.ensureSessionKey().timeout(const Duration(seconds: 1));
+      } catch (error) {
+        admissionError = error;
+      }
+
+      storage.releaseWrite();
+      await save.timeout(const Duration(seconds: 1));
+
+      check(admissionError).isA<StateError>();
+      check(
+        container.read(hermesConfigProvider).apiKey,
+      ).equals('key-for-one-replacement');
+      check(
+        await controller.ensureSessionKey().timeout(const Duration(seconds: 1)),
+      ).equals('memory-for-one');
+    },
+  );
 
   test('endpoint rotation waits for an in-flight create to settle', () async {
     const storage = FlutterSecureStorage();
@@ -347,6 +718,62 @@ void main() {
     check(storage.writeCount('hermes_session_key_v1')).equals(0);
   });
 
+  test(
+    'disable keeps run admission blocked through preference commit',
+    () async {
+      const storage = FlutterSecureStorage();
+      final container = await _readyHermesContainer(storage);
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final preferenceWriteStarted = Completer<void>();
+      final preferenceWriteGate = Completer<void>();
+      addTearDown(() {
+        if (!preferenceWriteGate.isCompleted) preferenceWriteGate.complete();
+      });
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.hermesEnabled && value == false) {
+            preferenceWriteStarted.complete();
+            await preferenceWriteGate.future;
+          }
+          return null;
+        },
+      );
+
+      final registry = container.read(hermesRunRegistryProvider);
+      final oldKey = legacyHermesRunKey('disable-old-run');
+      final oldToken = registry.registerPending(oldKey, onCancelled: () {});
+      final disable = controller.setEnabled(false);
+      await preferenceWriteStarted.future.timeout(const Duration(seconds: 1));
+
+      check(oldToken.isCancelled).isTrue();
+      check(container.read(hermesConfigProvider).enabled).isTrue();
+      check(controller.captureSessionActionAdmission()).isNull();
+
+      // A turn may register its owner before config preflight. Admission must
+      // still reject its session-key request while disable is awaiting durable
+      // preference commit, so it cannot dispatch on the retiring service.
+      final attemptedKey = legacyHermesRunKey('disable-attempted-run');
+      final attemptedToken = registry.registerPending(
+        attemptedKey,
+        onCancelled: () {},
+      );
+      await expectLater(
+        controller.ensureSessionKey(),
+        throwsA(isA<StateError>()),
+      );
+      check(attemptedToken.isCancelled).isFalse();
+      check(
+        registry.complete(attemptedKey, cancelToken: attemptedToken),
+      ).isTrue();
+
+      preferenceWriteGate.complete();
+      await disable.timeout(const Duration(seconds: 1));
+      check(container.read(hermesConfigProvider).enabled).isFalse();
+    },
+  );
+
   test('connection rotation interrupts queued session-key generation', () async {
     final storage = _GatedSecureStorage({
       'hermes_api_key_v1': 'key-for-one',
@@ -366,15 +793,15 @@ void main() {
           onCancelled: () {},
         );
 
-    // Hold saveConnection inside its serialized secure-storage write, then
-    // request a generated key. The unfixed implementation queues generation
-    // behind saveConnection while saveConnection waits for this run to settle.
+    // Cancellation now precedes every credential write. While saveConnection
+    // waits for the old run to settle, admission must fail synchronously so it
+    // cannot queue session-key generation behind the same mutation.
     final save = controller.saveConnection(
       baseUrl: 'https://one.example/v1',
       apiKeyChanged: true,
       apiKey: 'key-for-one-replacement',
     );
-    await storage.writeStarted.future.timeout(const Duration(seconds: 1));
+    await _waitUntil(() => token.isCancelled);
 
     Object? ensureError;
     bool? tokenWasCancelled;
@@ -389,9 +816,10 @@ void main() {
       }
     }();
 
+    await ensureSettlement.timeout(const Duration(seconds: 1));
+    await storage.writeStarted.future.timeout(const Duration(seconds: 1));
     storage.releaseWrite();
     await save.timeout(const Duration(seconds: 1));
-    await ensureSettlement.timeout(const Duration(seconds: 1));
 
     check(ensureError).isA<StateError>();
     check(tokenWasCancelled).equals(true);
@@ -440,7 +868,7 @@ void main() {
   );
 
   test(
-    'failed server-switch replacement restores old origin credentials',
+    'failed server switch cancels runs and restores old credentials',
     () async {
       final storage = _FailOnceSecureStorage({
         'hermes_api_key_v1': 'key-for-one',
@@ -481,7 +909,7 @@ void main() {
       check(
         PreferencesStore.getString(PreferenceKeys.hermesBaseUrl),
       ).equals('https://one.example/v1');
-      check(activeToken.isCancelled).isFalse();
+      check(activeToken.isCancelled).isTrue();
     },
   );
 
@@ -871,6 +1299,7 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
 
   final Map<String, String> values;
   String? failNextWriteFor;
+  final List<String> failWriteSequence = <String>[];
   bool failReads = false;
 
   @override
@@ -900,6 +1329,10 @@ class _FailOnceSecureStorage implements FlutterSecureStorage {
   }) async {
     if (failNextWriteFor == key) {
       failNextWriteFor = null;
+      throw StateError('write failed for $key');
+    }
+    if (failWriteSequence.isNotEmpty && failWriteSequence.first == key) {
+      failWriteSequence.removeAt(0);
       throw StateError('write failed for $key');
     }
     if (value == null) {

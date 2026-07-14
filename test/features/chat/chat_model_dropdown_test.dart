@@ -38,4 +38,21 @@ void main() {
       ).isTrue();
     });
   });
+
+  group('chatLocalFilePickerExtensions', () {
+    test('filters Hermes to supported local documents without PDF', () {
+      final extensions = chatLocalFilePickerExtensions(hermesSyntheticModel())!;
+
+      check(extensions).contains('txt');
+      check(extensions).contains('docx');
+      check(extensions).not((it) => it.contains('pdf'));
+    });
+
+    test('leaves the OpenWebUI picker unrestricted', () {
+      const openWebUiModel = Model(id: 'gpt', name: 'GPT');
+
+      check(chatLocalFilePickerExtensions(openWebUiModel)).isNull();
+      check(chatLocalFilePickerExtensions(null)).isNull();
+    });
+  });
 }

@@ -2453,6 +2453,7 @@
   "directConnectionCredentialTransferMessage": "La clé API et l’ensemble des en-têtes personnalisés seront envoyés au nouveau serveur. Continuez uniquement si vous lui faites confiance.",
   "directConnectionCredentialTransferConfirm": "Utiliser les identifiants",
   "directConnectionSaveFailed": "Impossible d’enregistrer cette connexion.",
+  "directConnectionSaveConflict": "Cette connexion a été modifiée ailleurs. Rouvrez-la avant d’enregistrer.",
   "directConnectionReachFailed": "Impossible de joindre le fournisseur.",
   "directConnectionDeleteTitle": "Supprimer la connexion ?",
   "directConnectionDeleteMessage": "Cette action supprime {name} et ses identifiants de cet appareil.",
