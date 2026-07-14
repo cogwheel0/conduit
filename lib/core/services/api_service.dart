@@ -3261,8 +3261,9 @@ class ApiService {
     final files = <FileInfo>[];
     var page = 1;
     int? total;
+    const maxPages = 200;
 
-    while (true) {
+    while (page <= maxPages) {
       final pageResult = await getPage(page);
 
       files.addAll(pageResult.items);
@@ -3279,6 +3280,10 @@ class ApiService {
       }
 
       page += 1;
+    }
+
+    if (page > maxPages) {
+      _traceApi('Warning: Hit max user-files page limit ($maxPages)');
     }
 
     return List<FileInfo>.unmodifiable(files);
@@ -3315,11 +3320,34 @@ class ApiService {
     String? contentType,
     int? limit,
     int? offset,
+  }) async =>
+      await searchFilesForSession(
+        query: query,
+        contentType: contentType,
+        limit: limit,
+        offset: offset,
+      ) ??
+      const <FileInfo>[];
+
+  /// Searches the current user's files while keeping a long-running operation
+  /// pinned to its originating auth session.
+  ///
+  /// Returns null when the server does not expose the file-search endpoint, so
+  /// callers that require compatibility with older OpenWebUI releases can fall
+  /// back to paginated listing. A supported search with no matches returns an
+  /// empty list.
+  Future<List<FileInfo>?> searchFilesForSession({
+    String? query,
+    String? contentType,
+    int? limit,
+    int? offset,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Searching files with query: $query');
     final trimmedQuery = query?.trim();
     if (trimmedQuery == null || trimmedQuery.isEmpty) {
-      return const [];
+      return const <FileInfo>[];
     }
 
     final queryParams = <String, dynamic>{};
@@ -3334,6 +3362,8 @@ class ApiService {
       final response = await _dio.get(
         '/api/v1/files/search',
         queryParameters: queryParams,
+        options: _withAuthSnapshot(Options(), authSnapshot),
+        cancelToken: cancelToken,
       );
       final data = response.data;
       if (data is List) {
@@ -3349,10 +3379,15 @@ class ApiService {
         }
         return results;
       }
-      return const [];
+      return const <FileInfo>[];
     } on DioException catch (error) {
       if (error.response?.statusCode == 404) {
-        return const [];
+        final responseData = error.response?.data;
+        final detail = responseData is Map ? responseData['detail'] : null;
+        if (detail == 'No files found matching the pattern.') {
+          return const <FileInfo>[];
+        }
+        return null;
       }
       rethrow;
     }

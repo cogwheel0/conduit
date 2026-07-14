@@ -81,6 +81,7 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   File? _tempFile;
+  CancelToken? _downloadCancelToken;
 
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _positionSub;
@@ -168,45 +169,55 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
       throw StateError('Server audio source is unavailable');
     }
 
-    final fileInfo = await api.getFileInfo(fileId);
-    if (_isDisposed) throw StateError('Audio player was disposed');
-    final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
-    final extension = filename.contains('.')
-        ? filename.substring(filename.lastIndexOf('.'))
-        : '.m4a';
+    _downloadCancelToken?.cancel('Audio download superseded');
+    final cancelToken = CancelToken();
+    _downloadCancelToken = cancelToken;
+    try {
+      final fileInfo = await api.getFileInfo(fileId, cancelToken: cancelToken);
+      if (_isDisposed) throw StateError('Audio player was disposed');
+      final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
+      final extension = filename.contains('.')
+          ? filename.substring(filename.lastIndexOf('.'))
+          : '.m4a';
 
-    final tempDir = await getTemporaryDirectory();
-    if (_isDisposed) throw StateError('Audio player was disposed');
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final tempPath = '${tempDir.path}/audio_${fileId}_$timestamp$extension';
-    final tempFile = File(tempPath);
-    _tempFile = tempFile;
+      final tempDir = await getTemporaryDirectory();
+      if (_isDisposed) throw StateError('Audio player was disposed');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final tempPath = '${tempDir.path}/audio_${fileId}_$timestamp$extension';
+      final tempFile = File(tempPath);
+      _tempFile = tempFile;
 
-    final response = await api.dio.get(
-      '/api/v1/files/$fileId/content',
-      options: Options(responseType: ResponseType.bytes),
-    );
-    final responseData = response.data;
-    if (responseData is! List<int>) {
-      throw StateError(
-        'Unexpected audio response type: ${responseData.runtimeType}',
+      final response = await api.dio.get(
+        '/api/v1/files/$fileId/content',
+        options: Options(responseType: ResponseType.bytes),
+        cancelToken: cancelToken,
       );
+      final responseData = response.data;
+      if (responseData is! List<int>) {
+        throw StateError(
+          'Unexpected audio response type: ${responseData.runtimeType}',
+        );
+      }
+      if (_isDisposed) {
+        await _deleteTemporaryFile(tempFile);
+        throw StateError('Audio player was disposed');
+      }
+      await tempFile.writeAsBytes(responseData, flush: true);
+      if (_isDisposed) {
+        await _deleteTemporaryFile(tempFile);
+        throw StateError('Audio player was disposed');
+      }
+      DebugLogger.log(
+        'audio-download-ready',
+        scope: 'notes/audio/player',
+        data: {'bytes': responseData.length},
+      );
+      return tempPath;
+    } finally {
+      if (identical(_downloadCancelToken, cancelToken)) {
+        _downloadCancelToken = null;
+      }
     }
-    if (_isDisposed) {
-      await _deleteTemporaryFile(tempFile);
-      throw StateError('Audio player was disposed');
-    }
-    await tempFile.writeAsBytes(responseData, flush: true);
-    if (_isDisposed) {
-      await _deleteTemporaryFile(tempFile);
-      throw StateError('Audio player was disposed');
-    }
-    DebugLogger.log(
-      'audio-download-ready',
-      scope: 'notes/audio/player',
-      data: {'bytes': responseData.length},
-    );
-    return tempPath;
   }
 
   Future<void> _deleteOwnedTempFile() async {
@@ -257,6 +268,11 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
   @override
   void dispose() {
     _isDisposed = true;
+    final downloadCancelToken = _downloadCancelToken;
+    _downloadCancelToken = null;
+    if (downloadCancelToken != null && !downloadCancelToken.isCancelled) {
+      downloadCancelToken.cancel('Audio player dialog disposed');
+    }
     _stateSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();

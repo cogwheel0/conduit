@@ -982,7 +982,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      _showError(AppLocalizations.of(context)!.failedToUploadAudio);
+      if (mounted) {
+        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
+      }
       return false;
     }
   }
@@ -1147,10 +1149,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           // retry so that uncertain requests do not create duplicate files.
           if (item.status != NoteAudioUploadStatus.pending &&
               item.serverFileId == null) {
-            final files = await api.getUserFilesForSession(
+            final targetedFiles = await api.searchFilesForSession(
+              query: item.fileName,
+              limit: 100,
               authSnapshot: authSnapshot,
               cancelToken: cancelToken,
             );
+            final files =
+                targetedFiles ??
+                await api.getUserFilesForSession(
+                  authSnapshot: authSnapshot,
+                  cancelToken: cancelToken,
+                );
             if (!mounted ||
                 !_isCurrentNoteSession(
                   api: api,

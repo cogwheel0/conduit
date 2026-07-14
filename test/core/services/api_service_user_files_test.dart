@@ -47,6 +47,102 @@ void main() {
         check(adapter.requestedPages).deepEquals([1, 2]);
       },
     );
+
+    test('caps pagination when the server total never converges', () async {
+      final adapter = _QueuedJsonAdapter({
+        for (var page = 1; page <= 201; page++)
+          page: {
+            'items': [_fileJson('file-$page')],
+            'total': 1000,
+          },
+      });
+      final api = _buildApiService(adapter);
+
+      final files = await api.getUserFiles();
+
+      check(files).has((it) => it.length, 'length').equals(200);
+      check(
+        adapter.requestedPages,
+      ).has((it) => it.length, 'length').equals(200);
+      check(adapter.requestedPages.first).equals(1);
+      check(adapter.requestedPages.last).equals(200);
+      check(adapter.requestedPages.contains(201)).isFalse();
+    });
+  });
+
+  group('ApiService.searchFilesForSession', () {
+    test('distinguishes no matches from an unavailable endpoint', () async {
+      final noMatchesApi = _buildApiService(
+        _FileSearchAdapter(
+          statusCode: 404,
+          response: const {'detail': 'No files found matching the pattern.'},
+        ),
+      );
+      final unavailableApi = _buildApiService(
+        _FileSearchAdapter(
+          statusCode: 404,
+          response: const {'detail': 'Not Found'},
+        ),
+      );
+
+      final noMatches = await noMatchesApi.searchFilesForSession(
+        query: 'recording.m4a',
+      );
+      check(noMatches).isNotNull();
+      check(noMatches!).isEmpty();
+      check(
+        await unavailableApi.searchFilesForSession(query: 'recording.m4a'),
+      ).isNull();
+    });
+
+    test('uses a targeted query and forwards cancellation', () async {
+      final adapter = _FileSearchAdapter(response: [_fileJson('recording-1')]);
+      final api = _buildApiService(adapter);
+      final cancelToken = CancelToken();
+
+      final files = await api.searchFilesForSession(
+        query: 'recording_123.m4a',
+        limit: 100,
+        cancelToken: cancelToken,
+      );
+
+      check(files).isNotNull().has((it) => it.length, 'length').equals(1);
+      check(adapter.requestedPath).equals('/api/v1/files/search');
+      check(adapter.queryParameters).isNotNull();
+      check(adapter.queryParameters!).deepEquals({
+        'filename': '*recording_123.m4a*',
+        'content': false,
+        'limit': 100,
+      });
+      check(adapter.receivedCancelFuture).isNotNull();
+      cancelToken.cancel('test complete');
+      await adapter.requestCancelled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('rejects a stale auth snapshot before transport', () async {
+      final adapter = _FileSearchAdapter(response: const <Object?>[]);
+      final api = _buildAuthenticatedApiService(
+        adapter,
+        authToken: 'account-a',
+      );
+      final snapshot = api.captureAuthSnapshot();
+      api.updateAuthToken('account-b');
+
+      await expectLater(
+        api.searchFilesForSession(
+          query: 'recording.m4a',
+          authSnapshot: snapshot,
+        ),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.cancel,
+          ),
+        ),
+      );
+      check(adapter.requestCount).equals(0);
+    });
   });
 
   group('ApiService.getFileContent', () {
@@ -372,6 +468,47 @@ class _QueuedJsonAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _FileSearchAdapter implements HttpClientAdapter {
+  _FileSearchAdapter({required this.response, this.statusCode = 200});
+
+  final Object? response;
+  final int statusCode;
+  String? requestedPath;
+  Map<String, dynamic>? queryParameters;
+  Future<void>? receivedCancelFuture;
+  final requestCancelled = Completer<void>();
+  int requestCount = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requestCount++;
+    requestedPath = options.path;
+    queryParameters = Map<String, dynamic>.from(options.queryParameters);
+    receivedCancelFuture = cancelFuture;
+    if (cancelFuture != null) {
+      unawaited(
+        cancelFuture.then<void>((_) {
+          if (!requestCancelled.isCompleted) requestCancelled.complete();
+        }),
+      );
+    }
+    return ResponseBody(
+      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(response)))),
+      statusCode,
+      headers: const {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 ApiService _buildApiService(HttpClientAdapter adapter) {
   final service = ApiService(
     serverConfig: const ServerConfig(
@@ -383,6 +520,23 @@ ApiService _buildApiService(HttpClientAdapter adapter) {
   );
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();
+  return service;
+}
+
+ApiService _buildAuthenticatedApiService(
+  HttpClientAdapter adapter, {
+  required String authToken,
+}) {
+  final service = ApiService(
+    serverConfig: const ServerConfig(
+      id: 'test',
+      name: 'Test',
+      url: 'http://localhost:0',
+    ),
+    workerManager: WorkerManager(),
+    authToken: authToken,
+  );
+  service.dio.httpClientAdapter = adapter;
   return service;
 }
 
