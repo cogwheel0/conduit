@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,27 +11,24 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 void main() {
   test('device recognition language tile is Android and device-STT only', () {
-    expect(
+    check(
       shouldShowDeviceSttLanguageSetting(
         TargetPlatform.android,
         SttPreference.deviceOnly,
       ),
-      isTrue,
-    );
-    expect(
+    ).isTrue();
+    check(
       shouldShowDeviceSttLanguageSetting(
         TargetPlatform.android,
         SttPreference.serverOnly,
       ),
-      isFalse,
-    );
-    expect(
+    ).isFalse();
+    check(
       shouldShowDeviceSttLanguageSetting(
         TargetPlatform.iOS,
         SttPreference.deviceOnly,
       ),
-      isFalse,
-    );
+    ).isFalse();
   });
 
   testWidgets('picker marks auto, system, installed, and custom selections', (
@@ -87,6 +85,6 @@ void _expectSelected(WidgetTester tester, String selectedKey) {
   ];
   for (final key in optionKeys) {
     final tile = tester.widget<SettingsSelectorTile>(find.byKey(Key(key)));
-    expect(tile.selected, key == selectedKey, reason: key);
+    check(tile.selected, because: key).equals(key == selectedKey);
   }
 }

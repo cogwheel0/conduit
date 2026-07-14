@@ -2273,6 +2273,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (isHermesComposer || isDirectComposer) {
         break;
       }
+      final filterId = ComposerOverflowActionIds.filterIdFrom(id);
       if (id == 'web' && showWebPill && webSearchAvailable) {
         final String label = AppLocalizations.of(context)!.web;
         final IconData icon = Platform.isIOS
@@ -2311,9 +2312,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             onTap: widget.enabled && !_isRecording ? handleTap : null,
           ),
         );
-      } else if (id.startsWith('filter:')) {
+      } else if (filterId != null) {
         // Handle filter quick pills
-        final filterId = id.substring(7); // Remove 'filter:' prefix
         ToggleFilter? filter;
         for (final f in availableFilters) {
           if (f.id == filterId) {

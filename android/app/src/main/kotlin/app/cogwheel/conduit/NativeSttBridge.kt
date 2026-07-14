@@ -849,6 +849,6 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         private const val EVENT_CHANNEL = "app.cogwheel.conduit/native_stt/events"
         private const val STOP_GRACE_PERIOD_MS = 1500L
         private const val STALE_GENERATION_CHECK_MS = 50L
-        private const val PLATFORM_SUPPORT_CHECK_TIMEOUT_MS = 2000L
+        private const val PLATFORM_SUPPORT_CHECK_TIMEOUT_MS = 1200L
     }
 }
