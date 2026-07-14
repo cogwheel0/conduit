@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/services/api_service.dart';
@@ -13,6 +14,47 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+
+const _defaultAudioExtension = '.m4a';
+const _maxAudioTempFileIdLength = 64;
+final _safeAudioExtension = RegExp(r'^\.[A-Za-z0-9]{1,10}$');
+final _unsafeAudioTempFileIdCharacter = RegExp(r'[^A-Za-z0-9_-]');
+
+String _audioDownloadTempFileName({
+  required String fileId,
+  required String serverFileName,
+  required int timestamp,
+}) {
+  final basename = serverFileName.replaceAll(r'\', '/').split('/').last;
+  final extensionStart = basename.lastIndexOf('.');
+  final candidateExtension = extensionStart > 0
+      ? basename.substring(extensionStart)
+      : _defaultAudioExtension;
+  final extension = _safeAudioExtension.hasMatch(candidateExtension)
+      ? candidateExtension
+      : _defaultAudioExtension;
+
+  final sanitizedFileId = fileId.replaceAll(
+    _unsafeAudioTempFileIdCharacter,
+    '_',
+  );
+  final nonEmptyFileId = sanitizedFileId.isEmpty ? 'file' : sanitizedFileId;
+  final boundedFileId = nonEmptyFileId.length > _maxAudioTempFileIdLength
+      ? nonEmptyFileId.substring(0, _maxAudioTempFileIdLength)
+      : nonEmptyFileId;
+  return 'audio_${boundedFileId}_$timestamp$extension';
+}
+
+@visibleForTesting
+String audioDownloadTempFileNameForTesting({
+  required String fileId,
+  required String serverFileName,
+  required int timestamp,
+}) => _audioDownloadTempFileName(
+  fileId: fileId,
+  serverFileName: serverFileName,
+  timestamp: timestamp,
+);
 
 /// A dialog for playing audio files.
 class AudioPlayerDialog extends StatefulWidget {
@@ -176,14 +218,16 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
       final fileInfo = await api.getFileInfo(fileId, cancelToken: cancelToken);
       if (_isDisposed) throw StateError('Audio player was disposed');
       final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
-      final extension = filename.contains('.')
-          ? filename.substring(filename.lastIndexOf('.'))
-          : '.m4a';
 
       final tempDir = await getTemporaryDirectory();
       if (_isDisposed) throw StateError('Audio player was disposed');
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempPath = '${tempDir.path}/audio_${fileId}_$timestamp$extension';
+      final tempFileName = _audioDownloadTempFileName(
+        fileId: fileId,
+        serverFileName: filename,
+        timestamp: timestamp,
+      );
+      final tempPath = path.join(tempDir.path, tempFileName);
       final tempFile = File(tempPath);
       _tempFile = tempFile;
 
