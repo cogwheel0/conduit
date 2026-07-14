@@ -17,6 +17,7 @@ const _tokenSecret = 'foreground-token-secret-long-enough';
 const _responseSecret = 'provider-reflected-auth-secret';
 const _headerSecret = 'provider-reflected-header-secret';
 const _uriSecret = 'provider-reflected-uri-secret';
+const _ldapDiagnosticSecret = 'ldap-upstream-diagnostic-secret';
 
 void main() {
   test(
@@ -164,6 +165,45 @@ void main() {
       }
     },
   );
+
+  test(
+    'LDAP-disabled 400 publishes only the recognized safe message',
+    () async {
+      final storage = _Storage();
+      when(() => storage.getAuthToken()).thenAnswer((_) async => '');
+      when(() => storage.hasCredentials()).thenAnswer((_) async => false);
+      when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+      final api = _LdapDisabledAuthApi();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+
+      Object? thrown;
+      try {
+        await container
+            .read(authStateManagerProvider.notifier)
+            .ldapLogin('directory-user', _passwordSecret);
+      } catch (error) {
+        thrown = error;
+      }
+
+      check(thrown).isNotNull();
+      check(
+        thrown.toString(),
+      ).equals('Exception: LDAP authentication is not enabled');
+      final auth = container.read(authStateManagerProvider).requireValue;
+      check(auth.status).equals(AuthStatus.error);
+      check(auth.error).equals('LDAP authentication is not enabled');
+      final visible = '${thrown.toString()}\n${auth.error}';
+      check(visible).not((value) => value.contains(_passwordSecret));
+      check(visible).not((value) => value.contains(_ldapDiagnosticSecret));
+    },
+  );
 }
 
 enum _AuthMode { password, token, ldap }
@@ -228,5 +268,41 @@ final class _ReflectingAuthApi extends ApiService {
   @override
   Future<void> logout() async {
     throw _reflectedFailure;
+  }
+}
+
+final class _LdapDisabledAuthApi extends ApiService {
+  _LdapDisabledAuthApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'ldap-disabled-test',
+          name: 'LDAP disabled test',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  @override
+  Future<Map<String, dynamic>> ldapLogin(
+    String username,
+    String password,
+  ) async {
+    final request = RequestOptions(
+      path: 'https://example.test/api/v1/auths/ldap',
+      data: {'user': username, 'password': password},
+    );
+    throw DioException(
+      requestOptions: request,
+      type: DioExceptionType.badResponse,
+      message: _ldapDiagnosticSecret,
+      response: Response<Object?>(
+        requestOptions: request,
+        statusCode: 400,
+        data: const {
+          'detail': 'LDAP authentication is not enabled',
+          'diagnostic': _ldapDiagnosticSecret,
+        },
+      ),
+    );
   }
 }

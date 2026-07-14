@@ -199,6 +199,8 @@ final class _MemoryAccountOwnerMarkerStore
     implements OpenWebUiAccountOwnerMarkerStore {
   final Map<String, OpenWebUiAccountOwnerMarker> markers =
       <String, OpenWebUiAccountOwnerMarker>{};
+  Future<void>? nextWriteGate;
+  Completer<String>? nextWriteStarted;
 
   @override
   OpenWebUiAccountOwnerMarker? read(String serverId) => markers[serverId];
@@ -213,6 +215,14 @@ final class _MemoryAccountOwnerMarkerStore
     String serverId,
     OpenWebUiAccountOwnerMarker marker,
   ) async {
+    final gate = nextWriteGate;
+    if (gate != null) {
+      nextWriteGate = null;
+      final started = nextWriteStarted;
+      nextWriteStarted = null;
+      if (started != null && !started.isCompleted) started.complete(serverId);
+      await gate;
+    }
     markers[serverId] = marker;
   }
 }
@@ -1432,6 +1442,74 @@ void main() {
     ).deepEquals(<String>['direct-chat']);
     check(await loadLocalConversation(container, 'account-a-chat')).isNull();
   });
+
+  test(
+    'server switch during owner-marker write purges the new target first',
+    () async {
+      final harness = await _harness();
+      final container = harness.container;
+      final emittedChatIds = <List<String>>[];
+      final conversationsSubscription = container.listen(
+        conversationsProvider,
+        (previous, next) {
+          final conversations = next.asData?.value;
+          if (conversations != null) {
+            emittedChatIds.add(
+              conversations.map((chat) => chat.id).toList(growable: false),
+            );
+          }
+        },
+        fireImmediately: true,
+      );
+      addTearDown(conversationsSubscription.close);
+      await container.read(conversationsProvider.future);
+      await _seedChat(
+        harness.serverB,
+        id: 'server-b-marker-race-secret',
+        title: 'Prior B account',
+        message: 'B private marker-race body',
+      );
+      final markerWriteStarted = Completer<String>();
+      final releaseMarkerWrite = Completer<void>();
+      harness.markerStore
+        ..nextWriteStarted = markerWriteStarted
+        ..nextWriteGate = releaseMarkerWrite.future;
+
+      harness.auth.publish(_authenticated('token-b', _userB));
+      check(await markerWriteStarted.future).equals(_server.id);
+
+      harness.serverSelection.set(_serverTwo);
+      check(
+        (await container.read(activeServerProvider.future))?.id,
+      ).equals(_serverTwo.id);
+      releaseMarkerWrite.complete();
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      check(
+        container.read(openWebUiCertifiedDatabaseServerProvider),
+      ).equals(_serverTwo.id);
+      check(
+        container.read(openWebUiDatabaseAccessProvider),
+      ).equals(OpenWebUiDatabaseAccessPhase.open);
+      check(
+        await harness.serverB.chatsDao.getChat('server-b-marker-race-secret'),
+      ).isNull();
+      check(
+        (await container.read(
+          conversationsProvider.future,
+        )).map((chat) => chat.id).toList(),
+      ).deepEquals(<String>['direct-chat']);
+      await Future<void>.delayed(Duration.zero);
+      check(emittedChatIds).isNotEmpty();
+      check(
+        emittedChatIds.every(
+          (ids) => !ids.contains('server-b-marker-race-secret'),
+        ),
+      ).isTrue();
+    },
+  );
 
   test(
     'certified server switch purges the target before it can render',

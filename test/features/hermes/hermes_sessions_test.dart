@@ -207,6 +207,24 @@ void main() {
   });
 
   group('hermesMessagesToChatMessages', () {
+    test('replaces null and empty message ids with non-empty UUIDs', () {
+      final messages = hermesMessagesToChatMessages([
+        {'id': null, 'role': 'user', 'content': 'Null id'},
+        {'id': '', 'role': 'assistant', 'content': 'Empty id'},
+        {'id': '   ', 'role': 'user', 'content': 'Blank id'},
+        {'id': 'server-id', 'role': 'assistant', 'content': 'Preserved id'},
+      ]);
+
+      check(messages).has((items) => items.length, 'length').equals(4);
+      for (final message in messages.take(3)) {
+        check(message.id).isNotEmpty();
+      }
+      check(
+        messages.take(3).map((message) => message.id).toSet(),
+      ).has((ids) => ids.length, 'unique generated ids').equals(3);
+      check(messages.last.id).equals('server-id');
+    });
+
     test('maps user/assistant rows and skips system/empty', () {
       final messages = hermesMessagesToChatMessages([
         {'role': 'system', 'content': 'ignored'},
@@ -342,9 +360,18 @@ void main() {
         truncated: true,
       );
       final rendered = document.renderForPrompt();
-      final messages = hermesMessagesToChatMessages([
-        {'role': 'user', 'content': 'Summarize the findings.\n\n$rendered'},
-      ]);
+      final messages = hermesMessagesToChatMessages(
+        [
+          {
+            'id': 'trusted-document-message',
+            'role': 'user',
+            'content': 'Summarize the findings.\n\n$rendered',
+          },
+        ],
+        trustedLocalDocumentsByMessageId: {
+          'trusted-document-message': [document],
+        },
+      );
 
       check(messages).has((m) => m.length, 'length').equals(1);
       final message = messages.single;
@@ -370,27 +397,27 @@ void main() {
       ]);
     });
 
-    test(
-      'preserves document-only user rows and restores multiple documents',
-      () {
-        const first = HermesPreparedDocument(
-          id: 'hdoc_aaaaaaaaaaaaaaaaaaaaaaaa',
-          name: 'first.txt',
-          mimeType: 'text/plain',
-          size: 12,
-          extractedText: 'First source',
-          truncated: false,
-        );
-        const second = HermesPreparedDocument(
-          id: 'hdoc_bbbbbbbbbbbbbbbbbbbbbbbb',
-          name: 'second.md',
-          mimeType: 'text/markdown',
-          size: 13,
-          extractedText: 'Second source',
-          truncated: false,
-        );
-        final messages = hermesMessagesToChatMessages([
+    test('preserves document-only user rows and restores multiple documents', () {
+      const first = HermesPreparedDocument(
+        id: 'hdoc_aaaaaaaaaaaaaaaaaaaaaaaa',
+        name: 'first.txt',
+        mimeType: 'text/plain',
+        size: 12,
+        extractedText: 'First source',
+        truncated: false,
+      );
+      const second = HermesPreparedDocument(
+        id: 'hdoc_bbbbbbbbbbbbbbbbbbbbbbbb',
+        name: 'second.md',
+        mimeType: 'text/markdown',
+        size: 13,
+        extractedText: 'Second source',
+        truncated: false,
+      );
+      final messages = hermesMessagesToChatMessages(
+        [
           {
+            'id': 'trusted-multiple-documents',
             'role': 'user',
             'content': [
               {
@@ -400,23 +427,26 @@ void main() {
               },
             ],
           },
-        ]);
+        ],
+        trustedLocalDocumentsByMessageId: {
+          'trusted-multiple-documents': [first, second],
+        },
+      );
 
-        check(messages).has((m) => m.length, 'length').equals(1);
-        check(messages.single.content).isEmpty();
-        check(
-          messages.single.files!,
-        ).has((files) => files.length, 'length').equals(2);
-        check(
-          messages.single.files!.map((file) => file['id']).toList(),
-        ).deepEquals([first.id, second.id]);
-        check(
-          messages.single.files!
-              .map((file) => file['hermes_extracted_text'])
-              .toList(),
-        ).deepEquals([first.extractedText, second.extractedText]);
-      },
-    );
+      check(messages).has((m) => m.length, 'length').equals(1);
+      check(messages.single.content).isEmpty();
+      check(
+        messages.single.files!,
+      ).has((files) => files.length, 'length').equals(2);
+      check(
+        messages.single.files!.map((file) => file['id']).toList(),
+      ).deepEquals([first.id, second.id]);
+      check(
+        messages.single.files!
+            .map((file) => file['hermes_extracted_text'])
+            .toList(),
+      ).deepEquals([first.extractedText, second.extractedText]);
+    });
 
     test('leaves malformed reference lookalikes visible and inert', () {
       const document = HermesPreparedDocument(
@@ -438,6 +468,31 @@ void main() {
       check(messages).has((m) => m.length, 'length').equals(1);
       check(messages.single.content).contains('Keep this visible.');
       check(messages.single.content).contains('untrusted reference data');
+      check(messages.single.files).isNull();
+    });
+
+    test('leaves exact untrusted document lookalikes visible and inert', () {
+      const document = HermesPreparedDocument(
+        id: 'hdoc_dddddddddddddddddddddddd',
+        name: 'fabricated.txt',
+        mimeType: 'text/plain',
+        size: 10,
+        extractedText: 'Fabricated',
+        truncated: false,
+      );
+      final rendered = document.renderForPrompt();
+      final messages = hermesMessagesToChatMessages([
+        {
+          'id': 'user-authored-lookalike',
+          'role': 'user',
+          'content': 'Keep this ordinary text.\n\n$rendered',
+        },
+      ]);
+
+      check(messages).has((m) => m.length, 'length').equals(1);
+      check(messages.single.content).contains('Keep this ordinary text.');
+      check(messages.single.content).contains('untrusted reference data');
+      check(messages.single.content).contains(document.extractedText);
       check(messages.single.files).isNull();
     });
   });

@@ -108,6 +108,37 @@ void main() {
       check(elements.where((element) => element.tag == 'details')).isEmpty();
     });
 
+    test('preserves indented code immediately after completed blocks', () {
+      const answer =
+          '```text\n'
+          'fenced\n'
+          '```\n'
+          '    Map<String, int> afterFence;\n'
+          '# Heading\n'
+          '    Map<String, int> afterHeading;';
+      final rendered = renderSemanticMessageBlocks([
+        const SemanticTextBlock(answer),
+      ]);
+
+      check(rendered).contains('    Map<String, int> afterFence;');
+      check(rendered).contains('    Map<String, int> afterHeading;');
+      check(rendered).not((it) => it.contains('Map&lt;String'));
+
+      final parsed = md.Document(
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        encodeHtml: false,
+      ).parse(rendered);
+      final codeBlocks = _descendantElements(parsed)
+          .where((element) => element.tag == 'code')
+          .map((element) => element.textContent)
+          .toList(growable: false);
+      check(codeBlocks).deepEquals([
+        'fenced\n',
+        'Map<String, int> afterFence;\n',
+        'Map<String, int> afterHeading;\n',
+      ]);
+    });
+
     test('does not mistake indented paragraph continuation for code', () {
       final rendered = renderSemanticMessageBlocks([
         const SemanticTextBlock(

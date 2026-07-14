@@ -16,6 +16,8 @@ import 'hermes_local_document_service.dart';
 List<ChatMessage> hermesMessagesToChatMessages(
   List<Map<String, dynamic>> raw, {
   String? modelId,
+  Map<String, List<HermesPreparedDocument>> trustedLocalDocumentsByMessageId =
+      const <String, List<HermesPreparedDocument>>{},
 }) {
   const uuid = Uuid();
   final messages = <ChatMessage>[];
@@ -27,9 +29,22 @@ List<ChatMessage> hermesMessagesToChatMessages(
         .toLowerCase();
     if (role != 'user' && role != 'assistant') continue;
 
+    final rawMessageId = item['id']?.toString();
+    final messageId = rawMessageId == null || rawMessageId.trim().isEmpty
+        ? uuid.v4()
+        : rawMessageId;
     final extracted = _extractContent(item['content'] ?? item['text']);
+    final trustedDocuments = <String, HermesPreparedDocument>{
+      for (final document
+          in trustedLocalDocumentsByMessageId[messageId] ??
+              const <HermesPreparedDocument>[])
+        document.id: document,
+    };
     final restoredDocuments = role == 'user'
-        ? _restoreHermesLocalDocuments(extracted.text)
+        ? _restoreHermesLocalDocuments(
+            extracted.text,
+            trustedDocuments: trustedDocuments,
+          )
         : _RestoredHermesLocalDocuments.withoutDocuments(extracted.text);
     final content = restoredDocuments.visibleText.trim();
     final files = <Map<String, dynamic>>[
@@ -71,7 +86,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
 
     messages.add(
       ChatMessage(
-        id: (item['id'] ?? uuid.v4()).toString(),
+        id: messageId,
         role: role,
         content: content,
         timestamp:
@@ -130,8 +145,11 @@ const String _hermesReferenceBeginPrefix =
 const String _hermesReferenceMetadataPrefix = '\nMetadata: ';
 final RegExp _hermesLocalDocumentIdPattern = RegExp(r'^hdoc_[0-9a-f]{24}$');
 
-_RestoredHermesLocalDocuments _restoreHermesLocalDocuments(String source) {
-  if (!source.contains(_hermesReferencePreamble)) {
+_RestoredHermesLocalDocuments _restoreHermesLocalDocuments(
+  String source, {
+  required Map<String, HermesPreparedDocument> trustedDocuments,
+}) {
+  if (trustedDocuments.isEmpty || !source.contains(_hermesReferencePreamble)) {
     return _RestoredHermesLocalDocuments.withoutDocuments(source);
   }
 
@@ -143,6 +161,15 @@ _RestoredHermesLocalDocuments _restoreHermesLocalDocuments(String source) {
     final match = _parseHermesLocalDocumentAt(source, start);
     if (match == null) {
       searchOffset = start + _hermesReferencePreamble.length;
+      continue;
+    }
+    final trusted = trustedDocuments[match.document.id];
+    if (trusted == null ||
+        trusted.renderForPrompt() != match.document.renderForPrompt()) {
+      // Prompt text is user-authored data. A syntactically perfect envelope is
+      // not attachment provenance; only a separately persisted descriptor for
+      // this exact message can authorize stripping it from the transcript.
+      searchOffset = match.end;
       continue;
     }
     matches.add(match);

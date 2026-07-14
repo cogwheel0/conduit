@@ -1221,21 +1221,35 @@ class AuthStateManager extends _$AuthStateManager {
     final statusCode = error is DioException
         ? error.response?.statusCode
         : null;
+
+    // Only recognize the one server response that has a dedicated, safe UI
+    // message. Never surface arbitrary response text here: credential errors
+    // can reflect request data, headers, or upstream diagnostics.
+    final responseData = error is DioException ? error.response?.data : null;
+    final responseDetail = responseData is Map
+        ? responseData['detail']
+        : responseData;
+    final text = error.toString().toLowerCase();
+    final ldapDisabled =
+        responseDetail is String &&
+            responseDetail.trim().toLowerCase() ==
+                'ldap authentication is not enabled' ||
+        text.contains('ldap authentication is not enabled');
+    if (ldapDisabled) {
+      return 'LDAP authentication is not enabled';
+    }
+
     if (statusCode == 401 ||
         statusCode == 403 ||
         (credentialRequest && statusCode == 400)) {
       return '401 Unauthorized: sign-in rejected by server';
     }
 
-    final text = error.toString().toLowerCase();
     if (text.contains('apikeynolongersupported')) {
       return 'apiKeyNoLongerSupported';
     }
     if (text.contains('apikeynotsupported')) {
       return 'apiKeyNotSupported';
-    }
-    if (text.contains('ldap authentication is not enabled')) {
-      return 'LDAP authentication is not enabled';
     }
     if (text.contains('authentication failed')) {
       return '401 Unauthorized: sign-in rejected by server';

@@ -462,7 +462,7 @@ class SyncEngine extends _$SyncEngine {
     final drainer = _ensureDrainer();
     if (drainer == null) return;
     try {
-      await drainer.onConnectivityRegained();
+      await drainer.drain();
     } finally {
       _clearStaleDrainerIfIdle(drainer);
     }

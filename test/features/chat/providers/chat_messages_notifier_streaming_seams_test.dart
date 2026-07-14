@@ -5194,6 +5194,10 @@ void main() {
       },
     );
 
+    test('failed compact Hermes approval persistence remains adoptable', () {
+      check(failedCompactedHermesApprovalRemainsAdoptableForTest()).isTrue();
+    });
+
     test(
       'streaming content-only changes keep the structure signature stable',
       () async {

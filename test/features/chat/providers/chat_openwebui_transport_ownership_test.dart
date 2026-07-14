@@ -299,6 +299,7 @@ class _CountingPassiveSocketService extends SocketService {
 
   int chatRegistrationCalls = 0;
   int chatSubscriptionDisposals = 0;
+  SocketChatEventHandler? chatHandler;
 
   @override
   bool get isConnected => true;
@@ -315,7 +316,23 @@ class _CountingPassiveSocketService extends SocketService {
     required SocketChatEventHandler handler,
   }) {
     chatRegistrationCalls += 1;
+    chatHandler = handler;
     return SocketEventSubscription(() => chatSubscriptionDisposals += 1);
+  }
+
+  void emitChatEvent({
+    required String type,
+    required Map<String, dynamic> payload,
+    String? chatId,
+    String? messageId,
+    String? sessionId,
+  }) {
+    chatHandler?.call(<String, dynamic>{
+      'chat_id': ?chatId,
+      'message_id': ?messageId,
+      'session_id': ?sessionId,
+      'data': <String, dynamic>{'type': type, 'data': payload},
+    }, null);
   }
 }
 
@@ -633,6 +650,12 @@ void main() {
         model: 'model-1',
       );
       await api.postEntered.future;
+      final pendingRow = await db.messagesDao.getMessage(chatId, assistantId);
+      final pendingPayload =
+          jsonDecode(pendingRow!.payload) as Map<String, dynamic>;
+      final pendingMetadata =
+          pendingPayload['metadata'] as Map<String, dynamic>? ?? const {};
+      check(pendingMetadata['completionSubmitted']).isNull();
       final bMessages = <ChatMessage>[
         _user('b-user', 'B exact bytes'),
         _streamingAssistant(assistantId, 'B is still streaming'),
@@ -758,43 +781,40 @@ void main() {
     },
   );
 
-  test(
-    'marker durability barrier prevents POST when the row is absent',
-    () async {
-      const chatId = 'missing-marker-chat';
-      await _seedChat(db, chatId);
-      final release = Completer<void>()..complete();
-      final api = _GatedCompletionApi(release);
-      final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
-      final messages = <ChatMessage>[_user('user', 'hello')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
-      final owner = captureOpenWebUiCompletionOwner(
+  test('accepted-submission marker fails when the row is absent', () async {
+    const chatId = 'missing-marker-chat';
+    await _seedChat(db, chatId);
+    final release = Completer<void>()..complete();
+    final api = _GatedCompletionApi(release);
+    final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+    final messages = <ChatMessage>[_user('user', 'hello')];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+    final owner = captureOpenWebUiCompletionOwner(
+      container,
+      chatId: chatId,
+      database: db,
+      api: api,
+    );
+
+    await check(
+      beginOpenWebUiCompletionSubmission(
         container,
-        chatId: chatId,
-        database: db,
-        api: api,
-      );
-
-      await check(
-        beginOpenWebUiCompletionSubmission(
-          container,
-          owner: owner,
-          assistantMessageId: 'absent-assistant',
-        ),
-      ).throws<SyncTerminalException>();
-      check(api.completionCalls).equals(0);
-    },
-  );
+        owner: owner,
+        assistantMessageId: 'absent-assistant',
+      ),
+    ).throws<SyncTerminalException>();
+    check(api.completionCalls).equals(0);
+  });
 
   test(
-    'a recreated runner treats a pre-POST marker as pull-only ambiguity',
+    'a recreated runner treats an accepted marker as pull-only recovery',
     () async {
       const chatId = 'crash-window-chat';
       const assistantId = 'crash-window-assistant';
@@ -953,6 +973,67 @@ void main() {
 
       check(await dispatch).isFalse();
       check(_snapshot(container.read(chatMessagesProvider))).equals(bSnapshot);
+    },
+  );
+
+  test(
+    'chat inactive clears global activity after foreground ownership changes',
+    () async {
+      final releasePost = Completer<void>()..complete();
+      final api = _GatedCompletionApi(releasePost);
+      final syncEngine = _PersistingSyncEngine(db, api, landResponse: false);
+      final messages = <ChatMessage>[_streamingAssistant('assistant-a', '')];
+      final container = _container(
+        db: db,
+        active: _conversation('chat-a', messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+      final socket = _CountingPassiveSocketService();
+      addTearDown(socket.dispose);
+      var owns = true;
+
+      final attached = await dispatchChatTransport(
+        ref: container,
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'assistant-a',
+          sessionId: 'passive-socket',
+          conversationId: 'chat-a',
+          taskId: 'task-a',
+        ),
+        assistantMessageId: 'assistant-a',
+        modelId: 'model-1',
+        modelItem: const <String, dynamic>{'id': 'model-1'},
+        activeConversationId: 'chat-a',
+        api: api,
+        socketService: socket,
+        workerManager: WorkerManager(),
+        webSearchEnabled: false,
+        imageGenerationEnabled: false,
+        isBackgroundFlow: false,
+        modelUsesReasoning: false,
+        toolsEnabled: false,
+        isTemporary: false,
+        ownsActiveConversation: () => owns,
+      );
+      check(attached).isTrue();
+      check(container.read(activeChatIdsProvider)).contains('chat-a');
+
+      owns = false;
+      socket.emitChatEvent(
+        type: 'chat:active',
+        payload: const <String, dynamic>{'active': false},
+        chatId: 'chat-a',
+        messageId: 'assistant-a',
+        sessionId: 'passive-socket',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        container.read(activeChatIdsProvider),
+      ).not((activeIds) => activeIds.contains('chat-a'));
     },
   );
 

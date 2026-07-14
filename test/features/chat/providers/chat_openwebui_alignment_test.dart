@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
+import 'package:conduit/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -264,6 +269,67 @@ void main() {
 
       check(assistant['content']).equals(raw);
       check(assistant['content']).not((it) => it.equals(presentation));
+    });
+
+    test(
+      'Hermes history omits images when the current server lacks support',
+      () {
+        const image = 'data:image/png;base64,AQID';
+        final messages = buildHermesVisibleHistoryForTest([
+          ChatMessage(
+            id: 'prior-image-user',
+            role: 'user',
+            content: 'What is shown?',
+            timestamp: DateTime.utc(2026, 7, 14),
+            attachmentIds: const [image],
+            files: const [
+              {'type': 'image', 'url': image},
+            ],
+          ),
+        ], inputImagesSupported: false);
+
+        check(messages.single['content']).equals('What is shown?');
+      },
+    );
+
+    test('Hermes history waits for image capability resolution', () async {
+      const image = 'data:image/png;base64,AQID';
+      final capabilities = Completer<HermesCapabilities>();
+      final container = ProviderContainer(
+        overrides: [
+          hermesCapabilitiesProvider.overrideWith((ref) => capabilities.future),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final history = buildHermesVisibleHistoryAfterCapabilityResolutionForTest(
+        container,
+        [
+          ChatMessage(
+            id: 'prior-image-user',
+            role: 'user',
+            content: 'What is shown?',
+            timestamp: DateTime.utc(2026, 7, 14),
+            attachmentIds: const [image],
+            files: const [
+              {'type': 'image', 'url': image},
+            ],
+          ),
+        ],
+      );
+      var completed = false;
+      unawaited(history.whenComplete(() => completed = true));
+      await Future<void>.delayed(Duration.zero);
+      check(completed).isFalse();
+
+      capabilities.complete(const HermesCapabilities(inputImages: true));
+      final messages = await history;
+      final content = messages.single['content'] as List<dynamic>;
+      check(
+        content.whereType<Map<String, dynamic>>().any(
+          (part) => part['image_url'] == image,
+        ),
+      ).isTrue();
     });
   });
 }

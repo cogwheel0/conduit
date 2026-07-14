@@ -400,6 +400,7 @@ class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _lastHandler;
   final _channelHandlers = <String, void Function(dynamic)>{};
+  final _lastChannelHandlers = <String, void Function(dynamic)>{};
 
   bool get hasChatHandler => _handler != null;
   int get channelHandlerCount => _channelHandlers.length;
@@ -439,6 +440,12 @@ class FakeSocketInjector {
   /// Injects a raw channel event payload for a registered channel name.
   void emitChannelLine(String channel, dynamic payload) {
     _channelHandlers[channel]?.call(payload);
+  }
+
+  /// Delivers through the last channel handler even after `offEvent`, modelling
+  /// a callback that was already queued when normal completion tore it down.
+  void emitQueuedChannelLine(String channel, dynamic payload) {
+    _lastChannelHandlers[channel]?.call(payload);
   }
 }
 
@@ -490,6 +497,7 @@ class _MockSocketService implements SocketService {
   @override
   void onEvent(String eventName, void Function(dynamic) handler) {
     _injector._channelHandlers[eventName] = handler;
+    _injector._lastChannelHandlers[eventName] = handler;
   }
 
   @override
@@ -936,6 +944,46 @@ void main() {
           '</details>\n',
         );
         check(log.finishCount).equals(1);
+      },
+    );
+
+    test(
+      'late channel event after normal completion does not retire or abort',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        final socket = _MockSocketService(registrar);
+        var abortCount = 0;
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+            abort: () async => abortCount++,
+          ),
+          log: log,
+          socketService: socket,
+        );
+
+        await pumpMicrotasks();
+        registrar.emitChatEvent('request:chat:completion', {
+          'channel': 'chan-late',
+        }, messageId: 'msg-1');
+        registrar.emitChannelLine('chan-late', 'data: [DONE]');
+        await pumpMicrotasks();
+
+        check(log.finishCount).equals(1);
+
+        registrar.emitQueuedChannelLine(
+          'chan-late',
+          'data: {"choices":[{"delta":{"content":"too late"}}]}',
+        );
+        await pumpMicrotasks();
+
+        check(log.appendedChunks).isEmpty();
+        check(log.finishCount).equals(1);
+        check(abortCount).equals(0);
       },
     );
 

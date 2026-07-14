@@ -78,6 +78,14 @@ final _modelAuthReadinessProvider = Provider<_ModelAuthReadiness>((ref) {
   );
 });
 
+bool _modelAuthRetainsOpenWebUiSession(_ModelAuthReadiness auth) =>
+    auth.authenticated;
+
+bool _modelAuthIsPending(_ModelAuthReadiness auth) =>
+    auth.loading ||
+    auth.status == AuthStatus.initial ||
+    auth.status == AuthStatus.loading;
+
 // Theme provider
 @Riverpod(keepAlive: true)
 class AppThemeMode extends _$AppThemeMode {
@@ -1304,7 +1312,19 @@ class Models extends _$Models {
     // the richer auth signals so loading -> terminal sign-out triggers a
     // second reconciliation without clobbering a live mixed-mode selection in
     // the transient loading state.
-    if (!modelAuth.authenticated) {
+    if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
+      // Pending credentials are not authority for cache/API work. Preserve an
+      // already-rendered in-memory list until auth reaches a terminal state;
+      // on cold start, expose only app-owned transports without mutating the
+      // persisted OpenWebUI cache.
+      final previous = state.value;
+      if (previous != null) return previous;
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    }
+    if (!_modelAuthRetainsOpenWebUiSession(modelAuth)) {
       // Standalone mode surfaces app-owned transports without requiring an
       // Open WebUI session.
       final localModels = _withLocalModels(
@@ -1629,7 +1649,14 @@ class Models extends _$Models {
       return;
     }
     await ref.read(directModelDiscoveryProvider.notifier).refresh();
-    if (!ref.read(isAuthenticatedProvider2)) {
+    final modelAuth = ref.read(_modelAuthReadinessProvider);
+    if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
+      // An explicit refresh during login/revalidation is deferred. This keeps
+      // the current in-memory list intact without treating retained or
+      // candidate credentials as permission to touch OpenWebUI cache/API data.
+      return;
+    }
+    if (!_modelAuthRetainsOpenWebUiSession(modelAuth)) {
       final models = _withLocalModels(const <Model>[]);
       state = AsyncData<List<Model>>(_reconcileLocalSelection(models));
       // Keep locally minted transport models runtime-only.
@@ -1972,7 +1999,12 @@ class SelectedModel extends _$SelectedModel {
     unawaited(
       Future<void>(() {
         _authenticatedDefaultRestoreScheduled = false;
-        if (!ref.mounted || state != null) return;
+        if (!ref.mounted) return;
+        final current = state;
+        final staleLocalTransport =
+            current != null &&
+            (isHermesModel(current) || isLocallyMintedDirectModel(current));
+        if (current != null && !staleLocalTransport) return;
         final auth = ref.read(_modelAuthReadinessProvider);
         if (!auth.authenticated || ref.read(apiServiceProvider) == null) return;
 

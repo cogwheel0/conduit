@@ -968,6 +968,45 @@ void main() {
   });
 
   group('outbox drain serialization (one shared drainer)', () {
+    test(
+      'database-owned drain preserves a failed operation retry deadline',
+      () async {
+        seedChat('backing-off-chat', 100);
+        final container = makeContainer(
+          clockBuilder: (_) => const _FixedClock(1000),
+        );
+        final engine = container.read(syncEngineProvider.notifier);
+        await engine.requestPull(reason: 'seed-backing-off-chat');
+        await db.transaction(
+          () => db.outboxDao.enqueue(
+            kind: OutboxKind.updateChat,
+            chatId: 'backing-off-chat',
+          ),
+        );
+        client.failWriteIds.add('backing-off-chat');
+
+        await engine.drainOutbox();
+
+        final failed = (await db.outboxDao.pendingForChat(
+          'backing-off-chat',
+        )).single;
+        check(failed.attempts).equals(1);
+        check(failed.nextAttemptAt).isNotNull();
+        check(failed.nextAttemptAt!).isGreaterThan(1000);
+        final callsAfterFailure = client.updateChatCalls;
+        client.failWriteIds.remove('backing-off-chat');
+
+        await engine.drainNowForDatabase(db);
+
+        final stillBackingOff = (await db.outboxDao.pendingForChat(
+          'backing-off-chat',
+        )).single;
+        check(stillBackingOff.nextAttemptAt).equals(failed.nextAttemptAt);
+        check(stillBackingOff.attempts).equals(1);
+        check(client.updateChatCalls).equals(callsAfterFailure);
+      },
+    );
+
     test('a pull-cycle drain and a concurrent drainNow() execute a createChat '
         'exactly once (no resetInFlightToPending double-send)', () async {
       // A local createChat op is enqueued, exactly as a durable send would.

@@ -2733,9 +2733,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
 
     void handler(dynamic line) {
-      if (localResourcesDisposed ||
-          isObsoleteStream ||
-          streamHasBeenSuperseded()) {
+      // Normal completion disposes local subscriptions without making the
+      // successfully completed stream obsolete. A channel callback can already
+      // be queued at that point; ignore it instead of retiring/aborting the
+      // completed server task.
+      if (localResourcesDisposed || isObsoleteStream) {
+        return;
+      }
+      if (streamHasBeenSuperseded()) {
         retireObsoleteStream(
           'Superseded by channel stream $channel',
           incomingMessageId: null,

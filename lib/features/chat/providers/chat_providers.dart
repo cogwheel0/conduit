@@ -105,6 +105,35 @@ final _hermesRunProjectionStoreProvider = Provider<_HermesRunProjectionStore>((
   );
 });
 
+final _directRunStopIndexProvider = Provider<_DirectRunStopIndex>(
+  (ref) => _DirectRunStopIndex(),
+);
+
+final class _DirectRunStopIndex {
+  final Map<String, Set<DirectRunKey>> _keysByMessageId = {};
+
+  void track(DirectRunKey key) {
+    (_keysByMessageId[key.assistantMessageId] ??= <DirectRunKey>{}).add(key);
+  }
+
+  void rebind(DirectRunKey previous, DirectRunKey next) {
+    untrack(previous);
+    track(next);
+  }
+
+  void untrack(DirectRunKey key) {
+    final keys = _keysByMessageId[key.assistantMessageId];
+    if (keys == null) return;
+    keys.remove(key);
+    if (keys.isEmpty) _keysByMessageId.remove(key.assistantMessageId);
+  }
+
+  List<DirectRunKey> keysForMessage(String assistantMessageId) =>
+      List<DirectRunKey>.unmodifiable(
+        _keysByMessageId[assistantMessageId] ?? const <DirectRunKey>{},
+      );
+}
+
 final class _HermesRunProjection {
   _HermesRunProjection({
     required this.key,
@@ -482,7 +511,12 @@ final class _HermesRunProjectionStore {
       // A finalized projection rejected by the hard recovery-cache budget is
       // kept generation-addressable only until its exact primary durability
       // attempt settles. It must never become an unaccounted navigation cache.
-      if (projection.finalized && !_finalized.contains(projection)) continue;
+      if (projection.finalized &&
+          !_finalized.contains(projection) &&
+          !(projection.approvalCompacted &&
+              projection.approvalPersistencePending)) {
+        continue;
+      }
       if (projection.finalized &&
           projection.dispatchSettled &&
           projection.durablePersistenceComplete &&
@@ -838,6 +872,63 @@ List<String> retainedHermesProjectionIdsForTest(
   return store._finalized
       .map((projection) => projection.message.id)
       .toList(growable: false);
+}
+
+/// Regression seam for compact approval snapshots that leave the bounded
+/// recovery cache while an approval decision still needs a durable retry.
+@visibleForTesting
+bool failedCompactedHermesApprovalRemainsAdoptableForTest() {
+  final store = _HermesRunProjectionStore(
+    maxRetainedProjections: 1,
+    maxRetainedBytes: 1024,
+  );
+  final cancelToken = CancelToken();
+  final key = (
+    ownerConversationId: 'test-owner',
+    assistantMessageId: 'approval-assistant',
+    backendIdentity: null,
+  );
+  final projection = store.begin(
+    key,
+    cancelToken: cancelToken,
+    initialMessage: ChatMessage(
+      id: key.assistantMessageId,
+      role: 'assistant',
+      content: 'rich response that is compacted',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      isStreaming: true,
+      metadata: const <String, dynamic>{
+        'transport': kHermesTransport,
+        kHermesApprovalMeta: <String, dynamic>{
+          'state': 'resolving',
+          'runId': 'run-id',
+          'approvalId': 'approval-id',
+        },
+      },
+    ),
+    requiresDurablePersistence: true,
+  );
+  store.finalize(projection);
+  store.markPrimaryPersistenceSettled(projection, persisted: false);
+  store.markDispatchSettled(projection);
+  final resolution = store.updateApprovalForGeneration(
+    cancelToken: cancelToken,
+    messageId: key.assistantMessageId,
+    runId: 'run-id',
+    approvalId: 'approval-id',
+    expectedState: 'resolving',
+    nextState: 'approved',
+  );
+  if (!resolution.changed || !store.beginPersistenceRetry(projection)) {
+    return false;
+  }
+  store.finishPersistenceRetry(projection, persisted: false);
+  return store
+      .forOwner(
+        ownerConversationId: key.ownerConversationId,
+        backendIdentity: null,
+      )
+      .contains(projection);
 }
 
 @immutable
@@ -6023,14 +6114,18 @@ HermesPreparedDocument? _hermesDocumentFromDescriptor(
   );
 }
 
-HermesChatInput _hermesInputFromPersistedMessage(ChatMessage message) {
+HermesChatInput _hermesInputFromPersistedMessage(
+  ChatMessage message, {
+  required bool inputImagesSupported,
+}) {
   final documents = <HermesPreparedDocument>[];
   final images = <String>[];
   final seenImages = <String>{};
   for (final file in message.files ?? const <Map<String, dynamic>>[]) {
     final document = _hermesDocumentFromDescriptor(file);
     if (document != null) documents.add(document);
-    if (file['type']?.toString().toLowerCase() == 'image') {
+    if (inputImagesSupported &&
+        file['type']?.toString().toLowerCase() == 'image') {
       final url = file['url']?.toString() ?? '';
       if ((url.startsWith('data:image/') ||
               url.startsWith('http://') ||
@@ -6040,12 +6135,14 @@ HermesChatInput _hermesInputFromPersistedMessage(ChatMessage message) {
       }
     }
   }
-  for (final value in message.attachmentIds ?? const <String>[]) {
-    if ((value.startsWith('data:image/') ||
-            value.startsWith('http://') ||
-            value.startsWith('https://')) &&
-        seenImages.add(value)) {
-      images.add(value);
+  if (inputImagesSupported) {
+    for (final value in message.attachmentIds ?? const <String>[]) {
+      if ((value.startsWith('data:image/') ||
+              value.startsWith('http://') ||
+              value.startsWith('https://')) &&
+          seenImages.add(value)) {
+        images.add(value);
+      }
     }
   }
   final renderedDocuments = documents
@@ -6062,15 +6159,19 @@ HermesChatInput _hermesInputFromPersistedMessage(ChatMessage message) {
 }
 
 List<Map<String, dynamic>> _hermesVisibleHistory(
-  Iterable<ChatMessage> messages,
-) {
+  Iterable<ChatMessage> messages, {
+  required bool inputImagesSupported,
+}) {
   final result = <Map<String, dynamic>>[];
   for (final message in messages) {
     if (message.metadata?['archivedVariant'] == true) continue;
     final role = message.role.toLowerCase();
     if (role != 'user' && role != 'assistant' && role != 'system') continue;
     if (role == 'user') {
-      final input = _hermesInputFromPersistedMessage(message);
+      final input = _hermesInputFromPersistedMessage(
+        message,
+        inputImagesSupported: inputImagesSupported,
+      );
       result.add(<String, dynamic>{'role': role, 'content': input.toJson()});
     } else {
       final text = outboundProviderReplayText(message);
@@ -6086,8 +6187,34 @@ List<Map<String, dynamic>> _hermesVisibleHistory(
 
 @visibleForTesting
 List<Map<String, dynamic>> buildHermesVisibleHistoryForTest(
+  Iterable<ChatMessage> messages, {
+  bool inputImagesSupported = true,
+}) =>
+    _hermesVisibleHistory(messages, inputImagesSupported: inputImagesSupported);
+
+Future<bool> _hermesInputImagesSupported(dynamic ref) async {
+  try {
+    final capabilities = await ref.read(hermesCapabilitiesProvider.future);
+    return capabilities.inputImages;
+  } catch (error) {
+    DebugLogger.warning(
+      'Hermes image capability lookup failed; omitting replayed images',
+      scope: 'hermes/capabilities',
+      data: <String, Object?>{'errorType': error.runtimeType.toString()},
+    );
+    return false;
+  }
+}
+
+@visibleForTesting
+Future<List<Map<String, dynamic>>>
+buildHermesVisibleHistoryAfterCapabilityResolutionForTest(
+  dynamic ref,
   Iterable<ChatMessage> messages,
-) => _hermesVisibleHistory(messages);
+) async => _hermesVisibleHistory(
+  messages,
+  inputImagesSupported: await _hermesInputImagesSupported(ref),
+);
 
 @visibleForTesting
 bool usesHermesTransportForRegeneration({
@@ -6155,6 +6282,7 @@ Future<void> _regenerateHermesMessage(
             attachment.startsWith('http://') ||
             attachment.startsWith('https://'),
       );
+  final inputImagesSupported = await _hermesInputImagesSupported(ref);
 
   // Historical regeneration leaves the selected assistant at the tail. Reuse
   // that message rather than retaining an archived record plus a second
@@ -6203,10 +6331,16 @@ Future<void> _regenerateHermesMessage(
     responseInput: useResponses
         ? replayedUser == null
               ? HermesChatInput.text(input)
-              : _hermesInputFromPersistedMessage(replayedUser)
+              : _hermesInputFromPersistedMessage(
+                  replayedUser,
+                  inputImagesSupported: inputImagesSupported,
+                )
         : null,
     responseHistory: useResponses
-        ? _hermesVisibleHistory(continuityMessages)
+        ? _hermesVisibleHistory(
+            continuityMessages,
+            inputImagesSupported: inputImagesSupported,
+          )
         : null,
   );
 }
@@ -6280,10 +6414,10 @@ Future<void> _regenerateDirectMessage(
     notifier.updateLastMessageWithFunction((_) => assistant);
   }
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
-  final reservation = registry.reserve(
-    _directRunKeyForConversation(ref, active, assistant.id),
-    route.binding.profileId,
-  );
+  final stopIndex = ref.read(_directRunStopIndexProvider);
+  final initialRunKey = _directRunKeyForConversation(ref, active, assistant.id);
+  final reservation = registry.reserve(initialRunKey, route.binding.profileId);
+  stopIndex.track(initialRunKey);
   final preflightCancelToken = CancelToken();
   ChatDatabaseLocation? location;
   DatabaseLifetimeLease? databaseLease;
@@ -6520,6 +6654,7 @@ Future<void> _regenerateDirectMessage(
     rethrow;
   } finally {
     await databaseLease?.release();
+    stopIndex.untrack(initialRunKey);
     registry.releaseReservation(reservation);
   }
 }
@@ -7482,15 +7617,6 @@ Future<void> runQueuedCompletion(
   } catch (_) {}
   requireActiveOwner();
 
-  // At-most-once boundary: retries after this durable write recover by pull
-  // only, even if the process dies before sendMessageSession returns.
-  await beginOpenWebUiCompletionSubmission(
-    ref,
-    owner: owner,
-    assistantMessageId: assistantMessageId,
-  );
-  requireActiveOwner();
-
   final bufferedChatId = owner.chatId;
   socketService?.startBuffering(
     bufferedChatId,
@@ -7518,6 +7644,12 @@ Future<void> runQueuedCompletion(
       userMessage: parentMsgMap,
       variables: promptVars2,
       files: _extractTopLevelRequestFiles(parentMsgMap),
+    );
+    await _markAcceptedOpenWebUiCompletionOrAbort(
+      ref,
+      session: session,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
     );
 
     owner.chatId = await resolveOpenWebUiCompletionChatId(
@@ -7723,16 +7855,6 @@ Future<void> runHeadlessCompletion(
     );
   } catch (_) {}
 
-  await beginOpenWebUiCompletionSubmission(
-    ref,
-    owner: owner,
-    assistantMessageId: assistantMessageId,
-  );
-  // Crossing the marker await is an ownership boundary too. If the selected
-  // server changed, leave the ambiguity marker in A and never POST through A
-  // using socket/prompt state captured from B.
-  requireCurrentOwner();
-
   final session = await api.sendMessageSession(
     messages: requestMessages,
     model: effectiveModelId,
@@ -7753,6 +7875,12 @@ Future<void> runHeadlessCompletion(
     variables: promptVars,
     files: _extractTopLevelRequestFiles(parentMsgMap),
   );
+  await _markAcceptedOpenWebUiCompletionOrAbort(
+    ref,
+    session: session,
+    owner: owner,
+    assistantMessageId: assistantMessageId,
+  );
 
   await _finishSubmittedOpenWebUiCompletionHeadlessly(
     ref,
@@ -7766,10 +7894,11 @@ Future<void> runHeadlessCompletion(
 /// Takes ownership of a completion POST that has already been accepted after
 /// its foreground conversation stopped owning the global chat providers.
 ///
-/// The distinct submitted marker is written before draining. If the stream
-/// then fails, an outbox retry takes the pull-only recovery path instead of
-/// issuing a duplicate POST. Recovery exhaustion persists an explicit error;
-/// it never turns an empty placeholder into a silent successful response.
+/// The distinct submitted marker is written after `sendMessageSession`
+/// returns an accepted session and before draining. If the stream then fails,
+/// an outbox retry takes the pull-only recovery path instead of issuing a
+/// duplicate POST. Recovery exhaustion persists an explicit error; it never
+/// turns an empty placeholder into a silent successful response.
 Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   dynamic ref, {
   required ChatCompletionSession session,
@@ -8015,6 +8144,27 @@ Future<void> _abortQuietly(ChatCompletionSession session) async {
   }
 }
 
+Future<void> _markAcceptedOpenWebUiCompletionOrAbort(
+  dynamic ref, {
+  required ChatCompletionSession session,
+  required OpenWebUiCompletionOwner owner,
+  required String assistantMessageId,
+}) async {
+  try {
+    await beginOpenWebUiCompletionSubmission(
+      ref,
+      owner: owner,
+      assistantMessageId: assistantMessageId,
+    );
+  } catch (_) {
+    // The server accepted the request, but without a durable marker a later
+    // outbox retry could submit it again. Stop the exact accepted session and
+    // preserve the marker failure as the terminal result.
+    await _abortQuietly(session);
+    rethrow;
+  }
+}
+
 Future<bool> _markHeadlessCompletionSubmitted(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
@@ -8040,12 +8190,12 @@ Future<bool> _markHeadlessCompletionSubmitted(
   }
 }
 
-/// At-most-once boundary for replayable OpenWebUI completion requests.
+/// Durable accepted-submission marker for replayable OpenWebUI completions.
 ///
-/// This marker is persisted immediately before `sendMessageSession`. A process
-/// death can therefore produce an explicit "acceptance unknown" recovery error,
-/// but a recreated outbox runner will never issue a second POST. Failure to
-/// persist the marker is terminal and prevents the first POST as well.
+/// Call only after `sendMessageSession` returns. A recreated outbox runner may
+/// treat this marker as proof that the POST crossed the server boundary and use
+/// pull-only recovery. Failure to persist it is terminal; callers must abort
+/// the accepted session to reduce the chance of duplicate generation.
 Future<void> beginOpenWebUiCompletionSubmission(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
@@ -8060,8 +8210,8 @@ Future<void> beginOpenWebUiCompletionSubmission(
   throw const SyncTerminalException(
     statusCode: 500,
     message:
-        'Completion was not started because its at-most-once recovery marker '
-        'could not be persisted.',
+        'Completion was accepted, but its recovery marker could not be '
+        'persisted.',
   );
 }
 
@@ -10736,6 +10886,11 @@ final class _DirectConversationOwnerUnavailable extends StateError {
   final bool placeholderWasDurablyDeleted;
 }
 
+final class _DirectTurnStartDatabaseUnavailable extends StateError {
+  _DirectTurnStartDatabaseUnavailable()
+    : super('The direct chat database is closing.');
+}
+
 final class _DirectOpenWebUiAuthSessionChanged implements Exception {
   const _DirectOpenWebUiAuthSessionChanged();
 }
@@ -11466,6 +11621,21 @@ DatabaseLifetimeLease? _tryAcquireDirectDatabaseLease(
   return manager.tryAcquireLease(location.database);
 }
 
+DatabaseLifetimeLease? _acquireDirectTurnStartDatabaseLease(
+  dynamic ref,
+  ChatDatabaseLocation location,
+) {
+  final lease = _tryAcquireDirectDatabaseLease(ref, location);
+  final manager = _directDatabaseManager(ref, location);
+  final managedDatabase =
+      manager.serverIdForDatabase(location.database) != null ||
+      _knownManagedDirectDatabases[location.database] == true;
+  if (managedDatabase && lease == null) {
+    throw _DirectTurnStartDatabaseUnavailable();
+  }
+  return lease;
+}
+
 Map<String, dynamic> _directPersistedMessagePayload(
   ChatMessage message, {
   required String? parentId,
@@ -11673,12 +11843,12 @@ Future<_DirectConversationOwner?> _persistDirectTurnStart(
       : _directPersistenceOwnerIdForLocation(ref, initiallyOwnedLocation);
   DatabaseLifetimeLease? databaseLease = initiallyOwnedLocation == null
       ? null
-      : _tryAcquireDirectDatabaseLease(ref, initiallyOwnedLocation);
+      : _acquireDirectTurnStartDatabaseLease(ref, initiallyOwnedLocation);
 
   Future<void> ensureLocationLease(ChatDatabaseLocation location) async {
     if (identical(leasedDatabase, location.database)) return;
     final previousLease = databaseLease;
-    final nextLease = _tryAcquireDirectDatabaseLease(ref, location);
+    final nextLease = _acquireDirectTurnStartDatabaseLease(ref, location);
     leasedDatabase = location.database;
     persistenceOwnerId = _directPersistenceOwnerIdForLocation(ref, location);
     databaseLease = nextLease;
@@ -12091,6 +12261,7 @@ Future<bool> _refreshDirectConversationOwner(
   required DirectRunRegistry registry,
   required DirectRunReservation reservation,
   ChatSendPlaceholderHandle? sendHandle,
+  void Function(DirectRunKey key)? onRebound,
 }) async {
   final location = owner.location;
   var resolvedConversationId = owner.conversationId;
@@ -12137,6 +12308,9 @@ Future<bool> _refreshDirectConversationOwner(
   if (rebound) {
     owner.conversationId = resolvedConversationId;
     sendHandle?._bindOwnerScope(resolvedOwnerScope);
+    onRebound?.call(
+      _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
+    );
   }
   return rebound;
 }
@@ -12153,6 +12327,18 @@ Future<void> _dispatchDirectRunFromChat(
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
+  final stopIndex = ref.read(_directRunStopIndexProvider);
+  var indexedRunKey = _directRunKeyForOwner(
+    owner.scopedConversationId,
+    assistantMessageId,
+  );
+  stopIndex.track(indexedRunKey);
+  void rebindStopIndex(DirectRunKey nextKey) {
+    if (nextKey == indexedRunKey) return;
+    stopIndex.rebind(indexedRunKey, nextKey);
+    indexedRunKey = nextKey;
+  }
+
   StreamSubscription<RemapEvent>? remapSubscription;
   final ownerRemapEvents = owner.remapEvents;
   if (owner.location?.storage == ChatStorageKind.openWebUi &&
@@ -12169,6 +12355,9 @@ Future<void> _dispatchDirectRunFromChat(
         if (!rebound) return;
         owner.conversationId = id;
         sendHandle?._bindOwnerScope(resolvedOwnerScope);
+        rebindStopIndex(
+          _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
+        );
       },
     );
   }
@@ -12183,6 +12372,7 @@ Future<void> _dispatchDirectRunFromChat(
       registry: registry,
       reservation: reservation,
       sendHandle: sendHandle,
+      onRebound: rebindStopIndex,
     )) {
       return;
     }
@@ -12197,6 +12387,7 @@ Future<void> _dispatchDirectRunFromChat(
       preflightCancelToken: preflightCancelToken,
     );
   } finally {
+    stopIndex.untrack(indexedRunKey);
     final subscription = remapSubscription;
     if (subscription != null) {
       try {
@@ -12871,13 +13062,23 @@ Future<void> _sendMessageInternal(
   final DirectRunRegistry? directRegistry = directRoute == null
       ? null
       : ref.read(directRunRegistryProvider);
+  final directStopIndex = directRoute == null
+      ? null
+      : ref.read(_directRunStopIndexProvider);
+  var directIndexedRunKey = directRoute == null
+      ? null
+      : _directRunKeyForOwner(
+          directSendConversationId ??
+              _pendingDirectRunOwner(assistantMessageId),
+          assistantMessageId,
+        );
   final DirectRunReservation? directReservation = directRegistry?.reserve(
-    _directRunKeyForOwner(
-      directSendConversationId ?? _pendingDirectRunOwner(assistantMessageId),
-      assistantMessageId,
-    ),
+    directIndexedRunKey!,
     directRoute!.binding.profileId,
   );
+  if (directIndexedRunKey != null) {
+    directStopIndex!.track(directIndexedRunKey);
+  }
   final directPreflightCancelToken = directRoute == null ? null : CancelToken();
 
   // Hermes agent: route to Conduit's Hermes transport instead of the OpenWebUI
@@ -12911,6 +13112,9 @@ Future<void> _sendMessageInternal(
           );
       final useResponses =
           (attachments?.isNotEmpty ?? false) || continuesResponses;
+      final inputImagesSupported = useResponses
+          ? await _hermesInputImagesSupported(ref)
+          : false;
       await _dispatchHermesRunFromChat(
         ref,
         assistantMessageId: assistantMessageId,
@@ -12919,7 +13123,10 @@ Future<void> _sendMessageInternal(
         existingMessages: existingMessages,
         responseInput: useResponses ? preparedHermesTurn!.input : null,
         responseHistory: useResponses
-            ? _hermesVisibleHistory(existingMessages)
+            ? _hermesVisibleHistory(
+                existingMessages,
+                inputImagesSupported: inputImagesSupported,
+              )
             : null,
         sendHandle: sendHandle,
         capturedOwner: hermesOwner,
@@ -12971,14 +13178,14 @@ Future<void> _sendMessageInternal(
         assistantMessage: assistantPlaceholder,
         allMessages: optimisticTurnMessages,
         bindOwner: (resolvedOwner) {
-          final rebound = registry.rebindIfVacant(
-            reservation,
-            _directRunKeyForOwner(
-              resolvedOwner.scopedConversationId,
-              assistantMessageId,
-            ),
+          final nextKey = _directRunKeyForOwner(
+            resolvedOwner.scopedConversationId,
+            assistantMessageId,
           );
+          final rebound = registry.rebindIfVacant(reservation, nextKey);
           if (rebound) {
+            directStopIndex!.rebind(directIndexedRunKey!, nextKey);
+            directIndexedRunKey = nextKey;
             sendHandle._bindOwnerScope(resolvedOwner.scopedConversationId);
           }
           return rebound;
@@ -13136,6 +13343,8 @@ Future<void> _sendMessageInternal(
       final unavailableOwner = error is _DirectConversationOwnerUnavailable
           ? error
           : null;
+      final turnStartDatabaseUnavailable =
+          error is _DirectTurnStartDatabaseUnavailable;
       final ownerIsActive = owner != null
           ? _isDirectConversationOwnerActive(ref, owner)
           : _isDirectSendConversationOwnerActive(ref, directSendConversationId);
@@ -13153,6 +13362,12 @@ Future<void> _sendMessageInternal(
       if (ownerIsActive) {
         if (unavailableOwner?.placeholderWasDurablyDeleted == true) {
           notifier.removeMessageById(assistantMessageId);
+        } else if (turnStartDatabaseUnavailable) {
+          // No direct rows committed, and the managed executor is already
+          // closing. Settle only the optimistic UI; the database watch will
+          // restore the last durable turn without issuing a generic echo write.
+          notifier.completeStoppedDirectStreamingUi(assistantMessageId);
+          notifier.updateMessageById(assistantMessageId, (_) => failedSnapshot);
         } else {
           notifier.failLastStreamingAssistant(
             error,
@@ -13179,6 +13394,7 @@ Future<void> _sendMessageInternal(
       rethrow;
     } finally {
       await owner?.releaseDatabaseLease();
+      directStopIndex!.untrack(directIndexedRunKey!);
       registry.releaseReservation(reservation);
     }
   }
@@ -14365,15 +14581,30 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
         final last = messages.last;
 
         if (last.metadata?['transport'] == kDirectTransport) {
-          stoppedClientOwnedRun = true;
           final registry = ref.read(directRunRegistryProvider);
           final Conversation? active = ref.read(activeConversationProvider);
           final owner = active == null
               ? _pendingDirectRunOwner(last.id)
               : _directRunOwnerScopeForConversation(ref, active);
           final key = _directRunKeyForOwner(owner, last.id);
-          final hadActiveRun = registry.runFor(key) != null;
-          final stop = registry.cancel(key);
+          var cancellationKey = key;
+          var resolvedByMessageIdentity = false;
+          var hadActiveRun = registry.runFor(cancellationKey) != null;
+          var stop = registry.cancel(cancellationKey);
+          if (stop == null) {
+            final candidates = ref
+                .read(_directRunStopIndexProvider)
+                .keysForMessage(last.id)
+                .where(registry.hasLiveIntent)
+                .toList(growable: false);
+            if (candidates.length == 1) {
+              cancellationKey = candidates.single;
+              resolvedByMessageIdentity = true;
+              hadActiveRun = registry.runFor(cancellationKey) != null;
+              stop = registry.cancel(cancellationKey);
+            }
+          }
+          stoppedClientOwnedRun = stop != null;
           _observeDetachedCancellation(
             stop,
             scope: 'direct-connections/cancel',
@@ -14381,7 +14612,7 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
           // A registered dispatcher owns final rendering from its accumulator,
           // including reasoning `done=true`. A preflight reservation has no
           // dispatcher, so its empty optimistic placeholder is completed here.
-          if (!hadActiveRun) {
+          if (stop != null && (!hadActiveRun || resolvedByMessageIdentity)) {
             ref
                 .read(chatMessagesProvider.notifier)
                 .completeStoppedDirectStreamingUi(last.id);

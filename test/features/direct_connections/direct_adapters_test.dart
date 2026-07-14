@@ -1593,6 +1593,34 @@ void main() {
     );
   });
 
+  test('Ollama merges catalog and api/show capabilities', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'models': [
+          {
+            'name': 'catalog-vision',
+            'details': {
+              'families': ['llama'],
+              'capabilities': ['VISION'],
+            },
+          },
+        ],
+      }),
+      _Reply.json({
+        'capabilities': ['completion'],
+      }),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final model = (await adapter.listModels(_ollamaProfile())).single;
+
+    expect(model.isMultimodal, isTrue);
+    expect(model.capabilities['capabilities'], ['vision', 'completion']);
+  });
+
   test(
     'Ollama enriches deduped models concurrently without reordering them',
     () async {

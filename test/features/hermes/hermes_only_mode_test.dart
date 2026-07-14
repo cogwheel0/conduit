@@ -87,6 +87,20 @@ class _RefreshingAuthStateManager extends AuthStateManager {
       state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
 }
 
+class _CandidateTokenAuthStateManager extends AuthStateManager {
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
+
+  void beginForegroundLogin() => state = const AsyncData(
+    AuthState(
+      status: AuthStatus.loading,
+      token: 'unvalidated-candidate-token',
+      isLoading: true,
+    ),
+  );
+}
+
 class _PendingInitialAuthStateManager extends AuthStateManager {
   _PendingInitialAuthStateManager(this._authState);
 
@@ -240,6 +254,7 @@ class _CachedOpenWebUiStorage extends Fake implements OptimizedStorageService {
     id: 'owui-stale',
     name: 'Signed-out OpenWebUI model',
   );
+  final List<List<Model>> savedModelLists = <List<Model>>[];
 
   @override
   Future<List<Model>> getLocalModels() async => const [staleModel];
@@ -251,7 +266,9 @@ class _CachedOpenWebUiStorage extends Fake implements OptimizedStorageService {
   Future<void> saveLocalDefaultModel(Model? model) async {}
 
   @override
-  Future<void> saveLocalModels(List<Model> models) async {}
+  Future<void> saveLocalModels(List<Model> models) async {
+    savedModelLists.add(List<Model>.of(models));
+  }
 }
 
 class _ThrowingDefaultModelStorage extends _CachedOpenWebUiStorage {
@@ -275,6 +292,18 @@ class _RetainedOpenWebUiApi extends ApiService {
   Future<List<Model>> getModels({bool includeHidden = false}) async => const [
     _CachedOpenWebUiStorage.staleModel,
   ];
+}
+
+class _CountingOpenWebUiApi extends _RetainedOpenWebUiApi {
+  _CountingOpenWebUiApi(super.workerManager);
+
+  var modelFetches = 0;
+
+  @override
+  Future<List<Model>> getModels({bool includeHidden = false}) async {
+    modelFetches += 1;
+    return super.getModels(includeHidden: includeHidden);
+  }
 }
 
 class _ConversationFallbackApi extends _RetainedOpenWebUiApi {
@@ -850,6 +879,101 @@ void main() {
       },
     );
 
+    test(
+      'explicit model refresh retains remote cache during token revalidation',
+      () async {
+        final workerManager = WorkerManager();
+        final storage = _CachedOpenWebUiStorage();
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.owui),
+            ),
+            authStateManagerProvider.overrideWith(
+              _RefreshingAuthStateManager.new,
+            ),
+            apiServiceProvider.overrideWithValue(
+              _RetainedOpenWebUiApi(workerManager),
+            ),
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_disabledHermes),
+            ),
+            directModelDiscoveryProvider.overrideWith(
+              () => _FixedDirectDiscovery(const []),
+            ),
+            modelsProvider.overrideWith(
+              () => _FixedModels(const [_CachedOpenWebUiStorage.staleModel]),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(workerManager.dispose);
+        await container.read(authStateManagerProvider.future);
+        await container.read(modelsProvider.future);
+        storage.savedModelLists.clear();
+
+        (container.read(authStateManagerProvider.notifier)
+                as _RefreshingAuthStateManager)
+            .beginRefresh();
+        await container.read(modelsProvider.notifier).refresh();
+        await Future<void>.delayed(Duration.zero);
+
+        check(
+          container.read(modelsProvider).requireValue,
+        ).deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
+        check(
+          storage.savedModelLists.any((models) => models.isEmpty),
+        ).isFalse();
+      },
+    );
+
+    test(
+      'candidate token cannot authorize model refresh before login commits',
+      () async {
+        final workerManager = WorkerManager();
+        final storage = _CachedOpenWebUiStorage();
+        final api = _CountingOpenWebUiApi(workerManager);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            authStateManagerProvider.overrideWith(
+              _CandidateTokenAuthStateManager.new,
+            ),
+            apiServiceProvider.overrideWithValue(api),
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_disabledHermes),
+            ),
+            directModelDiscoveryProvider.overrideWith(
+              () => _FixedDirectDiscovery(const []),
+            ),
+            modelsProvider.overrideWith(
+              () => _FixedModels(const [_CachedOpenWebUiStorage.staleModel]),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(workerManager.dispose);
+        await container.read(authStateManagerProvider.future);
+        await container.read(modelsProvider.future);
+        storage.savedModelLists.clear();
+
+        (container.read(authStateManagerProvider.notifier)
+                as _CandidateTokenAuthStateManager)
+            .beginForegroundLogin();
+        await container.read(modelsProvider.notifier).refresh();
+        await Future<void>.delayed(Duration.zero);
+
+        check(api.modelFetches).equals(0);
+        check(storage.savedModelLists).isEmpty();
+        check(
+          container.read(modelsProvider).requireValue,
+        ).deepEquals(const [_CachedOpenWebUiStorage.staleModel]);
+      },
+    );
+
     test('cold-start default waits for terminal auth before Hermes', () async {
       final authState = Completer<AuthState>();
       final workerManager = WorkerManager();
@@ -1112,6 +1236,81 @@ void main() {
 
       check(container.read(selectedModelProvider)?.id).equals('owui-stale');
     });
+
+    for (final localBackend in [
+      PreferredBackend.hermes,
+      PreferredBackend.direct,
+    ]) {
+      test(
+        'authenticated default replaces stale ${localBackend.name} selection',
+        () async {
+          final direct = _directModelFixture();
+          final localModel = localBackend == PreferredBackend.hermes
+              ? hermesSyntheticModel()
+              : direct.model;
+          final workerManager = WorkerManager();
+          final container = ProviderContainer(
+            overrides: [
+              reviewerModeProvider.overrideWithValue(false),
+              authStateManagerProvider.overrideWith(
+                _BackgroundLoginAuthStateManager.new,
+              ),
+              preferredBackendProvider.overrideWith(
+                () => _FakePreferredBackendController(PreferredBackend.owui),
+              ),
+              apiServiceProvider.overrideWithValue(
+                _RetainedOpenWebUiApi(workerManager),
+              ),
+              appSettingsProvider.overrideWithValue(
+                const AppSettings(defaultModel: 'owui-stale'),
+              ),
+              optimizedStorageServiceProvider.overrideWithValue(
+                _CachedOpenWebUiStorage(),
+              ),
+              hermesConfigProvider.overrideWith(
+                () => _FakeHermesConfigController(
+                  localBackend == PreferredBackend.hermes
+                      ? _usableHermes
+                      : _disabledHermes,
+                ),
+              ),
+              directModelRegistryProvider.overrideWithValue(direct.registry),
+              directModelDiscoveryProvider.overrideWith(
+                () => _FixedDirectDiscovery(
+                  localBackend == PreferredBackend.direct
+                      ? [direct.model]
+                      : const [],
+                ),
+              ),
+              modelsProvider.overrideWith(
+                () => _FixedModels(const [_CachedOpenWebUiStorage.staleModel]),
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          addTearDown(workerManager.dispose);
+          await container.read(authStateManagerProvider.future);
+          await container.read(directModelDiscoveryProvider.future);
+          container.read(selectedModelProvider.notifier).set(localModel);
+          container.read(isManualModelSelectionProvider.notifier).set(false);
+
+          (container.read(authStateManagerProvider.notifier)
+                  as _BackgroundLoginAuthStateManager)
+              .finishAuthenticated();
+          for (var attempt = 0; attempt < 20; attempt++) {
+            await Future<void>.delayed(Duration.zero);
+            if (container.read(selectedModelProvider)?.id == 'owui-stale') {
+              break;
+            }
+          }
+
+          check(
+            container.read(selectedModelProvider),
+          ).identicalTo(_CachedOpenWebUiStorage.staleModel);
+          check(container.read(isManualModelSelectionProvider)).isFalse();
+        },
+      );
+    }
 
     test(
       'authenticated default cannot overwrite token-retaining local recovery',

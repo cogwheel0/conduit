@@ -324,7 +324,15 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       return;
     }
     if (_pendingIdentity != null && !_purgeRequired && !_purgeRunning) {
-      _scheduleCertification();
+      if (nextServerId != null && _cleanServerId == nextServerId) {
+        _scheduleCertification();
+      } else {
+        // A completed purge certifies only the server it actually cleaned.
+        // If the selection changed while owner-marker work was in flight, the
+        // target server's previous account database is still untrusted.
+        _purgeRequired = true;
+        _beginIsolation(reason: 'pending-certification-server-not-clean');
+      }
       return;
     }
     if (_purgeRequired && !_purgeRunning) {

@@ -244,6 +244,7 @@ final _multilineCodeSpanCandidate = RegExp(
   r'(?<!`)(`+(?!`))((?:.|\n)*?[^`])\1(?!`)',
 );
 const int _maxMultilineCodeSpanCandidates = 4096;
+const int _maxIndentedCodeLineCandidates = 4096;
 
 final class _SourceSpan {
   const _SourceSpan(this.start, this.end);
@@ -270,6 +271,86 @@ final class _RecordingCodeSyntax extends md.CodeSyntax {
     }
     return super.onMatch(parser, match);
   }
+}
+
+final class _RecordingIndentedCodeSyntax extends md.CodeBlockSyntax {
+  _RecordingIndentedCodeSyntax({
+    required String markerStart,
+    required String markerEnd,
+  }) : _marker = RegExp(
+         '${RegExp.escape(markerStart)}([0-9a-z]+)${RegExp.escape(markerEnd)}',
+       );
+
+  final RegExp _marker;
+  final Set<int> matchedLines = <int>{};
+
+  @override
+  List<md.Line> parseChildLines(md.BlockParser parser) {
+    final childLines = super.parseChildLines(parser);
+    for (final line in childLines) {
+      for (final marker in _marker.allMatches(line.content)) {
+        matchedLines.add(int.parse(marker.group(1)!, radix: 36));
+      }
+    }
+    return childLines;
+  }
+}
+
+Set<int> _parserConfirmedIndentedCodeLines(String value) {
+  final lines = value.split('\n');
+  final candidates = <int>[];
+  for (var index = 0; index < lines.length; index++) {
+    final rawLine = lines[index];
+    final line = rawLine.endsWith('\r')
+        ? rawLine.substring(0, rawLine.length - 1)
+        : rawLine;
+    if (line.trim().isNotEmpty &&
+        _indentedCodeLine.hasMatch(line) &&
+        !_semanticDetailsBlockStart.hasMatch(line)) {
+      candidates.add(index);
+    }
+  }
+  if (candidates.isEmpty ||
+      candidates.length > _maxIndentedCodeLineCandidates) {
+    return const <int>{};
+  }
+
+  var markerStart = '\uE000conduit-indented-code';
+  while (value.contains(markerStart)) {
+    markerStart += '\uE000';
+  }
+  var markerEnd = '\uE001';
+  while (value.contains(markerEnd) || markerStart.contains(markerEnd)) {
+    markerEnd += '\uE001';
+  }
+
+  final markedLines = List<String>.from(lines);
+  for (final index in candidates) {
+    final rawLine = markedLines[index];
+    final hasCarriageReturn = rawLine.endsWith('\r');
+    final line = hasCarriageReturn
+        ? rawLine.substring(0, rawLine.length - 1)
+        : rawLine;
+    markedLines[index] =
+        '$line$markerStart${index.toRadixString(36)}$markerEnd'
+        '${hasCarriageReturn ? '\r' : ''}';
+  }
+
+  final recorder = _RecordingIndentedCodeSyntax(
+    markerStart: markerStart,
+    markerEnd: markerEnd,
+  );
+  try {
+    md.Document(
+      extensionSet: md.ExtensionSet.gitHubWeb,
+      blockSyntaxes: <md.BlockSyntax>[recorder],
+      encodeHtml: false,
+    ).parse(markedLines.join('\n'));
+  } catch (_) {
+    // Parser disagreement must fail closed: ordinary escaping is always safe.
+    return const <int>{};
+  }
+  return recorder.matchedLines;
 }
 
 List<_SourceSpan> _parserConfirmedMultilineCodeSpans(String value) {
@@ -398,11 +479,12 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
 ///
 /// The scan is line-based and mirrors the block parser's fenced-code handling,
 /// including unclosed fences (which extend to end of input, e.g. mid-stream).
-/// Indented code is preserved only where it can begin a top-level CommonMark
-/// block (at the document start or after a blank line); an indented line that
-/// continues a paragraph remains escaped. Multi-line inline code is preserved
-/// only when the Markdown block parser confirms that its exact occurrence stays
-/// inside one inline-capable block, so an apparent span cannot hide a
+/// Indented code is preserved only when the Markdown block parser confirms the
+/// exact source line as code. This includes code immediately after a completed
+/// non-paragraph block (for example a fence or ATX heading), while an indented
+/// line that continues a paragraph remains escaped. Multi-line inline code is
+/// likewise preserved only when the parser confirms that its exact occurrence
+/// stays inside one inline-capable block, so an apparent span cannot hide a
 /// line-leading tag that actually interrupts its paragraph.
 ///
 /// Unlike [_escape], this is only safe for top-level answer text; `<details>`
@@ -411,11 +493,11 @@ String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
 String _escapeText(String value) {
   final lines = value.split('\n');
   final multilineCodeSpans = _parserConfirmedMultilineCodeSpans(value);
+  final indentedCodeLines = _parserConfirmedIndentedCodeLines(value);
   final result = <String>[];
   String? openFenceChar;
   var openFenceLength = 0;
   var inIndentedCode = false;
-  var previousLineWasBlank = true;
   var sourceStart = 0;
   var multilineSpanIndex = 0;
 
@@ -437,7 +519,6 @@ String _escapeText(String value) {
           openFenceLength = 0;
         }
       }
-      previousLineWasBlank = line.trim().isEmpty;
       sourceStart += rawLine.length + 1;
       continue;
     }
@@ -447,7 +528,6 @@ String _escapeText(String value) {
     if (inIndentedCode) {
       if (isBlank || isIndented) {
         result.add(line);
-        previousLineWasBlank = isBlank;
         sourceStart += rawLine.length + 1;
         continue;
       }
@@ -456,10 +536,9 @@ String _escapeText(String value) {
 
     if (isIndented &&
         !_semanticDetailsBlockStart.hasMatch(line) &&
-        (index == 0 || previousLineWasBlank)) {
+        indentedCodeLines.contains(index)) {
       inIndentedCode = true;
       result.add(line);
-      previousLineWasBlank = false;
       sourceStart += rawLine.length + 1;
       continue;
     }
@@ -472,7 +551,6 @@ String _escapeText(String value) {
       openFenceChar = run[0];
       openFenceLength = run.length;
       result.add(line);
-      previousLineWasBlank = false;
       sourceStart += rawLine.length + 1;
       continue;
     }
@@ -488,7 +566,6 @@ String _escapeText(String value) {
     );
     result.add(escapedLine.text);
     multilineSpanIndex = escapedLine.nextSpanIndex;
-    previousLineWasBlank = isBlank;
     sourceStart += rawLine.length + 1;
   }
 

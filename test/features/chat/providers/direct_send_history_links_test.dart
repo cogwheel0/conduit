@@ -3281,6 +3281,86 @@ void main() {
   });
 
   test(
+    'direct turn start aborts before writing through a closing managed database',
+    () async {
+      final manager = DatabaseManager(
+        openDatabase: (_) => GatedCloseDatabase.memory(failClose: false),
+      );
+      final database =
+          manager.openForServerId('closing-turn-start') as GatedCloseDatabase;
+      final closeGate = Completer<void>();
+      database.closeGate = closeGate;
+      final profile = DirectConnectionProfile(
+        id: 'closing-profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final modelRegistry = DirectModelRegistry();
+      final model = modelRegistry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model'),
+      ]).single;
+      final adapter = _Adapter();
+      final chat = await _seedDirectConversation(
+        db: database,
+        chatId: 'direct-local:closing-turn-start',
+        modelId: model.id,
+        suffix: 'closing-turn-start',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseManagerProvider.overrideWithValue(manager),
+          directLocalDatabaseProvider.overrideWithValue(database),
+          directModelRegistryProvider.overrideWithValue(modelRegistry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(() async {
+        if (!closeGate.isCompleted) closeGate.complete();
+        await manager.closeActive();
+      });
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final close = manager.closeActive();
+      await database.closeStarted.future.timeout(const Duration(seconds: 1));
+
+      await expectLater(
+        sendMessageWithContainer(container, 'Must not be written', null),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('database is closing'),
+          ),
+        ),
+      );
+      expect(adapter.startCalls, 0);
+      final rows = await database.messagesDao.getForChat(chat.id);
+      expect(
+        rows.where((row) => row.content == 'Must not be written'),
+        isEmpty,
+      );
+
+      closeGate.complete();
+      await close.timeout(const Duration(seconds: 1));
+    },
+  );
+
+  test(
     'OpenWebUI auth revocation detaches a silent direct run and releases its lease',
     () async {
       final directory = Directory.systemTemp.createTempSync(

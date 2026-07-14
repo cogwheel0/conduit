@@ -411,10 +411,10 @@ Future<bool> dispatchChatTransport({
           );
     },
     onChatActiveChanged: (chatId, active) {
-      if (!ownsConversation()) return;
       if (chatId == null || chatId.isEmpty) return;
       final notifier = ref.read(activeChatIdsProvider.notifier);
       if (active) {
+        if (!ownsConversation()) return;
         notifier.setActive(chatId);
         return;
       }
@@ -429,15 +429,13 @@ Future<bool> dispatchChatTransport({
       unawaited(() async {
         try {
           final ids = await api.getTaskIdsByChat(chatId);
-          if (ownsConversation() && ids.isEmpty) {
+          if (ids.isEmpty) {
             notifier.setInactiveIfUnchanged(chatId, token);
           }
         } catch (_) {
           // Unreachable registry: clear anyway so a spinner can't strand,
           // still guarded against a racing re-activation.
-          if (ownsConversation()) {
-            notifier.setInactiveIfUnchanged(chatId, token);
-          }
+          notifier.setInactiveIfUnchanged(chatId, token);
         }
       }());
     },

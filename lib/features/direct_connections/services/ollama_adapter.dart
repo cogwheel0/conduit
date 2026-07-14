@@ -149,9 +149,12 @@ final class OllamaAdapter implements DirectProviderAdapter {
     // cross-refresh cache so model replacement, auth/header edits, and older
     // servers cannot leave stale capability authority behind.
     final shown = await _fetchShowDetails(dio, profile, candidate.id);
-    final effectiveCapabilities = shown == null || shown.capabilities.isEmpty
+    final effectiveCapabilities = shown == null
         ? candidate.capabilities
-        : shown.capabilities;
+        : <String>{
+            ...candidate.capabilities,
+            ...shown.capabilities,
+          }.toList(growable: false);
     return DirectRemoteModel(
       id: candidate.id,
       name: candidate.id,

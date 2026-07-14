@@ -602,6 +602,67 @@ void main() {
   );
 
   test(
+    'stop resolves the direct run by message when active owner changed',
+    () async {
+      final adapter = _ControlledDirectAdapter();
+      addTearDown(adapter.dispose);
+      final setup = _makeDirectRegenerationContainer(adapter: adapter);
+      final container = setup.container;
+      final model = setup.model;
+      final now = DateTime.utc(2026, 7, 14);
+      final user = ChatMessage(
+        id: 'identity-user',
+        role: 'user',
+        content: 'Keep generating',
+        timestamp: now,
+      );
+      final previousAssistant = ChatMessage(
+        id: 'identity-assistant',
+        role: 'assistant',
+        content: 'Previous answer',
+        timestamp: now,
+        model: model.id,
+      );
+      final owner = Conversation(
+        id: 'local:direct-owner-a',
+        title: 'Owner A',
+        createdAt: now,
+        updatedAt: now,
+        messages: [user, previousAssistant],
+        metadata: const {'backend': kDirectTransport},
+      );
+      container.read(activeConversationProvider.notifier).set(owner);
+      container.read(chatMessagesProvider.notifier).setMessages(owner.messages);
+
+      final started = adapter.nextRun();
+      final regeneration = regenerateMessage(container, user.content, null);
+      final run = await started.timeout(const Duration(seconds: 1));
+      run.add(const DirectContentDelta('Partial answer'));
+      await Future<void>.delayed(Duration.zero);
+      final staleVisibleRow = container.read(chatMessagesProvider).last;
+
+      final other = Conversation(
+        id: 'local:direct-owner-b',
+        title: 'Owner B',
+        createdAt: now,
+        updatedAt: now,
+        metadata: const {'backend': kDirectTransport},
+      );
+      container.read(activeConversationProvider.notifier).set(other);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        staleVisibleRow,
+      ]);
+
+      container.read(stopGenerationProvider)();
+
+      expect(run.cancelToken.isCancelled, isTrue);
+      expect(container.read(chatMessagesProvider).single.isStreaming, isFalse);
+      await run.close();
+      await regeneration.timeout(const Duration(seconds: 1));
+    },
+  );
+
+  test(
     'a cancelled direct generation cannot finalize its same-id replacement',
     () async {
       final adapter = _ControlledDirectAdapter();
