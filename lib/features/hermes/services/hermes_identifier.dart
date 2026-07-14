@@ -1,4 +1,6 @@
 const int kMaxHermesOpaqueIdentifierCharacters = 512;
+const int _minSensitiveIdentifierSubstringCharacters = 8;
+const int _maxSensitiveIdentifierPatternCharacters = 8 * 1024;
 
 final RegExp _hermesOpaqueIdentifierPattern = RegExp(
   r'^[A-Za-z0-9][A-Za-z0-9._~:+/=\-]*$',
@@ -13,6 +15,7 @@ final RegExp _hermesOpaqueIdentifierPattern = RegExp(
 String? validateHermesOpaqueIdentifier(
   Object? value, {
   Iterable<String> sensitiveValues = const <String>[],
+  bool rejectShortSensitiveSubstrings = true,
 }) {
   if (value is! String || value.isEmpty) return null;
 
@@ -27,9 +30,24 @@ String? validateHermesOpaqueIdentifier(
 
   for (final configured in sensitiveValues) {
     if (configured.isEmpty) continue;
-    if (value.contains(configured)) return null;
-    final trimmed = configured.trim();
-    if (trimmed.isNotEmpty && value.contains(trimmed)) return null;
+    if (configured.length > _maxSensitiveIdentifierPatternCharacters) {
+      return null;
+    }
+    for (final candidate in <String>{configured, configured.trim()}) {
+      if (candidate.isEmpty) continue;
+      // Fresh create/stream responses fail closed even when a short credential
+      // is embedded in an identifier. Collection endpoints can opt out of
+      // short substring matching because an API key such as `a` would
+      // otherwise hide most ordinary server-owned IDs; exact matches remain
+      // rejected in both modes.
+      if (value == candidate ||
+          ((rejectShortSensitiveSubstrings ||
+                  candidate.length >=
+                      _minSensitiveIdentifierSubstringCharacters) &&
+              value.contains(candidate))) {
+        return null;
+      }
+    }
   }
   return value;
 }

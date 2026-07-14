@@ -63,7 +63,7 @@ Future<({bool success, Object? error})> completeHermesOnboarding({
     DebugLogger.error(
       'onboarding-failed',
       scope: 'hermes/onboarding',
-      error: error,
+      data: {'errorType': error.runtimeType.toString()},
     );
     return (success: false, error: error);
   }

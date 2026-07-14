@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/token_validator.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
 /// Creates a fake JWT with the given payload for testing.
@@ -50,6 +51,28 @@ void main() {
   });
 
   group('TokenValidator.validateTokenFormat', () {
+    test('malformed token diagnostics never include token material', () {
+      const secret = 'malformed-token-secret-sentinel';
+      const token = 'header.$secret%.signature';
+      final previousDebugPrint = debugPrint;
+      final logs = StringBuffer();
+      debugPrint = (message, {wrapWidth}) {
+        if (message != null) logs.writeln(message);
+      };
+
+      try {
+        final result = TokenValidator.validateTokenFormat(token);
+        check(result.isValid).isTrue();
+        check(TokenValidator.extractUserInfo(token)).isNull();
+      } finally {
+        debugPrint = previousDebugPrint;
+      }
+
+      check(logs.toString()).contains('jwt-decode-failed');
+      check(logs.toString()).contains('token-user-info-failed');
+      check(logs.toString()).not((value) => value.contains(secret));
+    });
+
     test('returns invalid for empty token', () {
       final result = TokenValidator.validateTokenFormat('');
       check(result.isValid).isFalse();
@@ -141,6 +164,17 @@ void main() {
       check(result.isValid).isTrue();
       check(result.isExpiringSoon).isFalse();
     });
+  });
+
+  test('server validation failures never publish provider details', () async {
+    const reflected = 'provider-reflected-token-secret';
+    final result = await TokenValidator.validateTokenWithServer(
+      'opaque-token-long-enough',
+      () async => throw Exception(reflected),
+    );
+
+    check(result.message).equals('Network error during validation');
+    check(result.message).not((value) => value.contains(reflected));
   });
 
   group('TokenValidator.extractUserInfo', () {

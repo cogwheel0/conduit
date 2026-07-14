@@ -141,13 +141,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       final normalized = normalizeDirectProviderError(error);
       final safeMessage = sanitizeDirectProviderErrorMessage(
         normalized.message,
-        sensitiveValues: _directSensitiveValues(profile),
+        sensitiveValues: directProfileSensitiveValues(profile),
       );
       DebugLogger.error(
         'models-failed',
         scope: 'direct-connections/openai',
         error: safeMessage,
-        data: {'profileId': profile.id},
       );
       throw normalized;
     } finally {
@@ -217,7 +216,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
     final settled = Completer<void>();
-    final sensitiveValues = _directSensitiveValues(profile);
+    final sensitiveValues = directProfileSensitiveValues(profile);
     unawaited(
       cancelToken.whenCancel.then<void>((error) {
         if (!transportCancelToken.isCancelled) {
@@ -308,7 +307,6 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               'completion-failed',
               scope: 'direct-connections/openai',
               error: safeMessage,
-              data: {'profileId': profile.id},
             );
           }
         } finally {
@@ -1013,12 +1011,3 @@ final class _DirectEmitter {
     controller.add(DirectStreamError(message, statusCode: statusCode));
   }
 }
-
-List<String> _directSensitiveValues(DirectConnectionProfile profile) => [
-  if ((profile.apiKey ?? '').isNotEmpty) profile.apiKey!,
-  if ((profile.apiKey ?? '').trim().isNotEmpty) profile.apiKey!.trim(),
-  for (final value in profile.customHeaders.values)
-    if (value.isNotEmpty) value,
-  for (final value in profile.customHeaders.values)
-    if (value.trim().isNotEmpty) value.trim(),
-];

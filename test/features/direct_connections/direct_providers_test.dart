@@ -123,6 +123,121 @@ void main() {
     expect(refreshed.errorsByProfile['profile-one'], 'offline');
   });
 
+  test('probe sanitizes messages returned by runtime adapters', () async {
+    const apiKey = '  probe-api-secret  ';
+    const headerValue = '  probe-header-secret  ';
+    final profile = _profile(
+      apiKey: apiKey,
+      customHeaders: const {'X-Private': headerValue},
+    );
+    final unsafeMessage =
+        'Connection rejected: raw=<$apiKey> trimmed=${apiKey.trim()} '
+        'header=<$headerValue> header-trimmed=${headerValue.trim()}\u0000\u001b '
+        '${List.filled(700, 'x').join()}';
+    final adapter = _UnsafeMessageAdapter(
+      probeResult: DirectConnectionProbe(
+        reachable: false,
+        modelCount: 17,
+        message: unsafeMessage,
+      ),
+    );
+    final container = _container(adapter);
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(directConnectionProfilesProvider.notifier)
+        .probe(profile);
+
+    expect(result.reachable, isFalse);
+    expect(result.modelCount, 17);
+    expect(result.message, contains('Connection rejected'));
+    expect(result.message, contains('[REDACTED]'));
+    expect(result.message, isNot(contains(apiKey)));
+    expect(result.message, isNot(contains(apiKey.trim())));
+    expect(result.message, isNot(contains(headerValue)));
+    expect(result.message, isNot(contains(headerValue.trim())));
+    expect(result.message, isNot(contains('\u0000')));
+    expect(result.message, isNot(contains('\u001b')));
+    expect(result.message!.runes.length, lessThanOrEqualTo(512));
+  });
+
+  test('discovery sanitizes errors thrown by runtime adapters', () async {
+    const apiKey = '  discovery-api-secret  ';
+    const headerValue = '  discovery-header-secret  ';
+    const cookieToken = 'discovery-cookie-component-secret';
+    const authorizationToken = 'discovery-authorization-component-secret';
+    final profile = _profile(
+      apiKey: apiKey,
+      customHeaders: const {
+        'X-Private': headerValue,
+        'Cookie': 'session=$cookieToken',
+        'X-Authorization-Context': 'Bearer $authorizationToken',
+      },
+    );
+    final unsafeMessage =
+        'Discovery rejected: raw=<$apiKey> trimmed=${apiKey.trim()} '
+        'header=<$headerValue> header-trimmed=${headerValue.trim()} '
+        'cookie=$cookieToken authorization=$authorizationToken\u0000\u007f '
+        '${List.filled(700, 'y').join()}';
+    final adapter = _UnsafeMessageAdapter(
+      discoveryError: DirectProviderException(unsafeMessage),
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+    final container = _container(adapter);
+    addTearDown(container.dispose);
+
+    final discovery = await container.read(directModelDiscoveryProvider.future);
+    final message = discovery.errorsByProfile[profile.id];
+
+    expect(message, contains('Discovery rejected'));
+    expect(message, contains('[REDACTED]'));
+    expect(message, isNot(contains(apiKey)));
+    expect(message, isNot(contains(apiKey.trim())));
+    expect(message, isNot(contains(headerValue)));
+    expect(message, isNot(contains(headerValue.trim())));
+    expect(message, isNot(contains(cookieToken)));
+    expect(message, isNot(contains(authorizationToken)));
+    expect(message, isNot(contains('\u0000')));
+    expect(message, isNot(contains('\u007f')));
+    expect(message!.runes.length, lessThanOrEqualTo(512));
+  });
+
+  test('probe sanitizes thrown runtime-adapter mTLS credentials', () async {
+    const privatePassword = 'mtls-private-password-secret';
+    const privateKey =
+        '-----BEGIN PRIVATE KEY-----\nPRIVATE_KEY_SECRET\n-----END PRIVATE KEY-----';
+    final profile = DirectConnectionProfile(
+      id: 'mtls-profile',
+      name: 'mTLS',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://example.test/v1',
+      mtlsCertificateChainPem:
+          '-----BEGIN CERTIFICATE-----\nCERT\n-----END CERTIFICATE-----',
+      mtlsPrivateKeyPem: privateKey,
+      mtlsPrivateKeyPassword: privatePassword,
+    );
+    final adapter = _UnsafeMessageAdapter(
+      probeError: const DirectProviderException(
+        'Probe reflected $privatePassword and PRIVATE_KEY_SECRET',
+      ),
+    );
+    final container = _container(adapter);
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(directConnectionProfilesProvider.notifier)
+        .probe(profile);
+
+    expect(result.reachable, isFalse);
+    expect(result.message, contains('[REDACTED]'));
+    expect(result.message, isNot(contains(privatePassword)));
+    expect(result.message, isNot(contains('PRIVATE_KEY_SECRET')));
+  });
+
   test(
     'unconfirmed profile origin edit is persisted without old credentials',
     () async {
@@ -524,6 +639,7 @@ DirectConnectionProfile _profile({
   String id = 'profile-one',
   String name = 'Direct',
   String? apiKey,
+  Map<String, String> customHeaders = const {},
   List<String> manualModelIds = const [],
 }) => DirectConnectionProfile(
   id: id,
@@ -531,6 +647,7 @@ DirectConnectionProfile _profile({
   adapterKey: kOpenAiCompatibleAdapterKey,
   baseUrl: 'https://example.test/v1',
   apiKey: apiKey,
+  customHeaders: customHeaders,
   manualModelIds: manualModelIds,
 );
 
@@ -585,6 +702,43 @@ final class _QueuedAdapter implements DirectProviderAdapter {
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
       const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
+}
+
+final class _UnsafeMessageAdapter implements DirectProviderAdapter {
+  _UnsafeMessageAdapter({
+    this.probeResult = const DirectConnectionProbe(reachable: true),
+    this.probeError,
+    this.discoveryError,
+  });
+
+  final DirectConnectionProbe probeResult;
+  final Object? probeError;
+  final Object? discoveryError;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async {
+    final error = discoveryError;
+    if (error != null) throw error;
+    return const [];
+  }
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    final error = probeError;
+    if (error != null) throw error;
+    return probeResult;
+  }
 
   @override
   DirectCompletionRun startCompletion(

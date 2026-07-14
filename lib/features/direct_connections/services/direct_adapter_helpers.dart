@@ -4,7 +4,10 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../../../core/utils/sensitive_value_utils.dart';
+import '../../../core/utils/unicode_prefix.dart';
 import '../models/direct_completion.dart';
+import '../models/direct_connection_profile.dart';
 
 /// Applies the common direct-provider message policy at the adapter boundary.
 ///
@@ -547,6 +550,88 @@ const String _redactedProviderValue = '[REDACTED]';
 const int _maxProviderErrorSecretPatterns = 128;
 const int _maxProviderErrorSecretPatternCharacters = 8 * 1024;
 const int _maxProviderErrorSecretPatternTotalCharacters = 64 * 1024;
+final String _invalidProviderSensitiveValuesSentinel = List<String>.filled(
+  _maxProviderErrorSecretPatternCharacters + 1,
+  'x',
+).join();
+
+/// Every profile value that must be treated as confidential when a provider or
+/// runtime adapter can reflect request configuration in an error.
+List<String> directProfileSensitiveValues(DirectConnectionProfile profile) {
+  final values = <String>{};
+  var totalCharacters = 0;
+  var invalid = false;
+
+  void addCandidate(String candidate) {
+    if (invalid || candidate.isEmpty || values.contains(candidate)) return;
+    if (candidate.length > _maxProviderErrorSecretPatternCharacters ||
+        values.length >= _maxProviderErrorSecretPatterns ||
+        totalCharacters + candidate.length >
+            _maxProviderErrorSecretPatternTotalCharacters) {
+      invalid = true;
+      values.clear();
+      return;
+    }
+    values.add(candidate);
+    totalCharacters += candidate.length;
+  }
+
+  void add(String? raw, {bool normalizePem = false}) {
+    if (invalid || raw == null || raw.isEmpty) return;
+    // Check before trim/line-ending normalization so an imported oversized
+    // profile cannot force multiple unbounded copies merely by failing closed.
+    if (raw.length > _maxProviderErrorSecretPatternCharacters) {
+      invalid = true;
+      values.clear();
+      return;
+    }
+    addCandidate(raw);
+    addCandidate(raw.trim());
+    if (invalid) return;
+    if (normalizePem) {
+      final lf = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+      final trimmedLf = lf.trim();
+      addCandidate(lf);
+      addCandidate(trimmedLf);
+      addCandidate(lf.replaceAll('\n', '\r\n'));
+      addCandidate(trimmedLf.replaceAll('\n', '\r\n'));
+      // TLS stacks often report the offending PEM line instead of replaying
+      // the complete document. Treat each bounded line as sensitive too.
+      for (final line in lf.split('\n')) {
+        addCandidate(line.trim());
+        if (invalid) return;
+      }
+    }
+  }
+
+  add(profile.apiKey);
+  for (final value in profile.customHeaders.values) {
+    final variants = boundedSensitiveValueVariants(
+      value,
+      maxCharacters: _maxProviderErrorSecretPatternCharacters,
+      maxVariants: _maxProviderErrorSecretPatterns,
+    );
+    if (variants == null) {
+      invalid = true;
+      values.clear();
+      break;
+    }
+    for (final candidate in variants) {
+      addCandidate(candidate);
+      if (invalid) break;
+    }
+    if (invalid) break;
+  }
+  add(profile.mtlsCertificateChainPem, normalizePem: true);
+  add(profile.mtlsCertificateLabel);
+  add(profile.mtlsPrivateKeyPem, normalizePem: true);
+  add(profile.mtlsPrivateKeyLabel);
+  add(profile.mtlsPrivateKeyPassword);
+  if (invalid) {
+    return List<String>.unmodifiable([_invalidProviderSensitiveValuesSentinel]);
+  }
+  return List<String>.unmodifiable(values);
+}
 
 /// Extracts a provider protocol error without allowing it to become a secret
 /// exfiltration or control-character injection channel when persisted in chat.
@@ -603,11 +688,14 @@ String sanitizeDirectProviderErrorMessage(
   }
   final orderedSecrets = secrets.toList(growable: false)
     ..sort((a, b) => b.length.compareTo(a.length));
-  final longestSecret = orderedSecrets.isEmpty
-      ? 0
-      : orderedSecrets.first.length;
-  final workLimit = maxCharacters + (longestSecret > 0 ? longestSecret - 1 : 0);
-  var safe = raw.length <= workLimit ? raw : raw.substring(0, workLimit);
+  // Bound by Unicode scalar rather than UTF-16 code unit. Otherwise preceding
+  // supplementary characters can make this prefix end inside a configured
+  // secret, leaving a fragment that the exact-secret pass cannot recognize.
+  var safe = redactSensitiveValuesInUnicodePrefix(
+    raw,
+    sensitiveValues: orderedSecrets,
+    maxVisibleScalars: maxCharacters,
+  );
 
   // Authorization values can contain a scheme followed by whitespace-rich
   // credentials (for example Digest parameters). Redact the complete header
@@ -619,13 +707,6 @@ String sanitizeDirectProviderErrorMessage(
     ),
     (match) => '${match.group(1)}: $_redactedProviderValue',
   );
-
-  if (orderedSecrets.isNotEmpty) {
-    final exactSecrets = RegExp(orderedSecrets.map(RegExp.escape).join('|'));
-    // One combined pass prevents a replacement marker from being expanded by
-    // a later one-character secret pattern.
-    safe = safe.replaceAllMapped(exactSecrets, (_) => _redactedProviderValue);
-  }
 
   // Redact common credential labels even when a compatible provider reflects
   // a value that was not part of the configured profile.

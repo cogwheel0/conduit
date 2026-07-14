@@ -70,12 +70,12 @@ class TokenValidator {
         DebugLogger.warning(
           'jwt-decode-failed',
           scope: 'auth/token-validator',
-          data: {'error': e.toString()},
+          data: {'errorType': e.runtimeType.toString()},
         );
         return TokenValidationResult.valid('Opaque token format valid');
       }
-    } catch (e) {
-      return TokenValidationResult.invalid('Token validation error: $e');
+    } catch (_) {
+      return TokenValidationResult.invalid('Token validation failed');
     }
   }
 
@@ -112,7 +112,7 @@ class TokenValidator {
         return TokenValidationResult.invalid('Server rejected token');
       } else {
         return TokenValidationResult.networkError(
-          'Network error during validation: $e',
+          'Network error during validation',
         );
       }
     }
@@ -157,7 +157,7 @@ class TokenValidator {
       DebugLogger.warning(
         'token-user-info-failed',
         scope: 'auth/token-validator',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       return null;
     }

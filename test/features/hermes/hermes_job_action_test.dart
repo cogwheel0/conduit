@@ -17,18 +17,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'Hermes cron validation accepts standard syntax and rejects bad fields',
-    () {
-      check(isValidHermesCronExpression('0 9 * * 1')).isTrue();
-      check(
-        isValidHermesCronExpression('*/15 9-17 * JAN,MAR MON-FRI'),
-      ).isTrue();
-      check(isValidHermesCronExpression('60 9 * * 1')).isFalse();
-      check(isValidHermesCronExpression('0 9 * *')).isFalse();
-      check(isValidHermesCronExpression('0 9 * * MONDAY')).isFalse();
-    },
-  );
+  test('Hermes schedule validation mirrors the server input forms', () {
+    check(isValidHermesSchedule('0 9 * * 1')).isTrue();
+    check(isValidHermesSchedule('0 22-2 * * 5-1')).isTrue();
+    check(isValidHermesSchedule('0 0 * * 7')).isTrue();
+    check(isValidHermesSchedule('0 9 * * * 30')).isTrue();
+    check(isValidHermesSchedule('0 0 * * 6 0')).isTrue();
+    check(isValidHermesSchedule('0 9 * * * * 2027')).isTrue();
+    check(isValidHermesSchedule('every 30m')).isTrue();
+    check(isValidHermesSchedule('EVERY 2 hours')).isTrue();
+    check(isValidHermesSchedule('45m')).isTrue();
+    check(isValidHermesSchedule('2027-04-05T09:30:00Z')).isTrue();
+    check(isValidHermesSchedule('2027-04-05T09:30:00+05:30')).isTrue();
+    check(isValidHermesSchedule('60 9 * * 1')).isFalse();
+    check(isValidHermesSchedule('0 9 * * * 2027')).isFalse();
+    check(isValidHermesSchedule('0 0 * * 7 0')).isFalse();
+    check(isValidHermesSchedule('0 0 * * 7 0 2027')).isFalse();
+    check(isValidHermesSchedule('0 9 * * * * 2100')).isFalse();
+    check(isValidHermesSchedule('0 9 * *')).isFalse();
+    check(isValidHermesSchedule('0 9 * JAN MON')).isFalse();
+    check(isValidHermesSchedule('every soon')).isFalse();
+    check(isValidHermesSchedule('2027-99-99T09:30')).isFalse();
+    check(isValidHermesSchedule('2027-02-29T09:30')).isFalse();
+    check(isValidHermesSchedule('2027-04-05T25:30')).isFalse();
+  });
 
   test('common Hermes cron schedules have concise cadence labels', () {
     check(describeHermesCronSchedule('* * * * *')).equals('Every minute');
@@ -63,7 +75,11 @@ void main() {
     final controller = container.read(hermesJobsProvider.notifier);
 
     await expectLater(
-      controller.create(prompt: 'Summarize updates', schedule: '0 9 * * *'),
+      controller.create(
+        name: 'Daily summary',
+        prompt: 'Summarize updates',
+        schedule: '0 9 * * *',
+      ),
       throwsStateError,
     );
     await expectLater(
@@ -202,6 +218,57 @@ void main() {
 
     check(controller.toggleCalls).deepEquals([('job-1', false)]);
   });
+
+  testWidgets('jobs sheet failure logs never include a raw job id', (
+    tester,
+  ) async {
+    const hostileJobId = 'job-configured-api-secret';
+    const providerErrorSecret = 'provider-error-reflected-job-id';
+    const providerStackSecret = 'provider-stack-reflected-job-id';
+    final logs = <String>[];
+    final previousDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+
+    try {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            hermesJobsProvider.overrideWith(
+              () => _FailingJobsController(
+                jobId: hostileJobId,
+                errorSecret: providerErrorSecret,
+                stackSecret: providerStackSecret,
+              ),
+            ),
+            hermesCapabilitiesProvider.overrideWith(
+              (ref) async => const HermesCapabilities(),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SizedBox(height: 640, child: HermesJobsSheet()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final toggle = tester.widget<AdaptiveSwitch>(find.byType(AdaptiveSwitch));
+      toggle.onChanged!(false);
+      await tester.pumpAndSettle();
+    } finally {
+      debugPrint = previousDebugPrint;
+    }
+
+    final combinedLogs = logs.join('\n');
+    check(combinedLogs).contains('toggle-failed');
+    check(combinedLogs).contains('enabled=false');
+    check(combinedLogs).not((value) => value.contains(hostileJobId));
+    check(combinedLogs).not((value) => value.contains(providerErrorSecret));
+    check(combinedLogs).not((value) => value.contains(providerStackSecret));
+  });
 }
 
 class _PendingJobsController extends HermesJobsController {
@@ -229,4 +296,32 @@ class _PendingJobsController extends HermesJobsController {
   Future<void> setEnabled(String id, bool enabled) async {
     toggleCalls.add((id, enabled));
   }
+}
+
+class _FailingJobsController extends HermesJobsController {
+  _FailingJobsController({
+    required this.jobId,
+    required this.errorSecret,
+    required this.stackSecret,
+  });
+
+  final String jobId;
+  final String errorSecret;
+  final String stackSecret;
+
+  @override
+  Future<List<HermesJob>> build() async => [
+    HermesJob(
+      id: jobId,
+      name: 'Unsafe provider job',
+      prompt: 'Never expose my opaque identifier',
+      schedule: '0 9 * * *',
+    ),
+  ];
+
+  @override
+  Future<void> setEnabled(String id, bool enabled) => Future<void>.error(
+    StateError('$errorSecret $id'),
+    StackTrace.fromString(stackSecret),
+  );
 }

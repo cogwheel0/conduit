@@ -66,6 +66,13 @@ class ApiAuthInterceptor extends Interceptor {
   ApiAuthSnapshot captureSnapshot() =>
       ApiAuthSnapshot._(_authToken, _authRevision);
 
+  String _endpointPath(String rawPath) {
+    final parsed = Uri.tryParse(rawPath);
+    final path = parsed?.path ?? rawPath.split(RegExp(r'[?#]')).first;
+    if (path.isEmpty) return '/';
+    return path.startsWith('/') ? path : '/$path';
+  }
+
   _EndpointAuthMode _authModeFor(String path) {
     if (_publicEndpoints.contains(path)) {
       return _EndpointAuthMode.public;
@@ -82,7 +89,7 @@ class ApiAuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    final path = options.path;
+    final path = _endpointPath(options.path);
     final authMode = _authModeFor(path);
     final snapshot = options.extra[authSnapshotExtraKey];
     if (snapshot is ApiAuthSnapshot &&
@@ -145,7 +152,10 @@ class ApiAuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final statusCode = err.response?.statusCode;
-    final path = err.requestOptions.path;
+    // Classify the endpoint-relative path rather than the fully resolved URI.
+    // The latter includes a configured Open WebUI base-path prefix and would
+    // otherwise hide auth failures for subpath-hosted installations.
+    final path = _endpointPath(err.requestOptions.path);
 
     final suppressAuthFailureNotification =
         err.requestOptions.extra['suppressAuthFailureNotification'] == true;
@@ -167,14 +177,14 @@ class ApiAuthInterceptor extends Interceptor {
     if (authMode == _EndpointAuthMode.required &&
         _shouldNotifyAuthFailure(path)) {
       _notifyAuthFailure(
-        '$statusCode $statusLabel on $path - '
+        '$statusCode $statusLabel on required endpoint - '
         'notifying app without clearing token',
       );
       return;
     }
 
     DebugLogger.auth(
-      '$statusCode on non-essential endpoint $path - keeping auth token',
+      '$statusCode on non-essential endpoint - keeping auth token',
     );
   }
 

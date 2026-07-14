@@ -21,6 +21,7 @@ class ApiErrorInterceptor extends Interceptor {
         err,
         endpoint: err.requestOptions.path,
         method: err.requestOptions.method,
+        logErrorDetails: false,
       );
 
       if (logErrors) {
@@ -46,11 +47,18 @@ class ApiErrorInterceptor extends Interceptor {
       }
     } catch (e) {
       // Fallback if error transformation fails
-      DebugLogger.error(
-        'transform-failed',
-        scope: 'api/error-interceptor',
-        error: e,
-      );
+      if (logErrors) {
+        DebugLogger.error(
+          'transform-failed',
+          scope: 'api/error-interceptor',
+          data: {
+            'method': err.requestOptions.method.toUpperCase(),
+            'type': err.type.name,
+            'status': err.response?.statusCode,
+            'failureType': e.runtimeType.toString(),
+          },
+        );
+      }
       handler.next(err);
     }
   }
@@ -74,10 +82,9 @@ class ApiErrorInterceptor extends Interceptor {
             'successful-response-error',
             scope: 'api/error-interceptor',
             data: {
-              'endpoint': apiError.endpoint,
+              'type': apiError.type.name,
               'method': apiError.method,
-              'status': apiError.statusCode,
-              'message': apiError.message,
+              'status': response.statusCode,
             },
           );
         }
@@ -132,56 +139,24 @@ class ApiErrorInterceptor extends Interceptor {
 
     final payload = <String, Object?>{
       'type': apiError.type.name,
-      'endpoint': apiError.endpoint,
       'method': apiError.method,
-      'status': apiError.statusCode,
-      'message': apiError.message,
-      if (apiError.technical != null) 'technical': apiError.technical,
+      'status': apiError.statusCode ?? originalError.response?.statusCode,
       if (apiError.retryAfter != null)
         'retryAfterSeconds': apiError.retryAfter!.inSeconds,
       'originalType': originalError.type.name,
     };
 
     if (apiError.hasFieldErrors) {
-      payload['fieldErrors'] = {
-        for (final entry in apiError.fieldErrors.entries)
-          entry.key: entry.value,
-      };
-    }
-
-    final requestData = originalError.requestOptions.data;
-    if (requestData != null && requestData.toString().length < 500) {
-      payload['request'] = requestData;
-    }
-
-    final responseData = originalError.response?.data;
-    if (responseData != null && responseData.toString().length < 1000) {
-      payload['response'] = responseData;
-    }
-
-    final headers = originalError.requestOptions.headers;
-    if (headers.isNotEmpty) {
-      payload['requestHeaders'] = {
-        for (final entry in headers.entries) entry.key: entry.value.toString(),
-      };
-    }
-
-    final responseHeaders = originalError.response?.headers;
-    if (responseHeaders != null && responseHeaders.map.isNotEmpty) {
-      payload['responseHeaders'] = responseHeaders.map;
-    }
-
-    final requestDuration =
-        originalError.response?.requestOptions.extra['requestDuration'];
-    if (requestDuration is Duration) {
-      payload['requestDurationMs'] = requestDuration.inMilliseconds;
+      payload['fieldErrorCount'] = apiError.fieldErrors.values.fold<int>(
+        0,
+        (count, errors) => count + errors.length,
+      );
     }
 
     DebugLogger.error(
       'api-error',
       scope: 'api/error-interceptor',
       data: payload,
-      error: apiError,
     );
   }
 

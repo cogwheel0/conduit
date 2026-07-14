@@ -59,7 +59,7 @@ class WebViewCookieHelper {
       DebugLogger.warning(
         'webview-cookie-clear-failed',
         scope: 'auth/webview',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       success = false;
     }
@@ -72,7 +72,7 @@ class WebViewCookieHelper {
       DebugLogger.warning(
         'webview-storage-clear-failed',
         scope: 'auth/webview',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       success = false;
     }
@@ -86,7 +86,7 @@ class WebViewCookieHelper {
       DebugLogger.warning(
         'webview-cache-clear-failed',
         scope: 'auth/webview',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       success = false;
     }
@@ -139,7 +139,7 @@ class WebViewCookieHelper {
       DebugLogger.warning(
         'webview-get-cookies-failed',
         scope: 'auth/webview',
-        data: {'error': e.toString()},
+        data: {'errorType': e.runtimeType.toString()},
       );
       return {};
     }

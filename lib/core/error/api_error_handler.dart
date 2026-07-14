@@ -20,11 +20,17 @@ class ApiErrorHandler {
     String? endpoint,
     String? method,
     Map<String, dynamic>? requestData,
+    bool logErrorDetails = true,
   }) {
     final l10n = currentAppLocalizations();
     try {
       if (error is DioException) {
-        return _handleDioException(error, endpoint: endpoint, method: method);
+        return _handleDioException(
+          error,
+          endpoint: endpoint,
+          method: method,
+          logErrorDetails: logErrorDetails,
+        );
       } else if (error is ApiError) {
         return error;
       } else {
@@ -36,10 +42,16 @@ class ApiErrorHandler {
       }
     } catch (e) {
       // Fallback error if transformation itself fails
-      DebugLogger.log(
-        'ApiErrorHandler: Error transforming exception: $e',
-        scope: 'api/error-handler',
-      );
+      if (logErrorDetails) {
+        DebugLogger.error(
+          'transform-failed',
+          scope: 'api/error-handler',
+          data: {
+            'inputType': error.runtimeType.toString(),
+            'failureType': e.runtimeType.toString(),
+          },
+        );
+      }
       return ApiError.unknown(
         message: l10n.errorMessage,
         originalError: error,
@@ -53,6 +65,7 @@ class ApiErrorHandler {
     DioException dioError, {
     String? endpoint,
     String? method,
+    required bool logErrorDetails,
   }) {
     final l10n = currentAppLocalizations();
     final statusCode = dioError.response?.statusCode;
@@ -61,7 +74,7 @@ class ApiErrorHandler {
     final httpMethod = method ?? dioError.requestOptions.method;
 
     // Log error details for debugging
-    _logErrorDetails(dioError, requestPath, httpMethod);
+    if (logErrorDetails) _logErrorDetails(dioError, httpMethod);
 
     switch (dioError.type) {
       case DioExceptionType.connectionTimeout:
@@ -315,40 +328,16 @@ class ApiErrorHandler {
   }
 
   /// Log error details for debugging and monitoring
-  void _logErrorDetails(
-    DioException dioError,
-    String requestPath,
-    String httpMethod,
-  ) {
-    if (kDebugMode) {
-      DebugLogger.log('🔴 API Error Details:', scope: 'api/error-handler');
-      DebugLogger.log(
-        '  Method: ${httpMethod.toUpperCase()}',
-        scope: 'api/error-handler',
-      );
-      DebugLogger.log('  Endpoint: $requestPath', scope: 'api/error-handler');
-      DebugLogger.log('  Type: ${dioError.type}', scope: 'api/error-handler');
-      DebugLogger.log(
-        '  Status: ${dioError.response?.statusCode}',
-        scope: 'api/error-handler',
-      );
+  void _logErrorDetails(DioException dioError, String httpMethod) {
+    if (!kDebugMode) return;
 
-      if (dioError.response?.data != null) {
-        DebugLogger.error('Response data available (truncated for security)');
-      }
+    final payload = <String, Object?>{
+      'method': httpMethod.toUpperCase(),
+      'type': dioError.type.name,
+      'status': dioError.response?.statusCode,
+    };
 
-      if (dioError.requestOptions.data != null) {
-        DebugLogger.log(
-          '  Request Data: ${dioError.requestOptions.data}',
-          scope: 'api/error-handler',
-        );
-      }
-
-      DebugLogger.log(
-        '  Error: ${dioError.message}',
-        scope: 'api/error-handler',
-      );
-    }
+    DebugLogger.error('dio-error', scope: 'api/error-handler', data: payload);
 
     // In production, you would send this to your error tracking service
     // FirebaseCrashlytics.instance.recordError(dioError, stackTrace);

@@ -218,12 +218,27 @@ class DirectConnectionProfilesController
     },
   );
 
-  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) {
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
     profile.validate();
-    return ref
+    final adapter = ref
         .read(directProviderAdapterRegistryProvider)
-        .require(profile.adapterKey)
-        .probe(profile);
+        .require(profile.adapterKey);
+    try {
+      final result = await adapter.probe(profile);
+      final message = result.message;
+      if (message == null) return result;
+      return DirectConnectionProbe(
+        reachable: result.reachable,
+        modelCount: result.modelCount,
+        message: _sanitizeRuntimeAdapterMessage(profile, message),
+      );
+    } catch (error) {
+      final normalized = normalizeDirectProviderError(error);
+      return DirectConnectionProbe(
+        reachable: false,
+        message: _sanitizeRuntimeAdapterMessage(profile, normalized.message),
+      );
+    }
   }
 
   Future<void> reload() => _serializeMutation(_reload);
@@ -257,19 +272,14 @@ class DirectConnectionProfilesController
     DirectRunRegistry registry,
     String profileId,
   ) {
-    _bestEffort(
-      () {
-        for (final cancellation in registry.cancelProfile(profileId)) {
-          _observeBestEffort(
-            cancellation,
-            'Failed to finish direct-run cancellation after profile persistence',
-            data: {'profileId': profileId},
-          );
-        }
-      },
-      'Failed to revoke direct runs after profile persistence',
-      data: {'profileId': profileId},
-    );
+    _bestEffort(() {
+      for (final cancellation in registry.cancelProfile(profileId)) {
+        _observeBestEffort(
+          cancellation,
+          'Failed to finish direct-run cancellation after profile persistence',
+        );
+      }
+    }, 'Failed to revoke direct runs after profile persistence');
   }
 
   void _cancelAllRunsBestEffort(DirectRunRegistry registry) {
@@ -315,7 +325,6 @@ class DirectConnectionProfilesController
     _bestEffort(
       () => registry.removeProfile(profileId),
       'Failed to invalidate direct-model bindings after profile persistence',
-      data: {'profileId': profileId},
     );
   }
 
@@ -331,23 +340,20 @@ class DirectConnectionProfilesController
     String message, {
     Map<String, Object?>? data,
   }) {
-    void logFailure(Object error, StackTrace stackTrace) {
-      DebugLogger.error(
-        message,
-        scope: 'direct/profiles',
-        error: error,
-        stackTrace: stackTrace,
-        data: data,
-      );
+    void logFailure() {
+      DebugLogger.error(message, scope: 'direct/profiles', data: data);
     }
 
     try {
       final result = operation();
       if (result is Future<void>) {
-        return result.then<void>((_) {}, onError: logFailure);
+        return result.then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) => logFailure(),
+        );
       }
-    } catch (error, stackTrace) {
-      logFailure(error, stackTrace);
+    } catch (_) {
+      logFailure();
     }
   }
 
@@ -573,7 +579,7 @@ class DirectModelDiscoveryController
         profile: profile,
         signature: signature,
         models: canReuseCache ? _cache[profile.id] : null,
-        error: normalized.message,
+        error: _sanitizeRuntimeAdapterMessage(profile, normalized.message),
       );
     }
   }
@@ -597,6 +603,14 @@ final class _DiscoveryOutcome {
   final List<DirectRemoteModel>? models;
   final String? error;
 }
+
+String _sanitizeRuntimeAdapterMessage(
+  DirectConnectionProfile profile,
+  String message,
+) => sanitizeDirectProviderErrorMessage(
+  message,
+  sensitiveValues: directProfileSensitiveValues(profile),
+);
 
 int _profileSignature(DirectConnectionProfile profile) => Object.hashAll([
   profile.adapterKey,

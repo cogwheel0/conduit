@@ -6459,13 +6459,11 @@ Future<void> _regenerateDirectMessage(
         notifier.updateMessageById(assistant.id, (_) => stoppedSnapshot);
       }
     }
-  } catch (error, stackTrace) {
+  } catch (error) {
     DebugLogger.error(
       'regenerate-failed',
       scope: 'direct-connections/chat',
-      error: error,
-      stackTrace: stackTrace,
-      data: {'profileId': route.binding.profileId},
+      data: {'errorType': error.runtimeType.toString()},
     );
     if (registry.isOutputFinalized(reservation)) rethrow;
     // Superseded work has no error surface to report. Propagating it would let
@@ -10750,17 +10748,6 @@ typedef _DirectStreamMove = ({
   StackTrace? stackTrace,
 });
 
-List<String> _directDispatcherSensitiveValues(
-  DirectConnectionProfile profile,
-) => <String>[
-  if ((profile.apiKey ?? '').isNotEmpty) profile.apiKey!,
-  if ((profile.apiKey ?? '').trim().isNotEmpty) profile.apiKey!.trim(),
-  for (final value in profile.customHeaders.values)
-    if (value.isNotEmpty) value,
-  for (final value in profile.customHeaders.values)
-    if (value.trim().isNotEmpty) value.trim(),
-];
-
 DirectProviderException _normalizeDirectDispatcherFailure(
   Object error, {
   required Iterable<String> sensitiveValues,
@@ -12284,9 +12271,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       .read(directProviderAdapterRegistryProvider)
       .require(route.binding.adapterKey);
   _requireDirectOwnerAuthSession(ref, owner);
-  final sensitiveProviderValues = _directDispatcherSensitiveValues(
-    route.profile,
-  );
+  final sensitiveProviderValues = directProfileSensitiveValues(route.profile);
   final streamLimits = ref.read(directNormalizedStreamLimitsProvider);
   if (streamLimits.idleTimeout <= Duration.zero) {
     throw ArgumentError.value(
@@ -13093,7 +13078,7 @@ Future<void> _sendMessageInternal(
         ref.read(contextAttachmentsProvider.notifier).clear();
       }
       return;
-    } catch (error, stackTrace) {
+    } catch (error) {
       if (error is _DirectOpenWebUiAuthSessionChanged) {
         registry.discardFinalizedOutput(reservation);
         return;
@@ -13142,9 +13127,7 @@ Future<void> _sendMessageInternal(
       DebugLogger.error(
         'send-failed',
         scope: 'direct-connections/chat',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'profileId': directRoute.binding.profileId},
+        data: {'errorType': error.runtimeType.toString()},
       );
       if (registry.isOutputFinalized(reservation)) rethrow;
       if (!registry.isLatest(reservation)) return;

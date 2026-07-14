@@ -8,6 +8,7 @@ import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../models/hermes_chat_input.dart';
 import '../models/hermes_config.dart';
+import '../models/hermes_job.dart';
 import '../models/hermes_run_event.dart';
 import 'hermes_identifier.dart';
 import 'hermes_stream_parser.dart';
@@ -1217,22 +1218,50 @@ class HermesApiService {
   // ---------------------------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> listJobs() async {
-    final resp = await _dio.get<dynamic>('$_root/api/jobs');
+    final resp = await _dio.get<dynamic>(
+      '$_root/api/jobs',
+      queryParameters: const {'include_disabled': true},
+    );
     final data = resp.data;
     final list = data is Map ? (data['jobs'] ?? data['data']) : data;
     if (list is! List) return const [];
-    return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final jobs = <Map<String, dynamic>>[];
+    for (final item in list.whereType<Map>()) {
+      final job = item.cast<String, dynamic>();
+      final rawId = job['id'] ?? job['job_id'];
+      if (validateHermesOpaqueIdentifier(
+            rawId,
+            sensitiveValues: _identifierSensitiveValues,
+            rejectShortSensitiveSubstrings: false,
+          ) ==
+          null) {
+        continue;
+      }
+      jobs.add(job);
+    }
+    return jobs;
   }
 
-  /// Creates a scheduled job. [schedule] is a cron expression.
+  /// Creates a job using any schedule expression accepted by Hermes.
   Future<Map<String, dynamic>> createJob({
+    required String name,
     required String prompt,
     required String schedule,
-    bool enabled = true,
   }) async {
+    final safeName = _requireHermesJobText(
+      name,
+      field: 'name',
+      maxCharacters: kMaxHermesJobNameCharacters,
+    );
+    final safePrompt = _requireHermesJobText(
+      prompt,
+      field: 'prompt',
+      maxCharacters: kMaxHermesJobPromptCharacters,
+    );
+    final safeSchedule = _requireHermesJobText(schedule, field: 'schedule');
     final resp = await _dio.post<dynamic>(
       '$_root/api/jobs',
-      data: {'prompt': prompt, 'schedule': schedule, 'enabled': enabled},
+      data: {'name': safeName, 'prompt': safePrompt, 'schedule': safeSchedule},
     );
     final data = resp.data;
     return data is Map ? data.cast<String, dynamic>() : const {};
@@ -1241,6 +1270,7 @@ class HermesApiService {
   /// Partially updates a job (any of prompt / schedule / enabled).
   Future<void> updateJob(
     String id, {
+    String? name,
     String? prompt,
     String? schedule,
     bool? enabled,
@@ -1248,7 +1278,23 @@ class HermesApiService {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _dio.patch<dynamic>(
       '$_root/api/jobs/$encodedId',
-      data: {'prompt': ?prompt, 'schedule': ?schedule, 'enabled': ?enabled},
+      data: {
+        if (name != null)
+          'name': _requireHermesJobText(
+            name,
+            field: 'name',
+            maxCharacters: kMaxHermesJobNameCharacters,
+          ),
+        if (prompt != null)
+          'prompt': _requireHermesJobText(
+            prompt,
+            field: 'prompt',
+            maxCharacters: kMaxHermesJobPromptCharacters,
+          ),
+        if (schedule != null)
+          'schedule': _requireHermesJobText(schedule, field: 'schedule'),
+        'enabled': ?enabled,
+      },
     );
   }
 
@@ -1304,4 +1350,19 @@ class HermesApiService {
   }
 
   void close() => _dio.close(force: true);
+}
+
+String _requireHermesJobText(
+  String value, {
+  required String field,
+  int? maxCharacters,
+}) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    throw ArgumentError.value(value, field, 'Must not be empty.');
+  }
+  if (maxCharacters != null && normalized.runes.length > maxCharacters) {
+    throw ArgumentError.value(value, field, 'Exceeds the character limit.');
+  }
+  return normalized;
 }

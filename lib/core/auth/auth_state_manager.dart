@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -212,13 +213,8 @@ class AuthStateManager extends _$AuthStateManager {
       if (credentials != null) {
         await storage.deleteSavedCredentialsIfMatches(credentials);
       }
-    } catch (error, stack) {
-      DebugLogger.error(
-        'superseded-login-rollback-failed',
-        scope: 'auth/state',
-        error: error,
-        stackTrace: stack,
-      );
+    } catch (error) {
+      _logAuthenticationFailure('superseded-login-rollback-failed', error);
     }
   }
 
@@ -271,13 +267,8 @@ class AuthStateManager extends _$AuthStateManager {
 
       ref.invalidate(activeServerProvider);
       ref.invalidate(apiServiceProvider);
-    } catch (error, stack) {
-      DebugLogger.error(
-        'stale-silent-login-restore-failed',
-        scope: 'auth/state',
-        error: error,
-        stackTrace: stack,
-      );
+    } catch (error) {
+      _logAuthenticationFailure('stale-silent-login-restore-failed', error);
     }
   }
 
@@ -289,12 +280,7 @@ class AuthStateManager extends _$AuthStateManager {
     } else if (_shouldClearPersistedUser(next)) {
       unawaited(
         storage.saveLocalUser(null).onError((error, stack) {
-          DebugLogger.error(
-            'Failed to clear local user on logout',
-            scope: 'auth/persistence',
-            error: error,
-            stackTrace: stack,
-          );
+          _logAuthenticationFailure('local-user-clear-failed', error);
         }),
       );
     }
@@ -330,13 +316,8 @@ class AuthStateManager extends _$AuthStateManager {
         userWithAvatar,
         avatarUrl: resolvedAvatar,
       );
-    } catch (error, stack) {
-      DebugLogger.error(
-        'Failed to persist user with avatar',
-        scope: 'auth/persistence',
-        error: error,
-        stackTrace: stack,
-      );
+    } catch (error) {
+      _logAuthenticationFailure('local-user-persist-failed', error);
     }
   }
 
@@ -462,11 +443,11 @@ class AuthStateManager extends _$AuthStateManager {
         );
       }
     } catch (e) {
-      DebugLogger.error('auth-init-failed', scope: 'auth/state', error: e);
+      _logAuthenticationFailure('auth-init-failed', e);
       _update(
         (current) => current.copyWith(
           status: AuthStatus.error,
-          error: 'Failed to initialize auth: $e',
+          error: 'Failed to initialize authentication',
           isLoading: false,
         ),
       );
@@ -634,10 +615,9 @@ class AuthStateManager extends _$AuthStateManager {
             return;
           }
 
-          DebugLogger.warning(
+          _logAuthenticationFailure(
             'background-auth-validation-deferred',
-            scope: 'auth/state',
-            data: {'error': error.toString()},
+            error,
           );
           // A transient (non-auth) failure must not strand the no-cached-user
           // bootstrap on the loading state forever; resolve it to re-login.
@@ -803,12 +783,8 @@ class AuthStateManager extends _$AuthStateManager {
         rethrow;
       }
     } catch (e, stack) {
-      DebugLogger.error(
-        'api-key-login-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
-      );
+      final failureMessage = _safeLoginFailureMessage(e);
+      _logAuthenticationFailure('api-key-login-failed', e);
       // A failed login must not leave its token/credentials in storage; value-
       // match roll them back so a cold start can't restore a failed session.
       if (persistedToken != null) {
@@ -828,14 +804,14 @@ class AuthStateManager extends _$AuthStateManager {
           _update(
             (current) => current.copyWith(
               status: AuthStatus.error,
-              error: e.toString(),
+              error: failureMessage,
               isLoading: false,
               clearToken: true,
             ),
           );
         }
       }
-      rethrow;
+      Error.throwWithStackTrace(Exception(failureMessage), stack);
     }
   }
 
@@ -968,12 +944,11 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth('Login successful');
       return true;
     } catch (e, stack) {
-      DebugLogger.error(
-        'login-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
+      final failureMessage = _safeLoginFailureMessage(
+        e,
+        credentialRequest: true,
       );
+      _logAuthenticationFailure('login-failed', e);
       // A failed login must not leave its token/credentials in storage (a later
       // exception can follow a successful token write); value-match roll them
       // back so a cold start can't restore a session presented as failed.
@@ -994,14 +969,14 @@ class AuthStateManager extends _$AuthStateManager {
           _update(
             (current) => current.copyWith(
               status: AuthStatus.error,
-              error: e.toString(),
+              error: failureMessage,
               isLoading: false,
               clearToken: true,
             ),
           );
         }
       }
-      rethrow;
+      Error.throwWithStackTrace(Exception(failureMessage), stack);
     }
   }
 
@@ -1154,12 +1129,11 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth('LDAP login successful');
       return true;
     } catch (e, stack) {
-      DebugLogger.error(
-        'ldap-login-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
+      final failureMessage = _safeLoginFailureMessage(
+        e,
+        credentialRequest: true,
       );
+      _logAuthenticationFailure('ldap-login-failed', e);
       // A failed login must not leave its token/credentials in storage; value-
       // match roll them back so a cold start can't restore a failed session.
       if (persistedToken != null) {
@@ -1177,14 +1151,14 @@ class AuthStateManager extends _$AuthStateManager {
         _update(
           (current) => current.copyWith(
             status: AuthStatus.error,
-            error: e.toString(),
+            error: failureMessage,
             isLoading: false,
             clearToken: true,
           ),
         );
         _updateApiServiceToken(null);
       }
-      rethrow;
+      Error.throwWithStackTrace(Exception(failureMessage), stack);
     }
   }
 
@@ -1226,16 +1200,85 @@ class AuthStateManager extends _$AuthStateManager {
         text.contains('Forbidden');
   }
 
+  void _logAuthenticationFailure(String event, Object? error) {
+    DebugLogger.error(
+      event,
+      scope: 'auth/state',
+      data: {
+        'errorType': error?.runtimeType.toString() ?? 'unknown',
+        if (error is DioException) ...{
+          'dioType': error.type.name,
+          'statusCode': error.response?.statusCode,
+        },
+      },
+    );
+  }
+
+  String _safeLoginFailureMessage(
+    Object error, {
+    bool credentialRequest = false,
+  }) {
+    final statusCode = error is DioException
+        ? error.response?.statusCode
+        : null;
+    if (statusCode == 401 ||
+        statusCode == 403 ||
+        (credentialRequest && statusCode == 400)) {
+      return '401 Unauthorized: sign-in rejected by server';
+    }
+
+    final text = error.toString().toLowerCase();
+    if (text.contains('apikeynolongersupported')) {
+      return 'apiKeyNoLongerSupported';
+    }
+    if (text.contains('apikeynotsupported')) {
+      return 'apiKeyNotSupported';
+    }
+    if (text.contains('ldap authentication is not enabled')) {
+      return 'LDAP authentication is not enabled';
+    }
+    if (text.contains('authentication failed')) {
+      return '401 Unauthorized: sign-in rejected by server';
+    }
+    if (text.contains('token cannot be empty')) {
+      return 'Token cannot be empty';
+    }
+    if (text.contains('invalid token format')) {
+      return 'Invalid token format';
+    }
+    if (text.contains('no server connection available')) {
+      return 'No server connection available';
+    }
+    if (text.contains('redirect')) {
+      return 'Server redirect detected. Please check your server URL configuration.';
+    }
+
+    final timedOut =
+        error is DioException &&
+        (error.type == DioExceptionType.connectionTimeout ||
+            error.type == DioExceptionType.sendTimeout ||
+            error.type == DioExceptionType.receiveTimeout);
+    if (timedOut || text.contains('timeout')) {
+      return 'Sign-in request timed out';
+    }
+
+    final connectionFailed =
+        error is DioException &&
+        (error.type == DioExceptionType.connectionError ||
+            error.type == DioExceptionType.unknown);
+    if (connectionFailed ||
+        text.contains('socketexception') ||
+        text.contains('connection')) {
+      return 'Unable to connect to server';
+    }
+    return 'Sign-in failed. Please try again.';
+  }
+
   String _loginValidationMessage(Object error) {
     if (error is DioException) {
       final statusCode = error.response?.statusCode;
       if (statusCode == 401 || statusCode == 403) {
         return '$statusCode Unauthorized: sign-in token rejected by server';
-      }
-
-      final detail = error.response?.data;
-      if (detail is Map && detail['detail'] != null) {
-        return 'Sign-in validation failed: ${detail['detail']}';
       }
     }
 
@@ -1283,7 +1326,13 @@ class AuthStateManager extends _$AuthStateManager {
         }
       } catch (e) {
         DebugLogger.auth(
-          'API readiness check failed (${stopwatch.elapsedMilliseconds}ms): $e',
+          'api-readiness-check-failed',
+          scope: 'auth/state',
+          data: {
+            'elapsedMs': stopwatch.elapsedMilliseconds,
+            'errorType': e.runtimeType.toString(),
+            if (e is DioException) 'statusCode': e.response?.statusCode,
+          },
         );
       }
 
@@ -1414,13 +1463,8 @@ class AuthStateManager extends _$AuthStateManager {
         canCommit: canCommit,
         claimCommit: claimCommit,
       );
-    } catch (error, stack) {
-      DebugLogger.error(
-        'background-silent-login-failed',
-        scope: 'auth/state',
-        error: error,
-        stackTrace: stack,
-      );
+    } catch (error) {
+      _logAuthenticationFailure('background-silent-login-failed', error);
       return false;
     }
   }
@@ -1455,13 +1499,8 @@ class AuthStateManager extends _$AuthStateManager {
         canCommit: canCommit,
         claimCommit: claimCommit,
       );
-    } catch (e, stack) {
-      DebugLogger.error(
-        'silent-login-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
-      );
+    } catch (e) {
+      _logAuthenticationFailure('silent-login-failed', e);
 
       return await _handleSilentLoginFailure(
         e,
@@ -1748,15 +1787,23 @@ class AuthStateManager extends _$AuthStateManager {
     bool Function()? canCommit,
     Map<String, String>? attemptedCredentials,
   }) async {
-    var errorMessage = error.toString();
+    var errorMessage = _safeLoginFailureMessage(error, credentialRequest: true);
+    final errorText = error.toString().toLowerCase();
+    final statusCode = error is DioException
+        ? error.response?.statusCode
+        : null;
 
     // Don't clear credentials on connection errors - only clear on actual auth failures
     // Check if this is a genuine auth failure vs network issue
     final isNetworkError =
-        error.toString().contains('SocketException') ||
-        error.toString().contains('Connection') ||
-        error.toString().contains('timeout') ||
-        error.toString().contains('NetworkImage');
+        error is SocketException ||
+        error is TimeoutException ||
+        (error is DioException &&
+            (error.type == DioExceptionType.connectionTimeout ||
+                error.type == DioExceptionType.sendTimeout ||
+                error.type == DioExceptionType.receiveTimeout ||
+                error.type == DioExceptionType.connectionError ||
+                error.type == DioExceptionType.unknown));
 
     // Local saved-token validation failures (raised by `_authenticateSavedJwt`
     // before any server request) mean the stored credential can never succeed,
@@ -1764,15 +1811,16 @@ class AuthStateManager extends _$AuthStateManager {
     // to the unknown-error path, keep the bad credential, and repeat the
     // impossible silent login on every cold start.
     final isInvalidSavedToken =
-        error.toString().contains('apiKeyNotSupported') ||
-        error.toString().contains('Invalid token format') ||
-        error.toString().contains('Token cannot be empty');
+        errorText.contains('apikeynotsupported') ||
+        errorText.contains('invalid token format') ||
+        errorText.contains('token cannot be empty');
 
     if ((!isNetworkError &&
-            (error.toString().contains('401') ||
-                error.toString().contains('403') ||
-                error.toString().contains('authentication') ||
-                error.toString().contains('unauthorized'))) ||
+            (statusCode == 400 ||
+                statusCode == 401 ||
+                statusCode == 403 ||
+                errorText.contains('401 unauthorized') ||
+                errorText.contains('authentication failed'))) ||
         isInvalidSavedToken) {
       // A confirmed auth failure means the saved secret is bad: clear it so it
       // isn't retried on every cold start (the background bootstrap path turns a
@@ -1805,12 +1853,10 @@ class AuthStateManager extends _$AuthStateManager {
               ? 'Cleared invalid credentials after auth failure'
               : 'Skipped clearing credentials that changed during the auth attempt',
         );
-      } catch (deleteError, deleteStack) {
-        DebugLogger.error(
+      } catch (deleteError) {
+        _logAuthenticationFailure(
           'silent-login-credential-clear-failed',
-          scope: 'auth/state',
-          error: deleteError,
-          stackTrace: deleteStack,
+          deleteError,
         );
         errorMessage =
             '$errorMessage. Also failed to clear saved '
@@ -1929,13 +1975,8 @@ class AuthStateManager extends _$AuthStateManager {
           await ref
               .read(optimizedStorageServiceProvider)
               .deleteAuthTokenIfMatches(rejectedToken);
-        } catch (error, stack) {
-          DebugLogger.error(
-            'token-delete-failed',
-            scope: 'auth/state',
-            error: error,
-            stackTrace: stack,
-          );
+        } catch (error) {
+          _logAuthenticationFailure('token-delete-failed', error);
         }
       }
       DebugLogger.auth(
@@ -1993,13 +2034,8 @@ class AuthStateManager extends _$AuthStateManager {
       }
       await storage.clearUserScopedAuthData();
       DebugLogger.auth('Cleared invalidated token from secure storage');
-    } catch (e, stack) {
-      DebugLogger.error(
-        'token-delete-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
-      );
+    } catch (e) {
+      _logAuthenticationFailure('token-delete-failed', e);
     }
     _updateApiServiceToken(null);
 
@@ -2044,11 +2080,7 @@ class AuthStateManager extends _$AuthStateManager {
         try {
           await api.logout();
         } catch (e) {
-          DebugLogger.warning(
-            'server-logout-failed',
-            scope: 'auth/state',
-            data: {'error': e.toString()},
-          );
+          _logAuthenticationFailure('server-logout-failed', e);
         }
       }
 
@@ -2065,7 +2097,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.warning(
           'webview-data-clear-failed',
           scope: 'auth/state',
-          data: {'error': e.toString()},
+          data: {'errorType': e.runtimeType.toString()},
         );
       }
 
@@ -2090,23 +2122,14 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth(
         'Logout complete - auth data cleared, server config preserved for quick re-login',
       );
-    } catch (e, stack) {
-      DebugLogger.error(
-        'logout-failed',
-        scope: 'auth/state',
-        error: e,
-        stackTrace: stack,
-      );
+    } catch (e) {
+      _logAuthenticationFailure('logout-failed', e);
       // Even if logout fails, clear local state where possible
       final storage = ref.read(optimizedStorageServiceProvider);
       try {
         await storage.clearAuthData();
       } catch (clearError) {
-        DebugLogger.error(
-          'logout-clear-failed',
-          scope: 'auth/state',
-          error: clearError,
-        );
+        _logAuthenticationFailure('logout-clear-failed', clearError);
       }
       // Keep active server ID for redirect to sign-in page
       _cacheManager.clearAuthCache();
@@ -2117,9 +2140,7 @@ class AuthStateManager extends _$AuthStateManager {
           isLoading: false,
           clearToken: true,
           clearUser: true,
-          error:
-              'Logout error: $e. Some data may remain stored; '
-              'please clear app data from your device settings if needed.',
+          error: 'Sign out did not finish. Please try again.',
         ),
       );
       _updateApiServiceToken(null);
@@ -2135,11 +2156,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth('Default model preload requested');
       } catch (e) {
         if (!ref.mounted) return;
-        DebugLogger.warning(
-          'default-model-preload-failed',
-          scope: 'auth/state',
-          data: {'error': e.toString()},
-        );
+        _logAuthenticationFailure('default-model-preload-failed', e);
       }
     });
   }

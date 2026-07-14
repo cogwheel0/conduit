@@ -729,8 +729,14 @@ _createGatedDirectHarness(
   NotifierProvider<_EpochState, Object>? authEpochState,
   DirectNormalizedStreamLimits? streamLimits,
   bool hostileCancellation = false,
+  String profileBaseUrl = 'http://localhost:11434',
   String? profileApiKey,
   Map<String, String> profileHeaders = const {},
+  String? profileMtlsCertificateChainPem,
+  String? profileMtlsCertificateLabel,
+  String? profileMtlsPrivateKeyPem,
+  String? profileMtlsPrivateKeyLabel,
+  String? profileMtlsPrivateKeyPassword,
   Object? startError,
   StackTrace? startErrorStack,
 }) async {
@@ -740,9 +746,14 @@ _createGatedDirectHarness(
     id: 'profile',
     name: 'Provider',
     adapterKey: 'test-adapter',
-    baseUrl: 'http://localhost:11434',
+    baseUrl: profileBaseUrl,
     apiKey: profileApiKey,
     customHeaders: profileHeaders,
+    mtlsCertificateChainPem: profileMtlsCertificateChainPem,
+    mtlsCertificateLabel: profileMtlsCertificateLabel,
+    mtlsPrivateKeyPem: profileMtlsPrivateKeyPem,
+    mtlsPrivateKeyLabel: profileMtlsPrivateKeyLabel,
+    mtlsPrivateKeyPassword: profileMtlsPrivateKeyPassword,
   );
   final modelRegistry = DirectModelRegistry();
   final model = modelRegistry.replaceProfileModels(profile, [
@@ -3026,14 +3037,38 @@ void main() {
   );
 
   test(
-    'normalized direct errors are bounded and redact profile secrets',
+    'normalized direct errors are bounded and redact every profile secret',
     () async {
       const apiSecret = 'api-secret-value';
       const headerSecret = 'header-secret-value';
+      const cookieSecret = 'cookie-component-secret';
+      const csrfSecret = 'csrf-component-secret';
+      const authorizationSecret = 'authorization-component-secret';
+      const quotedHeaderSecret = 'quoted-header-component-secret';
+      const certificateSecret = 'certificate-body-secret';
+      const certificateLabelSecret = 'certificate-label-secret';
+      const privateKeySecret = 'private-key-body-secret';
+      const privateKeyLabelSecret = 'private-key-label-secret';
+      const privateKeyPasswordSecret = 'private-key-password-secret';
       final harness = await _createGatedDirectHarness(
         'normalized-provider-error',
+        profileBaseUrl: 'https://provider.example.test/v1',
         profileApiKey: apiSecret,
-        profileHeaders: const {'X-Private': headerSecret},
+        profileHeaders: const {
+          'X-Private': headerSecret,
+          'Cookie': 'session=$cookieSecret; csrf=$csrfSecret',
+          'X-Authorization-Context': 'Bearer $authorizationSecret',
+          'X-Quoted-Credential': '"$quotedHeaderSecret"',
+        },
+        profileMtlsCertificateChainPem:
+            '-----BEGIN CERTIFICATE-----\n$certificateSecret\n'
+            '-----END CERTIFICATE-----',
+        profileMtlsCertificateLabel: certificateLabelSecret,
+        profileMtlsPrivateKeyPem:
+            '-----BEGIN PRIVATE KEY-----\n$privateKeySecret\n'
+            '-----END PRIVATE KEY-----',
+        profileMtlsPrivateKeyLabel: privateKeyLabelSecret,
+        profileMtlsPrivateKeyPassword: privateKeyPasswordSecret,
       );
       final started = harness.adapter.nextRun();
       final send = sendMessageWithContainer(
@@ -3046,7 +3081,10 @@ void main() {
 
       run.add(
         DirectStreamError(
-          '$apiSecret $headerSecret ${List.filled(700, 'x').join()}',
+          '$apiSecret $headerSecret $cookieSecret $csrfSecret '
+          '$authorizationSecret $quotedHeaderSecret $certificateSecret '
+          '$certificateLabelSecret $privateKeySecret $privateKeyLabelSecret '
+          '$privateKeyPasswordSecret ${List.filled(700, 'x').join()}',
         ),
       );
       await send.timeout(const Duration(seconds: 1));
@@ -3054,8 +3092,21 @@ void main() {
       final completed = harness.container.read(chatMessagesProvider).last;
       final error = completed.error?.content;
       expect(error, isNotNull);
-      expect(error, isNot(contains(apiSecret)));
-      expect(error, isNot(contains(headerSecret)));
+      for (final secret in const [
+        apiSecret,
+        headerSecret,
+        cookieSecret,
+        csrfSecret,
+        authorizationSecret,
+        quotedHeaderSecret,
+        certificateSecret,
+        certificateLabelSecret,
+        privateKeySecret,
+        privateKeyLabelSecret,
+        privateKeyPasswordSecret,
+      ]) {
+        expect(error, isNot(contains(secret)));
+      }
       expect(
         error!.runes.length,
         lessThanOrEqualTo(kMaxDirectProviderErrorCharacters),
@@ -3071,8 +3122,21 @@ void main() {
         (message) => message.id == completed.id,
       );
       final durableJson = jsonEncode(durableAssistant.toJson());
-      expect(durableJson, isNot(contains(apiSecret)));
-      expect(durableJson, isNot(contains(headerSecret)));
+      for (final secret in const [
+        apiSecret,
+        headerSecret,
+        cookieSecret,
+        csrfSecret,
+        authorizationSecret,
+        quotedHeaderSecret,
+        certificateSecret,
+        certificateLabelSecret,
+        privateKeySecret,
+        privateKeyLabelSecret,
+        privateKeyPasswordSecret,
+      ]) {
+        expect(durableJson, isNot(contains(secret)));
+      }
       expect(durableAssistant.error?.content, error);
     },
   );

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/ollama_stream_parser.dart';
 import 'package:dio/dio.dart';
@@ -295,6 +296,41 @@ void main() {
     expect(message, endsWith('…'));
   });
 
+  test(
+    'provider secret redaction survives a supplementary-character boundary',
+    () {
+      const secret = 'UNICODE_BOUNDARY_SECRET';
+      final reflected = '${List<String>.filled(6, '😀').join()}$secret';
+
+      final message = sanitizeDirectProviderErrorMessage(
+        reflected,
+        sensitiveValues: const <String>[secret],
+        maxCharacters: 8,
+      );
+
+      expect(message, isNot(contains('U')));
+      expect(message.runes.length, 8);
+    },
+  );
+
+  test(
+    'provider secret redaction survives normalization after its boundary',
+    () {
+      const secret = 'UNICODE_BOUNDARY_SECRET';
+      final reflected = '${List<String>.filled(20, ' ').join()}$secret';
+
+      final message = sanitizeDirectProviderErrorMessage(
+        reflected,
+        sensitiveValues: const <String>[secret],
+        maxCharacters: 8,
+      );
+
+      expect(message, '[REDACT…');
+      expect(message.runes.length, 8);
+      expect(message, isNot(contains('UNICODE')));
+    },
+  );
+
   test('provider errors redact every authorization scheme completely', () {
     const reflected = <String>[
       'Authorization: Basic dXNlcjpwYXNz',
@@ -313,6 +349,118 @@ void main() {
     }
   });
 
+  test('profile-sensitive values include every mTLS credential variant', () {
+    const privateKey =
+        '-----BEGIN PRIVATE KEY-----\r\nKEY_SECRET\r\n-----END PRIVATE KEY-----';
+    const certificate =
+        '-----BEGIN CERTIFICATE-----\r\nCERT_SECRET\r\n-----END CERTIFICATE-----';
+    final profile = DirectConnectionProfile(
+      id: 'mtls-profile',
+      name: 'mTLS',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      apiKey: 'api-secret',
+      customHeaders: const {'X-Secret': 'header-secret'},
+      mtlsCertificateChainPem: certificate,
+      mtlsCertificateLabel: 'certificate-label-secret',
+      mtlsPrivateKeyPem: privateKey,
+      mtlsPrivateKeyLabel: 'private-label-secret',
+      mtlsPrivateKeyPassword: 'private-password-secret',
+    );
+    final reflected = [
+      'api-secret',
+      'header-secret',
+      certificate.replaceAll('\r\n', '\n'),
+      'certificate-label-secret',
+      privateKey.replaceAll('\r\n', '\n'),
+      'private-label-secret',
+      'private-password-secret',
+    ].join(' | ');
+
+    final safe = sanitizeDirectProviderErrorMessage(
+      reflected,
+      sensitiveValues: directProfileSensitiveValues(profile),
+    );
+
+    expect(safe, contains('[REDACTED]'));
+    for (final secret in const [
+      'api-secret',
+      'header-secret',
+      'CERT_SECRET',
+      'certificate-label-secret',
+      'KEY_SECRET',
+      'private-label-secret',
+      'private-password-secret',
+    ]) {
+      expect(safe, isNot(contains(secret)));
+    }
+  });
+
+  test('profile-sensitive values include credential-bearing header parts', () {
+    const cookieToken = 'COOKIE_COMPONENT_SECRET';
+    const csrfToken = 'CSRF_COMPONENT_SECRET';
+    const authorizationToken = 'AUTH_COMPONENT_SECRET';
+    const quotedToken = 'QUOTED_COMPONENT_SECRET';
+    final profile = DirectConnectionProfile(
+      id: 'structured-header-profile',
+      name: 'Structured headers',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      customHeaders: const {
+        'Cookie': 'session=$cookieToken; csrf=$csrfToken',
+        'Authorization': 'Bearer $authorizationToken',
+        'X-Quoted-Credential': '"$quotedToken"',
+      },
+    );
+
+    final safe = sanitizeDirectProviderErrorMessage(
+      'provider reflected $cookieToken, $csrfToken, $authorizationToken, '
+      'and $quotedToken',
+      sensitiveValues: directProfileSensitiveValues(profile),
+    );
+
+    expect(safe, contains('[REDACTED]'));
+    expect(safe, isNot(contains(cookieToken)));
+    expect(safe, isNot(contains(csrfToken)));
+    expect(safe, isNot(contains(authorizationToken)));
+    expect(safe, isNot(contains(quotedToken)));
+  });
+
+  test('profile-sensitive collection fails closed within fixed budgets', () {
+    final oversizedPem = List<String>.filled(9000, 'x').join();
+    final oversizedProfile = DirectConnectionProfile(
+      id: 'oversized-mtls-profile',
+      name: 'Oversized mTLS',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      mtlsPrivateKeyPem: oversizedPem,
+    );
+    final oversizedSafe = sanitizeDirectProviderErrorMessage(
+      'provider reflected a private key fragment',
+      sensitiveValues: directProfileSensitiveValues(oversizedProfile),
+    );
+
+    expect(oversizedSafe, 'The provider reported an error.');
+
+    final manyHeadersProfile = DirectConnectionProfile(
+      id: 'many-headers-profile',
+      name: 'Many headers',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      customHeaders: {
+        for (var index = 0; index < 200; index++)
+          'X-Private-$index': 'unique-secret-$index',
+      },
+    );
+    final manyHeadersSafe = sanitizeDirectProviderErrorMessage(
+      'provider reflected unique-secret-199',
+      sensitiveValues: directProfileSensitiveValues(manyHeadersProfile),
+    );
+
+    expect(manyHeadersSafe, 'The provider reported an error.');
+    expect(manyHeadersSafe, isNot(contains('unique-secret-199')));
+  });
+
   test(
     'provider secret redaction is bounded and never recursively expands',
     () {
@@ -320,8 +468,11 @@ void main() {
         List.filled(100000, 'A').join(),
         sensitiveValues: const ['A', 'D'],
       );
-      expect(message.runes.length, kMaxDirectProviderErrorCharacters);
-      expect(message, startsWith('[REDACTED][REDACTED]'));
+      expect(message, '[REDACTED]');
+      expect(
+        message.runes.length,
+        lessThanOrEqualTo(kMaxDirectProviderErrorCharacters),
+      );
       expect(message, isNot(contains('[RE[REDACTED]')));
 
       expect(

@@ -101,13 +101,12 @@ final class OllamaAdapter implements DirectProviderAdapter {
       final normalized = normalizeDirectProviderError(error);
       final safeMessage = sanitizeDirectProviderErrorMessage(
         normalized.message,
-        sensitiveValues: _directSensitiveValues(profile),
+        sensitiveValues: directProfileSensitiveValues(profile),
       );
       DebugLogger.error(
         'models-failed',
         scope: 'direct-connections/ollama',
         error: safeMessage,
-        data: {'profileId': profile.id},
       );
       throw normalized;
     } finally {
@@ -200,7 +199,6 @@ final class OllamaAdapter implements DirectProviderAdapter {
         scope: 'direct-connections/ollama',
         // Model ids come from the remote catalog and are deliberately omitted
         // from logs: a hostile peer can put credentials or control text there.
-        data: {'profileId': profile.id},
       );
       return null;
     }
@@ -264,7 +262,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
     final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
     final settled = Completer<void>();
-    final sensitiveValues = _directSensitiveValues(profile);
+    final sensitiveValues = directProfileSensitiveValues(profile);
     unawaited(
       cancelToken.whenCancel.then<void>((error) {
         if (!transportCancelToken.isCancelled) {
@@ -411,7 +409,6 @@ final class OllamaAdapter implements DirectProviderAdapter {
               'completion-failed',
               scope: 'direct-connections/ollama',
               error: safeMessage,
-              data: {'profileId': profile.id},
             );
           }
         } finally {
@@ -438,15 +435,6 @@ final class OllamaAdapter implements DirectProviderAdapter {
     );
   }
 }
-
-List<String> _directSensitiveValues(DirectConnectionProfile profile) => [
-  if ((profile.apiKey ?? '').isNotEmpty) profile.apiKey!,
-  if ((profile.apiKey ?? '').trim().isNotEmpty) profile.apiKey!.trim(),
-  for (final value in profile.customHeaders.values)
-    if (value.isNotEmpty) value,
-  for (final value in profile.customHeaders.values)
-    if (value.trim().isNotEmpty) value.trim(),
-];
 
 List<String> _lowercaseStringList(Object? value) {
   if (value is! Iterable) return const <String>[];

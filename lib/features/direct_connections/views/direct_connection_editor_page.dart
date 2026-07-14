@@ -556,13 +556,11 @@ class _DirectConnectionEditorPageState
         try {
           await preferredBackendController.set(PreferredBackend.unset);
           clearedDirectPreference = true;
-        } catch (error, stackTrace) {
+        } catch (error) {
           DebugLogger.error(
             'Failed to clear the direct backend before profile deletion',
             scope: 'direct/editor',
-            error: error,
-            stackTrace: stackTrace,
-            data: {'profileId': saved.id},
+            data: {'errorType': error.runtimeType.toString()},
           );
           rethrow;
         }
@@ -573,13 +571,11 @@ class _DirectConnectionEditorPageState
         if (clearedDirectPreference) {
           try {
             await preferredBackendController.set(PreferredBackend.direct);
-          } catch (restoreError, restoreStackTrace) {
+          } catch (restoreError) {
             DebugLogger.error(
               'Failed to restore the direct backend after profile deletion failed',
               scope: 'direct/editor',
-              error: restoreError,
-              stackTrace: restoreStackTrace,
-              data: {'profileId': saved.id},
+              data: {'errorType': restoreError.runtimeType.toString()},
             );
           }
         }
@@ -587,13 +583,11 @@ class _DirectConnectionEditorPageState
       }
       if (!mounted) return;
       context.pop(true);
-    } catch (error, stackTrace) {
+    } catch (error) {
       DebugLogger.error(
         'Direct profile deletion failed',
         scope: 'direct/editor',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'profileId': saved.id},
+        data: {'errorType': error.runtimeType.toString()},
       );
       if (!mounted) return;
       setState(() => _deleting = false);

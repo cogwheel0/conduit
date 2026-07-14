@@ -229,12 +229,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
       try {
         if (writeApiKey) await _persistApiKey(previousApiKey);
         if (writeSessionKey) await _persistSessionKey(previousSessionKey);
-      } catch (rollbackError, rollbackStackTrace) {
+      } catch (rollbackError) {
         DebugLogger.error(
           'credential-rollback-failed',
           scope: 'hermes/config',
-          error: rollbackError,
-          stackTrace: rollbackStackTrace,
+          data: {'errorType': rollbackError.runtimeType.toString()},
         );
       }
       Error.throwWithStackTrace(error, stackTrace);
@@ -658,17 +657,23 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
       (throw StateError('Hermes is not configured'));
 
   Future<void> create({
+    required String name,
     required String prompt,
     required String schedule,
   }) async {
     final service = _service;
-    await service.createJob(prompt: prompt, schedule: schedule);
+    await service.createJob(name: name, prompt: prompt, schedule: schedule);
     ref.invalidateSelf();
   }
 
-  Future<void> edit(String id, {String? prompt, String? schedule}) async {
+  Future<void> edit(
+    String id, {
+    String? name,
+    String? prompt,
+    String? schedule,
+  }) async {
     final service = _service;
-    await service.updateJob(id, prompt: prompt, schedule: schedule);
+    await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
     ref.invalidateSelf();
   }
 

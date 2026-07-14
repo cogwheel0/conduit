@@ -139,7 +139,7 @@ class HermesSessionTile extends ConsumerWidget {
       DebugLogger.error(
         'session-action-failed',
         scope: 'hermes/sessions',
-        error: error,
+        data: {'errorType': error.runtimeType.toString()},
       );
       if (context.mounted) {
         UiUtils.showMessage(context, failureMessage, isError: true);
@@ -230,7 +230,7 @@ Future<void> openHermesSession(
     DebugLogger.error(
       'open-session-failed',
       scope: 'hermes/sessions',
-      error: error,
+      data: {'errorType': error.runtimeType.toString()},
     );
     if (context.mounted) {
       UiUtils.showMessage(

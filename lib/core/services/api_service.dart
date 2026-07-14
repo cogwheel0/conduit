@@ -521,10 +521,10 @@ class ApiService {
 
       // Check for redirects (proxy authentication pages)
       if (statusCode == 302 || statusCode == 307 || statusCode == 308) {
-        final location = response.headers.value('location');
         DebugLogger.log(
-          'Detected redirect to: $location - likely proxy auth required',
+          'proxy-auth-redirect-detected',
           scope: 'api/proxy-detect',
+          data: {'statusCode': statusCode},
         );
         return HealthCheckResult.proxyAuthRequired;
       }
@@ -623,7 +623,10 @@ class ApiService {
       DebugLogger.error(
         'proxy-detection-failed',
         scope: 'api/proxy-detect',
-        error: e,
+        data: {
+          'errorType': e.runtimeType.toString(),
+          if (e is DioException) 'statusCode': e.response?.statusCode,
+        },
       );
       if (throwOnConnectionError) {
         rethrow;
@@ -778,7 +781,7 @@ class ApiService {
           final location = e.response?.headers.value('location');
           if (location != null) {
             throw Exception(
-              'Server redirect detected. Please check your server URL configuration. Redirect to: $location',
+              'Server redirect detected. Please check your server URL configuration.',
             );
           }
         }
@@ -813,16 +816,18 @@ class ApiService {
         // Handle LDAP not enabled
         if (e.response?.statusCode == 400) {
           final data = e.response?.data;
-          if (data is Map && data['detail'] != null) {
-            throw Exception(data['detail']);
+          if (data is Map &&
+              data['detail'] == 'LDAP authentication is not enabled') {
+            throw Exception('LDAP authentication is not enabled');
           }
+          throw Exception('LDAP authentication failed');
         }
         // Handle specific redirect cases
         if (e.response?.statusCode == 307 || e.response?.statusCode == 308) {
           final location = e.response?.headers.value('location');
           if (location != null) {
             throw Exception(
-              'Server redirect detected. Please check your server URL configuration. Redirect to: $location',
+              'Server redirect detected. Please check your server URL configuration.',
             );
           }
         }

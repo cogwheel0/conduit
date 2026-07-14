@@ -16,6 +16,7 @@ import 'package:conduit/features/direct_connections/services/direct_provider_ada
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -110,7 +111,11 @@ final class _FixedHermesConfig extends HermesConfigController {
   Completer<DirectModelDiscoveryState> discovery,
   Model selected,
 })
-_createFixture({HermesConfig hermesConfig = const HermesConfig()}) {
+_createFixture({
+  HermesConfig hermesConfig = const HermesConfig(),
+  String remoteModelId = 'persisted-model',
+  String? remoteModelName,
+}) {
   final profile = DirectConnectionProfile(
     id: 'profile',
     name: 'Provider',
@@ -119,7 +124,7 @@ _createFixture({HermesConfig hermesConfig = const HermesConfig()}) {
   );
   final registry = DirectModelRegistry();
   final selected = registry.replaceProfileModels(profile, [
-    DirectRemoteModel(id: 'persisted-model'),
+    DirectRemoteModel(id: remoteModelId, name: remoteModelName),
   ]).single;
   final discovery = Completer<DirectModelDiscoveryState>();
   final container = ProviderContainer(
@@ -199,6 +204,83 @@ void main() {
 
     expect(fixture.container.read(selectedModelProvider), isNull);
     expect(fixture.container.read(isManualModelSelectionProvider), isFalse);
+  });
+
+  test('direct reconciliation logs omit remote model identity', () async {
+    const remoteId = 'ID_LOG_SENTINEL';
+    const remoteName = 'NAME_LOG_SENTINEL';
+    final fixture = _createFixture(
+      remoteModelId: remoteId,
+      remoteModelName: remoteName,
+    );
+    addTearDown(fixture.container.dispose);
+    final stableId = fixture.selected.id;
+    final logs = <String>[];
+    final previousDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+
+    try {
+      await fixture.container.read(modelsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      fixture.discovery.complete(DirectModelDiscoveryState());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+    } finally {
+      debugPrint = previousDebugPrint;
+    }
+
+    final combined = logs.join('\n');
+    expect(combined, contains('accountless-selection-reconciled'));
+    expect(combined, isNot(contains(remoteId)));
+    expect(combined, isNot(contains(remoteName)));
+    expect(combined, isNot(contains(stableId)));
+  });
+
+  test('direct default-selection logs omit remote model identity', () async {
+    const remoteId = 'DEFAULT_ID_SENTINEL';
+    const remoteName = 'DEFAULT_NAME_SENTINEL';
+    final profile = DirectConnectionProfile(
+      id: 'hostile-profile',
+      name: 'Provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final selected = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: remoteId, name: remoteName),
+    ]).single;
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(true),
+        optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+        directModelRegistryProvider.overrideWithValue(registry),
+        hermesConfigProvider.overrideWith(
+          () => _FixedHermesConfig(const HermesConfig()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(selected);
+    container.read(isManualModelSelectionProvider.notifier).set(true);
+    final logs = <String>[];
+    final previousDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+
+    try {
+      expect(await container.read(defaultModelProvider.future), same(selected));
+    } finally {
+      debugPrint = previousDebugPrint;
+    }
+
+    final combined = logs.join('\n');
+    expect(combined, contains('DBG[models/default] manual'));
+    expect(combined, isNot(contains(remoteId)));
+    expect(combined, isNot(contains(remoteName)));
+    expect(combined, isNot(contains(selected.id)));
   });
 
   test('terminal discovery error reconciles to an available model', () async {

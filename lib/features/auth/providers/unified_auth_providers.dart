@@ -28,7 +28,7 @@ Future<bool> completeOpenWebUiAuthentication({
       DebugLogger.warning(
         'preferred-backend-persist-failed',
         scope: 'auth/backend',
-        data: {'error': error.toString()},
+        data: {'errorType': error.runtimeType.toString()},
       );
     }
   }

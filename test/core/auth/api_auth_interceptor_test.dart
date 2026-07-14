@@ -1,5 +1,6 @@
 import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -125,6 +126,40 @@ void main() {
     });
 
     test(
+      'auth validation under a server base-path still notifies auth failure',
+      () async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          authToken: 'token',
+          onAuthTokenInvalid: () {
+            authFailureCount++;
+          },
+        );
+        final request = RequestOptions(
+          baseUrl: 'https://host.example/openwebui',
+          path: '/api/v1/auths/',
+        );
+        final handler = _TestErrorInterceptorHandler();
+
+        expect(request.uri.path, '/openwebui/api/v1/auths/');
+        interceptor.onError(
+          DioException(
+            requestOptions: request,
+            response: Response<dynamic>(
+              requestOptions: request,
+              statusCode: 401,
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+          handler,
+        );
+        await handler.done;
+
+        expect(authFailureCount, 1);
+      },
+    );
+
+    test(
       'suppressed auth validation error does not notify auth failure',
       () async {
         var authFailureCount = 0;
@@ -180,6 +215,33 @@ void main() {
       await handler.done;
 
       expect(authFailureCount, 0);
+    });
+
+    test('auth diagnostics never include path or query values', () async {
+      const pathSecret = 'opaque-path-secret';
+      const querySecret = 'query-secret';
+      final logs = <String>[];
+      final previousDebugPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) {
+        if (message != null) logs.add(message);
+      };
+      final interceptor = ApiAuthInterceptor(authToken: 'token');
+      final handler = _TestErrorInterceptorHandler();
+
+      try {
+        interceptor.onError(
+          _dioError(403, '/api/v1/notes/$pathSecret?token=$querySecret'),
+          handler,
+        );
+        await handler.done;
+      } finally {
+        debugPrint = previousDebugPrint;
+      }
+
+      final combined = logs.join('\n');
+      expect(combined, contains('403 on non-essential endpoint'));
+      expect(combined, isNot(contains(pathSecret)));
+      expect(combined, isNot(contains(querySecret)));
     });
   });
 }

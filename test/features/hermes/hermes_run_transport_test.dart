@@ -1739,6 +1739,41 @@ void main() {
     check(error.runes.length).isLessOrEqual(kMaxHermesProviderErrorCharacters);
   });
 
+  test(
+    'provider error redaction survives a supplementary-character boundary',
+    () {
+      const secret = 'UNICODE_BOUNDARY_SECRET';
+      final reflected = '${List<String>.filled(6, '😀').join()}$secret';
+
+      final message = sanitizeHermesProviderErrorMessage(
+        reflected,
+        sensitiveValues: const <String>[secret],
+        maxCharacters: 8,
+      );
+
+      check(message).not((value) => value.contains('U'));
+      check(message.runes.length).equals(8);
+    },
+  );
+
+  test(
+    'provider error redaction survives normalization after its boundary',
+    () {
+      const secret = 'UNICODE_BOUNDARY_SECRET';
+      final reflected = '${List<String>.filled(20, ' ').join()}$secret';
+
+      final message = sanitizeHermesProviderErrorMessage(
+        reflected,
+        sensitiveValues: const <String>[secret],
+        maxCharacters: 8,
+      );
+
+      check(message).equals('[REDACT…');
+      check(message.runes.length).equals(8);
+      check(message).not((value) => value.contains('UNICODE'));
+    },
+  );
+
   test('appends final output when no deltas streamed', () async {
     final fake = _FakeHermesApiService(const [
       HermesFinalOutput('Only the final'),

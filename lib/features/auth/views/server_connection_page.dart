@@ -4,7 +4,7 @@ import 'dart:io' show File, HandshakeException, HttpException, SocketException;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,12 +22,143 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
+import '../../../core/utils/sensitive_value_utils.dart';
+import '../../../core/utils/unicode_prefix.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../providers/unified_auth_providers.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../widgets/adaptive_auth_scaffold.dart';
+
+const int _maxConnectionProviderDetailCharacters = 300;
+const int _maxConnectionErrorCharacters = 640;
+const int _maxConnectionSecretCharacters = 8 * 1024;
+const int _maxConnectionSecretPatterns = 32;
+const int _maxConnectionSecretTotalCharacters = 32 * 1024;
+
+/// Redacts configured header values before normalizing and bounding text that
+/// came from a server, proxy, or transport error.
+///
+/// The working prefix includes enough Unicode scalars to recognize a secret
+/// that begins inside the visible limit. If the defensive working limit still
+/// cuts through a secret, the partial suffix is dropped before whitespace
+/// normalization can move it back into view.
+@visibleForTesting
+String? sanitizeServerConnectionProviderText(
+  Object? value, {
+  required Iterable<String> sensitiveValues,
+  int maxCharacters = _maxConnectionProviderDetailCharacters,
+}) {
+  if (value == null) return null;
+  if (maxCharacters <= 0) {
+    throw RangeError.value(maxCharacters, 'maxCharacters');
+  }
+
+  final secrets = <String>{};
+  var totalSecretCharacters = 0;
+  for (final configuredValue in sensitiveValues) {
+    final variants = boundedSensitiveValueVariants(
+      configuredValue,
+      maxCharacters: _maxConnectionSecretCharacters,
+      maxVariants: _maxConnectionSecretPatterns,
+    );
+    if (variants == null) return null;
+    for (final candidate in variants) {
+      if (candidate.isEmpty || !secrets.add(candidate)) continue;
+      totalSecretCharacters += candidate.length;
+      if (secrets.length > _maxConnectionSecretPatterns ||
+          totalSecretCharacters > _maxConnectionSecretTotalCharacters) {
+        // Imported configuration is untrusted too. Fail closed rather than
+        // building an unbounded redaction expression or leaking a fragment.
+        return null;
+      }
+    }
+  }
+
+  final orderedSecrets = secrets.toList(growable: false)
+    ..sort((a, b) {
+      final runeLength = b.runes.length.compareTo(a.runes.length);
+      return runeLength != 0 ? runeLength : b.length.compareTo(a.length);
+    });
+  final raw = value.toString();
+  final safe = redactSensitiveValuesInUnicodePrefix(
+    raw,
+    sensitiveValues: orderedSecrets,
+    maxVisibleScalars: maxCharacters,
+  );
+  return _normalizeAndBoundConnectionText(safe, maxCharacters: maxCharacters);
+}
+
+String? _normalizeAndBoundConnectionText(
+  String value, {
+  required int maxCharacters,
+}) {
+  final safe = value
+      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (safe.isEmpty) return null;
+
+  final characters = safe.runes.toList(growable: false);
+  if (characters.length <= maxCharacters) return safe;
+  if (maxCharacters == 1) return '…';
+  return '${String.fromCharCodes(characters.take(maxCharacters - 1))}…';
+}
+
+/// Formats a Dio failure without allowing server-controlled status, redirect,
+/// or response-body text to reflect custom-header credentials into the UI.
+@visibleForTesting
+String formatServerConnectionDioExceptionForDisplay(
+  DioException error, {
+  required Iterable<String> sensitiveValues,
+}) {
+  final response = error.response;
+  if (response != null) {
+    final statusCode = response.statusCode;
+    final statusMessage = sanitizeServerConnectionProviderText(
+      response.statusMessage,
+      sensitiveValues: sensitiveValues,
+      maxCharacters: 120,
+    );
+    final status = [
+      if (statusCode != null) '$statusCode',
+      ?statusMessage,
+    ].join(' ');
+    final wasRedirected =
+        response.headers.value('location')?.trim().isNotEmpty == true;
+    final detail = sanitizeServerConnectionProviderText(
+      _serverConnectionResponseErrorDetail(response.data),
+      sensitiveValues: sensitiveValues,
+    );
+    final parts = [
+      if (status.isNotEmpty) 'HTTP $status',
+      'from the server',
+      if (wasRedirected) 'redirected by server',
+      ?detail,
+    ];
+    return _normalizeAndBoundConnectionText(
+          parts.join(' - '),
+          maxCharacters: _maxConnectionErrorCharacters,
+        ) ??
+        'Could not connect to the server.';
+  }
+
+  final formatted = '${error.type.name} while contacting the server';
+  return _normalizeAndBoundConnectionText(
+        formatted,
+        maxCharacters: _maxConnectionErrorCharacters,
+      ) ??
+      'Could not connect to the server.';
+}
+
+Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
+  {'detail': final Object value} => value,
+  {'message': final Object value} => value,
+  {'error': final Object value} => value,
+  final String value => value,
+  _ => null,
+};
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
   const ServerConnectionPage({super.key});
@@ -226,12 +357,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         );
         context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
       }
-    } catch (e, stack) {
+    } catch (e) {
       DebugLogger.error(
         'server-connection-error',
         scope: 'auth/connection',
-        error: e,
-        stackTrace: stack,
+        data: {'errorType': e.runtimeType.toString()},
       );
       if (mounted) {
         setState(() {
@@ -352,7 +482,31 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       scope: 'auth/connection',
     );
 
-    final backendConfig = await apiWithCookies.verifyAndGetConfig();
+    final BackendConfig? backendConfig;
+    try {
+      backendConfig = await apiWithCookies.verifyAndGetConfig();
+    } catch (error) {
+      DebugLogger.error(
+        'proxy-server-verification-error',
+        scope: 'auth/connection',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        final proxySensitiveValues = <String>[
+          ...updatedHeaders.values,
+          ...?result.cookies?.values,
+          if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
+        ];
+        setState(() {
+          _connectionError = _formatConnectionError(
+            error,
+            sensitiveValues: proxySensitiveValues,
+          );
+          _isConnecting = false;
+        });
+      }
+      return;
+    }
     if (backendConfig == null) {
       if (mounted) {
         setState(() {
@@ -426,12 +580,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       } else {
         throw Exception('Login failed');
       }
-    } catch (e, stack) {
+    } catch (e) {
       DebugLogger.error(
         'Failed to complete auth with token',
         scope: 'auth/connection',
-        error: e,
-        stackTrace: stack,
+        data: {'errorType': e.runtimeType.toString()},
       );
       if (mounted) {
         setState(() {
@@ -548,10 +701,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         return url;
       }
 
-      DebugLogger.log(
-        'Upgraded scheme-less server URL from $url to $redirectedUrl',
-        scope: 'auth/connection',
-      );
+      DebugLogger.log('scheme-less-url-upgraded', scope: 'auth/connection');
       return redirectedUrl;
     } on DioException catch (error) {
       DebugLogger.log(
@@ -561,7 +711,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return url;
     } catch (error) {
       DebugLogger.log(
-        'Scheme-less HTTPS canonicalization skipped: $error',
+        'Scheme-less HTTPS canonicalization skipped: ${error.runtimeType}',
         scope: 'auth/connection',
       );
       return url;
@@ -782,10 +932,20 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     ConduitHaptics.lightImpact();
   }
 
-  String _formatConnectionError(Object error) {
+  String _formatConnectionError(
+    Object error, {
+    Iterable<String>? sensitiveValues,
+  }) {
+    final effectiveSensitiveValues = sensitiveValues ?? _customHeaders.values;
     // Clean up the error message
     final errorText = error.toString();
-    final cleanError = _cleanExceptionPrefix(errorText);
+    final cleanError =
+        sanitizeServerConnectionProviderText(
+          _cleanExceptionPrefix(errorText),
+          sensitiveValues: effectiveSensitiveValues,
+          maxCharacters: _maxConnectionErrorCharacters,
+        ) ??
+        AppLocalizations.of(context)!.couldNotConnectGeneric;
 
     // Handle specific error types
     if (errorText.contains('mTLS certificate setup failed')) {
@@ -803,7 +963,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return AppLocalizations.of(context)!.mutualTlsHandshakeFailed;
     }
 
-    final exactServerUrlError = _formatExactServerUrlError(error);
+    final exactServerUrlError = _formatExactServerUrlError(
+      error,
+      sensitiveValues: effectiveSensitiveValues,
+    );
     if (exactServerUrlError != null) {
       return exactServerUrlError;
     }
@@ -833,75 +996,31 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         : cleanError;
   }
 
-  String? _formatExactServerUrlError(Object error) {
+  String? _formatExactServerUrlError(
+    Object error, {
+    required Iterable<String> sensitiveValues,
+  }) {
     if (error is DioException) {
-      return _formatDioException(error);
+      return _formatDioException(error, sensitiveValues: sensitiveValues);
     }
 
-    if (error is SocketException ||
-        error is HttpException ||
-        error is HandshakeException) {
-      return _cleanExceptionPrefix(error.toString());
+    if (error is SocketException) return 'Could not reach the server.';
+    if (error is HttpException) {
+      return 'The server returned an invalid HTTP response.';
     }
+    if (error is HandshakeException) return 'TLS handshake failed.';
 
     return null;
   }
 
-  String _formatDioException(DioException error) {
-    final response = error.response;
-    if (response != null) {
-      final statusCode = response.statusCode;
-      final statusMessage = response.statusMessage?.trim();
-      final status = [
-        if (statusCode != null) '$statusCode',
-        if (statusMessage != null && statusMessage.isNotEmpty) statusMessage,
-      ].join(' ');
-      final location = response.headers.value('location');
-      final detail = _responseErrorDetail(response.data);
-      final parts = [
-        if (status.isNotEmpty) 'HTTP $status',
-        'from ${response.requestOptions.uri}',
-        if (location != null && location.isNotEmpty) 'redirect: $location',
-        ?detail,
-      ];
-      return parts.join(' - ');
-    }
-
-    final requestUri = error.requestOptions.uri;
-    final rawMessage = error.error?.toString().trim();
-    if (rawMessage != null && rawMessage.isNotEmpty) {
-      return '${error.type.name} for $requestUri: $rawMessage';
-    }
-
-    final dioMessage = error.message?.trim();
-    if (dioMessage != null && dioMessage.isNotEmpty) {
-      return '${error.type.name} for $requestUri: $dioMessage';
-    }
-
-    return '${error.type.name} for $requestUri';
-  }
-
-  String? _responseErrorDetail(Object? data) {
-    final detail = switch (data) {
-      {'detail': final Object value} => value.toString(),
-      {'message': final Object value} => value.toString(),
-      {'error': final Object value} => value.toString(),
-      final String value => value,
-      _ => null,
-    };
-
-    if (detail == null) {
-      return null;
-    }
-
-    final normalized = detail.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (normalized.isEmpty) {
-      return null;
-    }
-    if (normalized.length <= 300) {
-      return normalized;
-    }
-    return '${normalized.substring(0, 300)}...';
+  String _formatDioException(
+    DioException error, {
+    required Iterable<String> sensitiveValues,
+  }) {
+    return formatServerConnectionDioExceptionForDisplay(
+      error,
+      sensitiveValues: sensitiveValues,
+    );
   }
 
   String _cleanExceptionPrefix(String error) {

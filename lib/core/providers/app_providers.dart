@@ -1237,6 +1237,13 @@ List<Model> appendHermesModelIfUsable(
       : <Model>[...safeModels, ...directModels];
 }
 
+String _modelBackendForDiagnostics(Model? model) {
+  if (model == null) return 'none';
+  if (isLocallyMintedDirectModel(model)) return 'direct';
+  if (isHermesModel(model)) return 'hermes';
+  return 'openwebui';
+}
+
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
   bool _terminalDirectDiscoveryNeedsReconciliation = false;
@@ -1554,7 +1561,11 @@ class Models extends _$Models {
       DebugLogger.warning(
         'accountless-selection-reconciled',
         scope: 'models',
-        data: {'previous': currentSelected?.id, 'replacement': replacement?.id},
+        data: {
+          'previousBackend': _modelBackendForDiagnostics(currentSelected),
+          'replacementBackend': _modelBackendForDiagnostics(replacement),
+          'source': 'reconciliation',
+        },
       );
       return models;
     }
@@ -1582,7 +1593,7 @@ class Models extends _$Models {
           DebugLogger.log(
             'direct-selection-rebound',
             scope: 'models',
-            data: {'id': matching.id},
+            data: {'backend': 'direct', 'source': 'discovery'},
           );
         }
       }
@@ -1595,7 +1606,10 @@ class Models extends _$Models {
     DebugLogger.warning(
       'local-selection-unavailable',
       scope: 'models',
-      data: {'replacement': replacement?.id},
+      data: {
+        'replacementBackend': _modelBackendForDiagnostics(replacement),
+        'source': 'reconciliation',
+      },
     );
     return models;
   }
@@ -1684,8 +1698,9 @@ class Models extends _$Models {
               'selected-model-refreshed',
               scope: 'models',
               data: {
-                'id': freshModel.id,
+                'backend': _modelBackendForDiagnostics(freshModel),
                 'filters': freshModel.filters?.length ?? 0,
+                'source': 'refresh',
               },
             );
           }
@@ -1696,7 +1711,11 @@ class Models extends _$Models {
           DebugLogger.warning(
             'selected-model-unavailable',
             scope: 'models',
-            data: {'id': currentSelected.id, 'replacement': replacement?.id},
+            data: {
+              'previousBackend': _modelBackendForDiagnostics(currentSelected),
+              'replacementBackend': _modelBackendForDiagnostics(replacement),
+              'source': 'refresh',
+            },
           );
         }
       }
@@ -1937,7 +1956,11 @@ class SelectedModel extends _$SelectedModel {
         DebugLogger.warning(
           'primary-accountless-selection-restored',
           scope: 'models/default',
-          data: {'previous': current?.id, 'replacement': replacement?.id},
+          data: {
+            'previousBackend': _modelBackendForDiagnostics(current),
+            'replacementBackend': _modelBackendForDiagnostics(replacement),
+            'source': 'reconciliation',
+          },
         );
       }),
     );
@@ -2072,7 +2095,11 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
       DebugLogger.log(
         'auto-apply-tools',
         scope: 'models/tools',
-        data: {'modelId': model.id, 'toolCount': validToolIds.length},
+        data: {
+          'backend': _modelBackendForDiagnostics(model),
+          'toolCount': validToolIds.length,
+          'source': 'selection',
+        },
       );
     }
 
@@ -2152,7 +2179,10 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
     DebugLogger.log(
       'auto-apply-terminal',
       scope: 'models/terminal',
-      data: {'modelId': model?.id},
+      data: {
+        'backend': _modelBackendForDiagnostics(model),
+        'source': 'selection',
+      },
     );
   }
 
@@ -2191,9 +2221,10 @@ final modelFiltersAutoSelectionProvider = Provider<void>((ref) {
         'filter-selection-validated',
         scope: 'models/filters',
         data: {
-          'modelId': model?.id,
+          'backend': _modelBackendForDiagnostics(model),
           'previousCount': currentFilterIds.length,
           'validCount': validSelection.length,
+          'source': 'selection',
         },
       );
     }
@@ -2280,7 +2311,10 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
           DebugLogger.log(
             'auto-apply',
             scope: 'models/default',
-            data: {'name': selected.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(selected),
+              'source': 'preference',
+            },
           );
         }
       } catch (e) {
@@ -3441,7 +3475,10 @@ Future<Model?> defaultModel(Ref ref) async {
       DebugLogger.log(
         'manual',
         scope: 'models/default',
-        data: {'name': currentSelected.name},
+        data: {
+          'backend': _modelBackendForDiagnostics(currentSelected),
+          'source': 'user',
+        },
       );
       return currentSelected;
     }
@@ -3456,7 +3493,10 @@ Future<Model?> defaultModel(Ref ref) async {
         DebugLogger.log(
           'auto-select',
           scope: 'models/default',
-          data: {'name': defaultModel.name},
+          data: {
+            'backend': _modelBackendForDiagnostics(defaultModel),
+            'source': 'reviewer',
+          },
         );
       }
       return defaultModel;
@@ -3685,7 +3725,10 @@ Future<Model?> defaultModel(Ref ref) async {
         DebugLogger.log(
           'settings-default',
           scope: 'models/default',
-          data: {'name': availableMatch.name, 'source': 'available'},
+          data: {
+            'backend': _modelBackendForDiagnostics(availableMatch),
+            'source': 'available',
+          },
         );
         return availableMatch;
       }
@@ -3702,7 +3745,10 @@ Future<Model?> defaultModel(Ref ref) async {
         DebugLogger.log(
           'settings-default',
           scope: 'models/default',
-          data: {'name': cachedMatch.name, 'source': 'settings'},
+          data: {
+            'backend': _modelBackendForDiagnostics(cachedMatch),
+            'source': 'settings',
+          },
         );
         return cachedMatch;
       }
@@ -3750,7 +3796,10 @@ Future<Model?> defaultModel(Ref ref) async {
           DebugLogger.log(
             'cached-default',
             scope: 'models/default',
-            data: {'name': cachedMatch.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(cachedMatch),
+              'source': 'cache',
+            },
           );
           return cachedMatch;
         }
@@ -3788,7 +3837,10 @@ Future<Model?> defaultModel(Ref ref) async {
           DebugLogger.log(
             'server-default',
             scope: 'models/default',
-            data: {'name': resolved.name},
+            data: {
+              'backend': _modelBackendForDiagnostics(resolved),
+              'source': 'server',
+            },
           );
           return resolved;
         }
@@ -3831,7 +3883,10 @@ Future<Model?> defaultModel(Ref ref) async {
       DebugLogger.log(
         'fallback-selected',
         scope: 'models/default',
-        data: {'name': selectedModel.name, 'id': selectedModel.id},
+        data: {
+          'backend': _modelBackendForDiagnostics(selectedModel),
+          'source': 'fallback',
+        },
       );
     } else {
       DebugLogger.log('skip-manual-override', scope: 'models/default');
@@ -3965,7 +4020,10 @@ final backgroundModelLoadProvider = Provider<void>((ref) {
         DebugLogger.log(
           'bg-complete',
           scope: 'models/background',
-          data: {'model': model?.name ?? 'null'},
+          data: {
+            'backend': _modelBackendForDiagnostics(model),
+            'source': 'background',
+          },
         );
       } catch (e) {
         DebugLogger.error('bg-failed', scope: 'models/background', error: e);
