@@ -433,10 +433,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           if (delta.isNotEmpty) emitter.content(delta);
         case openai.RefusalDeltaEvent(:final delta):
           if (delta.isNotEmpty) emitter.content(delta);
-        case openai.ReasoningTextDeltaEvent(:final delta):
-          if (delta.isNotEmpty) emitter.responseReasoningText(delta);
-        case openai.ReasoningSummaryTextDeltaEvent(:final delta):
-          if (delta.isNotEmpty) emitter.responseReasoningSummary(delta);
+        case openai.ReasoningTextDeltaEvent(:final delta, :final outputIndex):
+          if (delta.isNotEmpty) {
+            emitter.responseReasoningText(delta, outputIndex: outputIndex);
+          }
+        case openai.ReasoningSummaryTextDeltaEvent(
+          :final delta,
+          :final outputIndex,
+        ):
+          if (delta.isNotEmpty) {
+            emitter.responseReasoningSummary(delta, outputIndex: outputIndex);
+          }
         case openai.ResponseCompletedEvent(:final response):
           final statusError = _responseStatusError(response);
           if (statusError != null) {
@@ -472,10 +479,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 type == 'response.reasoning_summary.delta':
           final delta = _completionText(rawJson['delta']);
           if (delta != null) {
+            final rawOutputIndex = rawJson['output_index'];
+            final outputIndex = rawOutputIndex is int ? rawOutputIndex : null;
             if (type == 'response.reasoning_summary.delta') {
-              emitter.responseReasoningSummary(delta);
+              emitter.responseReasoningSummary(delta, outputIndex: outputIndex);
             } else {
-              emitter.responseReasoningText(delta);
+              emitter.responseReasoningText(delta, outputIndex: outputIndex);
             }
           }
         default:
@@ -935,6 +944,8 @@ final class _DirectEmitter {
   final StringBuffer _contentText = StringBuffer();
   final StringBuffer _responseReasoningText = StringBuffer();
   final StringBuffer _responseReasoningSummary = StringBuffer();
+  final Set<int> _responseReasoningTextOutputIndexes = <int>{};
+  final Set<int> _responseReasoningSummaryOutputIndexes = <int>{};
 
   bool get hasCompletion => _hasNonWhitespaceCompletion;
   String get contentText => _contentText.toString();
@@ -956,16 +967,36 @@ final class _DirectEmitter {
     _emitReasoning(value);
   }
 
-  void responseReasoningText(String value) {
-    if (terminalSent || controller.isClosed) return;
-    _responseReasoningText.write(value);
-    _emitReasoning(value);
-  }
+  void responseReasoningText(String value, {int? outputIndex}) =>
+      _emitResponseReasoningCategory(
+        value,
+        outputIndex: outputIndex,
+        aggregate: _responseReasoningText,
+        startedOutputIndexes: _responseReasoningTextOutputIndexes,
+      );
 
-  void responseReasoningSummary(String value) {
+  void responseReasoningSummary(String value, {int? outputIndex}) =>
+      _emitResponseReasoningCategory(
+        value,
+        outputIndex: outputIndex,
+        aggregate: _responseReasoningSummary,
+        startedOutputIndexes: _responseReasoningSummaryOutputIndexes,
+      );
+
+  void _emitResponseReasoningCategory(
+    String value, {
+    required int? outputIndex,
+    required StringBuffer aggregate,
+    required Set<int> startedOutputIndexes,
+  }) {
     if (terminalSent || controller.isClosed) return;
-    _responseReasoningSummary.write(value);
-    _emitReasoning(value);
+    final startsNewOutputItem =
+        outputIndex != null && startedOutputIndexes.add(outputIndex);
+    final rendered = startsNewOutputItem && aggregate.isNotEmpty
+        ? '\n$value'
+        : value;
+    aggregate.write(rendered);
+    _emitReasoning(rendered);
   }
 
   void _emitReasoning(String value) {

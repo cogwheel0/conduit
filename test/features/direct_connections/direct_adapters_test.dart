@@ -2613,6 +2613,87 @@ void main() {
     },
   );
 
+  test('Responses completion preserves streamed reasoning item boundaries', () async {
+    final completed = {
+      'type': 'response.completed',
+      'response': {
+        'id': 'resp_reasoning_items',
+        'object': 'response',
+        'created_at': 1,
+        'status': 'completed',
+        'output': [
+          {
+            'type': 'reasoning',
+            'id': 'reason_1',
+            'content': [
+              {'type': 'reasoning_text', 'text': 'detail one'},
+            ],
+            'summary': [
+              {'type': 'summary_text', 'text': 'summary one'},
+            ],
+          },
+          {
+            'type': 'reasoning',
+            'id': 'reason_2',
+            'content': [
+              {'type': 'reasoning_text', 'text': 'detail two'},
+            ],
+            'summary': [
+              {'type': 'summary_text', 'text': 'summary two'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'msg_reasoning_items',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'answer'},
+            ],
+          },
+        ],
+      },
+    };
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({'type': 'response.reasoning_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'detail one'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.reasoning_text.delta', 'output_index': 1, 'content_index': 0, 'delta': 'detail two'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary one'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 1, 'summary_index': 0, 'delta': 'summary two'})}\n\n'
+          'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 2, 'content_index': 0, 'delta': 'answer'})}\n\n'
+          'data: ${jsonEncode(completed)}\n\n',
+        ),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(openAiApiMode: DirectOpenAiApiMode.responses),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events
+          .whereType<DirectReasoningDelta>()
+          .map((event) => event.content)
+          .join(),
+      'detail one\ndetail twosummary one\nsummary two',
+    );
+    expect(events.whereType<DirectContentDelta>().single.content, 'answer');
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
   test('Responses completion rejects divergent streamed output', () async {
     final completed = {
       'type': 'response.completed',
