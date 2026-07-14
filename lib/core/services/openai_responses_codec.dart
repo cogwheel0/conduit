@@ -47,9 +47,9 @@ final class OpenAiResponsesCodec {
       final summary = item.summary.map((part) => part.text).join();
       final nonEmptyContent = _nonEmpty(content);
       final nonEmptySummary = _nonEmpty(summary);
-      reasoningText.write(nonEmptyContent ?? '');
-      reasoningSummary.write(nonEmptySummary ?? '');
-      reasoning.write(nonEmptyContent ?? nonEmptySummary ?? '');
+      _writeSeparated(reasoningText, nonEmptyContent);
+      _writeSeparated(reasoningSummary, nonEmptySummary);
+      _writeSeparated(reasoning, nonEmptyContent ?? nonEmptySummary);
     }
 
     final text = StringBuffer();
@@ -101,6 +101,12 @@ final class OpenAiResponsesCodec {
 
   static String? _nonEmpty(String? value) =>
       value == null || value.isEmpty ? null : value;
+
+  static void _writeSeparated(StringBuffer buffer, String? value) {
+    if (value == null) return;
+    if (buffer.isNotEmpty) buffer.write('\n');
+    buffer.write(value);
+  }
 }
 
 final class OpenAiResponseContent {

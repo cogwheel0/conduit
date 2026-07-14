@@ -88,4 +88,46 @@ void main() {
     check(content.text).equals('answer declined');
     check(OpenAiResponsesCodec.statusError(response)).isNull();
   });
+
+  test('separates multiple non-empty terminal reasoning items', () {
+    final response = OpenAiResponsesCodec.decodeResponse({
+      'id': 'resp_reasoning',
+      'object': 'response',
+      'created_at': 1,
+      'status': 'completed',
+      'output': [
+        {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'content': [
+            {'type': 'reasoning_text', 'text': 'detail one'},
+          ],
+          'summary': [
+            {'type': 'summary_text', 'text': 'summary one'},
+          ],
+        },
+        {
+          'type': 'reasoning',
+          'id': 'rs_2',
+          'summary': [
+            {'type': 'summary_text', 'text': 'summary two'},
+          ],
+        },
+        {
+          'type': 'reasoning',
+          'id': 'rs_3',
+          'content': [
+            {'type': 'reasoning_text', 'text': 'detail three'},
+          ],
+          'summary': <Map<String, Object?>>[],
+        },
+      ],
+    });
+
+    final content = OpenAiResponsesCodec.content(response);
+
+    check(content.reasoningText).equals('detail one\ndetail three');
+    check(content.reasoningSummary).equals('summary one\nsummary two');
+    check(content.reasoning).equals('detail one\nsummary two\ndetail three');
+  });
 }
