@@ -36,6 +36,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../support/gated_close_database.dart';
+
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
@@ -294,22 +296,6 @@ final class _EarlyRejectingDoneAdapter implements DirectProviderAdapter {
       cancelToken: CancelToken(),
       done: Future<void>.error(StateError('early cleanup rejection')),
     );
-  }
-}
-
-final class _BlockingCloseDatabase extends AppDatabase {
-  _BlockingCloseDatabase(super.executor);
-
-  Completer<void>? closeGate;
-  final closeStarted = Completer<void>();
-
-  @override
-  Future<void> close() async {
-    if (!closeStarted.isCompleted) closeStarted.complete();
-    final gate = closeGate;
-    closeGate = null;
-    if (gate != null) await gate.future;
-    await super.close();
   }
 }
 
@@ -1126,11 +1112,12 @@ void main() {
     'Stop interrupts a never-settling direct attachment preflight and releases its lease',
     () async {
       final manager = DatabaseManager(
-        openDatabase: (_) => _BlockingCloseDatabase(NativeDatabase.memory()),
+        openDatabase: (_) =>
+            GatedCloseDatabase(NativeDatabase.memory(), failClose: false),
       );
       final db =
           manager.openForServerId('direct-stop-preflight')
-              as _BlockingCloseDatabase;
+              as GatedCloseDatabase;
       final databaseCloseGate = Completer<void>();
       final api = _DeferredAttachmentApi();
       addTearDown(() async {
@@ -3671,11 +3658,11 @@ void main() {
     'retained final does not retry through a managed database that is closing',
     () async {
       final manager = DatabaseManager(
-        openDatabase: (_) => _BlockingCloseDatabase(NativeDatabase.memory()),
+        openDatabase: (_) =>
+            GatedCloseDatabase(NativeDatabase.memory(), failClose: false),
       );
       final database =
-          manager.openForServerId('closing-retry-server')
-              as _BlockingCloseDatabase;
+          manager.openForServerId('closing-retry-server') as GatedCloseDatabase;
       final closeGate = Completer<void>();
       final directLocal = AppDatabase(NativeDatabase.memory());
       addTearDown(() async {

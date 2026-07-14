@@ -798,6 +798,8 @@ Future<({String text, String status})?> _recoverResponseOutput(
         OpenAiResponsesCodec.content(decoded).text,
         maxCharacters: service.streamLimits.maxCharacters,
       );
+    } on HermesStreamGuardException {
+      rethrow;
     } catch (_) {
       // Stored responses from older Hermes releases can omit OpenAI-required
       // item metadata. Keep recovery compatible without making the direct

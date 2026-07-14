@@ -370,6 +370,26 @@ void main() {
       },
     );
 
+    test('maps oversized terminal output shape to a typed run error', () async {
+      Object? output = 'leaf';
+      for (var depth = 0; depth <= 128; depth++) {
+        output = <Object?>[output];
+      }
+
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: run.completed\n'
+              'data: ${jsonEncode(<String, Object?>{'output': output})}\n\n',
+        ]),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single)
+          .isA<HermesRunError>()
+          .has((event) => event.message, 'message')
+          .contains('size or shape limit');
+    });
+
     test('surfaces errors', () async {
       final events = await parseHermesRunStream(
         _sse(['data: {"error":{"message":"boom"}}\n\n']),
@@ -393,6 +413,32 @@ void main() {
   });
 
   group('parseHermesResponseStream', () {
+    test(
+      'maps sparse response terminal output shape to a typed run error',
+      () async {
+        Object? output = 'leaf';
+        for (var depth = 0; depth <= 128; depth++) {
+          output = <Object?>[output];
+        }
+
+        final events = await parseHermesResponseStream(
+          _sse([
+            'event: response.completed\n'
+                'data: ${jsonEncode(<String, Object?>{
+                  'response': <String, Object?>{'id': 'resp_deep', 'status': 'completed', 'output': output},
+                })}\n\n',
+          ]),
+        ).toList();
+
+        check(
+          events.whereType<HermesResponseCreated>().single.responseId,
+        ).equals('resp_deep');
+        check(
+          events.whereType<HermesRunError>().single.message,
+        ).contains('size or shape limit');
+      },
+    );
+
     test(
       'delegates event-only terminal frames to the Hermes fallback',
       () async {

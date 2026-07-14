@@ -78,8 +78,13 @@ class OptimizedStorageService {
   final OptimizedStorageDatabaseResolver? _databaseAccess;
 
   Future<T?> _withDatabase<T>(
-    Future<T> Function(AppDatabase database) operation,
-  ) async {
+    Future<T> Function(AppDatabase database) operation, {
+    String? expectedServerId,
+  }) async {
+    if (expectedServerId != null &&
+        _rawStoredActiveServerId() != expectedServerId) {
+      return null;
+    }
     final handle = await _databaseAccess?.call();
     if (handle == null) return null;
     try {
@@ -1001,19 +1006,33 @@ class OptimizedStorageService {
 
   Future<void> clearAll() async {
     try {
+      // PreferencesStore.clear removes activeServerId. Keep the initiating
+      // owner stable until a deferred database open/retry has finished, or the
+      // structured wipe can silently disappear halfway through this cleanup.
+      final initiatingServerId = _rawStoredActiveServerId();
+      final structuredCleanup = _withDatabase<void>(
+        (database) => Future.wait([
+          database.appCacheDao.deleteKeys(_allCacheKeys),
+          database.attachmentQueueDao.clearAll(),
+        ]),
+        expectedServerId: initiatingServerId,
+      );
+
+      Future<void> clearPreferencesAfterStructuredCleanup() async {
+        try {
+          await structuredCleanup;
+        } finally {
+          // Preserve the migration gate so a wipe doesn't re-import stale Hive
+          // preferences on the next launch.
+          await PreferencesStore.clear(
+            preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
+          );
+        }
+      }
+
       await Future.wait([
-        _withDatabase<void>(
-          (database) => Future.wait([
-            database.appCacheDao.deleteKeys(_allCacheKeys),
-            database.attachmentQueueDao.clearAll(),
-          ]),
-        ),
+        clearPreferencesAfterStructuredCleanup(),
         _secureCredentialStorage.clearAll(),
-        // Preserve the migration gate so a wipe doesn't re-import stale Hive
-        // preferences on the next launch.
-        PreferencesStore.clear(
-          preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
-        ),
         // Legacy Hive stores; structured active-server stores were cleared
         // above while holding their database lifetime lease.
         _cachesBox.clear(),

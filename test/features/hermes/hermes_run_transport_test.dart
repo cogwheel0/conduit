@@ -52,11 +52,13 @@ class _FakeHermesApiService extends HermesApiService {
     this.cancelTokenOnStreamError = false,
     this.cancelTokenOnRecoveryError = false,
     HermesConfig? serviceConfig,
+    HermesStreamLimits serviceStreamLimits = const HermesStreamLimits(),
   }) : super(
          config:
              serviceConfig ??
              HermesConfig(enabled: true, baseUrl: 'http://x', apiKey: 'k'),
          dio: Dio(),
+         streamLimits: serviceStreamLimits,
        );
 
   final List<HermesRunEvent> events;
@@ -763,6 +765,54 @@ void main() {
 
       check(fake.getResponseCalls).equals(1);
       check(content.toString()).equals('Recovered response');
+    });
+
+    test('response recovery never falls back past its output guard', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [HermesResponseCreated('resp-refusal')],
+        responseResult: const {
+          'id': 'resp-refusal',
+          'object': 'response',
+          'created_at': 1,
+          'status': 'completed',
+          'output': [
+            {
+              'type': 'message',
+              'id': 'msg-refusal',
+              'role': 'assistant',
+              'status': 'completed',
+              'content': [
+                {'type': 'refusal', 'refusal': 'denied'},
+              ],
+            },
+          ],
+        },
+        serviceStreamLimits: const HermesStreamLimits(maxCharacters: 3),
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+      await dispatchHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: message.id,
+        input: HermesChatInput.text('hello'),
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(fake.getResponseCalls).equals(1);
+      check(
+        message.error?.content,
+      ).equals('The Hermes recovery output exceeded Conduit\'s size limit.');
     });
 
     test('recovery waits while a stored response is queued', () async {

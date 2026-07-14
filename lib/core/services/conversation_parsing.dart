@@ -290,26 +290,17 @@ Map<String, dynamic>? _parseSiblingAsVersion(
     historyMsg: historyMsg,
     role: role,
   );
-  final directReplay = _trustedDirectReplayOutput(
+  final directReplayResolution = _resolveDirectReplayForMessage(
     msgData,
     historyMsg: historyMsg,
     outputItems: outputItems,
     role: role,
     metadata: metadata,
+    content: contentString,
   );
+  final directReplay = directReplayResolution.replay;
   if (directReplay != null) {
-    final preserveIncompletePresentation =
-        directReplay.isIncompleteAnswerSentinel &&
-        metadata?[kConduitDirectRawAssistantContentMetadataKey] is String &&
-        (metadata?[kConduitDirectRawAssistantContentMetadataKey] as String)
-            .trim()
-            .isEmpty;
-    contentString = _reconcileDirectReplayContent(
-      contentString,
-      metadata: metadata,
-      replayText: directReplay.text,
-      preserveIncompletePresentation: preserveIncompletePresentation,
-    );
+    contentString = directReplayResolution.content;
   } else if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = _mergeContentWithStructuredOutput(
@@ -571,29 +562,21 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     historyMsg: historyMsg,
     role: role,
   );
-  final metadata = <String, dynamic>{...?extractedMetadata};
+  var metadata = <String, dynamic>{...?extractedMetadata};
   final outputItems = _effectiveOutputItems(msgData, historyMsg);
-  final directReplay = _trustedDirectReplayOutput(
+  final directReplayResolution = _resolveDirectReplayForMessage(
     msgData,
     historyMsg: historyMsg,
     outputItems: outputItems,
     role: role,
     metadata: metadata,
+    content: contentString,
   );
+  metadata = directReplayResolution.metadata!;
+  final directReplay = directReplayResolution.replay;
   if (directReplay != null) {
-    final preserveIncompletePresentation =
-        directReplay.isIncompleteAnswerSentinel &&
-        metadata[kConduitDirectRawAssistantContentMetadataKey] is String &&
-        (metadata[kConduitDirectRawAssistantContentMetadataKey] as String)
-            .trim()
-            .isEmpty;
-    contentString = _reconcileDirectReplayContent(
-      contentString,
-      metadata: metadata,
-      replayText: directReplay.text,
-      preserveIncompletePresentation: preserveIncompletePresentation,
-    );
-    if (!preserveIncompletePresentation) {
+    contentString = directReplayResolution.content;
+    if (!directReplayResolution.preserveIncompletePresentation) {
       metadata[kConduitDirectRawAssistantContentMetadataKey] =
           directReplay.text;
     }
@@ -962,6 +945,55 @@ ConduitDirectReplayOutputMirror? _trustedDirectReplayOutput(
     return null;
   }
   return parseConduitDirectReplayOutput(outputItems);
+}
+
+({
+  String content,
+  Map<String, dynamic>? metadata,
+  ConduitDirectReplayOutputMirror? replay,
+  bool preserveIncompletePresentation,
+})
+_resolveDirectReplayForMessage(
+  Map<String, dynamic> msgData, {
+  required Map<String, dynamic>? historyMsg,
+  required List<Map<String, dynamic>> outputItems,
+  required String role,
+  required Map<String, dynamic>? metadata,
+  required String content,
+}) {
+  final replay = _trustedDirectReplayOutput(
+    msgData,
+    historyMsg: historyMsg,
+    outputItems: outputItems,
+    role: role,
+    metadata: metadata,
+  );
+  if (replay == null) {
+    return (
+      content: content,
+      metadata: metadata,
+      replay: null,
+      preserveIncompletePresentation: false,
+    );
+  }
+
+  final preserveIncompletePresentation =
+      replay.isIncompleteAnswerSentinel &&
+      metadata?[kConduitDirectRawAssistantContentMetadataKey] is String &&
+      (metadata?[kConduitDirectRawAssistantContentMetadataKey] as String)
+          .trim()
+          .isEmpty;
+  return (
+    content: _reconcileDirectReplayContent(
+      content,
+      metadata: metadata,
+      replayText: replay.text,
+      preserveIncompletePresentation: preserveIncompletePresentation,
+    ),
+    metadata: metadata,
+    replay: replay,
+    preserveIncompletePresentation: preserveIncompletePresentation,
+  );
 }
 
 bool _hasTerminalDirectReplayProvenance(

@@ -53,6 +53,41 @@ final class FileContentTooLargeException implements Exception {
   String toString() => 'File content exceeds the configured byte limit.';
 }
 
+/// Forwards caller cancellation without giving request-local guards ownership
+/// of a token that may be shared with other file lookups.
+final class _FileContentCancellationLink {
+  _FileContentCancellationLink(CancelToken? caller) {
+    if (caller == null) return;
+    final cancellation = caller.cancelError;
+    if (cancellation != null) {
+      requestToken.cancel(cancellation.error);
+      return;
+    }
+
+    // CancelToken exposes a Future rather than a removable listener. Keep only
+    // a weak link in that future so a completed request and its transport are
+    // collectible even when a long-lived shared caller token is never cancelled.
+    final weakLink = WeakReference<_FileContentCancellationLink>(this);
+    unawaited(
+      caller.whenCancel.then<void>(
+        (error) => weakLink.target?._forward(error),
+        onError: (Object _, StackTrace _) {},
+      ),
+    );
+  }
+
+  final CancelToken requestToken = CancelToken();
+  bool _attached = true;
+
+  void _forward(DioException error) {
+    if (_attached && !requestToken.isCancelled) {
+      requestToken.cancel(error.error);
+    }
+  }
+
+  void detach() => _attached = false;
+}
+
 Future<bool> _moveFileContentStreamOrCancel(
   StreamIterator<List<int>> iterator,
   CancelToken? cancelToken,
@@ -3108,66 +3143,79 @@ class ApiService {
     // them for consistent handling across platforms/widgets.
     // Dio wraps streamed response bodies. A request-local token is therefore
     // required to tear down the adapter's upstream subscription on a size
-    // rejection; cancelling only the exposed body stream is insufficient.
-    final requestCancelToken = cancelToken ?? CancelToken();
-    final response = await _dio.get<ResponseBody>(
-      '/api/v1/files/$fileId/content',
-      options: _withAuthSnapshot(
-        Options(responseType: ResponseType.stream),
-        authSnapshot,
-      ),
-      cancelToken: requestCancelToken,
-    );
-
-    // Try to determine the mime type from response headers; fallback to text/plain
-    final contentType =
-        response.headers.value(HttpHeaders.contentTypeHeader) ?? '';
-    String mimeType = 'text/plain';
-    if (contentType.isNotEmpty) {
-      // Strip charset if present
-      mimeType = contentType.split(';').first.trim();
-    }
-
-    final advertisedLength = int.tryParse(
-      response.headers.value(HttpHeaders.contentLengthHeader) ?? '',
-    );
-    final body = response.data;
-    if (body == null) {
-      throw const FormatException('File content response is empty.');
-    }
-    if (maxBytes != null &&
-        advertisedLength != null &&
-        advertisedLength > maxBytes) {
-      requestCancelToken.cancel('File content exceeded the byte limit.');
-      throw const FileContentTooLargeException();
-    }
-    final bytes = BytesBuilder(copy: false);
-    var receivedBytes = 0;
-    final iterator = StreamIterator<List<int>>(body.stream);
+    // rejection; cancelling only the exposed body stream is insufficient. A
+    // caller token may be shared, so it can cancel this token but never vice
+    // versa.
+    final cancellationLink = _FileContentCancellationLink(cancelToken);
+    final requestCancelToken = cancellationLink.requestToken;
     try {
-      while (await _moveFileContentStreamOrCancel(iterator, cancelToken)) {
-        final chunk = iterator.current;
-        receivedBytes += chunk.length;
-        if (maxBytes != null && receivedBytes > maxBytes) {
-          throw const FileContentTooLargeException();
-        }
-        bytes.add(chunk);
+      final response = await _dio.get<ResponseBody>(
+        '/api/v1/files/$fileId/content',
+        options: _withAuthSnapshot(
+          Options(responseType: ResponseType.stream),
+          authSnapshot,
+        ),
+        cancelToken: requestCancelToken,
+      );
+
+      // Try to determine the mime type from response headers; fallback to text/plain
+      final contentType =
+          response.headers.value(HttpHeaders.contentTypeHeader) ?? '';
+      String mimeType = 'text/plain';
+      if (contentType.isNotEmpty) {
+        // Strip charset if present
+        mimeType = contentType.split(';').first.trim();
       }
-    } on FileContentTooLargeException {
-      requestCancelToken.cancel('File content exceeded the byte limit.');
-      rethrow;
+
+      final advertisedLength = int.tryParse(
+        response.headers.value(HttpHeaders.contentLengthHeader) ?? '',
+      );
+      final body = response.data;
+      if (body == null) {
+        throw const FormatException('File content response is empty.');
+      }
+      if (maxBytes != null &&
+          advertisedLength != null &&
+          advertisedLength > maxBytes) {
+        requestCancelToken.cancel('File content exceeded the byte limit.');
+        throw const FileContentTooLargeException();
+      }
+      final bytes = BytesBuilder(copy: false);
+      var receivedBytes = 0;
+      final iterator = StreamIterator<List<int>>(body.stream);
+      try {
+        // Per-chunk races must stay on the request-local token. Racing the
+        // shared caller token here would attach one non-removable listener per
+        // chunk instead of the single weak link above.
+        while (await _moveFileContentStreamOrCancel(
+          iterator,
+          requestCancelToken,
+        )) {
+          final chunk = iterator.current;
+          receivedBytes += chunk.length;
+          if (maxBytes != null && receivedBytes > maxBytes) {
+            throw const FileContentTooLargeException();
+          }
+          bytes.add(chunk);
+        }
+      } on FileContentTooLargeException {
+        requestCancelToken.cancel('File content exceeded the byte limit.');
+        rethrow;
+      } finally {
+        _cancelFileContentStreamIterator(iterator);
+      }
+
+      final base64Data = base64Encode(bytes.takeBytes());
+
+      // For images, return a data URL so UI can render directly; otherwise return raw base64
+      if (mimeType.startsWith('image/')) {
+        return 'data:$mimeType;base64,$base64Data';
+      }
+
+      return base64Data;
     } finally {
-      _cancelFileContentStreamIterator(iterator);
+      cancellationLink.detach();
     }
-
-    final base64Data = base64Encode(bytes.takeBytes());
-
-    // For images, return a data URL so UI can render directly; otherwise return raw base64
-    if (mimeType.startsWith('image/')) {
-      return 'data:$mimeType;base64,$base64Data';
-    }
-
-    return base64Data;
   }
 
   Future<Map<String, dynamic>> getFileInfo(

@@ -2883,11 +2883,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     final lastMessageId = state.last.id;
-    // Direct-provider reservations/runs do not use the notifier's HTTP/socket
-    // transport fields. Their streaming placeholder is nevertheless locally
-    // authoritative until dispatch finalizes it; a Drift echo emitted during
-    // preflight must not roll the optimistic turn back to the previous tip.
-    if (state.last.metadata?['transport'] == kDirectTransport) {
+    // Direct and Hermes reservations/runs do not use the notifier's HTTP/socket
+    // transport fields. Their streaming placeholders are nevertheless locally
+    // authoritative until dispatch finalizes them; a Drift echo emitted during
+    // preflight must not roll an optimistic turn back to the previous tip.
+    final transport = state.last.metadata?['transport'];
+    if (transport == kDirectTransport || transport == kHermesTransport) {
       return true;
     }
     if (_activeStreamingTransportMessageId != lastMessageId) {

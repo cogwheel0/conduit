@@ -371,6 +371,24 @@ void main() {
       },
     );
 
+    test('getRun accepts an empty content-length header list', () async {
+      final capture = _CaptureInterceptor(
+        ResponseBody.fromString(
+          '{"status":"completed","output":"done"}',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['application/json'],
+            Headers.contentLengthHeader: const <String>[],
+          },
+        ),
+      );
+
+      final run = await _service(capture).getRun('r1');
+
+      check(run['status']).equals('completed');
+      check(run['output']).equals('done');
+    });
+
     test('decoded recovery maps obey aggregate string limits', () async {
       final cancelToken = CancelToken();
       final capture = _CaptureInterceptor({

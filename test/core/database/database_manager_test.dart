@@ -9,28 +9,10 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import '../../support/gated_close_database.dart';
+
 ServerConfig _server(String id) =>
     ServerConfig(id: id, name: 'Server $id', url: 'https://$id.example');
-
-final class _CloseFailingDatabase extends AppDatabase {
-  _CloseFailingDatabase(super.executor);
-
-  bool failClose = true;
-  int closeAttempts = 0;
-  Completer<void>? closeGate;
-
-  @override
-  Future<void> close() async {
-    closeAttempts += 1;
-    final gate = closeGate;
-    closeGate = null;
-    if (gate != null) await gate.future;
-    if (failClose) {
-      throw StateError('injected close failure #$closeAttempts');
-    }
-    await super.close();
-  }
-}
 
 void main() {
   late Directory tempDir;
@@ -102,11 +84,11 @@ void main() {
       'rapid switch-back defers until close before opening a new executor',
       () async {
         await manager.closeActive();
-        final databases = <String, List<_CloseFailingDatabase>>{};
+        final databases = <String, List<GatedCloseDatabase>>{};
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            final database = _CloseFailingDatabase(
+            final database = GatedCloseDatabase(
               NativeDatabase(fileFor(fileName)),
             )..failClose = false;
             databases.putIfAbsent(fileName, () => []).add(database);
@@ -147,11 +129,11 @@ void main() {
       'managed provenance survives physical close for detached lease guards',
       () async {
         await manager.closeActive();
-        late _CloseFailingDatabase database;
+        late GatedCloseDatabase database;
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)))
+            database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)))
               ..failClose = false;
             return database;
           },
@@ -261,11 +243,11 @@ void main() {
       'lease release and unrelated deletion do not wait for another file close',
       () async {
         await manager.closeActive();
-        final databases = <String, _CloseFailingDatabase>{};
+        final databases = <String, GatedCloseDatabase>{};
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            final database = _CloseFailingDatabase(
+            final database = GatedCloseDatabase(
               NativeDatabase(fileFor(fileName)),
             )..failClose = false;
             databases[fileName] = database;
@@ -338,11 +320,11 @@ void main() {
 
     test('propagates failure from its own close attempt', () async {
       await manager.closeActive();
-      late _CloseFailingDatabase database;
+      late GatedCloseDatabase database;
       manager = DatabaseManager(
         databaseDirectory: () async => tempDir,
         openDatabase: (fileName) {
-          database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)));
+          database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)));
           return database;
         },
       );
@@ -370,11 +352,11 @@ void main() {
       'concurrent failed-close retries share and report one attempt',
       () async {
         await manager.closeActive();
-        late _CloseFailingDatabase database;
+        late GatedCloseDatabase database;
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)));
+            database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)));
             return database;
           },
         );
@@ -409,11 +391,11 @@ void main() {
       'active close joins an older failed executor and every waiter settles both',
       () async {
         await manager.closeActive();
-        final databases = <String, _CloseFailingDatabase>{};
+        final databases = <String, GatedCloseDatabase>{};
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            final database = _CloseFailingDatabase(
+            final database = GatedCloseDatabase(
               NativeDatabase(fileFor(fileName)),
             );
             databases[fileName] = database;
@@ -561,11 +543,11 @@ void main() {
       'retries failed closes without racing deletion or opening a second db',
       () async {
         await manager.closeActive();
-        late _CloseFailingDatabase database;
+        late GatedCloseDatabase database;
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)));
+            database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)));
             return database;
           },
         );
@@ -613,11 +595,11 @@ void main() {
       'delete and close callers both observe a shared retry failure',
       () async {
         await manager.closeActive();
-        late _CloseFailingDatabase database;
+        late GatedCloseDatabase database;
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)));
+            database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)));
             return database;
           },
         );
@@ -655,11 +637,11 @@ void main() {
       'delete-owned initial close is joined by concurrent close callers',
       () async {
         await manager.closeActive();
-        late _CloseFailingDatabase database;
+        late GatedCloseDatabase database;
         manager = DatabaseManager(
           databaseDirectory: () async => tempDir,
           openDatabase: (fileName) {
-            database = _CloseFailingDatabase(NativeDatabase(fileFor(fileName)));
+            database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)));
             return database;
           },
         );
@@ -695,13 +677,13 @@ void main() {
 
     test('reuses the exact executor after a background close fails', () async {
       await manager.closeActive();
-      late _CloseFailingDatabase alphaDatabase;
+      late GatedCloseDatabase alphaDatabase;
       var openCount = 0;
       manager = DatabaseManager(
         databaseDirectory: () async => tempDir,
         openDatabase: (fileName) {
           openCount += 1;
-          final database = _CloseFailingDatabase(
+          final database = GatedCloseDatabase(
             NativeDatabase(fileFor(fileName)),
           );
           database.failClose = openCount == 1;
@@ -800,7 +782,7 @@ Future<void> _waitForClosed(AppDatabase db) async {
 }
 
 Future<void> _waitForCloseAttempts(
-  _CloseFailingDatabase database,
+  GatedCloseDatabase database,
   int expected,
 ) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));

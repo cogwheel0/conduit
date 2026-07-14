@@ -99,6 +99,55 @@ void main() {
         ))!.storage,
       ).equals(ChatStorageKind.directLocal);
     });
+
+    test('treats tombstoned rows as absent in every resolution path', () async {
+      await serverDatabase.chatsDao.upsertServerChat(
+        rows: _chatRows(id: 'server-tombstone', updatedAt: 10),
+      );
+      await (serverDatabase.update(serverDatabase.chats)
+            ..where((chat) => chat.id.equals('server-tombstone')))
+          .write(const ChatsCompanion(deleted: Value(true)));
+
+      check(
+        await repository.resolveChat(
+          'server-tombstone',
+          preferred: ChatStorageKind.openWebUi,
+        ),
+      ).isNull();
+      check(await repository.resolveChat('server-tombstone')).isNull();
+      check(
+        await repository.loadConversation(
+          'server-tombstone',
+          preferred: ChatStorageKind.openWebUi,
+        ),
+      ).isNull();
+
+      await serverDatabase.chatsDao.upsertServerChat(
+        rows: _chatRows(id: 'live-local-wins', updatedAt: 20),
+      );
+      await (serverDatabase.update(serverDatabase.chats)
+            ..where((chat) => chat.id.equals('live-local-wins')))
+          .write(const ChatsCompanion(deleted: Value(true)));
+      await localDatabase.chatsDao.upsertLocalOnlyChat(
+        rows: _chatRows(id: 'live-local-wins', updatedAt: 21),
+      );
+      check(
+        (await repository.resolveChat('live-local-wins'))!.storage,
+      ).equals(ChatStorageKind.directLocal);
+
+      await serverDatabase.chatsDao.upsertServerChat(
+        rows: _chatRows(id: 'live-server-wins', updatedAt: 30),
+      );
+      await localDatabase.chatsDao.upsertLocalOnlyChat(
+        rows: _chatRows(id: 'live-server-wins', updatedAt: 31),
+      );
+      await (localDatabase.update(localDatabase.chats)
+            ..where((chat) => chat.id.equals('live-server-wins')))
+          .write(const ChatsCompanion(deleted: Value(true)));
+      check(
+        (await repository.resolveChat('live-server-wins'))!.storage,
+      ).equals(ChatStorageKind.openWebUi);
+    });
   });
 
   group('local-only DAO writes', () {

@@ -3591,9 +3591,15 @@ Future<Model?> defaultModel(Ref ref) async {
   bool authenticatedResolutionIsCurrent(Model? selectionSnapshot) {
     if (!ref.mounted) return false;
     final latestAuth = ref.read(_modelAuthReadinessProvider);
+    final ownershipIsCurrent = apiSnapshot == null
+        ? authenticatedOwnershipSnapshot == null
+        : authenticatedOwnershipSnapshot != null &&
+              openWebUiCacheOwnershipIsCurrent(
+                ref,
+                authenticatedOwnershipSnapshot,
+              );
     return latestAuth.authenticated &&
-        authenticatedOwnershipSnapshot != null &&
-        openWebUiCacheOwnershipIsCurrent(ref, authenticatedOwnershipSnapshot) &&
+        ownershipIsCurrent &&
         ref.read(authTokenProvider3) == authenticatedTokenSnapshot &&
         identical(ref.read(apiServiceProvider), apiSnapshot) &&
         ref.read(preferredBackendProvider) == preferredBackend &&

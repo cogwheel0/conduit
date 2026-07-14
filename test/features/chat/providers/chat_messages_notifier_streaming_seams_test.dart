@@ -3526,7 +3526,8 @@ void main() {
     test(
       'late session cleanup diagnostics never log provider values',
       () async {
-        const reflectedSecret = 'key';
+        const reflectedSecret =
+            'conduit-late-cleanup-reflected-secret-9b34a1f0';
         const providerSessionId = 'provider-session-opaque';
         const stackSecret = 'late-cleanup-provider-stack-secret';
         final service = _PreflightHermesApi(
@@ -5589,6 +5590,27 @@ void main() {
   });
 
   group('Feature C — local streaming protection invariants', () {
+    test(
+      'Hermes metadata protects its optimistic placeholder before dispatch',
+      () {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(
+            id: 'hermes-placeholder',
+            content: '',
+            isStreaming: true,
+            metadata: const <String, dynamic>{'transport': kHermesTransport},
+          ),
+        ]);
+
+        check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+        notifier.clearMessages();
+      },
+    );
+
     // De-risk #1: a NORMAL send's protection behaviour must be byte-unchanged.
     // Registering a stream/subscription for the *current* streaming message id
     // makes protection hold; this is the exact seam dispatchChatTransport uses

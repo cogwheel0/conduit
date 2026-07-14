@@ -85,8 +85,8 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       database: db,
     );
 
-    // 1. Streaming-conflict guard (R5): if a LIVE interactive stream owns this
-    //    exact chat, defer (throw-transient) so we never clobber it.
+    // Streaming-conflict guard (R5): if a LIVE interactive stream owns this
+    // exact chat, unsent work defers so it can never clobber that stream.
     void deferIfTargetIsBusy() {
       if (activeOpenWebUiChatIdForMutation(_ref, owner) == null ||
           !_ref.read(isChatStreamingProvider)) {
@@ -115,8 +115,6 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       }
     }
 
-    deferIfTargetIsBusy();
-
     // 2. Idempotency / already-completed guard (R3): a completed turn leaves a
     //    durable marker on the placeholder row. Non-empty content alone is not
     //    enough: pause checkpoints also persist partial assistant text while
@@ -142,6 +140,11 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       return;
     }
     final completionWasSubmitted = _placeholderMarkedSubmitted(placeholder);
+    // Once the POST crossed the server boundary this op is pull-only recovery;
+    // another live stream must not prevent collecting the accepted response.
+    if (!completionWasSubmitted) {
+      deferIfTargetIsBusy();
+    }
 
     // 3. Path choice (Option B):
     //    - The target chat IS the one the user is viewing → drive the LIVE

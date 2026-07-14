@@ -580,6 +580,110 @@ void main() {
 
     await controller.stop();
   });
+
+  test(
+    'stop completes every teardown step and ends CallKit after cleanup errors',
+    () async {
+      final input = _FakeVoiceInputService();
+      final tts = _FakeTextToSpeechService()..throwOnStopStreaming = true;
+      final callKit = _AvailableCallKitService()..throwOnEnd = true;
+      final background = _FakeChatVoiceBackgroundCoordinator()
+        ..throwOnStop = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceInputServiceProvider.overrideWithValue(input),
+          textToSpeechServiceProvider.overrideWithValue(tts),
+          callKitServiceProvider.overrideWithValue(callKit),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            background,
+          ),
+          chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+            audioSession,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(callKit.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false);
+
+      await controller.stop();
+
+      check(tts.stopStreamingCalls).equals(1);
+      check(tts.stopCalls).equals(1);
+      check(background.stopped).length.equals(1);
+      check(background.externalAudioSessionOwners.last).isFalse();
+      check(audioSession.deactivateCalls).equals(1);
+      check(callKit.endedCallIds).deepEquals(<String>['call-1']);
+      check(
+        container.read(chatVoiceModeControllerProvider).phase,
+      ).equals(ChatVoiceModePhase.ended);
+    },
+  );
+
+  test(
+    'provider disposal observes detached lease and audio cleanup errors',
+    () async {
+      final input = _FakeVoiceInputService();
+      final background = _FakeChatVoiceBackgroundCoordinator()
+        ..throwOnStop = true
+        ..throwWhenReleasingExternalOwner = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator()
+        ..throwOnDeactivate = true;
+      final uncaught = <Object>[];
+
+      await runZonedGuarded(() async {
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            authNavigationStateProvider.overrideWithValue(
+              AuthNavigationState.authenticated,
+            ),
+            selectedModelProvider.overrideWithValue(_model),
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            reviewerModeProvider.overrideWithValue(true),
+            voiceInputServiceProvider.overrideWithValue(input),
+            textToSpeechServiceProvider.overrideWithValue(
+              _FakeTextToSpeechService(),
+            ),
+            callKitServiceProvider.overrideWithValue(
+              _UnavailableCallKitService(),
+            ),
+            chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+              background,
+            ),
+            chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+              audioSession,
+            ),
+          ],
+        );
+
+        final controller = container.read(
+          chatVoiceModeControllerProvider.notifier,
+        );
+        await controller.start(startNewConversation: false);
+        container.dispose();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      }, (error, stackTrace) => uncaught.add(error));
+
+      check(background.stopped).length.equals(1);
+      check(background.externalAudioSessionOwners.last).isFalse();
+      check(audioSession.deactivateCalls).equals(1);
+      check(uncaught).isEmpty();
+    },
+  );
 }
 
 class _FakeVoiceInputService extends VoiceInputService {
@@ -682,6 +786,7 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   int resumeCalls = 0;
   int stopStreamingCalls = 0;
   int stopCalls = 0;
+  bool throwOnStopStreaming = false;
   bool _didStart = false;
 
   @override
@@ -735,6 +840,9 @@ class _FakeTextToSpeechService extends TextToSpeechService {
   @override
   Future<void> stopStreamingTts() async {
     stopStreamingCalls += 1;
+    if (throwOnStopStreaming) {
+      throw StateError('stop streaming TTS failed');
+    }
   }
 
   @override
@@ -775,6 +883,7 @@ class _AvailableCallKitService extends CallKitService {
   final _events = StreamController<CallEvent>.broadcast();
   final connectedCallIds = <String>[];
   final endedCallIds = <String>[];
+  bool throwOnEnd = false;
 
   @override
   bool get isAvailable => true;
@@ -806,6 +915,9 @@ class _AvailableCallKitService extends CallKitService {
   @override
   Future<void> endCall(String id) async {
     endedCallIds.add(id);
+    if (throwOnEnd) {
+      throw StateError('CallKit end failed');
+    }
   }
 
   Future<void> dispose() => _events.close();
@@ -817,6 +929,8 @@ class _FakeChatVoiceBackgroundCoordinator
   final stopped = <String>[];
   final externalAudioSessionOwners = <bool>[];
   int keepAliveCalls = 0;
+  bool throwOnStop = false;
+  bool throwWhenReleasingExternalOwner = false;
 
   @override
   Future<void> startVoiceLease({
@@ -829,6 +943,9 @@ class _FakeChatVoiceBackgroundCoordinator
   @override
   Future<void> stopVoiceLease(String leaseId) async {
     stopped.add(leaseId);
+    if (throwOnStop) {
+      throw StateError('background lease stop failed');
+    }
   }
 
   @override
@@ -840,6 +957,9 @@ class _FakeChatVoiceBackgroundCoordinator
   @override
   Future<void> setExternalAudioSessionOwner(bool isExternal) async {
     externalAudioSessionOwners.add(isExternal);
+    if (!isExternal && throwWhenReleasingExternalOwner && started.isNotEmpty) {
+      throw StateError('external audio owner release failed');
+    }
   }
 }
 
@@ -848,6 +968,7 @@ class _FakeChatVoiceAudioSessionCoordinator
   int listeningCalls = 0;
   int speakingCalls = 0;
   int deactivateCalls = 0;
+  bool throwOnDeactivate = false;
 
   @override
   Future<void> configureForListening() async {
@@ -862,6 +983,9 @@ class _FakeChatVoiceAudioSessionCoordinator
   @override
   Future<void> deactivate() async {
     deactivateCalls += 1;
+    if (throwOnDeactivate) {
+      throw StateError('audio session deactivation failed');
+    }
   }
 }
 

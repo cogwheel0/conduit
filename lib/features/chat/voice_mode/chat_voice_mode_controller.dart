@@ -245,15 +245,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _disposed = true;
       ++_token;
       _elapsedTimer?.cancel();
-      unawaited(_transcriptSub?.cancel());
-      unawaited(_intensitySub?.cancel());
-      unawaited(_ttsSub?.cancel());
-      unawaited(_callKitSub?.cancel());
+      unawaited(_cancelSubscriptionAfterDispose(_transcriptSub));
+      unawaited(_cancelSubscriptionAfterDispose(_intensitySub));
+      unawaited(_cancelSubscriptionAfterDispose(_ttsSub));
+      unawaited(_cancelSubscriptionAfterDispose(_callKitSub));
       _backgroundKeepAliveTimer?.cancel();
       unawaited(_stopVoiceInputAfterDispose(_voiceInput));
       unawaited(_stopTtsAfterDispose(_textToSpeech));
-      unawaited(_stopBackgroundVoiceLease(_backgroundCoordinator));
-      unawaited(_audioSessionCoordinator?.deactivate());
+      unawaited(_stopBackgroundVoiceLeaseAfterDispose(_backgroundCoordinator));
+      unawaited(_deactivateAudioSessionAfterDispose(_audioSessionCoordinator));
       final callId = _activeCallId;
       _activeCallId = null;
       if (callId != null) {
@@ -1249,30 +1249,83 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   Future<void> _disposeResources({required bool endCallKit}) async {
+    final input = _voiceInput;
     final tts = _textToSpeech;
     final callKit = _callKit;
     final callId = _activeCallId;
+    final transcriptSub = _transcriptSub;
+    final intensitySub = _intensitySub;
+    final ttsSub = _ttsSub;
+    final callKitSub = _callKitSub;
+
     _activeCallId = null;
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
-    await _cancelListening();
-    await _ttsSub?.cancel();
+    _transcriptSub = null;
+    _intensitySub = null;
     _ttsSub = null;
-    await tts?.stopStreamingTts();
-    await tts?.stop();
-    await _stopBackgroundVoiceLease();
-    await _audioSessionCoordinator?.deactivate();
-
-    await _callKitSub?.cancel();
     _callKitSub = null;
-    if (endCallKit && callId != null) {
-      await callKit?.endCall(callId);
-    }
 
-    _voiceInput = null;
-    _textToSpeech = null;
-    _callKit = null;
-    _resetRuntime();
+    try {
+      await _runTeardownStep('transcript-subscription-cancel', () async {
+        await transcriptSub?.cancel();
+      });
+      await _runTeardownStep('intensity-subscription-cancel', () async {
+        await intensitySub?.cancel();
+      });
+      await _runTeardownStep('voice-input-stop', () async {
+        await input?.stopListening();
+      });
+      await _runTeardownStep('tts-subscription-cancel', () async {
+        await ttsSub?.cancel();
+      });
+      await _runTeardownStep('streaming-tts-stop', () async {
+        await tts?.stopStreamingTts();
+      });
+      await _runTeardownStep('tts-stop', () async {
+        await tts?.stop();
+      });
+      await _runTeardownStep(
+        'background-lease-stop',
+        _stopBackgroundVoiceLease,
+      );
+      await _runTeardownStep('audio-session-deactivate', () async {
+        await _audioSessionCoordinator?.deactivate();
+      });
+      await _runTeardownStep('callkit-subscription-cancel', () async {
+        await callKitSub?.cancel();
+      });
+      if (endCallKit && callId != null) {
+        await _runTeardownStep('callkit-end', () async {
+          await callKit?.endCall(callId);
+        });
+      }
+    } finally {
+      _backgroundKeepAliveTimer?.cancel();
+      _backgroundKeepAliveTimer = null;
+      _backgroundLeaseId = null;
+      _voiceInput = null;
+      _textToSpeech = null;
+      _callKit = null;
+      _resetRuntime();
+    }
+  }
+
+  Future<void> _runTeardownStep(
+    String step,
+    Future<void> Function() teardown,
+  ) async {
+    try {
+      await teardown();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'teardown-step-failed',
+        scope: 'chat/voice_mode',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'step': step},
+      );
+    }
   }
 
   void _resetRuntime() {
@@ -1375,6 +1428,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   bool _isCurrent(int token) => !_disposed && token == _token;
 
+  Future<void> _cancelSubscriptionAfterDispose(
+    StreamSubscription<dynamic>? subscription,
+  ) async {
+    try {
+      await subscription?.cancel();
+    } catch (_) {}
+  }
+
   Future<void> _stopVoiceInputAfterDispose(VoiceInputService? input) async {
     try {
       await input?.stopListening();
@@ -1384,7 +1445,25 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _stopTtsAfterDispose(TextToSpeechService? tts) async {
     try {
       await tts?.stopStreamingTts();
+    } catch (_) {}
+    try {
       await tts?.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _stopBackgroundVoiceLeaseAfterDispose(
+    ChatVoiceModeBackgroundCoordinator? coordinator,
+  ) async {
+    try {
+      await _stopBackgroundVoiceLease(coordinator);
+    } catch (_) {}
+  }
+
+  Future<void> _deactivateAudioSessionAfterDispose(
+    ChatVoiceAudioSessionCoordinator? coordinator,
+  ) async {
+    try {
+      await coordinator?.deactivate();
     } catch (_) {}
   }
 

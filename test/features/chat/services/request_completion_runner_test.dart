@@ -41,10 +41,16 @@ void main() {
     required bool isStreaming,
     Conversation? active,
     bool attachDatabase = true,
+    int recoveryAttempts = 6,
+    Duration recoveryDelay = const Duration(seconds: 2),
   }) {
-    final runnerProvider = Provider<RequestCompletionRunner>(
-      ChatRequestCompletionRunner.new,
-    );
+    final runnerProvider = Provider<RequestCompletionRunner>((ref) {
+      return ChatRequestCompletionRunner(
+        ref,
+        recoveryAttempts: recoveryAttempts,
+        recoveryDelay: recoveryDelay,
+      );
+    });
     final container = ProviderContainer(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => attachDatabase ? db : null),
@@ -126,6 +132,48 @@ void main() {
       runner.run(chatId: chatId, payload: payload('asst-1')),
     ).throws<CompletionBusyException>();
   });
+
+  test(
+    'recovers a submitted marker while another live stream owns the chat',
+    () async {
+      const chatId = 'chat-submitted-recovery';
+      await seedChat(chatId);
+      await seedMessage(
+        chatId,
+        'asst-submitted',
+        'partial submitted response',
+        payload: const <String, dynamic>{
+          'id': 'asst-submitted',
+          'role': 'assistant',
+          'content': 'partial submitted response',
+          'metadata': <String, dynamic>{'completionSubmitted': true},
+        },
+      );
+
+      final (:container, :runner) = makeRunner(
+        isStreaming: true,
+        active: conv(chatId),
+        recoveryAttempts: 1,
+        recoveryDelay: Duration.zero,
+      );
+      container.read(chatMessagesProvider.notifier).setMessages([
+        ChatMessage(
+          id: 'other-live-assistant',
+          role: 'assistant',
+          content: 'another turn is streaming',
+          timestamp: DateTime.utc(2026, 7, 14),
+          isStreaming: true,
+        ),
+      ]);
+
+      // The durable submitted marker makes this pull-only recovery. It must
+      // not wait for the unrelated live stream or issue another completion.
+      await runner.run(chatId: chatId, payload: payload('asst-submitted'));
+
+      final row = await db.messagesDao.getMessage(chatId, 'asst-submitted');
+      check(row?.content).equals('partial submitted response');
+    },
+  );
 
   test('does not defer its own optimistic streaming placeholder', () async {
     const chatId = 'chat-own-placeholder';

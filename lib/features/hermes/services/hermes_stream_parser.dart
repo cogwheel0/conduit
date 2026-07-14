@@ -294,9 +294,15 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
       yield const HermesRunDone();
       return;
     }
-    final output = extractHermesOutputText(
+    final output = _extractHermesTerminalOutput(
       responseMap?['output'] ?? data['output'],
     );
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
     if (output.isNotEmpty) yield HermesFinalOutput(output);
     yield const HermesRunDone();
     return;
@@ -400,7 +406,13 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
         status == 'canceled' ||
         status == 'stopped') {
       if (status != 'failed') {
-        final output = extractHermesOutputText(data['output']);
+        final output = _extractHermesTerminalOutput(data['output']);
+        if (output == null) {
+          yield const HermesRunError(
+            'The Hermes response output exceeded Conduit\'s size or shape limit.',
+          );
+          return;
+        }
         if (output.isNotEmpty) {
           yield HermesFinalOutput(output);
         }
@@ -445,6 +457,14 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     if (_isTerminal(status)) {
       yield const HermesRunDone();
     }
+  }
+}
+
+String? _extractHermesTerminalOutput(Object? output) {
+  try {
+    return extractHermesOutputText(output);
+  } on FormatException {
+    return null;
   }
 }
 

@@ -8,6 +8,7 @@ import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/socket_transport_availability.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/persistence/hive_boxes.dart';
+import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
@@ -453,6 +454,60 @@ void main() {
       expect(storage.getLocalTransportOptionsSync(), optionsB);
       await storage.setActiveServerId('server-a');
       expect(storage.getLocalTransportOptionsSync(), isNull);
+    },
+  );
+
+  test(
+    'clearAll keeps its server owner until deferred Drift cleanup finishes',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final resolutionStarted = Completer<void>();
+      final resolutionGate = Completer<void>();
+      addTearDown(() {
+        if (!resolutionGate.isCompleted) resolutionGate.complete();
+      });
+      storage = OptimizedStorageService(
+        secureStorage: const FlutterSecureStorage(),
+        boxes: HiveBoxes(
+          preferences: preferences,
+          caches: caches,
+          attachmentQueue: attachmentQueue,
+          metadata: metadata,
+        ),
+        workerManager: workerManager,
+        databaseAccess: () async {
+          if (!resolutionStarted.isCompleted) resolutionStarted.complete();
+          await resolutionGate.future;
+          if (PreferencesStore.getString(PreferenceKeys.activeServerId) !=
+              'server-a') {
+            return null;
+          }
+          return OptimizedStorageDatabaseHandle(database: database);
+        },
+      );
+      await saveServerConfigs(['server-a']);
+      await storage.setActiveServerId('server-a');
+      await database.appCacheDao.setValue(
+        HiveStoreKeys.localTools,
+        'must-be-cleared',
+      );
+
+      final cleanup = storage.clearAll();
+      await resolutionStarted.future;
+
+      expect(
+        PreferencesStore.getString(PreferenceKeys.activeServerId),
+        'server-a',
+      );
+      resolutionGate.complete();
+      await cleanup;
+
+      expect(
+        await database.appCacheDao.getValue(HiveStoreKeys.localTools),
+        isNull,
+      );
+      expect(PreferencesStore.getString(PreferenceKeys.activeServerId), isNull);
     },
   );
 }

@@ -27,11 +27,7 @@ class ToolsList extends _$ToolsList {
     final toolsService = ref.watch(toolsServiceProvider);
     final cacheOwnership = toolsService == null
         ? null
-        : captureOpenWebUiCacheOwnership(
-            ref,
-            api: toolsService.apiService,
-            requireAuthenticated: false,
-          );
+        : _captureOwnership(toolsService);
     if (toolsService != null && cacheOwnership == null) {
       return const <Tool>[];
     }
@@ -81,11 +77,7 @@ class ToolsList extends _$ToolsList {
   }
 
   Future<_OwnedTools?> _fetchAndPersist(ToolsService service) async {
-    final ownership = captureOpenWebUiCacheOwnership(
-      ref,
-      api: service.apiService,
-      requireAuthenticated: false,
-    );
+    final ownership = _captureOwnership(service);
     if (ownership == null) return null;
     final tools = await service.getTools();
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
@@ -93,6 +85,14 @@ class ToolsList extends _$ToolsList {
     await storage.saveLocalTools(tools);
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     return (tools: tools, ownership: ownership);
+  }
+
+  OpenWebUiCacheOwnershipSnapshot? _captureOwnership(ToolsService service) {
+    return captureOpenWebUiCacheOwnership(
+      ref,
+      api: service.apiService,
+      requireAuthenticated: false,
+    );
   }
 }
 

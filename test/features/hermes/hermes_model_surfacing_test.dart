@@ -313,6 +313,32 @@ void main() {
     );
 
     test(
+      'authenticated default still selects Hermes when the api is unavailable',
+      () async {
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            apiServiceProvider.overrideWithValue(null),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final model = await container.read(defaultModelProvider.future);
+
+        check(model).isNotNull();
+        check(isHermesModel(model!)).isTrue();
+        check(container.read(selectedModelProvider)).identicalTo(model);
+      },
+    );
+
+    test(
       'default model stops safely when disposed during Hermes model loading',
       () async {
         final modelsCompleter = Completer<List<Model>>();

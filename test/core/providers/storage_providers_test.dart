@@ -15,19 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-final class _BlockingCloseDatabase extends AppDatabase {
-  _BlockingCloseDatabase() : super(NativeDatabase.memory());
-
-  Completer<void>? closeGate;
-
-  @override
-  Future<void> close() async {
-    final gate = closeGate;
-    closeGate = null;
-    if (gate != null) await gate.future;
-    await super.close();
-  }
-}
+import '../../support/gated_close_database.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -148,12 +136,12 @@ void main() {
       await database.close();
     }
 
-    final opened = <String, List<_BlockingCloseDatabase>>{};
+    final opened = <String, List<GatedCloseDatabase>>{};
     databaseOwnedByManager = false;
     databaseManager = DatabaseManager(
       databaseFileName: (serverId) => serverId,
       openDatabase: (serverId) {
-        final openedDatabase = _BlockingCloseDatabase();
+        final openedDatabase = GatedCloseDatabase.memory(failClose: false);
         opened.putIfAbsent(serverId, () => []).add(openedDatabase);
         database = openedDatabase;
         databaseOwnedByManager = true;

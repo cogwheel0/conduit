@@ -64,17 +64,34 @@ void main() {
     });
 
     test('aborts content that exceeds the configured byte limit', () async {
-      final api = _buildApiService(
-        _FileContentAdapter([
-          Uint8List.fromList([1, 2]),
-          Uint8List.fromList([3, 4]),
-        ]),
-      );
+      final adapter = _FileContentAdapter([
+        Uint8List.fromList([1, 2]),
+        Uint8List.fromList([3, 4]),
+      ]);
+      final api = _buildApiService(adapter);
+      final sharedCancelToken = CancelToken();
 
       await expectLater(
-        api.getFileContent('large-image', maxBytes: 3),
+        api.getFileContent(
+          'large-image',
+          maxBytes: 3,
+          cancelToken: sharedCancelToken,
+        ),
         throwsA(isA<FileContentTooLargeException>()),
       );
+      await adapter.requestCancelled.future.timeout(const Duration(seconds: 1));
+      check(sharedCancelToken.isCancelled).isFalse();
+
+      api.dio.httpClientAdapter = _FileContentAdapter([
+        Uint8List.fromList([1, 2, 3]),
+      ]);
+      check(
+        await api.getFileContent(
+          'small-image',
+          maxBytes: 3,
+          cancelToken: sharedCancelToken,
+        ),
+      ).equals('data:image/png;base64,AQID');
     });
 
     test('rejects an oversized advertised content length', () async {
@@ -98,10 +115,15 @@ void main() {
           onCancel: () => cancelGate.future,
         );
         final api = _buildApiService(adapter);
+        final sharedCancelToken = CancelToken();
 
         await expectLater(
           api
-              .getFileContent('large-image', maxBytes: 3)
+              .getFileContent(
+                'large-image',
+                maxBytes: 3,
+                cancelToken: sharedCancelToken,
+              )
               .timeout(
                 const Duration(seconds: 1),
                 onTimeout: () => throw StateError('size rejection stalled'),
@@ -112,6 +134,18 @@ void main() {
           const Duration(seconds: 1),
           onTimeout: () => throw StateError('source cancellation never began'),
         );
+        check(sharedCancelToken.isCancelled).isFalse();
+
+        api.dio.httpClientAdapter = _FileContentAdapter([
+          Uint8List.fromList([1, 2, 3]),
+        ]);
+        check(
+          await api.getFileContent(
+            'small-image',
+            maxBytes: 3,
+            cancelToken: sharedCancelToken,
+          ),
+        ).equals('data:image/png;base64,AQID');
       },
     );
 
@@ -137,6 +171,7 @@ void main() {
           ),
         ),
       );
+      await adapter.requestCancelled.future.timeout(const Duration(seconds: 1));
       await adapter.sourceCancelled.future.timeout(const Duration(seconds: 1));
     });
   });
@@ -242,6 +277,7 @@ final class _CancellableFileContentAdapter implements HttpClientAdapter {
   }
 
   final listenStarted = Completer<void>();
+  final requestCancelled = Completer<void>();
   final sourceCancelled = Completer<void>();
   late final StreamController<Uint8List> controller;
 
@@ -250,13 +286,22 @@ final class _CancellableFileContentAdapter implements HttpClientAdapter {
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async => ResponseBody(
-    controller.stream,
-    200,
-    headers: const {
-      'content-type': ['image/png'],
-    },
-  );
+  ) async {
+    if (cancelFuture != null) {
+      unawaited(
+        cancelFuture.then<void>((_) {
+          if (!requestCancelled.isCompleted) requestCancelled.complete();
+        }),
+      );
+    }
+    return ResponseBody(
+      controller.stream,
+      200,
+      headers: const {
+        'content-type': ['image/png'],
+      },
+    );
+  }
 
   @override
   void close({bool force = false}) {
@@ -269,6 +314,7 @@ final class _FileContentAdapter implements HttpClientAdapter {
 
   final List<Uint8List> chunks;
   final int? advertisedLength;
+  final requestCancelled = Completer<void>();
 
   @override
   Future<ResponseBody> fetch(
@@ -276,6 +322,13 @@ final class _FileContentAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    if (cancelFuture != null) {
+      unawaited(
+        cancelFuture.then<void>((_) {
+          if (!requestCancelled.isCompleted) requestCancelled.complete();
+        }),
+      );
+    }
     return ResponseBody(
       Stream<Uint8List>.fromIterable(chunks),
       200,

@@ -282,22 +282,22 @@ class ChatDatabaseRepository {
       final location = _locationForOrNull(preferred);
       if (location == null) return null;
       final row = await location.database.chatsDao.getChat(chatId);
-      return row == null ? null : location;
+      return row == null || row.deleted ? null : location;
     }
 
     final server = _openWebUiDatabase;
     final localFuture = _directLocalDatabase.chatsDao.getChat(chatId);
     if (server == null) {
       final local = await localFuture;
-      return local == null ? null : directLocalLocation;
+      return local == null || local.deleted ? null : directLocalLocation;
     }
 
     final rows = await Future.wait([
       server.chatsDao.getChat(chatId),
       localFuture,
     ]);
-    final hasServer = rows[0] != null;
-    final hasLocal = rows[1] != null;
+    final hasServer = rows[0] != null && !rows[0]!.deleted;
+    final hasLocal = rows[1] != null && !rows[1]!.deleted;
     if (hasServer && hasLocal) {
       throw AmbiguousChatStorageException(chatId);
     }
@@ -321,7 +321,7 @@ class ChatDatabaseRepository {
 
     final chat = await location.database.chatsDao.getChat(chatId);
     if (locationIsCurrent?.call(location) == false) return null;
-    if (chat == null || !chat.bodySynced) return null;
+    if (chat == null || chat.deleted || !chat.bodySynced) return null;
     final messages = await location.database.messagesDao.getForChat(chatId);
     if (locationIsCurrent?.call(location) == false) return null;
     final conversation = await assembleConversationGuarded(

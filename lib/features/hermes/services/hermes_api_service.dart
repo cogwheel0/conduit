@@ -327,8 +327,10 @@ Future<Map<String, dynamic>> _decodeHermesRecoveryObject(
     recoveryBudget.requireRemainingDuration();
     Object? decoded;
     if (data is ResponseBody) {
+      final contentLengthValues =
+          data.headers[Headers.contentLengthHeader] ?? const <String>[];
       final advertisedLength = int.tryParse(
-        data.headers[Headers.contentLengthHeader]?.first ?? '',
+        contentLengthValues.isEmpty ? '' : contentLengthValues.first,
       );
       if (advertisedLength != null &&
           (advertisedLength > byteLimit ||

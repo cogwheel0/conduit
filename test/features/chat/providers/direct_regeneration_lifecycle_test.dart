@@ -23,6 +23,7 @@ import 'package:conduit/features/direct_connections/services/direct_run_registry
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final class _TestActiveConversationNotifier extends ActiveConversationNotifier {
@@ -189,6 +190,63 @@ final class _ControlledDirectAdapter implements DirectProviderAdapter {
   Future<void> dispose() => _started.close();
 }
 
+({
+  ProviderContainer container,
+  DirectConnectionProfile profile,
+  Model model,
+  DirectRunRegistry runRegistry,
+})
+_makeDirectRegenerationContainer({
+  required DirectProviderAdapter adapter,
+  String remoteModelId = 'model-one',
+  bool isMultimodal = false,
+  DirectConnectionProfilesController Function(DirectConnectionProfile)?
+  profilesController,
+  DirectRunRegistry? runRegistry,
+  List<Override> extraOverrides = const <Override>[],
+}) {
+  final profile = DirectConnectionProfile(
+    id: 'profile-one',
+    name: 'Local provider',
+    adapterKey: kOllamaAdapterKey,
+    baseUrl: 'http://localhost:11434',
+  );
+  final modelRegistry = DirectModelRegistry();
+  final model = modelRegistry.replaceProfileModels(profile, [
+    DirectRemoteModel(id: remoteModelId, isMultimodal: isMultimodal),
+  ]).single;
+  final effectiveRunRegistry = runRegistry ?? DirectRunRegistry();
+  final container = ProviderContainer(
+    overrides: [
+      activeConversationProvider.overrideWith(
+        _TestActiveConversationNotifier.new,
+      ),
+      selectedModelProvider.overrideWithValue(model),
+      reviewerModeProvider.overrideWithValue(false),
+      apiServiceProvider.overrideWithValue(null),
+      socketServiceProvider.overrideWithValue(null),
+      directConnectionProfilesProvider.overrideWith(
+        () =>
+            profilesController?.call(profile) ??
+            _FixedDirectProfilesController(profile),
+      ),
+      directModelRegistryProvider.overrideWithValue(modelRegistry),
+      directRunRegistryProvider.overrideWithValue(effectiveRunRegistry),
+      directProviderAdapterRegistryProvider.overrideWithValue(
+        DirectProviderAdapterRegistry([adapter]),
+      ),
+      ...extraOverrides,
+    ],
+  );
+  addTearDown(container.dispose);
+  return (
+    container: container,
+    profile: profile,
+    model: model,
+    runRegistry: effectiveRunRegistry,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -227,36 +285,15 @@ void main() {
   test(
     'direct regeneration cannot retarget after route resolution await',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model-one'),
-      ]).single;
-      final profiles = _GatedDirectProfilesController(profile);
+      late _GatedDirectProfilesController profiles;
       final adapter = _RecordingDirectAdapter();
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          directConnectionProfilesProvider.overrideWith(() => profiles),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
+      final setup = _makeDirectRegenerationContainer(
+        adapter: adapter,
+        profilesController: (profile) =>
+            profiles = _GatedDirectProfilesController(profile),
       );
-      addTearDown(container.dispose);
+      final container = setup.container;
+      final model = setup.model;
 
       final now = DateTime.utc(2026, 7, 13);
       final userA = ChatMessage(
@@ -308,7 +345,7 @@ void main() {
       container.read(activeConversationProvider.notifier).set(conversationB);
       container.read(chatMessagesProvider.notifier).setMessages(messagesB);
       final visibleB = container.read(chatMessagesProvider);
-      profiles.gate.complete([profile]);
+      profiles.gate.complete([setup.profile]);
 
       await expectLater(regeneration, throwsA(isA<StateError>()));
       expect(identical(container.read(chatMessagesProvider), visibleB), isTrue);
@@ -375,37 +412,13 @@ void main() {
   test(
     'failed direct regeneration finalizes the reused assistant with error',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model-one'),
-      ]).single;
       final runRegistry = DirectRunRegistry();
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          directConnectionProfilesProvider.overrideWith(
-            () => _FixedDirectProfilesController(profile),
-          ),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(runRegistry),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([_FailingDirectAdapter()]),
-          ),
-        ],
+      final setup = _makeDirectRegenerationContainer(
+        adapter: _FailingDirectAdapter(),
+        runRegistry: runRegistry,
       );
-      addTearDown(container.dispose);
+      final container = setup.container;
+      final model = setup.model;
 
       final now = DateTime.utc(2026, 7, 11);
       final user = ChatMessage(
@@ -464,37 +477,14 @@ void main() {
   test(
     'direct regeneration fails closed when a historical image is unavailable',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'vision-model', isMultimodal: true),
-      ]).single;
       final adapter = _RecordingDirectAdapter();
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          directConnectionProfilesProvider.overrideWith(
-            () => _FixedDirectProfilesController(profile),
-          ),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
+      final setup = _makeDirectRegenerationContainer(
+        adapter: adapter,
+        remoteModelId: 'vision-model',
+        isMultimodal: true,
       );
-      addTearDown(container.dispose);
+      final container = setup.container;
+      final model = setup.model;
 
       final now = DateTime.utc(2026, 7, 11);
       final user = ChatMessage(
@@ -560,38 +550,11 @@ void main() {
   test(
     'stopping a reasoning-only direct run settles its reasoning block',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model-one'),
-      ]).single;
       final adapter = _ControlledDirectAdapter();
       addTearDown(adapter.dispose);
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          directConnectionProfilesProvider.overrideWith(
-            () => _FixedDirectProfilesController(profile),
-          ),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
+      final setup = _makeDirectRegenerationContainer(adapter: adapter);
+      final container = setup.container;
+      final model = setup.model;
 
       final now = DateTime.utc(2026, 7, 13);
       final user = ChatMessage(
@@ -641,38 +604,11 @@ void main() {
   test(
     'a cancelled direct generation cannot finalize its same-id replacement',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model-one'),
-      ]).single;
       final adapter = _ControlledDirectAdapter();
       addTearDown(adapter.dispose);
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
-          directConnectionProfilesProvider.overrideWith(
-            () => _FixedDirectProfilesController(profile),
-          ),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
+      final setup = _makeDirectRegenerationContainer(adapter: adapter);
+      final container = setup.container;
+      final model = setup.model;
 
       final now = DateTime.utc(2026, 7, 13);
       final user = ChatMessage(
@@ -743,41 +679,18 @@ void main() {
   test(
     'late historical failure for A cannot cancel or restore over streaming B',
     () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile-one',
-        name: 'Local provider',
-        adapterKey: kOllamaAdapterKey,
-        baseUrl: 'http://localhost:11434',
-      );
-      final modelRegistry = DirectModelRegistry();
-      final model = modelRegistry.replaceProfileModels(profile, [
-        DirectRemoteModel(id: 'model-one'),
-      ]).single;
       final adapter = _ControlledDirectAdapter();
       addTearDown(adapter.dispose);
       final openWebUiDatabase = AppDatabase(NativeDatabase.memory());
       addTearDown(openWebUiDatabase.close);
-      final container = ProviderContainer(
-        overrides: [
-          activeConversationProvider.overrideWith(
-            _TestActiveConversationNotifier.new,
-          ),
-          selectedModelProvider.overrideWithValue(model),
-          reviewerModeProvider.overrideWithValue(false),
-          apiServiceProvider.overrideWithValue(null),
-          socketServiceProvider.overrideWithValue(null),
+      final setup = _makeDirectRegenerationContainer(
+        adapter: adapter,
+        extraOverrides: [
           appDatabaseProvider.overrideWithValue(openWebUiDatabase),
-          directConnectionProfilesProvider.overrideWith(
-            () => _FixedDirectProfilesController(profile),
-          ),
-          directModelRegistryProvider.overrideWithValue(modelRegistry),
-          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
-          directProviderAdapterRegistryProvider.overrideWithValue(
-            DirectProviderAdapterRegistry([adapter]),
-          ),
         ],
       );
-      addTearDown(container.dispose);
+      final container = setup.container;
+      final model = setup.model;
       container.read(openWebUiDatabaseAccessProvider.notifier).open();
 
       final now = DateTime.utc(2026, 7, 13);

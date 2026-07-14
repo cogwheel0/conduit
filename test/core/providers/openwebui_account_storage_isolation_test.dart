@@ -28,7 +28,9 @@ import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/models/hermes_model.dart';
 import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -326,6 +328,7 @@ _harness({
   bool expectInitiallyOpen = true,
   bool seedMatchingOwnerMarker = true,
   OpenWebUiAccountOwnerMarker? ownerMarker,
+  List<Override> additionalOverrides = const <Override>[],
 }) async {
   final serverA = AppDatabase(NativeDatabase.memory());
   final serverB = AppDatabase(NativeDatabase.memory());
@@ -385,6 +388,7 @@ _harness({
         }
         await manager.deleteFor(serverId);
       }),
+      ...additionalOverrides,
     ],
   );
 
@@ -425,9 +429,81 @@ _harness({
   );
 }
 
+final class _ThrowingActiveConversation extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => _openWebUiConversation(
+    'visible-state-failure',
+    'must still be scrubbed from storage',
+  );
+
+  @override
+  void set(Conversation? conversation) {
+    if (conversation == null) {
+      throw StateError('active conversation clear failed');
+    }
+    super.set(conversation);
+  }
+}
+
+final class _ThrowingActiveChatIds extends ActiveChatIds {
+  @override
+  void setAll(Set<String> chatIds) {
+    throw StateError('active chat ids clear failed');
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
+  test(
+    'visible-state scrub logs each best-effort failure and keeps purging',
+    () async {
+      final previousDebugPrint = debugPrint;
+      final logs = <String>[];
+      debugPrint = (message, {wrapWidth}) {
+        if (message != null) logs.add(message);
+      };
+
+      try {
+        final harness = await _harness(
+          additionalOverrides: <Override>[
+            activeConversationProvider.overrideWith(
+              _ThrowingActiveConversation.new,
+            ),
+            activeChatIdsProvider.overrideWith(_ThrowingActiveChatIds.new),
+          ],
+        );
+
+        harness.auth.publish(
+          const AuthState(status: AuthStatus.unauthenticated),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .settled;
+
+        check(
+          logs.any(
+            (message) => message.contains(
+              'visible-state-active-conversation-clear-failed',
+            ),
+          ),
+        ).isTrue();
+        check(
+          logs.any(
+            (message) =>
+                message.contains('visible-state-provider-reset-failed'),
+          ),
+        ).isTrue();
+        check(
+          harness.container.read(openWebUiDatabaseAccessProvider),
+        ).equals(OpenWebUiDatabaseAccessPhase.closed);
+      } finally {
+        debugPrint = previousDebugPrint;
+      }
+    },
+  );
 
   test('account privacy follows storage provenance, not transport label', () {
     Conversation transport(String backend) => Conversation(

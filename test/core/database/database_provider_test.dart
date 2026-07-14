@@ -6,9 +6,10 @@ import 'package:conduit/core/database/database_manager.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
-import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/gated_close_database.dart';
 
 const _alpha = ServerConfig(
   id: 'alpha',
@@ -31,30 +32,14 @@ class _ServerSelection extends Notifier<ServerConfig> {
   void set(ServerConfig server) => state = server;
 }
 
-final class _BlockingCloseDatabase extends AppDatabase {
-  _BlockingCloseDatabase() : super(NativeDatabase.memory());
-
-  Completer<void>? closeGate;
-  int closeCalls = 0;
-
-  @override
-  Future<void> close() async {
-    closeCalls += 1;
-    final gate = closeGate;
-    closeGate = null;
-    if (gate != null) await gate.future;
-    await super.close();
-  }
-}
-
 void main() {
   test(
     'app database becomes temporarily unavailable during rapid switch-back',
     () async {
-      final opened = <String, List<_BlockingCloseDatabase>>{};
+      final opened = <String, List<GatedCloseDatabase>>{};
       final manager = DatabaseManager(
         openDatabase: (fileName) {
-          final database = _BlockingCloseDatabase();
+          final database = GatedCloseDatabase.memory(failClose: false);
           opened.putIfAbsent(fileName, () => []).add(database);
           return database;
         },
@@ -120,9 +105,9 @@ void main() {
   );
 }
 
-Future<void> _waitForCloseCall(_BlockingCloseDatabase database) async {
+Future<void> _waitForCloseCall(GatedCloseDatabase database) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (database.closeCalls == 0) {
+  while (database.closeAttempts == 0) {
     if (DateTime.now().isAfter(deadline)) {
       throw TimeoutException('database close never started');
     }

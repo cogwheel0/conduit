@@ -574,7 +574,14 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       if (clearAccountChatState && active != null) {
         ref.read(activeConversationProvider.notifier).set(null);
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'visible-state-active-conversation-clear-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
     try {
       if (clearAccountChatState) {
         ref.invalidate(activeConversationInPlaceRemapProvider);
@@ -583,7 +590,14 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.invalidate(conversationsProvider);
       ref.invalidate(foldersProvider);
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'visible-state-provider-reset-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 }
 
