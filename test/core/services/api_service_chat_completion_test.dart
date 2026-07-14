@@ -1992,6 +1992,38 @@ void main() {
       check(body.containsKey('session_id')).isFalse();
     });
 
+    test(
+      'sendChatCompleted rejects a stale account snapshot before transport',
+      () async {
+        final adapter = _FakeAdapter.json({'ok': true});
+        final api = ApiService(
+          serverConfig: const ServerConfig(
+            id: 'test',
+            name: 'Test Server',
+            url: 'http://localhost:9999',
+          ),
+          workerManager: WorkerManager(),
+          authToken: 'account-a',
+        );
+        api.dio.httpClientAdapter = adapter;
+        final snapshot = api.captureAuthSnapshot();
+        api.updateAuthToken('account-b');
+
+        final result = await api.sendChatCompleted(
+          chatId: 'chat-1',
+          messageId: 'msg-1',
+          messages: const [
+            {'id': 'msg-1', 'role': 'assistant', 'content': 'Done'},
+          ],
+          model: 'gpt-4.1',
+          authSnapshot: snapshot,
+        );
+
+        check(result).isNull();
+        check(adapter.lastRequest).isNull();
+      },
+    );
+
     test('getBackendConfig preserves older audio config defaults', () async {
       final adapter = _QueuedFakeAdapter([
         _FakeAdapter.json({

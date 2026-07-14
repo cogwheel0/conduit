@@ -573,6 +573,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         _outboxDao.outboxOps,
       )..where((t) => t.chatId.equals(chatId))).go();
       await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+      await _deleteChatRemapMetadata(chatId);
     });
   }
 
@@ -626,6 +627,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         // createChat + deleteChat coalesced away: the chat never reached the
         // server, so no tombstone should remain for reconcile/drain to find.
         await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+        await _deleteChatRemapMetadata(chatId);
       }
     });
   }
@@ -640,6 +642,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         _outboxDao.outboxOps,
       )..where((t) => t.chatId.equals(localId))).go();
       await (delete(chats)..where((t) => t.id.equals(localId))).go();
+      await _deleteChatRemapMetadata(localId);
     });
   }
 
@@ -654,6 +657,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         _outboxDao.outboxOps,
       )..where((t) => t.chatId.equals(chatId))).go();
       await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+      await _deleteChatRemapMetadata(chatId);
     });
   }
 
@@ -671,6 +675,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     RequestCompletionPayload? completion,
   }) {
     return transaction(() async {
+      // A newly-created entity owns this local id as a fresh generation. Drop
+      // any historical source mapping before inserting it so an old A->B
+      // relation cannot redirect work for a deliberately reused local id.
+      await attachedDatabase.syncMetaDao.deleteChatRemapTarget(chat.id);
       await into(chats).insert(
         ChatsCompanion.insert(
           id: chat.id,
@@ -956,7 +964,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<void> hardDelete(String chatId) {
     return transaction(() async {
       await (delete(chats)..where((t) => t.id.equals(chatId))).go();
+      await _deleteChatRemapMetadata(chatId);
     });
+  }
+
+  Future<void> _deleteChatRemapMetadata(String chatId) async {
+    await attachedDatabase.syncMetaDao.deleteChatRemapTarget(chatId);
+    await attachedDatabase.syncMetaDao.deleteChatRemapTargetsForServer(chatId);
   }
 
   /// Serializes [ChatRows] round-trip bookkeeping per amendment A3 (exact

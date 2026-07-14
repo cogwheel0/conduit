@@ -11,6 +11,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/api_service.dart';
 import '../services/attachment_upload_queue.dart';
 import '../auth/auth_state_manager.dart';
+import '../auth/openwebui_account_owner_marker.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../models/server_config.dart';
 import '../models/user.dart';
@@ -47,6 +48,7 @@ import 'backend_mode_providers.dart';
 import '../models/socket_transport_availability.dart';
 import 'storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
+import '../database/app_database.dart';
 import '../database/database_provider.dart';
 import '../database/chat_database_repository.dart';
 import '../database/local_conversation_loader.dart';
@@ -277,13 +279,26 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
 
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
-  late final OptimizedStorageService _storage;
+  // AsyncNotifier instances survive dependency-triggered rebuilds. This must
+  // be rebound on every build so auth/server transitions cannot either throw
+  // on a second `late final` assignment or retain the prior storage owner.
+  late OptimizedStorageService _storage;
 
   @override
   Future<BackendConfig?> build() async {
     _storage = ref.watch(optimizedStorageServiceProvider);
+    // These ownership boundaries can change while ApiService itself remains
+    // stable (same-server logout/login). Rebuild so a discarded stale refresh
+    // is followed by a request owned by the new session.
+    ref.watch(openWebUiAuthSessionEpochProvider);
+    ref.watch(openWebUiDatabaseAccessProvider);
+    ref.watch(openWebUiCertifiedDatabaseServerProvider);
+    ref.watch(activeServerProvider);
+    ref.watch(apiServiceProvider);
     final cached = await _storage.getLocalBackendConfig();
-    unawaited(_refreshBackendConfig());
+    if (ref.mounted) {
+      unawaited(_refreshBackendConfig());
+    }
     return cached;
   }
 
@@ -293,52 +308,83 @@ class BackendConfigNotifier extends _$BackendConfigNotifier {
   /// [serverId]. This avoids a stale global cache hiding server-specific
   /// capability state during the first authenticated frame.
   Future<void> cacheForServer(BackendConfig config, String serverId) async {
-    final activeId = ref.read(activeServerProvider).asData?.value?.id;
-    if (activeId != serverId) return;
+    final api = ref.read(apiServiceProvider);
+    if (api == null || api.serverConfig.id != serverId) return;
+    final ownership = captureOpenWebUiCacheOwnership(
+      ref,
+      api: api,
+      requireAuthenticated: false,
+    );
+    if (ownership == null) return;
 
     final tagged = config.copyWith(serverId: serverId);
-    state = AsyncData(tagged);
     await _storage.saveLocalBackendConfig(tagged);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
     final options = _resolveTransportAvailability(tagged);
     await _storage.saveLocalTransportOptions(options);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
+    state = AsyncData(tagged);
   }
 
   Future<void> _refreshBackendConfig() async {
-    final fresh = await _loadBackendConfig(ref);
-    if (fresh == null || !ref.mounted) {
+    final loaded = await _loadBackendConfig(ref);
+    if (loaded == null || !ref.mounted) {
       return;
     }
+    final config = loaded.config;
+    final ownership = loaded.ownership;
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
-    state = AsyncData(fresh);
-    await _storage.saveLocalBackendConfig(fresh);
+    await _storage.saveLocalBackendConfig(config);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
 
     // Persist resolved transport options based on backend config
-    if (!ref.mounted) return;
-    final options = _resolveTransportAvailability(fresh);
+    final options = _resolveTransportAvailability(config);
     await _storage.saveLocalTransportOptions(options);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
+    state = AsyncData(config);
   }
 }
 
-Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
-  final api = ref.watch(apiServiceProvider);
+typedef _OwnedBackendConfig = ({
+  BackendConfig config,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
+
+Future<_OwnedBackendConfig?> _loadBackendConfig(Ref ref) async {
+  if (!ref.mounted) return null;
+  // The notifier's build method owns dependency subscriptions. Refresh can
+  // also be invoked later by UI actions, where adding a new `watch` dependency
+  // is invalid; take point-in-time values and fence their async result below.
+  final api = ref.read(apiServiceProvider);
   if (api == null) {
     return null;
   }
 
-  final server = await ref.watch(activeServerProvider.future);
+  final server = await ref.read(activeServerProvider.future);
+  if (!ref.mounted) return null;
   if (server == null) {
     return null;
   }
+  if (api.serverConfig.id != server.id) return null;
+  final ownership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (ownership == null) return null;
 
   try {
     final config = await api.getBackendConfig();
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     if (config != null) {
       final forcedMode = config.enforcedTransportMode;
       if (forcedMode != null) {
         final settings = ref.read(appSettingsProvider);
         if (settings.socketTransportMode != forcedMode) {
           Future.microtask(() {
+            if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
             ref
                 .read(appSettingsProvider.notifier)
                 .setSocketTransportMode(forcedMode);
@@ -350,7 +396,8 @@ Future<BackendConfig?> _loadBackendConfig(Ref ref) async {
     // warning can ignore a globally-cached config that belongs to a different
     // server (e.g. after a server switch, or a stale config restored on a
     // cold start). See serverIncompatibleProvider.
-    return config?.copyWith(serverId: server.id);
+    final tagged = config?.copyWith(serverId: api.serverConfig.id);
+    return tagged == null ? null : (config: tagged, ownership: ownership);
   } catch (_) {
     return null;
   }
@@ -445,12 +492,370 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
 });
 
 // Socket.IO service provider
+/// Monotonic identity for one OpenWebUI authentication session.
+///
+/// API and database objects are intentionally stable across logout on the same
+/// server. Their identity therefore cannot distinguish user A's late async work
+/// from a later user B session. Rebuilding this object on every auth-state
+/// transition gives all server-bound work an ABA-safe ownership boundary.
+final openWebUiAuthSessionEpochProvider = Provider<Object>((ref) {
+  ref.watch(isAuthenticatedProvider2);
+  ref.watch(authTokenProvider3);
+  ref.watch(currentUserProvider2.select((user) => user?.id));
+  return Object();
+});
+
+/// Immutable ownership fence for async OpenWebUI API results that may update
+/// server-scoped state or cache rows after an await.
+///
+/// ApiService identity alone is insufficient: it can remain stable across a
+/// same-server account transition. The auth epoch, token, active server,
+/// database certification phase, and raw storage owner close that ABA window.
+@immutable
+final class OpenWebUiCacheOwnershipSnapshot {
+  const OpenWebUiCacheOwnershipSnapshot({
+    required this.api,
+    required this.serverId,
+    required this.activeServerId,
+    required this.authSessionEpoch,
+    required this.authToken,
+    required this.authenticated,
+    required this.databaseAccessPhase,
+    required this.certifiedDatabaseServerId,
+    required this.rawActiveServerId,
+  });
+
+  final ApiService api;
+  final String serverId;
+  final String? activeServerId;
+  final Object authSessionEpoch;
+  final String? authToken;
+  final bool authenticated;
+  final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  final String? certifiedDatabaseServerId;
+  final String? rawActiveServerId;
+}
+
+OpenWebUiCacheOwnershipSnapshot? captureOpenWebUiCacheOwnership(
+  Ref ref, {
+  required ApiService api,
+  bool requireAuthenticated = true,
+}) {
+  if (!ref.mounted) return null;
+  final serverId = api.serverConfig.id;
+  // Keep the last resolved owner through an AsyncLoading/AsyncError refresh.
+  // Treating every transient refresh as "no server" can retire otherwise
+  // valid same-server cache/API work while the server is being revalidated.
+  final activeServerId = ref.read(activeServerProvider).value?.id;
+  final rawActiveServerId = PreferencesStore.getString(
+    PreferenceKeys.activeServerId,
+  );
+  final authenticated = ref.read(isAuthenticatedProvider2);
+  final authToken = ref.read(authTokenProvider3);
+  if (!identical(ref.read(apiServiceProvider), api) ||
+      (activeServerId != null && activeServerId != serverId) ||
+      (rawActiveServerId != null && rawActiveServerId != serverId) ||
+      (requireAuthenticated &&
+          (!authenticated || authToken == null || authToken.isEmpty))) {
+    return null;
+  }
+  return OpenWebUiCacheOwnershipSnapshot(
+    api: api,
+    serverId: serverId,
+    activeServerId: activeServerId,
+    authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+    authToken: authToken,
+    authenticated: authenticated,
+    databaseAccessPhase: ref.read(openWebUiDatabaseAccessProvider),
+    certifiedDatabaseServerId: ref.read(
+      openWebUiCertifiedDatabaseServerProvider,
+    ),
+    rawActiveServerId: rawActiveServerId,
+  );
+}
+
+bool openWebUiCacheOwnershipIsCurrent(
+  Ref ref,
+  OpenWebUiCacheOwnershipSnapshot snapshot,
+) {
+  if (!ref.mounted ||
+      !identical(ref.read(apiServiceProvider), snapshot.api) ||
+      ref.read(activeServerProvider).value?.id != snapshot.activeServerId ||
+      !identical(
+        ref.read(openWebUiAuthSessionEpochProvider),
+        snapshot.authSessionEpoch,
+      ) ||
+      ref.read(authTokenProvider3) != snapshot.authToken ||
+      ref.read(isAuthenticatedProvider2) != snapshot.authenticated ||
+      ref.read(openWebUiDatabaseAccessProvider) !=
+          snapshot.databaseAccessPhase ||
+      ref.read(openWebUiCertifiedDatabaseServerProvider) !=
+          snapshot.certifiedDatabaseServerId ||
+      PreferencesStore.getString(PreferenceKeys.activeServerId) !=
+          snapshot.rawActiveServerId) {
+    return false;
+  }
+  return (snapshot.activeServerId == null ||
+          snapshot.activeServerId == snapshot.serverId) &&
+      (snapshot.rawActiveServerId == null ||
+          snapshot.rawActiveServerId == snapshot.serverId);
+}
+
+/// Ownership token for an asynchronous OpenWebUI conversation read.
+///
+/// Conversation bodies can come from either the server database or the API.
+/// Both objects may outlive the account that started a read, so object identity
+/// alone is not an adequate fence. This token also captures the authentication
+/// epoch and the database/server certification boundary used by account
+/// isolation.
+@immutable
+final class OpenWebUiConversationReadSnapshot {
+  const OpenWebUiConversationReadSnapshot._({
+    required this.database,
+    required this.api,
+    required this.authSessionEpoch,
+    required this.databaseAccessPhase,
+    required this.certifiedDatabaseServerId,
+    required this.activeServerId,
+    required this.rawActiveServerId,
+    required this.managedDatabaseServerId,
+    required this.apiServerId,
+  });
+
+  final AppDatabase? database;
+  final ApiService? api;
+  final Object authSessionEpoch;
+  final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  final String? certifiedDatabaseServerId;
+  final String? activeServerId;
+  final String? rawActiveServerId;
+  final String? managedDatabaseServerId;
+  final String? apiServerId;
+}
+
+typedef _OpenWebUiConversationReadContext = ({
+  AppDatabase? database,
+  ApiService? api,
+  Object authSessionEpoch,
+  OpenWebUiDatabaseAccessPhase databaseAccessPhase,
+  String? certifiedDatabaseServerId,
+  String? activeServerId,
+  String? rawActiveServerId,
+  String? managedDatabaseServerId,
+  String? apiServerId,
+});
+
+bool _openWebUiConversationReaderIsMounted(dynamic ref) {
+  try {
+    final mounted = ref.mounted;
+    return mounted is! bool || mounted;
+  } catch (_) {
+    // ProviderContainer intentionally has no mounted property. Its reads below
+    // still fail after disposal, which is handled by the context reader.
+    return true;
+  }
+}
+
+_OpenWebUiConversationReadContext? _readOpenWebUiConversationContext(
+  dynamic ref,
+) {
+  if (!_openWebUiConversationReaderIsMounted(ref)) return null;
+
+  // The database and API are independent read sources. In particular, the
+  // account database may be unavailable while it is opening (or a narrow test
+  // may deliberately omit it), but that must not erase an otherwise exact API
+  // ownership token. Read optional context components independently and keep
+  // the mandatory auth/database-isolation fence fail-closed.
+  AppDatabase? database;
+  try {
+    database = ref.read(appDatabaseProvider) as AppDatabase?;
+  } catch (_) {}
+
+  ApiService? api;
+  try {
+    api = ref.read(apiServiceProvider) as ApiService?;
+  } catch (_) {}
+  if (database == null && api == null) return null;
+
+  late final Object authSessionEpoch;
+  late final OpenWebUiDatabaseAccessPhase databaseAccessPhase;
+  String? certifiedDatabaseServerId;
+  try {
+    authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider) as Object;
+    databaseAccessPhase =
+        ref.read(openWebUiDatabaseAccessProvider)
+            as OpenWebUiDatabaseAccessPhase;
+    certifiedDatabaseServerId =
+        ref.read(openWebUiCertifiedDatabaseServerProvider) as String?;
+  } catch (_) {
+    return null;
+  }
+
+  String? managedDatabaseServerId;
+  if (database != null) {
+    try {
+      managedDatabaseServerId = ref
+          .read(databaseManagerProvider)
+          .serverIdForDatabase(database);
+    } catch (_) {
+      // Provider overrides commonly use unmanaged in-memory databases. Exact
+      // database identity remains their ownership boundary.
+    }
+  }
+
+  String? apiServerId;
+  if (api != null) {
+    try {
+      apiServerId = api.serverConfig.id;
+    } catch (_) {
+      // Lightweight ApiService fakes may not implement serverConfig. Real
+      // services always do, and the remaining captured identities still
+      // provide a deterministic test seam.
+    }
+  }
+
+  String? rawActiveServerId;
+  try {
+    rawActiveServerId = PreferencesStore.isReady
+        ? PreferencesStore.getString(PreferenceKeys.activeServerId)
+        : null;
+  } catch (_) {
+    // A narrow test or early bootstrap can expose a synchronously torn-down
+    // preferences seam. Provider/database/auth identity still forms the
+    // ownership fence; absence of this optional corroborating id is safer
+    // than making every otherwise coherent read unavailable.
+    rawActiveServerId = null;
+  }
+
+  String? activeServerId;
+  try {
+    final activeServer = ref.read(activeServerProvider);
+    activeServerId = activeServer is AsyncData<ServerConfig?>
+        ? activeServer.value?.id
+        : null;
+  } catch (_) {
+    // During server bootstrap the independently captured API/database identity
+    // remains authoritative. A later active-server publication changes this
+    // tuple and invalidates the snapshot before its result can be published.
+  }
+
+  return (
+    database: database,
+    api: api,
+    authSessionEpoch: authSessionEpoch,
+    databaseAccessPhase: databaseAccessPhase,
+    certifiedDatabaseServerId: certifiedDatabaseServerId,
+    activeServerId: activeServerId,
+    rawActiveServerId: rawActiveServerId,
+    managedDatabaseServerId: managedDatabaseServerId,
+    apiServerId: apiServerId,
+  );
+}
+
+/// Captures the single ownership token shared by all OpenWebUI conversation
+/// read and publication paths.
+///
+/// [database] and [api], when supplied, must still be the current provider
+/// instances. At least one current OpenWebUI data source must exist.
+OpenWebUiConversationReadSnapshot? captureOpenWebUiConversationRead(
+  dynamic ref, {
+  AppDatabase? database,
+  ApiService? api,
+}) {
+  final context = _readOpenWebUiConversationContext(ref);
+  if (context == null ||
+      (database != null && !identical(database, context.database)) ||
+      (api != null && !identical(api, context.api)) ||
+      (context.database == null && context.api == null) ||
+      context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.purging ||
+      context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.closed) {
+    return null;
+  }
+
+  final databaseServerId = context.managedDatabaseServerId;
+  if (databaseServerId != null) {
+    if (context.databaseAccessPhase != OpenWebUiDatabaseAccessPhase.open ||
+        context.certifiedDatabaseServerId != databaseServerId ||
+        context.activeServerId != databaseServerId ||
+        (context.rawActiveServerId != null &&
+            context.rawActiveServerId != databaseServerId) ||
+        (context.api != null && context.apiServerId != databaseServerId)) {
+      return null;
+    }
+  }
+
+  final apiServerId = context.apiServerId;
+  if (apiServerId != null &&
+      ((context.activeServerId != null &&
+              context.activeServerId != apiServerId) ||
+          (context.rawActiveServerId != null &&
+              context.rawActiveServerId != apiServerId) ||
+          (context.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.open &&
+              context.certifiedDatabaseServerId != null &&
+              context.certifiedDatabaseServerId != apiServerId))) {
+    return null;
+  }
+
+  return OpenWebUiConversationReadSnapshot._(
+    database: context.database,
+    api: context.api,
+    authSessionEpoch: context.authSessionEpoch,
+    databaseAccessPhase: context.databaseAccessPhase,
+    certifiedDatabaseServerId: context.certifiedDatabaseServerId,
+    activeServerId: context.activeServerId,
+    rawActiveServerId: context.rawActiveServerId,
+    managedDatabaseServerId: context.managedDatabaseServerId,
+    apiServerId: context.apiServerId,
+  );
+}
+
+/// Whether [snapshot] still owns the exact OpenWebUI account/server context.
+bool openWebUiConversationReadIsCurrent(
+  dynamic ref,
+  OpenWebUiConversationReadSnapshot snapshot,
+) {
+  final context = _readOpenWebUiConversationContext(ref);
+  return context != null &&
+      identical(context.database, snapshot.database) &&
+      identical(context.api, snapshot.api) &&
+      identical(context.authSessionEpoch, snapshot.authSessionEpoch) &&
+      context.databaseAccessPhase == snapshot.databaseAccessPhase &&
+      context.certifiedDatabaseServerId == snapshot.certifiedDatabaseServerId &&
+      context.activeServerId == snapshot.activeServerId &&
+      context.rawActiveServerId == snapshot.rawActiveServerId &&
+      context.managedDatabaseServerId == snapshot.managedDatabaseServerId &&
+      context.apiServerId == snapshot.apiServerId;
+}
+
+typedef SocketServiceFactory =
+    SocketService Function({
+      required ServerConfig serverConfig,
+      required String authToken,
+      required bool websocketOnly,
+      required bool allowWebsocketUpgrade,
+    });
+
+final socketServiceFactoryProvider = Provider<SocketServiceFactory>((ref) {
+  return ({
+    required serverConfig,
+    required authToken,
+    required websocketOnly,
+    required allowWebsocketUpgrade,
+  }) => SocketService(
+    serverConfig: serverConfig,
+    authToken: authToken,
+    websocketOnly: websocketOnly,
+    allowWebsocketUpgrade: allowWebsocketUpgrade,
+  );
+});
+
 @Riverpod(keepAlive: true)
 class SocketServiceManager extends _$SocketServiceManager {
   SocketService? _service;
-  ProviderSubscription<String?>? _tokenSubscription;
   ProviderSubscription<ConnectivityStatus>? _connectivitySubscription;
+  String? _serviceToken;
   int _connectToken = 0;
+  int _buildGeneration = 0;
 
   /// The current live service, available even while [build] is re-running (the
   /// async provider is briefly `loading` on every rebuild). [socketServiceProvider]
@@ -462,13 +867,49 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   @override
   FutureOr<SocketService?> build() async {
+    final buildGeneration = ++_buildGeneration;
+    _registerDisposeHook(buildGeneration);
     final reviewerMode = ref.watch(reviewerModeProvider);
-    if (reviewerMode) {
+    final authenticated = ref.watch(isAuthenticatedProvider2);
+    final token = ref.watch(authTokenProvider3);
+    final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+    if (reviewerMode || !authenticated || token == null || token.isEmpty) {
       _disposeService();
       return null;
     }
 
+    // A token transition may represent another user on the same server. Drop
+    // the old socket synchronously, before the first await, so the provider's
+    // loading fallback can never expose the prior session or its room handlers.
+    if (_service != null && _serviceToken != token) {
+      _disposeService();
+    }
+
+    final activeServerSnapshot = ref.watch(activeServerProvider);
+    final immediatelyKnownServer = activeServerSnapshot.asData?.value;
+    if (_service != null &&
+        (immediatelyKnownServer == null ||
+            _service!.serverConfig.id != immediatelyKnownServer.id)) {
+      // A live socket is safe to expose during an ordinary rebuild only while
+      // the active server is still provably the same. Server selection enters
+      // loading before its replacement resolves, so fail closed instead of
+      // letting socketServiceProvider's loading fallback expose the old host.
+      _disposeService();
+    }
+
     final server = await ref.watch(activeServerProvider.future);
+    if (!_buildStillOwnsContext(
+      buildGeneration: buildGeneration,
+      token: token,
+      authSessionEpoch: authSessionEpoch,
+      server: server,
+    )) {
+      // AsyncNotifier ignores an obsolete build's returned state, but the
+      // continuation can still execute side effects. Never let that stale
+      // continuation dispose or replace the socket installed by a newer auth or
+      // server generation.
+      return null;
+    }
     if (server == null) {
       _disposeService();
       return null;
@@ -481,34 +922,23 @@ class SocketServiceManager extends _$SocketServiceManager {
     final transportAvailability = ref.watch(socketTransportOptionsProvider);
     final allowWebsocketUpgrade = transportAvailability.allowWebsocketOnly;
 
-    // Don't watch authTokenProvider3 here to avoid rebuilding on token changes
-    // Token updates are handled via the subscription below
-    final token = ref.read(authTokenProvider3);
-
     final requiresNewService =
         _service == null ||
+        _serviceToken != token ||
         _service!.serverConfig.id != server.id ||
         _service!.websocketOnly != websocketOnly ||
         _service!.allowWebsocketUpgrade != allowWebsocketUpgrade;
     if (requiresNewService) {
       _disposeService();
-      _service = SocketService(
+      _service = ref.read(socketServiceFactoryProvider)(
         serverConfig: server,
         authToken: token,
         websocketOnly: websocketOnly,
         allowWebsocketUpgrade: allowWebsocketUpgrade,
       );
+      _serviceToken = token;
       _scheduleConnect(_service!);
-    } else {
-      _service!.updateAuthToken(token);
     }
-
-    _tokenSubscription ??= ref.listen<String?>(authTokenProvider3, (
-      previous,
-      next,
-    ) {
-      _service?.updateAuthToken(next);
-    });
 
     // Listen to connectivity changes to proactively manage socket connection.
     // When network goes offline, we can save resources by not attempting
@@ -538,15 +968,47 @@ class SocketServiceManager extends _$SocketServiceManager {
       },
     );
 
+    return _service;
+  }
+
+  void _registerDisposeHook(int buildGeneration) {
     ref.onDispose(() {
-      _tokenSubscription?.close();
-      _tokenSubscription = null;
+      if (buildGeneration != _buildGeneration) return;
+
+      // Fence every continuation before releasing the currently-owned service.
+      _buildGeneration++;
       _connectivitySubscription?.close();
       _connectivitySubscription = null;
-      _disposeService();
-    });
 
-    return _service;
+      // Riverpod runs onDispose both before a rebuild and when the provider is
+      // destroyed. Let a replacement build retain a same-context socket, but
+      // release it once the notifier is genuinely unmounted.
+      scheduleMicrotask(() {
+        if (!ref.mounted) {
+          _disposeService();
+        }
+      });
+    });
+  }
+
+  bool _buildStillOwnsContext({
+    required int buildGeneration,
+    required String token,
+    required Object authSessionEpoch,
+    required ServerConfig? server,
+  }) {
+    if (!ref.mounted || buildGeneration != _buildGeneration) return false;
+    if (ref.read(reviewerModeProvider) ||
+        !ref.read(isAuthenticatedProvider2) ||
+        ref.read(authTokenProvider3) != token ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
+      return false;
+    }
+    final currentServer = ref.read(activeServerProvider).asData;
+    return currentServer != null && currentServer.value == server;
   }
 
   void _scheduleConnect(SocketService service) {
@@ -563,6 +1025,7 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   void _disposeService() {
     _connectToken++;
+    _serviceToken = null;
     if (_service == null) return;
     try {
       _service!.dispose();
@@ -645,8 +1108,12 @@ final apiTokenUpdaterProvider = Provider<void>((ref) {
 
 @Riverpod(keepAlive: true)
 Future<User?> currentUser(Ref ref) async {
-  final api = ref.read(apiServiceProvider);
+  final api = ref.watch(apiServiceProvider);
   final authState = ref.watch(authStateManagerProvider);
+  ref.watch(openWebUiAuthSessionEpochProvider);
+  ref.watch(openWebUiDatabaseAccessProvider);
+  ref.watch(openWebUiCertifiedDatabaseServerProvider);
+  ref.watch(activeServerProvider);
   final isAuthenticated = authState.maybeWhen(
     data: (state) => state.isAuthenticated,
     orElse: () => false,
@@ -661,10 +1128,30 @@ Future<User?> currentUser(Ref ref) async {
   );
   if (authUser != null) return authUser;
 
+  final cacheOwnership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (cacheOwnership == null) return null;
+
   // Next: try cached user from storage, then refresh in the background.
   final storage = ref.read(optimizedStorageServiceProvider);
   final cachedUser = await _getCachedUserWithAvatar(storage);
-  if (cachedUser != null) {
+  if (!openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) return null;
+  final token = cacheOwnership.authToken;
+  final marker = ref
+      .read(openWebUiAccountOwnerMarkerStoreProvider)
+      .read(cacheOwnership.serverId);
+  final cachedOwnerMatches =
+      cachedUser != null &&
+      token != null &&
+      openWebUiAccountOwnerMarkerMatches(
+        marker: marker,
+        token: token,
+        userId: cachedUser.id,
+      );
+  if (cachedOwnerMatches) {
     final lastRefresh = ref.read(_lastUserRefreshProvider);
     final now = DateTime.now();
     final shouldRefresh =
@@ -685,35 +1172,35 @@ Future<User?> currentUser(Ref ref) async {
 
   // Fallback: fetch fresh.
   final fresh = await _refreshCurrentUser(ref);
-  if (fresh != null) {
+  if (fresh != null && ref.mounted) {
     ref.read(_lastUserRefreshProvider.notifier).set(DateTime.now());
   }
-  return fresh;
+  return ref.mounted ? fresh : null;
 }
 
-Future<User?> _getCachedUserWithAvatar(OptimizedStorageService storage) async {
-  final cachedUser = await storage.getLocalUser();
-  if (cachedUser == null) return null;
-  final cachedAvatar = await storage.getLocalUserAvatar();
-  if (cachedAvatar == null ||
-      cachedAvatar.isEmpty ||
-      cachedUser.profileImage == cachedAvatar) {
-    return cachedUser;
-  }
-  return cachedUser.copyWith(profileImage: cachedAvatar);
-}
+Future<User?> _getCachedUserWithAvatar(OptimizedStorageService storage) =>
+    storage.getLocalUserWithAvatar();
 
 Future<User?> _refreshCurrentUser(Ref ref) async {
+  // A warm refresh is queued in a microtask. Authentication/server changes can
+  // invalidate the provider build before that task starts, so do not perform
+  // even the first provider read through a retired Ref.
+  if (!ref.mounted) return null;
   final api = ref.read(apiServiceProvider);
   if (api == null) return null;
+  final ownership = captureOpenWebUiCacheOwnership(
+    ref,
+    api: api,
+    requireAuthenticated: false,
+  );
+  if (ownership == null) return null;
 
   try {
     final user = await api.getCurrentUser();
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     final storage = ref.read(optimizedStorageServiceProvider);
-    await storage.saveLocalUser(user);
-    if (user.profileImage != null && user.profileImage!.isNotEmpty) {
-      await storage.saveLocalUserAvatar(user.profileImage);
-    }
+    await storage.saveLocalUserWithAvatar(user, avatarUrl: user.profileImage);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     return user;
   } catch (_) {
     return null;
@@ -831,11 +1318,41 @@ class Models extends _$Models {
       );
     }
 
+    // These ownership dependencies fence only OpenWebUI cache/API work. Do
+    // not initialize or subscribe to server storage in accountless
+    // Direct/Hermes mode: doing so can repeatedly cancel the otherwise
+    // synchronous local-model build while an optional retained server settles.
+    ref.watch(openWebUiAuthSessionEpochProvider);
+    ref.watch(openWebUiDatabaseAccessProvider);
+    ref.watch(openWebUiCertifiedDatabaseServerProvider);
+    ref.watch(activeServerProvider.select((value) => value.value?.id));
+
     // Re-run whenever Hermes connection usability changes so the synthetic
     // model cannot outlive (or appear before) its configured service.
+    final api = ref.watch(apiServiceProvider);
+    final cacheOwnership = api == null
+        ? null
+        : captureOpenWebUiCacheOwnership(
+            ref,
+            api: api,
+            requireAuthenticated: false,
+          );
+    if (api != null && cacheOwnership == null) {
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    }
     final storage = ref.watch(optimizedStorageServiceProvider);
     try {
       final cached = await storage.getLocalModels();
+      if (cacheOwnership != null &&
+          !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(const <Model>[], directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
       if (cached.isNotEmpty) {
         final visibleCached = sanitizeRemoteHermesModels(
           sanitizeRemoteDirectModels(_visibleModels(cached)),
@@ -848,10 +1365,11 @@ class Models extends _$Models {
             'hidden': cached.length - visibleCached.length,
           },
         );
-        if (visibleCached.length != cached.length) {
-          _persistModelsAsync(visibleCached);
+        if (visibleCached.length != cached.length && cacheOwnership != null) {
+          _persistModelsAsync(visibleCached, ownership: cacheOwnership);
         }
         Future.microtask(() async {
+          if (!ref.mounted) return;
           try {
             await refresh();
           } catch (error, stackTrace) {
@@ -877,7 +1395,6 @@ class Models extends _$Models {
       );
     }
 
-    final api = ref.watch(apiServiceProvider);
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
       _persistModelsAsync(const <Model>[]);
@@ -888,9 +1405,16 @@ class Models extends _$Models {
     }
 
     try {
-      final fresh = await _load(api);
+      final loaded = await _load(api);
+      if (loaded == null ||
+          !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership)) {
+        return _returnWithSelectionReconciliation(
+          _withLocalModels(const <Model>[], directModels: directModels),
+          deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
       return _returnWithSelectionReconciliation(
-        _withLocalModels(fresh, directModels: directModels),
+        _withLocalModels(loaded.models, directModels: directModels),
         deferDirectSelection: deferDirectSelectionReconciliation,
       );
     } catch (_) {
@@ -1108,8 +1632,14 @@ class Models extends _$Models {
     }
     final result = await AsyncValue.guard(() => _load(api));
     if (!ref.mounted) return;
+    final loaded = result.value;
+    if (result.hasValue &&
+        (loaded == null ||
+            !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership))) {
+      return;
+    }
     final withLocal = result.whenData(
-      (models) => _reconcileLocalSelection(_withLocalModels(models)),
+      (owned) => _reconcileLocalSelection(_withLocalModels(owned!.models)),
     );
     if (withLocal.hasError) {
       final selected = ref.read(selectedModelProvider);
@@ -1173,10 +1703,17 @@ class Models extends _$Models {
     }
   }
 
-  Future<List<Model>> _load(ApiService api) async {
+  Future<_OwnedModels?> _load(ApiService api) async {
+    final ownership = captureOpenWebUiCacheOwnership(
+      ref,
+      api: api,
+      requireAuthenticated: false,
+    );
+    if (ownership == null) return null;
     try {
       DebugLogger.log('fetch-start', scope: 'models');
       final models = await api.getModels();
+      if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
       final visibleModels = sanitizeRemoteHermesModels(
         sanitizeRemoteDirectModels(_visibleModels(models)),
       );
@@ -1188,8 +1725,8 @@ class Models extends _$Models {
           'hidden': models.length - visibleModels.length,
         },
       );
-      _persistModelsAsync(visibleModels);
-      return visibleModels;
+      _persistModelsAsync(visibleModels, ownership: ownership);
+      return (models: visibleModels, ownership: ownership);
     } catch (e, stackTrace) {
       DebugLogger.error(
         'fetch-failed',
@@ -1215,7 +1752,14 @@ class Models extends _$Models {
     return models.where((model) => !model.isHidden).toList();
   }
 
-  void _persistModelsAsync(List<Model> models) {
+  void _persistModelsAsync(
+    List<Model> models, {
+    OpenWebUiCacheOwnershipSnapshot? ownership,
+  }) {
+    if (ownership != null &&
+        !openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+      return;
+    }
     final storage = ref.read(optimizedStorageServiceProvider);
     unawaited(
       storage.saveLocalModels(models).onError((error, stack) {
@@ -1248,6 +1792,11 @@ class Models extends _$Models {
     ),
   ];
 }
+
+typedef _OwnedModels = ({
+  List<Model> models,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
 
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
@@ -1753,20 +2302,36 @@ void refreshConversationsCache(dynamic ref, {bool includeFolders = false}) {
   final folderConversationRefresh = ref.read(
     _folderConversationRefreshTickProvider.notifier,
   );
+  final syncEngine = ref.read(syncEngineProvider.notifier);
+  // Invoke the notifier synchronously while the caller's provider/widget ref
+  // is still known to be alive. Scheduling the invocation itself in a detached
+  // Future leaves a teardown window where the owner can be disposed before
+  // [requestPull] gets a chance to read its Riverpod dependencies.
+  Future<PullResult?> pull;
+  try {
+    pull = syncEngine.requestPull(reason: 'cache-refresh');
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'refresh-cache-failed',
+      scope: 'conversations',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return;
+  }
   unawaited(
-    Future<void>(() async {
-      await ref
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: 'cache-refresh');
-      folderConversationRefresh.bumpIfMounted();
-    }).catchError((Object error, StackTrace stackTrace) {
-      DebugLogger.error(
-        'refresh-cache-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }),
+    pull
+        .then<void>((_) {
+          folderConversationRefresh.bumpIfMounted();
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          DebugLogger.error(
+            'refresh-cache-failed',
+            scope: 'conversations',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }),
   );
 }
 
@@ -1964,15 +2529,54 @@ int _conversationIndexForSelection(
 // optimistic state.
 @Riverpod(keepAlive: true)
 class Conversations extends _$Conversations {
+  int _databaseWatchGeneration = 0;
+  StreamSubscription<List<LocatedChatListEntry>>? _databaseSubscription;
+  Future<void> _databaseWatchCancellation = Future<void>.value();
+
   /// Every chat row is local now; pagination is permanently exhausted.
   bool hasMoreRegularChats() => false;
   bool isLoadingMoreRegularChats() => false;
 
   @override
   Future<List<Conversation>> build() async {
+    final generation = ++_databaseWatchGeneration;
+    final previousSubscription = _databaseSubscription;
+    _databaseSubscription = null;
+    ref.onDispose(() {
+      if (generation == _databaseWatchGeneration) {
+        _databaseWatchGeneration++;
+        final subscription = _databaseSubscription;
+        _databaseSubscription = null;
+        unawaited(_queueDatabaseWatchCancellation(subscription));
+      }
+    });
+    await _queueDatabaseWatchCancellation(previousSubscription);
+    if (!ref.mounted || generation != _databaseWatchGeneration) {
+      return const <Conversation>[];
+    }
+
     if (ref.watch(reviewerModeProvider)) {
       return _demoConversations();
     }
+
+    final accessPhase = ref.watch(openWebUiDatabaseAccessProvider);
+    final certifiedServerId = ref.watch(
+      openWebUiCertifiedDatabaseServerProvider,
+    );
+    final activeServerId = ref.watch(
+      activeServerProvider.select((value) => value.asData?.value?.id),
+    );
+    final openWebUiDatabase = ref.watch(appDatabaseProvider);
+    final unmanagedOpenWebUiDatabase =
+        openWebUiDatabase != null &&
+        ref
+                .watch(databaseManagerProvider)
+                .serverIdForDatabase(openWebUiDatabase) ==
+            null;
+    final includeOpenWebUi =
+        accessPhase == OpenWebUiDatabaseAccessPhase.open &&
+        ((certifiedServerId != null && certifiedServerId == activeServerId) ||
+            unmanagedOpenWebUiDatabase);
 
     // Rebuild the repository when the active Open WebUI database changes. The
     // direct-local database is independent and remains available while signed
@@ -1986,8 +2590,16 @@ class Conversations extends _$Conversations {
     final coldStart = Stopwatch()..start();
     final subscription = repository.watchMergedChatList().listen(
       (entries) {
+        if (generation != _databaseWatchGeneration) return;
+        final visibleEntries = includeOpenWebUi
+            ? entries
+            : entries
+                  .where(
+                    (located) => located.storage == ChatStorageKind.directLocal,
+                  )
+                  .toList(growable: false);
         final conversations = List<Conversation>.unmodifiable(
-          entries.map((located) {
+          visibleEntries.map((located) {
             return withChatStorageProvenance(
               conversationFromListEntry(located.entry),
               located.storage,
@@ -2009,6 +2621,7 @@ class Conversations extends _$Conversations {
         }
       },
       onError: (Object error, StackTrace stackTrace) {
+        if (generation != _databaseWatchGeneration) return;
         DebugLogger.error(
           'watch-failed',
           scope: 'conversations',
@@ -2020,8 +2633,29 @@ class Conversations extends _$Conversations {
         }
       },
     );
-    ref.onDispose(subscription.cancel);
+    _databaseSubscription = subscription;
     return completer.future;
+  }
+
+  Future<void> _queueDatabaseWatchCancellation(
+    StreamSubscription<List<LocatedChatListEntry>>? subscription,
+  ) {
+    final prior = _databaseWatchCancellation;
+    final cancellation = () async {
+      await prior;
+      if (subscription == null) return;
+      try {
+        await subscription.cancel();
+      } catch (_) {
+        // A stale/closed Drift executor must not reject an async provider build
+        // or escape as an unhandled error during provider disposal.
+        try {
+          DebugLogger.error('watch-cancel-failed', scope: 'conversations');
+        } catch (_) {}
+      }
+    }();
+    _databaseWatchCancellation = cancellation;
+    return cancellation;
   }
 
   /// Refreshing is a pull request; the database stream delivers the result.
@@ -2492,18 +3126,44 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
+enum ActiveConversationRemapNamespace { openWebUi, direct, hermes }
+
 @immutable
 class ActiveConversationInPlaceRemap {
   const ActiveConversationInPlaceRemap({
     required this.fromId,
     required this.toId,
+    this.namespace = ActiveConversationRemapNamespace.openWebUi,
+    this.openWebUiDatabase,
+    this.openWebUiApi,
+    this.openWebUiAuthSessionEpoch,
   });
 
   final String fromId;
   final String toId;
+  final ActiveConversationRemapNamespace namespace;
+  final Object? openWebUiDatabase;
+  final Object? openWebUiApi;
+  final Object? openWebUiAuthSessionEpoch;
 
-  bool matches(String? previousId, String? nextId) =>
-      previousId == fromId && nextId == toId;
+  bool matches(
+    String? previousId,
+    String? nextId, {
+    ActiveConversationRemapNamespace? namespace,
+  }) =>
+      previousId == fromId &&
+      nextId == toId &&
+      (namespace == null || this.namespace == namespace);
+
+  bool matchesOpenWebUiContext({
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) =>
+      namespace == ActiveConversationRemapNamespace.openWebUi &&
+      identical(openWebUiDatabase, database) &&
+      identical(openWebUiApi, api) &&
+      identical(openWebUiAuthSessionEpoch, authSessionEpoch);
 }
 
 final activeConversationInPlaceRemapProvider =
@@ -2517,8 +3177,39 @@ class ActiveConversationInPlaceRemapNotifier
   @override
   ActiveConversationInPlaceRemap? build() => null;
 
-  void mark({required String fromId, required String toId}) {
-    state = ActiveConversationInPlaceRemap(fromId: fromId, toId: toId);
+  void mark({
+    required String fromId,
+    required String toId,
+    ActiveConversationRemapNamespace namespace =
+        ActiveConversationRemapNamespace.openWebUi,
+  }) {
+    Object? database;
+    Object? api;
+    Object? authSessionEpoch;
+    if (namespace == ActiveConversationRemapNamespace.openWebUi) {
+      // Remapping the durable row has already happened by the time this
+      // navigation marker is emitted. A temporarily failing context provider
+      // must not poison the remap stream or leave the UI on the deleted local
+      // id. Capture what is available; the later exact-context check fails
+      // closed when any captured component cannot be reproduced.
+      try {
+        database = ref.read(appDatabaseProvider);
+      } catch (_) {}
+      try {
+        api = ref.read(apiServiceProvider);
+      } catch (_) {}
+      try {
+        authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+      } catch (_) {}
+    }
+    state = ActiveConversationInPlaceRemap(
+      fromId: fromId,
+      toId: toId,
+      namespace: namespace,
+      openWebUiDatabase: database,
+      openWebUiApi: api,
+      openWebUiAuthSessionEpoch: authSessionEpoch,
+    );
   }
 }
 
@@ -2528,10 +3219,19 @@ bool isActiveConversationInPlaceRemap(
   String? nextId,
 ) {
   try {
-    return ref
-            .read(activeConversationInPlaceRemapProvider)
-            ?.matches(previousId, nextId) ??
-        false;
+    final active = ref.read(activeConversationProvider) as Conversation?;
+    if (active == null || active.id != nextId) return false;
+    final namespace = _activeConversationRemapNamespaceFor(active);
+    final remap = ref.read(activeConversationInPlaceRemapProvider);
+    if (remap?.matches(previousId, nextId, namespace: namespace) != true) {
+      return false;
+    }
+    if (namespace != ActiveConversationRemapNamespace.openWebUi) return true;
+    return remap!.matchesOpenWebUiContext(
+      database: ref.read(appDatabaseProvider),
+      api: ref.read(apiServiceProvider),
+      authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+    );
   } catch (_) {
     return false;
   }
@@ -2546,13 +3246,34 @@ class ActiveConversationNotifier extends Notifier<Conversation?> {
   void remapIdInPlace({required String fromId, required String toId}) {
     final current = state;
     if (current == null || current.id != fromId) return;
+    final namespace = _activeConversationRemapNamespaceFor(current);
     ref
         .read(activeConversationInPlaceRemapProvider.notifier)
-        .mark(fromId: fromId, toId: toId);
+        .mark(fromId: fromId, toId: toId, namespace: namespace);
     state = current.copyWith(id: toId);
   }
 
   void clear() => state = null;
+}
+
+ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
+  Conversation conversation,
+) {
+  final storage = chatStorageKindOf(conversation);
+  // Storage ownership and the transport used by the latest turn are separate.
+  // A direct/Hermes turn inside a server-owned chat still needs the exact
+  // OpenWebUI database/API remap fence.
+  if (storage == ChatStorageKind.openWebUi) {
+    return ActiveConversationRemapNamespace.openWebUi;
+  }
+  if (conversation.metadata['backend'] == 'hermes') {
+    return ActiveConversationRemapNamespace.hermes;
+  }
+  if (conversation.metadata['backend'] == 'direct' ||
+      storage == ChatStorageKind.directLocal) {
+    return ActiveConversationRemapNamespace.direct;
+  }
+  return ActiveConversationRemapNamespace.openWebUi;
 }
 
 // Provider to load full conversation with messages
@@ -2594,12 +3315,18 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
           : null) ??
       chatStorageKindOf(summary);
 
+  final openWebUiOwnership = captureOpenWebUiConversationRead(ref);
   final repository = ref.read(chatDatabaseRepositoryProvider);
   LocatedConversation? located;
   try {
     located = await repository.loadConversation(
       rawConversationId,
       preferred: preferredStorage,
+      locationIsCurrent: (location) =>
+          location.storage != ChatStorageKind.openWebUi ||
+          (openWebUiOwnership != null &&
+              identical(location.database, openWebUiOwnership.database) &&
+              openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)),
       offload: (envelope) => ref
           .read(workerManagerProvider)
           .schedule(
@@ -2627,6 +3354,17 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     }
   }
   if (located != null) {
+    if (located.location.storage == ChatStorageKind.openWebUi &&
+        (openWebUiOwnership == null ||
+            !identical(
+              located.location.database,
+              openWebUiOwnership.database,
+            ) ||
+            !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership))) {
+      throw StateError(
+        'OpenWebUI conversation ownership changed while loading',
+      );
+    }
     final local = withChatStorageProvenance(
       located.conversation,
       located.location.storage,
@@ -2641,7 +3379,11 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
       },
     );
     if (located.location.storage == ChatStorageKind.openWebUi) {
-      schedulePullChatNow(ref, rawConversationId);
+      schedulePullChatNow(
+        ref,
+        rawConversationId,
+        ownership: openWebUiOwnership,
+      );
     }
     return local;
   }
@@ -2650,7 +3392,11 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     throw StateError('On-device conversation is unavailable');
   }
 
-  final api = ref.watch(apiServiceProvider);
+  if (openWebUiOwnership == null ||
+      !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+    throw StateError('OpenWebUI conversation ownership is unavailable');
+  }
+  final api = openWebUiOwnership.api;
   if (api == null) {
     throw Exception('No API service available');
   }
@@ -2661,13 +3407,16 @@ Future<Conversation> loadConversation(Ref ref, String conversationId) async {
     data: {'id': conversationId},
   );
   final fullConversation = await api.getConversation(rawConversationId);
+  if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+    throw StateError('OpenWebUI conversation ownership changed while fetching');
+  }
   DebugLogger.log(
     'load-ok',
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
   // Materialize the local row so the next open is DB-first.
-  schedulePullChatNow(ref, rawConversationId);
+  schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
 
   return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }
@@ -2742,10 +3491,6 @@ Future<Model?> defaultModel(Ref ref) async {
       status: settledAuth.status,
     );
   }
-  final authenticatedTokenSnapshot = modelAuth.authenticated
-      ? ref.read(authTokenProvider3)
-      : null;
-  final apiSnapshot = api;
   if (!modelAuth.authenticated) {
     if (!_shouldUseAccountlessModelSelection(
       isAuthenticated: false,
@@ -2828,10 +3573,27 @@ Future<Model?> defaultModel(Ref ref) async {
     return null;
   }
 
+  // Accountless Direct/Hermes selection is independent from the optional
+  // OpenWebUI server. Authenticated work captures a point-in-time ownership
+  // token below; startup/account listeners invalidate this provider when a
+  // fresh resolution is required, so no server dependency needs to be watched
+  // across the authentication await above.
+  final authenticatedTokenSnapshot = ref.read(authTokenProvider3);
+  final apiSnapshot = api;
+  final authenticatedOwnershipSnapshot = api == null
+      ? null
+      : captureOpenWebUiCacheOwnership(
+          ref,
+          api: api,
+          requireAuthenticated: false,
+        );
+
   bool authenticatedResolutionIsCurrent(Model? selectionSnapshot) {
     if (!ref.mounted) return false;
     final latestAuth = ref.read(_modelAuthReadinessProvider);
     return latestAuth.authenticated &&
+        authenticatedOwnershipSnapshot != null &&
+        openWebUiCacheOwnershipIsCurrent(ref, authenticatedOwnershipSnapshot) &&
         ref.read(authTokenProvider3) == authenticatedTokenSnapshot &&
         identical(ref.read(apiServiceProvider), apiSnapshot) &&
         ref.read(preferredBackendProvider) == preferredBackend &&
@@ -5157,20 +5919,39 @@ class ActiveChatsSync extends _$ActiveChatsSync {
   SocketEventSubscription? _globalActiveSub;
   StreamSubscription<void>? _reconnectSub;
   SocketService? _boundSocket;
+  ApiService? _boundApi;
+  Object? _boundAuthSessionEpoch;
+  int _bindingGeneration = 0;
   bool _initialFetchDone = false;
 
   @override
   void build() {
     ref.onDispose(() {
+      _bindingGeneration++;
       _globalActiveSub?.dispose();
       _globalActiveSub = null;
       _reconnectSub?.cancel();
       _reconnectSub = null;
     });
 
+    _boundApi = ref.read(apiServiceProvider);
+    _boundAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     _bindSocket(ref.read(socketServiceProvider));
     ref.listen<SocketService?>(socketServiceProvider, (prev, next) {
       _bindSocket(next);
+    });
+    ref.listen<ApiService?>(apiServiceProvider, (prev, next) {
+      if (identical(prev, next)) return;
+      _boundApi = next;
+      _bindSocket(ref.read(socketServiceProvider), force: true);
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+    });
+    ref.listen<Object>(openWebUiAuthSessionEpochProvider, (prev, next) {
+      if (identical(prev, next)) return;
+      _boundAuthSessionEpoch = next;
+      _boundApi = ref.read(apiServiceProvider);
+      _bindSocket(ref.read(socketServiceProvider), force: true);
+      ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
     });
 
     // Cold-open population: refresh once the conversation list first resolves.
@@ -5187,10 +5968,20 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     }, fireImmediately: true);
   }
 
-  void _bindSocket(SocketService? socket) {
-    if (identical(socket, _boundSocket)) {
+  void _bindSocket(SocketService? socket, {bool force = false}) {
+    final api = _boundApi;
+    if (socket != null &&
+        (api == null || socket.serverConfig.id != api.serverConfig.id)) {
+      // During an async server switch socketServiceProvider intentionally
+      // exposes the retiring service as a connectivity fallback. Never bind
+      // that A socket to B's API/global active-chat state.
+      socket = null;
+    }
+    if (!force && identical(socket, _boundSocket)) {
       return;
     }
+    final generation = ++_bindingGeneration;
+    final authSessionEpoch = _boundAuthSessionEpoch;
     _boundSocket = socket;
     _globalActiveSub?.dispose();
     _globalActiveSub = null;
@@ -5217,11 +6008,33 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     // the badge.
     _globalActiveSub = socket.addChatEventHandler(
       requireFocus: false,
-      handler: (map, _) => _handleChatActiveEvent(map),
+      handler: (map, _) {
+        if (generation != _bindingGeneration ||
+            !identical(socket, _boundSocket) ||
+            !identical(socket, ref.read(socketServiceProvider)) ||
+            !identical(_boundApi, ref.read(apiServiceProvider)) ||
+            !identical(
+              authSessionEpoch,
+              ref.read(openWebUiAuthSessionEpochProvider),
+            )) {
+          return;
+        }
+        _handleChatActiveEvent(map);
+      },
     );
 
     // Redis task state may have changed while disconnected: refresh on connect.
     _reconnectSub = socket.onReconnect.listen((_) {
+      if (generation != _bindingGeneration ||
+          !identical(socket, _boundSocket) ||
+          !identical(socket, ref.read(socketServiceProvider)) ||
+          !identical(_boundApi, ref.read(apiServiceProvider)) ||
+          !identical(
+            authSessionEpoch,
+            ref.read(openWebUiAuthSessionEpochProvider),
+          )) {
+        return;
+      }
       final convos = ref.read(conversationsProvider).asData?.value;
       if (convos == null || convos.isEmpty) {
         return;
@@ -5285,8 +6098,21 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     if (ids.isEmpty) {
       return;
     }
+    final socket = _boundSocket;
+    final generation = _bindingGeneration;
+    final authSessionEpoch = _boundAuthSessionEpoch;
     try {
       final active = await api.checkActiveChats(ids);
+      if (generation != _bindingGeneration ||
+          !identical(api, ref.read(apiServiceProvider)) ||
+          !identical(socket, _boundSocket) ||
+          !identical(socket, ref.read(socketServiceProvider)) ||
+          !identical(
+            authSessionEpoch,
+            ref.read(openWebUiAuthSessionEpochProvider),
+          )) {
+        return;
+      }
       ref.read(activeChatIdsProvider.notifier).setAll(active);
     } catch (error, stackTrace) {
       DebugLogger.error(

@@ -91,6 +91,15 @@ final directRunRegistryProvider = Provider<DirectRunRegistry>(
   (ref) => DirectRunRegistry(),
 );
 
+/// Provider-independent guardrails for normalized completion events.
+///
+/// Kept overrideable so dispatcher deadline and budget behavior can be tested
+/// without waiting for production-scale limits.
+final directNormalizedStreamLimitsProvider =
+    Provider<DirectNormalizedStreamLimits>(
+      (ref) => const DirectNormalizedStreamLimits(),
+    );
+
 final directModelRegistryProvider = Provider<DirectModelRegistry>((ref) {
   final registry = DirectModelRegistry();
   ref.onDispose(registry.clear);
@@ -180,7 +189,7 @@ class DirectConnectionProfilesController
     }
     if (ref.mounted) state = AsyncValue.data(persisted);
     if (transportChanged) {
-      await _cancelProfileRunsBestEffort(runRegistry, profile.id);
+      _cancelProfileRunsBestEffort(runRegistry, profile.id);
     }
   }
 
@@ -195,7 +204,7 @@ class DirectConnectionProfilesController
     final persisted = await _store.save(updated);
     _removeProfileModelsBestEffort(modelRegistry, profileId);
     if (ref.mounted) state = AsyncValue.data(persisted);
-    await _cancelProfileRunsBestEffort(runRegistry, profileId);
+    _cancelProfileRunsBestEffort(runRegistry, profileId);
   });
 
   Future<void> setEnabled(String profileId, bool enabled) => _serializeMutation(
@@ -241,27 +250,62 @@ class DirectConnectionProfilesController
     await _store.clear();
     _clearModelsBestEffort(modelRegistry);
     if (ref.mounted) state = const AsyncValue.data([]);
-    await _cancelAllRunsBestEffort(runRegistry);
+    _cancelAllRunsBestEffort(runRegistry);
   });
 
-  Future<void> _cancelProfileRunsBestEffort(
+  void _cancelProfileRunsBestEffort(
     DirectRunRegistry registry,
     String profileId,
-  ) async {
-    await _bestEffort(
-      () async {
-        await Future.wait(registry.cancelProfile(profileId));
+  ) {
+    _bestEffort(
+      () {
+        for (final cancellation in registry.cancelProfile(profileId)) {
+          _observeBestEffort(
+            cancellation,
+            'Failed to finish direct-run cancellation after profile persistence',
+            data: {'profileId': profileId},
+          );
+        }
       },
-      'Failed to finish direct-run cancellation after profile persistence',
+      'Failed to revoke direct runs after profile persistence',
       data: {'profileId': profileId},
     );
   }
 
-  Future<void> _cancelAllRunsBestEffort(DirectRunRegistry registry) async {
-    await _bestEffort(
-      () async => Future.wait(registry.cancelAll()),
-      'Failed to finish direct-run cancellation after clearing profiles',
-    );
+  void _cancelAllRunsBestEffort(DirectRunRegistry registry) {
+    _bestEffort(() {
+      for (final cancellation in registry.cancelAll()) {
+        _observeBestEffort(
+          cancellation,
+          'Failed to finish direct-run cancellation after clearing profiles',
+        );
+      }
+    }, 'Failed to revoke direct runs after clearing profiles');
+  }
+
+  void _observeBestEffort(
+    Future<void> operation,
+    String message, {
+    Map<String, Object?>? data,
+  }) {
+    void logSafeFailure() {
+      // `DirectCompletionRun.done` belongs to a runtime-extensible adapter.
+      // Its rejection object and stack are provider-controlled and may contain
+      // credentials or reflected response data, so cleanup diagnostics stay
+      // deliberately type- and value-free.
+      DebugLogger.error(message, scope: 'direct/profiles', data: data);
+    }
+
+    try {
+      unawaited(
+        operation.then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) => logSafeFailure(),
+        ),
+      );
+    } catch (_) {
+      logSafeFailure();
+    }
   }
 
   void _removeProfileModelsBestEffort(

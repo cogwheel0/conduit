@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -88,7 +89,179 @@ void main() {
         throwsA(isA<FileContentTooLargeException>()),
       );
     });
+
+    test(
+      'advertised oversize does not await stalled source cancellation',
+      () async {
+        final cancelGate = Completer<void>();
+        final adapter = _AdversarialCancellationFileContentAdapter(
+          onCancel: () => cancelGate.future,
+        );
+        final api = _buildApiService(adapter);
+
+        await expectLater(
+          api
+              .getFileContent('large-image', maxBytes: 3)
+              .timeout(
+                const Duration(seconds: 1),
+                onTimeout: () => throw StateError('size rejection stalled'),
+              ),
+          throwsA(isA<FileContentTooLargeException>()),
+        );
+        await adapter.cancelStarted.future.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => throw StateError('source cancellation never began'),
+        );
+      },
+    );
+
+    test('cancels a stalled response-body stream', () async {
+      final adapter = _CancellableFileContentAdapter();
+      final api = _buildApiService(adapter);
+      final cancelToken = CancelToken();
+
+      final content = api.getFileContent(
+        'stalled-image',
+        cancelToken: cancelToken,
+      );
+      await adapter.listenStarted.future.timeout(const Duration(seconds: 1));
+      cancelToken.cancel('test stop');
+
+      await expectLater(
+        content,
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.cancel,
+          ),
+        ),
+      );
+      await adapter.sourceCancelled.future.timeout(const Duration(seconds: 1));
+    });
   });
+}
+
+final class _AdversarialCancellationFileContentAdapter
+    implements HttpClientAdapter {
+  _AdversarialCancellationFileContentAdapter({required this.onCancel});
+
+  final Future<void> Function() onCancel;
+  final cancelStarted = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody(
+      _AdversarialCancelStream(
+        onCancel: onCancel,
+        cancelStarted: cancelStarted,
+      ),
+      200,
+      headers: const {
+        'content-type': ['image/png'],
+        'content-length': ['100'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _AdversarialCancelStream extends Stream<Uint8List> {
+  const _AdversarialCancelStream({
+    required this.onCancel,
+    required this.cancelStarted,
+  });
+
+  final Future<void> Function() onCancel;
+  final Completer<void> cancelStarted;
+
+  @override
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _AdversarialCancelSubscription(
+    onCancel: onCancel,
+    cancelStarted: cancelStarted,
+  );
+}
+
+final class _AdversarialCancelSubscription
+    implements StreamSubscription<Uint8List> {
+  const _AdversarialCancelSubscription({
+    required this.onCancel,
+    required this.cancelStarted,
+  });
+
+  final Future<void> Function() onCancel;
+  final Completer<void> cancelStarted;
+
+  @override
+  Future<void> cancel() {
+    if (!cancelStarted.isCompleted) cancelStarted.complete();
+    return onCancel();
+  }
+
+  @override
+  void onData(void Function(Uint8List data)? handleData) {}
+
+  @override
+  void onError(Function? handleError) {}
+
+  @override
+  void onDone(void Function()? handleDone) {}
+
+  @override
+  void pause([Future<void>? resumeSignal]) {}
+
+  @override
+  void resume() {}
+
+  @override
+  bool get isPaused => false;
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => Completer<E>().future;
+}
+
+final class _CancellableFileContentAdapter implements HttpClientAdapter {
+  _CancellableFileContentAdapter() {
+    controller = StreamController<Uint8List>(
+      onListen: () => listenStarted.complete(),
+      onCancel: () {
+        if (!sourceCancelled.isCompleted) sourceCancelled.complete();
+      },
+    );
+  }
+
+  final listenStarted = Completer<void>();
+  final sourceCancelled = Completer<void>();
+  late final StreamController<Uint8List> controller;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody(
+    controller.stream,
+    200,
+    headers: const {
+      'content-type': ['image/png'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {
+    if (!controller.isClosed) unawaited(controller.close());
+  }
 }
 
 final class _FileContentAdapter implements HttpClientAdapter {

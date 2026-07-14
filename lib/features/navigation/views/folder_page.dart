@@ -426,6 +426,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
     setState(() => _isSendingComposerMessage = true);
     final container = ProviderScope.containerOf(context, listen: false);
+    chat.ChatSendPlaceholderHandle? pendingSend;
 
     try {
       final hasModel = await _ensureSelectedModel(container);
@@ -464,6 +465,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         pendingFolderIdOverride: widget.folderId,
+        onAssistantPlaceholderCreated: (handle) {
+          pendingSend = handle;
+        },
       );
 
       container.read(attachedFilesProvider.notifier).clearAll();
@@ -478,7 +482,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         error: e,
         stackTrace: stackTrace,
       );
-      container.read(chat.chatMessagesProvider.notifier).finishStreaming();
+      chat.recoverFailedChatSend(container, e, pendingSend);
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
@@ -1103,10 +1107,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
     setState(() => _isLoadingConversation = true);
     final container = ProviderScope.containerOf(context, listen: false);
-
-    container.read(temporaryChatEnabledProvider.notifier).set(false);
+    final ownership = captureOpenWebUiConversationRead(container);
 
     try {
+      if (ownership == null) return;
+      container.read(temporaryChatEnabledProvider.notifier).set(false);
       container.read(chat.isLoadingConversationProvider.notifier).set(true);
       _pendingConversationId = conversationId;
 
@@ -1118,15 +1123,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
       // instantly — offline included — and a background pull freshens it.
-      final local = await loadLocalConversation(container, conversationId);
+      final local = await loadLocalConversation(
+        container,
+        conversationId,
+        ownership: ownership,
+      );
+      if (!openWebUiConversationReadIsCurrent(container, ownership)) return;
       if (local != null) {
         container.read(activeConversationProvider.notifier).set(local);
-        schedulePullChatNow(container, conversationId);
+        schedulePullChatNow(container, conversationId, ownership: ownership);
       } else {
         Future<void> useCachedConversation() async {
+          if (!openWebUiConversationReadIsCurrent(container, ownership)) {
+            return;
+          }
           final conversations = await container.read(
             conversationsProvider.future,
           );
+          if (!openWebUiConversationReadIsCurrent(container, ownership)) {
+            return;
+          }
           Conversation? conversation;
           for (final item in conversations) {
             if (item.id == conversationId) {
@@ -1141,16 +1157,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           }
         }
 
-        final api = container.read(apiServiceProvider);
+        final api = ownership.api;
         if (api != null) {
           try {
             final fullConversation = await api.getConversation(conversationId);
+            if (!openWebUiConversationReadIsCurrent(container, ownership)) {
+              return;
+            }
             container
                 .read(activeConversationProvider.notifier)
                 .set(fullConversation);
             // Materialize the local row so the next open is DB-first.
-            schedulePullChatNow(container, conversationId);
+            schedulePullChatNow(
+              container,
+              conversationId,
+              ownership: ownership,
+            );
           } catch (error, stackTrace) {
+            if (!openWebUiConversationReadIsCurrent(container, ownership)) {
+              return;
+            }
             DebugLogger.error(
               'folder-conversation-fetch-failed',
               scope: 'navigation/folder',
@@ -1164,13 +1190,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           await useCachedConversation();
         }
       }
-
-      container.read(chat.isLoadingConversationProvider.notifier).set(false);
-      _pendingConversationId = null;
     } catch (_) {
+      // The chat remains empty on failure. Shared loading state is reset in
+      // finally, including ownership changes that intentionally return early.
+    } finally {
       container.read(chat.isLoadingConversationProvider.notifier).set(false);
       _pendingConversationId = null;
-    } finally {
       if (mounted) {
         setState(() => _isLoadingConversation = false);
       }

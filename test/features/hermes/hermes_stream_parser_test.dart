@@ -9,6 +9,20 @@ Stream<List<int>> _sse(List<String> chunks) =>
     Stream<List<int>>.fromIterable(chunks.map(utf8.encode));
 
 void main() {
+  group('extractHermesOutputText', () {
+    test('rejects a wide output before queueing all children', () {
+      final output = List<Object?>.filled(100000, null, growable: false);
+
+      check(() => extractHermesOutputText(output)).throws<FormatException>();
+    });
+
+    test('allows exactly the configured node budget', () {
+      final output = List<Object?>.filled(99999, null, growable: false);
+
+      check(extractHermesOutputText(output)).isEmpty();
+    });
+  });
+
   group('parseHermesRunStream', () {
     test('empty terminal lifecycle data still emits done', () async {
       final events = await parseHermesRunStream(
@@ -19,13 +33,35 @@ void main() {
       check(events.single).isA<HermesRunDone>();
     });
 
-    test('run.canceled with empty data is terminal', () async {
+    test('event-only remote cancellation is a terminal error', () async {
+      for (final status in const ['cancelled', 'canceled', 'stopped']) {
+        final events = await parseHermesRunStream(
+          _sse(['event: run.$status\ndata:\n\n']),
+        ).toList();
+
+        final expected = status == 'stopped'
+            ? 'Hermes run was stopped.'
+            : 'Hermes run was cancelled.';
+        check(events).length.equals(2);
+        check(events.first)
+            .isA<HermesRunError>()
+            .has((event) => event.message, 'message')
+            .equals(expected);
+        check(events.last).isA<HermesRunDone>();
+      }
+    });
+
+    test('status-only remote cancellation is a terminal error', () async {
       final events = await parseHermesRunStream(
-        _sse(['event: run.canceled\ndata:\n\n']),
+        _sse(['data: {"status":"stopped"}\n\n']),
       ).toList();
 
-      check(events).length.equals(1);
-      check(events.single).isA<HermesRunDone>();
+      check(events).length.equals(2);
+      check(events.first)
+          .isA<HermesRunError>()
+          .has((event) => event.message, 'message')
+          .equals('Hermes run was stopped.');
+      check(events.last).isA<HermesRunDone>();
     });
 
     test('empty non-terminal Hermes events remain ignorable', () async {
@@ -187,6 +223,80 @@ void main() {
         ..has((e) => e.summary, 'summary').equals('Run rm -rf?');
     });
 
+    test('decodes the official approval.request run payload', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"approval.request","run_id":"run_0123abcdef","timestamp":1720000000.0,"command":"rm -rf /tmp/nope","description":"dangerous command","choices":["once","session","always","deny"]}\n\n',
+        ]),
+      ).toList();
+
+      check(events).has((e) => e.length, 'length').equals(1);
+      check(events.single).isA<HermesApprovalRequested>()
+        ..has((e) => e.approvalId, 'approvalId').equals('run_0123abcdef')
+        ..has((e) => e.summary, 'summary').equals('dangerous command')
+        ..has(
+          (e) => e.raw['choices'] as List<Object?>,
+          'raw choices',
+        ).deepEquals(['once', 'session', 'always', 'deny']);
+    });
+
+    test('rejects an invalid run_id approval fallback', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"approval.request","run_id":"run id with spaces","description":"dangerous command"}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesApprovalRequested>()).isEmpty();
+    });
+
+    test(
+      'rejects non-string approval control fields without coercion',
+      () async {
+        Object nested = const <String, dynamic>{'leaf': 'value'};
+        for (var depth = 0; depth < 128; depth++) {
+          nested = <String, dynamic>{'nested': nested};
+        }
+        final events = await parseHermesRunStream(
+          _sse([
+            'event: approval.requested\n'
+                'data: ${jsonEncode(<String, dynamic>{
+                  'approval_id': nested,
+                  'summary': <String, dynamic>{'not': 'display text'},
+                })}\n\n',
+          ]),
+        ).toList();
+
+        check(events.whereType<HermesApprovalRequested>()).isEmpty();
+      },
+    );
+
+    test('falls back to a valid alternate approval identifier', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: approval.requested\n'
+              'data: {"approval_id":null,"approvalId":"a1"}\n\n',
+        ]),
+      ).toList();
+
+      check(
+        events.whereType<HermesApprovalRequested>().single.approvalId,
+      ).equals('a1');
+    });
+
+    test('legacy approval identifiers take precedence over run_id', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'event: approval.requested\n'
+              'data: {"approval_id":"legacy-a1","run_id":"run_0123abcdef"}\n\n',
+        ]),
+      ).toList();
+
+      check(
+        events.whereType<HermesApprovalRequested>().single.approvalId,
+      ).equals('legacy-a1');
+    });
+
     test('decodes Responses created, text delta, and completed envelope', () async {
       final events = await parseHermesRunStream(
         _sse([
@@ -218,6 +328,27 @@ void main() {
         events[4],
       ).isA<HermesFinalOutput>().has((e) => e.text, 'text').equals('world');
       check(events[5]).isA<HermesRunDone>();
+    });
+
+    test('does not coerce a structured Responses id into a control id', () async {
+      Object nestedId = const <String, dynamic>{'leaf': 'response-id'};
+      for (var depth = 0; depth < 128; depth++) {
+        nestedId = <String, dynamic>{'nested': nestedId};
+      }
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.created\n'
+              'data: ${jsonEncode(<String, dynamic>{
+                'type': 'response.created',
+                'response': <String, dynamic>{'id': nestedId, 'status': 'in_progress'},
+              })}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesResponseCreated>()).isEmpty();
+      check(
+        events.whereType<HermesLifecycle>().single.status,
+      ).equals('created');
     });
 
     test(

@@ -3,7 +3,9 @@ import 'dart:ui' show Tristate;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/channel.dart';
@@ -43,6 +45,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../support/openwebui_storage_test_overrides.dart';
 
 /// Label within [NavigationBar] built by adaptive_platform_ui from
 /// [AdaptiveBottomNavigationBar.items].
@@ -1008,6 +1012,62 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  testWidgets(
+    'account switch while a server chat loads cannot republish its body',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      final timestamp = DateTime(2026, 1, 1);
+      final summary = withChatStorageProvenance(
+        Conversation(
+          id: 'server-drawer-test',
+          title: 'Server chat',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      final full = summary.copyWith(
+        messages: [
+          ChatMessage(
+            id: 'private-assistant',
+            role: 'assistant',
+            content: 'Account A private body',
+            timestamp: timestamp,
+          ),
+        ],
+      );
+      final loadGate = Completer<Conversation>();
+
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          conversations: [summary],
+          pendingLoadedConversations: {
+            conversationScopedId(summary): loadGate.future,
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SidebarPage)),
+        listen: false,
+      );
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>('drawer-chat-${conversationScopedId(summary)}'),
+        ),
+      );
+      await tester.pump();
+
+      container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+      loadGate.complete(full);
+      await tester.pumpAndSettle();
+
+      expect(container.read(activeConversationProvider), isNull);
+    },
+  );
+
   testWidgets('colliding chat ids render and select as distinct rows', (
     tester,
   ) async {
@@ -1093,12 +1153,23 @@ void main() {
       ChatStorageKind.directLocal,
     );
 
+    final serverOwnership = captureOpenWebUiConversationRead(container);
+    expect(serverOwnership, isNotNull);
+    expect(
+      openWebUiConversationReadIsCurrent(container, serverOwnership!),
+      isTrue,
+    );
     await tester.tap(serverTile);
     await tester.pumpAndSettle();
     expect(
       chatStorageKindOf(container.read(activeConversationProvider)),
       ChatStorageKind.openWebUi,
     );
+
+    // Disposing the live Drift message watch schedules a zero-delay stream
+    // query cleanup. Unmount explicitly so the test binding can drain it.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
   });
 }
 
@@ -1177,6 +1248,7 @@ Widget _buildSidebarHarness({
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
+  Map<String, Future<Conversation>> pendingLoadedConversations = const {},
   ThemeData? theme,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
@@ -1209,10 +1281,20 @@ Widget _buildSidebarHarness({
 
   return ProviderScope(
     overrides: [
+      ...openWebUiStorageOpenOverrides(),
+      // The sidebar harness owns its in-memory OpenWebUI database explicitly;
+      // unrelated auth bootstrap must not close that test seam underneath it.
+      openWebUiAccountStorageIsolationProvider.overrideWith(
+        _NoopOpenWebUiAccountStorageIsolation.new,
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       appSettingsProvider.overrideWithValue(settings),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(null),
+      // The production auth provider is deliberately incomplete in this
+      // narrow harness; keep its account-generation boundary deterministic.
+      // ignore: scoped_providers_should_specify_dependencies
+      openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
       // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider2.overrideWithValue(currentUser),
       // ignore: scoped_providers_should_specify_dependencies
@@ -1228,6 +1310,8 @@ Widget _buildSidebarHarness({
         loadConversationProvider(
           entry.key,
         ).overrideWith((ref) async => entry.value),
+      for (final entry in pendingLoadedConversations.entries)
+        loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(_TestModels.new),
       // ignore: scoped_providers_should_specify_dependencies
@@ -1278,6 +1362,12 @@ Widget _buildSidebarHarness({
       routerConfig: router,
     ),
   );
+}
+
+final class _NoopOpenWebUiAccountStorageIsolation
+    extends OpenWebUiAccountStorageIsolation {
+  @override
+  void build() {}
 }
 
 List<TerminalServerInfo> _defaultTerminalServers() {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/database/mappers/conversation_assembler.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -153,6 +154,9 @@ void main() {
       check(ops.map((o) => o.chatId).toSet()).deepEquals({serverId});
       check(ops.firstWhere((o) => o.seq == createSeq).chatId).equals(serverId);
       check(ops.firstWhere((o) => o.seq == updateSeq).chatId).equals(serverId);
+
+      // Recovery ownership is explicit and committed with the row rewrite.
+      check(await db.syncMetaDao.getChatRemapTarget(localId)).equals(serverId);
     });
 
     test('emits a RemapEvent after commit', () async {
@@ -179,12 +183,12 @@ void main() {
     });
 
     test(
-      'does not emit a duplicate event when the local chat is already gone',
+      'missing source and destination fail closed without a phantom remap',
       () async {
         final events = <RemapEvent>[];
         final sub = remapper.remapEvents.listen(events.add);
 
-        await remapper.remapChat(
+        final result = await remapper.remapChat(
           localId: 'local:already-gone',
           serverId: 'srv-already-gone',
           serverCreatedAt: 1,
@@ -192,10 +196,75 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
+        check(result).equals(ChatRemapResult.sourceMissing);
         check(events).isEmpty();
+        check(
+          await db.syncMetaDao.getChatRemapTarget('local:already-gone'),
+        ).isNull();
         await sub.cancel();
       },
     );
+
+    test(
+      'missing source is idempotent only with exact proof and live target',
+      () async {
+        const localId = 'local:already-committed';
+        const serverId = 'srv-already-committed';
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: serverId,
+                title: 'survivor',
+                createdAt: 1,
+                updatedAt: 2,
+                bodySynced: const Value(true),
+              ),
+            );
+        await db.syncMetaDao.setChatRemapTarget(localId, serverId);
+
+        final result = await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 1,
+          serverUpdatedAt: 2,
+        );
+
+        check(result).equals(ChatRemapResult.alreadyCommitted);
+        check(await db.chatsDao.getChat(serverId)).isNotNull();
+        check(
+          await db.syncMetaDao.getChatRemapTarget(localId),
+        ).equals(serverId);
+      },
+    );
+
+    test('conflicting remap proof rolls the whole row rewrite back', () async {
+      const localId = 'local:conflict';
+      const committedServerId = 'srv-first';
+      const conflictingServerId = 'srv-second';
+      await seedLocalChat(db, id: localId, messageCount: 2);
+      await seedOutbox(db, kind: 'createChat', chatId: localId);
+      await db.syncMetaDao.setChatRemapTarget(localId, committedServerId);
+
+      await check(
+        remapper.remapChat(
+          localId: localId,
+          serverId: conflictingServerId,
+          serverCreatedAt: 500,
+          serverUpdatedAt: 600,
+        ),
+      ).throws<StateError>();
+
+      check(await db.chatsDao.getChat(localId)).isNotNull();
+      check(await db.chatsDao.getChat(conflictingServerId)).isNull();
+      check((await messagesFor(db, localId)).length).equals(2);
+      check(
+        (await allOutbox(db)).map((op) => op.chatId).toSet(),
+      ).deepEquals({localId});
+      check(
+        await db.syncMetaDao.getChatRemapTarget(localId),
+      ).equals(committedServerId);
+    });
 
     test('crash-heal: server stub already present (0 messages) -> local rows '
         'win, no duplicate', () async {
@@ -229,58 +298,210 @@ void main() {
       check(allChats.single.title).equals('Title $localId');
     });
 
-    test('crash-heal: server row already has the body -> local duplicate '
-        'discarded, ops repointed', () async {
-      const localId = 'local:dup';
-      const serverId = 'srv-dup';
-      // Server row already merged with messages (the authoritative copy).
+    test(
+      'different populated destination is preserved and remap rolls back',
+      () async {
+        const localId = 'local:dup';
+        const serverId = 'srv-dup';
+        // Server row already merged with messages (the authoritative copy).
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: serverId,
+                title: 'server',
+                createdAt: 10,
+                updatedAt: 20,
+                bodySynced: const Value(true),
+              ),
+            );
+        await db
+            .into(db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: 'srv-m1',
+                chatId: serverId,
+                role: 'user',
+                content: 'server msg',
+                createdAt: 5,
+                orderIndex: 0,
+                payload: '{}',
+              ),
+            );
+        await seedLocalChat(db, id: localId, messageCount: 2);
+        await seedOutbox(db, kind: 'createChat', chatId: localId);
+
+        await check(
+          remapper.remapChat(
+            localId: localId,
+            serverId: serverId,
+            serverCreatedAt: 500,
+            serverUpdatedAt: 600,
+          ),
+        ).throws<StateError>();
+
+        // Neither distinct conversation is discarded or redirected.
+        final allChats = await db.select(db.chats).get();
+        check(
+          allChats.map((c) => c.id).toSet(),
+        ).deepEquals({localId, serverId});
+        check(
+          (await messagesFor(db, serverId)).map((m) => m.id),
+        ).deepEquals(['srv-m1']);
+        check((await messagesFor(db, localId)).length).equals(2);
+        check(
+          (await allOutbox(db)).map((o) => o.chatId).toSet(),
+        ).deepEquals({localId});
+        check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
+      },
+    );
+
+    test(
+      'identical populated destination is a safe crash-heal collapse',
+      () async {
+        const localId = 'local:identical';
+        const serverId = 'srv-identical';
+        await seedLocalChat(db, id: localId, messageCount: 2);
+        final local = (await db.chatsDao.getChat(localId))!;
+        final localMessages = await messagesFor(db, localId);
+        final blob = ChatBlobMapper.rowsToBlob(
+          chatRowsFromDb(local, localMessages),
+        );
+        final serverRows = ChatBlobMapper.blobToRows(
+          chatId: serverId,
+          blob: blob,
+          title: local.title,
+          createdAt: 500,
+          updatedAt: 600,
+        );
+        await db.chatsDao.upsertServerChat(rows: serverRows);
+        await seedOutbox(db, kind: 'createChat', chatId: localId);
+
+        final result = await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 500,
+          serverUpdatedAt: 600,
+        );
+
+        check(result).equals(ChatRemapResult.rewritten);
+        check(await db.chatsDao.getChat(localId)).isNull();
+        check(await db.chatsDao.getChat(serverId)).isNotNull();
+        check((await messagesFor(db, serverId)).length).equals(2);
+        check(
+          (await allOutbox(db)).map((op) => op.chatId).toSet(),
+        ).deepEquals({serverId});
+        check(
+          await db.syncMetaDao.getChatRemapTarget(localId),
+        ).equals(serverId);
+      },
+    );
+
+    test(
+      'a fully-synced empty destination is never treated as a stub',
+      () async {
+        const localId = 'local:empty-collision';
+        const serverId = 'srv:empty-collision';
+        await seedLocalChat(db, id: localId, messageCount: 1);
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: serverId,
+                title: 'Legitimate empty chat',
+                createdAt: 10,
+                updatedAt: 20,
+                bodySynced: const Value(true),
+              ),
+            );
+
+        await check(
+          remapper.remapChat(
+            localId: localId,
+            serverId: serverId,
+            serverCreatedAt: 500,
+            serverUpdatedAt: 600,
+          ),
+        ).throws<StateError>();
+
+        check(await db.chatsDao.getChat(localId)).isNotNull();
+        check(
+          (await db.chatsDao.getChat(serverId))!.title,
+        ).equals('Legitimate empty chat');
+        check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
+      },
+    );
+
+    test('a bodiless destination with queued work is not disposable', () async {
+      const localId = 'local:stub-with-work';
+      const serverId = 'srv:stub-with-work';
+      await seedLocalChat(db, id: localId, messageCount: 1);
       await db
           .into(db.chats)
           .insert(
             ChatsCompanion.insert(
               id: serverId,
-              title: 'server',
+              title: 'Owned stub',
               createdAt: 10,
               updatedAt: 20,
-              bodySynced: const Value(true),
+              bodySynced: const Value(false),
             ),
           );
-      await db
-          .into(db.messages)
-          .insert(
-            MessagesCompanion.insert(
-              id: 'srv-m1',
-              chatId: serverId,
-              role: 'user',
-              content: 'server msg',
-              createdAt: 5,
-              orderIndex: 0,
-              payload: '{}',
-            ),
-          );
-      await seedLocalChat(db, id: localId, messageCount: 2);
-      await seedOutbox(db, kind: 'createChat', chatId: localId);
+      await seedOutbox(db, kind: 'updateChat', chatId: serverId);
 
-      await remapper.remapChat(
-        localId: localId,
-        serverId: serverId,
-        serverCreatedAt: 500,
-        serverUpdatedAt: 600,
-      );
+      await check(
+        remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 500,
+          serverUpdatedAt: 600,
+        ),
+      ).throws<StateError>();
 
-      // The server body survives; the local duplicate is gone.
-      final allChats = await db.select(db.chats).get();
-      check(allChats.map((c) => c.id)).deepEquals([serverId]);
-      check(allChats.single.bodySynced).isTrue();
+      check(await db.chatsDao.getChat(localId)).isNotNull();
+      check(await db.chatsDao.getChat(serverId)).isNotNull();
       check(
-        (await messagesFor(db, serverId)).map((m) => m.id),
-      ).deepEquals(['srv-m1']);
-      check(await messagesFor(db, localId)).isEmpty();
-      // Ops still repointed to serverId.
-      check(
-        (await allOutbox(db)).map((o) => o.chatId).toSet(),
+        (await allOutbox(db)).map((op) => op.chatId).toSet(),
       ).deepEquals({serverId});
     });
+
+    test(
+      'a bodiless destination with prior remap ownership is not reused',
+      () async {
+        const localId = 'local:new-owner';
+        const priorLocalId = 'local:prior-owner';
+        const serverId = 'srv:owned-stub';
+        await seedLocalChat(db, id: localId, messageCount: 1);
+        await db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: serverId,
+                title: 'Previously owned stub',
+                createdAt: 10,
+                updatedAt: 20,
+                bodySynced: const Value(false),
+              ),
+            );
+        await db.syncMetaDao.setChatRemapTarget(priorLocalId, serverId);
+
+        await check(
+          remapper.remapChat(
+            localId: localId,
+            serverId: serverId,
+            serverCreatedAt: 500,
+            serverUpdatedAt: 600,
+          ),
+        ).throws<StateError>();
+
+        check(await db.chatsDao.getChat(localId)).isNotNull();
+        check(await db.chatsDao.getChat(serverId)).isNotNull();
+        check(
+          await db.syncMetaDao.getChatRemapTarget(priorLocalId),
+        ).equals(serverId);
+        check(await db.syncMetaDao.getChatRemapTarget(localId)).isNull();
+      },
+    );
 
     test('createChatContentHash heals: server blob hashes to the pending '
         'op contentHash', () async {

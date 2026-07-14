@@ -14,6 +14,9 @@ import 'auth_cache_manager.dart';
 import 'webview_cookie_helper.dart';
 import '../utils/debug_logger.dart';
 import '../utils/user_avatar_utils.dart';
+import '../persistence/persistence_keys.dart';
+import '../persistence/preferences_store.dart';
+import 'openwebui_account_owner_marker.dart';
 
 part 'auth_state_manager.g.dart';
 
@@ -121,6 +124,53 @@ bool bootstrapShouldFallbackToUnauthenticated({
       currentRevision == capturedRevision &&
       status == AuthStatus.loading &&
       !hasValidToken;
+}
+
+typedef OpenWebUiCachedAccountOwnerResolution = ({
+  bool retainCachedUser,
+  bool ownerMismatch,
+});
+
+/// Resolves ownership only for the provisional cached-user auth fast path.
+///
+/// A missing marker is the expected state for installations upgrading from a
+/// version that did not persist account ownership. The cached identity can be
+/// shown provisionally while the token is validated, but it does not certify
+/// the server-scoped database: the storage-isolation barrier performs its own
+/// strict marker check and purges markerless storage before opening it.
+///
+/// Once a marker exists, any token or cached-user mismatch is explicit and the
+/// cached identity must not be published.
+@visibleForTesting
+OpenWebUiCachedAccountOwnerResolution resolveOpenWebUiCachedAccountOwner({
+  required OpenWebUiAccountOwnerMarker? marker,
+  required String token,
+  required String? cachedUserId,
+}) {
+  final normalizedCachedUserId = cachedUserId?.trim();
+  final hasScopedCachedUser =
+      normalizedCachedUserId != null && normalizedCachedUserId.isNotEmpty;
+  if (marker == null) {
+    return (retainCachedUser: hasScopedCachedUser, ownerMismatch: false);
+  }
+
+  final tokenMatches = openWebUiAccountOwnerMarkerMatchesToken(
+    marker: marker,
+    token: token,
+  );
+  if (!hasScopedCachedUser) {
+    return (retainCachedUser: false, ownerMismatch: !tokenMatches);
+  }
+
+  final ownerMatches = openWebUiAccountOwnerMarkerMatches(
+    marker: marker,
+    token: token,
+    userId: normalizedCachedUserId,
+  );
+  return (
+    retainCachedUser: ownerMatches,
+    ownerMismatch: !tokenMatches || !ownerMatches,
+  );
 }
 
 /// Unified auth state manager - single source of truth for all auth operations
@@ -247,16 +297,6 @@ class AuthStateManager extends _$AuthStateManager {
           );
         }),
       );
-      unawaited(
-        storage.saveLocalUserAvatar(null).onError((error, stack) {
-          DebugLogger.error(
-            'Failed to clear local user avatar on logout',
-            scope: 'auth/persistence',
-            error: error,
-            stackTrace: stack,
-          );
-        }),
-      );
     }
     state = AsyncValue.data(next);
     if (cache) {
@@ -286,10 +326,10 @@ class AuthStateManager extends _$AuthStateManager {
           resolvedAvatar != null && resolvedAvatar != user.profileImage
           ? user.copyWith(profileImage: resolvedAvatar)
           : user;
-      await storage.saveLocalUser(userWithAvatar);
-      if (resolvedAvatar != null) {
-        await storage.saveLocalUserAvatar(resolvedAvatar);
-      }
+      await storage.saveLocalUserWithAvatar(
+        userWithAvatar,
+        avatarUrl: resolvedAvatar,
+      );
     } catch (error, stack) {
       DebugLogger.error(
         'Failed to persist user with avatar',
@@ -438,7 +478,34 @@ class AuthStateManager extends _$AuthStateManager {
     required String token,
     required String reason,
   }) async {
-    final cachedUser = await _readCachedUserWithAvatar(storage);
+    var cachedUser = await _readCachedUserWithAvatar(storage);
+    final serverId = PreferencesStore.getString(PreferenceKeys.activeServerId);
+    final marker = serverId == null || serverId.isEmpty
+        ? null
+        : ref.read(openWebUiAccountOwnerMarkerStoreProvider).read(serverId);
+    final ownerResolution = resolveOpenWebUiCachedAccountOwner(
+      marker: marker,
+      token: token,
+      cachedUserId: cachedUser?.id,
+    );
+    ref
+        .read(openWebUiCachedAccountOwnerMismatchProvider.notifier)
+        .set(ownerResolution.ownerMismatch);
+    if (!ownerResolution.retainCachedUser) {
+      cachedUser = null;
+      if (ownerResolution.ownerMismatch) {
+        DebugLogger.warning(
+          'cached-account-owner-mismatch',
+          scope: 'auth/state',
+          data: {'hasServer': serverId != null, 'hasMarker': marker != null},
+        );
+      } else {
+        DebugLogger.log(
+          'cached-account-user-awaiting-validation',
+          scope: 'auth/state',
+        );
+      }
+    }
     DebugLogger.auth(
       'cached-token-session-activated',
       scope: 'auth/state',
@@ -580,21 +647,8 @@ class AuthStateManager extends _$AuthStateManager {
     );
   }
 
-  Future<User?> _readCachedUserWithAvatar(
-    OptimizedStorageService storage,
-  ) async {
-    final cachedUser = await storage.getLocalUser();
-    if (cachedUser == null) return null;
-
-    final cachedAvatar = await storage.getLocalUserAvatar();
-    if (cachedAvatar == null ||
-        cachedAvatar.isEmpty ||
-        cachedUser.profileImage == cachedAvatar) {
-      return cachedUser;
-    }
-
-    return cachedUser.copyWith(profileImage: cachedAvatar);
-  }
+  Future<User?> _readCachedUserWithAvatar(OptimizedStorageService storage) =>
+      storage.getLocalUserWithAvatar();
 
   /// Perform login with JWT token.
   ///
@@ -1726,9 +1780,7 @@ class AuthStateManager extends _$AuthStateManager {
       // without cleanup when a newer auth attempt has superseded this (stale)
       // background task.
       if (!_canCommitAuth(canCommit)) {
-        DebugLogger.auth(
-          'Silent login ignored stale credential auth failure',
-        );
+        DebugLogger.auth('Silent login ignored stale credential auth failure');
         return false;
       }
 

@@ -16,23 +16,53 @@ Stream<Map<String, dynamic>> parseOllamaNdjson(
   if (maxLineCharacters <= 0) {
     throw RangeError.value(maxLineCharacters, 'maxLineCharacters');
   }
-  var pending = '';
-  await for (final decoded in chunks.transform(utf8.decoder)) {
-    pending += decoded;
-    while (true) {
-      final newline = pending.indexOf('\n');
-      if (newline < 0) break;
-      var line = pending.substring(0, newline);
-      pending = pending.substring(newline + 1);
-      if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
-      final parsed = _decodeOllamaLine(line, maxLineCharacters);
-      if (parsed != null) yield parsed;
-    }
-    if (pending.length > maxLineCharacters) {
+  var pending = StringBuffer();
+  var pendingCharacters = 0;
+  var pendingCarriageReturn = false;
+
+  void append(String value) {
+    pendingCharacters += value.length;
+    if (pendingCharacters > maxLineCharacters) {
       throw const FormatException('Ollama stream line is too large.');
     }
+    pending.write(value);
   }
-  final parsed = _decodeOllamaLine(pending, maxLineCharacters);
+
+  await for (final decoded in chunks.transform(utf8.decoder)) {
+    var start = 0;
+    while (start < decoded.length) {
+      final newline = decoded.indexOf('\n', start);
+      var end = newline < 0 ? decoded.length : newline;
+
+      // Defer exactly one trailing CR until the next character establishes
+      // whether it is CRLF framing or bounded line content.
+      if (pendingCarriageReturn) {
+        if (newline == start) {
+          pendingCarriageReturn = false;
+        } else {
+          append('\r');
+          pendingCarriageReturn = false;
+        }
+      }
+      if (end > start && decoded.codeUnitAt(end - 1) == 0x0D) {
+        end--;
+        pendingCarriageReturn = true;
+      }
+      if (end > start) append(decoded.substring(start, end));
+      if (newline < 0) break;
+
+      // A deferred CR immediately before LF is delimiter overhead.
+      pendingCarriageReturn = false;
+      final line = pending.toString();
+      pending = StringBuffer();
+      pendingCharacters = 0;
+      final parsed = _decodeOllamaLine(line, maxLineCharacters);
+      if (parsed != null) yield parsed;
+      start = newline + 1;
+    }
+  }
+  if (pendingCarriageReturn) append('\r');
+  final parsed = _decodeOllamaLine(pending.toString(), maxLineCharacters);
   if (parsed != null) yield parsed;
 }
 

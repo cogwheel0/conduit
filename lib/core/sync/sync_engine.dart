@@ -440,6 +440,34 @@ class SyncEngine extends _$SyncEngine {
     }
   }
 
+  /// Drains only while this engine remains bound to [expectedDatabase].
+  ///
+  /// A durable write may finish after the user switches server or auth
+  /// session. Calling the generic [drainNow] there could refresh dependencies
+  /// and drain the newly-active backend instead of the database that owns the
+  /// write. This variant snapshots the engine epoch before its first await and
+  /// refuses to cross either a database or session rebind.
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
+    if (!_refreshBoundDependencies() ||
+        _inert ||
+        !identical(_boundDb, expectedDatabase)) {
+      return;
+    }
+    final epoch = _sessionEpoch;
+    await _migrateLegacyTaskQueueIfNeeded();
+    if (!_cycleStillBound(epoch, 'database-owned-drain-after-migration') ||
+        !identical(_boundDb, expectedDatabase)) {
+      return;
+    }
+    final drainer = _ensureDrainer();
+    if (drainer == null) return;
+    try {
+      await drainer.onConnectivityRegained();
+    } finally {
+      _clearStaleDrainerIfIdle(drainer);
+    }
+  }
+
   /// Plain outbox drain (no backoff reset). Used by the active-conversation
   /// trigger so a completion deferred because a DIFFERENT chat was foregrounded
   /// (request_completion_runner Option B) runs promptly once the user opens its

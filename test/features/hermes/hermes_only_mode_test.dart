@@ -201,6 +201,7 @@ class _ThrowingChatDatabaseRepository extends Fake
     String chatId, {
     ChatStorageKind? preferred,
     ConversationParseOffload? offload,
+    bool Function(ChatDatabaseLocation location)? locationIsCurrent,
   }) async {
     throw error;
   }
@@ -215,6 +216,7 @@ class _OpenWebUiPreferenceRepository extends Fake
     String chatId, {
     ChatStorageKind? preferred,
     ConversationParseOffload? offload,
+    bool Function(ChatDatabaseLocation location)? locationIsCurrent,
   }) async {
     preferredStorage = preferred;
     if (preferred != ChatStorageKind.openWebUi) {
@@ -1303,6 +1305,10 @@ void main() {
         );
         addTearDown(container.dispose);
         addTearDown(workerManager.dispose);
+        // The API ownership token is intentionally fenced by the settled auth
+        // epoch. Mirror the production route, which cannot open this screen
+        // until authentication bootstrap has completed.
+        await container.read(authStateManagerProvider.future);
         await container.read(conversationsProvider.future);
         final scopedId = ChatStorageIdentity(
           rawId: summary.id,
@@ -1391,6 +1397,9 @@ void main() {
           container.dispose();
         });
         addTearDown(workerManager.dispose);
+        // Keep the active-summary fallback inside the authenticated epoch it
+        // claims to represent; an AsyncLoading auth seam is not ownership.
+        await container.read(authStateManagerProvider.future);
         container.read(conversationsProvider);
         check(container.read(conversationsProvider).isLoading).isTrue();
         container.read(activeConversationProvider.notifier).set(active);

@@ -20,13 +20,27 @@ final class OllamaAdapter implements DirectProviderAdapter {
     DirectDioFactory? dioFactory,
     this.closeClients = true,
     this.streamIdleTimeout = kDirectStreamIdleTimeout,
+    this.streamMaxDuration = kDirectStreamMaxDuration,
+    this.maxStreamBytes = kMaxDirectStreamBytes,
     this.maxStreamCharacters = kMaxDirectStreamCharacters,
-  }) : _dioFactory = dioFactory ?? const DirectHttpClientFactory().create;
+    this.maxStreamEvents = kMaxDirectStreamEvents,
+  }) : _dioFactory = dioFactory ?? const DirectHttpClientFactory().create {
+    validateDirectCompletionStreamLimits(
+      idleTimeout: streamIdleTimeout,
+      maxDuration: streamMaxDuration,
+      maxBytes: maxStreamBytes,
+      maxCharacters: maxStreamCharacters,
+      maxEvents: maxStreamEvents,
+    );
+  }
 
   final DirectDioFactory _dioFactory;
   final bool closeClients;
   final Duration streamIdleTimeout;
+  final Duration streamMaxDuration;
+  final int maxStreamBytes;
   final int maxStreamCharacters;
+  final int maxStreamEvents;
 
   @override
   String get key => kOllamaAdapterKey;
@@ -83,13 +97,16 @@ final class OllamaAdapter implements DirectProviderAdapter {
         );
       }
       return await _enrichModels(dio, profile, candidates);
-    } catch (error, stackTrace) {
+    } catch (error) {
       final normalized = normalizeDirectProviderError(error);
+      final safeMessage = sanitizeDirectProviderErrorMessage(
+        normalized.message,
+        sensitiveValues: _directSensitiveValues(profile),
+      );
       DebugLogger.error(
         'models-failed',
         scope: 'direct-connections/ollama',
-        error: normalized.message,
-        stackTrace: stackTrace,
+        error: safeMessage,
         data: {'profileId': profile.id},
       );
       throw normalized;
@@ -181,7 +198,9 @@ final class OllamaAdapter implements DirectProviderAdapter {
       DebugLogger.warning(
         'model-capabilities-unavailable',
         scope: 'direct-connections/ollama',
-        data: {'profileId': profile.id, 'modelId': modelId},
+        // Model ids come from the remote catalog and are deliberately omitted
+        // from logs: a hostile peer can put credentials or control text there.
+        data: {'profileId': profile.id},
       );
       return null;
     }
@@ -242,8 +261,17 @@ final class OllamaAdapter implements DirectProviderAdapter {
   ) {
     final dio = _client(profile);
     final cancelToken = CancelToken();
+    final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
     final settled = Completer<void>();
+    final sensitiveValues = _directSensitiveValues(profile);
+    unawaited(
+      cancelToken.whenCancel.then<void>((error) {
+        if (!transportCancelToken.isCancelled) {
+          transportCancelToken.cancel(error.error ?? 'run cancelled');
+        }
+      }),
+    );
     controller.onCancel = () {
       if (!cancelToken.isCancelled) cancelToken.cancel('listener cancelled');
     };
@@ -258,25 +286,36 @@ final class OllamaAdapter implements DirectProviderAdapter {
           }
         }
 
-        void emitError(String message, {int? statusCode}) {
+        void emitSafeError(String message, {int? statusCode}) {
           if (!terminalSent && !controller.isClosed) {
             terminalSent = true;
             controller.add(DirectStreamError(message, statusCode: statusCode));
           }
         }
 
+        void emitProtocolError(Object? payload, {int? statusCode}) {
+          emitSafeError(
+            directErrorMessage(payload, sensitiveValues: sensitiveValues),
+            statusCode: statusCode,
+          );
+        }
+
         try {
-          final budget = DirectStreamBudget(maxCharacters: maxStreamCharacters);
+          rejectUnsupportedDirectToolParameters(request.parameters);
+          final budget = DirectStreamBudget(
+            maxCharacters: maxStreamCharacters,
+            maxEvents: maxStreamEvents,
+          );
+          var hasCompletion = false;
+          final messages = requireSerializableDirectMessages(request.messages);
           final sdkRequest = ollama.ChatRequest(
             model: request.remoteModelId,
-            messages: [
-              for (final message in request.messages) _ollamaMessage(message),
-            ],
+            messages: [for (final message in messages) _ollamaMessage(message)],
             stream: true,
           );
           final response = await dio.post<ResponseBody>(
             'api/chat',
-            cancelToken: cancelToken,
+            cancelToken: transportCancelToken,
             data: {
               ...request.parameters,
               // The SDK owns native request serialization. Its routing keys
@@ -295,11 +334,17 @@ final class OllamaAdapter implements DirectProviderAdapter {
             throw const FormatException('Ollama returned an empty body.');
           }
           await for (final payload in parseOllamaNdjson(
-            directStreamingResponseBytes(body, idleTimeout: streamIdleTimeout),
+            directStreamingResponseBytes(
+              body,
+              idleTimeout: streamIdleTimeout,
+              maxDuration: streamMaxDuration,
+              maxBytes: maxStreamBytes,
+            ),
           )) {
             if (controller.isClosed) break;
+            budget.addEvent();
             if (payload['error'] != null) {
-              emitError(directErrorMessage(payload['error']));
+              emitProtocolError(payload['error']);
               break;
             }
             final event = _decodeChatStreamEvent(payload);
@@ -309,6 +354,15 @@ final class OllamaAdapter implements DirectProviderAdapter {
               // `reasoning_content` alias for compatible proxies that emit it
               // while the SDK remains the authority for native decoding.
               final rawMessage = payload['message'];
+              if (rawMessage is Map) {
+                final toolCalls = rawMessage['tool_calls'];
+                if ((toolCalls is Iterable && toolCalls.isNotEmpty) ||
+                    (toolCalls is Map && toolCalls.isNotEmpty)) {
+                  throw const DirectProviderException(
+                    kDirectToolCallingUnsupportedMessage,
+                  );
+                }
+              }
               final reasoning =
                   message.thinking ??
                   (rawMessage is Map
@@ -317,16 +371,23 @@ final class OllamaAdapter implements DirectProviderAdapter {
               if (reasoning != null && reasoning.isNotEmpty) {
                 final value = reasoning;
                 budget.add(value);
+                hasCompletion = hasCompletion || value.trim().isNotEmpty;
                 controller.add(DirectReasoningDelta(value));
               }
               final content = message.content;
               if (content != null && content.isNotEmpty) {
                 final value = content;
                 budget.add(value);
+                hasCompletion = hasCompletion || value.trim().isNotEmpty;
                 controller.add(DirectContentDelta(value));
               }
             }
             if (event.done == true) {
+              if (!hasCompletion) {
+                throw const DirectProviderException(
+                  'The Ollama stream has no usable completion content.',
+                );
+              }
               final usage = _ollamaUsage(event);
               if (usage.isNotEmpty) controller.add(DirectUsageUpdate(usage));
               emitDone();
@@ -338,19 +399,28 @@ final class OllamaAdapter implements DirectProviderAdapter {
               'The Ollama stream ended before its done marker.',
             );
           }
-        } catch (error, stackTrace) {
+        } catch (error) {
           if (!cancelToken.isCancelled && !controller.isClosed) {
             final normalized = normalizeDirectProviderError(error);
-            emitError(normalized.message, statusCode: normalized.statusCode);
+            final safeMessage = sanitizeDirectProviderErrorMessage(
+              normalized.message,
+              sensitiveValues: sensitiveValues,
+            );
+            emitSafeError(safeMessage, statusCode: normalized.statusCode);
             DebugLogger.error(
               'completion-failed',
               scope: 'direct-connections/ollama',
-              error: normalized.message,
-              stackTrace: stackTrace,
+              error: safeMessage,
               data: {'profileId': profile.id},
             );
           }
         } finally {
+          if (!transportCancelToken.isCancelled) {
+            transportCancelToken.cancel('completion settled');
+          }
+          // Dio observes cancellation through a future callback. Let that
+          // callback abort the underlying request before `done` settles.
+          await Future<void>.delayed(Duration.zero);
           unawaited(controller.close());
           if (closeClients) dio.close(force: true);
           if (!settled.isCompleted) settled.complete();
@@ -368,6 +438,15 @@ final class OllamaAdapter implements DirectProviderAdapter {
     );
   }
 }
+
+List<String> _directSensitiveValues(DirectConnectionProfile profile) => [
+  if ((profile.apiKey ?? '').isNotEmpty) profile.apiKey!,
+  if ((profile.apiKey ?? '').trim().isNotEmpty) profile.apiKey!.trim(),
+  for (final value in profile.customHeaders.values)
+    if (value.isNotEmpty) value,
+  for (final value in profile.customHeaders.values)
+    if (value.trim().isNotEmpty) value.trim(),
+];
 
 List<String> _lowercaseStringList(Object? value) {
   if (value is! Iterable) return const <String>[];
@@ -464,14 +543,16 @@ ollama.ChatMessage _ollamaMessage(DirectChatMessage message) {
       .map((part) => part.text)
       .join();
   final images = <String>[];
-  for (final part in message.parts.whereType<DirectImagePart>()) {
-    final data = part.base64Data;
-    if (data == null) {
-      throw const DirectProviderException(
-        'Ollama image inputs must be base64 data URLs.',
-      );
+  if (message.role == 'user') {
+    for (final part in message.parts.whereType<DirectImagePart>()) {
+      final data = part.base64Data;
+      if (data == null) {
+        throw const DirectProviderException(
+          'Ollama image inputs must be base64 data URLs.',
+        );
+      }
+      images.add(data);
     }
-    images.add(data);
   }
   return _DirectOllamaChatMessage(
     rawRole: message.role,

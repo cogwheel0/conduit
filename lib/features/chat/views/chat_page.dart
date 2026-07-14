@@ -81,6 +81,35 @@ bool shouldShowChatModelDropdown({
       !isHermesOnly;
 }
 
+@visibleForTesting
+Future<void> handleChatBackNavigation({
+  required bool hasInputFocus,
+  required VoidCallback dismissInputFocus,
+  required bool Function() canNavigateBack,
+  required VoidCallback navigateBack,
+  required Future<bool> Function() confirmExit,
+  required bool Function() isMounted,
+  required bool isAndroid,
+  required VoidCallback exitApplication,
+}) async {
+  if (hasInputFocus) {
+    dismissInputFocus();
+    return;
+  }
+
+  if (!isMounted()) return;
+  if (canNavigateBack()) {
+    navigateBack();
+    return;
+  }
+
+  final shouldExit = await confirmExit();
+  if (!shouldExit || !isMounted()) return;
+  if (isAndroid) {
+    exitApplication();
+  }
+}
+
 class _PendingChatScrollAction {
   const _PendingChatScrollAction._(this.kind, {this.restoreOffset = 0});
 
@@ -562,6 +591,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (selectedModel == null) return;
     }
 
+    ChatSendPlaceholderHandle? pendingSend;
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
       final attachedFiles = ref.read(attachedFilesProvider);
@@ -590,6 +620,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         text,
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
+        onAssistantPlaceholderCreated: (handle) {
+          pendingSend = handle;
+        },
       );
 
       // Clear attachments after successful send
@@ -616,7 +649,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         error: e,
         stackTrace: stackTrace,
       );
-      ref.read(chatMessagesProvider.notifier).failLastStreamingAssistant(e);
+      recoverFailedChatSend(ref, e, pendingSend);
     }
   }
 
@@ -2855,43 +2888,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         // Flutter's focus tree (composerHasFocusProvider tracks them).
         final hasNativeFocus = ref.read(composerHasFocusProvider);
         final currentFocus = FocusManager.instance.primaryFocus;
-        if (hasNativeFocus || (currentFocus != null && currentFocus.hasFocus)) {
-          _dismissComposerFocus();
-          return;
-        }
-
-        // Auto-handle leaving without confirmation
-        final messages = ref.read(chatMessagesProvider);
-        final isStreaming = messages.any((msg) => msg.isStreaming);
-        if (isStreaming) {
-          ref.read(chatMessagesProvider.notifier).finishStreaming();
-        }
-
-        // Do not push conversation state back to server on exit.
-        // Server already maintains chat state from message sends.
-        // Keep any local persistence only.
-
-        if (context.mounted) {
-          final navigator = Navigator.of(context);
-          if (navigator.canPop()) {
-            navigator.pop();
-          } else {
-            final shouldExit = await ThemedDialogs.confirm(
-              context,
-              title: l10n.appTitle,
-              message: l10n.endYourSession,
-              confirmText: l10n.confirm,
-              cancelText: l10n.cancel,
-              isDestructive: Platform.isAndroid,
-            );
-
-            if (!shouldExit || !context.mounted) return;
-
-            if (Platform.isAndroid) {
-              SystemNavigator.pop();
-            }
-          }
-        }
+        await handleChatBackNavigation(
+          hasInputFocus:
+              hasNativeFocus || (currentFocus != null && currentFocus.hasFocus),
+          dismissInputFocus: _dismissComposerFocus,
+          canNavigateBack: () => Navigator.of(context).canPop(),
+          navigateBack: () => Navigator.of(context).pop(),
+          confirmExit: () => ThemedDialogs.confirm(
+            context,
+            title: l10n.appTitle,
+            message: l10n.endYourSession,
+            confirmText: l10n.confirm,
+            cancelText: l10n.cancel,
+            isDestructive: Platform.isAndroid,
+          ),
+          isMounted: () => context.mounted,
+          isAndroid: Platform.isAndroid,
+          exitApplication: SystemNavigator.pop,
+        );
       },
       child: AdaptiveScaffold(
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.

@@ -17,6 +17,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/openwebui_storage_test_overrides.dart';
+
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
@@ -164,7 +166,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         activeConversationProvider.overrideWith(_ActiveConversation.new),
-        appDatabaseProvider.overrideWithValue(serverDb),
+        ...openWebUiStorageOpenOverrides(database: serverDb),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         apiServiceProvider.overrideWithValue(api),
         socketServiceProvider.overrideWithValue(socket),
@@ -244,7 +246,10 @@ void main() {
     notifier.setMessages(conversation.messages);
     final assistantId = conversation.messages.single.id;
     final registry = container.read(directRunRegistryProvider);
-    final reservation = registry.reserve(assistantId, 'profile');
+    final reservation = registry.reserve((
+      ownerConversationId: directRunOwnerScopeForTest(container, conversation),
+      assistantMessageId: assistantId,
+    ), 'profile');
 
     container.read(stopGenerationProvider)();
 

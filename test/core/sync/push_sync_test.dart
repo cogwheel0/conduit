@@ -55,6 +55,29 @@ class _RevertPinToggleClient extends FakeSyncApiClient {
   }
 }
 
+class _DeleteSourceAfterCreateClient extends FakeSyncApiClient {
+  _DeleteSourceAfterCreateClient(
+    super.server, {
+    required this.db,
+    required this.localId,
+  });
+
+  final AppDatabase db;
+  final String localId;
+
+  @override
+  Future<Map<String, dynamic>> createChat(
+    Map<String, dynamic> chatBlob, {
+    String? folderId,
+  }) async {
+    final response = await super.createChat(chatBlob, folderId: folderId);
+    // Reproduce a lifecycle purge after the server accepted the POST but
+    // before PushSync can commit the local -> server id remap.
+    await db.chatsDao.deleteLocalOnlyChat(localId);
+    return response;
+  }
+}
+
 /// Seeds a local (`local:`) chat + messages directly, dirty by default.
 Future<void> seedLocalChat(
   AppDatabase db, {
@@ -226,6 +249,39 @@ void main() {
         check(client.createChatCalls).equals(0);
       },
     );
+
+    test('consumes a successful create when its local source disappears before '
+        'remap', () async {
+      const localId = 'local:purged-after-create';
+      await seedLocalChat(db, id: localId, messageCount: 1);
+      final deletingClient = _DeleteSourceAfterCreateClient(
+        server,
+        db: db,
+        localId: localId,
+      );
+      final deletingPush = PushSync(
+        client: deletingClient,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+
+      final serverId = await deletingPush.pushCreateChat(localId);
+
+      check(serverId).isNotNull();
+      check(deletingClient.createChatCalls).equals(1);
+      check(await db.chatsDao.getChat(localId)).isNull();
+      check(await db.chatsDao.getChat(serverId!)).isNull();
+      check(server.getChatById(serverId)).isNotNull();
+
+      // A stale retry sees that the local source is gone and cannot repeat
+      // the already-successful remote create.
+      check(await deletingPush.pushCreateChat(localId)).isNull();
+      check(deletingClient.createChatCalls).equals(1);
+      check(server.getChatList(page: 1)).length.equals(1);
+    });
 
     test('re-run with an already-remapped (non-local) id does NOT POST a '
         'duplicate (Finding 2)', () async {

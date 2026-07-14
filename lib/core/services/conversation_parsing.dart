@@ -7,6 +7,7 @@ import '../models/conversation.dart';
 import '../utils/embed_utils.dart';
 import '../utils/message_tree_utils.dart' as message_tree;
 import '../utils/openwebui_source_parser.dart';
+import 'direct_replay_output.dart';
 import 'semantic_message_builder.dart';
 import 'structured_output.dart';
 import 'structured_output_renderer.dart';
@@ -283,7 +284,33 @@ Map<String, dynamic>? _parseSiblingAsVersion(
   }
 
   final outputItems = _effectiveOutputItems(msgData, historyMsg);
-  if (outputItems.isNotEmpty) {
+  final role = _resolveRole(msgData);
+  final metadata = _extractOpenWebUiMessageMetadata(
+    msgData,
+    historyMsg: historyMsg,
+    role: role,
+  );
+  final directReplay = _trustedDirectReplayOutput(
+    msgData,
+    historyMsg: historyMsg,
+    outputItems: outputItems,
+    role: role,
+    metadata: metadata,
+  );
+  if (directReplay != null) {
+    final preserveIncompletePresentation =
+        directReplay.isIncompleteAnswerSentinel &&
+        metadata?[kConduitDirectRawAssistantContentMetadataKey] is String &&
+        (metadata?[kConduitDirectRawAssistantContentMetadataKey] as String)
+            .trim()
+            .isEmpty;
+    contentString = _reconcileDirectReplayContent(
+      contentString,
+      metadata: metadata,
+      replayText: directReplay.text,
+      preserveIncompletePresentation: preserveIncompletePresentation,
+    );
+  } else if (outputItems.isNotEmpty) {
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
@@ -538,8 +565,50 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     }
   }
 
+  final role = _resolveRole(msgData);
+  final extractedMetadata = _extractOpenWebUiMessageMetadata(
+    msgData,
+    historyMsg: historyMsg,
+    role: role,
+  );
+  final metadata = <String, dynamic>{...?extractedMetadata};
   final outputItems = _effectiveOutputItems(msgData, historyMsg);
-  if (outputItems.isNotEmpty) {
+  final directReplay = _trustedDirectReplayOutput(
+    msgData,
+    historyMsg: historyMsg,
+    outputItems: outputItems,
+    role: role,
+    metadata: metadata,
+  );
+  if (directReplay != null) {
+    final preserveIncompletePresentation =
+        directReplay.isIncompleteAnswerSentinel &&
+        metadata[kConduitDirectRawAssistantContentMetadataKey] is String &&
+        (metadata[kConduitDirectRawAssistantContentMetadataKey] as String)
+            .trim()
+            .isEmpty;
+    contentString = _reconcileDirectReplayContent(
+      contentString,
+      metadata: metadata,
+      replayText: directReplay.text,
+      preserveIncompletePresentation: preserveIncompletePresentation,
+    );
+    if (!preserveIncompletePresentation) {
+      metadata[kConduitDirectRawAssistantContentMetadataKey] =
+          directReplay.text;
+    }
+  } else if (outputItems.isNotEmpty) {
+    if (_hasTerminalDirectReplayProvenance(
+      msgData,
+      historyMsg: historyMsg,
+      role: role,
+      metadata: metadata,
+    )) {
+      // Open WebUI's Continue Response flow replaces this assistant's output
+      // in place. Once a non-empty output is no longer our exact mirror, its
+      // old raw replay cache must not survive the replacement.
+      metadata.remove(kConduitDirectRawAssistantContentMetadataKey);
+    }
     final outputBlocks = parseOpenWebUIStructuredOutput(outputItems);
     final outputContent = _mergeContentWithStructuredOutput(
       contentString,
@@ -552,13 +621,6 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
 
   // Extract error field from OpenWebUI - preserve it separately for round-trip
   final errorData = _extractErrorData(msgData, historyMsg);
-
-  final role = _resolveRole(msgData);
-  final metadata = _extractOpenWebUiMessageMetadata(
-    msgData,
-    historyMsg: historyMsg,
-    role: role,
-  );
 
   final effectiveFiles = msgData['files'] ?? historyMsg?['files'];
   List<String>? attachmentIds;
@@ -638,7 +700,7 @@ Map<String, dynamic> _parseOpenWebUIMessageToJson(
     'attachmentIds': ?attachmentIds,
     'files': ?files,
     if (embeds.isNotEmpty) 'embeds': embeds,
-    'metadata': metadata ?? const <String, dynamic>{},
+    'metadata': metadata,
     'statusHistory': _parseStatusHistoryField(statusHistoryRaw),
     'followUps': _coerceStringList(followUpsRaw),
     'codeExecutions': _parseCodeExecutionsField(codeExecRaw),
@@ -882,6 +944,70 @@ List<Map<String, dynamic>> _effectiveOutputItems(
     return directItems;
   }
   return _normalizeOutputItems(historyMsg['output']);
+}
+
+ConduitDirectReplayOutputMirror? _trustedDirectReplayOutput(
+  Map<String, dynamic> msgData, {
+  required Map<String, dynamic>? historyMsg,
+  required List<Map<String, dynamic>> outputItems,
+  required String role,
+  required Map<String, dynamic>? metadata,
+}) {
+  if (!_hasTerminalDirectReplayProvenance(
+    msgData,
+    historyMsg: historyMsg,
+    role: role,
+    metadata: metadata,
+  )) {
+    return null;
+  }
+  return parseConduitDirectReplayOutput(outputItems);
+}
+
+bool _hasTerminalDirectReplayProvenance(
+  Map<String, dynamic> msgData, {
+  required Map<String, dynamic>? historyMsg,
+  required String role,
+  required Map<String, dynamic>? metadata,
+}) =>
+    role.trim().toLowerCase() == 'assistant' &&
+    metadata?['transport'] == kConduitDirectTransport &&
+    _safeBool(msgData['done'] ?? historyMsg?['done']) == true &&
+    _safeBool(msgData['isStreaming'] ?? historyMsg?['isStreaming']) != true;
+
+String _reconcileDirectReplayContent(
+  String content, {
+  required Map<String, dynamic>? metadata,
+  required String replayText,
+  bool preserveIncompletePresentation = false,
+}) {
+  if (preserveIncompletePresentation) return content;
+  final replayPresentation = renderSemanticMessageBlocks(<SemanticMessageBlock>[
+    SemanticTextBlock(replayText),
+  ]);
+  final priorRaw = metadata?[kConduitDirectRawAssistantContentMetadataKey];
+  if (priorRaw == replayText ||
+      content == replayPresentation ||
+      content.endsWith('\n$replayPresentation')) {
+    return content;
+  }
+
+  if (priorRaw is String) {
+    final priorPresentation = renderSemanticMessageBlocks(
+      <SemanticMessageBlock>[SemanticTextBlock(priorRaw)],
+    );
+    if (content == priorPresentation) return replayPresentation;
+    final suffix = '\n$priorPresentation';
+    if (content.endsWith(suffix)) {
+      return '${content.substring(0, content.length - suffix.length)}'
+          '\n$replayPresentation';
+    }
+  }
+
+  // The mirror is the edited provider-facing answer. If the prior display
+  // cannot be separated safely from stale answer text, prefer the edit alone
+  // instead of presenting or replaying two divergent answers.
+  return replayPresentation;
 }
 
 String _mergeContentWithStructuredOutput(

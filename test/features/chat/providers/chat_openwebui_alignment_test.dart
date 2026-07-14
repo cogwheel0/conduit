@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -195,6 +196,74 @@ void main() {
       check(messages).deepEquals(const [
         {'role': 'system', 'content': 'System'},
       ]);
+    });
+
+    test(
+      'direct assistant history stays raw when switching to OpenWebUI',
+      () async {
+        const raw =
+            '  literal <tag data="a&b"> & &lt;entity&gt; '
+            '`Map<String, String> m = {"x": "a&b"};`  ';
+        const presentation =
+            'literal &lt;tag data=&quot;a&amp;b&quot;&gt; &amp; '
+            '&amp;lt;entity&amp;gt; `Map<String, String> m = {"x": "a&b"};`';
+        final messages = await buildOpenWebUiCompletionRequestMessagesForTest(
+          messages: [
+            ChatMessage(
+              id: 'direct-assistant',
+              role: 'assistant',
+              content: presentation,
+              timestamp: DateTime.utc(2026, 7, 14),
+              metadata: const <String, dynamic>{
+                'transport': kDirectTransport,
+                kDirectRawAssistantContentMetadataKey: raw,
+              },
+            ),
+            ChatMessage(
+              id: 'next-user',
+              role: 'user',
+              content: 'Continue with OpenWebUI',
+              timestamp: DateTime.utc(2026, 7, 14),
+            ),
+          ],
+        );
+
+        check(messages.first['content']).equals(raw);
+        check(messages.first['content']).not((it) => it.equals(presentation));
+      },
+    );
+
+    test('direct assistant history stays raw when switching to Hermes', () {
+      const raw =
+          '  literal <tag data="a&b"> & &lt;entity&gt; '
+          '`Map<String, String> m = {"x": "a&b"};`  ';
+      const presentation =
+          'literal &lt;tag data=&quot;a&amp;b&quot;&gt; &amp; '
+          '&amp;lt;entity&amp;gt; `Map<String, String> m = {"x": "a&b"};`';
+      final messages = buildHermesVisibleHistoryForTest([
+        ChatMessage(
+          id: 'direct-assistant',
+          role: 'assistant',
+          content: presentation,
+          timestamp: DateTime.utc(2026, 7, 14),
+          metadata: const <String, dynamic>{
+            'transport': kDirectTransport,
+            kDirectRawAssistantContentMetadataKey: raw,
+          },
+        ),
+        ChatMessage(
+          id: 'next-user',
+          role: 'user',
+          content: 'Continue with Hermes',
+          timestamp: DateTime.utc(2026, 7, 14),
+        ),
+      ]);
+      final assistant = messages.firstWhere(
+        (message) => message['role'] == 'assistant',
+      );
+
+      check(assistant['content']).equals(raw);
+      check(assistant['content']).not((it) => it.equals(presentation));
     });
   });
 }

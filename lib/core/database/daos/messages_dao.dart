@@ -30,25 +30,6 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return _messageById(chatId, messageId);
   }
 
-  /// Finds at most [limit] owning chats for a message id. Message ids are UUIDs
-  /// in normal operation, but the schema permits the same id in different
-  /// chats, so callers must treat multiple matches as ambiguous.
-  Future<List<String>> getChatIdsForMessage(
-    String messageId, {
-    int limit = 2,
-  }) async {
-    if (limit <= 0) return const [];
-    final query = selectOnly(messages)
-      ..addColumns([messages.chatId])
-      ..where(messages.id.equals(messageId))
-      ..limit(limit);
-    final rows = await query.get();
-    return rows
-        .map((row) => row.read(messages.chatId))
-        .whereType<String>()
-        .toList(growable: false);
-  }
-
   /// Marks an assistant placeholder as submitted/completed without changing its
   /// content. Headless completions use this after the server accepts the
   /// request so replay can distinguish "already sent, awaiting pull" from a
@@ -70,6 +51,84 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         ..['isStreaming'] = false
         ..['done'] = true
         ..['metadata'] = <String, dynamic>{...metadata, 'responseDone': true};
+
+      await (update(
+        messages,
+      )..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))).write(
+        MessagesCompanion(
+          payload: Value(jsonEncode(payload)),
+          dirty: const Value(false),
+        ),
+      );
+      return true;
+    });
+  }
+
+  /// Durability barrier written immediately before the completion POST.
+  ///
+  /// The marker means submission may have started; it deliberately does not
+  /// claim that the server accepted the request or that a response landed. A
+  /// recreated outbox runner recovers by pull only, preventing a duplicate POST
+  /// across crashes in the ambiguous marker-to-response window.
+  Future<bool> markAssistantCompletionSubmitted({
+    required String chatId,
+    required String messageId,
+  }) {
+    return transaction(() async {
+      final existing = await _messageById(chatId, messageId);
+      if (existing == null) return false;
+
+      final payload = _decodePayloadMap(existing.payload);
+      final metadata = _asJsonMap(payload['metadata'])..remove('responseDone');
+      payload
+        ..putIfAbsent('id', () => messageId)
+        ..putIfAbsent('role', () => existing.role)
+        ..putIfAbsent('content', () => existing.content)
+        ..remove('done')
+        ..['isStreaming'] = true
+        ..['metadata'] = <String, dynamic>{
+          ...metadata,
+          'completionSubmitted': true,
+        };
+
+      await (update(
+        messages,
+      )..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))).write(
+        MessagesCompanion(
+          payload: Value(jsonEncode(payload)),
+          dirty: const Value(false),
+        ),
+      );
+      return true;
+    });
+  }
+
+  /// Settles a submitted placeholder with an explicit recovery error when the
+  /// accepted request cannot be drained or found on the server. A later server
+  /// pull may still replace this row with the authoritative response.
+  Future<bool> markAssistantCompletionRecoveryFailed({
+    required String chatId,
+    required String messageId,
+    required String error,
+  }) {
+    return transaction(() async {
+      final existing = await _messageById(chatId, messageId);
+      if (existing == null) return false;
+
+      final payload = _decodePayloadMap(existing.payload);
+      final metadata = _asJsonMap(payload['metadata']);
+      payload
+        ..putIfAbsent('id', () => messageId)
+        ..putIfAbsent('role', () => existing.role)
+        ..putIfAbsent('content', () => existing.content)
+        ..['isStreaming'] = false
+        ..['done'] = true
+        ..['error'] = <String, dynamic>{'content': error}
+        ..['metadata'] = <String, dynamic>{
+          ...metadata,
+          'completionSubmitted': true,
+          'responseDone': true,
+        };
 
       await (update(
         messages,

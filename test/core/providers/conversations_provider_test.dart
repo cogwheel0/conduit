@@ -29,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+import '../../support/openwebui_storage_test_overrides.dart';
 
 class _RecordingSyncEngine extends SyncEngine {
   _RecordingSyncEngine(this.pulls);
@@ -76,7 +77,8 @@ void main() {
   }) {
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        if (authenticated) ...openWebUiStorageOpenOverrides(database: db),
+        if (!authenticated) appDatabaseProvider.overrideWith((ref) => db),
         directLocalDatabaseProvider.overrideWith((ref) => directDb),
         isAuthenticatedProvider2.overrideWithValue(authenticated),
         reviewerModeProvider.overrideWithValue(false),

@@ -6,6 +6,7 @@ import 'package:openai_dart/openai_dart.dart' as openai;
 import '../../../core/services/openai_responses_codec.dart';
 import '../../../core/services/sse_frame_scanner.dart';
 import '../models/hermes_run_event.dart';
+import 'hermes_identifier.dart';
 
 /// Parses a Hermes runs SSE byte stream into typed [HermesRunEvent]s.
 ///
@@ -265,7 +266,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if (eventType == 'response.created') {
     final response = data['response'];
     final responseMap = response is Map ? response : null;
-    final responseId = _str(responseMap?['id']) ?? _str(data['id']);
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
@@ -275,7 +277,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if (eventType == 'response.completed') {
     final response = data['response'];
     final responseMap = response is Map ? response : null;
-    final responseId = _str(responseMap?['id']) ?? _str(data['id']);
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
@@ -301,7 +304,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if (eventType == 'response.failed') {
     final response = data['response'];
     final responseMap = response is Map ? response : null;
-    final responseId = _str(responseMap?['id']) ?? _str(data['id']);
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
@@ -314,7 +318,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if (eventType == 'response.incomplete') {
     final response = data['response'];
     final responseMap = response is Map ? response : null;
-    final responseId = _str(responseMap?['id']) ?? _str(data['id']);
+    final responseId =
+        _strictString(responseMap?['id']) ?? _strictString(data['id']);
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
@@ -350,18 +355,34 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   if ((eventType?.contains('approval') ?? false) ||
       data.containsKey('approval_id') ||
       data.containsKey('approvalId')) {
+    // Approval identifiers are protocol control values, not display text.
+    // Never call toString() on an arbitrary JSON container before the bounded
+    // opaque-id validator gets a chance to reject it.
+    final legacyApprovalId =
+        _strictString(data['approval_id']) ??
+        _strictString(data['approvalId']) ??
+        _strictString(data['id']);
+    final hasLegacyApprovalId =
+        data.containsKey('approval_id') ||
+        data.containsKey('approvalId') ||
+        data.containsKey('id');
+    // The current runs API scopes one pending approval to the run itself, so
+    // its official approval.request event carries only `run_id`. Accept that
+    // control value only when no legacy approval identifier was supplied and
+    // only after applying the bounded opaque-identifier contract.
     final approvalId =
-        _str(data['approval_id']) ??
-        _str(data['approvalId']) ??
-        _str(data['id']);
+        legacyApprovalId ??
+        (hasLegacyApprovalId
+            ? null
+            : validateHermesOpaqueIdentifier(data['run_id']));
     if (approvalId != null) {
       yield HermesApprovalRequested(
         approvalId: approvalId,
         summary:
-            _str(data['summary']) ??
-            _str(data['description']) ??
-            _str(data['prompt']) ??
-            _str(data['message']),
+            _strictString(data['summary']) ??
+            _strictString(data['description']) ??
+            _strictString(data['prompt']) ??
+            _strictString(data['message']),
         raw: data,
       );
       return;
@@ -378,14 +399,14 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
         status == 'cancelled' ||
         status == 'canceled' ||
         status == 'stopped') {
-      if (status == 'failed') {
-        yield HermesRunError(_failureMessage(data['error']));
-      } else {
+      if (status != 'failed') {
         final output = extractHermesOutputText(data['output']);
         if (output.isNotEmpty) {
           yield HermesFinalOutput(output);
         }
       }
+      final statusError = _terminalRunStatusError(status, data['error']);
+      if (statusError != null) yield HermesRunError(statusError);
       yield const HermesRunDone();
       return;
     }
@@ -412,10 +433,12 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // Generic lifecycle fallback (explicit status field / Responses-API events).
   final status = _lifecycleStatus(eventType, data);
   if (status != null) {
-    // A failed terminal lifecycle (e.g. `response.failed`) must surface an
-    // error; a bare HermesLifecycle is treated downstream as an advisory no-op.
-    if (status == 'failed') {
-      yield HermesRunError(_failureMessage(data['error']));
+    // Failed and externally cancelled terminal lifecycles must surface an
+    // error; a bare HermesLifecycle is treated downstream as an advisory no-op
+    // and would otherwise make a cancelled run look successfully completed.
+    final statusError = _terminalRunStatusError(status, data['error']);
+    if (statusError != null) {
+      yield HermesRunError(statusError);
     } else {
       yield HermesLifecycle(status);
     }
@@ -427,22 +450,76 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
 
 /// Extracts visible assistant text from a terminal/recovered Hermes output.
 /// Function-call items are deliberately omitted from the rendered answer.
-String extractHermesOutputText(dynamic output) {
-  if (output == null) return '';
-  if (output is String) return output;
+String extractHermesOutputText(
+  dynamic output, {
+  int maxCharacters = 8 * 1024 * 1024,
+  int maxDepth = 128,
+  int maxNodes = 100000,
+}) {
+  if (maxCharacters <= 0) {
+    throw RangeError.value(maxCharacters, 'maxCharacters');
+  }
+  if (maxDepth <= 0) throw RangeError.value(maxDepth, 'maxDepth');
+  if (maxNodes <= 0) throw RangeError.value(maxNodes, 'maxNodes');
+
   final buffer = StringBuffer();
-  if (output is List) {
-    for (final item in output) {
-      if (item is String) {
-        buffer.write(item);
-      } else if (item is Map) {
-        final type = item['type']?.toString();
-        if (type != null && type.contains('function')) continue;
-        buffer.write(extractHermesOutputText(item['content'] ?? item['text']));
-      }
+  final pending = <({Object? value, int depth})>[(value: output, depth: 0)];
+  final visited = <Object>{};
+  var characters = 0;
+  var nodes = 0;
+  var scheduledNodes = 1;
+
+  void schedule(Object? value, int depth) {
+    scheduledNodes++;
+    if (scheduledNodes > maxNodes) {
+      throw const FormatException('Hermes output exceeds the value limit.');
     }
-  } else if (output is Map) {
-    buffer.write(extractHermesOutputText(output['text'] ?? output['content']));
+    pending.add((value: value, depth: depth));
+  }
+
+  while (pending.isNotEmpty) {
+    final current = pending.removeLast();
+    nodes++;
+    if (nodes > maxNodes) {
+      throw const FormatException('Hermes output exceeds the value limit.');
+    }
+    final value = current.value;
+    if (value == null) continue;
+    if (value is String) {
+      for (final rune in value.runes) {
+        characters++;
+        if (characters > maxCharacters) {
+          throw const FormatException('Hermes output exceeds the size limit.');
+        }
+        buffer.writeCharCode(rune);
+      }
+      continue;
+    }
+    if (current.depth >= maxDepth) {
+      throw const FormatException('Hermes output exceeds the nesting limit.');
+    }
+    if (value is List) {
+      if (!visited.add(value)) {
+        throw const FormatException('Hermes output contains a cycle.');
+      }
+      if (value.length > maxNodes - scheduledNodes) {
+        throw const FormatException('Hermes output exceeds the value limit.');
+      }
+      for (final item in value.reversed) {
+        schedule(item, current.depth + 1);
+      }
+      continue;
+    }
+    if (value is Map) {
+      if (!visited.add(value)) {
+        throw const FormatException('Hermes output contains a cycle.');
+      }
+      final rawType = value['type'];
+      final type = rawType is String ? rawType : null;
+      if (type != null && type.contains('function')) continue;
+      schedule(value['text'] ?? value['content'], current.depth + 1);
+      continue;
+    }
   }
   return buffer.toString();
 }
@@ -645,6 +722,20 @@ String _errorMessage(dynamic error) {
 String _failureMessage(dynamic error) =>
     _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.';
 
+String? _terminalRunStatusError(String status, dynamic error) {
+  switch (status) {
+    case 'failed':
+      return _failureMessage(error);
+    case 'cancelled':
+    case 'canceled':
+      return 'Hermes run was cancelled.';
+    case 'stopped':
+      return 'Hermes run was stopped.';
+    default:
+      return null;
+  }
+}
+
 String? _fallbackResponseStatusError(String? status, Map response) {
   switch (status) {
     case null:
@@ -677,3 +768,5 @@ String? _str(dynamic value) {
   if (value is String) return value;
   return value.toString();
 }
+
+String? _strictString(dynamic value) => value is String ? value : null;

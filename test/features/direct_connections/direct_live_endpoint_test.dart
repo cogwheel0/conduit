@@ -10,6 +10,8 @@ void main() {
   final enabled = Platform.environment['DIRECT_LIVE_TESTS'] == '1';
   final baseUrl = Platform.environment['OPENAI_URL']?.trim() ?? '';
   final apiKey = Platform.environment['OPENAI_API']?.trim() ?? '';
+  final openAiModelOverride =
+      Platform.environment['OPENAI_MODEL']?.trim() ?? '';
   final skipReason = enabled && baseUrl.isNotEmpty
       ? false
       : 'Set DIRECT_LIVE_TESTS=1 and OPENAI_URL to run live provider tests.';
@@ -35,10 +37,18 @@ void main() {
         isNotEmpty,
         reason: 'The endpoint did not advertise a chat-capable model.',
       );
-      final model = chatModels.firstWhere(
-        (candidate) => _looksReasoningModel(candidate.id),
-        orElse: () => chatModels.first,
-      );
+      final model = switch (openAiModelOverride) {
+        final configured when configured.isNotEmpty => chatModels.firstWhere(
+          (candidate) => candidate.id == configured,
+          orElse: () => throw StateError(
+            'OPENAI_MODEL is not present in the endpoint model catalog.',
+          ),
+        ),
+        _ => chatModels.firstWhere(
+          (candidate) => _looksReasoningModel(candidate.id),
+          orElse: () => chatModels.first,
+        ),
+      };
 
       final run = adapter.startCompletion(
         profile,

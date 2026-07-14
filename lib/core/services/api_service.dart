@@ -53,6 +53,37 @@ final class FileContentTooLargeException implements Exception {
   String toString() => 'File content exceeds the configured byte limit.';
 }
 
+Future<bool> _moveFileContentStreamOrCancel(
+  StreamIterator<List<int>> iterator,
+  CancelToken? cancelToken,
+) {
+  final cancellation = cancelToken?.cancelError;
+  if (cancellation != null) return Future<bool>.error(cancellation);
+  final move = iterator.moveNext();
+  if (cancelToken == null) return move;
+  // Future.any observes the losing stream move as well as the cancellation
+  // branch, so a source that reports a late error after cancellation cannot
+  // escape through the zone.
+  return Future.any<bool>(<Future<bool>>[
+    move,
+    cancelToken.whenCancel.then<bool>((error) => throw error),
+  ]);
+}
+
+void _cancelFileContentStreamIterator(StreamIterator<List<int>> iterator) {
+  try {
+    unawaited(
+      iterator.cancel().then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {},
+      ),
+    );
+  } catch (_) {
+    // The request token already revoked transport ownership. Source teardown
+    // is best effort and must not delay Stop or replace the primary error.
+  }
+}
+
 void _traceApi(String message) {
   if (!_traceApiLogs) {
     return;
@@ -370,6 +401,22 @@ class ApiService {
   }
 
   String? get authToken => _authInterceptor.authToken;
+
+  /// Freezes the current bearer token for an already-authorized unit of work.
+  /// Passing this snapshot to supported request methods prevents a queued
+  /// request from silently adopting a later account's token on the same
+  /// [ApiService] instance.
+  ApiAuthSnapshot captureAuthSnapshot() => _authInterceptor.captureSnapshot();
+
+  Options _withAuthSnapshot(Options options, ApiAuthSnapshot? authSnapshot) {
+    if (authSnapshot == null) return options;
+    options.extra = <String, dynamic>{
+      ...?options.extra,
+      ApiAuthInterceptor.authSnapshotExtraKey: authSnapshot,
+      'suppressAuthFailureNotification': true,
+    };
+    return options;
+  }
 
   /// Ensure interceptor callbacks stay in sync if they are set after construction
   void setAuthCallbacks({
@@ -3046,7 +3093,12 @@ class ApiService {
   }
 
   // Files
-  Future<String> getFileContent(String fileId, {int? maxBytes}) async {
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     _traceApi('Fetching file content: $fileId');
     if (maxBytes != null && maxBytes <= 0) {
       throw ArgumentError.value(maxBytes, 'maxBytes');
@@ -3054,9 +3106,17 @@ class ApiService {
     // The Open-WebUI endpoint returns the raw file bytes with appropriate
     // Content-Type headers, not JSON. We must read bytes and base64-encode
     // them for consistent handling across platforms/widgets.
+    // Dio wraps streamed response bodies. A request-local token is therefore
+    // required to tear down the adapter's upstream subscription on a size
+    // rejection; cancelling only the exposed body stream is insufficient.
+    final requestCancelToken = cancelToken ?? CancelToken();
     final response = await _dio.get<ResponseBody>(
       '/api/v1/files/$fileId/content',
-      options: Options(responseType: ResponseType.stream),
+      options: _withAuthSnapshot(
+        Options(responseType: ResponseType.stream),
+        authSnapshot,
+      ),
+      cancelToken: requestCancelToken,
     );
 
     // Try to determine the mime type from response headers; fallback to text/plain
@@ -3078,18 +3138,26 @@ class ApiService {
     if (maxBytes != null &&
         advertisedLength != null &&
         advertisedLength > maxBytes) {
-      final subscription = body.stream.listen((_) {});
-      await subscription.cancel();
+      requestCancelToken.cancel('File content exceeded the byte limit.');
       throw const FileContentTooLargeException();
     }
     final bytes = BytesBuilder(copy: false);
     var receivedBytes = 0;
-    await for (final chunk in body.stream) {
-      receivedBytes += chunk.length;
-      if (maxBytes != null && receivedBytes > maxBytes) {
-        throw const FileContentTooLargeException();
+    final iterator = StreamIterator<List<int>>(body.stream);
+    try {
+      while (await _moveFileContentStreamOrCancel(iterator, cancelToken)) {
+        final chunk = iterator.current;
+        receivedBytes += chunk.length;
+        if (maxBytes != null && receivedBytes > maxBytes) {
+          throw const FileContentTooLargeException();
+        }
+        bytes.add(chunk);
       }
-      bytes.add(chunk);
+    } on FileContentTooLargeException {
+      requestCancelToken.cancel('File content exceeded the byte limit.');
+      rethrow;
+    } finally {
+      _cancelFileContentStreamIterator(iterator);
     }
 
     final base64Data = base64Encode(bytes.takeBytes());
@@ -3102,9 +3170,17 @@ class ApiService {
     return base64Data;
   }
 
-  Future<Map<String, dynamic>> getFileInfo(String fileId) async {
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     _traceApi('Fetching file info: $fileId');
-    final response = await _dio.get('/api/v1/files/$fileId');
+    final response = await _dio.get(
+      '/api/v1/files/$fileId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+      cancelToken: cancelToken,
+    );
     return response.data as Map<String, dynamic>;
   }
 
@@ -4444,6 +4520,7 @@ class ApiService {
     Map<String, dynamic>? modelItem,
     String? sessionId,
     List<String>? filterIds,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     // Format messages to match OpenWebUI expected structure exactly
     final formattedMessages = messages.map((msg) {
@@ -4491,9 +4568,12 @@ class ApiService {
       final resp = await _dio.post(
         '/api/chat/completed',
         data: requestData,
-        options: Options(
-          sendTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+        options: _withAuthSnapshot(
+          Options(
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
+          ),
+          authSnapshot,
         ),
       );
       if (resp.data is Map<String, dynamic>) {

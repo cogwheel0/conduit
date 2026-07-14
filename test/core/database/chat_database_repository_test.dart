@@ -342,7 +342,7 @@ void main() {
       const assistantId = 'message-local:remap-before-listener';
       await repository.persistNewDirectChat(
         location,
-        _chatRows(id: localId, updatedAt: 100),
+        _chatRows(id: localId, updatedAt: 100, role: 'assistant'),
         openWebUiContentHash: 'stable-hash',
       );
       final remapper = IdRemapper(serverDatabase);
@@ -357,13 +357,229 @@ void main() {
       );
 
       check(
+        await repository.resolveCommittedChatRemapTarget(
+          location,
+          recordedChatId: localId,
+        ),
+      ).equals(serverId);
+      check(
         await repository.resolveCurrentChatIdForMessage(
           location,
           recordedChatId: localId,
           messageId: assistantId,
+          expectedRole: 'assistant',
         ),
       ).equals(serverId);
     });
+
+    test(
+      'never infers a remap from a singleton message-id collision',
+      () async {
+        final location = repository.chooseForNewDirectChat(
+          DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+        );
+        const recordedChatId = 'local:missing-owner';
+        const collidingMessageId = 'assistant-collision';
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(
+            id: 'unrelated-chat',
+            updatedAt: 100,
+            messageId: collidingMessageId,
+            role: 'assistant',
+          ),
+        );
+
+        check(
+          await repository.resolveCurrentChatIdForMessage(
+            location,
+            recordedChatId: recordedChatId,
+            messageId: collidingMessageId,
+            expectedRole: 'assistant',
+          ),
+        ).isNull();
+      },
+    );
+
+    test(
+      'remap recovery requires the exact destination placeholder and role',
+      () async {
+        final location = repository.chooseForNewDirectChat(
+          DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+        );
+        const localId = 'local:missing-placeholder';
+        const serverId = 'server:missing-placeholder';
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(
+            id: serverId,
+            updatedAt: 100,
+            messageId: 'different-message',
+            role: 'assistant',
+          ),
+        );
+        await serverDatabase.syncMetaDao.setChatRemapTarget(localId, serverId);
+
+        check(
+          await repository.resolveCurrentChatIdForMessage(
+            location,
+            recordedChatId: localId,
+            messageId: 'expected-assistant',
+            expectedRole: 'assistant',
+          ),
+        ).isNull();
+
+        const wrongRoleLocalId = 'local:wrong-role';
+        const wrongRoleServerId = 'server:wrong-role';
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(
+            id: wrongRoleServerId,
+            updatedAt: 100,
+            messageId: 'expected-assistant',
+            role: 'user',
+          ),
+        );
+        await serverDatabase.syncMetaDao.setChatRemapTarget(
+          wrongRoleLocalId,
+          wrongRoleServerId,
+        );
+        check(
+          await repository.resolveCurrentChatIdForMessage(
+            location,
+            recordedChatId: wrongRoleLocalId,
+            messageId: 'expected-assistant',
+            expectedRole: 'assistant',
+          ),
+        ).isNull();
+      },
+    );
+
+    test(
+      'tombstoned source and destination never own completion work',
+      () async {
+        final location = repository.chooseForNewDirectChat(
+          DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+        );
+        const messageId = 'assistant-tombstone';
+        const sourceId = 'source-tombstone';
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(
+            id: sourceId,
+            updatedAt: 100,
+            messageId: messageId,
+            role: 'assistant',
+          ),
+        );
+        await (serverDatabase.update(serverDatabase.chats)
+              ..where((chat) => chat.id.equals(sourceId)))
+            .write(const ChatsCompanion(deleted: Value(true)));
+        check(
+          await repository.resolveCurrentChatIdForMessage(
+            location,
+            recordedChatId: sourceId,
+            messageId: messageId,
+            expectedRole: 'assistant',
+          ),
+        ).isNull();
+
+        const localId = 'local:target-tombstone';
+        const serverId = 'server:target-tombstone';
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(
+            id: serverId,
+            updatedAt: 100,
+            messageId: messageId,
+            role: 'assistant',
+          ),
+        );
+        await serverDatabase.syncMetaDao.setChatRemapTarget(localId, serverId);
+        await (serverDatabase.update(serverDatabase.chats)
+              ..where((chat) => chat.id.equals(serverId)))
+            .write(const ChatsCompanion(deleted: Value(true)));
+        check(
+          await repository.resolveCurrentChatIdForMessage(
+            location,
+            recordedChatId: localId,
+            messageId: messageId,
+            expectedRole: 'assistant',
+          ),
+        ).isNull();
+        check(
+          await repository.resolveCommittedChatRemapTarget(
+            location,
+            recordedChatId: localId,
+          ),
+        ).isNull();
+      },
+    );
+
+    test(
+      'requires an absent source and a live target for remap recovery',
+      () async {
+        final location = repository.chooseForNewDirectChat(
+          DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+        );
+        await serverDatabase.chatsDao.upsertServerChat(
+          rows: _chatRows(id: 'local:reused', updatedAt: 100),
+        );
+        await serverDatabase.syncMetaDao.setChatRemapTarget(
+          'local:reused',
+          'server:old-owner',
+        );
+        check(
+          await repository.resolveCommittedChatRemapTarget(
+            location,
+            recordedChatId: 'local:reused',
+          ),
+        ).isNull();
+
+        await serverDatabase.chatsDao.hardDelete('local:reused');
+        await serverDatabase.syncMetaDao.setChatRemapTarget(
+          'local:missing-target',
+          'server:absent',
+        );
+        check(
+          await repository.resolveCommittedChatRemapTarget(
+            location,
+            recordedChatId: 'local:missing-target',
+          ),
+        ).isNull();
+      },
+    );
+
+    test(
+      'purging a remap target removes its reverse ownership records',
+      () async {
+        final location = repository.chooseForNewDirectChat(
+          DirectChatSyncPreference.syncWithOpenWebUiWhenAvailable,
+        );
+        const localId = 'local:delete-remap';
+        const serverId = 'server:delete-remap';
+        await repository.persistNewDirectChat(
+          location,
+          _chatRows(id: localId, updatedAt: 100),
+          openWebUiContentHash: 'stable-hash',
+        );
+        final remapper = IdRemapper(serverDatabase);
+        addTearDown(remapper.dispose);
+        await remapper.remapChat(
+          localId: localId,
+          serverId: serverId,
+          serverCreatedAt: 100,
+          serverUpdatedAt: 101,
+        );
+
+        await serverDatabase.chatsDao.purgeReconciledChat(serverId);
+
+        check(
+          await serverDatabase.syncMetaDao.getChatRemapTarget(localId),
+        ).isNull();
+        check(
+          await repository.resolveCommittedChatRemapTarget(
+            location,
+            recordedChatId: localId,
+          ),
+        ).isNull();
+      },
+    );
 
     test('never enqueues a completion operation in either store', () async {
       final localLocation = repository.chooseForNewDirectChat(
@@ -430,11 +646,13 @@ ChatRows _chatRows({
   required int updatedAt,
   String? title,
   String content = 'hello',
+  String? messageId,
+  String role = 'user',
 }) {
   final message = _message(
     chatId: id,
-    id: 'message-$id',
-    role: 'user',
+    id: messageId ?? 'message-$id',
+    role: role,
     content: content,
     createdAt: updatedAt,
   );

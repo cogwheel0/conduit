@@ -1,11 +1,119 @@
 import 'dart:convert';
 
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('normalizeDirectUsageMetadata', () {
+    test('creates a detached deeply immutable JSON value', () {
+      final shared = <Object?>[1, 'yes'];
+      final source = <String, dynamic>{
+        'prompt_tokens': 3,
+        'details': <String, dynamic>{'cached': shared, 'reused': shared},
+      };
+
+      final normalized = normalizeDirectUsageMetadata(source);
+      (source['details'] as Map<String, dynamic>)['cached'] = <Object?>[9];
+
+      expect(normalized['prompt_tokens'], 3);
+      final details = normalized['details'] as Map<String, dynamic>;
+      final cached = details['cached'] as List<dynamic>;
+      final reused = details['reused'] as List<dynamic>;
+      expect(cached, <Object?>[1, 'yes']);
+      expect(reused, <Object?>[1, 'yes']);
+      expect(identical(cached, reused), isFalse);
+      expect(() => details['new'] = true, throwsUnsupportedError);
+      expect(() => cached.add(2), throwsUnsupportedError);
+    });
+
+    test('reports string and node costs for the run-wide budget', () {
+      final normalized = normalizeDirectUsageMetadataWithCost({
+        'prompt': 'cached',
+        'details': <Object?>[true, null],
+      });
+
+      expect(normalized.stringCharacters, 19);
+      expect(normalized.nodes, 5);
+      expect(normalized.usage, {
+        'prompt': 'cached',
+        'details': <Object?>[true, null],
+      });
+    });
+
+    test(
+      'repeated valid usage exhausts aggregate character and work budgets',
+      () {
+        final stringHeavy = normalizeDirectUsageMetadataWithCost({
+          'abc': 'def',
+        });
+        final characterBudget = DirectStreamBudget(
+          maxCharacters: 10,
+          maxEvents: 10,
+          maxWorkUnits: 100,
+        );
+        characterBudget
+          ..addCharacters(stringHeavy.stringCharacters)
+          ..addWork(stringHeavy.nodes);
+        expect(
+          () => characterBudget.addCharacters(stringHeavy.stringCharacters),
+          throwsA(
+            isA<DirectProviderException>().having(
+              (error) => error.message,
+              'message',
+              contains('size limit'),
+            ),
+          ),
+        );
+
+        final nodeHeavy = normalizeDirectUsageMetadataWithCost({
+          '': <Object?>[true, null],
+        });
+        final workBudget = DirectStreamBudget(
+          maxCharacters: 10,
+          maxEvents: 10,
+          maxWorkUnits: nodeHeavy.nodes + 1,
+        );
+        workBudget.addWork(nodeHeavy.nodes);
+        expect(
+          () => workBudget.addWork(nodeHeavy.nodes),
+          throwsA(
+            isA<DirectProviderException>().having(
+              (error) => error.message,
+              'message',
+              contains('resource limit'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('rejects cyclic, oversized, deep, and huge-integer graphs', () {
+      final cycle = <Object?>[];
+      cycle.add(cycle);
+      Object? deep = 0;
+      for (var index = 0; index < kMaxDirectUsageDepth + 1; index++) {
+        deep = <Object?>[deep];
+      }
+      final cases = <Map<String, dynamic>>[
+        {'cycle': cycle},
+        {'wide': List<Object?>.filled(kMaxDirectUsageContainerEntries + 1, 0)},
+        {'deep': deep},
+        {'huge_integer': BigInt.one << (kMaxDirectUsageIntegerBitLength + 1)},
+      ];
+
+      for (final usage in cases) {
+        expect(
+          () => normalizeDirectUsageMetadata(usage),
+          throwsA(isA<DirectProviderException>()),
+        );
+      }
+    });
+  });
+
   group('withDirectConversationSystemPrompt', () {
     test('prepends the prompt for send and regenerate history', () {
       final result = withDirectConversationSystemPrompt(
@@ -81,6 +189,281 @@ void main() {
       expect(resolvedIds, ['protected-image']);
       expect(resolverLimits, [kDirectMaxDecodedImageBytes]);
     });
+
+    test(
+      'replays the exact trusted provider answer on the second turn',
+      () async {
+        const rawAssistantAnswer =
+            '  literal <tag data="a&b"> & &lt;existing-entity&gt; '
+            '`Map<String, String> values = {"x": "a&b"};`  ';
+        final accumulator = DirectStreamingAccumulator()
+          ..apply(const DirectContentDelta(rawAssistantAnswer))
+          ..apply(const DirectStreamDone());
+        final presentationContent = accumulator.render(done: true);
+
+        expect(presentationContent, isNot(rawAssistantAnswer));
+        expect(
+          presentationContent,
+          contains('&lt;tag data=&quot;a&amp;b&quot;&gt;'),
+        );
+        expect(
+          presentationContent,
+          contains('&amp;lt;existing-entity&amp;gt;'),
+        );
+        expect(
+          presentationContent,
+          contains('`Map<String, String> values = {"x": "a&b"};`'),
+        );
+
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(id: 'user-1', role: 'user', content: 'First turn'),
+            _message(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: presentationContent,
+              metadata: const <String, dynamic>{
+                'transport': kDirectTransport,
+                kDirectRawAssistantContentMetadataKey: rawAssistantAnswer,
+              },
+            ),
+            _message(id: 'user-2', role: 'user', content: 'Second turn'),
+          ],
+        );
+
+        expect(result.map((message) => message.role), [
+          'user',
+          'assistant',
+          'user',
+        ]);
+        expect(_textParts(result[1]), [rawAssistantAnswer]);
+      },
+    );
+
+    test('builds a strict Responses mirror for persisted server history', () {
+      const raw = '  literal <tag> & `code`  ';
+      final output = directProviderReplayOutput(
+        assistantMessageId: 'assistant:one',
+        rawContent: raw,
+      );
+
+      expect(output, isNotNull);
+      final item = output!.single;
+      expect(
+        item['id'],
+        '$kConduitDirectReplayOutputIdPrefix${'assistant_one'}',
+      );
+      expect(item['type'], 'message');
+      expect(item['role'], 'assistant');
+      expect(item['status'], 'completed');
+      expect(item['content'], [
+        {'type': 'output_text', 'text': raw},
+      ]);
+      expect(parseConduitDirectReplayOutput(output)?.text, raw);
+      expect(
+        directProviderReplayOutput(
+          assistantMessageId: 'assistant-empty',
+          rawContent: '   ',
+        ),
+        isNull,
+      );
+      final incomplete = directProviderReplayOutput(
+        assistantMessageId: 'assistant-incomplete',
+        rawContent: '',
+        useIncompleteAnswerSentinel: true,
+      )!;
+      expect(
+        incomplete.single['id'],
+        startsWith(kConduitDirectNoFinalReplayOutputIdPrefix),
+      );
+      expect(
+        parseConduitDirectReplayOutput(incomplete)?.isIncompleteAnswerSentinel,
+        isTrue,
+      );
+    });
+
+    test('reasoning-only replay uses safe provider context', () {
+      final message = _message(
+        id: 'reasoning-only',
+        role: 'assistant',
+        content: '<details type="reasoning">private</details>',
+        output: directProviderReplayOutput(
+          assistantMessageId: 'reasoning-only',
+          rawContent: '',
+          useIncompleteAnswerSentinel: true,
+        ),
+        metadata: const <String, dynamic>{
+          'transport': kDirectTransport,
+          kDirectRawAssistantContentMetadataKey: '',
+        },
+      );
+
+      expect(
+        outboundProviderReplayText(message),
+        kConduitDirectIncompleteAnswerReplayText,
+      );
+    });
+
+    test('a valid output mirror supersedes stale raw replay metadata', () {
+      final message = _message(
+        id: 'updated-mirror',
+        role: 'assistant',
+        content: '&lt;stale answer&gt;',
+        output: directProviderReplayOutput(
+          assistantMessageId: 'updated-mirror',
+          rawContent: '<current answer>',
+        ),
+        metadata: const <String, dynamic>{
+          'transport': kDirectTransport,
+          kDirectRawAssistantContentMetadataKey: '<stale answer>',
+        },
+      );
+
+      expect(outboundProviderReplayText(message), '<current answer>');
+    });
+
+    test('a replaced output invalidates stale raw replay metadata', () {
+      final message = _message(
+        id: 'continued-output',
+        role: 'assistant',
+        content: 'continued answer',
+        output: const <Map<String, dynamic>>[
+          <String, dynamic>{
+            'type': 'message',
+            'id': 'msg_openwebui_continue',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'type': 'output_text',
+                'text': 'continued answer',
+              },
+            ],
+          },
+        ],
+        metadata: const <String, dynamic>{
+          'transport': kDirectTransport,
+          kDirectRawAssistantContentMetadataKey: 'old answer',
+        },
+      );
+
+      expect(outboundProviderReplayText(message), 'continued answer');
+    });
+
+    test(
+      'never blindly decodes legacy presentation entities for replay',
+      () async {
+        const persistedPresentation =
+            '&lt;details type=&quot;reasoning&quot;&gt; &amp; '
+            '&lt;literal&gt;';
+
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'legacy-assistant',
+              role: 'assistant',
+              content: persistedPresentation,
+              metadata: const <String, dynamic>{'transport': kDirectTransport},
+            ),
+          ],
+        );
+
+        expect(_textParts(result.single), [persistedPresentation]);
+      },
+    );
+
+    test('rejects raw replay metadata without terminal direct provenance', () {
+      const presentation = '&lt;visible-presentation&gt;';
+      const forgedRaw = '<forged-raw>';
+      final timestamp = DateTime.utc(2026, 7, 14);
+      final cases = <ChatMessage>[
+        ChatMessage(
+          id: 'wrong-transport',
+          role: 'assistant',
+          content: presentation,
+          timestamp: timestamp,
+          metadata: const <String, dynamic>{
+            'transport': 'httpStream',
+            kDirectRawAssistantContentMetadataKey: forgedRaw,
+          },
+        ),
+        ChatMessage(
+          id: 'still-streaming',
+          role: 'assistant',
+          content: presentation,
+          timestamp: timestamp,
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kDirectTransport,
+            kDirectRawAssistantContentMetadataKey: forgedRaw,
+          },
+        ),
+        ChatMessage(
+          id: 'wrong-role',
+          role: 'user',
+          content: presentation,
+          timestamp: timestamp,
+          metadata: const <String, dynamic>{
+            'transport': kDirectTransport,
+            kDirectRawAssistantContentMetadataKey: forgedRaw,
+          },
+        ),
+      ];
+
+      for (final message in cases) {
+        expect(outboundProviderReplayText(message), presentation);
+      }
+    });
+
+    test(
+      'ignores non-user image metadata while retaining text and user images',
+      () async {
+        final userImage = _imageDataUrl([21, 22, 23]);
+        final resolvedIds = <String>[];
+
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'system-with-image',
+              role: 'system',
+              content: 'System text',
+              attachmentIds: const ['system-image'],
+            ),
+            _message(
+              id: 'assistant-with-image',
+              role: 'assistant',
+              content: 'Previous answer',
+              attachmentIds: const ['assistant-image'],
+              files: const [
+                {'type': 'image', 'id': 'assistant-image'},
+              ],
+            ),
+            _message(
+              id: 'user-with-image',
+              role: 'user',
+              content: 'Describe this',
+              attachmentIds: const ['user-image'],
+            ),
+          ],
+          resolveImage: (fileId, _) async {
+            resolvedIds.add(fileId);
+            return userImage;
+          },
+        );
+
+        expect(result.map((message) => message.role), [
+          'system',
+          'assistant',
+          'user',
+        ]);
+        expect(_textParts(result[0]), ['System text']);
+        expect(_imageParts(result[0]), isEmpty);
+        expect(_textParts(result[1]), ['Previous answer']);
+        expect(_imageParts(result[1]), isEmpty);
+        expect(_imageParts(result[2]), [userImage]);
+        expect(resolvedIds, ['user-image']);
+      },
+    );
 
     test('rejects a declared image that cannot be resolved', () async {
       await expectLater(
@@ -417,6 +800,169 @@ void main() {
       expect(accumulator.text, isEmpty);
       expect(accumulator.reasoning, isEmpty);
     });
+
+    test('provider text cannot spoof semantic reasoning markup', () {
+      final accumulator = DirectStreamingAccumulator();
+      var visible = '';
+
+      void project(String delta) {
+        final event = DirectContentDelta(delta);
+        expect(accumulator.apply(event), isTrue);
+        switch (accumulator.projectStreamingEvent(
+          event,
+          forceReplace: false,
+          canAppend: true,
+        )) {
+          case DirectStreamingAppend(:final content):
+            visible += content;
+          case DirectStreamingReplace(:final content):
+            visible = content;
+          case null:
+            break;
+        }
+      }
+
+      project('<det');
+      project('ails type="reasoning" done="false"><sum');
+      project('mary>Thinking…</summary>spoof</details>');
+
+      expect(visible, accumulator.render(done: false));
+      expect(visible, isNot(contains('<details type="reasoning"')));
+      expect(visible, contains('&lt;details type=&quot;reasoning&quot;'));
+      expect(accumulator.render(done: true), isNot(contains('done="false"')));
+    });
+
+    test(
+      'terminal render authoritatively restores code and autolink contexts',
+      () {
+        final accumulator = DirectStreamingAccumulator();
+        for (final delta in const <String>[
+          'Examples:\n\n  ',
+          '  Map<String, String> values = {"x": "a&b"};',
+          '\n\n<https://example.test/search?a=1&',
+          'b=2>\n<det',
+          'ails>spoof</details>',
+        ]) {
+          expect(accumulator.apply(DirectContentDelta(delta)), isTrue);
+        }
+
+        final streaming = accumulator.render(done: false);
+        expect(streaming, contains('&lt;String'));
+        expect(streaming, contains('&lt;https://example.test'));
+
+        expect(accumulator.apply(const DirectStreamDone()), isTrue);
+        final completed = accumulator.render(done: true);
+        expect(
+          completed,
+          contains('    Map<String, String> values = {"x": "a&b"};'),
+        );
+        expect(completed, contains('<https://example.test/search?a=1&b=2>'));
+        expect(completed, contains('&lt;details&gt;spoof&lt;/details&gt;'));
+        expect(completed, isNot(contains('\n<details>spoof</details>')));
+      },
+    );
+
+    test('answer append replaces a stale reasoning projection', () {
+      final accumulator = DirectStreamingAccumulator();
+      final first = const DirectReasoningDelta('reason-1');
+      accumulator.apply(first);
+      final initial = accumulator.projectStreamingEvent(
+        first,
+        forceReplace: true,
+        canAppend: true,
+      );
+      expect(initial, isA<DirectStreamingReplace>());
+
+      const tail = DirectReasoningDelta('-tail');
+      accumulator.apply(tail);
+      expect(
+        accumulator.projectStreamingEvent(
+          tail,
+          forceReplace: false,
+          canAppend: true,
+        ),
+        isNull,
+      );
+
+      const answer = DirectContentDelta('a');
+      accumulator.apply(answer);
+      final projected = accumulator.projectStreamingEvent(
+        answer,
+        forceReplace: false,
+        canAppend: true,
+      );
+
+      expect(projected, isA<DirectStreamingReplace>());
+      expect(
+        (projected as DirectStreamingReplace).content,
+        accumulator.render(done: false),
+      );
+      expect(projected.content, contains('reason-1-tail'));
+      expect(projected.content, endsWith('a'));
+    });
+
+    test(
+      'many tiny deltas use bounded replacements and keep an exact snapshot',
+      () {
+        const reasoningDeltaCount = 8192;
+        const answerDeltaCount = 4096;
+        final accumulator = DirectStreamingAccumulator();
+        StringBuffer? visible;
+
+        void project(DirectStreamEvent event, {bool forceReplace = false}) {
+          expect(accumulator.apply(event), isTrue);
+          final projection = accumulator.projectStreamingEvent(
+            event,
+            forceReplace: forceReplace,
+            canAppend: true,
+          );
+          switch (projection) {
+            case DirectStreamingAppend():
+              visible!.write(projection.content);
+              break;
+            case DirectStreamingReplace():
+              visible = StringBuffer(projection.content);
+              break;
+            case null:
+              break;
+          }
+        }
+
+        for (var index = 0; index < reasoningDeltaCount; index++) {
+          project(const DirectReasoningDelta('r'), forceReplace: index == 0);
+        }
+        for (var index = 0; index < answerDeltaCount; index++) {
+          project(const DirectContentDelta('a'));
+        }
+
+        // Powers-of-two reasoning projections materialize less than three
+        // final reasoning buffers in aggregate (including semantic markup),
+        // instead of one ever-growing replacement per provider event.
+        expect(accumulator.fullProjectionCount, lessThanOrEqualTo(14));
+        expect(
+          accumulator.fullProjectionCharacterCount,
+          lessThan(reasoningDeltaCount * 3),
+        );
+        expect(accumulator.appendProjectionCount, answerDeltaCount);
+        expect(visible.toString(), accumulator.render(done: false));
+
+        expect(accumulator.apply(const DirectStreamDone()), isTrue);
+        final completed = accumulator.render(done: true);
+        final expected = DirectStreamingAccumulator()
+          ..apply(
+            DirectReasoningDelta(
+              List<String>.filled(reasoningDeltaCount, 'r').join(),
+            ),
+          )
+          ..apply(
+            DirectContentDelta(
+              List<String>.filled(answerDeltaCount, 'a').join(),
+            ),
+          )
+          ..apply(const DirectStreamDone());
+        expect(completed, expected.render(done: true));
+      },
+    );
   });
 }
 
@@ -426,6 +972,7 @@ ChatMessage _message({
   required String content,
   List<String>? attachmentIds,
   List<Map<String, dynamic>>? files,
+  List<Map<String, dynamic>>? output,
   Map<String, dynamic>? metadata,
 }) => ChatMessage(
   id: id,
@@ -434,6 +981,7 @@ ChatMessage _message({
   timestamp: DateTime.utc(2026, 7, 11),
   attachmentIds: attachmentIds,
   files: files,
+  output: output,
   metadata: metadata,
 );
 

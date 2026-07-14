@@ -10,7 +10,6 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -20,6 +19,8 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../support/openwebui_storage_test_overrides.dart';
 
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
@@ -60,10 +61,10 @@ void main() {
   ProviderContainer buildContainer() {
     final container = ProviderContainer(
       overrides: [
+        ...openWebUiStorageOpenOverrides(database: db),
         activeConversationProvider.overrideWith(
           () => _TestActiveConversationNotifier(),
         ),
-        appDatabaseProvider.overrideWithValue(db),
         apiServiceProvider.overrideWithValue(null),
         socketServiceProvider.overrideWithValue(null),
       ],

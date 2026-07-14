@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -11,7 +12,6 @@ import '../models/user.dart';
 import '../models/tool.dart';
 import '../models/socket_transport_availability.dart';
 import '../database/app_database.dart';
-import '../database/daos/app_cache_dao.dart';
 import '../persistence/hive_boxes.dart';
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
@@ -21,6 +21,29 @@ import 'cache_manager.dart';
 import 'secure_credential_storage.dart';
 import 'worker_manager.dart';
 
+typedef OptimizedStorageDatabaseResolver =
+    FutureOr<OptimizedStorageDatabaseHandle?> Function();
+
+/// One operation-scoped database reference for structured cache access.
+///
+/// Production supplies a manager lifetime lease so a server switch cannot
+/// close the executor between resolution and the asynchronous Drift query.
+/// Tests and unmanaged callers may continue to use the legacy `database`
+/// constructor argument, which creates a handle without a release callback.
+final class OptimizedStorageDatabaseHandle {
+  OptimizedStorageDatabaseHandle({required this.database, this.onRelease});
+
+  final AppDatabase database;
+  final Future<void> Function()? onRelease;
+  bool _released = false;
+
+  Future<void> release() {
+    if (_released) return Future<void>.value();
+    _released = true;
+    return onRelease?.call() ?? Future<void>.value();
+  }
+}
+
 /// Optimized storage service backed by Hive for non-sensitive data and
 /// FlutterSecureStorage for credentials.
 class OptimizedStorageService {
@@ -29,10 +52,21 @@ class OptimizedStorageService {
     required HiveBoxes boxes,
     required WorkerManager workerManager,
     AppDatabase? Function()? database,
+    OptimizedStorageDatabaseResolver? databaseAccess,
   }) : _cachesBox = boxes.caches,
        _attachmentQueueBox = boxes.attachmentQueue,
        _metadataBox = boxes.metadata,
-       _database = database,
+       assert(database == null || databaseAccess == null),
+       _databaseAccess =
+           databaseAccess ??
+           (database == null
+               ? null
+               : () {
+                   final resolved = database();
+                   return resolved == null
+                       ? null
+                       : OptimizedStorageDatabaseHandle(database: resolved);
+                 }),
        _secureCredentialStorage = SecureCredentialStorage(
          instance: secureStorage,
        ),
@@ -41,23 +75,38 @@ class OptimizedStorageService {
   /// Resolves the active server's Drift database (PR-2: structured caches live
   /// in the per-server DB, not the Hive caches box). Null in reviewer mode / no
   /// active server / tests without a DB — callers fall back to defaults.
-  final AppDatabase? Function()? _database;
+  final OptimizedStorageDatabaseResolver? _databaseAccess;
 
-  AppCacheDao? get _appCacheDao => _database?.call()?.appCacheDao;
+  Future<T?> _withDatabase<T>(
+    Future<T> Function(AppDatabase database) operation,
+  ) async {
+    final handle = await _databaseAccess?.call();
+    if (handle == null) return null;
+    try {
+      return await operation(handle.database);
+    } finally {
+      await handle.release();
+    }
+  }
 
-  Future<String?> _readCacheValue(String key) async =>
-      await _appCacheDao?.getValue(key);
+  Future<String?> _readCacheValue(String key) =>
+      _withDatabase<String?>((database) => database.appCacheDao.getValue(key));
 
   Future<void> _writeCacheValue(String key, String value) async {
-    await _appCacheDao?.setValue(
-      key,
-      value,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    await _withDatabase<void>(
+      (database) => database.appCacheDao.setValue(
+        key,
+        value,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
     );
   }
 
-  Future<void> _deleteCacheValue(String key) async =>
-      await _appCacheDao?.deleteKey(key);
+  Future<void> _deleteCacheValue(String key) async {
+    await _withDatabase<void>(
+      (database) => database.appCacheDao.deleteKey(key),
+    );
+  }
 
   final Box<dynamic> _cachesBox;
   final Box<dynamic> _attachmentQueueBox;
@@ -280,9 +329,7 @@ class OptimizedStorageService {
   /// [expected] (serverId/username/password). Read + conditional delete run
   /// under [_authStateLock], so a newer login that saved different credentials
   /// isn't clobbered. Returns true if it deleted.
-  Future<bool> deleteSavedCredentialsIfMatches(
-    Map<String, String> expected,
-  ) {
+  Future<bool> deleteSavedCredentialsIfMatches(Map<String, String> expected) {
     return _authStateLock.synchronized(() async {
       final current = await getSavedCredentials();
       final matches =
@@ -567,16 +614,77 @@ class OptimizedStorageService {
     );
   }
 
+  /// Reads the cached user and its separately-stored avatar from one database
+  /// ownership snapshot. A server switch between those reads must never pair
+  /// A's user with B's avatar.
+  Future<User?> getLocalUserWithAvatar() {
+    return _readNullableSafely(
+      errorMessage: 'Failed to retrieve local user with avatar',
+      read: () async {
+        final cached = await _withDatabase<({String? user, String? avatar})>(
+          (database) => database.transaction(() async {
+            final user = await database.appCacheDao.getValue(_localUserKey);
+            final avatar = await database.appCacheDao.getValue(
+              _localUserAvatarKey,
+            );
+            return (user: user, avatar: avatar);
+          }),
+        );
+        final storedUser = cached?.user;
+        if (storedUser == null) return null;
+        final user = _decodeJsonObject(storedUser, User.fromJson);
+        if (user == null) return null;
+        final avatar = cached?.avatar;
+        if (avatar == null || avatar.isEmpty || user.profileImage == avatar) {
+          return user;
+        }
+        return user.copyWith(profileImage: avatar);
+      },
+    );
+  }
+
   Future<void> saveLocalUser(User? user) {
     return _writeSafely(
       errorMessage: 'Failed to save local user',
       write: () async {
         if (user == null) {
-          await _deleteCacheValue(_localUserKey);
-          await _deleteCacheValue(_localUserAvatarKey);
+          await _withDatabase<void>(
+            (database) => database.appCacheDao.deleteKeys(<String>[
+              _localUserKey,
+              _localUserAvatarKey,
+            ]),
+          );
           return;
         }
         await _writeCacheValue(_localUserKey, jsonEncode(user.toJson()));
+      },
+    );
+  }
+
+  /// Persists the user and avatar under one database lease and transaction.
+  Future<void> saveLocalUserWithAvatar(User user, {String? avatarUrl}) {
+    return _writeSafely(
+      errorMessage: 'Failed to save local user with avatar',
+      write: () async {
+        final updatedAt = DateTime.now().millisecondsSinceEpoch;
+        await _withDatabase<void>(
+          (database) => database.transaction(() async {
+            await database.appCacheDao.setValue(
+              _localUserKey,
+              jsonEncode(user.toJson()),
+              updatedAt: updatedAt,
+            );
+            if (avatarUrl == null || avatarUrl.isEmpty) {
+              await database.appCacheDao.deleteKey(_localUserAvatarKey);
+            } else {
+              await database.appCacheDao.setValue(
+                _localUserAvatarKey,
+                avatarUrl,
+                updatedAt: updatedAt,
+              );
+            }
+          }),
+        );
       },
     );
   }
@@ -768,12 +876,24 @@ class OptimizedStorageService {
     return _readNullableSafely(
       errorMessage: 'Failed to retrieve local default model',
       read: () async {
-        final stored = await _readCacheValue(_localDefaultModelKey);
+        final cached = await _withDatabase<({String? model, String? models})>(
+          (database) => database.transaction(() async {
+            final model = await database.appCacheDao.getValue(
+              _localDefaultModelKey,
+            );
+            final models = await database.appCacheDao.getValue(_localModelsKey);
+            return (model: model, models: models);
+          }),
+        );
+        final stored = cached?.model;
         if (stored == null) return null;
         final parsedModel = _decodeJsonObject(stored, Model.fromJson);
         if (parsedModel == null) return null;
 
-        final cachedModels = await getLocalModels();
+        final cachedModels = (await _decodeCacheJsonList(
+          cached?.models,
+          debugLabel: 'decode_local_models_for_default',
+        )).map(Model.fromJson).toList(growable: false);
         final hasMatch = cachedModels.any(
           (model) =>
               model.id == parsedModel.id ||
@@ -807,22 +927,26 @@ class OptimizedStorageService {
   // Batch operations
   // ---------------------------------------------------------------------------
   Future<void> _clearUserScopedCacheEntries() async {
+    // Capture the logical owner before any database resolution or query can
+    // suspend. A concurrent server switch must not make cleanup that started
+    // for A remove B's per-server transport preferences after the Drift work
+    // settles.
+    final initiatingServerId = _rawStoredActiveServerId();
+
     // Active store: the per-server Drift app cache.
-    final dao = _appCacheDao;
-    if (dao != null) {
-      await dao.deleteKeys(<String>[
+    await _withDatabase<void>(
+      (database) => database.appCacheDao.deleteKeys(<String>[
         _localUserKey,
         _localUserAvatarKey,
         _localBackendConfigKey,
         _localToolsKey,
         _localDefaultModelKey,
         _localModelsKey,
-      ]);
-    }
+      ]),
+    );
     // Transport options moved to shared_preferences (PR-1).
-    final activeServerId = _rawStoredActiveServerId();
-    if (activeServerId != null && activeServerId.isNotEmpty) {
-      await PreferencesStore.remove(_transportOptionsKey(activeServerId));
+    if (initiatingServerId != null && initiatingServerId.isNotEmpty) {
+      await PreferencesStore.remove(_transportOptionsKey(initiatingServerId));
     }
     // Legacy Hive caches-box cleanup for installs that predate the Drift cache.
     await Future.wait([
@@ -877,17 +1001,21 @@ class OptimizedStorageService {
 
   Future<void> clearAll() async {
     try {
-      final db = _database?.call();
       await Future.wait([
+        _withDatabase<void>(
+          (database) => Future.wait([
+            database.appCacheDao.deleteKeys(_allCacheKeys),
+            database.attachmentQueueDao.clearAll(),
+          ]),
+        ),
         _secureCredentialStorage.clearAll(),
         // Preserve the migration gate so a wipe doesn't re-import stale Hive
         // preferences on the next launch.
         PreferencesStore.clear(
           preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
         ),
-        // Active stores (Drift, per active server) + legacy Hive boxes.
-        if (db != null) db.appCacheDao.deleteKeys(_allCacheKeys),
-        if (db != null) db.attachmentQueueDao.clearAll(),
+        // Legacy Hive stores; structured active-server stores were cleared
+        // above while holding their database lifetime lease.
         _cachesBox.clear(),
         _attachmentQueueBox.clear(),
       ]);

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:drift/drift.dart' show Value;
-import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
@@ -17,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_open_webui_server.dart';
 import '../../../support/fake_sync_api_client.dart';
+import '../../../support/openwebui_storage_test_overrides.dart';
 
 /// Wiring C: when a `local:` id is remapped, the active-chat / pending-folder
 /// id must follow IN PLACE (no nav, no visible rebuild — NON-NEGOTIABLE 6).
@@ -39,10 +39,16 @@ void main() {
     await db.close();
   });
 
-  ProviderContainer makeContainer() {
+  ProviderContainer makeContainer({bool apiUnavailable = false}) {
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        ...openWebUiStorageOpenOverrides(database: db),
+        apiServiceProvider.overrideWith(
+          (ref) => apiUnavailable
+              ? throw StateError('API context unavailable')
+              : null,
+        ),
+        reviewerModeProvider.overrideWithValue(false),
         syncApiClientProvider.overrideWith((ref) => client),
         isAuthenticatedProvider2.overrideWith((ref) => true),
       ],
@@ -131,6 +137,25 @@ void main() {
     );
 
     check(container.read(pendingFolderIdProvider)).equals('srv-folder');
+  });
+
+  test('active id remap survives a failing context provider', () {
+    final container = makeContainer(apiUnavailable: true);
+    container
+        .read(activeConversationProvider.notifier)
+        .set(conv('local:context-failure'));
+
+    check(
+      () => container
+          .read(activeConversationProvider.notifier)
+          .remapIdInPlace(
+            fromId: 'local:context-failure',
+            toId: 'server-context-failure',
+          ),
+    ).returnsNormally();
+    check(
+      container.read(activeConversationProvider)?.id,
+    ).equals('server-context-failure');
   });
 
   test('note route remap preserves query params', () {

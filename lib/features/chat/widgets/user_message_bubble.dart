@@ -1075,6 +1075,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return;
     }
 
+    ChatSendPlaceholderHandle? pendingSend;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -1108,6 +1109,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
             newText,
             attachments,
             toolIds: toolIds.isNotEmpty ? toolIds : null,
+            onAssistantPlaceholderCreated: (handle) {
+              pendingSend = handle;
+            },
           );
         }
       }
@@ -1119,6 +1123,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         stackTrace: stackTrace,
         data: {'messageId': widget.message.id?.toString()},
       );
+      recoverFailedChatSend(ref, error, pendingSend);
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),

@@ -199,12 +199,9 @@ void main() {
       addTearDown(container.dispose);
 
       // Calling the regeneration function should:
-      //  - detect images -> set imageGenerationEnabled = true
+      //  - detect images -> force image generation for this request
       //  - call regenerateMessage -> throws (no API)
-      //  - finally -> restore imageGenerationEnabled
-      //
-      // We verify the toggle was flipped (and restored) which proves
-      // the image regeneration path was taken.
+      //  - leave the persisted composer preference untouched
 
       final regenerate = container.read(regenerateLastMessageProvider);
 
@@ -219,7 +216,7 @@ void main() {
 
       check(caught).isNotNull();
 
-      // Image toggle should have been restored to its original value
+      // Request forcing must not mutate the global preference.
       final toggleAfter = container.read(imageGenerationEnabledProvider);
       check(toggleAfter).equals(false);
     });
@@ -245,7 +242,7 @@ void main() {
 
       check(caught).isNotNull();
 
-      // Toggle should have been temporarily enabled then restored
+      // Request forcing must not mutate the global preference.
       check(container.read(imageGenerationEnabledProvider)).equals(false);
     });
 
@@ -272,11 +269,11 @@ void main() {
   });
 
   // =========================================================================
-  // 2. Toggle override / restore
+  // 2. Request-scoped image override
   // =========================================================================
-  group('Toggle override/restore', () {
+  group('Request-scoped image override', () {
     test(
-      'previous toggle state is restored after forced image replay',
+      'an enabled user preference remains enabled after image replay',
       () async {
         // Start with image generation already enabled
         final container = _regenContainer(
@@ -293,12 +290,12 @@ void main() {
           await regenerate();
         } catch (_) {}
 
-        // Should be restored to the original value: true
+        // The request override never writes the preference.
         check(container.read(imageGenerationEnabledProvider)).equals(true);
       },
     );
 
-    test('previous toggle state is restored even if regeneration '
+    test('a disabled user preference remains disabled if regeneration '
         'dispatch fails before streaming begins', () async {
       // Start with image generation disabled
       final container = _regenContainer(
@@ -313,7 +310,7 @@ void main() {
         await regenerate();
       } catch (_) {}
 
-      // Must be restored to false
+      // The request override never writes the preference.
       check(container.read(imageGenerationEnabledProvider)).equals(false);
     });
   });

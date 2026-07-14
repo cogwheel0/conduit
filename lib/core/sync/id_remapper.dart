@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 
 import '../database/app_database.dart';
 import '../database/mappers/chat_blob_mapper.dart';
+import '../database/mappers/conversation_assembler.dart';
 import '../utils/debug_logger.dart';
 
 const _outboxStatusesRewrittenOnChatRemap = <String>[
@@ -38,6 +39,14 @@ class RemapEvent {
   @override
   String toString() => 'RemapEvent($entityKind: $fromId -> $toId)';
 }
+
+/// Durable outcome of a chat id remap attempt.
+///
+/// A missing source is deliberately distinct from an idempotent replay. Only
+/// an existing, identical remap record plus a live destination proves that a
+/// prior transaction committed; absence by itself must never synthesize an
+/// ownership relation or redirect queued work.
+enum ChatRemapResult { rewritten, alreadyCommitted, sourceMissing }
 
 /// Stable createChat fingerprint for the §7.3 crash-heal path.
 ///
@@ -126,7 +135,7 @@ class IdRemapper {
   Future<void> dispose() => _events.close();
 
   /// Rewrites chat [localId] to [serverId] in one transaction (§7.3).
-  Future<void> remapChat({
+  Future<ChatRemapResult> remapChat({
     required String localId,
     required String serverId,
     required int serverCreatedAt,
@@ -134,35 +143,73 @@ class IdRemapper {
   }) async {
     if (localId == serverId) {
       // Idempotent no-op: a prior crash-heal already adopted the server id.
-      return;
+      return ChatRemapResult.alreadyCommitted;
     }
-    var didRewriteLocal = false;
-    await _db.transaction(() async {
+    final result = await _db.transaction<ChatRemapResult>(() async {
       final local = await _getChat(localId);
       if (local == null) {
-        // The local row is already gone (a prior pull may have merged the
-        // server chat and a previous remap completed). Still repoint any
-        // pending ops + leftover messages defensively, then return. The
-        // chat_id-only message UPDATE fires no FTS trigger, so repoint any
-        // leftover msg FTS rows to match.
-        await _rewriteMessagesChatId(localId, serverId);
-        await _remapFtsRows(localId, serverId);
-        await _rewriteOutboxChatId(localId, serverId);
-        return;
+        // A new remap writes the row rewrite and ownership proof in this same
+        // transaction. Therefore absence is idempotent only when the exact
+        // proof already exists and still points at a live destination. Failing
+        // closed here prevents a stale create op from manufacturing A -> B or
+        // redirecting unrelated queued work after an id reuse.
+        final committed = await _db.syncMetaDao.getChatRemapTarget(localId);
+        final server = await _getChat(serverId);
+        if (committed == serverId && server != null && !server.deleted) {
+          return ChatRemapResult.alreadyCommitted;
+        }
+        return ChatRemapResult.sourceMissing;
       }
-      didRewriteLocal = true;
+      if (local.deleted) {
+        throw StateError(
+          'Cannot remap a deleted local chat: $localId -> $serverId',
+        );
+      }
 
       final serverRow = await _getChat(serverId);
       if (serverRow != null) {
         // Crash-heal collision: a pull already inserted the server chat.
         // Keep exactly one row at serverId, preferring the side that carries
         // the messages (BINDING simplest-correct rule §7.3 step 1).
-        final serverMsgCount = await _messageCount(serverId);
-        if (serverMsgCount == 0) {
+        final serverMessages = await _messagesForChat(serverId);
+        final disposableEnvelopeStub =
+            serverMessages.isEmpty &&
+            !serverRow.bodySynced &&
+            !serverRow.dirty &&
+            !serverRow.deleted &&
+            serverRow.currentMessageId == null &&
+            !await _hasAnyOutboxForChat(serverId) &&
+            await _db.syncMetaDao.getChatRemapTarget(serverId) == null &&
+            !await _db.syncMetaDao.hasChatRemapTargetForServer(serverId);
+        if (disposableEnvelopeStub) {
           // Server row is a bodiless stub; prefer the local rows. Drop the
-          // stub, then fall through to the INSERT-copy/rename below.
+          // stub, then fall through to the INSERT-copy/rename below. Replacing
+          // this row also invalidates every older source relation that targeted
+          // its identity; otherwise those sources could redirect into the new
+          // chat after an ABA-style server-id reuse.
+          await _db.syncMetaDao.deleteChatRemapTarget(serverId);
+          await _db.syncMetaDao.deleteChatRemapTargetsForServer(serverId);
           await _deleteChatRow(serverId);
         } else {
+          if (serverRow.deleted) {
+            throw StateError(
+              'Cannot remap a local chat onto a deleted destination: '
+              '$localId -> $serverId',
+            );
+          }
+          final localMessages = await _messagesForChat(localId);
+          final localHash = createChatContentHash(
+            chatRowsFromDb(local, localMessages),
+          );
+          final serverHash = createChatContentHash(
+            chatRowsFromDb(serverRow, serverMessages),
+          );
+          if (localHash != serverHash) {
+            throw StateError(
+              'Chat remap destination contains a different conversation: '
+              '$localId -> $serverId',
+            );
+          }
           // Server row already has the body (the authoritative copy). Discard
           // the local duplicate: repoint its ops, drop its messages + row.
           // _deleteMessagesForChat is a DIRECT delete on `messages`, so trigger
@@ -173,7 +220,8 @@ class IdRemapper {
           await _rewriteOutboxChatId(localId, serverId);
           await _deleteMessagesForChat(localId);
           await _deleteChatRow(localId);
-          return;
+          await _db.syncMetaDao.setChatRemapTarget(localId, serverId);
+          return ChatRemapResult.rewritten;
         }
       }
 
@@ -203,9 +251,14 @@ class IdRemapper {
       // (e) Repoint live and parked outbox ops (the running createChat op is
       // inFlight; after remap the drainer markDone()s it — harmless).
       await _rewriteOutboxChatId(localId, serverId);
+      // (f) Record durable proof of this exact local->server relation in the
+      // SAME transaction as the row/outbox rewrite. Recovery must never infer
+      // ownership from a globally colliding message id.
+      await _db.syncMetaDao.setChatRemapTarget(localId, serverId);
+      return ChatRemapResult.rewritten;
     });
 
-    if (!didRewriteLocal) return;
+    if (result != ChatRemapResult.rewritten) return result;
     DebugLogger.log(
       'remap-chat',
       scope: 'sync/remap',
@@ -214,6 +267,7 @@ class IdRemapper {
     _events.add(
       RemapEvent(fromId: localId, toId: serverId, entityKind: 'chat'),
     );
+    return result;
   }
 
   /// Rewrites folder [localId] to [serverId] in one transaction. Same
@@ -437,13 +491,10 @@ class IdRemapper {
     )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
-  Future<int> _messageCount(String chatId) async {
-    final count = countAll();
-    final query = _db.selectOnly(_db.messages)
-      ..addColumns([count])
-      ..where(_db.messages.chatId.equals(chatId));
-    final row = await query.getSingle();
-    return row.read(count) ?? 0;
+  Future<List<MessageRow>> _messagesForChat(String chatId) {
+    return (_db.select(
+      _db.messages,
+    )..where((t) => t.chatId.equals(chatId))).get();
   }
 
   Future<void> _insertChatCopy({
@@ -496,6 +547,15 @@ class IdRemapper {
 
   Future<void> _deleteChatRow(String id) {
     return (_db.delete(_db.chats)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<bool> _hasAnyOutboxForChat(String chatId) async {
+    final row =
+        await (_db.select(_db.outboxOps)
+              ..where((t) => t.chatId.equals(chatId))
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
   }
 
   // ---- folder helpers ----

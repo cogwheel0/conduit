@@ -31,6 +31,59 @@ void main() {
       },
     );
 
+    test('current auth snapshot forwards its captured token', () async {
+      final interceptor = ApiAuthInterceptor(authToken: 'account-a');
+      final snapshot = interceptor.captureSnapshot();
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(
+        path: '/api/v1/files/file-id',
+        extra: {ApiAuthInterceptor.authSnapshotExtraKey: snapshot},
+      );
+
+      interceptor.onRequest(options, handler);
+      final forwarded = await handler.forwardedRequest;
+
+      expect(forwarded?.headers['Authorization'], 'Bearer account-a');
+    });
+
+    test('stale auth snapshot rejects locally after token rotation', () async {
+      final interceptor = ApiAuthInterceptor(authToken: 'account-a');
+      final snapshot = interceptor.captureSnapshot();
+      interceptor.updateAuthToken('account-b');
+      final handler = _TestRequestInterceptorHandler();
+      final options = RequestOptions(
+        path: '/api/v1/files/file-id',
+        extra: {ApiAuthInterceptor.authSnapshotExtraKey: snapshot},
+      );
+
+      interceptor.onRequest(options, handler);
+      final rejected = await handler.rejectedError;
+
+      expect(rejected?.type, DioExceptionType.cancel);
+      expect(options.headers.containsKey('Authorization'), isFalse);
+    });
+
+    test(
+      'logout and reauthentication invalidate a snapshot even if the token repeats',
+      () async {
+        final interceptor = ApiAuthInterceptor(authToken: 'shared-token');
+        final snapshot = interceptor.captureSnapshot();
+        interceptor.updateAuthToken(null);
+        interceptor.updateAuthToken('shared-token');
+        final handler = _TestRequestInterceptorHandler();
+        final options = RequestOptions(
+          path: '/api/chat/completed',
+          extra: {ApiAuthInterceptor.authSnapshotExtraKey: snapshot},
+        );
+
+        interceptor.onRequest(options, handler);
+        final rejected = await handler.rejectedError;
+
+        expect(rejected?.type, DioExceptionType.cancel);
+        expect(options.headers.containsKey('Authorization'), isFalse);
+      },
+    );
+
     test('admin configs models request requires auth', () async {
       final interceptor = ApiAuthInterceptor();
       final handler = _TestRequestInterceptorHandler();

@@ -498,18 +498,27 @@ class PullSync {
       scope: 'sync/pull',
       data: {'from': localId, 'to': serverId, 'seq': op.seq},
     );
+    var healed = false;
     try {
       // We already hold the SERVER id lock (this merge runs under it). The
       // create op was claimed before this LOCAL lock, so a drain worker cannot
       // concurrently claim it and enter pushCreateChat with the opposite lock
       // order.
       await _locks.runExclusive(localId, () async {
-        await remapper.remapChat(
+        final result = await remapper.remapChat(
           localId: localId,
           serverId: serverId,
           serverCreatedAt: serverCreatedAt,
           serverUpdatedAt: serverUpdatedAt,
         );
+        if (result == ChatRemapResult.sourceMissing) {
+          // The fingerprint matched an orphaned create op, but absence of the
+          // local row is not proof that it became this server chat. Drop the
+          // stale create and let the caller normally upsert the fetched B row.
+          await _db.outboxDao.markDone(op.seq);
+          return;
+        }
+        healed = true;
         // The remap repointed the claimed createChat op's chat_id to the server
         // id (§7.3). The chat now exists server-side, so the create is
         // satisfied: drop the op so the drainer never re-POSTs it.
@@ -530,7 +539,7 @@ class PullSync {
       );
       Error.throwWithStackTrace(error, stackTrace);
     }
-    return true;
+    return healed;
   }
 
   _ChangedItem? _parseListItem(Map<String, dynamic> item) {

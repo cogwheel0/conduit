@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
@@ -16,6 +17,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/skeleton_loader.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -317,13 +319,22 @@ class _FakeAttachmentInfoApiService extends ApiService {
   int fileContentCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getFileInfo(String fileId) {
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) {
     fileInfoCalls++;
     return onGetFileInfo(fileId);
   }
 
   @override
-  Future<String> getFileContent(String fileId, {int? maxBytes}) async {
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     fileContentCalls++;
     throw StateError('must not download local descriptor bytes');
   }

@@ -22,6 +22,23 @@ Future<void> _flushMicrotasks([int count = 1]) async {
   }
 }
 
+const _testServer = ServerConfig(
+  id: 'test-server',
+  name: 'Test Server',
+  url: 'https://example.com',
+);
+
+class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+class _CertifiedDatabaseServer
+    extends OpenWebUiCertifiedDatabaseServerNotifier {
+  @override
+  String? build() => _testServer.id;
+}
+
 Future<ProviderContainer> _createAuthenticatedWarmupContainer({
   Override? authNavigationOverride,
   Override? apiOverride,
@@ -37,6 +54,11 @@ Future<ProviderContainer> _createAuthenticatedWarmupContainer({
           ),
       isOnlineProvider.overrideWithValue(true),
       authTokenProvider3.overrideWithValue('test-token'),
+      openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+      openWebUiCertifiedDatabaseServerProvider.overrideWith(
+        _CertifiedDatabaseServer.new,
+      ),
+      activeServerProvider.overrideWith((ref) async => _testServer),
       // No active server DB in these warmup-focused tests: keep the sync
       // engine / remap-route consumer inert so building AppStartupFlow does
       // not reach the (unimplemented) hiveBoxesProvider via appDatabase.
@@ -51,6 +73,7 @@ Future<ProviderContainer> _createAuthenticatedWarmupContainer({
     ],
   );
   addTearDown(container.dispose);
+  await container.read(activeServerProvider.future);
   await container.read(conversationsProvider.future);
   return container;
 }
@@ -493,14 +516,7 @@ class _StubApiService extends ApiService {
     this.getConversationGate,
     this.getConversationError,
   }) : _conversations = conversations ?? const <String, Conversation>{},
-       super(
-         serverConfig: const ServerConfig(
-           id: 'test-server',
-           name: 'Test Server',
-           url: 'https://example.com',
-         ),
-         workerManager: WorkerManager(),
-       );
+       super(serverConfig: _testServer, workerManager: WorkerManager());
 
   final Map<String, Conversation> _conversations;
   final Completer<void>? getConversationGate;

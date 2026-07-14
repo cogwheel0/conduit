@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/models/hermes_config.dart';
 import 'package:conduit/features/hermes/models/hermes_session.dart';
@@ -78,7 +80,54 @@ void main() {
       check(req.method).equals('POST');
       check(req.path).equals('http://host:8642/api/sessions');
       check((req.data as Map)['title']).equals('Hello');
+      check(req.responseType).equals(ResponseType.stream);
       check(id).equals('s1');
+    });
+
+    test('createSession rejects structured and unsafe identifiers', () async {
+      final invalidIds = <Object?>[
+        {
+          'nested': ['session'],
+        },
+        List<String>.filled(
+          kMaxHermesOpaqueIdentifierCharacters + 1,
+          'a',
+        ).join(),
+        'session\ncontrol',
+        'prefix-k-suffix',
+      ];
+
+      for (final invalidId in invalidIds) {
+        final capture = _CaptureInterceptor((_) => {'id': invalidId});
+        await check(
+          _service(capture).createSession(),
+        ).throws<FormatException>();
+      }
+    });
+
+    test('createSession bounds its streamed response body', () async {
+      final cancelToken = CancelToken();
+      final capture = _CaptureInterceptor(
+        (_) => ResponseBody.fromString(
+          jsonEncode({
+            'id': List<String>.filled(
+              kMaxHermesCreateResponseBytes,
+              'x',
+            ).join(),
+          }),
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['application/json'],
+          },
+        ),
+      );
+
+      await check(
+        _service(capture).createSession(cancelToken: cancelToken),
+      ).throws<FormatException>();
+
+      check(cancelToken.isCancelled).isTrue();
+      check(hermesCancellationWasInternal(cancelToken)).isTrue();
     });
 
     test('fork hits the fork path and returns the new id', () async {
@@ -97,14 +146,44 @@ void main() {
     test('rename and delete target the right paths', () async {
       final capture = _CaptureInterceptor((_) => {});
       final service = _service(capture);
+      final deleteCancelToken = CancelToken();
       await service.renameSession('s1', 'New');
-      await service.deleteSession('s1');
+      await service.deleteSession('s1', cancelToken: deleteCancelToken);
       check(capture.requests[0].method).equals('PATCH');
       check(
         capture.requests[0].path,
       ).equals('http://host:8642/api/sessions/s1');
       check((capture.requests[0].data as Map)['title']).equals('New');
       check(capture.requests[1].method).equals('DELETE');
+      check(capture.requests[1].cancelToken).identicalTo(deleteCancelToken);
+    });
+
+    test('session ids are encoded as single path segments', () async {
+      final capture = _CaptureInterceptor((request) {
+        if (request.path.endsWith('/fork')) return {'id': 'branched'};
+        return const <String, dynamic>{};
+      });
+      final service = _service(capture);
+      const sessionId = 's/1+abc=';
+      const encoded = 's%2F1%2Babc%3D';
+
+      await service.getSessionMessages(sessionId);
+      await service.renameSession(sessionId, 'New');
+      await service.deleteSession(sessionId);
+      check(await service.forkSession(sessionId)).equals('branched');
+
+      check(
+        capture.requests[0].path,
+      ).equals('http://host:8642/api/sessions/$encoded/messages');
+      check(
+        capture.requests[1].path,
+      ).equals('http://host:8642/api/sessions/$encoded');
+      check(
+        capture.requests[2].path,
+      ).equals('http://host:8642/api/sessions/$encoded');
+      check(
+        capture.requests[3].path,
+      ).equals('http://host:8642/api/sessions/$encoded/fork');
     });
   });
 
@@ -162,9 +241,9 @@ void main() {
       check(messages[1].metadata?['hermesResponseId']).equals('response-2');
       check(messages[2].metadata?['hermesResponseId']).equals('response-3');
       check(
-        messages.sublist(1).map(
-          (message) => message.metadata?['hermesTransportMode'],
-        ),
+        messages
+            .sublist(1)
+            .map((message) => message.metadata?['hermesTransportMode']),
       ).deepEquals(['responses', 'responses']);
     });
 

@@ -59,7 +59,11 @@ final class DirectCompletionRequest {
   final String remoteModelId;
   final List<DirectChatMessage> messages;
 
-  /// Provider-compatible optional parameters (temperature, tools, etc.).
+  /// Provider-compatible optional sampling/output parameters.
+  ///
+  /// Tool calling is intentionally rejected by the built-in adapters until
+  /// Conduit has a normalized, permission-aware execution pipeline; silently
+  /// forwarding tools would discard valid tool-call-only responses.
   /// Transport-owned keys (`model`, `messages`, `stream`) are overwritten by
   /// adapters and cannot redirect a request to another registered model.
   final Map<String, dynamic> parameters;

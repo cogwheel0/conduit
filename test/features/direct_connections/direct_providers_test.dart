@@ -218,7 +218,7 @@ void main() {
   });
 
   test(
-    'transport edit commits and invalidates stale models when cancellation fails',
+    'transport edit and queued mutation settle while run cleanup never does',
     () async {
       final original = _profile();
       FlutterSecureStorage.setMockInitialValues({
@@ -258,13 +258,17 @@ void main() {
       expect(modelRegistry.resolve(staleModel), isNull);
       expect(modelRegistry.resolveRegisteredId(staleModel.id), isNull);
 
-      cancellation.done.completeError(StateError('cancel failed'));
-      await expectLater(mutation, completes);
+      await mutation.timeout(const Duration(seconds: 1));
 
-      await controller.setEnabled(original.id, false);
+      await controller
+          .setEnabled(original.id, false)
+          .timeout(const Duration(seconds: 1));
       final durable = await _loadDurableProfiles();
       expect(durable.single.baseUrl, 'https://new.example.test/v1');
       expect(durable.single.enabled, isFalse);
+
+      cancellation.done.completeError(StateError('cancel failed'));
+      await Future<void>.delayed(Duration.zero);
     },
   );
 
@@ -293,13 +297,15 @@ void main() {
       isEmpty,
     );
 
-    cancellation.done.completeError(StateError('cancel failed'));
-    await expectLater(removal, completes);
+    await removal.timeout(const Duration(seconds: 1));
 
     final replacement = _profile(id: 'profile-two', name: 'Replacement');
-    await controller.upsert(replacement);
+    await controller.upsert(replacement).timeout(const Duration(seconds: 1));
     final durable = await _loadDurableProfiles();
     expect(durable.map((profile) => profile.id), ['profile-two']);
+
+    cancellation.done.completeError(StateError('cancel failed'));
+    await Future<void>.delayed(Duration.zero);
   });
 
   test('clear cannot resurrect profiles when cancellation fails', () async {
@@ -327,13 +333,15 @@ void main() {
       isEmpty,
     );
 
-    cancellation.done.completeError(StateError('cancel failed'));
-    await expectLater(clear, completes);
+    await clear.timeout(const Duration(seconds: 1));
 
     final replacement = _profile(id: 'profile-two', name: 'Replacement');
-    await controller.upsert(replacement);
+    await controller.upsert(replacement).timeout(const Duration(seconds: 1));
     final durable = await _loadDurableProfiles();
     expect(durable.map((profile) => profile.id), ['profile-two']);
+
+    cancellation.done.completeError(StateError('cancel failed'));
+    await Future<void>.delayed(Duration.zero);
   });
 
   test('an older discovery cannot overwrite a newer refresh', () async {
@@ -532,7 +540,10 @@ DirectConnectionProfile _profile({
 }) {
   final token = CancelToken();
   final done = Completer<void>();
-  final reservation = registry.reserve('assistant-$profileId', profileId);
+  final reservation = registry.reserve((
+    ownerConversationId: 'chat-$profileId',
+    assistantMessageId: 'assistant-$profileId',
+  ), profileId);
   final registered = registry.register(
     reservation,
     DirectCompletionRun(

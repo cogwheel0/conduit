@@ -6,6 +6,7 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../auth/api_auth_interceptor.dart';
 import '../../core/models/chat_message.dart';
 import '../../core/models/conversation.dart';
 import '../../core/providers/app_providers.dart' show isTemporaryChat;
@@ -279,11 +280,13 @@ class ActiveChatStream {
     required this.controller,
     required this.socketSubscriptions,
     required this.disposeWatchdog,
+    required this.isDisposed,
   });
 
   final StreamingResponseController? controller;
   final List<VoidCallback> socketSubscriptions;
   final VoidCallback disposeWatchdog;
+  final bool Function() isDisposed;
 }
 
 typedef _ServerMessageSnapshot = ({
@@ -389,6 +392,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   String? sessionId,
   required String? activeConversationId,
   required ApiService api,
+  ApiAuthSnapshot? chatCompletedAuthSnapshot,
   required SocketService? socketService,
   required WorkerManager workerManager,
 
@@ -438,6 +442,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Whether tools are enabled (needs longer watchdog window).
   bool toolsEnabled = false,
 
+  /// Whether this helper still owns the backend/conversation context that
+  /// created it. Unlike UI callbacks, snapshot recovery can issue its own API
+  /// fallback, so it must revalidate ownership before crossing that boundary.
+  bool Function()? ownsStreamContext,
+
   /// Pull-through snapshot fetch (CDT-RFC-001 Phase 1): persists the chat via
   /// `upsertServerChat` under the chat lock and returns the assembled
   /// conversation. When null or when it yields null (engine inert), the
@@ -449,9 +458,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool hasCompletedStreamingUi = false;
   bool completionDoneHandled = false;
   bool delayedDoneRecoveryScheduled = false;
+  Timer? delayedDoneRecoveryTimer;
   bool postCompletionSnapshotRefreshScheduled = false;
   bool isObsoleteStream = false;
+  bool localResourcesDisposed = false;
   bool backgroundExecutionStopped = false;
+  bool normalCompletionReleaseInProgress = false;
   Timer? terminalCompletionRecoveryTimer;
   bool terminalRecoveryAllowContentOnlyTerminal = false;
   bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
@@ -462,6 +474,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   var currentStreamSessionId = sessionId;
   String? boundRemoteMessageId;
   StreamingResponseController? streamController;
+  StreamController<String>? taskSocketIngressController;
+  late void Function({required bool abandonStream})
+  disposeLocalStreamingResources;
   late void Function(String reason, {String? incomingMessageId})
   retireObsoleteStream;
 
@@ -474,9 +489,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Start background execution to keep app alive during streaming (iOS/Android)
   // Uses the assistantMessageId as a unique stream identifier
   final streamId = 'chat-stream-$assistantMessageId';
+  Future<void>? backgroundExecutionStartFuture;
   if (Platform.isIOS || Platform.isAndroid) {
     // Fire-and-forget: background execution is best-effort and shouldn't block streaming
-    BackgroundStreamingHandler.instance
+    backgroundExecutionStartFuture = BackgroundStreamingHandler.instance
         .startBackgroundExecution([streamId])
         .catchError((Object e) {
           DebugLogger.error(
@@ -692,8 +708,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     backgroundExecutionStopped = true;
     if (Platform.isIOS || Platform.isAndroid) {
-      BackgroundStreamingHandler.instance
-          .stopBackgroundExecution([streamId])
+      // Serialize stop after the matching native start settles. Otherwise a
+      // fast navigation can stop first and let the late start re-add a stale
+      // background lease afterward.
+      (backgroundExecutionStartFuture ?? Future<void>.value())
+          .then(
+            (_) => BackgroundStreamingHandler.instance.stopBackgroundExecution([
+              streamId,
+            ]),
+          )
           .catchError((Object e) {
             DebugLogger.error(
               'background-stop-failed',
@@ -924,16 +947,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     finalizeStreamingReasoning();
     hasFinished = true;
     hasCompletedStreamingUi = true;
-    terminalCompletionRecoveryTimer?.cancel();
-    terminalCompletionRecoveryTimer = null;
-    stableNonTerminalTerminalRecoveryCount = 0;
-    stableNonTerminalTerminalRecoverySignature = null;
-    api.clearStreamCancelToken(assistantMessageId);
 
-    // Stop background execution when streaming completes
-    stopBackgroundExecution();
-
-    finishStreaming();
+    normalCompletionReleaseInProgress = true;
+    try {
+      finishStreaming();
+    } finally {
+      normalCompletionReleaseInProgress = false;
+      // The notifier normally invokes the same aggregate teardown while
+      // releasing its transport handle. Keep cleanup local as well so direct
+      // helper consumers cannot strand subscriptions or timers.
+      disposeLocalStreamingResources(abandonStream: false);
+    }
   }
 
   // For taskSocket transport, we still need a StreamController so the
@@ -944,6 +968,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Socket subscriptions list - starts empty so non-socket flows can finish via onComplete.
   // HTTP subscription is tracked separately and cleaned up in disposeSocketSubscriptions.
   final socketSubscriptions = <VoidCallback>[];
+  void addSocketSubscription(VoidCallback dispose) {
+    var disposed = false;
+    socketSubscriptions.add(() {
+      if (disposed) return;
+      disposed = true;
+      dispose();
+    });
+  }
+
   final hasSocketSignals = socketService != null;
   late final void Function({
     required String source,
@@ -1704,7 +1737,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool refreshingSnapshot = false;
   bool queuedSnapshotRefresh = false;
   Future<void> refreshConversationSnapshot() async {
-    if (isObsoleteStream) return;
+    if (isObsoleteStream || ownsStreamContext?.call() == false) return;
     if (refreshingSnapshot) {
       queuedSnapshotRefresh = true;
       return;
@@ -1726,8 +1759,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           pulled = null;
         }
       }
+      // Teardown may have happened while the owner-scoped pull was in flight.
+      // In that case the pull deliberately returns null; do not interpret the
+      // null as permission to issue a fallback request through the retired
+      // stream's API client.
+      if (isObsoleteStream || ownsStreamContext?.call() == false) {
+        return;
+      }
       final conversation = pulled ?? await api.getConversation(chatId);
-      if (isObsoleteStream) {
+      if (isObsoleteStream || ownsStreamContext?.call() == false) {
         return;
       }
 
@@ -2062,6 +2102,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     Timer? reconnectDelayTimer;
 
     reconnectSub = socketService.onReconnect.listen((_) {
+      if (localResourcesDisposed) {
+        return;
+      }
       DebugLogger.log(
         'Socket reconnected - updating session ID',
         scope: 'streaming/helper',
@@ -2078,6 +2121,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       // Brief delay then check server for missed completion
       reconnectDelayTimer?.cancel();
       reconnectDelayTimer = Timer(const Duration(milliseconds: 500), () {
+        if (localResourcesDisposed) {
+          return;
+        }
         // Wrap async work in unawaited to handle errors properly
         unawaited(
           _handleReconnectRecovery(
@@ -2091,7 +2137,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       });
     });
 
-    socketSubscriptions.add(() {
+    addSocketSubscription(() {
       reconnectDelayTimer?.cancel();
       reconnectSub?.cancel();
     });
@@ -2110,9 +2156,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     resetTerminalCompletionRecoveryStability();
 
     // Cancel HTTP subscription (if any — only taskSocket path creates one)
-    try {
-      httpSubscription?.cancel();
-    } catch (_) {}
+    final subscription = httpSubscription;
+    httpSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel().catchError((Object _) {}));
+    }
 
     // Cancel socket subscriptions
     for (final dispose in socketSubscriptions) {
@@ -2128,8 +2176,44 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     pendingImageMessageId = null;
     pendingImageSignature = null;
     lastProcessedImageSignature = null;
-    imageCollectionRequestId = 0;
+    imageCollectionRequestId++;
   }
+
+  disposeLocalStreamingResources = ({required bool abandonStream}) {
+    // Navigation and explicit stop abandon this local projection. They do not
+    // abort the server task; the transport-aware stop coordinator owns that
+    // separate policy. Normal completion sets hasFinished before entering this
+    // teardown and may still run its post-completion snapshot refresh.
+    if (abandonStream) {
+      isObsoleteStream = true;
+      hasFinished = true;
+      hasCompletedStreamingUi = true;
+      completionDoneHandled = true;
+      delayedDoneRecoveryTimer?.cancel();
+      delayedDoneRecoveryTimer = null;
+      delayedDoneRecoveryScheduled = false;
+    }
+
+    if (localResourcesDisposed) {
+      return;
+    }
+    localResourcesDisposed = true;
+
+    disposeSocketSubscriptions();
+
+    final controller = streamController;
+    if (controller != null) {
+      unawaited(controller.cancel().catchError((Object _) {}));
+    }
+    final ingressController = taskSocketIngressController;
+    taskSocketIngressController = null;
+    if (ingressController != null && !ingressController.isClosed) {
+      unawaited(ingressController.close().catchError((Object _) {}));
+    }
+
+    api.clearStreamCancelToken(assistantMessageId);
+    stopBackgroundExecution();
+  };
 
   retireObsoleteStream = (String reason, {String? incomingMessageId}) {
     if (isObsoleteStream) {
@@ -2147,20 +2231,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       scope: 'streaming/helper',
     );
 
-    disposeSocketSubscriptions();
-
-    final controller = streamController;
-    if (controller != null) {
-      unawaited(controller.cancel().catchError((Object _) {}));
-    }
+    disposeLocalStreamingResources(abandonStream: true);
 
     final abort = session.abort;
     if (abort != null) {
       unawaited(abort().catchError((Object _) {}));
     }
 
-    api.clearStreamCancelToken(assistantMessageId);
-    stopBackgroundExecution();
     try {
       onObsoleteStreamRetired?.call();
     } catch (_) {}
@@ -2169,7 +2246,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool isSearching = false;
 
   void runPendingImageCollection() {
-    if (isObsoleteStream) {
+    if (localResourcesDisposed || isObsoleteStream) {
       return;
     }
     imageCollectionDebounce?.cancel();
@@ -2195,7 +2272,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             debugLabel: 'stream_collect_images',
           )
           .then((collected) {
-            if (isObsoleteStream) {
+            if (localResourcesDisposed || isObsoleteStream) {
               return;
             }
             if (requestId != imageCollectionRequestId) {
@@ -2241,7 +2318,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   updateImagesFromCurrentContent = () {
-    if (isObsoleteStream) {
+    if (localResourcesDisposed || isObsoleteStream) {
       return;
     }
     try {
@@ -2296,7 +2373,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// pushing the local buffer back can truncate chats when the client only
   /// has a partial history snapshot in memory.
   Future<void> sendChatCompletedAndSync() async {
-    if (isObsoleteStream) {
+    bool stillOwnsCompletionContext() =>
+        !isObsoleteStream && (ownsStreamContext?.call() ?? true);
+
+    if (!stillOwnsCompletionContext()) {
       return;
     }
     try {
@@ -2318,6 +2398,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         return msgMap;
       }).toList();
 
+      // Message collection can invoke caller-owned state. Recheck immediately
+      // before crossing the network boundary so an account/backend switch
+      // cannot submit a stale completion in a replacement context.
+      if (!stillOwnsCompletionContext()) {
+        return;
+      }
+
       // 1. Send chatCompleted and AWAIT the response (outlet filters may
       //    modify messages). OpenWebUI awaits this before saving.
       final completedResp = await api.sendChatCompleted(
@@ -2328,8 +2415,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         modelItem: modelItem,
         sessionId: currentStreamSessionId,
         filterIds: filterIds,
+        authSnapshot: chatCompletedAuthSnapshot,
       );
-      if (isObsoleteStream) {
+      if (!stillOwnsCompletionContext()) {
         return;
       }
 
@@ -2499,46 +2587,50 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
     delayedDoneRecoveryScheduled = true;
 
-    Future.delayed(const Duration(seconds: 2), () async {
-      try {
-        if (isObsoleteStream) {
-          return;
-        }
-        final result = await pollServerForMessage();
-        if (!isObsoleteStream) {
-          if (result != null) {
-            applyServerContent(
-              result.content,
-              result.followUps,
-              finishIfDone: false,
-              isDone: result.isDone,
-              source: 'done recovery',
-              errorContent: result.errorContent,
-            );
+    delayedDoneRecoveryTimer = Timer(const Duration(seconds: 2), () {
+      delayedDoneRecoveryTimer = null;
+      unawaited(() async {
+        try {
+          if (isObsoleteStream) {
+            return;
           }
-          await refreshConversationSnapshot();
-        }
-      } catch (e) {
-        DebugLogger.log(
-          'Server recovery failed: $e',
-          scope: 'streaming/helper',
-        );
-      } finally {
-        delayedDoneRecoveryScheduled = false;
-        if (finishAfterRecovery &&
-            !isObsoleteStream &&
-            currentAssistantTargetId() == assistantMessageId) {
-          // Paired sidebar-spinner removal, mirroring the synchronous done
-          // path: this branch finalizes via wrappedFinishStreaming() after the
-          // early return at the top of handleCompletionDone, so without this
-          // the `generating` indicator would strand on the delayed-recovery
-          // path.
-          if (activeConversationId != null && activeConversationId.isNotEmpty) {
-            onChatActiveChanged?.call(activeConversationId, false);
+          final result = await pollServerForMessage();
+          if (!isObsoleteStream) {
+            if (result != null) {
+              applyServerContent(
+                result.content,
+                result.followUps,
+                finishIfDone: false,
+                isDone: result.isDone,
+                source: 'done recovery',
+                errorContent: result.errorContent,
+              );
+            }
+            await refreshConversationSnapshot();
           }
-          wrappedFinishStreaming();
+        } catch (e) {
+          DebugLogger.log(
+            'Server recovery failed: $e',
+            scope: 'streaming/helper',
+          );
+        } finally {
+          delayedDoneRecoveryScheduled = false;
+          if (finishAfterRecovery &&
+              !isObsoleteStream &&
+              currentAssistantTargetId() == assistantMessageId) {
+            // Paired sidebar-spinner removal, mirroring the synchronous done
+            // path: this branch finalizes via wrappedFinishStreaming() after the
+            // early return at the top of handleCompletionDone, so without this
+            // the `generating` indicator would strand on the delayed-recovery
+            // path.
+            if (activeConversationId != null &&
+                activeConversationId.isNotEmpty) {
+              onChatActiveChanged?.call(activeConversationId, false);
+            }
+            wrappedFinishStreaming();
+          }
         }
-      }
+      }());
     });
 
     return true;
@@ -2630,7 +2722,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       try {
         socketService?.offEvent(channel);
       } catch (_) {}
-      if (isObsoleteStream) {
+      if (localResourcesDisposed || isObsoleteStream) {
         return;
       }
       finalizeStreamingReasoning();
@@ -2641,7 +2733,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
 
     void handler(dynamic line) {
-      if (isObsoleteStream || streamHasBeenSuperseded()) {
+      if (localResourcesDisposed ||
+          isObsoleteStream ||
+          streamHasBeenSuperseded()) {
         retireObsoleteStream(
           'Superseded by channel stream $channel',
           incomingMessageId: null,
@@ -2699,6 +2793,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     try {
       socketService?.onEvent(channel, handler);
     } catch (_) {}
+    if (localResourcesDisposed) {
+      try {
+        socketService?.offEvent(channel);
+      } catch (_) {}
+      return;
+    }
     // Increased timeout to match our more generous streaming timeouts
     // OpenWebUI doesn't have such aggressive channel timeouts
     // Use Timer instead of Future.delayed so it can be cancelled on cleanup
@@ -2708,7 +2808,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       } catch (_) {}
     });
     // Register cleanup for socket subscriptions
-    socketSubscriptions.add(() {
+    addSocketSubscription(() {
       channelTimeoutTimer.cancel();
       try {
         socketService?.offEvent(channel);
@@ -2721,6 +2821,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     void Function(dynamic response)? ack,
   ) {
     try {
+      if (localResourcesDisposed) {
+        return;
+      }
       final data = ev['data'];
       if (data == null) return;
       final type = data['type'];
@@ -3436,6 +3539,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     void Function(dynamic response)? ack,
   ) {
     try {
+      if (localResourcesDisposed) {
+        return;
+      }
       final data = ev['data'];
       if (data == null) return;
       final type = data['type'];
@@ -3469,7 +3575,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   // Register socket handlers directly. Events buffered before registration
   // are replayed synchronously via addChatEventHandler's built-in replay.
-  if (socketService != null) {
+  if (socketService != null && !localResourcesDisposed) {
     final chatSub = socketService.addChatEventHandler(
       conversationId: activeConversationId,
       sessionId: sessionId,
@@ -3477,15 +3583,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       requireFocus: false,
       handler: chatHandler,
     );
-    socketSubscriptions.add(chatSub.dispose);
+    if (localResourcesDisposed) {
+      chatSub.dispose();
+    } else {
+      addSocketSubscription(chatSub.dispose);
 
-    final channelSub = socketService.addChannelEventHandler(
-      conversationId: activeConversationId,
-      sessionId: sessionId,
-      requireFocus: false,
-      handler: channelEventsHandler,
-    );
-    socketSubscriptions.add(channelSub.dispose);
+      final channelSub = socketService.addChannelEventHandler(
+        conversationId: activeConversationId,
+        sessionId: sessionId,
+        requireFocus: false,
+        handler: channelEventsHandler,
+      );
+      if (localResourcesDisposed) {
+        channelSub.dispose();
+      } else {
+        addSocketSubscription(channelSub.dispose);
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -3494,10 +3608,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   switch (session.transport) {
     case ChatCompletionTransport.httpStream:
+      if (localResourcesDisposed) break;
       // Parse the SSE byte stream directly via the typed parser.
       bool receivedDone = false;
       final sub = parseOpenWebUIStream(session.byteStream!).listen(
         (update) {
+          if (localResourcesDisposed) {
+            return;
+          }
           try {
             applyParsedOpenWebUIUpdate(
               update,
@@ -3531,6 +3649,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         },
         onError: (Object error, StackTrace stackTrace) {
+          if (localResourcesDisposed) {
+            return;
+          }
           DebugLogger.error(
             'httpStream parse error',
             scope: 'streaming/helper',
@@ -3540,7 +3661,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         },
         onDone: () {
           // Stream ended. If we already received [DONE], nothing to do.
-          if (receivedDone || hasFinished) return;
+          if (localResourcesDisposed || receivedDone || hasFinished) return;
 
           DebugLogger.log(
             'httpStream ended without [DONE] - attempting recovery',
@@ -3582,23 +3703,29 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           );
         },
       );
-      socketSubscriptions.add(() {
+      addSocketSubscription(() {
         sub.cancel();
       });
 
     case ChatCompletionTransport.taskSocket:
+      if (localResourcesDisposed) break;
       // For task/socket streaming the HTTP response body is typically empty
       // or very short (just the task_id JSON). We set up a
       // StreamController + StreamingResponseController so the existing
       // onComplete / onChunk / onError wiring is preserved.
       final pc = StreamController<String>.broadcast();
+      taskSocketIngressController = pc;
 
       // If there's a byteStream from the HTTP response, forward it.
       if (session.byteStream != null) {
         httpSubscription = session.byteStream!
             .transform(utf8.decoder)
             .listen(
-              (data) => pc.add(data),
+              (data) {
+                if (!localResourcesDisposed && !pc.isClosed) {
+                  pc.add(data);
+                }
+              },
               onDone: () {
                 DebugLogger.stream(
                   'taskSocket HTTP stream completed '
@@ -3608,7 +3735,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                   pc.close();
                 }
               },
-              onError: pc.addError,
+              onError: (Object error, StackTrace stackTrace) {
+                if (!localResourcesDisposed && !pc.isClosed) {
+                  pc.addError(error, stackTrace);
+                }
+              },
             );
       } else {
         // No byte stream to forward — close the controller immediately so
@@ -3621,6 +3752,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       streamController = StreamingResponseController(
         stream: pc.stream,
         onChunk: (chunk) {
+          if (localResourcesDisposed) {
+            return;
+          }
           var effectiveChunk = chunk;
           if (webSearchEnabled && !isSearching) {
             if (chunk.contains('[SEARCHING]') ||
@@ -3655,6 +3789,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         },
         onComplete: () {
+          if (localResourcesDisposed) {
+            return;
+          }
           DebugLogger.log(
             'taskSocket HTTP stream complete '
             '(socketSubs=${socketSubscriptions.length}, '
@@ -3684,6 +3821,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           }
         },
         onError: (error, stackTrace) async {
+          if (localResourcesDisposed) {
+            return;
+          }
           DebugLogger.error(
             'taskSocket stream error',
             scope: 'streaming/helper',
@@ -3729,8 +3869,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       );
 
     case ChatCompletionTransport.jsonCompletion:
+      if (localResourcesDisposed) break;
       // Non-streamed: apply the JSON payload immediately.
       Future.microtask(() {
+        if (localResourcesDisposed) {
+          return;
+        }
         try {
           final payload = session.jsonPayload ?? const <String, dynamic>{};
 
@@ -3832,7 +3976,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   return ActiveChatStream(
     controller: streamController,
     socketSubscriptions: socketSubscriptions,
-    disposeWatchdog: () {},
+    isDisposed: () => localResourcesDisposed,
+    disposeWatchdog: () => disposeLocalStreamingResources(
+      // During normal completion the notifier synchronously releases the
+      // transport handle, but the intended post-completion sync may continue.
+      // Every later/external invocation is an ownership teardown, even though
+      // `hasFinished` is already true.
+      abandonStream: !normalCompletionReleaseInProgress,
+    ),
   );
 }
 

@@ -3,6 +3,7 @@ export 'models/direct_connection_profile.dart';
 export 'models/direct_remote_model.dart';
 export 'providers/direct_connection_providers.dart';
 export 'services/direct_connection_profile_store.dart';
+export 'services/direct_adapter_helpers.dart';
 export 'services/direct_chat_bridge.dart';
 export 'services/direct_http_client.dart';
 export 'services/direct_model_registry.dart';

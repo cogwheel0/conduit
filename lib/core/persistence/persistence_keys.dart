@@ -65,6 +65,11 @@ final class PreferenceKeys {
       'direct_connections_configured_v1';
   static const String directHistoryPolicy = 'direct_history_policy_v1';
 
+  /// Prefix for the per-server account owner marker that guards reopening an
+  /// OpenWebUI database after process restart.
+  static const String openWebUiAccountOwnerPrefix =
+      'openwebui_account_owner_v1';
+
   // Drawer section collapsed states
   static const String drawerShowPinned = 'drawer_show_pinned';
   static const String drawerShowFolders = 'drawer_show_folders';

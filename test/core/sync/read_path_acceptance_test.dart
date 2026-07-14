@@ -12,7 +12,6 @@ library;
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/daos/chats_dao.dart';
-import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/local_conversation_loader.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
@@ -26,6 +25,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_open_webui_server.dart';
 import '../../support/fake_sync_api_client.dart';
+import '../../support/openwebui_storage_test_overrides.dart';
 
 class _AirplaneModeSyncApiClient implements SyncApiClient {
   int calls = 0;
@@ -91,7 +91,7 @@ void main() {
   ProviderContainer makeContainer(SyncApiClient? client) {
     final container = ProviderContainer(
       overrides: [
-        appDatabaseProvider.overrideWith((ref) => db),
+        ...openWebUiStorageOpenOverrides(database: db),
         isAuthenticatedProvider2.overrideWithValue(true),
         reviewerModeProvider.overrideWithValue(false),
         apiServiceProvider.overrideWithValue(null),

@@ -26,7 +26,8 @@ import '../services/hermes_api_service.dart';
 class HermesConfigController extends Notifier<HermesConfig> {
   Future<void> _mutationQueue = Future<void>.value();
   Future<void>? _secretsHydration;
-  Future<String>? _sessionKeyFuture;
+  _HermesSessionKeyRequest? _sessionKeyRequest;
+  bool _stoppingActiveRuns = false;
   int _secretLoadEpoch = 0;
 
   @override
@@ -249,10 +250,35 @@ class HermesConfigController extends Notifier<HermesConfig> {
       : _secure.saveHermesSessionKey(value);
 
   Future<void> _stopActiveRuns() async {
-    final stopFutures = ref.read(hermesRunRegistryProvider).cancelAll();
-    await Future.wait<void>([
-      for (final stop in stopFutures) stop.catchError((_) {}),
-    ]);
+    _stoppingActiveRuns = true;
+    try {
+      final stopFutures = ref.read(hermesRunRegistryProvider).cancelAll();
+
+      // cancelAll() revokes every run token synchronously. Interrupt
+      // session-key preparation only after that ownership boundary has moved
+      // so chat preflight observes cancellation instead of surfacing a
+      // configuration error. The stopping guard is established first so a
+      // synchronous cancellation callback cannot start a replacement request.
+      //
+      // A request can also come from setup or settings without a registry
+      // entry, so it must be interrupted even when cancelAll() returns no
+      // futures. Letting either kind continue can create a cycle:
+      //
+      // config mutation -> cancellationSettled -> ensureSessionKey mutation
+      //        ^                                      |
+      //        +--------------------------------------+
+      final sessionKeyRequest = _sessionKeyRequest;
+      if (sessionKeyRequest != null) {
+        _sessionKeyRequest = null;
+        sessionKeyRequest.interrupt();
+      }
+
+      await Future.wait<void>([
+        for (final stop in stopFutures) stop.catchError((_) {}),
+      ]);
+    } finally {
+      _stoppingActiveRuns = false;
+    }
   }
 
   /// Canonical origin used to bind secrets to their intended server.
@@ -293,12 +319,23 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// Returns the long-term memory session key, generating and persisting a
   /// stable one when the user has not set their own. Keeps Hermes memory
   /// associated with this install across restarts.
-  Future<String> ensureSessionKey() async {
-    await _secretsHydration;
-    _throwIfSecretsUnavailable();
-    final existing = state.sessionKey;
-    if (existing != null && existing.isNotEmpty) return existing;
-    return _sessionKeyFuture ??= _generateSessionKey();
+  Future<String> ensureSessionKey() {
+    if (_stoppingActiveRuns) {
+      return Future<String>.error(
+        StateError('Hermes configuration is changing. Try again.'),
+        StackTrace.current,
+      );
+    }
+
+    final pending = _sessionKeyRequest;
+    if (pending != null) return pending.future;
+
+    final request = _HermesSessionKeyRequest();
+    _sessionKeyRequest = request;
+    // Fulfilment owns every error and reports it through request.future. This
+    // detached task must therefore never produce an unobserved async failure.
+    unawaited(_fulfillSessionKeyRequest(request));
+    return request.future;
   }
 
   void _throwIfSecretsUnavailable() {
@@ -309,16 +346,51 @@ class HermesConfigController extends Notifier<HermesConfig> {
     }
   }
 
-  Future<String> _generateSessionKey() async {
+  Future<void> _fulfillSessionKeyRequest(
+    _HermesSessionKeyRequest request,
+  ) async {
     try {
-      final generated = const Uuid().v4();
+      await _secretsHydration;
+      if (request.interrupted) return;
+      _throwIfSecretsUnavailable();
+
+      final hydrated = state.sessionKey;
+      if (hydrated != null && hydrated.isNotEmpty) {
+        request.complete(hydrated);
+        return;
+      }
+
+      String? resolved;
       await _serializeMutation(() async {
+        if (request.interrupted) return;
+
+        // An explicit connection edit may have supplied a key while this
+        // request waited for the serialized mutation lane. It is authoritative
+        // and must never be overwritten by an earlier automatic generation.
+        final existing = state.sessionKey;
+        if (existing != null && existing.isNotEmpty) {
+          resolved = existing;
+          return;
+        }
+
+        final generated = const Uuid().v4();
         await _secure.saveHermesSessionKey(generated);
         state = _withState(sessionKey: generated);
+        resolved = generated;
       });
-      return generated;
+
+      if (request.interrupted) return;
+      final value = resolved;
+      if (value == null) {
+        throw StateError('Hermes session-key preparation did not complete.');
+      }
+      request.complete(value);
+    } catch (error, stackTrace) {
+      request.completeError(error, stackTrace);
     } finally {
-      _sessionKeyFuture = null;
+      if (identical(_sessionKeyRequest, request)) {
+        _sessionKeyRequest = null;
+      }
     }
   }
 
@@ -338,6 +410,31 @@ class HermesConfigController extends Notifier<HermesConfig> {
 
   // Sentinel so setters can distinguish "leave unchanged" from "clear to null".
   static const String _keep = '__hermes_keep__';
+}
+
+final class _HermesSessionKeyRequest {
+  final Completer<String> _result = Completer<String>();
+  bool _interrupted = false;
+
+  Future<String> get future => _result.future;
+  bool get interrupted => _interrupted;
+
+  void complete(String value) {
+    if (!_result.isCompleted) _result.complete(value);
+  }
+
+  void completeError(Object error, StackTrace stackTrace) {
+    if (!_result.isCompleted) _result.completeError(error, stackTrace);
+  }
+
+  void interrupt() {
+    if (_result.isCompleted) return;
+    _interrupted = true;
+    _result.completeError(
+      StateError('Hermes configuration changed during session preparation.'),
+      StackTrace.current,
+    );
+  }
 }
 
 class HermesSecretsLoading extends Notifier<bool> {
@@ -601,51 +698,125 @@ final hermesJobsProvider =
       HermesJobsController.new,
     );
 
+/// Collision-free address for a Hermes run inside a conversation.
+///
+/// Message ids are not globally unique: the same id may legitimately exist in
+/// OpenWebUI and direct-local stores, or in two concurrently loaded chats. A
+/// run therefore always owns the pair rather than the assistant id alone.
+final class HermesRunBackendIdentity {
+  const HermesRunBackendIdentity.openWebUi({
+    required this.database,
+    required this.api,
+    required this.authSessionEpoch,
+  });
+
+  final Object? database;
+  final Object? api;
+  final Object? authSessionEpoch;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HermesRunBackendIdentity &&
+      identical(other.database, database) &&
+      identical(other.api, api) &&
+      identical(other.authSessionEpoch, authSessionEpoch);
+
+  @override
+  int get hashCode => Object.hash(
+    identityHashCode(database),
+    identityHashCode(api),
+    identityHashCode(authSessionEpoch),
+  );
+}
+
+typedef HermesRunKey = ({
+  String ownerConversationId,
+  String assistantMessageId,
+  HermesRunBackendIdentity? backendIdentity,
+});
+
+HermesRunKey hermesRunKey({
+  required String ownerConversationId,
+  required String assistantMessageId,
+  HermesRunBackendIdentity? backendIdentity,
+}) => (
+  ownerConversationId: ownerConversationId,
+  assistantMessageId: assistantMessageId,
+  backendIdentity: backendIdentity,
+);
+
+const String _legacyHermesRunOwner = 'conduit-hermes-legacy://';
+
+/// Compatibility address for transport-only callers without a conversation.
+/// App chat flows must use [hermesRunKey] with their scoped owner instead.
+HermesRunKey legacyHermesRunKey(String assistantMessageId) => (
+  ownerConversationId: _legacyHermesRunOwner,
+  assistantMessageId: assistantMessageId,
+  backendIdentity: null,
+);
+
 /// Tracks the live event subscription + run id for each streaming Hermes
 /// assistant message so a stop request can cancel the right run.
+///
 class HermesRunRegistry {
-  final Map<String, _ActiveRun> _runs = {};
+  final Map<HermesRunKey, _ActiveRun> _runs = {};
 
   CancelToken registerPending(
-    String assistantMessageId, {
+    HermesRunKey key, {
     CancelToken? cancelToken,
     Future<void>? cancellationSettled,
+    void Function()? onCleanupSettled,
     required void Function() onCancelled,
   }) {
     final token = cancelToken ?? CancelToken();
-    final existing = _runs[assistantMessageId];
+    final existing = _runs[key];
     if (existing != null &&
         !existing.cancelled &&
         identical(existing.cancelToken, token)) {
       existing.onCancelled.add(onCancelled);
       existing.cancellationSettled ??= cancellationSettled;
+      if (onCleanupSettled != null) {
+        existing.onCleanupSettled.add(onCleanupSettled);
+      }
       return token;
     }
 
-    final previousStop = cancel(assistantMessageId);
-    if (previousStop != null) unawaited(previousStop);
-    _runs[assistantMessageId] = _ActiveRun(
+    final replacement = _ActiveRun(
       cancelToken: token,
       onCancelled: [onCancelled],
       cancellationSettled: cancellationSettled,
+      onCleanupSettled: [?onCleanupSettled],
     );
+    // Publish the new generation before notifying the displaced one. This
+    // lets owner callbacks distinguish supersession from an explicit stop and
+    // prevents an old generation from completing a reused placeholder.
+    _runs[key] = replacement;
+    if (existing != null) {
+      _observeHermesRegistryCleanup(
+        () => _cancelDetached(existing),
+        message: 'displaced-run-cleanup-failed',
+      );
+    }
     return token;
   }
 
   /// Attaches server state to a pending run. Returns false when the pending
   /// entry was already cancelled, in which case the subscription is cancelled.
   bool attachRun(
-    String assistantMessageId, {
+    HermesRunKey key, {
     required CancelToken cancelToken,
     required String runId,
     required StreamSubscription<void> subscription,
     required Future<void> Function(String runId) stopRemote,
   }) {
-    final run = _runs[assistantMessageId];
+    final run = _runs[key];
     if (run == null ||
         run.cancelled ||
         !identical(run.cancelToken, cancelToken)) {
-      unawaited(subscription.cancel());
+      _observeHermesRegistryCleanup(
+        subscription.cancel,
+        message: 'stale-run-subscription-cleanup-failed',
+      );
       return false;
     }
     run.runId = runId;
@@ -658,15 +829,18 @@ class HermesRunRegistry {
   /// such as Hermes Responses SSE. Cancelling the Dio token closes the stream;
   /// current Hermes servers interrupt the owning agent on disconnect.
   bool attachStream(
-    String assistantMessageId, {
+    HermesRunKey key, {
     required CancelToken cancelToken,
     required StreamSubscription<void> subscription,
   }) {
-    final run = _runs[assistantMessageId];
+    final run = _runs[key];
     if (run == null ||
         run.cancelled ||
         !identical(run.cancelToken, cancelToken)) {
-      unawaited(subscription.cancel());
+      _observeHermesRegistryCleanup(
+        subscription.cancel,
+        message: 'stale-stream-subscription-cleanup-failed',
+      );
       return false;
     }
     run.subscription = subscription;
@@ -675,19 +849,15 @@ class HermesRunRegistry {
 
   /// Compatibility helper for callers that already have a live run.
   void register(
-    String assistantMessageId, {
+    HermesRunKey key, {
     required String runId,
     required CancelToken cancelToken,
     required StreamSubscription<void> subscription,
     required Future<void> Function(String runId) stopRemote,
   }) {
-    registerPending(
-      assistantMessageId,
-      cancelToken: cancelToken,
-      onCancelled: () {},
-    );
+    registerPending(key, cancelToken: cancelToken, onCancelled: () {});
     attachRun(
-      assistantMessageId,
+      key,
       cancelToken: cancelToken,
       runId: runId,
       subscription: subscription,
@@ -695,15 +865,162 @@ class HermesRunRegistry {
     );
   }
 
-  String? runIdFor(String assistantMessageId) =>
-      _runs[assistantMessageId]?.runId;
+  String? runIdFor(HermesRunKey key) => _runs[key]?.runId;
+
+  /// Returns an opaque identity for the exact live run generation.
+  ///
+  /// Approval UI captures this before an asynchronous decision POST so a
+  /// replacement that reuses the same message (or even server run id) cannot
+  /// receive the old generation's result.
+  Object? generationTokenFor(HermesRunKey key, {required String runId}) {
+    final run = _runs[key];
+    if (run == null || run.cancelled || run.runId != runId) return null;
+    return run;
+  }
+
+  /// Exact transport token paired with [generationToken]. Approval callbacks
+  /// retain it so owner projection state can settle after navigation or an
+  /// in-place key remap without falling back to message/run ids.
+  CancelToken? cancelTokenForGeneration(
+    HermesRunKey key, {
+    required Object generationToken,
+    required String runId,
+  }) {
+    final run = _runs[key];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run, generationToken) ||
+        run.runId != runId) {
+      return null;
+    }
+    return run.cancelToken;
+  }
+
+  /// Whether [generationToken] still owns [key] and [runId]. The token may be
+  /// checked against a newly computed key after an in-place chat-id remap.
+  bool ownsGeneration(
+    HermesRunKey key, {
+    required Object generationToken,
+    required String runId,
+  }) {
+    final run = _runs[key];
+    return run != null &&
+        !run.cancelled &&
+        identical(run, generationToken) &&
+        run.runId == runId;
+  }
+
+  bool owns(HermesRunKey key, {required CancelToken cancelToken}) {
+    final run = _runs[key];
+    return run != null &&
+        !run.cancelled &&
+        identical(run.cancelToken, cancelToken);
+  }
+
+  bool hasReplacement(HermesRunKey key, {required CancelToken cancelToken}) {
+    final run = _runs[key];
+    return run != null && !identical(run.cancelToken, cancelToken);
+  }
+
+  /// Atomically moves a live generation when a fresh Hermes shell receives
+  /// its stable session-backed conversation id.
+  bool rebind(
+    HermesRunKey from,
+    HermesRunKey to, {
+    required CancelToken cancelToken,
+  }) {
+    final run = _runs[from];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run.cancelToken, cancelToken)) {
+      return false;
+    }
+    if (from == to) return true;
+
+    final displaced = _runs[to];
+    _runs.remove(from);
+    _runs[to] = run;
+    if (displaced != null && !identical(displaced, run)) {
+      _observeHermesRegistryCleanup(
+        () => _cancelDetached(displaced),
+        message: 'rebind-displaced-run-cleanup-failed',
+      );
+    }
+    return true;
+  }
+
+  /// Moves exactly [cancelToken]'s generation without displacing an existing
+  /// generation at [to]. A chat-id remap cannot establish which colliding run
+  /// is newer, so callers must cancel the moving generation when this returns
+  /// false instead of revoking the destination by key alone.
+  bool rebindIfVacant(
+    HermesRunKey from,
+    HermesRunKey to, {
+    required CancelToken cancelToken,
+  }) {
+    final run = _runs[from];
+    if (run == null ||
+        run.cancelled ||
+        !identical(run.cancelToken, cancelToken)) {
+      return false;
+    }
+    if (from == to) return true;
+
+    final destination = _runs[to];
+    if (destination != null && !identical(destination, run)) return false;
+    if (!identical(_runs[from], run)) return false;
+    _runs.remove(from);
+    _runs[to] = run;
+    return true;
+  }
 
   /// Cancels and forgets the run for [assistantMessageId]. The returned future
   /// waits for both the owner-bound remote stop (when the run id is known) and
   /// pending transport settlement (when create/preflight is still in flight).
-  Future<void>? cancel(String assistantMessageId) {
-    final run = _runs.remove(assistantMessageId);
+  Future<void>? cancel(HermesRunKey key) {
+    final run = _runs.remove(key);
     if (run == null) return null;
+    return _cancelDetached(run);
+  }
+
+  /// Cancels [key] only when it still belongs to [cancelToken]. This is the
+  /// failure half of an exact rebind: a colliding/newer generation must never
+  /// be cancelled merely because it now occupies one of the remap keys.
+  Future<void>? cancelOwned(
+    HermesRunKey key, {
+    required CancelToken cancelToken,
+  }) {
+    final run = _runs[key];
+    if (run == null || !identical(run.cancelToken, cancelToken)) return null;
+    _runs.remove(key);
+    return _cancelDetached(run);
+  }
+
+  /// Cancels the run for the visible conversation without falling back to an
+  /// id-only match. With no conversation owner, cancellation is allowed only
+  /// when exactly one pending/legacy run has that assistant id.
+  Future<void>? cancelMessage(
+    String assistantMessageId, {
+    String? ownerConversationId,
+    HermesRunBackendIdentity? backendIdentity,
+  }) {
+    if (ownerConversationId != null) {
+      return cancel(
+        hermesRunKey(
+          ownerConversationId: ownerConversationId,
+          assistantMessageId: assistantMessageId,
+          backendIdentity: backendIdentity,
+        ),
+      );
+    }
+    final matches = _runs.keys
+        .where((key) => key.assistantMessageId == assistantMessageId)
+        .toList(growable: false);
+    if (matches.length != 1) return null;
+    return cancel(matches.single);
+  }
+
+  Future<void> _cancelDetached(_ActiveRun run) async {
     run.cancelled = true;
     run.cancelToken.cancel('stopped');
     for (final callback in run.onCancelled) {
@@ -714,7 +1031,12 @@ class HermesRunRegistry {
       }
     }
     final subscription = run.subscription;
-    if (subscription != null) unawaited(subscription.cancel());
+    if (subscription != null) {
+      _observeHermesRegistryCleanup(
+        subscription.cancel,
+        message: 'run-subscription-cleanup-failed',
+      );
+    }
     final pending = <Future<void>>[];
     final cancellationSettled = run.cancellationSettled;
     if (cancellationSettled != null) pending.add(cancellationSettled);
@@ -723,23 +1045,66 @@ class HermesRunRegistry {
     if (runId != null && stopRemote != null) {
       pending.add(Future<void>.sync(() => stopRemote(runId)));
     }
-    return Future.wait<void>(pending);
+    try {
+      await Future.wait<void>(pending);
+    } finally {
+      _reportCleanupSettled(run);
+    }
   }
 
   List<Future<void>> cancelAll() {
     final stops = <Future<void>>[];
-    for (final id in _runs.keys.toList(growable: false)) {
-      final stop = cancel(id);
+    for (final key in _runs.keys.toList(growable: false)) {
+      final stop = cancel(key);
       if (stop != null) stops.add(stop);
     }
     return stops;
   }
 
-  bool complete(String assistantMessageId, {required CancelToken cancelToken}) {
-    final run = _runs[assistantMessageId];
+  bool complete(HermesRunKey key, {required CancelToken cancelToken}) {
+    final run = _runs[key];
     if (run == null || !identical(run.cancelToken, cancelToken)) return false;
-    _runs.remove(assistantMessageId);
+    _runs.remove(key);
+    _reportCleanupSettled(run);
     return true;
+  }
+
+  void _reportCleanupSettled(_ActiveRun run) {
+    if (run.cleanupReported) return;
+    run.cleanupReported = true;
+    for (final callback in run.onCleanupSettled) {
+      try {
+        callback();
+      } catch (_) {
+        // Cleanup ownership is already settled. A bookkeeping callback must
+        // not turn successful transport teardown into an uncaught failure.
+      }
+    }
+  }
+}
+
+/// Observes provider-controlled teardown without letting it block registry
+/// ownership changes or escape as an uncaught zone error.
+///
+/// A subscription/remote cleanup error and its stack can contain reflected
+/// credentials, so diagnostics deliberately identify only the cleanup site.
+void _observeHermesRegistryCleanup(
+  Future<void> Function() cleanup, {
+  required String message,
+}) {
+  void logFailure() {
+    DebugLogger.error(message, scope: 'hermes/registry');
+  }
+
+  try {
+    unawaited(
+      cleanup().then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) => logFailure(),
+      ),
+    );
+  } catch (_) {
+    logFailure();
   }
 }
 
@@ -747,16 +1112,19 @@ class _ActiveRun {
   _ActiveRun({
     required this.cancelToken,
     required this.onCancelled,
+    required this.onCleanupSettled,
     this.cancellationSettled,
   });
 
   String? runId;
   final CancelToken cancelToken;
   final List<void Function()> onCancelled;
+  final List<void Function()> onCleanupSettled;
   Future<void>? cancellationSettled;
   StreamSubscription<void>? subscription;
   Future<void> Function(String runId)? stopRemote;
   bool cancelled = false;
+  bool cleanupReported = false;
 }
 
 final hermesRunRegistryProvider = Provider<HermesRunRegistry>(

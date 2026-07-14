@@ -116,6 +116,43 @@ class ChatDatabaseLocation {
   bool get isLocalOnly => storage == ChatStorageKind.directLocal;
 }
 
+/// Resolves the live chat that durably owns one exact message placeholder.
+///
+/// The source chat, remap proof, destination chat, and message row are read in
+/// one database snapshot. A tombstone is never an owner, and a remap is usable
+/// only when the expected message (including its role) moved with the chat.
+/// This is shared by direct and Open WebUI completion paths so their recovery
+/// rules cannot drift.
+Future<String?> resolveDurableChatMessageOwner(
+  AppDatabase database, {
+  required String recordedChatId,
+  required String messageId,
+  required String expectedRole,
+}) {
+  return database.transaction(() async {
+    final source = await database.chatsDao.getChat(recordedChatId);
+    if (source != null) {
+      if (source.deleted) return null;
+      final recorded = await database.messagesDao.getMessage(
+        recordedChatId,
+        messageId,
+      );
+      return recorded?.role == expectedRole ? recordedChatId : null;
+    }
+
+    final target = await database.syncMetaDao.getChatRemapTarget(
+      recordedChatId,
+    );
+    if (target == null || target.isEmpty || target == recordedChatId) {
+      return null;
+    }
+    final destination = await database.chatsDao.getChat(target);
+    if (destination == null || destination.deleted) return null;
+    final moved = await database.messagesDao.getMessage(target, messageId);
+    return moved?.role == expectedRole ? target : null;
+  });
+}
+
 /// A narrow conversation-list row annotated with its owning database.
 class LocatedChatListEntry {
   const LocatedChatListEntry({required this.storage, required this.entry});
@@ -276,18 +313,23 @@ class ChatDatabaseRepository {
     String chatId, {
     ChatStorageKind? preferred,
     ConversationParseOffload? offload,
+    bool Function(ChatDatabaseLocation location)? locationIsCurrent,
   }) async {
     final location = await resolveChat(chatId, preferred: preferred);
     if (location == null) return null;
+    if (locationIsCurrent?.call(location) == false) return null;
 
     final chat = await location.database.chatsDao.getChat(chatId);
+    if (locationIsCurrent?.call(location) == false) return null;
     if (chat == null || !chat.bodySynced) return null;
     final messages = await location.database.messagesDao.getForChat(chatId);
+    if (locationIsCurrent?.call(location) == false) return null;
     final conversation = await assembleConversationGuarded(
       chat,
       messages,
       offload: offload,
     );
+    if (locationIsCurrent?.call(location) == false) return null;
     return LocatedConversation(
       location: location,
       conversation: annotateConversationStorage(conversation, location.storage),
@@ -441,22 +483,57 @@ class ChatDatabaseRepository {
   /// possible Open WebUI `local:` -> server-id remap. This durable lookup closes
   /// the event-subscription race: the message row is rewritten atomically with
   /// its chat even if the in-memory remap event was emitted before a listener
-  /// attached.
+  /// attached. A missing placeholder is followed only through the explicit
+  /// remap committed by the id remapper, never by searching other chats for a
+  /// matching message id.
   Future<String?> resolveCurrentChatIdForMessage(
     ChatDatabaseLocation location, {
     required String recordedChatId,
     required String messageId,
-  }) async {
-    final recorded = await location.database.messagesDao.getMessage(
-      recordedChatId,
-      messageId,
-    );
-    if (recorded != null) return recordedChatId;
+    required String expectedRole,
+  }) => resolveDurableChatMessageOwner(
+    location.database,
+    recordedChatId: recordedChatId,
+    messageId: messageId,
+    expectedRole: expectedRole,
+  );
 
-    final candidates = await location.database.messagesDao.getChatIdsForMessage(
-      messageId,
+  /// Returns the exact destination recorded by a committed chat remap.
+  ///
+  /// Both ends are validated against the owning database. A still-present
+  /// source row means the remap has not committed for this entity (or the raw
+  /// id has been reused), while a missing destination means recovery has no
+  /// durable chat to mutate. This keeps the mapping from becoming an ABA-style
+  /// redirect after deletion/recreation.
+  Future<String?> resolveCommittedChatRemapTarget(
+    ChatDatabaseLocation location, {
+    required String recordedChatId,
+  }) async {
+    final database = location.database;
+    return database.transaction(
+      () => _resolveCommittedChatRemapTarget(
+        database,
+        recordedChatId: recordedChatId,
+      ),
     );
-    return candidates.length == 1 ? candidates.single : null;
+  }
+
+  Future<String?> _resolveCommittedChatRemapTarget(
+    AppDatabase database, {
+    required String recordedChatId,
+  }) async {
+    final source = await database.chatsDao.getChat(recordedChatId);
+    if (source != null) return null;
+
+    final target = await database.syncMetaDao.getChatRemapTarget(
+      recordedChatId,
+    );
+    if (target == null || target.isEmpty || target == recordedChatId) {
+      return null;
+    }
+
+    final destination = await database.chatsDao.getChat(target);
+    return destination == null || destination.deleted ? null : target;
   }
 
   ChatDatabaseLocation? _locationForOrNull(ChatStorageKind storage) {

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:markdown/markdown.dart' as md;
+
 // Escape only the characters needed to neutralize HTML tags (`&`, `<`, `>`)
 // and keep double-quoted `<details>` attributes intact (`"`). The default
 // `HtmlEscape()` (HtmlEscapeMode.unknown) additionally escapes `/` -> `&#47;`
@@ -132,6 +134,17 @@ String renderSemanticMessageBlocks(List<SemanticMessageBlock> blocks) {
   return parts.join('\n');
 }
 
+/// Escapes one plain-text streaming fragment without allowing it to create
+/// Conduit-owned semantic HTML.
+///
+/// This deliberately does not preserve Markdown code spans or fences. Callers
+/// may append fragments only while they have proved that the accumulated text
+/// has no code delimiter; once one appears they must rebuild the authoritative
+/// value with [renderSemanticMessageBlocks] so [_escapeText] can parse the
+/// complete Markdown context.
+String renderSemanticPlainTextFragment(String value) =>
+    _semanticHtmlEscape.convert(value);
+
 String _renderDetailsBlock(SemanticDetailsBlock block) {
   final attributes = <String, String>{
     'type': block.type,
@@ -203,10 +216,179 @@ String _escape(String value) => _semanticHtmlEscape.convert(value);
 final _openingBacktickFence = RegExp(r'^ {0,3}(`{3,})[^`]*$');
 final _openingTildeFence = RegExp(r'^ {0,3}(~{3,}).*$');
 final _closingFence = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$');
-final _inlineCodeSpan = RegExp(r'`[^`]+?`');
+final _indentedCodeLine = RegExp(r'^(?:    | {0,3}\t)');
+final _semanticDetailsBlockStart = RegExp(
+  r'^\s{0,3}<details(?:\s+[^>]*)?>',
+  caseSensitive: false,
+);
+
+// These alternatives mirror the Markdown package's line-local CodeSyntax,
+// AutolinkSyntax, and EmailAutolinkSyntax. Preserving only syntaxes the parser
+// will turn into code/link nodes prevents entity escaping from changing their
+// rendered text while leaving arbitrary angle-bracket HTML neutralized.
+final _safeInlineMarkdown = RegExp(
+  r'(?<!`)(`+(?!`))(.*?[^`])\1(?!`)|'
+  r'<(?:[a-zA-Z][a-zA-Z\-\+\.]+):(?://)?[^\s>]*>|'
+  r'''<[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9]'''
+  r'''(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?'''
+  r'''(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*>''',
+);
+
+// CodeSyntax accepts newlines, but only after the block parser has kept those
+// lines in one inline-capable block. Matching the raw document alone is unsafe:
+// a candidate can cross a line-leading HTML block, leaving its opening backtick
+// literal and its apparent code contents active as HTML. Mark candidates in a
+// temporary copy and let the same GFM block/inline parser used by Conduit prove
+// which occurrences are real code spans before preserving them.
+final _multilineCodeSpanCandidate = RegExp(
+  r'(?<!`)(`+(?!`))((?:.|\n)*?[^`])\1(?!`)',
+);
+const int _maxMultilineCodeSpanCandidates = 4096;
+
+final class _SourceSpan {
+  const _SourceSpan(this.start, this.end);
+
+  final int start;
+  final int end;
+}
+
+final class _RecordingCodeSyntax extends md.CodeSyntax {
+  _RecordingCodeSyntax({required String markerStart, required String markerEnd})
+    : _marker = RegExp(
+        '${RegExp.escape(markerStart)}([0-9a-z]+)${RegExp.escape(markerEnd)}',
+      );
+
+  final RegExp _marker;
+  final Set<int> matchedCandidates = <int>{};
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final marker = _marker.firstMatch(match.group(0)!);
+    final encodedIndex = marker?.group(1);
+    if (encodedIndex != null) {
+      matchedCandidates.add(int.parse(encodedIndex, radix: 36));
+    }
+    return super.onMatch(parser, match);
+  }
+}
+
+List<_SourceSpan> _parserConfirmedMultilineCodeSpans(String value) {
+  final candidates = _multilineCodeSpanCandidate
+      .allMatches(value)
+      .where((match) => match.group(0)!.contains('\n'))
+      .toList(growable: false);
+  if (candidates.isEmpty ||
+      candidates.length > _maxMultilineCodeSpanCandidates) {
+    return const <_SourceSpan>[];
+  }
+
+  // Private-use sentinels are inert Markdown text. Make the pair absent from
+  // provider input so an answer cannot forge a candidate index.
+  var markerStart = '\uE000conduit-code-span';
+  while (value.contains(markerStart)) {
+    markerStart += '\uE000';
+  }
+  var markerEnd = '\uE001';
+  while (value.contains(markerEnd) || markerStart.contains(markerEnd)) {
+    markerEnd += '\uE001';
+  }
+
+  final marked = StringBuffer();
+  var sourceOffset = 0;
+  for (var index = 0; index < candidates.length; index++) {
+    final candidate = candidates[index];
+    final openingLength = candidate.group(1)!.length;
+    final insertionOffset = candidate.start + openingLength;
+    marked
+      ..write(value.substring(sourceOffset, insertionOffset))
+      ..write(markerStart)
+      ..write(index.toRadixString(36))
+      ..write(markerEnd);
+    sourceOffset = insertionOffset;
+  }
+  marked.write(value.substring(sourceOffset));
+
+  final recorder = _RecordingCodeSyntax(
+    markerStart: markerStart,
+    markerEnd: markerEnd,
+  );
+  try {
+    md.Document(
+      extensionSet: md.ExtensionSet.gitHubWeb,
+      inlineSyntaxes: <md.InlineSyntax>[recorder],
+      encodeHtml: false,
+    ).parse(marked.toString());
+  } catch (_) {
+    // Parser disagreement must fail closed: ordinary escaping is always safe.
+    return const <_SourceSpan>[];
+  }
+
+  final confirmed = recorder.matchedCandidates.toList(growable: false)..sort();
+  return <_SourceSpan>[
+    for (final index in confirmed)
+      if (index >= 0 && index < candidates.length)
+        _SourceSpan(candidates[index].start, candidates[index].end),
+  ];
+}
+
+String _escapeInlineMarkdownSegment(String value) => value.splitMapJoin(
+  _safeInlineMarkdown,
+  onMatch: (match) => match[0] ?? '',
+  onNonMatch: _escape,
+);
+
+({String text, int nextSpanIndex}) _escapeInlineMarkdownLine(
+  String line, {
+  required int sourceStart,
+  required List<_SourceSpan> protectedSpans,
+  required int spanIndex,
+}) {
+  final sourceEnd = sourceStart + line.length;
+  var nextSpanIndex = spanIndex;
+  while (nextSpanIndex < protectedSpans.length &&
+      protectedSpans[nextSpanIndex].end <= sourceStart) {
+    nextSpanIndex += 1;
+  }
+
+  final result = StringBuffer();
+  var lineOffset = 0;
+  var candidateIndex = nextSpanIndex;
+  while (candidateIndex < protectedSpans.length) {
+    final span = protectedSpans[candidateIndex];
+    if (span.start >= sourceEnd) break;
+    final protectedStart = span.start <= sourceStart
+        ? 0
+        : span.start - sourceStart;
+    final protectedEnd = span.end >= sourceEnd
+        ? line.length
+        : span.end - sourceStart;
+    if (protectedStart > lineOffset) {
+      result.write(
+        _escapeInlineMarkdownSegment(
+          line.substring(lineOffset, protectedStart),
+        ),
+      );
+    }
+    if (protectedEnd > lineOffset) {
+      result.write(line.substring(protectedStart, protectedEnd));
+      lineOffset = protectedEnd;
+    }
+    if (span.end <= sourceEnd) {
+      candidateIndex += 1;
+      nextSpanIndex = candidateIndex;
+    } else {
+      break;
+    }
+  }
+  if (lineOffset < line.length) {
+    result.write(_escapeInlineMarkdownSegment(line.substring(lineOffset)));
+  }
+  return (text: result.toString(), nextSpanIndex: nextSpanIndex);
+}
 
 /// Escapes HTML-significant characters in plain answer text while leaving the
-/// contents of fenced code blocks and inline code spans untouched.
+/// contents of fenced/indented code blocks, inline code spans, and angle
+/// autolinks untouched.
 ///
 /// Answer text is re-parsed by the markdown pipeline, which does not decode
 /// entity references inside code spans/fences; escaping there would leak literal
@@ -215,21 +397,30 @@ final _inlineCodeSpan = RegExp(r'`[^`]+?`');
 /// `<details>`/`<summary>` that renders as a spoofed reasoning/tool section.
 ///
 /// The scan is line-based and mirrors the block parser's fenced-code handling,
-/// including unclosed fences (which extend to end of input, e.g. mid-stream),
-/// so the skipped regions are exactly the parser's code and escaping is never
-/// skipped where the parser would begin a block. Inline code is matched a
-/// single line at a time so a multi-line span cannot hide a line-leading tag.
+/// including unclosed fences (which extend to end of input, e.g. mid-stream).
+/// Indented code is preserved only where it can begin a top-level CommonMark
+/// block (at the document start or after a blank line); an indented line that
+/// continues a paragraph remains escaped. Multi-line inline code is preserved
+/// only when the Markdown block parser confirms that its exact occurrence stays
+/// inside one inline-capable block, so an apparent span cannot hide a
+/// line-leading tag that actually interrupts its paragraph.
 ///
 /// Unlike [_escape], this is only safe for top-level answer text; `<details>`
 /// attributes/summaries/bodies are HTML-unescaped wholesale at parse time and
 /// must keep full escaping.
 String _escapeText(String value) {
   final lines = value.split('\n');
+  final multilineCodeSpans = _parserConfirmedMultilineCodeSpans(value);
   final result = <String>[];
   String? openFenceChar;
   var openFenceLength = 0;
+  var inIndentedCode = false;
+  var previousLineWasBlank = true;
+  var sourceStart = 0;
+  var multilineSpanIndex = 0;
 
-  for (final rawLine in lines) {
+  for (var index = 0; index < lines.length; index++) {
+    final rawLine = lines[index];
     // Normalize CRLF: split('\n') leaves a trailing '\r' the fence patterns
     // (and the downstream renderer) would otherwise mishandle.
     final line = rawLine.endsWith('\r')
@@ -246,6 +437,30 @@ String _escapeText(String value) {
           openFenceLength = 0;
         }
       }
+      previousLineWasBlank = line.trim().isEmpty;
+      sourceStart += rawLine.length + 1;
+      continue;
+    }
+
+    final isBlank = line.trim().isEmpty;
+    final isIndented = _indentedCodeLine.hasMatch(line);
+    if (inIndentedCode) {
+      if (isBlank || isIndented) {
+        result.add(line);
+        previousLineWasBlank = isBlank;
+        sourceStart += rawLine.length + 1;
+        continue;
+      }
+      inIndentedCode = false;
+    }
+
+    if (isIndented &&
+        !_semanticDetailsBlockStart.hasMatch(line) &&
+        (index == 0 || previousLineWasBlank)) {
+      inIndentedCode = true;
+      result.add(line);
+      previousLineWasBlank = false;
+      sourceStart += rawLine.length + 1;
       continue;
     }
 
@@ -257,17 +472,24 @@ String _escapeText(String value) {
       openFenceChar = run[0];
       openFenceLength = run.length;
       result.add(line);
+      previousLineWasBlank = false;
+      sourceStart += rawLine.length + 1;
       continue;
     }
 
-    // Outside any code block: escape everything except inline code spans.
-    result.add(
-      line.splitMapJoin(
-        _inlineCodeSpan,
-        onMatch: (match) => match[0] ?? '',
-        onNonMatch: _escape,
-      ),
+    // Outside any code block: preserve only parser-recognized inline code and
+    // angle autolinks. In particular, `<details>` and `<summary>` do not match
+    // these alternatives and remain escaped.
+    final escapedLine = _escapeInlineMarkdownLine(
+      line,
+      sourceStart: sourceStart,
+      protectedSpans: multilineCodeSpans,
+      spanIndex: multilineSpanIndex,
     );
+    result.add(escapedLine.text);
+    multilineSpanIndex = escapedLine.nextSpanIndex;
+    previousLineWasBlank = isBlank;
+    sourceStart += rawLine.length + 1;
   }
 
   return result.join('\n');

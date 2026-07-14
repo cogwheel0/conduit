@@ -3,10 +3,23 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import '../utils/debug_logger.dart';
 
+/// Immutable authorization value captured for work that must remain bound to
+/// the account session that created it, even if the shared [ApiService]
+/// interceptor is updated before the queued request reaches [onRequest].
+final class ApiAuthSnapshot {
+  const ApiAuthSnapshot._(this._token, this._revision);
+
+  final String? _token;
+  final int _revision;
+}
+
 /// Consistent authentication interceptor for all API requests
 /// Implements security requirements from OpenAPI specification
 class ApiAuthInterceptor extends Interceptor {
+  static const String authSnapshotExtraKey = 'conduit.api.auth_snapshot';
+
   String? _authToken;
+  int _authRevision = 0;
   final Map<String, String> customHeaders;
 
   // Callbacks for auth events
@@ -43,10 +56,15 @@ class ApiAuthInterceptor extends Interceptor {
   }) : _authToken = authToken;
 
   void updateAuthToken(String? token) {
+    if (token == _authToken) return;
     _authToken = token;
+    _authRevision++;
   }
 
   String? get authToken => _authToken;
+
+  ApiAuthSnapshot captureSnapshot() =>
+      ApiAuthSnapshot._(_authToken, _authRevision);
 
   _EndpointAuthMode _authModeFor(String path) {
     if (_publicEndpoints.contains(path)) {
@@ -66,7 +84,20 @@ class ApiAuthInterceptor extends Interceptor {
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final path = options.path;
     final authMode = _authModeFor(path);
-    final token = _authToken;
+    final snapshot = options.extra[authSnapshotExtraKey];
+    if (snapshot is ApiAuthSnapshot &&
+        (snapshot._revision != _authRevision ||
+            snapshot._token != _authToken)) {
+      handler.reject(
+        DioException(
+          requestOptions: options,
+          type: DioExceptionType.cancel,
+          error: 'Authorization session changed before request dispatch.',
+        ),
+      );
+      return;
+    }
+    final token = snapshot is ApiAuthSnapshot ? snapshot._token : _authToken;
 
     if (authMode == _EndpointAuthMode.required) {
       if (token == null || token.isEmpty) {
@@ -150,7 +181,7 @@ class ApiAuthInterceptor extends Interceptor {
   /// Clear auth token and notify callbacks
   /// Note: This should only be called for explicit logout, not for connection errors
   void _clearAuthToken() {
-    _authToken = null;
+    updateAuthToken(null);
     final future = onTokenInvalidated?.call();
     if (future != null) {
       unawaited(future);

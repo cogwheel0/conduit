@@ -37,13 +37,19 @@ final class OpenAiResponsesCodec {
 
   static OpenAiResponseContent content(openai.Response response) {
     final reasoning = StringBuffer();
+    final reasoningText = StringBuffer();
+    final reasoningSummary = StringBuffer();
     for (final item in response.reasoningItems) {
       final content = item.content
           ?.map((part) => _textValue(part['text']))
           .whereType<String>()
           .join();
       final summary = item.summary.map((part) => part.text).join();
-      reasoning.write(_nonEmpty(content) ?? _nonEmpty(summary) ?? '');
+      final nonEmptyContent = _nonEmpty(content);
+      final nonEmptySummary = _nonEmpty(summary);
+      reasoningText.write(nonEmptyContent ?? '');
+      reasoningSummary.write(nonEmptySummary ?? '');
+      reasoning.write(nonEmptyContent ?? nonEmptySummary ?? '');
     }
 
     final text = StringBuffer();
@@ -63,6 +69,8 @@ final class OpenAiResponsesCodec {
     return OpenAiResponseContent(
       text: text.toString(),
       reasoning: reasoning.toString(),
+      reasoningText: reasoningText.toString(),
+      reasoningSummary: reasoningSummary.toString(),
     );
   }
 
@@ -96,8 +104,21 @@ final class OpenAiResponsesCodec {
 }
 
 final class OpenAiResponseContent {
-  const OpenAiResponseContent({required this.text, required this.reasoning});
+  const OpenAiResponseContent({
+    required this.text,
+    required this.reasoning,
+    required this.reasoningText,
+    required this.reasoningSummary,
+  });
 
   final String text;
+
+  /// The existing preferred reasoning projection: detailed text when present,
+  /// otherwise its summary, for each response reasoning item.
   final String reasoning;
+
+  /// Detailed reasoning content, kept separate from summary text so streaming
+  /// prefix reconciliation does not compare two legitimate event categories.
+  final String reasoningText;
+  final String reasoningSummary;
 }

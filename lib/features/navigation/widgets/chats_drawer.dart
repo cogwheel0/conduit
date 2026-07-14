@@ -1674,6 +1674,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     // Capture a provider container detached from this widget's lifecycle so
     // we can continue to read/write providers after the drawer is closed.
     final container = ProviderScope.containerOf(context, listen: false);
+    final usesOpenWebUiStorage = chat.conversationUsesOpenWebUiStorage(
+      conversation,
+    );
+    final openWebUiOwnership = usesOpenWebUiStorage
+        ? captureOpenWebUiConversationRead(container)
+        : null;
+    if (usesOpenWebUiStorage && openWebUiOwnership == null) {
+      if (mounted) setState(() => _isLoadingConversation = false);
+      return;
+    }
 
     // Selecting a real conversation exits temporary mode
     container.read(temporaryChatEnabledProvider.notifier).set(false);
@@ -1728,6 +1738,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final full = await container.read(
         loadConversationProvider(scopedId).future,
       );
+      if (openWebUiOwnership != null &&
+          !openWebUiConversationReadIsCurrent(container, openWebUiOwnership)) {
+        container.read(chat.isLoadingConversationProvider.notifier).set(false);
+        _pendingConversationId = null;
+        return;
+      }
       container
           .read(activeConversationProvider.notifier)
           .set(withOptimisticReadAt(full));

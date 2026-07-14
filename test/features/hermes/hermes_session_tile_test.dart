@@ -9,6 +9,7 @@ import 'package:conduit/features/hermes/models/hermes_session.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -168,7 +169,7 @@ class _FakeHermesApiService extends HermesApiService {
   ];
 
   @override
-  Future<void> deleteSession(String id) async {
+  Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
     deletedSessionIds.add(id);
   }
 }

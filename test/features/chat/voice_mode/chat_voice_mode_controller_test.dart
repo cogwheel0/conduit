@@ -16,10 +16,38 @@ import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/openwebui_storage_test_overrides.dart';
+
 const _model = Model(id: 'test-model', name: 'Test Model');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('cancelSpeaking before start is an idempotent no-op', () async {
+    final tts = _FakeTextToSpeechService();
+    final container = ProviderContainer(
+      overrides: [
+        textToSpeechServiceProvider.overrideWithValue(tts),
+        chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceBackgroundCoordinator(),
+        ),
+        chatVoiceAudioSessionCoordinatorProvider.overrideWithValue(
+          _FakeChatVoiceAudioSessionCoordinator(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatVoiceModeControllerProvider.notifier);
+
+    await controller.cancelSpeaking();
+
+    check(
+      container.read(chatVoiceModeControllerProvider).phase,
+    ).equals(ChatVoiceModePhase.idle);
+    check(tts.stopStreamingCalls).equals(0);
+    check(tts.stopCalls).equals(0);
+  });
 
   test(
     'sends transcript through chat voice mode and resumes listening',
@@ -29,6 +57,7 @@ void main() {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -89,6 +118,7 @@ void main() {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -139,6 +169,7 @@ void main() {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -184,6 +215,7 @@ void main() {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -238,6 +270,7 @@ void main() {
       var stopGenerationCalls = 0;
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -305,6 +338,7 @@ void main() {
       var stopGenerationCalls = 0;
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -374,6 +408,7 @@ void main() {
     final audioSession = _FakeChatVoiceAudioSessionCoordinator();
     final container = ProviderContainer(
       overrides: [
+        ...openWebUiStorageOpenOverrides(),
         authNavigationStateProvider.overrideWithValue(
           AuthNavigationState.authenticated,
         ),
@@ -440,6 +475,7 @@ void main() {
       final audioSession = _FakeChatVoiceAudioSessionCoordinator();
       final container = ProviderContainer(
         overrides: [
+          ...openWebUiStorageOpenOverrides(),
           authNavigationStateProvider.overrideWithValue(
             AuthNavigationState.authenticated,
           ),
@@ -491,6 +527,7 @@ void main() {
     final audioSession = _FakeChatVoiceAudioSessionCoordinator();
     final container = ProviderContainer(
       overrides: [
+        ...openWebUiStorageOpenOverrides(),
         authNavigationStateProvider.overrideWithValue(
           AuthNavigationState.authenticated,
         ),
