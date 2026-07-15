@@ -1463,6 +1463,57 @@ void main() {
   );
 
   test(
+    'unlistened conversation provider stays mounted during repository load',
+    () async {
+      final harness = await _harness();
+      final container = harness.container;
+      final transactionStarted = Completer<void>();
+      final releaseTransaction = Completer<void>();
+      final blockingTransaction = harness.serverA.transaction(() async {
+        transactionStarted.complete();
+        await releaseTransaction.future;
+      });
+      try {
+        await transactionStarted.future;
+
+        final scopedId = const ChatStorageIdentity(
+          rawId: 'account-a-chat',
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
+        var completed = false;
+        final pending = container
+            .read(loadConversationProvider(scopedId).future)
+            .then(
+              (conversation) {
+                completed = true;
+                return conversation;
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                completed = true;
+                Error.throwWithStackTrace(error, stackTrace);
+              },
+            );
+        await Future<void>.delayed(Duration.zero);
+        check(completed).isFalse();
+
+        releaseTransaction.complete();
+        await blockingTransaction;
+
+        final conversation = await pending;
+        check(conversation.id).equals('account-a-chat');
+        check(
+          chatStorageKindOf(conversation),
+        ).equals(ChatStorageKind.openWebUi);
+      } finally {
+        if (!releaseTransaction.isCompleted) {
+          releaseTransaction.complete();
+        }
+        await blockingTransaction;
+      }
+    },
+  );
+
+  test(
     'conversation provider drops a repository body when ownership changes mid-load',
     () async {
       final harness = await _harness();

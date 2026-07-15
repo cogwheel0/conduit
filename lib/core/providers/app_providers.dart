@@ -3425,7 +3425,15 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
 
 // Provider to load full conversation with messages
 @riverpod
-Future<Conversation> loadConversation(Ref ref, String conversationId) async {
+Future<Conversation> loadConversation(Ref ref, String conversationId) {
+  final keepAliveLink = ref.keepAlive();
+  return _loadConversation(
+    ref,
+    conversationId,
+  ).whenComplete(keepAliveLink.close);
+}
+
+Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   final identity = ChatStorageIdentity.parse(conversationId);
   final rawConversationId = identity.rawId;
   // Preserve database provenance from the selected summary when possible.
