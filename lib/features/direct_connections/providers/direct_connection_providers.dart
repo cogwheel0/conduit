@@ -22,6 +22,7 @@ import '../services/direct_provider_adapter.dart';
 import '../services/direct_run_registry.dart';
 import '../services/ollama_adapter.dart';
 import '../services/openwebui_direct_connection_store.dart';
+import '../services/openwebui_direct_completion_relay.dart';
 import '../services/openai_compatible_adapter.dart';
 
 export '../services/direct_connection_profile_store.dart'
@@ -724,6 +725,222 @@ final openWebUiDirectConnectionsProvider =
       OpenWebUiDirectConnectionsSnapshot?
     >(OpenWebUiDirectConnectionsController.new);
 
+const int _maxConcurrentOpenWebUiDirectRelays = 8;
+
+typedef OpenWebUiDirectCompletionRelayFactory =
+    OpenWebUiDirectCompletionRelay Function({
+      required OpenWebUiDirectChannelEmitter emitChannel,
+    });
+
+final openWebUiDirectCompletionRelayFactoryProvider =
+    Provider<OpenWebUiDirectCompletionRelayFactory>(
+      (ref) =>
+          ({required emitChannel}) =>
+              OpenWebUiDirectCompletionRelay(emitChannel: emitChannel),
+    );
+
+/// Global Socket.IO handler for Open WebUI's client-side direct-completion RPC.
+///
+/// Upstream installs this at layout/session scope rather than inside one chat
+/// stream. Keeping the same lifetime ensures the handler is ready before
+/// `/api/chat/completions` starts a background task that waits for its RPC ACK.
+final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
+  final socket = ref.watch(socketServiceProvider);
+  final api = ref.watch(apiServiceProvider);
+  final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+  final snapshot = ref.watch(openWebUiDirectConnectionsProvider).value;
+  final relayFactory = ref.watch(openWebUiDirectCompletionRelayFactoryProvider);
+  if (socket == null ||
+      api == null ||
+      snapshot == null ||
+      socket.serverConfig.id != api.serverConfig.id ||
+      snapshot.serverId != api.serverConfig.id) {
+    return;
+  }
+
+  final activeRuns = <String, OpenWebUiDirectCompletionRelayRun>{};
+  var ownerDisposed = false;
+
+  bool ownsCapturedSession() =>
+      !ownerDisposed &&
+      identical(socket, ref.read(socketServiceProvider)) &&
+      identical(api, ref.read(apiServiceProvider)) &&
+      identical(
+        authSessionEpoch,
+        ref.read(openWebUiAuthSessionEpochProvider),
+      ) &&
+      identical(snapshot, ref.read(openWebUiDirectConnectionsProvider).value);
+
+  void cancelActiveRuns(String reason) {
+    final runs = activeRuns.values.toList(growable: false);
+    activeRuns.clear();
+    for (final run in runs) {
+      unawaited(run.cancel(reason));
+    }
+  }
+
+  void rejectRpc(void Function(dynamic)? acknowledge, String message) {
+    if (acknowledge == null) return;
+    try {
+      acknowledge(<String, dynamic>{'status': false, 'error': message});
+    } catch (_) {}
+  }
+
+  final subscription = socket.addChatEventHandler(
+    requireFocus: false,
+    handler: (event, acknowledge) {
+      final envelope = event['data'];
+      if (envelope is! Map || envelope['type'] != 'request:chat:completion') {
+        return;
+      }
+      if (acknowledge == null) return;
+      if (!ownsCapturedSession()) {
+        rejectRpc(acknowledge, 'The direct connection session changed.');
+        return;
+      }
+
+      final rawPayload = envelope['data'];
+      if (rawPayload is! Map) {
+        rejectRpc(acknowledge, 'Invalid direct-completion request.');
+        return;
+      }
+      Map<String, dynamic> payload;
+      try {
+        payload = Map<String, dynamic>.from(rawPayload);
+      } catch (_) {
+        rejectRpc(acknowledge, 'Invalid direct-completion request.');
+        return;
+      }
+
+      final currentSessionId = socket.sessionId;
+      if (!socket.isConnected ||
+          currentSessionId == null ||
+          payload['session_id'] != currentSessionId) {
+        rejectRpc(acknowledge, 'The server socket session changed.');
+        return;
+      }
+
+      final model = payload['model'];
+      final urlIndex = model is Map
+          ? _parseOpenWebUiDirectUrlIndex(model['urlIdx'])
+          : null;
+      final record = urlIndex == null
+          ? null
+          : snapshot.records
+                .where((candidate) => candidate.index == urlIndex)
+                .firstOrNull;
+      if (record == null ||
+          !record.isCompatible ||
+          !record.profile.enabled ||
+          record.profile.adapterKey != kOpenAiCompatibleAdapterKey) {
+        rejectRpc(acknowledge, 'The direct connection is unavailable.');
+        return;
+      }
+
+      final formData = payload['form_data'];
+      final wireModelId = formData is Map
+          ? formData['model']?.toString()
+          : null;
+      if (wireModelId == null || wireModelId.trim().isEmpty) {
+        rejectRpc(acknowledge, 'Invalid direct-completion request.');
+        return;
+      }
+      final binding = ref
+          .read(directModelRegistryProvider)
+          .resolveOpenWebUiWireBinding(
+            profileId: record.profile.id,
+            urlIndex: record.index,
+            wireModelId: wireModelId,
+          );
+      if (binding == null) {
+        rejectRpc(acknowledge, 'The direct model is unavailable.');
+        return;
+      }
+
+      final channel = payload['channel']?.toString();
+      if (channel == null || channel.isEmpty) {
+        rejectRpc(acknowledge, 'Invalid direct-completion request.');
+        return;
+      }
+      if (activeRuns.containsKey(channel)) {
+        rejectRpc(
+          acknowledge,
+          'The direct-completion request is already active.',
+        );
+        return;
+      }
+      if (activeRuns.length >= _maxConcurrentOpenWebUiDirectRelays) {
+        rejectRpc(
+          acknowledge,
+          'Too many direct-completion requests are active.',
+        );
+        return;
+      }
+
+      try {
+        late final OpenWebUiDirectCompletionRelayRun run;
+        final relay = relayFactory(
+          emitChannel: (eventName, data) =>
+              ownsCapturedSession() &&
+              socket.emitForSession(currentSessionId, eventName, data),
+        );
+        run = relay.start(
+          profile: record.profile,
+          trustedRemoteModelId: binding.remoteModelId,
+          trustedUrlIndex: record.index,
+          expectedAccountId: snapshot.accountId,
+          expectedSessionId: currentSessionId,
+          payload: payload,
+          acknowledge: acknowledge,
+        );
+        activeRuns[channel] = run;
+        unawaited(
+          run.done.then<void>(
+            (_) {
+              if (identical(activeRuns[channel], run)) {
+                activeRuns.remove(channel);
+              }
+            },
+            onError: (Object _, StackTrace _) {
+              if (identical(activeRuns[channel], run)) {
+                activeRuns.remove(channel);
+              }
+            },
+          ),
+        );
+      } catch (_) {
+        rejectRpc(acknowledge, 'The direct connection is unavailable.');
+      }
+    },
+  );
+  final reconnectSubscription = socket.onReconnect.listen((_) {
+    cancelActiveRuns('Socket reconnected');
+  });
+  final healthSubscription = socket.healthStream.listen((health) {
+    if (!health.isConnected) cancelActiveRuns('Socket disconnected');
+  });
+
+  ref.onDispose(() {
+    ownerDisposed = true;
+    subscription.dispose();
+    unawaited(reconnectSubscription.cancel());
+    unawaited(healthSubscription.cancel());
+    cancelActiveRuns('Direct relay owner changed');
+  });
+});
+
+int? _parseOpenWebUiDirectUrlIndex(Object? value) {
+  if (value is int) return value >= 0 ? value : null;
+  if (value is num && value.isFinite && value == value.truncateToDouble()) {
+    final parsed = value.toInt();
+    return parsed >= 0 ? parsed : null;
+  }
+  if (value is String && RegExp(r'^(0|[1-9][0-9]*)$').hasMatch(value)) {
+    return int.tryParse(value);
+  }
+  return null;
+}
+
 /// Runtime view used by discovery, routing, and direct chat dispatch. Server
 /// sync failures remain visible on the settings page but do not make healthy
 /// device-only connections unavailable.
@@ -883,6 +1100,22 @@ class DirectModelDiscoveryController
     if (!ref.mounted) return DirectModelDiscoveryState();
     final profiles = allProfiles.where((profile) => profile.enabled).toList();
     final activeIds = profiles.map((profile) => profile.id).toSet();
+    final localProfileIds =
+        ref
+            .read(directConnectionProfilesProvider)
+            .value
+            ?.map((profile) => profile.id)
+            .toSet() ??
+        const <String>{};
+    final openWebUiRecordsByProfileId =
+        <String, OpenWebUiDirectConnectionRecord>{
+          for (final record
+              in ref.read(openWebUiDirectConnectionsProvider).value?.records ??
+                  const <OpenWebUiDirectConnectionRecord>[])
+            if (record.isCompatible &&
+                !localProfileIds.contains(record.profile.id))
+              record.profile.id: record,
+        };
     final registry = ref.read(directModelRegistryProvider)
       ..retainProfiles(activeIds);
 
@@ -915,16 +1148,30 @@ class DirectModelDiscoveryController
       final cached = _cache[outcome.profile.id] ?? const <DirectRemoteModel>[];
       final previousMinted = _mintedModels[outcome.profile.id];
       final previousProfile = _mintedModelProfiles[outcome.profile.id];
+      final openWebUiRecord = openWebUiRecordsByProfileId[outcome.profile.id];
+      final source = openWebUiRecord == null
+          ? DirectModelSource.device
+          : DirectModelSource.openWebUi;
       final canReuseMinted =
           previousMinted != null &&
           previousProfile != null &&
           previousCached != null &&
           listEquals(previousCached, cached) &&
           sameDirectConnectionProfileValues(previousProfile, outcome.profile) &&
-          previousMinted.every((item) => registry.resolve(item) != null);
+          previousMinted.every((item) {
+            final binding = registry.resolve(item);
+            return binding != null &&
+                binding.source == source &&
+                binding.openWebUiUrlIndex == openWebUiRecord?.index;
+          });
       final profileModels = canReuseMinted
           ? previousMinted
-          : registry.replaceProfileModels(outcome.profile, cached);
+          : registry.replaceProfileModels(
+              outcome.profile,
+              cached,
+              source: source,
+              openWebUiUrlIndex: openWebUiRecord?.index,
+            );
       _mintedModels[outcome.profile.id] = profileModels;
       _mintedModelProfiles[outcome.profile.id] = outcome.profile;
       models.addAll(profileModels);

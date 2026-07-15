@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/socket_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +21,24 @@ import '../../../support/openwebui_storage_test_overrides.dart';
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
+}
+
+class _FixedModels extends Models {
+  _FixedModels(this.models);
+
+  final List<Model> models;
+
+  @override
+  Future<List<Model>> build() async => models;
+}
+
+class _DeferredModels extends Models {
+  _DeferredModels(this.models);
+
+  final Future<List<Model>> models;
+
+  @override
+  Future<List<Model>> build() => models;
 }
 
 class _RecordingConversations extends Conversations {
@@ -174,10 +196,176 @@ Conversation _conversation(
 
 Future<void> pumpMicrotasks() => Future<void>.delayed(Duration.zero);
 
+({DirectModelRegistry registry, Model model, String wireModelId})
+_serverDirectModel() {
+  final profile = DirectConnectionProfile(
+    id: 'server-direct-profile',
+    name: 'Server direct connection',
+    adapterKey: kOpenAiCompatibleAdapterKey,
+    baseUrl: 'https://provider.example.test/v1',
+    modelIdPrefix: 'shared',
+  );
+  final registry = DirectModelRegistry();
+  final model = registry
+      .replaceProfileModels(
+        profile,
+        <DirectRemoteModel>[DirectRemoteModel(id: 'model')],
+        source: DirectModelSource.openWebUi,
+        openWebUiUrlIndex: 2,
+      )
+      .single;
+  return (registry: registry, model: model, wireModelId: 'shared.model');
+}
+
+ProviderContainer _modelRebindContainer({
+  required DirectModelRegistry registry,
+  required List<Model> models,
+}) => ProviderContainer(
+  overrides: [
+    ...openWebUiStorageOpenOverrides(),
+    activeConversationProvider.overrideWith(
+      _TestActiveConversationNotifier.new,
+    ),
+    apiServiceProvider.overrideWithValue(null),
+    socketServiceProvider.overrideWithValue(null),
+    directModelRegistryProvider.overrideWithValue(registry),
+    modelsProvider.overrideWith(() => _FixedModels(models)),
+  ],
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ChatMessagesNotifier remote sync', () {
+    test(
+      'a slower model lookup cannot overwrite a newer conversation',
+      () async {
+        final models = Completer<List<Model>>();
+        const priorSelection = Model(
+          id: 'previous-model',
+          name: 'Previous model',
+        );
+        const modelA = Model(id: 'model-a', name: 'Model A');
+        const modelB = Model(id: 'model-b', name: 'Model B');
+        final container = ProviderContainer(
+          overrides: [
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              _TestActiveConversationNotifier.new,
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            modelsProvider.overrideWith(() => _DeferredModels(models.future)),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider);
+        container.read(selectedModelProvider.notifier).set(priorSelection);
+
+        Conversation conversation(String id, String model) =>
+            withChatStorageProvenance(
+              _conversation(
+                id,
+                const <ChatMessage>[],
+                DateTime.utc(2026, 7, 15),
+              ).copyWith(model: model),
+              ChatStorageKind.openWebUi,
+            );
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(conversation('chat-a', modelA.id));
+        await pumpMicrotasks();
+        container
+            .read(activeConversationProvider.notifier)
+            .set(conversation('chat-b', modelB.id));
+        await pumpMicrotasks();
+
+        models.complete(const <Model>[modelA, modelB]);
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(container.read(selectedModelProvider)).identicalTo(modelB);
+      },
+    );
+
+    test(
+      'cold reopen rebinds an Open WebUI wire model to its trusted direct model',
+      () async {
+        final direct = _serverDirectModel();
+        const priorSelection = Model(
+          id: 'previous-model',
+          name: 'Previous model',
+        );
+        final container = _modelRebindContainer(
+          registry: direct.registry,
+          models: <Model>[direct.model],
+        );
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider);
+        container.read(selectedModelProvider.notifier).set(priorSelection);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              withChatStorageProvenance(
+                _conversation(
+                  'server-direct-chat',
+                  const <ChatMessage>[],
+                  DateTime.utc(2026, 7, 15),
+                ).copyWith(model: direct.wireModelId),
+                ChatStorageKind.openWebUi,
+              ),
+            );
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(direct.model.id).not((it) => it.equals(direct.wireModelId));
+        check(container.read(selectedModelProvider)).identicalTo(direct.model);
+        check(
+          direct.registry.resolve(container.read(selectedModelProvider)!),
+        ).isNotNull();
+      },
+    );
+
+    test(
+      'cold reopen prefers trusted direct binding over a same-id server model',
+      () async {
+        final direct = _serverDirectModel();
+        final serverCollision = Model(
+          id: direct.wireModelId,
+          name: 'Untrusted server collision',
+        );
+        final container = _modelRebindContainer(
+          registry: direct.registry,
+          models: <Model>[serverCollision, direct.model],
+        );
+        addTearDown(container.dispose);
+        container.read(chatMessagesProvider);
+        container.read(selectedModelProvider.notifier).set(serverCollision);
+
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              withChatStorageProvenance(
+                _conversation(
+                  'server-direct-collision-chat',
+                  const <ChatMessage>[],
+                  DateTime.utc(2026, 7, 15),
+                ).copyWith(model: direct.wireModelId),
+                ChatStorageKind.openWebUi,
+              ),
+            );
+        await pumpMicrotasks();
+        await pumpMicrotasks();
+
+        check(container.read(selectedModelProvider)).identicalTo(direct.model);
+        check(
+          container.read(selectedModelProvider),
+        ).not((it) => it.identicalTo(serverCollision));
+      },
+    );
+
     test('adopts a fetched snapshot for the same conversation ID', () async {
       final timestamp = DateTime.now();
       final initialMessages = [

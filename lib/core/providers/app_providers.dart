@@ -2324,7 +2324,10 @@ final defaultModelAutoSelectionProvider = Provider<void>((ref) {
         }
         Model? selected;
         try {
-          selected = models.firstWhere((model) => model.id == desired);
+          selected = ref
+              .read(directModelRegistryProvider)
+              .resolveOpenWebUiWireModel(models, desired);
+          selected ??= models.firstWhere((model) => model.id == desired);
         } catch (_) {
           selected = null;
         }
@@ -3811,9 +3814,13 @@ Future<Model?> defaultModel(Ref ref) async {
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
-      final availableMatch = availableModels
-          .where((model) => model.id == storedDefaultId)
-          .firstOrNull;
+      final availableMatch =
+          ref
+              .read(directModelRegistryProvider)
+              .resolveOpenWebUiWireModel(availableModels, storedDefaultId) ??
+          availableModels
+              .where((model) => model.id == storedDefaultId)
+              .firstOrNull;
       if (availableMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(availableMatch);
         if (!isLocallyMintedDirectModel(availableMatch) &&
@@ -3925,25 +3932,38 @@ Future<Model?> defaultModel(Ref ref) async {
         return ref.read(selectedModelProvider);
       }
       if (serverDefault != null && serverDefault.isNotEmpty) {
-        final models = await api.getModels();
+        final availableModels = await ref.read(modelsProvider.future);
         if (!ref.mounted) return null;
         if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
           return ref.read(selectedModelProvider);
         }
-        final resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
+        Model? resolved = ref
+            .read(directModelRegistryProvider)
+            .resolveOpenWebUiWireModel(availableModels, serverDefault);
+        if (resolved == null) {
+          final models = await api.getModels();
+          if (!ref.mounted) return null;
+          if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+            return ref.read(selectedModelProvider);
+          }
+          resolved = resolveSafeRemoteDefaultModel(models, serverDefault);
+        }
 
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
           ref.read(selectedModelProvider.notifier).set(resolved);
-          unawaited(
-            storage.saveLocalDefaultModel(resolved).onError((error, stack) {
-              DebugLogger.error(
-                'Failed to save default model to cache',
-                scope: 'models/default',
-                error: error,
-                stackTrace: stack,
-              );
-            }),
-          );
+          if (!isLocallyMintedDirectModel(resolved) &&
+              !isHermesModel(resolved)) {
+            unawaited(
+              storage.saveLocalDefaultModel(resolved).onError((error, stack) {
+                DebugLogger.error(
+                  'Failed to save default model to cache',
+                  scope: 'models/default',
+                  error: error,
+                  stackTrace: stack,
+                );
+              }),
+            );
+          }
           DebugLogger.log(
             'server-default',
             scope: 'models/default',

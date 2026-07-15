@@ -26,6 +26,8 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/database/chat_database_repository.dart';
 import '../../auth/providers/unified_auth_providers.dart';
+import '../../direct_connections/providers/direct_connection_providers.dart';
+import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
@@ -314,6 +316,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       messages: messages,
       models: models,
       apiService: apiService,
+      directModelRegistry: ref.read(directModelRegistryProvider),
       crossAxisExtent: crossAxisExtent,
     );
     _stableLayoutMetadata = metadata;
@@ -3484,13 +3487,27 @@ String? _messageModelNameFallback(ChatMessage message) {
   return value == null || value.isEmpty ? null : value;
 }
 
-Map<String, Model>? _buildChatModelLookup(List<Model>? models) {
+Map<String, Model>? _buildChatModelLookup(
+  List<Model>? models, {
+  DirectModelRegistry? directModelRegistry,
+}) {
   if (models == null || models.isEmpty) return null;
   final lookup = <String, Model>{};
+  final trustedOpenWebUiWireModels = <String, Model>{};
   for (final model in models) {
     lookup[model.id] = model;
     lookup[model.name] = model;
+    final binding = directModelRegistry?.resolve(model);
+    final wireModelId = binding?.source == DirectModelSource.openWebUi
+        ? binding?.openWebUiModelId
+        : null;
+    if (wireModelId != null && wireModelId.isNotEmpty) {
+      trustedOpenWebUiWireModels[wireModelId] = model;
+    }
   }
+  // Apply trusted wire aliases after ordinary ids/names so a later untrusted
+  // same-id server model cannot replace the current direct binding.
+  lookup.addAll(trustedOpenWebUiWireModels);
   return lookup;
 }
 
@@ -3627,9 +3644,13 @@ _ChatListStableLayoutMetadata _buildChatListStableLayoutMetadata({
   required List<ChatMessage> messages,
   required List<Model>? models,
   required ApiService? apiService,
+  DirectModelRegistry? directModelRegistry,
   required double crossAxisExtent,
 }) {
-  final modelLookup = _buildChatModelLookup(models);
+  final modelLookup = _buildChatModelLookup(
+    models,
+    directModelRegistry: directModelRegistry,
+  );
   final bubbleAdjacency = _buildChatBubbleAdjacency(messages);
   final rows = <_ChatRowLayoutMetadata>[];
   final indexByMessageId = <String, int>{};
@@ -3856,11 +3877,14 @@ List<
 debugBuildChatListLayoutSummaryForTesting(
   List<ChatMessage> messages, {
   double crossAxisExtent = 400,
+  List<Model>? models,
+  DirectModelRegistry? directModelRegistry,
 }) {
   final metadata = _buildChatListStableLayoutMetadata(
     messages: messages,
-    models: null,
+    models: models,
     apiService: null,
+    directModelRegistry: directModelRegistry,
     crossAxisExtent: crossAxisExtent,
   );
   return metadata.rows

@@ -1110,19 +1110,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
-  Map<dynamic, dynamic>? extractStreamingChoiceDelta(
-    Map<String, dynamic> payload,
-  ) {
-    final choices = payload['choices'];
-    if (choices is! List || choices.isEmpty) {
-      return null;
-    }
-
-    final choice = choices.first;
-    final delta = choice is Map ? choice['delta'] : null;
-    return delta is Map ? delta : null;
-  }
-
   late final bool Function({
     required String targetId,
     required _AssistantServerPatch Function(ChatMessage current) buildPatch,
@@ -2717,110 +2704,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     wrappedFinishStreaming();
   }
 
-  void channelLineHandlerFactory(String channel) {
-    void onChannelDone() {
-      try {
-        socketService?.offEvent(channel);
-      } catch (_) {}
-      if (localResourcesDisposed || isObsoleteStream) {
-        return;
-      }
-      finalizeStreamingReasoning();
-      if (!isTemporaryChat(activeConversationId)) {
-        unawaited(ensureChatCompletedSynced());
-      }
-      wrappedFinishStreaming();
-    }
-
-    void handler(dynamic line) {
-      // Normal completion disposes local subscriptions without making the
-      // successfully completed stream obsolete. A channel callback can already
-      // be queued at that point; ignore it instead of retiring/aborting the
-      // completed server task.
-      if (localResourcesDisposed || isObsoleteStream) {
-        return;
-      }
-      if (streamHasBeenSuperseded()) {
-        retireObsoleteStream(
-          'Superseded by channel stream $channel',
-          incomingMessageId: null,
-        );
-        return;
-      }
-      try {
-        if (line is String) {
-          final s = line.trim();
-          // Enhanced completion detection matching OpenWebUI patterns
-          if (s == '[DONE]' || s == 'DONE' || s == 'data: [DONE]') {
-            onChannelDone();
-            return;
-          }
-          if (s.startsWith('data:')) {
-            final dataStr = s.substring(5).trim();
-            if (dataStr == '[DONE]') {
-              onChannelDone();
-              return;
-            }
-            try {
-              final parsed = decodeOpenWebUIDataPayload(dataStr);
-              final delta = extractStreamingChoiceDelta(parsed);
-              if (delta != null) {
-                handleStreamingToolCallStatuses(delta['tool_calls']);
-              }
-
-              for (final update in parseOpenWebUIParsedPayload(parsed)) {
-                applyParsedOpenWebUIUpdate(
-                  update,
-                  onDone: onChannelDone,
-                  handleEvent: (type, data) =>
-                      handleHttpStreamEventFastPath(type: type, data: data),
-                );
-              }
-            } catch (_) {
-              if (s.isNotEmpty) {
-                appendVisibleAssistantChunk(s);
-              }
-            }
-          } else {
-            if (s.isNotEmpty) {
-              appendVisibleAssistantChunk(s);
-            }
-          }
-        } else if (line is Map) {
-          if (line['done'] == true) {
-            onChannelDone();
-            return;
-          }
-        }
-      } catch (_) {}
-    }
-
-    try {
-      socketService?.onEvent(channel, handler);
-    } catch (_) {}
-    if (localResourcesDisposed) {
-      try {
-        socketService?.offEvent(channel);
-      } catch (_) {}
-      return;
-    }
-    // Increased timeout to match our more generous streaming timeouts
-    // OpenWebUI doesn't have such aggressive channel timeouts
-    // Use Timer instead of Future.delayed so it can be cancelled on cleanup
-    final channelTimeoutTimer = Timer(const Duration(minutes: 12), () {
-      try {
-        socketService?.offEvent(channel);
-      } catch (_) {}
-    });
-    // Register cleanup for socket subscriptions
-    addSocketSubscription(() {
-      channelTimeoutTimer.cancel();
-      try {
-        socketService?.offEvent(channel);
-      } catch (_) {}
-    });
-  }
-
   void chatHandler(
     Map<String, dynamic> ev,
     void Function(dynamic response)? ack,
@@ -3398,25 +3281,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           try {
             ack({'stdout': '', 'stderr': '', 'result': null});
           } catch (_) {}
-        }
-      } else if (type == 'request:chat:completion' && payload != null) {
-        if (resolveTargetMessageIdForStream(
-              messageId,
-              eventType: 'request:chat:completion',
-              incomingSessionId: incomingSessionId,
-              allowBindingForeignMessage: true,
-            ) ==
-            null) {
-          return;
-        }
-        final channel = payload['channel'];
-        if (channel is String && channel.isNotEmpty) {
-          channelLineHandlerFactory(channel);
-        }
-        // Acknowledge the RPC call so the server can proceed immediately.
-        // Without this, sio.call() waits for the 60s timeout (issue #378).
-        if (ack != null) {
-          ack({'status': true});
         }
       } else if (type == 'execute:tool' && payload != null) {
         // Show an executing tile immediately; also surface any inline files/result

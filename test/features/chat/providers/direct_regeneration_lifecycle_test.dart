@@ -113,7 +113,10 @@ final class _RecordingDirectAdapter implements DirectProviderAdapter {
       id: 'recording-run',
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: Stream<DirectStreamEvent>.value(const DirectStreamDone()),
+      events: Stream<DirectStreamEvent>.fromIterable(const <DirectStreamEvent>[
+        DirectContentDelta('Native completion'),
+        DirectStreamDone(),
+      ]),
       cancelToken: CancelToken(),
       done: Future<void>.value(),
     );
@@ -281,6 +284,59 @@ void main() {
       throwsA(isA<StateError>()),
     );
   });
+
+  test(
+    'device direct regeneration stays on the native direct adapter',
+    () async {
+      final adapter = _RecordingDirectAdapter();
+      final setup = _makeDirectRegenerationContainer(adapter: adapter);
+      final container = setup.container;
+      final model = setup.model;
+      final binding = container
+          .read(directModelRegistryProvider)
+          .resolve(model);
+      expect(binding?.source, DirectModelSource.device);
+
+      final now = DateTime.utc(2026, 7, 15);
+      final user = ChatMessage(
+        id: 'device-user',
+        role: 'user',
+        content: 'Regenerate locally',
+        timestamp: now,
+      );
+      final previousAssistant = ChatMessage(
+        id: 'device-assistant',
+        role: 'assistant',
+        content: 'Previous answer',
+        timestamp: now,
+        model: model.id,
+      );
+      final conversation = Conversation(
+        id: 'direct-local:device-route',
+        title: 'Device direct route',
+        createdAt: now,
+        updatedAt: now,
+        messages: <ChatMessage>[user, previousAssistant],
+        metadata: const <String, dynamic>{
+          'conduit.chatStorageKind': 'directLocal',
+        },
+      );
+      container.read(activeConversationProvider.notifier).set(conversation);
+      container
+          .read(chatMessagesProvider.notifier)
+          .setMessages(conversation.messages);
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      await regenerateMessage(container, user.content, null);
+
+      expect(adapter.startCount, 1);
+      final completed = container.read(chatMessagesProvider).last;
+      expect(completed.id, previousAssistant.id);
+      expect(completed.content, 'Native completion');
+      expect(completed.isStreaming, isFalse);
+      expect(completed.error, isNull);
+    },
+  );
 
   test(
     'direct regeneration cannot retarget after route resolution await',

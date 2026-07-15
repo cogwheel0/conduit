@@ -11,6 +11,7 @@ import 'package:conduit/core/services/connectivity_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -297,6 +298,42 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 250));
 
       expect(defaultModelLoads, 0);
+    },
+  );
+
+  test(
+    'direct completion relay is owned only by an authenticated session',
+    () async {
+      var navState = AuthNavigationState.authenticated;
+      var relayStarts = 0;
+      var relayDisposals = 0;
+      final container = await _createAuthenticatedWarmupContainer(
+        authNavigationOverride: authNavigationStateProvider.overrideWith(
+          (ref) => navState,
+        ),
+        extraOverrides: [
+          openWebUiDirectCompletionSocketRelayProvider.overrideWith((ref) {
+            relayStarts += 1;
+            ref.onDispose(() => relayDisposals += 1);
+          }),
+        ],
+      );
+
+      container.read(appStartupFlowProvider.notifier).activateForTesting();
+      await _flushMicrotasks(4);
+      expect(relayStarts, 1);
+      expect(relayDisposals, 0);
+
+      navState = AuthNavigationState.needsLogin;
+      container.invalidate(authNavigationStateProvider);
+      await _flushMicrotasks(2);
+      expect(relayDisposals, 1);
+
+      navState = AuthNavigationState.authenticated;
+      container.invalidate(authNavigationStateProvider);
+      await _flushMicrotasks(4);
+      expect(relayStarts, 2);
+      expect(relayDisposals, 1);
     },
   );
 

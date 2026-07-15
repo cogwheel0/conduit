@@ -6,6 +6,13 @@ import '../models/direct_remote_model.dart';
 
 const String kDirectModelIdPrefix = 'direct:';
 
+/// Runtime provenance for a locally minted direct model.
+///
+/// Device profiles use Conduit's native transport. Profiles projected from
+/// Open WebUI settings use Open WebUI's server/Socket.IO direct transport.
+/// This is trusted runtime state and is never inferred from model metadata.
+enum DirectModelSource { device, openWebUi }
+
 final class DirectModelId {
   const DirectModelId._();
 
@@ -46,11 +53,17 @@ final class DirectModelBinding {
     required this.profileId,
     required this.adapterKey,
     required this.remoteModelId,
+    this.source = DirectModelSource.device,
+    this.openWebUiUrlIndex,
+    this.openWebUiModelId,
   });
 
   final String profileId;
   final String adapterKey;
   final String remoteModelId;
+  final DirectModelSource source;
+  final int? openWebUiUrlIndex;
+  final String? openWebUiModelId;
 
   String get stableId => DirectModelId.encode(profileId, remoteModelId);
 
@@ -59,10 +72,20 @@ final class DirectModelBinding {
       other is DirectModelBinding &&
       profileId == other.profileId &&
       adapterKey == other.adapterKey &&
-      remoteModelId == other.remoteModelId;
+      remoteModelId == other.remoteModelId &&
+      source == other.source &&
+      openWebUiUrlIndex == other.openWebUiUrlIndex &&
+      openWebUiModelId == other.openWebUiModelId;
 
   @override
-  int get hashCode => Object.hash(profileId, adapterKey, remoteModelId);
+  int get hashCode => Object.hash(
+    profileId,
+    adapterKey,
+    remoteModelId,
+    source,
+    openWebUiUrlIndex,
+    openWebUiModelId,
+  );
 }
 
 final Expando<DirectModelBinding> _trustedBindings =
@@ -126,10 +149,81 @@ final class DirectModelRegistry {
   DirectModelBinding? resolveRegisteredId(String stableId) =>
       _registered[stableId];
 
+  /// Resolves a provider-facing model id persisted by Open WebUI back to the
+  /// current locally minted model object that carries routing authority.
+  ///
+  /// Open WebUI stores ids such as `prefix.gpt-4o` in chats and settings, while
+  /// Conduit keeps a collision-resistant `direct:...` id internally. Iteration
+  /// deliberately keeps the last match, mirroring Open WebUI's last-wins model
+  /// de-duplication when multiple direct connections expose the same id.
+  Model? resolveOpenWebUiWireModel(
+    Iterable<Model> candidates,
+    String wireModelId,
+  ) {
+    final normalized = wireModelId.trim();
+    if (normalized.isEmpty) return null;
+    Model? match;
+    for (final candidate in candidates) {
+      final binding = resolve(candidate);
+      if (binding?.source == DirectModelSource.openWebUi &&
+          binding?.openWebUiModelId == normalized) {
+        match = candidate;
+      }
+    }
+    return match;
+  }
+
+  bool hasOpenWebUiWireModel(String wireModelId) {
+    final normalized = wireModelId.trim();
+    return normalized.isNotEmpty &&
+        _registered.values.any(
+          (binding) =>
+              binding.source == DirectModelSource.openWebUi &&
+              binding.openWebUiModelId == normalized,
+        );
+  }
+
+  DirectModelBinding? resolveOpenWebUiWireBinding({
+    required String profileId,
+    required int urlIndex,
+    required String wireModelId,
+  }) {
+    final normalized = wireModelId.trim();
+    if (normalized.isEmpty || urlIndex < 0) return null;
+    for (final binding in _registered.values) {
+      if (binding.source == DirectModelSource.openWebUi &&
+          binding.profileId == profileId &&
+          binding.openWebUiUrlIndex == urlIndex &&
+          binding.openWebUiModelId == normalized) {
+        return binding;
+      }
+    }
+    return null;
+  }
+
   List<Model> replaceProfileModels(
     DirectConnectionProfile profile,
-    Iterable<DirectRemoteModel> remoteModels,
-  ) {
+    Iterable<DirectRemoteModel> remoteModels, {
+    DirectModelSource source = DirectModelSource.device,
+    int? openWebUiUrlIndex,
+  }) {
+    if (source == DirectModelSource.openWebUi && openWebUiUrlIndex == null) {
+      throw ArgumentError.notNull('openWebUiUrlIndex');
+    }
+    if (source == DirectModelSource.openWebUi && openWebUiUrlIndex! < 0) {
+      throw ArgumentError.value(
+        openWebUiUrlIndex,
+        'openWebUiUrlIndex',
+        'Open WebUI URL indexes must be non-negative.',
+      );
+    }
+    if (source == DirectModelSource.device && openWebUiUrlIndex != null) {
+      throw ArgumentError.value(
+        openWebUiUrlIndex,
+        'openWebUiUrlIndex',
+        'Device profiles do not have an Open WebUI URL index.',
+      );
+    }
     removeProfile(profile.id);
     final ids = <String>{};
     final models = <Model>[];
@@ -145,6 +239,11 @@ final class DirectModelRegistry {
         profileId: profile.id,
         adapterKey: profile.adapterKey,
         remoteModelId: remote.id,
+        source: source,
+        openWebUiUrlIndex: openWebUiUrlIndex,
+        openWebUiModelId: source == DirectModelSource.openWebUi
+            ? displayModelId
+            : null,
       );
       final id = binding.stableId;
       if (!ids.add(id)) continue;
@@ -165,6 +264,9 @@ final class DirectModelRegistry {
           'adapterKey': profile.adapterKey,
           'remoteModelId': remote.id,
           'remoteModelDisplayId': displayModelId,
+          if (source == DirectModelSource.openWebUi)
+            'openWebUiDirectConnection': true,
+          'urlIdx': ?openWebUiUrlIndex,
           if (prefix != null && prefix.isNotEmpty) 'prefixId': prefix,
           if (profile.tags.isNotEmpty) 'tags': profile.tags,
         },
