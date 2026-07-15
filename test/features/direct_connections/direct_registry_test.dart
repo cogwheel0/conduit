@@ -124,6 +124,33 @@ void main() {
     expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
+  test('binding revision changes only when registry contents mutate', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+
+    expect(registry.revision, 0);
+    registry.removeProfile('missing');
+    registry.clear();
+    expect(registry.revision, 0);
+
+    registry.replaceProfileModels(profile, [DirectRemoteModel(id: 'model')]);
+    final registeredRevision = registry.revision;
+    expect(registeredRevision, greaterThan(0));
+
+    registry.removeProfile(profile.id);
+    expect(registry.revision, greaterThan(registeredRevision));
+    final removedRevision = registry.revision;
+
+    registry.removeProfile(profile.id);
+    registry.clear();
+    expect(registry.revision, removedRevision);
+  });
+
   test(
     'profile prefixes and tags decorate models without changing routing',
     () {
@@ -147,6 +174,117 @@ void main() {
       expect(registry.resolve(model)?.remoteModelId, 'qwen');
     },
   );
+
+  test('Open WebUI provenance and URL index are trusted binding state', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'owui-profile',
+      name: 'Open WebUI connection',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      modelIdPrefix: 'remote',
+    );
+
+    final model = registry
+        .replaceProfileModels(
+          profile,
+          [DirectRemoteModel(id: 'model-a')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 3,
+        )
+        .single;
+    final binding = registry.resolve(model);
+
+    expect(binding?.source, DirectModelSource.openWebUi);
+    expect(binding?.openWebUiUrlIndex, 3);
+    expect(binding?.openWebUiModelId, 'remote.model-a');
+    expect(binding?.remoteModelId, 'model-a');
+    expect(model.metadata?['remoteModelDisplayId'], 'remote.model-a');
+    expect(model.metadata?['openWebUiDirectConnection'], isTrue);
+    expect(model.metadata?['urlIdx'], 3);
+    expect(
+      () => registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-b'),
+      ], source: DirectModelSource.openWebUi),
+      throwsArgumentError,
+    );
+    expect(
+      () => registry.replaceProfileModels(
+        profile,
+        [DirectRemoteModel(id: 'model-b')],
+        source: DirectModelSource.openWebUi,
+        openWebUiUrlIndex: -1,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('Open WebUI wire ids resolve to the last current trusted model', () {
+    final registry = DirectModelRegistry();
+    DirectConnectionProfile profile(String id) => DirectConnectionProfile(
+      id: id,
+      name: id,
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://$id.example/v1',
+      modelIdPrefix: 'shared',
+    );
+
+    final first = registry
+        .replaceProfileModels(
+          profile('first'),
+          [DirectRemoteModel(id: 'model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 0,
+        )
+        .single;
+    final second = registry
+        .replaceProfileModels(
+          profile('second'),
+          [DirectRemoteModel(id: 'model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 1,
+        )
+        .single;
+    final forged = Model(id: second.id, name: second.name);
+
+    expect(registry.hasOpenWebUiWireModel('shared.model'), isTrue);
+    expect(
+      registry.resolveOpenWebUiWireModel([
+        first,
+        second,
+        forged,
+      ], 'shared.model'),
+      same(second),
+    );
+    expect(
+      registry
+          .resolveOpenWebUiWireBinding(
+            profileId: 'second',
+            urlIndex: 1,
+            wireModelId: 'shared.model',
+          )
+          ?.remoteModelId,
+      'model',
+    );
+    expect(
+      registry.resolveOpenWebUiWireBinding(
+        profileId: 'second',
+        urlIndex: 0,
+        wireModelId: 'shared.model',
+      ),
+      isNull,
+    );
+
+    registry.removeProfile('second');
+    expect(
+      registry.resolveOpenWebUiWireModel([
+        first,
+        forged,
+        second,
+      ], 'shared.model'),
+      same(first),
+    );
+  });
 
   test(
     'display reconciliation preserves server-owned direct-like identities',

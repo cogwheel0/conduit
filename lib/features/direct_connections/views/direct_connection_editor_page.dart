@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
@@ -8,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/providers/backend_mode_providers.dart';
+import '../../../core/providers/app_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
@@ -19,9 +21,14 @@ import '../../profile/widgets/adaptive_segmented_selector.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import '../models/openwebui_direct_connection.dart';
 import '../providers/direct_connection_providers.dart';
 
-enum DirectAuthenticationMode { bearer, apiKeyHeader, none }
+enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
+
+final class _OpenWebUiDirectConnectionOwnershipChanged implements Exception {
+  const _OpenWebUiDirectConnectionOwnershipChanged();
+}
 
 @visibleForTesting
 Map<String, String> parseDirectCustomHeaders(String source) {
@@ -64,6 +71,28 @@ String normalizeDirectBaseUrl(String source) {
 }
 
 @visibleForTesting
+bool requiresDirectApiKey({
+  required DirectAuthenticationMode authentication,
+  required bool isOpenWebUi,
+  required bool isNew,
+  required String? savedOpenWebUiAuthType,
+  required bool apiKeyDirty,
+  required bool originChanged,
+}) {
+  if (authentication != DirectAuthenticationMode.bearer &&
+      authentication != DirectAuthenticationMode.apiKeyHeader) {
+    return false;
+  }
+  final preservesExistingKeylessBearer =
+      isOpenWebUi &&
+      !isNew &&
+      savedOpenWebUiAuthType == 'bearer' &&
+      !apiKeyDirty &&
+      !originChanged;
+  return !preservesExistingKeylessBearer;
+}
+
+@visibleForTesting
 DirectConnectionProfile secureDirectDraftForEditedOrigin({
   required DirectConnectionProfile? previous,
   required DirectConnectionProfile draft,
@@ -96,10 +125,12 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
     super.key,
     required this.profileId,
     this.isOnboarding = false,
+    this.isOpenWebUi = false,
   });
 
   final String profileId;
   final bool isOnboarding;
+  final bool isOpenWebUi;
 
   bool get isNew => profileId == 'new';
 
@@ -123,6 +154,11 @@ class _DirectConnectionEditorPageState
   final Map<String, String> _customHeaders = {};
 
   DirectConnectionProfile? _savedProfile;
+  OpenWebUiDirectConnectionRecord? _savedOpenWebUiRecord;
+  String? _openWebUiOwnerServerId;
+  String? _openWebUiOwnerAccountId;
+  Object? _openWebUiOwnerAuthEpoch;
+  bool _openWebUiOwnerCaptured = false;
   String _adapterKey = kOpenAiCompatibleAdapterKey;
   DirectOpenAiApiMode _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
   DirectAuthenticationMode _authentication = DirectAuthenticationMode.bearer;
@@ -159,10 +195,14 @@ class _DirectConnectionEditorPageState
     super.dispose();
   }
 
-  void _hydrate(DirectConnectionProfile? profile) {
+  void _hydrate(
+    DirectConnectionProfile? profile, {
+    OpenWebUiDirectConnectionRecord? openWebUiRecord,
+  }) {
     if (_hydrated) return;
     _hydrated = true;
     _savedProfile = profile;
+    _savedOpenWebUiRecord = openWebUiRecord;
     if (profile == null) {
       _nameController.text = 'My provider';
       _baseUrlController.text = 'https://api.openai.com/v1';
@@ -179,14 +219,37 @@ class _DirectConnectionEditorPageState
     _tagsController.text = profile.tags.join(', ');
     _adapterKey = profile.adapterKey;
     _openAiApiMode = profile.openAiApiMode;
-    _authentication = (profile.apiKey ?? '').isEmpty
-        ? DirectAuthenticationMode.none
-        : switch (profile.apiKeyAuthMode) {
-            DirectApiKeyAuthMode.bearer => DirectAuthenticationMode.bearer,
-            DirectApiKeyAuthMode.apiKeyHeader =>
-              DirectAuthenticationMode.apiKeyHeader,
+    _authentication = openWebUiRecord == null
+        ? (profile.apiKey ?? '').isEmpty
+              ? DirectAuthenticationMode.none
+              : switch (profile.apiKeyAuthMode) {
+                  DirectApiKeyAuthMode.bearer =>
+                    DirectAuthenticationMode.bearer,
+                  DirectApiKeyAuthMode.apiKeyHeader =>
+                    DirectAuthenticationMode.apiKeyHeader,
+                }
+        : switch (openWebUiRecord.authType) {
+            'bearer' => DirectAuthenticationMode.bearer,
+            'none' => DirectAuthenticationMode.none,
+            _ => DirectAuthenticationMode.unsupported,
           };
     _enabled = profile.enabled;
+  }
+
+  void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
+    final savedRecord = _savedOpenWebUiRecord;
+    if (!_hydrated ||
+        record == null ||
+        savedRecord == null ||
+        savedRecord.profile.id != record.profile.id ||
+        savedRecord.contentRevision != record.contentRevision) {
+      return;
+    }
+    // A pure reindex changes the compare-and-swap revision without changing
+    // the raw content. Refresh only that authoritative base; a same-id edit
+    // (for example enable/tags) must retain the stale revision and conflict.
+    _savedOpenWebUiRecord = record;
+    _savedProfile = record.profile;
   }
 
   DirectConnectionProfile? _profileById(
@@ -214,6 +277,43 @@ class _DirectConnectionEditorPageState
 
   bool get _busy => _saving || _testing || _deleting;
 
+  void _captureOpenWebUiOwner(OpenWebUiDirectConnectionsSnapshot snapshot) {
+    if (_openWebUiOwnerCaptured) return;
+    _openWebUiOwnerCaptured = true;
+    _openWebUiOwnerServerId = snapshot.serverId;
+    _openWebUiOwnerAccountId = snapshot.accountId;
+    _openWebUiOwnerAuthEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+  }
+
+  bool _matchesCapturedOpenWebUiOwner(
+    OpenWebUiDirectConnectionsSnapshot snapshot,
+  ) =>
+      _openWebUiOwnerCaptured &&
+      snapshot.serverId == _openWebUiOwnerServerId &&
+      snapshot.accountId == _openWebUiOwnerAccountId &&
+      identical(
+        ref.read(openWebUiAuthSessionEpochProvider),
+        _openWebUiOwnerAuthEpoch,
+      );
+
+  bool _openWebUiOwnerIsCurrent() {
+    if (!widget.isOpenWebUi || !_openWebUiOwnerCaptured) return false;
+    final snapshot = ref.read(openWebUiDirectConnectionsProvider).value;
+    return snapshot != null && _matchesCapturedOpenWebUiOwner(snapshot);
+  }
+
+  bool _ensureOpenWebUiOwnerIsCurrent() {
+    if (!widget.isOpenWebUi || _openWebUiOwnerIsCurrent()) return true;
+    if (mounted) {
+      setState(() {
+        _formError = AppLocalizations.of(
+          context,
+        )!.openWebUiDirectConnectionsUnavailable;
+      });
+    }
+    return false;
+  }
+
   // Empty header values are valid HTTP and are supported by the persisted
   // profile model. A name is therefore enough to add a pending header.
   bool get _canAddCustomHeader => _headerNameController.text.trim().isNotEmpty;
@@ -228,7 +328,9 @@ class _DirectConnectionEditorPageState
 
   DirectConnectionProfile? _buildDraft({required bool validateFields}) {
     final l10n = AppLocalizations.of(context)!;
-    final name = _nameController.text.trim();
+    final name = widget.isOpenWebUi
+        ? (_savedProfile?.name ?? l10n.openWebUiDirectConnectionFallbackName)
+        : _nameController.text.trim();
     final baseUrl = normalizeDirectBaseUrl(_baseUrlController.text);
     var valid = true;
 
@@ -238,7 +340,7 @@ class _DirectConnectionEditorPageState
     final pendingHeaderReady = !validateFields || _commitPendingCustomHeader();
     if (!pendingHeaderReady) valid = false;
 
-    if (name.isEmpty) {
+    if (!widget.isOpenWebUi && name.isEmpty) {
       valid = false;
       nameError = l10n.directConnectionNameRequired;
     }
@@ -257,11 +359,22 @@ class _DirectConnectionEditorPageState
       DirectAuthenticationMode.bearer ||
       DirectAuthenticationMode.apiKeyHeader =>
         _apiKeyDirty || _originChanged ? enteredApiKey : existingApiKey,
+      DirectAuthenticationMode.unsupported => null,
     };
-    if (_authentication != DirectAuthenticationMode.none &&
-        (apiKey ?? '').isEmpty) {
+    final apiKeyRequired = requiresDirectApiKey(
+      authentication: _authentication,
+      isOpenWebUi: widget.isOpenWebUi,
+      isNew: widget.isNew,
+      savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
+      apiKeyDirty: _apiKeyDirty,
+      originChanged: _originChanged,
+    );
+    if (apiKeyRequired && (apiKey ?? '').isEmpty) {
       valid = false;
       apiKeyError = l10n.directConnectionApiKeyRequired;
+    }
+    if (_authentication == DirectAuthenticationMode.unsupported) {
+      valid = false;
     }
 
     final headers = Map<String, String>.from(_customHeaders);
@@ -271,7 +384,9 @@ class _DirectConnectionEditorPageState
         _nameError = nameError;
         _urlError = urlError;
         _apiKeyError = apiKeyError;
-        _formError = null;
+        _formError = _authentication == DirectAuthenticationMode.unsupported
+            ? l10n.openWebUiDirectConnectionUnsupportedAuth
+            : null;
       });
     }
     if (!valid) return null;
@@ -443,7 +558,7 @@ class _DirectConnectionEditorPageState
   }
 
   Future<void> _save() async {
-    if (_busy) return;
+    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return;
     setState(() => _saving = true);
     final draft = _buildDraft(validateFields: true);
     if (draft == null) {
@@ -456,45 +571,87 @@ class _DirectConnectionEditorPageState
       return;
     }
     try {
-      await ref
-          .read(directConnectionProfilesProvider.notifier)
-          .upsert(
-            draft,
-            expectedPrevious: _savedProfile,
-            secretsConfirmedForNewOrigin:
-                !_originChanged ||
-                !_savedHasOriginBoundSecrets ||
-                _originSecretsConfirmed,
-          );
+      if (widget.isOpenWebUi) {
+        if (!_ensureOpenWebUiOwnerIsCurrent()) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+        final controller = ref.read(
+          openWebUiDirectConnectionsProvider.notifier,
+        );
+        final authType = switch (_authentication) {
+          DirectAuthenticationMode.bearer => 'bearer',
+          DirectAuthenticationMode.none => 'none',
+          DirectAuthenticationMode.apiKeyHeader ||
+          DirectAuthenticationMode.unsupported => null,
+        };
+        if (widget.isNew) {
+          await controller.add(draft, authType: authType);
+        } else {
+          final record = _savedOpenWebUiRecord;
+          if (record == null) {
+            throw StateError('Open WebUI direct connection not found.');
+          }
+          await controller.updateConnection(record, draft, authType: authType);
+        }
+        if (!_ensureOpenWebUiOwnerIsCurrent()) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+      } else {
+        await ref
+            .read(directConnectionProfilesProvider.notifier)
+            .upsert(
+              draft,
+              expectedPrevious: _savedProfile,
+              secretsConfirmedForNewOrigin:
+                  !_originChanged ||
+                  !_savedHasOriginBoundSecrets ||
+                  _originSecretsConfirmed,
+            );
+      }
       if (!mounted) return;
       context.pop(true);
     } on DirectConnectionProfileConflictException {
+      _showSaveConflict();
+    } on OpenWebUiDirectConnectionConflictException {
       if (!mounted) return;
-      final message = AppLocalizations.of(
-        context,
-      )!.directConnectionSaveConflict;
-      setState(() {
-        _saving = false;
-        _formError = message;
-      });
-      AdaptiveSnackBar.show(
-        context,
-        message: message,
-        type: AdaptiveSnackBarType.error,
-      );
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _saving = false);
+        return;
+      }
+      _showSaveConflict();
     } catch (_) {
       if (!mounted) return;
-      setState(() => _saving = false);
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _saving = false);
+        return;
+      }
       AdaptiveSnackBar.show(
         context,
         message: AppLocalizations.of(context)!.directConnectionSaveFailed,
         type: AdaptiveSnackBarType.error,
       );
+      setState(() => _saving = false);
     }
   }
 
+  void _showSaveConflict() {
+    if (!mounted) return;
+    final message = AppLocalizations.of(context)!.directConnectionSaveConflict;
+    setState(() {
+      _saving = false;
+      _formError = message;
+    });
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: AdaptiveSnackBarType.error,
+    );
+  }
+
   Future<void> _testConnection() async {
-    if (_busy) return;
+    if (_busy || !_ensureOpenWebUiOwnerIsCurrent()) return;
     setState(() => _testing = true);
     final draft = _buildDraft(validateFields: true);
     if (draft == null) {
@@ -503,6 +660,10 @@ class _DirectConnectionEditorPageState
     }
     final originConfirmed = await _confirmOriginSecretTransfer(draft);
     if (!mounted || !originConfirmed) {
+      if (mounted) setState(() => _testing = false);
+      return;
+    }
+    if (!_ensureOpenWebUiOwnerIsCurrent()) {
       if (mounted) setState(() => _testing = false);
       return;
     }
@@ -542,7 +703,9 @@ class _DirectConnectionEditorPageState
       final confirmed = await ThemedDialogs.confirm(
         context,
         title: l10n.directConnectionDeleteTitle,
-        message: l10n.directConnectionDeleteMessage(saved.name),
+        message: widget.isOpenWebUi
+            ? l10n.openWebUiDirectConnectionDeleteMessage(saved.name)
+            : l10n.directConnectionDeleteMessage(saved.name),
         confirmText: l10n.delete,
         isDestructive: true,
       );
@@ -550,15 +713,21 @@ class _DirectConnectionEditorPageState
         if (mounted) setState(() => _deleting = false);
         return;
       }
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        if (mounted) setState(() => _deleting = false);
+        return;
+      }
       // Another editor can update the provider while confirmation is open.
-      final currentProfiles = ref
-          .read(directConnectionProfilesProvider)
-          .requireValue;
+      final currentProfiles = await ref.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      if (!mounted) return;
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _deleting = false);
+        return;
+      }
       final hasAnotherUsable = currentProfiles.any(
         (profile) => profile.id != saved.id && profile.isUsable,
-      );
-      final profilesController = ref.read(
-        directConnectionProfilesProvider.notifier,
       );
       final preferredBackendController = ref.read(
         preferredBackendProvider.notifier,
@@ -581,9 +750,27 @@ class _DirectConnectionEditorPageState
         }
       }
       try {
-        await profilesController.remove(saved.id);
+        if (!_ensureOpenWebUiOwnerIsCurrent()) {
+          throw const _OpenWebUiDirectConnectionOwnershipChanged();
+        }
+        if (widget.isOpenWebUi) {
+          final record = _savedOpenWebUiRecord;
+          if (record == null) {
+            throw StateError('Open WebUI direct connection not found.');
+          }
+          await ref
+              .read(openWebUiDirectConnectionsProvider.notifier)
+              .delete(record);
+        } else {
+          await ref
+              .read(directConnectionProfilesProvider.notifier)
+              .remove(saved.id);
+        }
       } catch (error, stackTrace) {
-        if (clearedDirectPreference) {
+        final deletionMayHaveCommitted =
+            widget.isOpenWebUi &&
+            error is OpenWebUiDirectConnectionCommitUncertainException;
+        if (clearedDirectPreference && !deletionMayHaveCommitted) {
           try {
             await preferredBackendController.set(PreferredBackend.direct);
           } catch (restoreError) {
@@ -597,7 +784,17 @@ class _DirectConnectionEditorPageState
         Error.throwWithStackTrace(error, stackTrace);
       }
       if (!mounted) return;
+      // The deletion is committed once the repository call returns. A later
+      // ownership/UI change must not restore a preference that now points at
+      // no usable direct profile.
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _deleting = false);
+        return;
+      }
       context.pop(true);
+    } on _OpenWebUiDirectConnectionOwnershipChanged {
+      if (!mounted) return;
+      setState(() => _deleting = false);
     } catch (error) {
       DebugLogger.error(
         'Direct profile deletion failed',
@@ -605,6 +802,10 @@ class _DirectConnectionEditorPageState
         data: {'errorType': error.runtimeType.toString()},
       );
       if (!mounted) return;
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _deleting = false);
+        return;
+      }
       setState(() => _deleting = false);
       AdaptiveSnackBar.show(
         context,
@@ -616,10 +817,15 @@ class _DirectConnectionEditorPageState
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isOpenWebUi) return _buildOpenWebUiEditor();
+
+    final l10n = AppLocalizations.of(context)!;
     final profiles = ref.watch(directConnectionProfilesProvider);
     return profiles.when(
       loading: () => _buildEditorScaffold(
-        title: widget.isNew ? 'Add connection' : 'Edit connection',
+        title: widget.isNew
+            ? l10n.addDirectConnection
+            : l10n.editDirectConnection,
         children: const [
           SizedBox(height: Spacing.xxl),
           Center(child: CircularProgressIndicator.adaptive()),
@@ -632,7 +838,9 @@ class _DirectConnectionEditorPageState
         ),
       ),
       error: (_, _) => _buildEditorScaffold(
-        title: widget.isNew ? 'Add connection' : 'Edit connection',
+        title: widget.isNew
+            ? l10n.addDirectConnection
+            : l10n.editDirectConnection,
         children: [
           DirectConnectionEditorError(
             onRetry: () =>
@@ -644,14 +852,89 @@ class _DirectConnectionEditorPageState
         final profile = _profileById(items);
         if (!widget.isNew && profile == null) {
           return _buildEditorScaffold(
-            title: 'Edit connection',
-            children: const [
-              SizedBox(height: Spacing.xl),
-              Center(child: Text('This connection no longer exists.')),
+            title: l10n.editDirectConnection,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              Center(child: Text(l10n.directConnectionNoLongerExists)),
             ],
           );
         }
         _hydrate(profile);
+        return _buildForm(context);
+      },
+    );
+  }
+
+  Widget _buildOpenWebUiEditor() {
+    final l10n = AppLocalizations.of(context)!;
+    final connections = ref.watch(openWebUiDirectConnectionsProvider);
+    return connections.when(
+      loading: () => _buildEditorScaffold(
+        title: widget.isNew
+            ? l10n.addDirectConnection
+            : l10n.editDirectConnection,
+        children: const [
+          SizedBox(height: Spacing.xxl),
+          Center(child: CircularProgressIndicator.adaptive()),
+        ],
+        bottomAction: ConduitButton(
+          text: AppLocalizations.of(context)!.save,
+          isFullWidth: true,
+          isLoading: true,
+          useNativeLabel: true,
+        ),
+      ),
+      error: (_, _) => _buildEditorScaffold(
+        title: widget.isNew
+            ? l10n.addDirectConnection
+            : l10n.editDirectConnection,
+        children: [
+          DirectConnectionEditorError(
+            onRetry: () => unawaited(
+              ref.read(openWebUiDirectConnectionsProvider.notifier).reload(),
+            ),
+          ),
+        ],
+      ),
+      data: (snapshot) {
+        if (snapshot == null) {
+          return _buildEditorScaffold(
+            title: widget.isNew
+                ? l10n.addDirectConnection
+                : l10n.editDirectConnection,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              Center(child: Text(l10n.openWebUiDirectConnectionsUnavailable)),
+            ],
+          );
+        }
+        if (!_openWebUiOwnerCaptured) {
+          _captureOpenWebUiOwner(snapshot);
+        } else if (!_matchesCapturedOpenWebUiOwner(snapshot)) {
+          return _buildEditorScaffold(
+            title: widget.isNew
+                ? l10n.addDirectConnection
+                : l10n.editDirectConnection,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              Center(child: Text(l10n.openWebUiDirectConnectionsUnavailable)),
+            ],
+          );
+        }
+        final record = widget.isNew
+            ? null
+            : snapshot.recordByProfileId(widget.profileId);
+        if (!widget.isNew && record == null) {
+          return _buildEditorScaffold(
+            title: l10n.editDirectConnection,
+            children: [
+              const SizedBox(height: Spacing.xl),
+              Center(child: Text(l10n.directConnectionNoLongerExists)),
+            ],
+          );
+        }
+        _refreshOpenWebUiRecord(record);
+        _hydrate(record?.profile, openWebUiRecord: record);
         return _buildForm(context);
       },
     );
@@ -691,6 +974,44 @@ class _DirectConnectionEditorPageState
 
     final content = <Widget>[
       ConduitCard(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              widget.isOpenWebUi
+                  ? Icons.cloud_outlined
+                  : Icons.phone_android_outlined,
+              color: theme.iconSecondary,
+            ),
+            const SizedBox(width: Spacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ConduitBadge(
+                    text: widget.isOpenWebUi
+                        ? l10n.openWebUiDirectConnectionSourceLabel
+                        : l10n.deviceDirectConnectionSourceLabel,
+                    isCompact: true,
+                  ),
+                  const SizedBox(height: Spacing.xs),
+                  Text(
+                    widget.isOpenWebUi
+                        ? l10n.openWebUiDirectConnectionEditorDescription
+                        : l10n.deviceDirectConnectionsSectionDescription,
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: Spacing.lg),
+      ConduitCard(
         onTap: () => setState(() => _enabled = !_enabled),
         padding: const EdgeInsets.all(Spacing.lg),
         child: Row(
@@ -727,52 +1048,76 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.lg),
       const SettingsSectionHeader(title: 'Provider'),
       const SizedBox(height: Spacing.sm),
-      AdaptiveSegmentedSelector<String>(
-        value: _adapterKey,
-        showIcons: false,
-        onChanged: (value) {
-          setState(() {
-            _adapterKey = value;
-            _testSucceeded = null;
-            _testMessage = null;
-            if (widget.isNew) {
-              _baseUrlController.text = value == kOllamaAdapterKey
-                  ? ''
-                  : 'https://api.openai.com/v1';
-              _authentication = value == kOllamaAdapterKey
-                  ? DirectAuthenticationMode.none
-                  : DirectAuthenticationMode.bearer;
-            }
-          });
-        },
-        options: [
-          (
-            value: kOpenAiCompatibleAdapterKey,
-            label: l10n.openAICompatible,
-            cupertinoIcon: CupertinoIcons.cloud,
-            materialIcon: Icons.cloud_outlined,
-            enabled: true,
+      if (widget.isOpenWebUi)
+        ConduitCard(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.openAICompatible,
+                style: theme.bodyMedium?.copyWith(
+                  color: theme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: Spacing.xxs),
+              Text(
+                l10n.openWebUiDirectConnectionProviderDescription,
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
+            ],
           ),
-          (
-            value: kOllamaAdapterKey,
-            label: l10n.ollama,
-            cupertinoIcon: CupertinoIcons.desktopcomputer,
-            materialIcon: Icons.computer_outlined,
-            enabled: true,
-          ),
-        ],
-      ),
-      const SizedBox(height: Spacing.lg),
-      AccessibleFormField(
-        key: const ValueKey<String>('direct-connection-name-field'),
-        label: l10n.directConnectionName,
-        hint: isOllama ? 'Home Ollama' : 'My provider',
-        controller: _nameController,
-        errorText: _nameError,
-        isRequired: true,
-        textInputAction: TextInputAction.next,
-        onChanged: (_) => _clearTransientState(),
-      ),
+        )
+      else
+        AdaptiveSegmentedSelector<String>(
+          value: _adapterKey,
+          showIcons: false,
+          onChanged: (value) {
+            setState(() {
+              _adapterKey = value;
+              _testSucceeded = null;
+              _testMessage = null;
+              if (widget.isNew) {
+                _baseUrlController.text = value == kOllamaAdapterKey
+                    ? ''
+                    : 'https://api.openai.com/v1';
+                _authentication = value == kOllamaAdapterKey
+                    ? DirectAuthenticationMode.none
+                    : DirectAuthenticationMode.bearer;
+              }
+            });
+          },
+          options: [
+            (
+              value: kOpenAiCompatibleAdapterKey,
+              label: l10n.openAICompatible,
+              cupertinoIcon: CupertinoIcons.cloud,
+              materialIcon: Icons.cloud_outlined,
+              enabled: true,
+            ),
+            (
+              value: kOllamaAdapterKey,
+              label: l10n.ollama,
+              cupertinoIcon: CupertinoIcons.desktopcomputer,
+              materialIcon: Icons.computer_outlined,
+              enabled: true,
+            ),
+          ],
+        ),
+      if (!widget.isOpenWebUi) ...[
+        const SizedBox(height: Spacing.lg),
+        AccessibleFormField(
+          key: const ValueKey<String>('direct-connection-name-field'),
+          label: l10n.directConnectionName,
+          hint: isOllama ? 'Home Ollama' : 'My provider',
+          controller: _nameController,
+          errorText: _nameError,
+          isRequired: true,
+          textInputAction: TextInputAction.next,
+          onChanged: (_) => _clearTransientState(),
+        ),
+      ],
       const SizedBox(height: Spacing.md),
       AccessibleFormField(
         key: const ValueKey<String>('direct-base-url-field'),
@@ -870,13 +1215,14 @@ class _DirectConnectionEditorPageState
             materialIcon: Icons.key_outlined,
             enabled: true,
           ),
-          (
-            value: DirectAuthenticationMode.apiKeyHeader,
-            label: l10n.directApiKeyHeader,
-            cupertinoIcon: CupertinoIcons.lock_shield,
-            materialIcon: Icons.vpn_key_outlined,
-            enabled: true,
-          ),
+          if (!widget.isOpenWebUi)
+            (
+              value: DirectAuthenticationMode.apiKeyHeader,
+              label: l10n.directApiKeyHeader,
+              cupertinoIcon: CupertinoIcons.lock_shield,
+              materialIcon: Icons.vpn_key_outlined,
+              enabled: true,
+            ),
           (
             value: DirectAuthenticationMode.none,
             label: l10n.noAuthentication,
@@ -884,6 +1230,14 @@ class _DirectConnectionEditorPageState
             materialIcon: Icons.lock_open_outlined,
             enabled: true,
           ),
+          if (_authentication == DirectAuthenticationMode.unsupported)
+            (
+              value: DirectAuthenticationMode.unsupported,
+              label: l10n.directConnectionUnavailableLabel,
+              cupertinoIcon: CupertinoIcons.exclamationmark_triangle,
+              materialIcon: Icons.warning_amber_rounded,
+              enabled: false,
+            ),
         ],
       ),
       if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
@@ -893,7 +1247,15 @@ class _DirectConnectionEditorPageState
           style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ],
-      if (_authentication != DirectAuthenticationMode.none) ...[
+      if (_authentication == DirectAuthenticationMode.unsupported) ...[
+        const SizedBox(height: Spacing.sm),
+        Text(
+          l10n.openWebUiDirectConnectionUnsupportedAuth,
+          style: theme.bodySmall?.copyWith(color: theme.error),
+        ),
+      ],
+      if (_authentication == DirectAuthenticationMode.bearer ||
+          _authentication == DirectAuthenticationMode.apiKeyHeader) ...[
         const SizedBox(height: Spacing.md),
         AccessibleFormField(
           key: const ValueKey<String>('direct-api-key-field'),
@@ -904,7 +1266,14 @@ class _DirectConnectionEditorPageState
           controller: _apiKeyController,
           obscureText: !_showApiKey,
           errorText: _apiKeyError,
-          isRequired: true,
+          isRequired: requiresDirectApiKey(
+            authentication: _authentication,
+            isOpenWebUi: widget.isOpenWebUi,
+            isNew: widget.isNew,
+            savedOpenWebUiAuthType: _savedOpenWebUiRecord?.authType,
+            apiKeyDirty: _apiKeyDirty,
+            originChanged: _originChanged,
+          ),
           keyboardType: TextInputType.visiblePassword,
           textInputAction: TextInputAction.next,
           autocorrect: false,
@@ -956,14 +1325,24 @@ class _DirectConnectionEditorPageState
               text: l10n.save,
               icon: Icons.check,
               isLoading: _saving,
-              onPressed: _testing || _deleting ? null : _save,
+              onPressed:
+                  _testing ||
+                      _deleting ||
+                      _authentication == DirectAuthenticationMode.unsupported
+                  ? null
+                  : _save,
             ),
           ConduitButton(
             text: l10n.testDirectConnection,
             isSecondary: true,
             isLoading: _testing,
             useNativeLabel: true,
-            onPressed: _saving || _deleting ? null : _testConnection,
+            onPressed:
+                _saving ||
+                    _deleting ||
+                    _authentication == DirectAuthenticationMode.unsupported
+                ? null
+                : _testConnection,
           ),
           if (_testMessage != null)
             Text(
@@ -998,7 +1377,12 @@ class _DirectConnectionEditorPageState
               isFullWidth: true,
               isLoading: _saving,
               useNativeLabel: true,
-              onPressed: _testing || _deleting ? null : _save,
+              onPressed:
+                  _testing ||
+                      _deleting ||
+                      _authentication == DirectAuthenticationMode.unsupported
+                  ? null
+                  : _save,
             )
           : const SizedBox.shrink(),
     );

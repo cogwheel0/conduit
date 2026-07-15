@@ -560,6 +560,7 @@ void main() {
       final config = BackendConfig.fromJson({
         'enable_websocket': true,
         'enable_web_search': true,
+        'enable_direct_connections': false,
         'enable_audio_input': true,
         'enable_audio_output': false,
         'stt_provider': 'whisper',
@@ -579,6 +580,7 @@ void main() {
 
       check(config.enableWebsocket).equals(true);
       check(config.enableWebSearch).equals(true);
+      check(config.enableDirectConnections).equals(false);
       check(config.enableAudioInput).equals(true);
       check(config.enableAudioOutput).equals(false);
       check(config.sttProvider).equals('whisper');
@@ -599,6 +601,7 @@ void main() {
       final config = BackendConfig(
         enableWebsocket: true,
         enableWebSearch: true,
+        enableDirectConnections: false,
         sttProvider: 'whisper',
         ttsVoices: const [BackendTtsVoice(id: 'alloy', name: 'Alloy')],
       );
@@ -606,6 +609,7 @@ void main() {
 
       check(json['enable_websocket']).equals(true);
       check(json['enable_web_search']).equals(true);
+      check(json['enable_direct_connections']).equals(false);
       check(json['stt_provider']).equals('whisper');
       check(json.containsKey('tts_split_on')).isTrue();
       check((json['tts_voices'] as List).length).equals(1);
@@ -636,14 +640,28 @@ void main() {
         'features': {
           'enable_websocket': false,
           'enable_web_search': true,
+          'enable_direct_connections': true,
           'enable_audio_input': true,
           'tts_split_on': 'none',
         },
       });
       check(config.enableWebsocket).equals(false);
       check(config.enableWebSearch).equals(true);
+      check(config.enableDirectConnections).equals(true);
       check(config.enableAudioInput).equals(true);
       check(config.ttsSplitOn).equals('none');
+    });
+
+    test('direct connections canonical flag wins over nested fallback', () {
+      final config = BackendConfig.fromJson({
+        'enable_direct_connections': false,
+        'features': {'enable_direct_connections': true},
+      });
+
+      check(config.enableDirectConnections).equals(false);
+      check(
+        config.copyWith(enableDirectConnections: true).enableDirectConnections,
+      ).equals(true);
     });
 
     test('websocketOnly and pollingOnly', () {

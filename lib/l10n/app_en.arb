@@ -4418,6 +4418,84 @@
   "@directConnectionsDescription": {
     "description": "Introductory copy on direct connections settings."
   },
+  "directConnectionsCombinedDescription": "Connect directly to model providers using connections synced from Open WebUI or stored only on this device.",
+  "@directConnectionsCombinedDescription": {
+    "description": "Introductory copy explaining that direct connections can come from Open WebUI or local device storage."
+  },
+  "openWebUiDirectConnectionsSectionTitle": "Open WebUI server",
+  "@openWebUiDirectConnectionsSectionTitle": {
+    "description": "Section title above direct connections synced from the signed-in Open WebUI server."
+  },
+  "openWebUiDirectConnectionsSectionDescription": "Saved to your Open WebUI account and available to other signed-in clients.",
+  "@openWebUiDirectConnectionsSectionDescription": {
+    "description": "Description of where Open WebUI direct connections are stored and available."
+  },
+  "deviceDirectConnectionsSectionTitle": "On this device",
+  "@deviceDirectConnectionsSectionTitle": {
+    "description": "Section title above direct connections stored only on the current device."
+  },
+  "deviceDirectConnectionsSectionDescription": "Credentials are stored securely on this device.",
+  "@deviceDirectConnectionsSectionDescription": {
+    "description": "Description of how device-only direct connection credentials are stored."
+  },
+  "openWebUiDirectProfilesEmptyTitle": "No server connections yet",
+  "@openWebUiDirectProfilesEmptyTitle": {
+    "description": "Empty-state title when the Open WebUI account has no direct connections."
+  },
+  "openWebUiDirectProfilesEmptySubtitle": "Add an OpenAI-compatible API connection to sync it through Open WebUI.",
+  "@openWebUiDirectProfilesEmptySubtitle": {
+    "description": "Empty-state guidance for adding an Open WebUI-synced direct connection."
+  },
+  "openWebUiDirectConnectionsLoadFailed": "Could not sync connections from Open WebUI.",
+  "@openWebUiDirectConnectionsLoadFailed": {
+    "description": "Error shown when direct connections cannot be loaded from Open WebUI."
+  },
+  "openWebUiDirectConnectionSourceLabel": "Open WebUI",
+  "@openWebUiDirectConnectionSourceLabel": {
+    "description": "Source label identifying a direct connection synced from Open WebUI."
+  },
+  "deviceDirectConnectionSourceLabel": "This device",
+  "@deviceDirectConnectionSourceLabel": {
+    "description": "Source label identifying a direct connection stored only on this device."
+  },
+  "openWebUiDirectConnectionUnsupportedAuth": "This connection uses an authentication method Conduit cannot safely use.",
+  "@openWebUiDirectConnectionUnsupportedAuth": {
+    "description": "Warning shown when an Open WebUI direct connection uses unsupported authentication."
+  },
+  "directConnectionUnavailableLabel": "Unavailable",
+  "@directConnectionUnavailableLabel": {
+    "description": "Status label for a direct connection that Conduit cannot currently use."
+  },
+  "openWebUiDirectConnectionEditorDescription": "Changes are saved to your Open WebUI account.",
+  "@openWebUiDirectConnectionEditorDescription": {
+    "description": "Editor help text explaining where changes to a server-synced connection are saved."
+  },
+  "openWebUiDirectConnectionProviderDescription": "Open WebUI user connections support OpenAI-compatible APIs.",
+  "@openWebUiDirectConnectionProviderDescription": {
+    "description": "Help text describing the provider protocol supported by Open WebUI user connections."
+  },
+  "openWebUiDirectConnectionFallbackName": "Open WebUI connection",
+  "@openWebUiDirectConnectionFallbackName": {
+    "description": "Fallback display name for a new Open WebUI-synced direct connection before the server derives its name."
+  },
+  "openWebUiDirectConnectionsUnavailable": "Open WebUI connections are unavailable.",
+  "@openWebUiDirectConnectionsUnavailable": {
+    "description": "Message shown when Open WebUI direct connections are no longer available while their editor is open."
+  },
+  "directConnectionNoLongerExists": "This connection no longer exists.",
+  "@directConnectionNoLongerExists": {
+    "description": "Message shown when a direct connection is deleted while its editor is open."
+  },
+  "openWebUiDirectConnectionDeleteMessage": "This removes {name} from your Open WebUI account and other signed-in clients.",
+  "@openWebUiDirectConnectionDeleteMessage": {
+    "description": "Confirmation message shown before deleting an Open WebUI-synced direct connection.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work provider"
+      }
+    }
+  },
   "addDirectConnection": "Add connection",
   "@addDirectConnection": {
     "description": "Button that creates a direct connection profile."

@@ -484,6 +484,59 @@ void main() {
   });
 
   test(
+    'failed reload revokes models and runs before publishing its error',
+    () async {
+      final original = _profile();
+      final storage = _FailingReloadSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+
+      final modelRegistry = container.read(directModelRegistryProvider);
+      final staleModel = modelRegistry.replaceProfileModels(original, [
+        DirectRemoteModel(id: 'stale-model'),
+      ]).single;
+      final cancellation = _registerPendingRun(
+        container.read(directRunRegistryProvider),
+        profileId: original.id,
+      );
+      var authorityRevokedWhenErrorPublished = false;
+      final subscription = container.listen(directConnectionProfilesProvider, (
+        _,
+        next,
+      ) {
+        if (next.hasError) {
+          authorityRevokedWhenErrorPublished =
+              modelRegistry.resolve(staleModel) == null &&
+              cancellation.token.isCancelled;
+        }
+      });
+      addTearDown(subscription.close);
+
+      await container.read(directConnectionProfilesProvider.notifier).reload();
+
+      expect(container.read(directConnectionProfilesProvider).hasError, isTrue);
+      expect(authorityRevokedWhenErrorPublished, isTrue);
+      expect(modelRegistry.resolveRegisteredId(staleModel.id), isNull);
+      expect(cancellation.token.isCancelled, isTrue);
+      cancellation.done.complete();
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
+
+  test(
     'transport edit and queued mutation settle while run cleanup never does',
     () async {
       final original = _profile();
@@ -774,6 +827,58 @@ void main() {
       await expectLater(discovery, completes);
     },
   );
+
+  test(
+    'discovery recovers when profile storage recovers from an error',
+    () async {
+      final adapter = _QueuedAdapter()
+        ..responses.add([DirectRemoteModel(id: 'recovered-model')]);
+      late _RecoveringProfilesController profilesController;
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => profilesController = _RecoveringProfilesController(),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        directModelDiscoveryProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+
+      await expectLater(
+        container.read(directModelDiscoveryProvider.future),
+        throwsStateError,
+      );
+      expect(container.read(directConnectionProfilesProvider).hasError, isTrue);
+
+      profilesController.recover([_profile()]);
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+      expect(
+        container.read(effectiveDirectConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+
+      await Future.doWhile(() async {
+        if (container.read(directModelDiscoveryProvider).hasValue) return false;
+        await Future<void>.delayed(Duration.zero);
+        return true;
+      }).timeout(const Duration(seconds: 5));
+      final recovered = container
+          .read(directModelDiscoveryProvider)
+          .requireValue;
+      expect(recovered.models.map((item) => item.name), ['recovered-model']);
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>
@@ -908,6 +1013,17 @@ final class _GatedProfilesController
   Future<List<DirectConnectionProfile>> build() => profiles;
 }
 
+final class _RecoveringProfilesController
+    extends DirectConnectionProfilesController {
+  @override
+  Future<List<DirectConnectionProfile>> build() =>
+      Future.error(StateError('profile storage unavailable'));
+
+  void recover(List<DirectConnectionProfile> profiles) {
+    state = AsyncData(profiles);
+  }
+}
+
 final class _OverlappingAdapter implements DirectProviderAdapter {
   final Completer<List<DirectRemoteModel>> first = Completer();
   int listCalls = 0;
@@ -1026,6 +1142,36 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _FailingReloadSecureStorage implements FlutterSecureStorage {
+  _FailingReloadSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final String _profileDocument;
+  int _profileReadCalls = 0;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    _profileReadCalls++;
+    if (_profileReadCalls > 1) {
+      throw StateError('secure storage unavailable');
+    }
+    return _profileDocument;
   }
 
   @override

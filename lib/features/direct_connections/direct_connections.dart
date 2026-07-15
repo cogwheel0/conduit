@@ -1,6 +1,7 @@
 export 'models/direct_completion.dart';
 export 'models/direct_connection_profile.dart';
 export 'models/direct_remote_model.dart';
+export 'models/openwebui_direct_connection.dart';
 export 'providers/direct_connection_providers.dart';
 export 'services/direct_connection_profile_store.dart';
 export 'services/direct_adapter_helpers.dart';
@@ -11,4 +12,6 @@ export 'services/direct_provider_adapter.dart';
 export 'services/direct_run_registry.dart';
 export 'services/ollama_adapter.dart';
 export 'services/ollama_stream_parser.dart';
+export 'services/openwebui_direct_connection_store.dart';
+export 'services/openwebui_direct_completion_relay.dart';
 export 'services/openai_compatible_adapter.dart';

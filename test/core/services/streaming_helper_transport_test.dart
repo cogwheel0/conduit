@@ -411,13 +411,14 @@ class FakeSocketInjector {
     dynamic payload, {
     String? messageId,
     String? sessionId,
+    void Function(dynamic)? acknowledge,
   }) {
     final raw = <String, dynamic>{
       'data': {'type': type, 'data': payload},
       'message_id': ?messageId,
       'session_id': ?sessionId,
     };
-    _handler?.call(raw, null);
+    _handler?.call(raw, acknowledge);
   }
 
   /// Delivers through the most recently registered handler even after its
@@ -906,10 +907,11 @@ void main() {
     );
 
     test(
-      'taskSocket channel stream finalizes reasoning-only responses on done',
+      'taskSocket helper leaves direct-completion RPC to global relay',
       () async {
         final log = _CallbackLog();
         final registrar = FakeSocketInjector();
+        var acknowledgements = 0;
 
         _attach(
           session: ChatCompletionSession.taskSocket(
@@ -922,104 +924,19 @@ void main() {
         );
 
         await pumpMicrotasks();
-
-        registrar.emitChatEvent('request:chat:completion', {
-          'channel': 'chan-1',
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
-
-        registrar.emitChannelLine(
-          'chan-1',
-          'data: {"choices":[{"delta":{"reasoning_content":"Plan"}}]}',
+        registrar.emitChatEvent(
+          'request:chat:completion',
+          {'channel': 'account:sess-1:request'},
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          acknowledge: (_) => acknowledgements++,
         );
         await pumpMicrotasks();
 
-        registrar.emitChannelLine('chan-1', 'data: [DONE]');
-        await pumpMicrotasks();
-
-        check(log.messages.last.content).equals(
-          '<details type="reasoning" done="true" duration="0">\n'
-          '<summary>Thought for 0 seconds</summary>\n'
-          '&gt; Plan\n'
-          '</details>\n',
-        );
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    test(
-      'late channel event after normal completion does not retire or abort',
-      () async {
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-        final socket = _MockSocketService(registrar);
-        var abortCount = 0;
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            taskId: 'task-1',
-            abort: () async => abortCount++,
-          ),
-          log: log,
-          socketService: socket,
-        );
-
-        await pumpMicrotasks();
-        registrar.emitChatEvent('request:chat:completion', {
-          'channel': 'chan-late',
-        }, messageId: 'msg-1');
-        registrar.emitChannelLine('chan-late', 'data: [DONE]');
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(1);
-
-        registrar.emitQueuedChannelLine(
-          'chan-late',
-          'data: {"choices":[{"delta":{"content":"too late"}}]}',
-        );
-        await pumpMicrotasks();
-
+        check(acknowledgements).equals(0);
+        check(registrar.channelHandlerCount).equals(0);
         check(log.appendedChunks).isEmpty();
-        check(log.finishCount).equals(1);
-        check(abortCount).equals(0);
-      },
-    );
-
-    test(
-      'taskSocket channel stream applies usage updates from data payloads',
-      () async {
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('request:chat:completion', {
-          'channel': 'chan-1',
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
-
-        registrar.emitChannelLine(
-          'chan-1',
-          'data: {"usage":{"prompt_tokens":3,"completion_tokens":5}}',
-        );
-        await pumpMicrotasks();
-
-        final usage = log.messages.last.usage;
-        check(usage).isNotNull();
-        check(usage!['prompt_tokens']).equals(3);
-        check(usage['completion_tokens']).equals(5);
+        check(log.finishCount).equals(0);
       },
     );
 
@@ -1723,42 +1640,6 @@ void main() {
     );
 
     test(
-      'taskSocket channel stream preserves malformed payload fallback',
-      () async {
-        final log = _CallbackLog();
-        final registrar = FakeSocketInjector();
-
-        _attach(
-          session: ChatCompletionSession.taskSocket(
-            messageId: 'msg-1',
-            sessionId: 'sess-1',
-            taskId: 'task-1',
-          ),
-          log: log,
-          socketService: _MockSocketService(registrar),
-        );
-
-        await pumpMicrotasks();
-
-        registrar.emitChatEvent('request:chat:completion', {
-          'channel': 'chan-1',
-        }, messageId: 'msg-1');
-        await pumpMicrotasks();
-
-        registrar.emitChannelLine('chan-1', 'data: {not json');
-        await pumpMicrotasks();
-
-        check(log.appendedChunks).deepEquals(['data: {not json']);
-        check(log.messages.last.content).equals('data: {not json');
-
-        registrar.emitChannelLine('chan-1', 'data: [DONE]');
-        await pumpMicrotasks();
-
-        check(log.finishCount).equals(1);
-      },
-    );
-
-    test(
       'httpStream snapshot refresh preserves already visible follow-ups',
       () async {
         final log = _CallbackLog(
@@ -1972,14 +1853,6 @@ void main() {
         await pumpMicrotasks();
         await pumpMicrotasks();
 
-        registrar.emitChatEvent(
-          'request:chat:completion',
-          {'channel': 'task-channel'},
-          messageId: 'msg-1',
-          sessionId: 'sess-1',
-        );
-        check(registrar.channelHandlerCount).equals(1);
-
         // Conversation switches and explicit local stops both call this same
         // aggregate hook. Repeated lifecycle signals must be harmless.
         activeStream.disposeWatchdog();
@@ -2011,7 +1884,7 @@ void main() {
         ).equals(0);
         check(socket.chatSubscriptionDisposeCount).equals(1);
         check(socket.channelSubscriptionDisposeCount).equals(1);
-        check(socket.channelOffCount).equals(1);
+        check(socket.channelOffCount).equals(0);
         check(registrar.hasChatHandler).isFalse();
         check(registrar.channelHandlerCount).equals(0);
 

@@ -1256,6 +1256,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _activeOpenWebUiContextCoherent = false;
   bool _openWebUiContextChangedSinceConversation = false;
   int _openWebUiContextRebindGeneration = 0;
+  int _modelRebindGeneration = 0;
   String? _activeStreamingTransportMessageId;
   // Foreign server-assigned message id bound to the streaming tail (socket
   // resume). Lets the poll fallback resolve server messages by this id if the
@@ -1294,6 +1295,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (conversationUsesOpenWebUiStorage(next) &&
             !_openWebUiAccountStorageIsCertified(ref)) {
+          _modelRebindGeneration += 1;
           _cancelMessageStream();
           _stopRemoteTaskMonitor();
           _teardownPassiveConversationSync();
@@ -1350,6 +1352,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
 
+        final modelRebindGeneration = ++_modelRebindGeneration;
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
@@ -1368,7 +1371,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _syncStreamingProfileWithState();
 
           // Update selected model if conversation has a different model
-          _updateModelForConversation(next);
+          _updateModelForConversation(next, generation: modelRebindGeneration);
 
           if (_hasOpenWebUiTaskRecoverableTail(next)) {
             _ensureRemoteTaskMonitor();
@@ -3627,43 +3630,79 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _cancelMessageStream(clearStreamingContent: false);
   }
 
-  Future<void> _updateModelForConversation(Conversation conversation) async {
+  Future<void> _updateModelForConversation(
+    Conversation conversation, {
+    required int generation,
+  }) async {
     // Check if conversation has a model specified
     if (conversation.model == null || conversation.model!.isEmpty) {
       return;
     }
 
+    final conversationModelId = conversation.model!.trim();
     final currentSelectedModel = ref.read(selectedModelProvider);
+    final directRegistry = ref.read(directModelRegistryProvider);
+    final mutationOwner = captureChatMutationOwner(ref, conversation);
 
-    // If the conversation's model is different from the currently selected one
-    if (currentSelectedModel?.id != conversation.model) {
-      // Existing chats must keep using their saved model, even if an admin
-      // later hides it from selectors.
-      try {
-        final api = ref.read(apiServiceProvider);
-        final visibleModels = await ref.read(modelsProvider.future);
-        Model? conversationModel = visibleModels
-            .where((model) => model.id == conversation.model)
+    bool stillOwnsSelection() =>
+        !_disposed &&
+        generation == _modelRebindGeneration &&
+        identical(ref.read(directModelRegistryProvider), directRegistry) &&
+        identical(ref.read(selectedModelProvider), currentSelectedModel) &&
+        chatMutationTokenStillActive(ref, mutationOwner);
+
+    final currentDirectBinding = currentSelectedModel == null
+        ? null
+        : directRegistry.resolve(currentSelectedModel);
+
+    final currentMatchesPersistedModel =
+        currentSelectedModel?.id == conversationModelId;
+    final currentMatchesOpenWebUiDirectModel =
+        currentDirectBinding?.source == DirectModelSource.openWebUi &&
+        currentDirectBinding?.openWebUiModelId == conversationModelId;
+    if (currentMatchesOpenWebUiDirectModel ||
+        (currentMatchesPersistedModel &&
+            !directRegistry.hasOpenWebUiWireModel(conversationModelId))) {
+      return;
+    }
+
+    // Open WebUI persists the provider-facing id for direct models. Prefer the
+    // current trusted synthetic model that owns that wire id before considering
+    // a same-id server model, matching Open WebUI's direct-model last-wins rule.
+    // Existing chats must keep using their saved model, even if an admin later
+    // hides it from selectors.
+    try {
+      final api = ref.read(apiServiceProvider);
+      final visibleModels = await ref.read(modelsProvider.future);
+      if (!stillOwnsSelection()) return;
+      Model? conversationModel = directRegistry.resolveOpenWebUiWireModel(
+        visibleModels,
+        conversationModelId,
+      );
+      conversationModel ??= visibleModels
+          .where((model) => model.id == conversationModelId)
+          .firstOrNull;
+
+      // Locally minted direct models live only in modelsProvider and must never
+      // be replaced by an untrusted server object with the same id.
+      if (conversationModel == null && api != null) {
+        final serverModels = await api.getModels(includeHidden: true);
+        if (!stillOwnsSelection()) return;
+        conversationModel = serverModels
+            .where((model) => model.id == conversationModelId)
             .firstOrNull;
-
-        // Locally minted direct models live only in modelsProvider and must
-        // never be replaced by an untrusted server object with the same id.
-        if (conversationModel == null && api != null) {
-          final serverModels = await api.getModels(includeHidden: true);
-          conversationModel = serverModels
-              .where((model) => model.id == conversation.model)
-              .firstOrNull;
-        }
-
-        if (conversationModel == null) {
-          return;
-        }
-        ref
-            .read(selectedModelProvider.notifier)
-            .set(conversationModel, allowHidden: true);
-      } catch (e) {
-        // Model update failed - silently continue
       }
+
+      if (conversationModel == null ||
+          identical(conversationModel, currentSelectedModel) ||
+          !stillOwnsSelection()) {
+        return;
+      }
+      ref
+          .read(selectedModelProvider.notifier)
+          .set(conversationModel, allowHidden: true);
+    } catch (e) {
+      // Model update failed - silently continue
     }
   }
 
@@ -5128,6 +5167,7 @@ Map<String, dynamic>? _buildOpenWebUiUserMessage({
   required String? userMessageId,
   required String modelId,
   String? assistantChildMessageId,
+  bool useModelIdForModels = false,
 }) {
   if (userMessageId == null || userMessageId.isEmpty) {
     return null;
@@ -5176,7 +5216,9 @@ Map<String, dynamic>? _buildOpenWebUiUserMessage({
     'role': userMessage.role,
     'content': userMessage.content,
     if (userMessage.role == 'user')
-      'models': models.isNotEmpty ? models : <String>[modelId],
+      'models': useModelIdForModels || models.isEmpty
+          ? <String>[modelId]
+          : models,
     'timestamp': userMessage.timestamp.millisecondsSinceEpoch ~/ 1000,
     if (userMessage.files != null && userMessage.files!.isNotEmpty)
       'files': userMessage.files,
@@ -7207,7 +7249,18 @@ Future<void> regenerateMessage(
   if (usesHermesAtRegenerationStart && hermesConfigAdmission == null) return;
   final HermesApiService? hermesServiceGeneration =
       usesHermesAtRegenerationStart ? ref.read(hermesApiServiceProvider) : null;
-  final directRoute = await _resolveDirectRoute(ref, selectedModelCandidate);
+  final resolvedDirectRoute = await _resolveDirectRoute(
+    ref,
+    selectedModelCandidate,
+  );
+  final directRoute =
+      resolvedDirectRoute?.binding.source == DirectModelSource.device
+      ? resolvedDirectRoute
+      : null;
+  final openWebUiDirectRoute =
+      resolvedDirectRoute?.binding.source == DirectModelSource.openWebUi
+      ? resolvedDirectRoute
+      : null;
   if (!ownsCurrentPreparationState()) {
     return;
   }
@@ -7232,11 +7285,17 @@ Future<void> regenerateMessage(
     reviewerMode: reviewerMode,
     api: api,
     selectedModel: selectedModelCandidate,
-    hasTrustedDirectBinding: directRoute != null,
+    hasTrustedDirectBinding: resolvedDirectRoute != null,
   )) {
     throw Exception('No API service or model selected');
   }
+  if (!reviewerMode && openWebUiDirectRoute != null && api == null) {
+    throw Exception('Open WebUI direct connections require a server session.');
+  }
   final Model selectedModel = selectedModelCandidate!;
+  final serverModelId = openWebUiDirectRoute == null
+      ? selectedModel.id
+      : _openWebUiDirectWireModelId(openWebUiDirectRoute);
 
   var activeConversation = ref.read(activeConversationProvider);
   if (!isModelCompatibleWithConversation(
@@ -7502,7 +7561,11 @@ Future<void> regenerateMessage(
         (forceImageGeneration || ref.read(imageGenerationEnabledProvider)) &&
         ref.read(imageGenerationAvailableProvider);
 
-    final modelItem = _buildLocalModelItem(selectedModel);
+    final modelItem = _buildLocalModelItem(
+      selectedModel,
+      trustedDirectBinding: openWebUiDirectRoute?.binding,
+      wireModelId: serverModelId,
+    );
 
     // Reconnect before choosing session_id so eligible sends stay on the
     // task/socket transport instead of falling back to fragile HTTP streaming.
@@ -7510,6 +7573,11 @@ Future<void> regenerateMessage(
     final socketSessionId = await _ensureConnectedSocketSessionId(
       socketService,
     );
+    if (openWebUiDirectRoute != null && socketSessionId == null) {
+      throw StateError(
+        'Open WebUI direct connections require an active server socket.',
+      );
+    }
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -7590,8 +7658,9 @@ Future<void> regenerateMessage(
       parentMsgMap = _buildOpenWebUiUserMessage(
         messages: messages,
         userMessageId: lastUserMessageId,
-        modelId: selectedModel.id,
+        modelId: serverModelId,
         assistantChildMessageId: assistantMessageId,
+        useModelIdForModels: openWebUiDirectRoute != null,
       );
     } catch (_) {}
     if (!ownsLiveRegenerationPlaceholder()) {
@@ -7624,7 +7693,7 @@ Future<void> regenerateMessage(
       // Use transport-aware session dispatch
       final session = await api!.sendMessageSession(
         messages: requestMessages,
-        model: selectedModel.id,
+        model: serverModelId,
         conversationId: regenerationOwner.chatId,
         terminalId: terminalIdForApi,
         toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
@@ -7716,7 +7785,7 @@ Future<void> regenerateMessage(
         ref: ref,
         session: session,
         assistantMessageId: assistantMessageId,
-        modelId: selectedModel.id,
+        modelId: serverModelId,
         modelItem: modelItem,
         activeConversationId: regenerationOwner.chatId,
         api: api!,
@@ -9006,12 +9075,16 @@ Future<void> durableSend(
   final reviewerMode = ref.read(reviewerModeProvider);
   final selectedModel = ref.read(selectedModelProvider);
   final temporary = ref.read(temporaryChatEnabledProvider);
-  final hasTrustedDirectBinding =
-      selectedModel != null && _hasTrustedDirectBinding(ref, selectedModel);
+  final trustedDirectBinding = selectedModel == null
+      ? null
+      : ref.read(directModelRegistryProvider).resolve(selectedModel);
+  final hasTrustedDirectBinding = trustedDirectBinding != null;
+  final hasDeviceDirectBinding =
+      trustedDirectBinding?.source == DirectModelSource.device;
 
   if (!isModelCompatibleWithConversation(
     conversation: activeAtSendStart,
-    hasTrustedDirectBinding: hasTrustedDirectBinding,
+    hasTrustedDirectBinding: hasDeviceDirectBinding,
   )) {
     throw StateError(
       'On-device direct chats can only continue with a direct connection model.',
@@ -12567,12 +12640,6 @@ Future<String> persistWithResolvedDirectConversationOwner({
   throw StateError('Direct conversation owner changed repeatedly.');
 }
 
-bool _hasTrustedDirectBinding(dynamic ref, Model? model) {
-  if (model == null) return false;
-  final DirectModelRegistry registry = ref.read(directModelRegistryProvider);
-  return registry.resolve(model) != null;
-}
-
 Future<_ResolvedDirectRoute?> _resolveDirectRoute(
   dynamic ref,
   Model? selectedModel,
@@ -12582,8 +12649,13 @@ Future<_ResolvedDirectRoute?> _resolveDirectRoute(
   final DirectModelBinding? binding = registry.resolve(selectedModel);
   if (binding == null) return null;
   final List<DirectConnectionProfile> profiles = await ref.read(
-    directConnectionProfilesProvider.future,
+    effectiveDirectConnectionProfilesFutureProvider.future,
   );
+  // Profile loading may yield while logout, server switching, or a connection
+  // edit revokes this exact model object. The registry's identity check is the
+  // authority boundary, so do not let a binding captured before the await
+  // authorize a stale route afterward.
+  if (!identical(registry.resolve(selectedModel), binding)) return null;
   final DirectConnectionProfile? profile = profiles
       .where(
         (candidate) => candidate.id == binding.profileId && candidate.isUsable,
@@ -12591,6 +12663,14 @@ Future<_ResolvedDirectRoute?> _resolveDirectRoute(
       .firstOrNull;
   if (profile == null || profile.adapterKey != binding.adapterKey) return null;
   return (model: selectedModel, binding: binding, profile: profile);
+}
+
+String _openWebUiDirectWireModelId(_ResolvedDirectRoute route) {
+  final wireModelId = route.binding.openWebUiModelId;
+  if (wireModelId == null || wireModelId.isEmpty) {
+    throw StateError('Open WebUI direct model binding is incomplete.');
+  }
+  return wireModelId;
 }
 
 DirectChatSyncPreference _directSyncPreference(dynamic ref) {
@@ -13999,7 +14079,18 @@ Future<void> _sendMessageInternal(
   final HermesApiService? hermesServiceGeneration = usesHermes
       ? ref.read(hermesApiServiceProvider)
       : null;
-  final directRoute = await _resolveDirectRoute(ref, selectedModelCandidate);
+  final resolvedDirectRoute = await _resolveDirectRoute(
+    ref,
+    selectedModelCandidate,
+  );
+  final directRoute =
+      resolvedDirectRoute?.binding.source == DirectModelSource.device
+      ? resolvedDirectRoute
+      : null;
+  final openWebUiDirectRoute =
+      resolvedDirectRoute?.binding.source == DirectModelSource.openWebUi
+      ? resolvedDirectRoute
+      : null;
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
   }
@@ -14020,11 +14111,17 @@ Future<void> _sendMessageInternal(
     reviewerMode: reviewerMode,
     api: api,
     selectedModel: selectedModelCandidate,
-    hasTrustedDirectBinding: directRoute != null,
+    hasTrustedDirectBinding: resolvedDirectRoute != null,
   )) {
     throw Exception('No API service or model selected');
   }
+  if (!reviewerMode && openWebUiDirectRoute != null && api == null) {
+    throw Exception('Open WebUI direct connections require a server session.');
+  }
   final Model selectedModel = selectedModelCandidate!;
+  final serverModelId = openWebUiDirectRoute == null
+      ? selectedModel.id
+      : _openWebUiDirectWireModelId(openWebUiDirectRoute);
 
   final isLoadingConversation = ref.read(isLoadingConversationProvider);
   final currentConversation = ref.read(activeConversationProvider);
@@ -14790,11 +14887,16 @@ Future<void> _sendMessageInternal(
           final lightweightMessage = userMessage.copyWith(
             attachmentIds: null,
             files: null,
+            model: serverModelId,
+            metadata: <String, dynamic>{
+              ...?userMessage.metadata,
+              'models': <String>[serverModelId],
+            },
           );
           final serverConversation = await api.createConversation(
             title: 'New Chat',
             messages: [lightweightMessage],
-            model: selectedModel.id,
+            model: serverModelId,
             folderId: pendingFolderId,
           );
 
@@ -14988,7 +15090,11 @@ Future<void> _sendMessageInternal(
   String? messageIdForBuffer;
   OpenWebUiCompletionOwner? submittedOpenWebUiOwner;
   try {
-    final modelItem = _buildLocalModelItem(selectedModel);
+    final modelItem = _buildLocalModelItem(
+      selectedModel,
+      trustedDirectBinding: openWebUiDirectRoute?.binding,
+      wireModelId: serverModelId,
+    );
     final submittedConversation = activeConversation;
     final submittedOwner = submittedConversation == null
         ? null
@@ -15017,6 +15123,11 @@ Future<void> _sendMessageInternal(
     final socketSessionId = await _ensureConnectedSocketSessionId(
       socketService,
     );
+    if (openWebUiDirectRoute != null && socketSessionId == null) {
+      throw StateError(
+        'Open WebUI direct connections require an active server socket.',
+      );
+    }
     requireOpenWebUiPreflightOwner();
 
     List<Map<String, dynamic>>? toolServers;
@@ -15090,8 +15201,9 @@ Future<void> _sendMessageInternal(
       userMessageMap = _buildOpenWebUiUserMessage(
         messages: messages,
         userMessageId: lastUserMessageId,
-        modelId: selectedModel.id,
+        modelId: serverModelId,
         assistantChildMessageId: assistantMessageId,
+        useModelIdForModels: openWebUiDirectRoute != null,
       );
     } catch (_) {}
 
@@ -15113,7 +15225,7 @@ Future<void> _sendMessageInternal(
       requireOpenWebUiPreflightOwner();
       final session = await api.sendMessageSession(
         messages: requestMessages,
-        model: selectedModel.id,
+        model: serverModelId,
         conversationId: submittedOwner?.chatId,
         terminalId: terminalIdForApi,
         toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
@@ -15185,7 +15297,7 @@ Future<void> _sendMessageInternal(
           ref: ref,
           session: session,
           assistantMessageId: assistantMessageId,
-          modelId: selectedModel.id,
+          modelId: serverModelId,
           modelItem: modelItem,
           activeConversationId: submittedOwner?.chatId,
           api: api,
@@ -16211,11 +16323,25 @@ List<Map<String, dynamic>> _convertOpenApiToToolPayload(
 /// Includes routing-critical fields (`pipe`, `actions`, `owned_by`, etc.)
 /// preserved during model parsing. The backend uses these for pipe routing,
 /// filter resolution, and action dispatch.
-Map<String, dynamic> _buildLocalModelItem(dynamic selectedModel) {
+Map<String, dynamic> _buildLocalModelItem(
+  dynamic selectedModel, {
+  DirectModelBinding? trustedDirectBinding,
+  String? wireModelId,
+}) {
   final meta = selectedModel.metadata as Map<String, dynamic>?;
+  final openWebUiDirectBinding =
+      trustedDirectBinding?.source == DirectModelSource.openWebUi
+      ? trustedDirectBinding
+      : null;
   return {
-    'id': selectedModel.id,
+    'id': wireModelId ?? selectedModel.id,
     'name': selectedModel.name,
+    if (openWebUiDirectBinding != null) ...{
+      'direct': true,
+      'urlIdx': openWebUiDirectBinding.openWebUiUrlIndex,
+      'openai': {'id': openWebUiDirectBinding.remoteModelId},
+      'connection_type': 'external',
+    },
     'supported_parameters':
         selectedModel.supportedParameters ??
         [

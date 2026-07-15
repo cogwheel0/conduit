@@ -109,7 +109,7 @@ class RouterNotifier extends ChangeNotifier {
       ref.listen<HermesConfig>(hermesConfigProvider, _onStateChanged),
       ref.listen<bool>(hermesSecretsLoadingProvider, _onStateChanged),
       ref.listen<AsyncValue<List<DirectConnectionProfile>>>(
-        directConnectionProfilesProvider,
+        effectiveDirectConnectionProfilesProvider,
         _onStateChanged,
       ),
     ];
@@ -147,7 +147,7 @@ class RouterNotifier extends ChangeNotifier {
     final hermesSecretsLoading = ref.read(hermesSecretsLoadingProvider);
     final prefersHermes = preferredBackend == PreferredBackend.hermes;
     final prefersDirect = preferredBackend == PreferredBackend.direct;
-    final directProfiles = ref.read(directConnectionProfilesProvider);
+    final directProfiles = ref.read(effectiveDirectConnectionProfilesProvider);
     final directProfilesLoading = directProfiles.isLoading;
     final directUsable =
         !directProfiles.isLoading &&
@@ -630,6 +630,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         child: DirectConnectionEditorPage(
           profileId: state.pathParameters['id']!,
           isOnboarding: state.uri.queryParameters['onboarding'] == 'true',
+          isOpenWebUi:
+              state.uri.queryParameters['source'] ==
+              openWebUiDirectConnectionSourceQueryValue,
         ),
       ),
     ),

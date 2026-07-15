@@ -1236,6 +1236,7 @@ class AppStartupFlow extends _$AppStartupFlow {
   bool _started = false;
   ProviderSubscription<SocketService?>? _socketSubscription;
   ProviderSubscription<void>? _defaultModelAutoSelectionSubscription;
+  ProviderSubscription<void>? _directCompletionRelaySubscription;
   Timer? _defaultModelPreloadTimer;
   final _postAuthStartupRunner = _QueuedLatestRunner();
   final _startupTaskQueue = _FrameBudgetedStartupQueue();
@@ -1261,11 +1262,32 @@ class AppStartupFlow extends _$AppStartupFlow {
     );
   }
 
+  void _keepDirectCompletionRelayAlive() {
+    if (!_hasAuthenticatedSession()) return;
+    _directCompletionRelaySubscription ??= ref.listen<void>(
+      openWebUiDirectCompletionSocketRelayProvider,
+      (previous, value) {},
+      fireImmediately: true,
+    );
+  }
+
+  void _stopDirectCompletionRelay() {
+    _directCompletionRelaySubscription?.close();
+    _directCompletionRelaySubscription = null;
+    // This relay is an always-alive provider so closing its only listener does
+    // not by itself run the Socket.IO handler's teardown. Explicitly revoke
+    // the cached provider state at the auth boundary.
+    if (ref.mounted) {
+      ref.invalidate(openWebUiDirectCompletionSocketRelayProvider);
+    }
+  }
+
   void _disposeStartupResources() {
     _socketSubscription?.close();
     _socketSubscription = null;
     _defaultModelAutoSelectionSubscription?.close();
     _defaultModelAutoSelectionSubscription = null;
+    _stopDirectCompletionRelay();
     _cancelDefaultModelPreload();
     _startupTaskQueue.dispose();
   }
@@ -1565,6 +1587,10 @@ class AppStartupFlow extends _$AppStartupFlow {
     // fetch) so the sidebar generating spinner is correct app-wide, including
     // for generations started by other sessions. keepAlive keeps it running.
     ref.read(activeChatsSyncProvider);
+    // Match Open WebUI's layout-scoped direct-completion RPC handler. It must
+    // be listening before a completion POST can ask this client to contact the
+    // saved provider and relay its stream through the server.
+    _keepDirectCompletionRelayAlive();
     // Activate the notification listener (global chat/channel handlers feeding
     // the NotificationRouter). The router gates on the master toggle, so this is
     // safe to run unconditionally. Then drain any cold-launch notification tap.
@@ -1621,6 +1647,7 @@ class AppStartupFlow extends _$AppStartupFlow {
       if (next == AuthNavigationState.authenticated) {
         _requestPostAuthenticationStartup(apiWaitTimeout: apiWaitTimeout);
       } else {
+        _stopDirectCompletionRelay();
         _clearQueuedAuthenticatedStartupWork();
         _resetConversationWarmup(ref);
       }

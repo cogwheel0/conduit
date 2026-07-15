@@ -598,6 +598,25 @@ class SocketService with WidgetsBindingObserver {
     _socket?.emit(event, data);
   }
 
+  /// Emits only through the exact connected Socket.IO session that authorized
+  /// a session-scoped RPC.
+  ///
+  /// Socket IDs change on reconnect. Checking and emitting synchronously keeps
+  /// an in-flight direct-provider relay from leaking data into a replacement
+  /// account/server session.
+  bool emitForSession(String expectedSessionId, String event, dynamic data) {
+    final socket = _socket;
+    if (expectedSessionId.isEmpty ||
+        event.isEmpty ||
+        socket == null ||
+        socket.connected != true ||
+        socket.id != expectedSessionId) {
+      return false;
+    }
+    socket.emit(event, data);
+    return true;
+  }
+
   // Subscribe to an arbitrary socket.io event (used for dynamic tool channels)
   void onEvent(String eventName, void Function(dynamic data) handler) {
     _dynamicEventHandlers

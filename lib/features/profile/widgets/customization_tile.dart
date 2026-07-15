@@ -18,6 +18,7 @@ class CustomizationTile extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.showChevron = true,
+    this.subtitleMaxLines = 2,
   });
 
   final Widget? leading;
@@ -29,6 +30,7 @@ class CustomizationTile extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool showChevron;
+  final int subtitleMaxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +61,7 @@ class CustomizationTile extends StatelessWidget {
                       child: Text(
                         subtitle,
                         style: profileSubtitleTextStyle(context),
-                        maxLines: 2,
+                        maxLines: subtitleMaxLines,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

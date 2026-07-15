@@ -158,9 +158,14 @@ class _GatedCompletionApi extends ApiService {
   final Completer<void> postEntered = Completer<void>();
   int completionCalls = 0;
   String? assistantMessageId;
+  String? submittedModel;
+  Map<String, dynamic>? submittedModelItem;
+  Map<String, dynamic>? submittedUserMessage;
+  String? submittedSessionId;
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async => const {};
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
+      const {};
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
@@ -191,6 +196,14 @@ class _GatedCompletionApi extends ApiService {
   }) async {
     completionCalls += 1;
     assistantMessageId = responseMessageId;
+    submittedModel = model;
+    submittedModelItem = modelItem == null
+        ? null
+        : Map<String, dynamic>.from(modelItem);
+    submittedUserMessage = userMessage == null
+        ? null
+        : Map<String, dynamic>.from(userMessage);
+    submittedSessionId = sessionIdOverride;
     if (!postEntered.isCompleted) postEntered.complete();
     await releasePost.future;
     return ChatCompletionSession.jsonCompletion(
@@ -333,6 +346,31 @@ class _CountingPassiveSocketService extends SocketService {
       'session_id': ?sessionId,
       'data': <String, dynamic>{'type': type, 'data': payload},
     }, null);
+  }
+}
+
+class _CountingDirectAdapter implements DirectProviderAdapter {
+  int completionCalls = 0;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const <DirectRemoteModel>[];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) {
+    completionCalls += 1;
+    throw StateError('Open WebUI direct routing used the native adapter.');
   }
 }
 
@@ -562,6 +600,92 @@ void main() {
   tearDown(() async {
     await db.close();
   });
+
+  test(
+    'Open WebUI direct send uses the server pipeline and upstream wire model',
+    () async {
+      const chatId = 'openwebui-direct-chat';
+      await _seedChat(db, chatId);
+      final releasePost = Completer<void>()..complete();
+      final api = _GatedCompletionApi(releasePost);
+      final socket = _CountingPassiveSocketService();
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final profile = DirectConnectionProfile(
+        id: 'openwebui-profile',
+        name: 'Server direct connection',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example.test/v1',
+        modelIdPrefix: 'server-prefix',
+      );
+      final registry = DirectModelRegistry();
+      final selectedModel = registry
+          .replaceProfileModels(
+            profile,
+            <DirectRemoteModel>[
+              DirectRemoteModel(id: 'provider/model', name: 'Provider model'),
+            ],
+            source: DirectModelSource.openWebUi,
+            openWebUiUrlIndex: 3,
+          )
+          .single;
+      final nativeAdapter = _CountingDirectAdapter();
+      final messages = <ChatMessage>[_user('existing-user', 'Existing turn')];
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          activeConversationProvider.overrideWith(
+            () => _SeededActive(
+              _conversation(chatId, messages, ChatStorageKind.openWebUi),
+            ),
+          ),
+          chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
+          apiServiceProvider.overrideWithValue(api),
+          selectedModelProvider.overrideWithValue(selectedModel),
+          reviewerModeProvider.overrideWithValue(false),
+          socketServiceProvider.overrideWithValue(socket),
+          temporaryChatEnabledProvider.overrideWith(_FalseTemporaryChat.new),
+          webSearchEnabledProvider.overrideWith(_FalseWebSearch.new),
+          imageGenerationEnabledProvider.overrideWith(
+            _FalseImageGeneration.new,
+          ),
+          webSearchAvailableProvider.overrideWithValue(false),
+          imageGenerationAvailableProvider.overrideWithValue(false),
+          selectedFilterIdsProvider.overrideWithValue(const <String>[]),
+          selectedTerminalIdProvider.overrideWithValue(null),
+          syncEngineProvider.overrideWith(() => syncEngine),
+          directModelRegistryProvider.overrideWithValue(registry),
+          effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+            (ref) async => <DirectConnectionProfile>[profile],
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry(<DirectProviderAdapter>[
+              nativeAdapter,
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier).setMessages(messages);
+
+      await sendMessageWithContainer(container, 'Use the server relay', null);
+
+      check(api.completionCalls).equals(1);
+      check(api.submittedModel).equals('server-prefix.provider/model');
+      check(api.submittedSessionId).equals('passive-socket');
+      final modelItem = api.submittedModelItem!;
+      check(modelItem['id'] as String).equals('server-prefix.provider/model');
+      check(modelItem['direct'] as bool).isTrue();
+      check(modelItem['urlIdx'] as int).equals(3);
+      check(
+        modelItem['openai'] as Map<String, dynamic>,
+      ).deepEquals(<String, dynamic>{'id': 'provider/model'});
+      check(modelItem['connection_type'] as String).equals('external');
+      check(
+        (api.submittedUserMessage!['models'] as List).cast<String>(),
+      ).contains('server-prefix.provider/model');
+      check(nativeAdapter.completionCalls).equals(0);
+    },
+  );
 
   test(
     'inline POST navigation continues A headlessly without touching colliding B',

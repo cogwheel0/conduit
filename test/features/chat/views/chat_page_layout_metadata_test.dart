@@ -4,12 +4,16 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/chat_message.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -711,6 +715,107 @@ void main() {
       expect(summary.single.displayModelName, 'GPT-4o');
     },
   );
+
+  test('layout metadata resolves an Open WebUI direct wire model id', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry
+        .replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'server-profile',
+            name: 'Server connection',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://provider.example/v1',
+            modelIdPrefix: 'server-prefix',
+          ),
+          [DirectRemoteModel(id: 'model', name: 'Provider model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 2,
+        )
+        .single;
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Visible response',
+        timestamp: DateTime(2026),
+        model: 'server-prefix.model',
+      ),
+    ];
+
+    final summary = debugBuildChatListLayoutSummaryForTesting(
+      messages,
+      models: <Model>[
+        directModel,
+        const Model(id: 'server-prefix.model', name: 'Server collision'),
+      ],
+      directModelRegistry: registry,
+    );
+
+    expect(summary.single.displayModelName, 'server-prefix.Provider model');
+  });
+
+  test('layout cache refreshes when direct model bindings change', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry
+        .replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'server-profile',
+            name: 'Server connection',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://provider.example/v1',
+            modelIdPrefix: 'server-prefix',
+          ),
+          [DirectRemoteModel(id: 'model', name: 'Provider model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 2,
+        )
+        .single;
+    final models = <Model>[
+      directModel,
+      const Model(id: 'server-prefix.model', name: 'Server collision'),
+    ];
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Visible response',
+        timestamp: DateTime(2026),
+        model: 'server-prefix.model',
+      ),
+    ];
+    final cache = debugCreateChatListStableLayoutCacheForTesting();
+
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'server-prefix.Provider model',
+    );
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'server-prefix.Provider model',
+    );
+
+    registry.removeProfile('server-profile');
+
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'Server collision',
+    );
+  });
 
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
