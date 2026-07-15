@@ -146,7 +146,7 @@ void main() {
       'freshly merges an edit and returns the authoritative server record',
       () async {
         final server = _FakeSettingsServer(<String, dynamic>{
-          'rootField': 'not-posted',
+          'rootField': <String, dynamic>{'preserved': true},
           'ui': <String, dynamic>{
             'theme': 'dark',
             'futureUi': <String, dynamic>{'keep': true},
@@ -189,8 +189,13 @@ void main() {
         check(store.accountId).equals('account-one');
         check(server.readCount).equals(3);
         check(server.writeCount).equals(1);
-        check(server.lastPayload!.keys).deepEquals(['ui']);
-        check(server.lastPayload!['rootField']).isNull();
+        check(server.lastPayload!.keys).deepEquals(['rootField', 'ui']);
+        check(
+          server.lastPayload!['rootField'],
+        ).isA<Map>().deepEquals({'preserved': true});
+        check(
+          server.settings['rootField'],
+        ).isA<Map>().deepEquals({'preserved': true});
         final postedUi = server.lastPayload!['ui'] as Map<String, dynamic>;
         check(postedUi['theme']).equals('dark');
         check(postedUi['futureUi']).isA<Map>().deepEquals({'keep': true});
@@ -433,9 +438,7 @@ void main() {
         accountId: 'account',
         readSettings: () async => _clone(settings),
         writeSettings: (payload) async {
-          settings = <String, dynamic>{
-            'ui': _clone((payload['ui'] as Map).cast<String, dynamic>()),
-          };
+          settings = _clone(payload);
           throw StateError('response lost after commit');
         },
       );
@@ -649,10 +652,7 @@ final class _FakeSettingsServer {
   Future<void> write(Map<String, dynamic> payload) async {
     writeCount++;
     lastPayload = _clone(payload);
-    final ui = payload['ui'];
-    if (ui is Map) {
-      settings['ui'] = _clone(ui.cast<String, dynamic>());
-    }
+    settings = _clone(payload);
   }
 }
 

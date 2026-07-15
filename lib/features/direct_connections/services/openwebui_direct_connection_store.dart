@@ -396,8 +396,9 @@ final class OpenWebUiDirectConnectionsCodec {
 /// Ephemeral repository for the current Open WebUI account's direct settings.
 ///
 /// Every mutation begins with a fresh GET, performs an expected-revision check,
-/// POSTs only `{ui: fullMergedUi}`, then performs another GET so callers receive
-/// the server's authoritative records.
+/// POSTs the complete freshly-read settings document with only `ui` replaced by
+/// the merged value, then performs another GET so callers receive the server's
+/// authoritative records.
 final class OpenWebUiDirectConnectionStore {
   OpenWebUiDirectConnectionStore({
     required String serverId,
@@ -424,7 +425,18 @@ final class OpenWebUiDirectConnectionStore {
   Future<void> _mutationQueue = Future<void>.value();
 
   Future<OpenWebUiDirectConnectionsSnapshot> load() async =>
-      _codec.decode(await _readSettings());
+      (await _loadDocument()).snapshot;
+
+  Future<
+    ({
+      Map<String, dynamic> settings,
+      OpenWebUiDirectConnectionsSnapshot snapshot,
+    })
+  >
+  _loadDocument() async {
+    final settings = _mutableJsonMap(await _readSettings());
+    return (settings: settings, snapshot: _codec.decode(settings));
+  }
 
   Future<OpenWebUiDirectConnectionsSnapshot> add(
     DirectConnectionProfile profile, {
@@ -434,7 +446,8 @@ final class OpenWebUiDirectConnectionStore {
     final normalizedAuthType = authType == null
         ? null
         : _normalizeSupportedAuthType(authType);
-    final current = await load();
+    final document = await _loadDocument();
+    final current = document.snapshot;
     if (expectedDocumentRevision != null &&
         current.documentRevision != expectedDocumentRevision) {
       throw OpenWebUiDirectConnectionConflictException(current);
@@ -444,7 +457,7 @@ final class OpenWebUiDirectConnectionStore {
       profile,
       authType: normalizedAuthType,
     );
-    return _commitUi(updatedUi);
+    return _commitUi(document.settings, updatedUi);
   });
 
   Future<OpenWebUiDirectConnectionsSnapshot> update(
@@ -456,7 +469,8 @@ final class OpenWebUiDirectConnectionStore {
     final normalizedAuthType = authType == null
         ? null
         : _normalizeSupportedAuthType(authType);
-    final current = await load();
+    final document = await _loadDocument();
+    final current = document.snapshot;
     final authoritative = _recordAt(current, record.index);
     if (authoritative == null ||
         authoritative.profile.id != record.profile.id ||
@@ -472,14 +486,15 @@ final class OpenWebUiDirectConnectionStore {
       // remains compatibility-filtered and its key was never put in [profile].
       authType: normalizedAuthType ?? authoritative.authType,
     );
-    return _commitUi(updatedUi);
+    return _commitUi(document.settings, updatedUi);
   });
 
   Future<OpenWebUiDirectConnectionsSnapshot> delete(
     OpenWebUiDirectConnectionRecord record, {
     String? expectedRevision,
   }) => _serializeMutation(() async {
-    final current = await load();
+    final document = await _loadDocument();
+    final current = document.snapshot;
     final authoritative = _recordAt(current, record.index);
     if (authoritative == null ||
         authoritative.profile.id != record.profile.id ||
@@ -490,14 +505,17 @@ final class OpenWebUiDirectConnectionStore {
       current.ui,
       index: authoritative.index,
     );
-    return _commitUi(updatedUi);
+    return _commitUi(document.settings, updatedUi);
   });
 
   Future<OpenWebUiDirectConnectionsSnapshot> _commitUi(
+    Map<String, dynamic> currentSettings,
     Map<String, dynamic> updatedUi,
   ) async {
+    final payload = _mutableJsonMap(currentSettings);
+    payload['ui'] = _mutableJsonMap(updatedUi);
     try {
-      await _writeSettings(<String, dynamic>{'ui': updatedUi});
+      await _writeSettings(payload);
     } catch (_) {
       // Once dispatch begins, a timeout, disconnect, or post-response
       // ownership rejection cannot prove that the server did not commit.
