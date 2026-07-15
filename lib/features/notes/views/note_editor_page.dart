@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show File, Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,14 +13,20 @@ import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import '../../../core/auth/api_auth_interceptor.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';
+import '../../../core/database/mappers/note_mapper.dart';
 import '../../../core/models/note.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/sync/sync_engine.dart';
+import '../../../core/sync/chat_locks.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -30,8 +39,10 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
+import '../../auth/providers/unified_auth_providers.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
+import '../services/note_audio_upload_service.dart';
 import '../utils/note_document_codec.dart';
 import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
@@ -63,6 +74,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   bool _isRecording = false;
   bool _isUploadingAudio = false;
   Note? _note;
+
+  final NoteAudioUploadStore _noteAudioUploadStore = NoteAudioUploadStore();
+  final List<PendingNoteAudioUpload> _pendingAudioUploads = [];
+  final Set<String> _audioUploadsInFlight = <String>{};
+  final Set<String> _queuedAudioUploadIds = <String>{};
+  final Set<String> _audioUploadFeedbackIds = <String>{};
+  final Set<String> _hiddenAudioUploadIds = <String>{};
+  int _pendingAudioMutationGeneration = 0;
+  bool _isDrainingAudioUploads = false;
+  ProviderSubscription<ConnectivityStatus>? _audioConnectivitySubscription;
+  ProviderSubscription<Object>? _audioAuthEpochSubscription;
+  CancelToken? _activeAudioCancelToken;
 
   // Voice input
   VoiceInputService? _voiceService;
@@ -108,6 +131,31 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void initState() {
     super.initState();
     _loadNote();
+    _audioConnectivitySubscription = ref.listenManual<ConnectivityStatus>(
+      connectivityStatusProvider,
+      (previous, next) {
+        if (previous == ConnectivityStatus.offline &&
+            next == ConnectivityStatus.online) {
+          unawaited(_retryPendingAudioUploads());
+        }
+      },
+    );
+    _audioAuthEpochSubscription = ref.listenManual<Object>(
+      openWebUiAuthSessionEpochProvider,
+      (previous, next) {
+        _activeAudioCancelToken?.cancel('Authentication session changed.');
+        _activeAudioCancelToken = null;
+        _queuedAudioUploadIds.clear();
+        _audioUploadFeedbackIds.clear();
+        _audioUploadsInFlight.clear();
+        _hiddenAudioUploadIds.clear();
+        _pendingAudioMutationGeneration++;
+        if (mounted) {
+          setState(_pendingAudioUploads.clear);
+          if (_note != null) unawaited(_loadPendingAudioUploads());
+        }
+      },
+    );
     _titleController.addListener(_onContentChanged);
     // The content controller is created once the note is loaded; its listener
     // is wired up in [_installContentDocument].
@@ -160,6 +208,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void dispose() {
     _saveDebounce?.cancel();
     _voiceSub?.cancel();
+    _audioConnectivitySubscription?.close();
+    _audioAuthEpochSubscription?.close();
+    _activeAudioCancelToken?.cancel('Note editor disposed.');
     _voiceService?.stopListening();
     _titleController.dispose();
     _contentController?.dispose();
@@ -171,8 +222,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     super.dispose();
   }
 
-  bool _isCurrentNoteSession({required Object? api, required Object? db}) {
+  bool _isCurrentNoteSession({
+    required Object? api,
+    required Object? db,
+    Object? authEpoch,
+  }) {
+    if (!ref.read(isAuthenticatedProvider2)) return false;
     if (!identical(ref.read(apiServiceProvider), api)) return false;
+    if (authEpoch != null &&
+        !identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch)) {
+      return false;
+    }
     final currentDb = ref.read(appDatabaseProvider);
     return db == null ? currentDb == null : identical(currentDb, db);
   }
@@ -197,6 +257,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _isLoading = false;
           _hasChanges = false;
         });
+        unawaited(_loadPendingAudioUploads());
       }
     } catch (e) {
       if (mounted) {
@@ -290,8 +351,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     await _saveNote(showFeedback: false);
   }
 
-  /// Builds the note `data` PATCH for an update: only the fields the editor
-  /// actually changes — `content`, plus `files` when [files] is provided. It
+  /// Builds the note `data` PATCH for an update: `content` when
+  /// [includeContent] is true, plus `files` when [files] is provided. It
   /// deliberately does NOT spread the (possibly stale) in-memory `_note.data`:
   /// `durableUpdateNote` merges this patch onto the CURRENT DB row, which
   /// preserves server-managed fields like `versions` (a pull may have added
@@ -299,15 +360,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// would revert them on the next save).
   Map<String, dynamic> _composeUpdatedNoteData({
     List<Map<String, dynamic>>? files,
+    bool includeContent = true,
   }) {
-    final document = _contentController?.document;
-    final markdown = document != null ? markdownFromDocument(document) : '';
-    final html = document != null ? htmlFromDocument(document) : '';
-    // `json` (TipTap) is intentionally left null: markdown stays the canonical
-    // interchange format so notes remain editable on the Open WebUI web client.
-    final data = <String, dynamic>{
-      'content': <String, dynamic>{'json': null, 'html': html, 'md': markdown},
-    };
+    final data = <String, dynamic>{};
+    if (includeContent) {
+      final document = _contentController?.document;
+      final markdown = document != null ? markdownFromDocument(document) : '';
+      final html = document != null ? htmlFromDocument(document) : '';
+      // `json` (TipTap) is intentionally left null: markdown stays the
+      // canonical interchange format so notes remain editable on the Open
+      // WebUI web client.
+      data['content'] = <String, dynamic>{
+        'json': null,
+        'html': html,
+        'md': markdown,
+      };
+    }
     if (files != null) {
       data['files'] = files;
     }
@@ -328,8 +396,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required AppDatabase? db,
     required String title,
     required Map<String, dynamic> data,
+    Object? authEpoch,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
   }) async {
-    if (!_isCurrentNoteSession(api: api, db: db)) return null;
+    if (!_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      return null;
+    }
     Note? note;
     if (db != null) {
       note = await durableUpdateNote(
@@ -344,9 +417,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final currentApi = ref.read(apiServiceProvider);
       if (currentApi == null) return null;
       note = Note.fromJson(
-        await currentApi.updateNote(widget.noteId, title: title, data: data),
+        await currentApi.updateNoteForSession(
+          widget.noteId,
+          title: title,
+          data: data,
+          authSnapshot: authSnapshot,
+          cancelToken: cancelToken,
+        ),
       );
-      if (mounted && _isCurrentNoteSession(api: api, db: db)) {
+      if (mounted &&
+          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
         ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
       }
     }
@@ -355,7 +435,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // and reopening the note in the same app session shows stale/empty content
     // until a full restart. Invalidate so the next open re-reads what we just
     // saved. Cover the remapped server id too, in case a `local:` id resolved.
-    if (note != null) {
+    if (note != null &&
+        _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
       ref.invalidate(noteByIdProvider(widget.noteId));
       if (note.id != widget.noteId) {
         ref.invalidate(noteByIdProvider(note.id));
@@ -826,8 +907,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             child: AudioRecordingOverlay(
               onCancel: () => Navigator.pop(context),
               onConfirm: (file) async {
-                Navigator.pop(context);
-                await _uploadAudioFile(file);
+                final staged = await _stageAudioFile(file);
+                if (staged && context.mounted) Navigator.pop(context);
+                return staged;
               },
             ),
           );
@@ -838,110 +920,510 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
   }
 
-  /// Uploads an audio file to the server and attaches it to the note.
-  Future<void> _uploadAudioFile(File audioFile) async {
+  ({String serverId, String accountId})? _noteAudioScope() {
+    if (!ref.read(isAuthenticatedProvider2)) return null;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return null;
+
+    final userId = ref.read(currentUserProvider2)?.id.trim();
+    if (userId == null || userId.isEmpty) return null;
+
+    return (serverId: api.serverConfig.id, accountId: 'user:$userId');
+  }
+
+  /// Moves a recorder cache file into account-scoped application support
+  /// before any network request. Once this returns, closing the page or losing
+  /// connectivity cannot discard the recording.
+  Future<bool> _stageAudioFile(File audioFile) async {
+    final note = _note;
+    final scope = _noteAudioScope();
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
-    final l10n = AppLocalizations.of(context)!;
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    if (note == null || scope == null) {
+      _showError(AppLocalizations.of(context)!.failedToUploadAudio);
+      return false;
+    }
 
-    if (api == null || _note == null) {
-      _showError(l10n.failedToUploadAudio);
+    final fileName = 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    try {
+      final item = await _noteAudioUploadStore.stage(
+        source: audioFile,
+        serverId: scope.serverId,
+        accountId: scope.accountId,
+        noteId: note.id,
+        fileName: fileName,
+      );
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return true;
+      }
+      setState(() {
+        _pendingAudioMutationGeneration++;
+        _hiddenAudioUploadIds.remove(item.id);
+        final index = _pendingAudioUploads.indexWhere(
+          (candidate) => candidate.id == item.id,
+        );
+        if (index < 0) {
+          _pendingAudioUploads.add(item);
+        } else {
+          _pendingAudioUploads[index] = item;
+        }
+        _pendingAudioUploads.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      });
+      unawaited(
+        _retryPendingAudioUploads(ids: <String>[item.id], showFeedback: true),
+      );
+      return true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-audio-stage-failed',
+        scope: 'notes/audio',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
+      }
+      return false;
+    }
+  }
+
+  Future<void> _loadPendingAudioUploads() async {
+    final note = _note;
+    final scope = _noteAudioScope();
+    final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    if (note == null || scope == null) return;
+    final mutationGeneration = _pendingAudioMutationGeneration;
+
+    try {
+      final currentIds = <String>{widget.noteId, note.id};
+      if (db != null) {
+        currentIds.add(await db.notesDao.resolveNoteRemapTarget(widget.noteId));
+        currentIds.add(await db.notesDao.resolveNoteRemapTarget(note.id));
+      }
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+
+      final accountItems = await _noteAudioUploadStore.loadForAccount(
+        serverId: scope.serverId,
+        accountId: scope.accountId,
+      );
+      final exactItems = await Future.wait(
+        currentIds.map(
+          (noteId) => _noteAudioUploadStore.loadForNote(
+            serverId: scope.serverId,
+            accountId: scope.accountId,
+            noteId: noteId,
+          ),
+        ),
+      );
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+
+      final matchingById = <String, PendingNoteAudioUpload>{};
+      for (final batch in exactItems) {
+        for (final item in batch) {
+          matchingById[item.id] = item;
+        }
+      }
+      for (final item in accountItems) {
+        if (currentIds.contains(item.noteId)) {
+          matchingById[item.id] = item;
+          continue;
+        }
+        if (db != null) {
+          final resolvedId = await db.notesDao.resolveNoteRemapTarget(
+            item.noteId,
+          );
+          if (currentIds.contains(resolvedId)) matchingById[item.id] = item;
+        }
+      }
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
+
+      setState(() {
+        final changedWhileLoading =
+            mutationGeneration != _pendingAudioMutationGeneration;
+        if (changedWhileLoading) {
+          // A stage, completion, or removal won the race with this disk scan.
+          // Preserve the newer UI state while still merging other recovered
+          // recordings, always deduplicated by their durable id.
+          for (final existing in _pendingAudioUploads) {
+            matchingById[existing.id] = existing;
+          }
+        }
+        for (final hiddenId in _hiddenAudioUploadIds) {
+          matchingById.remove(hiddenId);
+        }
+        _pendingAudioUploads
+          ..clear()
+          ..addAll(matchingById.values)
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      });
+      if (ref.read(connectivityStatusProvider) == ConnectivityStatus.online) {
+        unawaited(_retryPendingAudioUploads());
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-audio-recovery-failed',
+        scope: 'notes/audio',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _retryPendingAudioUploads({
+    Iterable<String>? ids,
+    bool showFeedback = false,
+  }) async {
+    if (!mounted || _noteAudioScope() == null) return;
+    final requestedIds = ids ?? _pendingAudioUploads.map((item) => item.id);
+    _queuedAudioUploadIds.addAll(requestedIds);
+    if (showFeedback) {
+      _audioUploadFeedbackIds.addAll(requestedIds);
+    }
+    if (_isDrainingAudioUploads) return;
+
+    _isDrainingAudioUploads = true;
+    setState(() => _isUploadingAudio = true);
+    try {
+      while (mounted && _queuedAudioUploadIds.isNotEmpty) {
+        final id = _queuedAudioUploadIds.first;
+        _queuedAudioUploadIds.remove(id);
+        final showItemFeedback = _audioUploadFeedbackIds.remove(id);
+        await _processPendingAudioUpload(id, showFeedback: showItemFeedback);
+      }
+    } finally {
+      _isDrainingAudioUploads = false;
+      if (mounted) setState(() => _isUploadingAudio = false);
+    }
+  }
+
+  Future<void> _processPendingAudioUpload(
+    String id, {
+    required bool showFeedback,
+  }) async {
+    final index = _pendingAudioUploads.indexWhere((item) => item.id == id);
+    if (index < 0) return;
+    final pendingItem = _pendingAudioUploads[index];
+    final removalCompletion = NoteAudioUploadCoordinator.removalCompletion(
+      pendingItem,
+    );
+    if (removalCompletion != null) {
+      await removalCompletion;
+      if (mounted) await _loadPendingAudioUploads();
       return;
     }
 
-    setState(() => _isUploadingAudio = true);
+    final api = ref.read(apiServiceProvider);
+    final db = ref.read(appDatabaseProvider);
+    if (api == null || _noteAudioScope() == null) return;
+    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final authSnapshot = api.captureAuthSnapshot();
+    final cancelToken = CancelToken();
+    _activeAudioCancelToken = cancelToken;
 
+    _audioUploadsInFlight.add(id);
+    if (mounted) setState(() {});
     try {
-      // Get file info
-      final fileSize = await audioFile.length();
-      final fileName = 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final coordinator = NoteAudioUploadCoordinator(
+        store: _noteAudioUploadStore,
+        upload: (item, file) async {
+          if (!mounted ||
+              !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+            throw StateError('The active note session changed');
+          }
 
-      // Upload file to Open WebUI with proper content type
-      final fileId = await api.uploadFile(
-        audioFile.path,
-        fileName,
-        contentType: 'audio/mp4',
-      );
+          // A prior process may have committed the POST but lost its response.
+          // OpenWebUI stores this marker under `meta.data`; reconcile before a
+          // retry so that uncertain requests do not create duplicate files.
+          if (item.status != NoteAudioUploadStatus.pending &&
+              item.serverFileId == null) {
+            final targetedFiles = await api.searchFilesForSession(
+              query: item.fileName,
+              limit: 100,
+              authSnapshot: authSnapshot,
+              cancelToken: cancelToken,
+            );
+            final files =
+                targetedFiles ??
+                await api.getUserFilesForSession(
+                  authSnapshot: authSnapshot,
+                  cancelToken: cancelToken,
+                );
+            if (!mounted ||
+                !_isCurrentNoteSession(
+                  api: api,
+                  db: db,
+                  authEpoch: authEpoch,
+                )) {
+              throw StateError('The active note session changed');
+            }
+            final matches =
+                files
+                    .where((candidate) {
+                      final metadata = candidate.metadata;
+                      final nested = metadata?['data'];
+                      final marker = nested is Map
+                          ? nested['conduit_upload_id']
+                          : metadata?['conduit_upload_id'];
+                      return marker?.toString() == item.id &&
+                          candidate.displayName == item.fileName &&
+                          candidate.size == item.fileSize;
+                    })
+                    .toList(growable: false)
+                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            if (matches.isNotEmpty) return matches.first.id;
+          }
 
-      // Get current note files
-      final currentFiles = _note!.data.files ?? [];
-
-      // Generate a local item ID (for OpenWebUI compatibility)
-      final itemId = DateTime.now().millisecondsSinceEpoch.toString();
-
-      // Add the new file in OpenWebUI's expected format
-      // Must match the structure in NoteEditor.svelte uploadFileHandler
-      final updatedFiles = [
-        ...currentFiles,
-        {
-          'type': 'file',
-          'file': '',
-          'id': fileId,
-          'url': fileId,
-          'name': fileName,
-          'collection_name': '',
-          'status': 'uploaded',
-          'size': fileSize,
-          'error': '',
-          'itemId': itemId,
+          return api.uploadFile(
+            file.path,
+            item.fileName,
+            contentType: 'audio/mp4',
+            metadata: <String, dynamic>{'conduit_upload_id': item.id},
+            cancelToken: cancelToken,
+            authSnapshot: authSnapshot,
+          );
         },
-      ];
-
-      // Update note with the file attachment. Snapshot the markdown that gets
-      // persisted so the dirty baseline stays in sync with what was saved.
-      final savedMarkdown = _contentMarkdown;
-      final data = _composeUpdatedNoteData(files: updatedFiles);
-
-      final resolvedTitle = _titleController.text.isEmpty
-          ? l10n.untitled
-          : _titleController.text;
-      final updatedNote = await _persistNoteUpdate(
-        api: api,
-        db: db,
-        title: resolvedTitle,
-        data: data,
+        attach: (item, fileId) => _attachUploadedAudio(
+          item,
+          fileId,
+          api: api,
+          db: db,
+          authEpoch: authEpoch,
+          authSnapshot: authSnapshot,
+          cancelToken: cancelToken,
+        ),
+        onChanged: (item) {
+          if (mounted &&
+              _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+            _onPendingAudioChanged(id, item);
+          }
+        },
       );
+      final result = await coordinator.process(pendingItem);
+      if (!mounted ||
+          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        return;
+      }
 
-      if (mounted) {
-        if (!_isCurrentNoteSession(api: api, db: db)) {
-          setState(() => _isUploadingAudio = false);
-          return;
-        }
+      // A shared in-flight operation may have been owned by a different
+      // editor instance, whose change callback does not target this page.
+      _onPendingAudioChanged(id, result);
 
-        if (updatedNote != null) {
-          setState(() {
-            _note = updatedNote;
-            _savedMarkdown = savedMarkdown;
-            _isUploadingAudio = false;
-            _hasChanges = false;
-          });
-
-          ConduitHaptics.mediumImpact();
+      if (result == null) {
+        ConduitHaptics.mediumImpact();
+        if (showFeedback) {
           AdaptiveSnackBar.show(
             context,
-            message: l10n.audioRecordingSaved,
+            message: AppLocalizations.of(context)!.audioRecordingSaved,
             type: AdaptiveSnackBarType.success,
             duration: const Duration(seconds: 2),
           );
-        } else {
-          setState(() => _isUploadingAudio = false);
         }
+      } else if (showFeedback) {
+        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
       }
-
-      // Clean up temp file
-      try {
-        await audioFile.delete();
-      } catch (_) {
-        // Ignore cleanup errors
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-audio-coordinator-failed',
+        scope: 'notes/audio',
+        stackTrace: stackTrace,
+        data: {'id': id, 'errorType': error.runtimeType.toString()},
+      );
+      if (mounted &&
+          showFeedback &&
+          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isUploadingAudio = false);
-        _showError(
-          AppLocalizations.of(context)!.audioUploadError(e.toString()),
-        );
+    } finally {
+      if (identical(_activeAudioCancelToken, cancelToken)) {
+        _activeAudioCancelToken = null;
       }
+      _audioUploadsInFlight.remove(id);
+      if (mounted) setState(() {});
     }
+  }
+
+  /// Idempotently appends one attachment using the newest local note row.
+  ///
+  /// The read, duplicate check, and write share the same note lock as sync, so
+  /// an upload finishing from an older editor cannot replace files added by a
+  /// concurrent pull or recording.
+  Future<Note?> _durableAttachNoteAudioFile(
+    AppDatabase db, {
+    required String id,
+    required Map<String, dynamic> attachment,
+    required bool Function() canCommit,
+  }) async {
+    final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
+    if (!canCommit()) return null;
+
+    final noteLocks = ref.read(noteLocksProvider);
+    var noteAvailable = false;
+    await noteLocks.runExclusive(resolvedId, () async {
+      if (!canCommit()) return;
+      final existingRow = await db.notesDao.getNote(resolvedId);
+      if (existingRow == null || existingRow.deleted || !canCommit()) return;
+      noteAvailable = true;
+
+      final existingData = decodeNoteData(existingRow.data);
+      final rawFiles = existingData['files'];
+      final files = rawFiles is List
+          ? rawFiles
+                .whereType<Map>()
+                .map((file) => Map<String, dynamic>.from(file))
+                .toList(growable: true)
+          : <Map<String, dynamic>>[];
+      final fileId = attachment['id']?.toString();
+      final itemId = attachment['itemId']?.toString();
+      final alreadyAttached = files.any(
+        (file) =>
+            (fileId != null && file['id']?.toString() == fileId) ||
+            (itemId != null && file['itemId']?.toString() == itemId),
+      );
+      if (alreadyAttached || !canCommit()) return;
+
+      await db.notesDao.updateNoteWithOutbox(
+        resolvedId,
+        data: Value(
+          jsonEncode(<String, dynamic>{
+            ...existingData,
+            'files': <Map<String, dynamic>>[
+              ...files,
+              Map<String, dynamic>.from(attachment),
+            ],
+          }),
+        ),
+        localUpdatedAtNs: DateTime.now().microsecondsSinceEpoch * 1000,
+        enqueue: true,
+      );
+    });
+    if (!noteAvailable || !canCommit()) return null;
+
+    final row = await db.notesDao.getNote(resolvedId);
+    if (row == null || row.deleted || !canCommit()) return null;
+    unawaited(_drainPendingAudioAttachment());
+    return Note.fromJson(noteRowToServer(row));
+  }
+
+  Future<void> _drainPendingAudioAttachment() async {
+    try {
+      await ref.read(syncEngineProvider.notifier).drainNow();
+    } catch (error) {
+      DebugLogger.warning(
+        'note-audio-attachment-drain-failed',
+        scope: 'notes/audio',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+
+  Future<void> _attachUploadedAudio(
+    PendingNoteAudioUpload item,
+    String fileId, {
+    required Object? api,
+    required AppDatabase? db,
+    required Object authEpoch,
+    required ApiAuthSnapshot authSnapshot,
+    required CancelToken cancelToken,
+  }) async {
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      throw StateError('The active note session changed');
+    }
+    final note = _note;
+    if (note == null) throw StateError('The note is no longer available');
+
+    // Device-local paths never enter NoteData. Only the server attachment
+    // descriptor is synced, keyed by the durable upload id for replay dedupe.
+    final attachment = <String, dynamic>{
+      'type': 'file',
+      'file': '',
+      'id': fileId,
+      'url': fileId,
+      'name': item.fileName,
+      'collection_name': '',
+      'status': 'uploaded',
+      'size': item.fileSize,
+      'error': '',
+      'itemId': item.id,
+    };
+
+    Note? updatedNote;
+    if (db != null) {
+      updatedNote = await _durableAttachNoteAudioFile(
+        db,
+        id: widget.noteId,
+        attachment: attachment,
+        canCommit: () =>
+            mounted &&
+            _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch),
+      );
+    } else {
+      final currentFiles = note.data.files ?? <Map<String, dynamic>>[];
+      final alreadyAttached = currentFiles.any(
+        (file) =>
+            file['id']?.toString() == fileId ||
+            file['itemId']?.toString() == item.id,
+      );
+      if (alreadyAttached) return;
+      final data = _composeUpdatedNoteData(
+        files: <Map<String, dynamic>>[...currentFiles, attachment],
+        includeContent: false,
+      );
+      final title = _titleController.text.trim();
+      updatedNote = await _persistNoteUpdate(
+        api: api,
+        db: db,
+        title: title.isEmpty ? AppLocalizations.of(context)!.untitled : title,
+        data: data,
+        authEpoch: authEpoch,
+        authSnapshot: authSnapshot,
+        cancelToken: cancelToken,
+      );
+    }
+    if (updatedNote == null) {
+      throw StateError('The recording could not be attached to the note');
+    }
+    if (!mounted ||
+        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
+      throw StateError('The active note session changed');
+    }
+    ref.invalidate(noteByIdProvider(widget.noteId));
+    if (updatedNote.id != widget.noteId) {
+      ref.invalidate(noteByIdProvider(updatedNote.id));
+    }
+    setState(() => _note = updatedNote);
+  }
+
+  void _onPendingAudioChanged(String id, PendingNoteAudioUpload? updated) {
+    if (!mounted) return;
+    setState(() {
+      _pendingAudioMutationGeneration++;
+      final index = _pendingAudioUploads.indexWhere((item) => item.id == id);
+      if (updated == null) {
+        _hiddenAudioUploadIds.add(id);
+        if (index >= 0) _pendingAudioUploads.removeAt(index);
+      } else if (index >= 0) {
+        _hiddenAudioUploadIds.remove(id);
+        _pendingAudioUploads[index] = updated;
+      } else {
+        _hiddenAudioUploadIds.remove(id);
+        _pendingAudioUploads.add(updated);
+      }
+      _pendingAudioUploads.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    });
   }
 
   void _copyToClipboard() {
@@ -1463,13 +1945,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // File attachments section (if any)
-              if (files.isNotEmpty) ...[
-                NoteFilesSection(
-                  files: files,
-                  onPlayFile: _playAudioFile,
-                  onDeleteFile: _removeFile,
-                ),
+              // File attachments section (including durable pending audio).
+              if (files.isNotEmpty || _pendingAudioUploads.isNotEmpty) ...[
+                _buildAttachmentsSection(context, files),
                 const SizedBox(height: Spacing.lg),
               ],
               // Content editor
@@ -1479,6 +1957,201 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildAttachmentsSection(
+    BuildContext context,
+    List<Map<String, dynamic>> files,
+  ) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final total = files.length + _pendingAudioUploads.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: Spacing.xs, bottom: Spacing.xs),
+          child: Row(
+            children: [
+              Icon(
+                Platform.isIOS
+                    ? CupertinoIcons.paperclip
+                    : Icons.attach_file_rounded,
+                size: IconSize.sm,
+                color: theme.textSecondary,
+              ),
+              const SizedBox(width: Spacing.xs),
+              Text(
+                l10n.attachments,
+                style: AppTypography.labelStyle.copyWith(
+                  color: theme.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: Spacing.xs),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.xs,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.xs),
+                ),
+                child: Text(
+                  '$total',
+                  style: AppTypography.captionStyle.copyWith(
+                    color: theme.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ..._pendingAudioUploads.map(
+          (item) => _buildPendingAudioAttachment(context, item),
+        ),
+        ...files.map(
+          (file) => Padding(
+            padding: const EdgeInsets.only(bottom: Spacing.xs),
+            child: NoteFileAttachment(
+              file: file,
+              onTap: () => _playAudioFile(file),
+              onDelete: () => _removeFile(file),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPendingAudioAttachment(
+    BuildContext context,
+    PendingNoteAudioUpload item,
+  ) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    final inFlight = _audioUploadsInFlight.contains(item.id);
+    final failed = item.status == NoteAudioUploadStatus.failed && !inFlight;
+    final retryable = !inFlight;
+    final localFile = <String, dynamic>{
+      'type': 'audio',
+      'name': item.fileName,
+      'size': item.fileSize,
+      '_localPath': item.localPath,
+      '_localAudioUploadId': item.id,
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          NoteFileAttachment(
+            file: localFile,
+            showDelete: !inFlight && item.serverFileId == null,
+            onTap: inFlight ? null : () => _playAudioFile(localFile),
+            onDelete: () => _removeFile(localFile),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: Spacing.sm),
+            child: Row(
+              children: [
+                if (failed)
+                  Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.exclamationmark_circle_fill
+                        : Icons.error_rounded,
+                    size: IconSize.sm,
+                    color: theme.error,
+                  )
+                else
+                  ConduitLoading.inline(
+                    size: IconSize.sm,
+                    color: theme.loadingIndicator,
+                    context: context,
+                  ),
+                const SizedBox(width: Spacing.xs),
+                Expanded(
+                  child: Text(
+                    failed
+                        ? l10n.failedToUploadAudio
+                        : l10n.processingRecording,
+                    style: AppTypography.captionStyle.copyWith(
+                      color: failed ? theme.error : theme.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    Platform.isIOS ? CupertinoIcons.share : Icons.ios_share,
+                    size: IconSize.sm,
+                    color: theme.textSecondary,
+                  ),
+                  tooltip: l10n.shareSystemSheet,
+                  onPressed: inFlight ? null : () => _sharePendingAudio(item),
+                ),
+                if (retryable)
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      Platform.isIOS
+                          ? CupertinoIcons.arrow_clockwise
+                          : Icons.refresh_rounded,
+                      size: IconSize.sm,
+                      color: theme.buttonPrimary,
+                    ),
+                    tooltip: l10n.retry,
+                    onPressed: () => unawaited(
+                      _retryPendingAudioUploads(
+                        ids: <String>[item.id],
+                        showFeedback: true,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sharePendingAudio(PendingNoteAudioUpload item) async {
+    final l10n = AppLocalizations.of(context)!;
+    final renderObject = context.findRenderObject();
+    final shareOrigin = renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+        : null;
+    try {
+      if (!await File(item.localPath).exists()) {
+        throw StateError('The saved recording file is missing');
+      }
+      if (!mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[
+            XFile(item.localPath, mimeType: 'audio/mp4', name: item.fileName),
+          ],
+          fileNameOverrides: <String>[item.fileName],
+          sharePositionOrigin: shareOrigin,
+        ),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'note-audio-share-failed',
+        scope: 'notes/audio',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': item.id},
+      );
+      if (mounted) _showError(l10n.errorMessage);
+    }
   }
 
   /// Pull-to-refresh handler: syncs the note with the server, then reloads it
@@ -1613,6 +2286,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Play an audio file attachment.
   Future<void> _playAudioFile(Map<String, dynamic> file) async {
+    final localPath = file['_localPath']?.toString();
+    if (localPath != null && localPath.isNotEmpty) {
+      final l10n = AppLocalizations.of(context)!;
+      if (!await File(localPath).exists()) {
+        if (mounted) _showError(l10n.fileNotFound);
+        return;
+      }
+      if (!mounted) return;
+      await AudioPlayerDialog.showLocal(
+        context,
+        filePath: localPath,
+        fileName: file['name']?.toString() ?? 'Audio Recording',
+      );
+      return;
+    }
+
     final fileId = file['id']?.toString();
     if (fileId == null) return;
 
@@ -1644,6 +2333,55 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     if (confirmed != true || _note == null) return;
 
+    final localUploadId = file['_localAudioUploadId']?.toString();
+    if (localUploadId != null && localUploadId.isNotEmpty) {
+      if (_audioUploadsInFlight.contains(localUploadId)) return;
+      final index = _pendingAudioUploads.indexWhere(
+        (item) => item.id == localUploadId,
+      );
+      if (index < 0) return;
+      final item = _pendingAudioUploads[index];
+      // Once the server owns the bytes, deleting only this local retry record
+      // would misleadingly leave a private orphan on the server. Keep it
+      // available for the idempotent attach retry instead.
+      if (item.serverFileId != null) return;
+      if (!NoteAudioUploadCoordinator.tryReserveRemoval(item)) return;
+      _queuedAudioUploadIds.remove(localUploadId);
+      _audioUploadFeedbackIds.remove(localUploadId);
+      _audioUploadsInFlight.add(localUploadId);
+      _hiddenAudioUploadIds.add(localUploadId);
+      _pendingAudioMutationGeneration++;
+      if (mounted) setState(() {});
+      try {
+        await _noteAudioUploadStore.remove(item);
+        _onPendingAudioChanged(localUploadId, null);
+        if (mounted) {
+          ConduitHaptics.lightImpact();
+          AdaptiveSnackBar.show(
+            context,
+            message: l10n.fileRemoved,
+            type: AdaptiveSnackBarType.success,
+            duration: const Duration(seconds: 2),
+          );
+        }
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'note-audio-remove-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': localUploadId},
+        );
+        _hiddenAudioUploadIds.remove(localUploadId);
+        _showError(l10n.errorMessage);
+      } finally {
+        NoteAudioUploadCoordinator.releaseRemoval(item);
+        _audioUploadsInFlight.remove(localUploadId);
+        if (mounted) setState(() {});
+      }
+      return;
+    }
+
     final api = ref.read(apiServiceProvider);
     final db = ref.read(appDatabaseProvider);
     if (api == null && db == null) return;
@@ -1657,10 +2395,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           .where((f) => f['id']?.toString() != fileId)
           .toList();
 
-      // Snapshot the markdown that gets persisted so the dirty baseline stays
-      // in sync with what was saved.
-      final savedMarkdown = _contentMarkdown;
-      final data = _composeUpdatedNoteData(files: updatedFiles);
+      final data = _composeUpdatedNoteData(
+        files: updatedFiles,
+        includeContent: false,
+      );
 
       final resolvedTitle = _titleController.text.isEmpty
           ? l10n.untitled
@@ -1681,9 +2419,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
-            _savedMarkdown = savedMarkdown;
             _isSaving = false;
-            _hasChanges = false;
           });
 
           ConduitHaptics.lightImpact();

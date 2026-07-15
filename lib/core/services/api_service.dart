@@ -3237,14 +3237,34 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<List<FileInfo>> getUserFiles() async {
+  Future<List<FileInfo>> getUserFiles() =>
+      _getUserFilesWith((page) => getUserFilesPage(page: page));
+
+  Future<List<FileInfo>> getUserFilesForSession({
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) => _getUserFilesWith(
+    (page) => getUserFilesPageForSession(
+      page: page,
+      authSnapshot: authSnapshot,
+      cancelToken: cancelToken,
+    ),
+  );
+
+  Future<List<FileInfo>> _getUserFilesWith(
+    Future<({List<FileInfo> items, int? total, bool isPaginated})> Function(
+      int page,
+    )
+    getPage,
+  ) async {
     _traceApi('Fetching user files');
     final files = <FileInfo>[];
     var page = 1;
     int? total;
+    const maxPages = 200;
 
-    while (true) {
-      final pageResult = await getUserFilesPage(page: page);
+    while (page <= maxPages) {
+      final pageResult = await getPage(page);
 
       files.addAll(pageResult.items);
       total ??= pageResult.total;
@@ -3262,6 +3282,10 @@ class ApiService {
       page += 1;
     }
 
+    if (page > maxPages) {
+      _traceApi('Warning: Hit max user-files page limit ($maxPages)');
+    }
+
     return List<FileInfo>.unmodifiable(files);
   }
 
@@ -3270,10 +3294,19 @@ class ApiService {
   /// Supports both the current paginated OpenWebUI response shape and the
   /// legacy plain-list payload used by older servers.
   Future<({List<FileInfo> items, int? total, bool isPaginated})>
-  getUserFilesPage({int page = 1}) async {
+  getUserFilesPage({int page = 1}) => getUserFilesPageForSession(page: page);
+
+  Future<({List<FileInfo> items, int? total, bool isPaginated})>
+  getUserFilesPageForSession({
+    int page = 1,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
     final response = await _dio.get(
       '/api/v1/files/',
       queryParameters: {'page': page, 'content': false},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+      cancelToken: cancelToken,
     );
     return _parseFileInfoCollection(
       response.data,
@@ -3287,11 +3320,34 @@ class ApiService {
     String? contentType,
     int? limit,
     int? offset,
+  }) async =>
+      await searchFilesForSession(
+        query: query,
+        contentType: contentType,
+        limit: limit,
+        offset: offset,
+      ) ??
+      const <FileInfo>[];
+
+  /// Searches the current user's files while keeping a long-running operation
+  /// pinned to its originating auth session.
+  ///
+  /// Returns null when the server does not expose the file-search endpoint, so
+  /// callers that require compatibility with older OpenWebUI releases can fall
+  /// back to paginated listing. A supported search with no matches returns an
+  /// empty list.
+  Future<List<FileInfo>?> searchFilesForSession({
+    String? query,
+    String? contentType,
+    int? limit,
+    int? offset,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Searching files with query: $query');
     final trimmedQuery = query?.trim();
     if (trimmedQuery == null || trimmedQuery.isEmpty) {
-      return const [];
+      return const <FileInfo>[];
     }
 
     final queryParams = <String, dynamic>{};
@@ -3306,6 +3362,8 @@ class ApiService {
       final response = await _dio.get(
         '/api/v1/files/search',
         queryParameters: queryParams,
+        options: _withAuthSnapshot(Options(), authSnapshot),
+        cancelToken: cancelToken,
       );
       final data = response.data;
       if (data is List) {
@@ -3321,10 +3379,15 @@ class ApiService {
         }
         return results;
       }
-      return const [];
+      return const <FileInfo>[];
     } on DioException catch (error) {
       if (error.response?.statusCode == 404) {
-        return const [];
+        final responseData = error.response?.data;
+        final detail = responseData is Map ? responseData['detail'] : null;
+        if (detail == 'No files found matching the pattern.') {
+          return const <FileInfo>[];
+        }
+        return null;
       }
       rethrow;
     }
@@ -7348,6 +7411,7 @@ class ApiService {
     String? contentType,
     Map<String, dynamic>? metadata,
     CancelToken? cancelToken,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     _traceApi('Starting file upload: $fileName from $filePath');
 
@@ -7378,9 +7442,9 @@ class ApiService {
         '/api/v1/files/',
         data: formData,
         cancelToken: cancelToken,
-        options: Options(
-          sendTimeout: uploadTimeout,
-          receiveTimeout: uploadTimeout,
+        options: _withAuthSnapshot(
+          Options(sendTimeout: uploadTimeout, receiveTimeout: uploadTimeout),
+          authSnapshot,
         ),
       );
 
@@ -7810,6 +7874,22 @@ class ApiService {
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
     Map<String, dynamic>? accessControl,
+  }) => updateNoteForSession(
+    id,
+    title: title,
+    data: data,
+    meta: meta,
+    accessControl: accessControl,
+  );
+
+  Future<Map<String, dynamic>> updateNoteForSession(
+    String id, {
+    String? title,
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? meta,
+    Map<String, dynamic>? accessControl,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Updating note: $id');
     final response = await _dio.post(
@@ -7820,6 +7900,8 @@ class ApiService {
         'meta': ?meta,
         'access_control': ?accessControl,
       },
+      options: _withAuthSnapshot(Options(), authSnapshot),
+      cancelToken: cancelToken,
     );
     return response.data as Map<String, dynamic>;
   }

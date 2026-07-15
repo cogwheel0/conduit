@@ -6,30 +6,81 @@ import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 
+const _defaultAudioExtension = '.m4a';
+const _maxAudioTempFileIdLength = 64;
+final _safeAudioExtension = RegExp(r'^\.[A-Za-z0-9]{1,10}$');
+final _unsafeAudioTempFileIdCharacter = RegExp(r'[^A-Za-z0-9_-]');
+
+String _audioDownloadTempFileName({
+  required String fileId,
+  required String serverFileName,
+  required int timestamp,
+}) {
+  final basename = serverFileName.replaceAll(r'\', '/').split('/').last;
+  final extensionStart = basename.lastIndexOf('.');
+  final candidateExtension = extensionStart > 0
+      ? basename.substring(extensionStart)
+      : _defaultAudioExtension;
+  final extension = _safeAudioExtension.hasMatch(candidateExtension)
+      ? candidateExtension
+      : _defaultAudioExtension;
+
+  final sanitizedFileId = fileId.replaceAll(
+    _unsafeAudioTempFileIdCharacter,
+    '_',
+  );
+  final nonEmptyFileId = sanitizedFileId.isEmpty ? 'file' : sanitizedFileId;
+  final boundedFileId = nonEmptyFileId.length > _maxAudioTempFileIdLength
+      ? nonEmptyFileId.substring(0, _maxAudioTempFileIdLength)
+      : nonEmptyFileId;
+  return 'audio_${boundedFileId}_$timestamp$extension';
+}
+
+@visibleForTesting
+String audioDownloadTempFileNameForTesting({
+  required String fileId,
+  required String serverFileName,
+  required int timestamp,
+}) => _audioDownloadTempFileName(
+  fileId: fileId,
+  serverFileName: serverFileName,
+  timestamp: timestamp,
+);
+
 /// A dialog for playing audio files.
 class AudioPlayerDialog extends StatefulWidget {
   /// The file ID for downloading.
-  final String fileId;
+  final String? fileId;
 
   /// The API service for authenticated requests.
-  final ApiService api;
+  final ApiService? api;
+
+  /// Durable local source. Unlike a downloaded [_tempFile], this is never
+  /// deleted by the player dialog.
+  final String? localFilePath;
 
   /// The file name to display.
   final String fileName;
 
   const AudioPlayerDialog({
     super.key,
-    required this.fileId,
-    required this.api,
+    this.fileId,
+    this.api,
+    this.localFilePath,
     required this.fileName,
-  });
+  }) : assert(
+         localFilePath != null || (fileId != null && api != null),
+         'A local path or a server file id and API service is required',
+       );
 
   /// Shows the audio player dialog.
   static Future<void> show(
@@ -45,6 +96,19 @@ class AudioPlayerDialog extends StatefulWidget {
     );
   }
 
+  /// Plays a durable local recording without taking ownership of the file.
+  static Future<void> showLocal(
+    BuildContext context, {
+    required String filePath,
+    required String fileName,
+  }) {
+    return ThemedDialogs.showCustom<void>(
+      context: context,
+      builder: (context) =>
+          AudioPlayerDialog(localFilePath: filePath, fileName: fileName),
+    );
+  }
+
   @override
   State<AudioPlayerDialog> createState() => _AudioPlayerDialogState();
 }
@@ -55,9 +119,11 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
   bool _isPlaying = false;
   bool _isLoading = true;
   bool _hasError = false;
+  bool _isDisposed = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   File? _tempFile;
+  CancelToken? _downloadCancelToken;
 
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _positionSub;
@@ -71,54 +137,18 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
   Future<void> _setupPlayer() async {
     try {
-      // Get file info first to determine the correct extension
-      final fileInfo = await widget.api.getFileInfo(widget.fileId);
-      final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
-      final contentType =
-          (fileInfo['meta'] as Map<String, dynamic>?)?['content_type']
-              as String?;
-
-      debugPrint(
-        'AudioPlayerDialog: filename=$filename, contentType=$contentType',
-      );
-      debugPrint('AudioPlayerDialog: fileInfo=$fileInfo');
-
-      // Extract extension from filename
-      final extension = filename.contains('.')
-          ? filename.substring(filename.lastIndexOf('.'))
-          : '.m4a';
-
-      // Download the file (requires authentication)
-      // Use timestamp suffix to prevent conflicts if same file opened multiple times
-      final tempDir = await getTemporaryDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempPath =
-          '${tempDir.path}/audio_${widget.fileId}_$timestamp$extension';
-      _tempFile = File(tempPath);
-
-      // Fetch file content through API (authenticated)
-      final response = await widget.api.dio.get(
-        '/api/v1/files/${widget.fileId}/content',
-        options: Options(responseType: ResponseType.bytes),
-      );
-
-      final responseData = response.data;
-      if (responseData is! List<int>) {
-        throw Exception(
-          'Unexpected response type: ${responseData.runtimeType}',
-        );
+      final playablePath = widget.localFilePath ?? await _downloadRemoteFile();
+      if (_isDisposed) {
+        await _deleteOwnedTempFile();
+        return;
       }
-      final bytes = responseData;
-      debugPrint('AudioPlayerDialog: Downloaded ${bytes.length} bytes');
-      debugPrint(
-        'AudioPlayerDialog: First 20 bytes: ${bytes.take(20).toList()}',
-      );
-      debugPrint(
-        'AudioPlayerDialog: Response content-type: ${response.headers.value('content-type')}',
-      );
-
-      await _tempFile!.writeAsBytes(bytes);
-      debugPrint('AudioPlayerDialog: Saved to $tempPath');
+      if (!await File(playablePath).exists()) {
+        throw StateError('Audio file is missing');
+      }
+      if (_isDisposed) {
+        await _deleteOwnedTempFile();
+        return;
+      }
 
       // Setup player state listeners
       _stateSub = _player.playerStateStream.listen((state) {
@@ -148,32 +178,126 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
       });
 
       // Load and play the file
-      await _player.setFilePath(_tempFile!.path);
+      await _player.setFilePath(playablePath);
+      if (_isDisposed) return;
 
       if (mounted) {
         setState(() => _isLoading = false);
       }
 
       await _player.play();
-    } catch (e) {
-      debugPrint('AudioPlayerDialog: Error loading audio: $e');
-      // Clean up temp file on error to avoid orphaned files
-      _tempFile
-          ?.delete()
-          .then((_) {
-            debugPrint('AudioPlayerDialog: Cleaned up temp file after error');
-          })
-          .catchError((e) {
-            debugPrint(
-              'AudioPlayerDialog: Failed to clean up temp file after error: $e',
-            );
-          });
-      _tempFile = null;
+    } catch (error, stackTrace) {
+      // dispose() owns remote-temp cleanup once native teardown has started.
+      if (_isDisposed) return;
+      await _deleteOwnedTempFile();
+      if (_isDisposed) return;
+      DebugLogger.error(
+        'audio-load-failed',
+        scope: 'notes/audio/player',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'local': widget.localFilePath != null},
+      );
       if (!mounted) return;
       setState(() {
         _hasError = true;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<String> _downloadRemoteFile() async {
+    final api = widget.api;
+    final fileId = widget.fileId;
+    if (api == null || fileId == null) {
+      throw StateError('Server audio source is unavailable');
+    }
+
+    _downloadCancelToken?.cancel('Audio download superseded');
+    final cancelToken = CancelToken();
+    _downloadCancelToken = cancelToken;
+    try {
+      final fileInfo = await api.getFileInfo(fileId, cancelToken: cancelToken);
+      if (_isDisposed) throw StateError('Audio player was disposed');
+      final filename = fileInfo['filename'] as String? ?? 'audio.m4a';
+
+      final tempDir = await getTemporaryDirectory();
+      if (_isDisposed) throw StateError('Audio player was disposed');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final tempFileName = _audioDownloadTempFileName(
+        fileId: fileId,
+        serverFileName: filename,
+        timestamp: timestamp,
+      );
+      final tempPath = path.join(tempDir.path, tempFileName);
+      final tempFile = File(tempPath);
+      _tempFile = tempFile;
+
+      final response = await api.dio.get(
+        '/api/v1/files/$fileId/content',
+        options: Options(responseType: ResponseType.bytes),
+        cancelToken: cancelToken,
+      );
+      final responseData = response.data;
+      if (responseData is! List<int>) {
+        throw StateError(
+          'Unexpected audio response type: ${responseData.runtimeType}',
+        );
+      }
+      if (_isDisposed) {
+        await _deleteTemporaryFile(tempFile);
+        throw StateError('Audio player was disposed');
+      }
+      await tempFile.writeAsBytes(responseData, flush: true);
+      if (_isDisposed) {
+        await _deleteTemporaryFile(tempFile);
+        throw StateError('Audio player was disposed');
+      }
+      DebugLogger.log(
+        'audio-download-ready',
+        scope: 'notes/audio/player',
+        data: {'bytes': responseData.length},
+      );
+      return tempPath;
+    } finally {
+      if (identical(_downloadCancelToken, cancelToken)) {
+        _downloadCancelToken = null;
+      }
+    }
+  }
+
+  Future<void> _deleteOwnedTempFile() async {
+    final tempFile = _tempFile;
+    _tempFile = null;
+    if (tempFile == null) return;
+    await _deleteTemporaryFile(tempFile);
+  }
+
+  Future<void> _deleteTemporaryFile(File tempFile) async {
+    try {
+      if (await tempFile.exists()) await tempFile.delete();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'audio-temp-cleanup-failed',
+        scope: 'notes/audio/player',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _disposePlayerAndOwnedTempFile() async {
+    try {
+      await _player.dispose();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'audio-player-dispose-failed',
+        scope: 'notes/audio/player',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      await _deleteOwnedTempFile();
     }
   }
 
@@ -204,21 +328,19 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
 
   @override
   void dispose() {
+    _isDisposed = true;
+    final downloadCancelToken = _downloadCancelToken;
+    _downloadCancelToken = null;
+    if (downloadCancelToken != null && !downloadCancelToken.isCancelled) {
+      downloadCancelToken.cancel('Audio player dialog disposed');
+    }
     _stateSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();
     // AudioPlayer.dispose() is async but Flutter's dispose() is sync.
-    // Fire-and-forget is acceptable here as just_audio handles cleanup internally.
-    unawaited(_player.dispose());
-    // Clean up temp file (fire and forget, log errors for debugging)
-    _tempFile
-        ?.delete()
-        .then((_) {
-          debugPrint('AudioPlayerDialog: Cleaned up temp file');
-        })
-        .catchError((e) {
-          debugPrint('AudioPlayerDialog: Failed to clean up temp file: $e');
-        });
+    // Wait for its native file handle to close before deleting an owned remote
+    // download. Durable local pending recordings are never owned or deleted.
+    unawaited(_disposePlayerAndOwnedTempFile());
     super.dispose();
   }
 
