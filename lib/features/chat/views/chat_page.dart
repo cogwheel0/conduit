@@ -247,11 +247,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // Pin-to-top: scroll user message to top of viewport when sending
   _PinToTopState _pinToTopState = const _PinToTopState.inactive();
   GlobalKey _pinnedUserMessageKey = GlobalKey();
-  _ChatListStableLayoutMetadata? _stableLayoutMetadata;
-  _ChatListStableLayoutSignature? _stableLayoutMetadataSignature;
-  List<Model>? _stableLayoutMetadataModels;
-  ApiService? _stableLayoutMetadataApiService;
-  double? _stableLayoutMetadataWidth;
+  final _stableLayoutCache = _ChatListStableLayoutCache();
   _ChatListStableLayoutMetadata? _lastExtentCacheInvalidationMetadata;
   String? _cachedGreetingName;
   bool _greetingReady = false;
@@ -288,11 +284,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _invalidateChatListStableLayoutMetadata() {
-    _stableLayoutMetadata = null;
-    _stableLayoutMetadataSignature = null;
-    _stableLayoutMetadataModels = null;
-    _stableLayoutMetadataApiService = null;
-    _stableLayoutMetadataWidth = null;
+    _stableLayoutCache.invalidate();
     _lastExtentCacheInvalidationMetadata = null;
   }
 
@@ -301,30 +293,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required List<Model>? models,
     required ApiService? apiService,
   }) {
-    final crossAxisExtent = _chatListCrossAxisExtent();
-    final signature = _buildChatListStableLayoutSignature(messages);
-    final cached = _stableLayoutMetadata;
-    if (cached != null &&
-        _stableLayoutMetadataSignature == signature &&
-        identical(_stableLayoutMetadataModels, models) &&
-        identical(_stableLayoutMetadataApiService, apiService) &&
-        _stableLayoutMetadataWidth == crossAxisExtent) {
-      return cached;
-    }
-
-    final metadata = _buildChatListStableLayoutMetadata(
+    return _stableLayoutCache.resolve(
       messages: messages,
       models: models,
       apiService: apiService,
       directModelRegistry: ref.read(directModelRegistryProvider),
-      crossAxisExtent: crossAxisExtent,
+      crossAxisExtent: _chatListCrossAxisExtent(),
     );
-    _stableLayoutMetadata = metadata;
-    _stableLayoutMetadataSignature = signature;
-    _stableLayoutMetadataModels = models;
-    _stableLayoutMetadataApiService = apiService;
-    _stableLayoutMetadataWidth = crossAxisExtent;
-    return metadata;
   }
 
   int? _findMessageIndexForKey(Key key, ChatTimelineRenderModel timeline) {
@@ -3576,6 +3551,81 @@ class _ChatListStableLayoutSignature {
 }
 
 @immutable
+class _ChatListStableLayoutCacheKey {
+  const _ChatListStableLayoutCacheKey({
+    required this.signature,
+    required this.models,
+    required this.apiService,
+    required this.crossAxisExtent,
+    required this.directModelRegistryRevision,
+  });
+
+  final _ChatListStableLayoutSignature signature;
+  final List<Model>? models;
+  final ApiService? apiService;
+  final double crossAxisExtent;
+  final int directModelRegistryRevision;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _ChatListStableLayoutCacheKey &&
+          signature == other.signature &&
+          identical(models, other.models) &&
+          identical(apiService, other.apiService) &&
+          crossAxisExtent == other.crossAxisExtent &&
+          directModelRegistryRevision == other.directModelRegistryRevision;
+
+  @override
+  int get hashCode => Object.hash(
+    signature,
+    identityHashCode(models),
+    identityHashCode(apiService),
+    crossAxisExtent,
+    directModelRegistryRevision,
+  );
+}
+
+final class _ChatListStableLayoutCache {
+  _ChatListStableLayoutMetadata? _metadata;
+  _ChatListStableLayoutCacheKey? _key;
+
+  void invalidate() {
+    _metadata = null;
+    _key = null;
+  }
+
+  _ChatListStableLayoutMetadata resolve({
+    required List<ChatMessage> messages,
+    required List<Model>? models,
+    required ApiService? apiService,
+    required DirectModelRegistry directModelRegistry,
+    required double crossAxisExtent,
+  }) {
+    final nextKey = _ChatListStableLayoutCacheKey(
+      signature: _buildChatListStableLayoutSignature(messages),
+      models: models,
+      apiService: apiService,
+      crossAxisExtent: crossAxisExtent,
+      directModelRegistryRevision: directModelRegistry.revision,
+    );
+    final cached = _metadata;
+    if (cached != null && _key == nextKey) return cached;
+
+    final next = _buildChatListStableLayoutMetadata(
+      messages: messages,
+      models: models,
+      apiService: apiService,
+      directModelRegistry: directModelRegistry,
+      crossAxisExtent: crossAxisExtent,
+    );
+    _metadata = next;
+    _key = nextKey;
+    return next;
+  }
+}
+
+@immutable
 class _ChatListStableLayoutMetadata {
   const _ChatListStableLayoutMetadata({
     required this.rows,
@@ -3862,6 +3912,47 @@ String debugBuildChatListStableLayoutSignatureForTesting(
   List<ChatMessage> messages,
 ) {
   return _buildChatListStableLayoutSignature(messages).value;
+}
+
+@visibleForTesting
+Object debugCreateChatListStableLayoutCacheForTesting() =>
+    _ChatListStableLayoutCache();
+
+@visibleForTesting
+List<
+  ({
+    double leadingOffset,
+    double estimatedExtent,
+    bool isArchivedVariant,
+    bool showFollowUps,
+    String? displayModelName,
+  })
+>
+debugResolveChatListStableLayoutCacheForTesting(
+  Object cache,
+  List<ChatMessage> messages, {
+  required List<Model>? models,
+  required DirectModelRegistry directModelRegistry,
+  double crossAxisExtent = 400,
+}) {
+  final metadata = (cache as _ChatListStableLayoutCache).resolve(
+    messages: messages,
+    models: models,
+    apiService: null,
+    directModelRegistry: directModelRegistry,
+    crossAxisExtent: crossAxisExtent,
+  );
+  return metadata.rows
+      .map(
+        (row) => (
+          leadingOffset: row.leadingOffset,
+          estimatedExtent: row.estimatedExtent,
+          isArchivedVariant: row.isArchivedVariant,
+          showFollowUps: row.showFollowUps,
+          displayModelName: row.displayModelName,
+        ),
+      )
+      .toList(growable: false);
 }
 
 @visibleForTesting

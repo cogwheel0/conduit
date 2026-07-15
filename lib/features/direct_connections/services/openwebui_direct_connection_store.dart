@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
@@ -36,21 +37,37 @@ final class OpenWebUiDirectConnectionCommitUncertainException
 /// Codec for Open WebUI's indexed `ui.directConnections` settings document.
 ///
 /// Open WebUI stores three parallel collections: URLs, keys, and per-index
-/// config maps. The runtime profile id therefore deliberately identifies the
-/// owner and index, rather than any URL or credential value.
+/// config maps without a durable record id. Runtime profile ids therefore use
+/// an owner-scoped keyed fingerprint of normalized record content instead of
+/// its mutable index. Production injects a durable key from platform secure
+/// storage, so ids survive reloads without becoming offline credential
+/// verifiers. Exact duplicates are disambiguated by occurrence. Substantive
+/// transport edits rotate the id so stale bindings fail closed.
 final class OpenWebUiDirectConnectionsCodec {
   OpenWebUiDirectConnectionsCodec({
     required String serverId,
     required String accountId,
+    List<int>? identityKey,
   }) : serverId = serverId.trim(),
-       accountId = accountId.trim() {
+       accountId = accountId.trim(),
+       _identityKey = List<int>.unmodifiable(
+         identityKey ?? _processIdentityKey,
+       ) {
     if (this.serverId.isEmpty || this.accountId.isEmpty) {
       throw ArgumentError('A server and account owner are required.');
+    }
+    if (_identityKey.length < 32) {
+      throw ArgumentError.value(
+        _identityKey.length,
+        'identityKey',
+        'Open WebUI direct identity keys must contain at least 32 bytes.',
+      );
     }
   }
 
   final String serverId;
   final String accountId;
+  final List<int> _identityKey;
 
   OpenWebUiDirectConnectionsSnapshot decode(Map<String, dynamic> settings) {
     final ui = _jsonMap(settings['ui']) ?? <String, dynamic>{};
@@ -62,6 +79,7 @@ final class OpenWebUiDirectConnectionsCodec {
     final configs = _jsonMap(directConnections['OPENAI_API_CONFIGS']);
 
     final records = <OpenWebUiDirectConnectionRecord>[];
+    final fingerprintOccurrences = <String, int>{};
     for (var index = 0; index < urls.length; index++) {
       final rawUrl = _stringValue(urls[index]);
       final rawKey = index < keys.length ? _stringValue(keys[index]) : '';
@@ -71,12 +89,30 @@ final class OpenWebUiDirectConnectionsCodec {
       final rawConfig = _jsonMap(rawConfigValue) ?? <String, dynamic>{};
       final authType = _decodeAuthType(rawConfig);
       final supportedAuth = authType == 'bearer' || authType == 'none';
+      final contentFingerprint = _recordContentFingerprint(
+        rawUrl: rawUrl,
+        rawKey: rawKey,
+        rawConfig: rawConfig,
+        authType: authType,
+      );
+      final rawContentRevision = _keyedFingerprint(<String, Object?>{
+        'url': urls[index],
+        'key': index < keys.length ? keys[index] : null,
+        'config': rawConfigValue,
+      }, _identityKey);
+      final fingerprintOccurrence = fingerprintOccurrences.update(
+        contentFingerprint,
+        (count) => count + 1,
+        ifAbsent: () => 0,
+      );
       final profile = _decodeProfile(
         index: index,
         rawUrl: rawUrl,
         rawKey: rawKey,
         rawConfig: rawConfig,
         authType: authType,
+        contentFingerprint: contentFingerprint,
+        fingerprintOccurrence: fingerprintOccurrence,
       );
       // Open WebUI skips URL entries that have no matching indexed config.
       // Keep the record visible for repair/deletion, but never execute it.
@@ -92,12 +128,11 @@ final class OpenWebUiDirectConnectionsCodec {
         OpenWebUiDirectConnectionRecord(
           index: index,
           profile: profile,
-          revision: _fingerprint(<String, Object?>{
+          revision: _keyedFingerprint(<String, Object?>{
             'index': index,
-            'url': urls[index],
-            'key': index < keys.length ? keys[index] : null,
-            'config': rawConfigValue,
-          }),
+            'contentRevision': rawContentRevision,
+          }, _identityKey),
+          contentRevision: rawContentRevision,
           rawConfig: rawConfig,
           authType: authType,
           compatibility: compatibility,
@@ -110,7 +145,7 @@ final class OpenWebUiDirectConnectionsCodec {
       accountId: accountId,
       records: records,
       ui: ui,
-      documentRevision: _fingerprint(rawDirectConnections),
+      documentRevision: _keyedFingerprint(rawDirectConnections, _identityKey),
     );
   }
 
@@ -155,6 +190,15 @@ final class OpenWebUiDirectConnectionsCodec {
         document.urls.isEmpty ? 0 : document.urls.length - 1,
         'index',
         'Open WebUI direct connection index is out of range.',
+      );
+    }
+
+    final previousUrl = _removeTrailingSlashes(document.urls[index].trim());
+    final nextUrl = _removeTrailingSlashes(profile.baseUrl.trim());
+    final usesSupportedAuth = authType == 'bearer' || authType == 'none';
+    if (!usesSupportedAuth && previousUrl != nextUrl) {
+      throw const FormatException(
+        'Change authentication before changing this connection URL.',
       );
     }
 
@@ -219,11 +263,16 @@ final class OpenWebUiDirectConnectionsCodec {
     required String rawKey,
     required Map<String, dynamic> rawConfig,
     required String authType,
+    required String contentFingerprint,
+    required int fingerprintOccurrence,
   }) {
     final apiType = _optionalString(rawConfig['api_type']);
     final key = authType == 'bearer' && rawKey.isNotEmpty ? rawKey : null;
     return DirectConnectionProfile(
-      id: _runtimeProfileId(index),
+      id: _runtimeProfileId(
+        contentFingerprint,
+        occurrence: fingerprintOccurrence,
+      ),
       name: _displayName(rawUrl, index),
       adapterKey: kOpenAiCompatibleAdapterKey,
       baseUrl: rawUrl.trim(),
@@ -241,14 +290,72 @@ final class OpenWebUiDirectConnectionsCodec {
     );
   }
 
-  String _runtimeProfileId(int index) {
-    final ownerIndexDigest = _fingerprint(<String, Object>{
+  String _runtimeProfileId(
+    String contentFingerprint, {
+    required int occurrence,
+  }) {
+    final ownerRecordDigest = _fingerprint(<String, Object>{
       'kind': 'openwebui-direct-profile',
       'serverId': serverId,
       'accountId': accountId,
-      'index': index,
+      'contentFingerprint': contentFingerprint,
+      'occurrence': occurrence,
     });
-    return 'owui_$ownerIndexDigest';
+    return 'owui_$ownerRecordDigest';
+  }
+
+  String _recordContentFingerprint({
+    required String rawUrl,
+    required String rawKey,
+    required Map<String, dynamic> rawConfig,
+    required String authType,
+  }) => _keyedFingerprint(<String, Object?>{
+    // Open WebUI normalizes trailing slashes whenever settings are saved. Do
+    // the same for identity so deleting another index does not incidentally
+    // rename an otherwise unchanged record.
+    'url': _removeTrailingSlashes(rawUrl.trim()),
+    'key': rawKey,
+    // Headers and unknown future fields may contain credentials. They are
+    // included only inside the keyed fingerprint, never in public material.
+    'config': _normalizedIdentityConfig(rawConfig, authType: authType),
+  }, _identityKey);
+
+  static Map<String, Object?> _normalizedIdentityConfig(
+    Map<String, dynamic> rawConfig, {
+    required String authType,
+  }) {
+    final normalized = <String, Object?>{
+      for (final entry in rawConfig.entries) entry.key: entry.value,
+    };
+    // Presentation and availability changes do not rename the underlying
+    // connection. The provider still revokes transport/model state for them.
+    normalized
+      ..remove('enable')
+      ..remove('tags');
+
+    final modelIds =
+        _decodeStringList(rawConfig['model_ids'])
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    normalized
+      ..['auth_type'] = authType
+      ..['connection_type'] =
+          _optionalString(rawConfig['connection_type']) ?? 'external'
+      ..['azure'] = rawConfig['azure'] == true
+      ..['api_type'] =
+          _optionalString(rawConfig['api_type']) ==
+              DirectOpenAiApiMode.responses.storageValue
+          ? DirectOpenAiApiMode.responses.storageValue
+          : DirectOpenAiApiMode.chatCompletions.storageValue
+      ..['api_version'] = _optionalString(rawConfig['api_version'])
+      ..['prefix_id'] = _optionalString(rawConfig['prefix_id'])
+      ..['provider'] = _optionalString(rawConfig['provider'])
+      ..['model_ids'] = modelIds
+      ..['headers'] = _decodeHeaders(rawConfig['headers']);
+    return normalized;
   }
 
   static String _displayName(String rawUrl, int index) {
@@ -406,6 +513,7 @@ final class OpenWebUiDirectConnectionStore {
     required OpenWebUiUserSettingsReader readSettings,
     required OpenWebUiUserSettingsWriter writeSettings,
     OpenWebUiUserSettingsMutationSerializer? serializeSettingsMutation,
+    List<int>? identityKey,
   }) : serverId = serverId.trim(),
        accountId = accountId.trim(),
        _readSettings = readSettings,
@@ -414,6 +522,7 @@ final class OpenWebUiDirectConnectionStore {
        _codec = OpenWebUiDirectConnectionsCodec(
          serverId: serverId,
          accountId: accountId,
+         identityKey: identityKey,
        );
 
   final String serverId;
@@ -624,6 +733,20 @@ String _removeTrailingSlashes(String value) =>
 
 String _fingerprint(Object? value) =>
     sha256.convert(utf8.encode(jsonEncode(_canonicalJson(value)))).toString();
+
+String _keyedFingerprint(Object? value, List<int> key) => Hmac(
+  sha256,
+  key,
+).convert(utf8.encode(jsonEncode(_canonicalJson(value)))).toString();
+
+final List<int> _processIdentityKey = _newProcessIdentityKey();
+
+List<int> _newProcessIdentityKey() {
+  final random = Random.secure();
+  return List<int>.unmodifiable(
+    List<int>.generate(32, (_) => random.nextInt(256), growable: false),
+  );
+}
 
 Object? _canonicalJson(Object? value) => switch (value) {
   Map() => _canonicalJsonMap(value),

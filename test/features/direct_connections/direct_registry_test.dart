@@ -124,6 +124,33 @@ void main() {
     expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
+  test('binding revision changes only when registry contents mutate', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+
+    expect(registry.revision, 0);
+    registry.removeProfile('missing');
+    registry.clear();
+    expect(registry.revision, 0);
+
+    registry.replaceProfileModels(profile, [DirectRemoteModel(id: 'model')]);
+    final registeredRevision = registry.revision;
+    expect(registeredRevision, greaterThan(0));
+
+    registry.removeProfile(profile.id);
+    expect(registry.revision, greaterThan(registeredRevision));
+    final removedRevision = registry.revision;
+
+    registry.removeProfile(profile.id);
+    registry.clear();
+    expect(registry.revision, removedRevision);
+  });
+
   test(
     'profile prefixes and tags decorate models without changing routing',
     () {

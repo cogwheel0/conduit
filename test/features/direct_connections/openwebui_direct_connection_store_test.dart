@@ -118,6 +118,217 @@ void main() {
       check(snapshot.records.single.profile.apiKey).isNull();
     });
 
+    test(
+      'disambiguates bit-for-bit duplicate records without using indexes',
+      () {
+        final identityKey = List<int>.generate(32, (index) => index);
+        final codec = OpenWebUiDirectConnectionsCodec(
+          serverId: 'server',
+          accountId: 'account',
+          identityKey: identityKey,
+        );
+        final settings = <String, dynamic>{
+          'ui': <String, dynamic>{
+            'directConnections': <String, dynamic>{
+              'OPENAI_API_BASE_URLS': <String>[
+                'https://distinct.test/v1',
+                'https://duplicate.test/v1',
+                'https://duplicate.test/v1',
+              ],
+              'OPENAI_API_KEYS': <String>[
+                'distinct-key',
+                'duplicate-key',
+                'duplicate-key',
+              ],
+              'OPENAI_API_CONFIGS': <String, dynamic>{
+                '0': <String, dynamic>{'auth_type': 'bearer'},
+                '1': <String, dynamic>{'auth_type': 'bearer'},
+                '2': <String, dynamic>{'auth_type': 'bearer'},
+              },
+            },
+          },
+        };
+
+        final before = codec.decode(settings);
+        final duplicateIds = before.records
+            .skip(1)
+            .map((record) => record.profile.id)
+            .toList(growable: false);
+        final direct = (settings['ui'] as Map)['directConnections'] as Map;
+        direct['OPENAI_API_BASE_URLS'] =
+            (direct['OPENAI_API_BASE_URLS'] as List).skip(1).toList();
+        direct['OPENAI_API_KEYS'] = (direct['OPENAI_API_KEYS'] as List)
+            .skip(1)
+            .toList();
+        direct['OPENAI_API_CONFIGS'] = <String, dynamic>{
+          '0': <String, dynamic>{'auth_type': 'bearer'},
+          '1': <String, dynamic>{'auth_type': 'bearer'},
+        };
+
+        final after = OpenWebUiDirectConnectionsCodec(
+          serverId: 'server',
+          accountId: 'account',
+          identityKey: identityKey,
+        ).decode(settings);
+
+        check(duplicateIds[0]).not((it) => it.equals(duplicateIds[1]));
+        check(
+          after.records.map((record) => record.profile.id),
+        ).deepEquals(duplicateIds);
+      },
+    );
+
+    test('normalizes non-identity edits across codec recreation', () {
+      final identityKey = List<int>.generate(32, (index) => index + 1);
+      final before =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+            identityKey: identityKey,
+          ).decode(<String, dynamic>{
+            'ui': <String, dynamic>{
+              'directConnections': <String, dynamic>{
+                'OPENAI_API_BASE_URLS': <String>[
+                  'https://identity.example/v1/',
+                ],
+                'OPENAI_API_KEYS': <String>['stable-key'],
+                'OPENAI_API_CONFIGS': <String, dynamic>{
+                  '0': <String, dynamic>{
+                    'auth_type': 'bearer',
+                    'enable': true,
+                    'tags': <String>['before'],
+                    'model_ids': <String>['model-b', ' model-a ', 'model-a'],
+                    'headers': <String, String>{'X-Secret': 'stable-header'},
+                  },
+                },
+              },
+            },
+          });
+      final normalized =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+            identityKey: identityKey,
+          ).decode(<String, dynamic>{
+            'ui': <String, dynamic>{
+              'directConnections': <String, dynamic>{
+                'OPENAI_API_BASE_URLS': <String>['https://identity.example/v1'],
+                'OPENAI_API_KEYS': <String>['stable-key'],
+                'OPENAI_API_CONFIGS': <String, dynamic>{
+                  '0': <String, dynamic>{
+                    'auth_type': 'bearer',
+                    'enable': false,
+                    'tags': <String>['after'],
+                    'connection_type': 'external',
+                    'azure': false,
+                    'api_type': 'chat-completions',
+                    'model_ids': <String>['model-a', 'model-b'],
+                    'headers': <String, String>{'X-Secret': 'stable-header'},
+                  },
+                },
+              },
+            },
+          });
+
+      check(
+        normalized.records.single.profile.id,
+      ).equals(before.records.single.profile.id);
+      check(
+        normalized.records.single.revision,
+      ).not((it) => it.equals(before.records.single.revision));
+    });
+
+    test('keyed identity rotates for secret and semantic edits', () {
+      final identityKey = List<int>.generate(32, (index) => index + 2);
+      Map<String, dynamic> settings({
+        String key = 'first-key',
+        String header = 'first-header',
+        String futureCredential = 'first-future-secret',
+        String prefix = 'public-prefix',
+      }) => <String, dynamic>{
+        'ui': <String, dynamic>{
+          'directConnections': <String, dynamic>{
+            'OPENAI_API_BASE_URLS': <String>['https://identity.example/v1'],
+            'OPENAI_API_KEYS': <String>[key],
+            'OPENAI_API_CONFIGS': <String, dynamic>{
+              '0': <String, dynamic>{
+                'auth_type': 'bearer',
+                'prefix_id': prefix,
+                'headers': <String, String>{'X-Secret': header},
+                'futureCredential': futureCredential,
+              },
+            },
+          },
+        },
+      };
+      String profileId(Map<String, dynamic> value, {List<int>? keyOverride}) =>
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+            identityKey: keyOverride ?? identityKey,
+          ).decode(value).records.single.profile.id;
+
+      final baseline = profileId(settings());
+      for (final changed in <Map<String, dynamic>>[
+        settings(key: 'second-key'),
+        settings(header: 'second-header'),
+        settings(futureCredential: 'second-future-secret'),
+        settings(prefix: 'different-public-prefix'),
+      ]) {
+        check(profileId(changed)).not((it) => it.equals(baseline));
+      }
+      check(
+        profileId(
+          settings(),
+          keyOverride: List<int>.generate(32, (index) => index + 3),
+        ),
+      ).not((it) => it.equals(baseline));
+      for (final secret in <String>[
+        'first-key',
+        'first-header',
+        'first-future-secret',
+      ]) {
+        check(baseline).not((it) => it.contains(secret));
+      }
+    });
+
+    test(
+      'credential-only duplicates keep identity after an earlier deletion',
+      () {
+        final identityKey = List<int>.generate(32, (index) => index + 4);
+        Map<String, dynamic> settings(List<String> keys) => <String, dynamic>{
+          'ui': <String, dynamic>{
+            'directConnections': <String, dynamic>{
+              'OPENAI_API_BASE_URLS': <String>[
+                for (final _ in keys) 'https://tenant.example/v1',
+              ],
+              'OPENAI_API_KEYS': keys,
+              'OPENAI_API_CONFIGS': <String, dynamic>{
+                for (var index = 0; index < keys.length; index++)
+                  '$index': <String, dynamic>{'auth_type': 'bearer'},
+              },
+            },
+          },
+        };
+        OpenWebUiDirectConnectionsSnapshot decode(List<String> keys) =>
+            OpenWebUiDirectConnectionsCodec(
+              serverId: 'server',
+              accountId: 'account',
+              identityKey: identityKey,
+            ).decode(settings(keys));
+
+        final before = decode(<String>['tenant-a-key', 'tenant-b-key']);
+        final after = decode(<String>['tenant-b-key']);
+
+        check(
+          before.records.first.profile.id,
+        ).not((it) => it.equals(before.records.last.profile.id));
+        check(
+          after.records.single.profile.id,
+        ).equals(before.records.last.profile.id);
+      },
+    );
+
     test('does not activate a URL without its indexed config', () {
       final snapshot =
           OpenWebUiDirectConnectionsCodec(
@@ -222,6 +433,9 @@ void main() {
         check(
           after.records.single.profile.baseUrl,
         ).equals('https://new.test/openai/v1');
+        check(
+          after.records.single.profile.id,
+        ).not((it) => it.equals(record.profile.id));
         check(after.records.single.profile.name).equals('new.test · 1');
         check(after.records.single.profile.apiKey).equals('new-secret');
         check(
@@ -257,7 +471,10 @@ void main() {
       ).equals('winning-secret');
       check(
         conflict.currentSnapshot.records.single.profile.id,
-      ).equals(stale.profile.id);
+      ).not((it) => it.equals(stale.profile.id));
+      check(
+        conflict.currentSnapshot.records.single.revision,
+      ).not((it) => it.equals(stale.revision));
       for (final secret in <String>['first-secret', 'winning-secret']) {
         check(conflict.toString()).not((it) => it.contains(secret));
       }
@@ -341,6 +558,111 @@ void main() {
         ),
       ).throws<FormatException>();
     });
+
+    test(
+      'rejects a URL change that would carry an opaque unsupported key',
+      () async {
+        final server = _FakeSettingsServer(
+          _unsupportedConnectionSettings('opaque-session-key'),
+        );
+        final store = OpenWebUiDirectConnectionStore(
+          serverId: 'server',
+          accountId: 'account',
+          readSettings: server.read,
+          writeSettings: server.write,
+        );
+        final record = (await store.load()).records.single;
+
+        await check(
+          store.update(
+            record,
+            record.profile.copyWith(baseUrl: 'https://different.test/v1'),
+          ),
+        ).throws<FormatException>();
+
+        check(server.writeCount).equals(0);
+        final direct =
+            (server.settings['ui'] as Map)['directConnections'] as Map;
+        check(
+          direct['OPENAI_API_BASE_URLS'],
+        ).isA<List>().deepEquals(['https://session.test/v1']);
+        check(
+          direct['OPENAI_API_KEYS'],
+        ).isA<List>().deepEquals(['opaque-session-key']);
+      },
+    );
+
+    for (final conversion in <({String authType, String? apiKey})>[
+      (authType: 'bearer', apiKey: 'replacement-key'),
+      (authType: 'none', apiKey: null),
+    ]) {
+      test('allows an unsupported-auth URL change when explicitly converted to '
+          '${conversion.authType}', () async {
+        final server = _FakeSettingsServer(
+          _unsupportedConnectionSettings('opaque-session-key'),
+        );
+        final store = OpenWebUiDirectConnectionStore(
+          serverId: 'server',
+          accountId: 'account',
+          readSettings: server.read,
+          writeSettings: server.write,
+        );
+        final record = (await store.load()).records.single;
+
+        final after = await store.update(
+          record,
+          record.profile.copyWith(
+            baseUrl: 'https://different.test/v1',
+            apiKey: conversion.apiKey,
+          ),
+          authType: conversion.authType,
+        );
+
+        final direct = after.ui['directConnections'] as Map;
+        check(
+          direct['OPENAI_API_BASE_URLS'],
+        ).isA<List>().deepEquals(['https://different.test/v1']);
+        check(
+          direct['OPENAI_API_KEYS'],
+        ).isA<List>().deepEquals([conversion.apiKey ?? '']);
+        check(
+          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['auth_type'],
+        ).equals(conversion.authType);
+        check(
+          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'],
+        ).isA<Map>().deepEquals({'preserved': true});
+      });
+    }
+
+    test(
+      'allows same-URL edits to retain unsupported authentication',
+      () async {
+        final server = _FakeSettingsServer(
+          _unsupportedConnectionSettings('opaque-session-key'),
+        );
+        final store = OpenWebUiDirectConnectionStore(
+          serverId: 'server',
+          accountId: 'account',
+          readSettings: server.read,
+          writeSettings: server.write,
+        );
+        final record = (await store.load()).records.single;
+
+        final after = await store.update(
+          record,
+          record.profile.copyWith(tags: const <String>['edited']),
+        );
+
+        final direct = after.ui['directConnections'] as Map;
+        check(
+          direct['OPENAI_API_KEYS'],
+        ).isA<List>().deepEquals(['opaque-session-key']);
+        check(after.records.single.authType).equals('session');
+        check(
+          ((direct['OPENAI_API_CONFIGS'] as Map)['0'] as Map)['future'],
+        ).isA<Map>().deepEquals({'preserved': true});
+      },
+    );
 
     test('add honors the expected direct-connections revision', () async {
       final server = _FakeSettingsServer(_oneConnectionSettings('first-key'));
@@ -576,6 +898,9 @@ void main() {
         check(direct['documentExtra']).isA<bool>().isTrue();
         check(afterDelete.ui['unrelated']).equals('preserved');
         check(afterDelete.records[1].profile.name).equals('c.test · 2');
+        check(
+          afterDelete.records[1].profile.id,
+        ).equals(beforeDelete.records[2].profile.id);
 
         final addedProfile = DirectConnectionProfile(
           id: 'temporary-local-form-id',
@@ -630,6 +955,22 @@ Map<String, dynamic> _oneConnectionSettings(String key) => <String, dynamic>{
     },
   },
 };
+
+Map<String, dynamic> _unsupportedConnectionSettings(String key) =>
+    <String, dynamic>{
+      'ui': <String, dynamic>{
+        'directConnections': <String, dynamic>{
+          'OPENAI_API_BASE_URLS': <String>['https://session.test/v1'],
+          'OPENAI_API_KEYS': <String>[key],
+          'OPENAI_API_CONFIGS': <String, dynamic>{
+            '0': <String, dynamic>{
+              'auth_type': 'session',
+              'future': <String, dynamic>{'preserved': true},
+            },
+          },
+        },
+      },
+    };
 
 final class _FakeSettingsServer {
   _FakeSettingsServer(Map<String, dynamic> settings)

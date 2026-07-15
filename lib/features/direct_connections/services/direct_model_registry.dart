@@ -133,6 +133,14 @@ List<Model> reconcileDirectModelsForDisplay({
 final class DirectModelRegistry {
   final Map<String, DirectModelBinding> _registered = {};
   final Map<String, Set<String>> _idsByProfile = {};
+  int _revision = 0;
+
+  /// Monotonically increases whenever the trusted binding table changes.
+  ///
+  /// The registry is intentionally mutated in place, so consumers that cache
+  /// derived presentation or routing data must include this value in their
+  /// cache key rather than relying on the registry object's identity.
+  int get revision => _revision;
 
   DirectModelBinding? resolve(Model model) {
     final minted = _trustedBindings[model];
@@ -276,6 +284,7 @@ final class DirectModelRegistry {
       models.add(model);
     }
     _idsByProfile[profile.id] = ids;
+    _revision += 1;
     return List.unmodifiable(models);
   }
 
@@ -285,6 +294,7 @@ final class DirectModelRegistry {
     for (final id in ids) {
       _registered.remove(id);
     }
+    _revision += 1;
   }
 
   void retainProfiles(Iterable<String> profileIds) {
@@ -295,7 +305,9 @@ final class DirectModelRegistry {
   }
 
   void clear() {
+    if (_registered.isEmpty && _idsByProfile.isEmpty) return;
     _registered.clear();
     _idsByProfile.clear();
+    _revision += 1;
   }
 }

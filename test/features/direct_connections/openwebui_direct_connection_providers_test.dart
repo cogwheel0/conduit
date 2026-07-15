@@ -14,12 +14,58 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('concurrent direct identity key requests converge', () async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+    const storage = FlutterSecureStorage();
+    final firstContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    final secondContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(firstContainer.dispose);
+    addTearDown(secondContainer.dispose);
+
+    final keys = await Future.wait<List<int>>([
+      firstContainer.read(openWebUiDirectIdentityKeyProvider.future),
+      secondContainer.read(openWebUiDirectIdentityKeyProvider.future),
+    ]);
+
+    expect(keys.first, hasLength(32));
+    expect(keys.last, keys.first);
+  });
+
+  test('direct identity key survives provider container recreation', () async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+    const storage = FlutterSecureStorage();
+    final firstContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    final first = await firstContainer.read(
+      openWebUiDirectIdentityKeyProvider.future,
+    );
+    firstContainer.dispose();
+
+    final secondContainer = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(secondContainer.dispose);
+    final second = await secondContainer.read(
+      openWebUiDirectIdentityKeyProvider.future,
+    );
+
+    expect(first, hasLength(32));
+    expect(second, first);
+  });
+
   test(
     'effective profiles merge compatible server records and exclude unsupported auth',
     () async {
@@ -213,6 +259,54 @@ void main() {
     expect(accountBWrites, 0);
   });
 
+  test('queued adds use the latest published document revision', () async {
+    var settings = _settings(urls: const []);
+    var writes = 0;
+    final store = OpenWebUiDirectConnectionStore(
+      serverId: 'server-a',
+      accountId: 'account-a',
+      readSettings: () async => settings,
+      writeSettings: (next) async {
+        writes++;
+        settings = next;
+      },
+    );
+    final container = _container(local: const [], store: store);
+    addTearDown(container.dispose);
+    await container.read(openWebUiDirectConnectionsProvider.future);
+    final controller = container.read(
+      openWebUiDirectConnectionsProvider.notifier,
+    );
+
+    final first = controller.add(
+      DirectConnectionProfile(
+        id: 'first-draft',
+        name: 'First',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://first.example/v1',
+      ),
+    );
+    final second = controller.add(
+      DirectConnectionProfile(
+        id: 'second-draft',
+        name: 'Second',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://second.example/v1',
+      ),
+    );
+
+    await Future.wait([first, second]);
+
+    final snapshot = container
+        .read(openWebUiDirectConnectionsProvider)
+        .requireValue!;
+    expect(writes, 2);
+    expect(snapshot.records.map((record) => record.profile.baseUrl), [
+      'https://first.example/v1',
+      'https://second.example/v1',
+    ]);
+  });
+
   test('a late initial load cannot overwrite a newer reload', () async {
     final initialReadStarted = Completer<void>();
     final releaseInitialRead = Completer<void>();
@@ -307,6 +401,66 @@ void main() {
   );
 
   test(
+    'duplicate id moving to another URL index revokes its old binding and run',
+    () async {
+      var settings = _settings(
+        urls: const [
+          'https://duplicate.example/v1',
+          'https://duplicate.example/v1',
+        ],
+      );
+      final store = OpenWebUiDirectConnectionStore(
+        serverId: 'server-a',
+        accountId: 'account-a',
+        readSettings: () async => settings,
+        writeSettings: (next) async => settings = next,
+      );
+      final container = _container(local: const [], store: store);
+      addTearDown(container.dispose);
+
+      final initial = (await container.read(
+        openWebUiDirectConnectionsProvider.future,
+      ))!;
+      final earlierDuplicate = initial.records.first;
+      final registry = container.read(directModelRegistryProvider);
+      final staleModel = registry
+          .replaceProfileModels(
+            earlierDuplicate.profile,
+            [DirectRemoteModel(id: 'remote-model')],
+            source: DirectModelSource.openWebUi,
+            openWebUiUrlIndex: earlierDuplicate.index,
+          )
+          .single;
+      final runRegistry = container.read(directRunRegistryProvider);
+      final runKey = (
+        ownerConversationId: 'conversation',
+        assistantMessageId: 'assistant',
+      );
+      runRegistry.reserve(runKey, earlierDuplicate.profile.id);
+
+      await container
+          .read(openWebUiDirectConnectionsProvider.notifier)
+          .updateConnection(
+            earlierDuplicate,
+            earlierDuplicate.profile.copyWith(
+              baseUrl: 'https://edited.example/v1',
+            ),
+          );
+
+      final published = container
+          .read(openWebUiDirectConnectionsProvider)
+          .requireValue!;
+      final retainedDuplicate = published.records.singleWhere(
+        (record) => record.profile.baseUrl == 'https://duplicate.example/v1',
+      );
+      expect(retainedDuplicate.index, 1);
+      expect(retainedDuplicate.profile.id, earlierDuplicate.profile.id);
+      expect(registry.resolve(staleModel), isNull);
+      expect(runRegistry.hasLiveIntent(runKey), isFalse);
+    },
+  );
+
+  test(
     'uncertain commits revoke stale bindings and require a reload',
     () async {
       var settings = _settings(urls: const ['https://old.example/v1']);
@@ -369,6 +523,7 @@ void main() {
   test(
     'same-owner metadata refresh keeps the server store and bindings alive',
     () async {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
       SharedPreferences.setMockInitialValues(<String, Object>{
         PreferenceKeys.activeServerId: _server.id,
       });
@@ -391,10 +546,12 @@ void main() {
           isAuthenticatedProvider2.overrideWithValue(true),
           authTokenProvider3.overrideWithValue('token'),
           currentUserProvider2.overrideWith((ref) => ref.watch(userSource)),
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
         ],
       );
 
       try {
+        await container.read(openWebUiDirectIdentityKeyProvider.future);
         await container.read(activeServerProvider.future);
         await container.read(backendConfigProvider.future);
         container

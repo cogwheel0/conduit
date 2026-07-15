@@ -99,6 +99,18 @@ final directConnectionProfileStoreProvider =
       );
     });
 
+/// Durable device secret used only to derive opaque server-record identities.
+///
+/// The HMAC key is persisted only in platform secure storage and is held in
+/// memory while deriving identities. Open WebUI persists its provider-facing
+/// model id for server-backed chats, so this device-local key does not affect
+/// cross-device history/model rebinding.
+final openWebUiDirectIdentityKeyProvider = FutureProvider<List<int>>(
+  (ref) => SecureCredentialStorage(
+    instance: ref.watch(secureStorageProvider),
+  ).getOrCreateOpenWebUiDirectIdentityKey(),
+);
+
 /// Ephemeral Open WebUI profile source for the exact authenticated account.
 ///
 /// Returning `null` is intentional when the active server disables direct
@@ -122,6 +134,8 @@ final openWebUiDirectConnectionStoreProvider =
           userId == null) {
         return null;
       }
+      final identityKey = ref.watch(openWebUiDirectIdentityKeyProvider).value;
+      if (identityKey == null) return null;
 
       final api = ref.watch(apiServiceProvider);
       final activeServerId = ref.watch(
@@ -151,6 +165,7 @@ final openWebUiDirectConnectionStoreProvider =
       return OpenWebUiDirectConnectionStore(
         serverId: api.serverConfig.id,
         accountId: userId,
+        identityKey: identityKey,
         serializeSettingsMutation: api.serializeUserSettingsMutation,
         readSettings: () async {
           if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
@@ -364,6 +379,14 @@ class DirectConnectionProfilesController
     final next = await AsyncValue.guard(_store.load);
     if (!ref.mounted) return;
     if (previous != null && next.hasError) {
+      final modelRegistry = ref.read(directModelRegistryProvider);
+      final runRegistry = ref.read(directRunRegistryProvider);
+      for (final profile in previous) {
+        _removeProfileModelsBestEffort(modelRegistry, profile.id);
+      }
+      for (final profile in previous) {
+        _cancelProfileRunsBestEffort(runRegistry, profile.id);
+      }
       // Preserve no alternate in-memory source on a secure-storage outage: the
       // error state makes the outage visible and prevents unsafe edits.
       state = next;
@@ -566,10 +589,19 @@ class OpenWebUiDirectConnectionsController
   }
 
   Future<void> add(DirectConnectionProfile profile, {String? authType}) {
-    final source = _captureMutationSource();
-    if (source == null) return _unavailableMutation();
-    return _serializeMutation(
-      () => _mutate(
+    // Bind the user's intent to this account, but capture its latest document
+    // only after earlier mutations have finished.
+    final expectedStore = _publishedStore;
+    if (expectedStore == null) return _unavailableMutation();
+    return _serializeMutation(() {
+      final source = _captureMutationSource();
+      if (source == null) return _unavailableMutation();
+      if (!identical(source.store, expectedStore)) {
+        return Future<void>.error(
+          StateError('Open WebUI direct connection ownership changed.'),
+        );
+      }
+      return _mutate(
         source.store,
         source.snapshot,
         (store, current) => store.add(
@@ -577,8 +609,8 @@ class OpenWebUiDirectConnectionsController
           authType: authType,
           expectedDocumentRevision: current?.documentRevision,
         ),
-      ),
-    );
+      );
+    });
   }
 
   Future<void> updateConnection(
@@ -677,17 +709,21 @@ class OpenWebUiDirectConnectionsController
     bool publishState = true,
   }) {
     final previous = _publishedSnapshot;
-    final nextById = <String, DirectConnectionProfile>{
-      for (final profile
-          in next?.compatibleProfiles ?? const <DirectConnectionProfile>[])
-        profile.id: profile,
+    final nextById = <String, OpenWebUiDirectConnectionRecord>{
+      for (final record
+          in next?.records ?? const <OpenWebUiDirectConnectionRecord>[])
+        if (record.isCompatible) record.profile.id: record,
     };
     final invalidatedProfileIds = <String>{};
     if (previous != null) {
       final modelRegistry = ref.read(directModelRegistryProvider);
-      for (final oldProfile in previous.compatibleProfiles) {
-        final newProfile = nextById[oldProfile.id];
-        if (newProfile == null || _transportChanged(oldProfile, newProfile)) {
+      for (final oldRecord in previous.records) {
+        if (!oldRecord.isCompatible) continue;
+        final oldProfile = oldRecord.profile;
+        final newRecord = nextById[oldProfile.id];
+        if (newRecord == null ||
+            newRecord.index != oldRecord.index ||
+            _transportChanged(oldProfile, newRecord.profile)) {
           invalidatedProfileIds.add(oldProfile.id);
           _removeDirectProfileModelsBestEffort(modelRegistry, oldProfile.id);
         }
@@ -748,18 +784,37 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
   final socket = ref.watch(socketServiceProvider);
   final api = ref.watch(apiServiceProvider);
   final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
-  final snapshot = ref.watch(openWebUiDirectConnectionsProvider).value;
+  final store = ref.watch(openWebUiDirectConnectionStoreProvider);
   final relayFactory = ref.watch(openWebUiDirectCompletionRelayFactoryProvider);
   if (socket == null ||
       api == null ||
-      snapshot == null ||
+      store == null ||
       socket.serverConfig.id != api.serverConfig.id ||
-      snapshot.serverId != api.serverConfig.id) {
+      store.serverId != api.serverConfig.id) {
     return;
   }
 
+  // Start the snapshot load without making AsyncValue refreshes part of this
+  // Socket.IO handler's ownership. Requests read the latest published snapshot
+  // below, while the stable store identity owns in-flight relays.
+  ref.read(openWebUiDirectConnectionsProvider);
+
   final activeRuns = <String, OpenWebUiDirectCompletionRelayRun>{};
   var ownerDisposed = false;
+
+  OpenWebUiDirectConnectionsSnapshot? currentSnapshot() {
+    if (!ref.mounted ||
+        !identical(store, ref.read(openWebUiDirectConnectionStoreProvider))) {
+      return null;
+    }
+    final snapshot = ref.read(openWebUiDirectConnectionsProvider).value;
+    if (snapshot == null ||
+        snapshot.serverId != store.serverId ||
+        snapshot.accountId != store.accountId) {
+      return null;
+    }
+    return snapshot;
+  }
 
   bool ownsCapturedSession() =>
       !ownerDisposed &&
@@ -769,7 +824,11 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
         authSessionEpoch,
         ref.read(openWebUiAuthSessionEpochProvider),
       ) &&
-      identical(snapshot, ref.read(openWebUiDirectConnectionsProvider).value);
+      identical(store, ref.read(openWebUiDirectConnectionStoreProvider));
+
+  bool ownsCapturedSnapshot(String documentRevision) =>
+      ownsCapturedSession() &&
+      currentSnapshot()?.documentRevision == documentRevision;
 
   void cancelActiveRuns(String reason) {
     final runs = activeRuns.values.toList(growable: false);
@@ -786,6 +845,16 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
     } catch (_) {}
   }
 
+  ref.listen<AsyncValue<OpenWebUiDirectConnectionsSnapshot?>>(
+    openWebUiDirectConnectionsProvider,
+    (previous, next) {
+      final previousRevision = previous?.value?.documentRevision;
+      final nextRevision = next.value?.documentRevision;
+      if (previousRevision == null || previousRevision == nextRevision) return;
+      cancelActiveRuns('Direct connection settings changed');
+    },
+  );
+
   final subscription = socket.addChatEventHandler(
     requireFocus: false,
     handler: (event, acknowledge) {
@@ -796,6 +865,11 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
       if (acknowledge == null) return;
       if (!ownsCapturedSession()) {
         rejectRpc(acknowledge, 'The direct connection session changed.');
+        return;
+      }
+      final snapshot = currentSnapshot();
+      if (snapshot == null) {
+        rejectRpc(acknowledge, 'The direct connection is unavailable.');
         return;
       }
 
@@ -880,9 +954,17 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
       try {
         late final OpenWebUiDirectCompletionRelayRun run;
         final relay = relayFactory(
-          emitChannel: (eventName, data) =>
-              ownsCapturedSession() &&
-              socket.emitForSession(currentSessionId, eventName, data),
+          emitChannel: (eventName, data) {
+            final ownsSnapshot = ownsCapturedSnapshot(
+              snapshot.documentRevision,
+            );
+            final mayTerminateCancelledChannel =
+                eventName == channel &&
+                _isOpenWebUiDirectTerminalPayload(data) &&
+                ownsCapturedSession();
+            if (!ownsSnapshot && !mayTerminateCancelledChannel) return false;
+            return socket.emitForSession(currentSessionId, eventName, data);
+          },
         );
         run = relay.start(
           profile: record.profile,
@@ -940,6 +1022,9 @@ int? _parseOpenWebUiDirectUrlIndex(Object? value) {
   }
   return null;
 }
+
+bool _isOpenWebUiDirectTerminalPayload(Object? value) =>
+    value is Map && value.length == 1 && value['done'] == true;
 
 /// Runtime view used by discovery, routing, and direct chat dispatch. Server
 /// sync failures remain visible on the settings page but do not make healthy

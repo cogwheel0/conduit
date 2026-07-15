@@ -484,6 +484,59 @@ void main() {
   });
 
   test(
+    'failed reload revokes models and runs before publishing its error',
+    () async {
+      final original = _profile();
+      final storage = _FailingReloadSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+
+      final modelRegistry = container.read(directModelRegistryProvider);
+      final staleModel = modelRegistry.replaceProfileModels(original, [
+        DirectRemoteModel(id: 'stale-model'),
+      ]).single;
+      final cancellation = _registerPendingRun(
+        container.read(directRunRegistryProvider),
+        profileId: original.id,
+      );
+      var authorityRevokedWhenErrorPublished = false;
+      final subscription = container.listen(directConnectionProfilesProvider, (
+        _,
+        next,
+      ) {
+        if (next.hasError) {
+          authorityRevokedWhenErrorPublished =
+              modelRegistry.resolve(staleModel) == null &&
+              cancellation.token.isCancelled;
+        }
+      });
+      addTearDown(subscription.close);
+
+      await container.read(directConnectionProfilesProvider.notifier).reload();
+
+      expect(container.read(directConnectionProfilesProvider).hasError, isTrue);
+      expect(authorityRevokedWhenErrorPublished, isTrue);
+      expect(modelRegistry.resolveRegisteredId(staleModel.id), isNull);
+      expect(cancellation.token.isCancelled, isTrue);
+      cancellation.done.complete();
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
+
+  test(
     'transport edit and queued mutation settle while run cleanup never does',
     () async {
       final original = _profile();
@@ -1089,6 +1142,36 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _FailingReloadSecureStorage implements FlutterSecureStorage {
+  _FailingReloadSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final String _profileDocument;
+  int _profileReadCalls = 0;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    _profileReadCalls++;
+    if (_profileReadCalls > 1) {
+      throw StateError('secure storage unavailable');
+    }
+    return _profileDocument;
   }
 
   @override

@@ -19,6 +19,7 @@ final class OpenWebUiDirectConnectionRecord {
     required this.index,
     required this.profile,
     required this.revision,
+    required this.contentRevision,
     required Map<String, dynamic> rawConfig,
     required this.authType,
     required this.compatibility,
@@ -35,6 +36,12 @@ final class OpenWebUiDirectConnectionRecord {
 
   /// Alias documenting that [revision] fingerprints the raw server record.
   String get fingerprint => revision;
+
+  /// Opaque keyed fingerprint of the raw record without its mutable index.
+  ///
+  /// Editors use this only to distinguish a pure reindex from a same-id
+  /// content edit before refreshing their compare-and-swap base.
+  final String contentRevision;
 
   /// Original per-index config, including fields unknown to Conduit.
   final Map<String, dynamic> rawConfig;

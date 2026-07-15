@@ -12,6 +12,7 @@ import 'package:conduit/features/direct_connections/models/direct_remote_model.d
 import 'package:conduit/features/direct_connections/models/openwebui_direct_connection.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit/features/direct_connections/services/openwebui_direct_connection_store.dart';
 import 'package:conduit/features/direct_connections/services/openwebui_direct_completion_relay.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,16 +23,18 @@ void main() {
 
   group('openWebUiDirectCompletionSocketRelayProvider', () {
     test(
-      'installs its handler when a listened snapshot finishes loading',
+      'installs its handler for the session while its snapshot loads',
       () async {
         final socket = _FakeSocketService();
         final snapshotController = _DeferredSnapshotController();
         final api = _FakeApiService(socket.serverConfig);
+        final store = _sessionStore();
         final container = ProviderContainer(
           overrides: [
             socketServiceProvider.overrideWithValue(socket),
             apiServiceProvider.overrideWithValue(api),
             openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+            openWebUiDirectConnectionStoreProvider.overrideWithValue(store),
             directModelRegistryProvider.overrideWithValue(_registry()),
             openWebUiDirectConnectionsProvider.overrideWith(
               () => snapshotController,
@@ -50,26 +53,29 @@ void main() {
         addTearDown(container.dispose);
         addTearDown(socket.dispose);
 
-        expect(socket.registration, isNull);
+        final registration = socket.registration;
+        expect(registration, isNotNull);
         snapshotController.publish(_snapshot());
         await container.read(openWebUiDirectConnectionsProvider.future);
         await Future<void>.delayed(Duration.zero);
 
-        expect(socket.registration, isNotNull);
+        expect(socket.registration, same(registration));
         expect(socket.registration!.requireFocus, isFalse);
       },
     );
 
-    test('rejects a callback captured before snapshot replacement', () async {
+    test('a stable handler validates against the latest snapshot', () async {
       final socket = _FakeSocketService();
       final snapshotController = _MutableSnapshotController(_snapshot());
       final api = _FakeApiService(socket.serverConfig);
+      final store = _sessionStore();
       var relayCreations = 0;
       final container = ProviderContainer(
         overrides: [
           socketServiceProvider.overrideWithValue(socket),
           apiServiceProvider.overrideWithValue(api),
           openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+          openWebUiDirectConnectionStoreProvider.overrideWithValue(store),
           directModelRegistryProvider.overrideWithValue(_registry()),
           openWebUiDirectConnectionsProvider.overrideWith(
             () => snapshotController,
@@ -95,9 +101,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       final staleRegistration = socket.registration!;
 
-      snapshotController.replace(_snapshot());
+      snapshotController.replace(_snapshot(urlIndex: 3));
       await Future<void>.delayed(Duration.zero);
-      expect(socket.registration, isNot(same(staleRegistration)));
+      expect(socket.registration, same(staleRegistration));
 
       final acknowledgements = <Object?>[];
       staleRegistration.handler(
@@ -113,66 +119,183 @@ void main() {
       expect(acknowledgements, <Object?>[
         const <String, dynamic>{
           'status': false,
-          'error': 'The direct connection session changed.',
+          'error': 'The direct connection is unavailable.',
         },
       ]);
     });
 
-    test('rejects an emitter captured before snapshot replacement', () async {
-      final socket = _FakeSocketService();
-      final snapshotController = _MutableSnapshotController(_snapshot());
-      final api = _FakeApiService(socket.serverConfig);
-      late OpenWebUiDirectChannelEmitter capturedEmitter;
-      final container = ProviderContainer(
-        overrides: [
-          socketServiceProvider.overrideWithValue(socket),
-          apiServiceProvider.overrideWithValue(api),
-          openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
-          directModelRegistryProvider.overrideWithValue(_registry()),
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => snapshotController,
+    test(
+      'keeps an emitter across equivalent reloads and fences changed settings',
+      () async {
+        final socket = _FakeSocketService();
+        final snapshotController = _MutableSnapshotController(_snapshot());
+        final api = _FakeApiService(socket.serverConfig);
+        final store = _sessionStore();
+        late OpenWebUiDirectChannelEmitter capturedEmitter;
+        final container = ProviderContainer(
+          overrides: [
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+            openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+            openWebUiDirectConnectionStoreProvider.overrideWithValue(store),
+            directModelRegistryProvider.overrideWithValue(_registry()),
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => snapshotController,
+            ),
+            openWebUiDirectCompletionRelayFactoryProvider.overrideWithValue(({
+              required emitChannel,
+            }) {
+              capturedEmitter = emitChannel;
+              throw StateError('capture the emitter without starting a relay');
+            }),
+          ],
+        );
+        final relaySubscription = container.listen<void>(
+          openWebUiDirectCompletionSocketRelayProvider,
+          (previous, next) {},
+          fireImmediately: true,
+        );
+        addTearDown(relaySubscription.close);
+        addTearDown(container.dispose);
+        addTearDown(socket.dispose);
+
+        await container.read(openWebUiDirectConnectionsProvider.future);
+        await Future<void>.delayed(Duration.zero);
+        final acknowledgements = <Object?>[];
+        socket.registration!.handler(
+          _requestEnvelope(
+            urlIndex: 2,
+            wireModelId: 'server-prefix.remote-model',
           ),
-          openWebUiDirectCompletionRelayFactoryProvider.overrideWithValue(({
-            required emitChannel,
-          }) {
-            capturedEmitter = emitChannel;
-            throw StateError('capture the emitter without starting a relay');
-          }),
-        ],
-      );
-      final relaySubscription = container.listen<void>(
-        openWebUiDirectCompletionSocketRelayProvider,
-        (previous, next) {},
-        fireImmediately: true,
-      );
-      addTearDown(relaySubscription.close);
-      addTearDown(container.dispose);
-      addTearDown(socket.dispose);
+          acknowledgements.add,
+        );
+        expect((acknowledgements.single as Map)['status'], isFalse);
 
-      await container.read(openWebUiDirectConnectionsProvider.future);
-      await Future<void>.delayed(Duration.zero);
-      final acknowledgements = <Object?>[];
-      socket.registration!.handler(
-        _requestEnvelope(
-          urlIndex: 2,
-          wireModelId: 'server-prefix.remote-model',
-        ),
-        acknowledgements.add,
-      );
-      expect((acknowledgements.single as Map)['status'], isFalse);
+        snapshotController.replace(_snapshot());
+        await Future<void>.delayed(Duration.zero);
 
-      snapshotController.replace(_snapshot());
-      await Future<void>.delayed(Duration.zero);
+        expect(
+          capturedEmitter(
+            'user-1:socket-1:late-request',
+            'data: should not escape',
+          ),
+          isTrue,
+        );
+        expect(socket.emissions, <_Emission>[
+          const _Emission(
+            expectedSessionId: 'socket-1',
+            event: 'user-1:socket-1:late-request',
+            data: 'data: should not escape',
+          ),
+        ]);
 
-      expect(
-        capturedEmitter(
-          'user-1:socket-1:late-request',
-          'data: should not escape',
-        ),
-        isFalse,
-      );
-      expect(socket.emissions, isEmpty);
-    });
+        snapshotController.replace(
+          _snapshot(documentRevision: 'changed-document-revision'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          capturedEmitter(
+            'user-1:socket-1:stale-request',
+            'data: must be fenced',
+          ),
+          isFalse,
+        );
+        expect(socket.emissions, hasLength(1));
+      },
+    );
+
+    test(
+      'equivalent reload preserves an active relay until settings change',
+      () async {
+        final socket = _FakeSocketService();
+        final snapshotController = _MutableSnapshotController(_snapshot());
+        final api = _FakeApiService(socket.serverConfig);
+        final store = _sessionStore();
+        final responseStream = StreamController<Uint8List>();
+        addTearDown(() async {
+          if (!responseStream.isClosed) await responseStream.close();
+        });
+        final http = _RecordingHttpAdapter(
+          response: ResponseBody(
+            responseStream.stream,
+            200,
+            headers: const <String, List<String>>{
+              'content-type': <String>['text/event-stream'],
+            },
+          ),
+        );
+        final container = ProviderContainer(
+          overrides: [
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+            openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+            openWebUiDirectConnectionStoreProvider.overrideWithValue(store),
+            directModelRegistryProvider.overrideWithValue(_registry()),
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => snapshotController,
+            ),
+            openWebUiDirectCompletionRelayFactoryProvider.overrideWithValue(
+              ({required emitChannel}) => OpenWebUiDirectCompletionRelay(
+                emitChannel: emitChannel,
+                dioFactory: (_) => _dio(http),
+                closeClients: false,
+              ),
+            ),
+          ],
+        );
+        final relaySubscription = container.listen<void>(
+          openWebUiDirectCompletionSocketRelayProvider,
+          (previous, next) {},
+          fireImmediately: true,
+        );
+        addTearDown(relaySubscription.close);
+        addTearDown(container.dispose);
+        addTearDown(socket.dispose);
+
+        await container.read(openWebUiDirectConnectionsProvider.future);
+        final registration = socket.registration!;
+        final acknowledgements = <Object?>[];
+        registration.handler(
+          _requestEnvelope(
+            urlIndex: 2,
+            wireModelId: 'server-prefix.remote-model',
+          ),
+          acknowledgements.add,
+        );
+        await Future.doWhile(() async {
+          if (acknowledgements.isNotEmpty) return false;
+          await Future<void>.delayed(Duration.zero);
+          return true;
+        }).timeout(const Duration(seconds: 1));
+        expect(responseStream.hasListener, isTrue);
+
+        snapshotController.replace(_snapshot());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(socket.registration, same(registration));
+        expect(responseStream.hasListener, isTrue);
+
+        snapshotController.replace(
+          _snapshot(documentRevision: 'changed-document-revision'),
+        );
+        await Future.doWhile(() async {
+          if (!responseStream.hasListener) return false;
+          await Future<void>.delayed(Duration.zero);
+          return true;
+        }).timeout(const Duration(seconds: 1));
+        expect(responseStream.hasListener, isFalse);
+        await socket.doneEmission.timeout(const Duration(seconds: 1));
+        expect(socket.emissions, <_Emission>[
+          const _Emission(
+            expectedSessionId: 'socket-1',
+            event: 'user-1:socket-1:request-1',
+            data: <String, dynamic>{'done': true},
+          ),
+        ]);
+      },
+    );
 
     test(
       'routes a trusted request to the indexed provider and relays raw SSE',
@@ -341,6 +464,7 @@ ProviderContainer _container({
       socketServiceProvider.overrideWithValue(socket),
       apiServiceProvider.overrideWithValue(api),
       openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+      openWebUiDirectConnectionStoreProvider.overrideWithValue(_sessionStore()),
       directModelRegistryProvider.overrideWithValue(_registry()),
       openWebUiDirectConnectionsProvider.overrideWith(
         () => _SnapshotController(snapshot),
@@ -352,25 +476,37 @@ ProviderContainer _container({
   );
 }
 
-OpenWebUiDirectConnectionsSnapshot _snapshot() {
+OpenWebUiDirectConnectionsSnapshot _snapshot({
+  int urlIndex = 2,
+  String documentRevision = 'document-revision',
+}) {
   final profile = _profile();
   return OpenWebUiDirectConnectionsSnapshot(
     serverId: 'server-1',
     accountId: 'user-1',
     records: <OpenWebUiDirectConnectionRecord>[
       OpenWebUiDirectConnectionRecord(
-        index: 2,
+        index: urlIndex,
         profile: profile,
         revision: 'record-revision',
+        contentRevision: 'record-content-revision',
         rawConfig: const <String, dynamic>{},
         authType: 'bearer',
         compatibility: OpenWebUiDirectConnectionCompatibility.compatible,
       ),
     ],
     ui: const <String, dynamic>{},
-    documentRevision: 'document-revision',
+    documentRevision: documentRevision,
   );
 }
+
+OpenWebUiDirectConnectionStore _sessionStore() =>
+    OpenWebUiDirectConnectionStore(
+      serverId: 'server-1',
+      accountId: 'user-1',
+      readSettings: () async => const <String, dynamic>{},
+      writeSettings: (_) async {},
+    );
 
 DirectConnectionProfile _profile() => DirectConnectionProfile(
   id: 'server-profile',

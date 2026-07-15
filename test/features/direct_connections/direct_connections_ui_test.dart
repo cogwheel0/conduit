@@ -658,6 +658,402 @@ void main() {
     },
   );
 
+  testWidgets(
+    'server save reports unavailable when auth changes during confirmation',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': ['https://old.example/v1'],
+                'OPENAI_API_KEYS': ['old-secret'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'bearer'},
+                },
+              },
+            },
+          });
+      final remoteController = _MutableOpenWebUiConnections(snapshot);
+      final epochSource = NotifierProvider<_MutableAuthEpoch, Object>(
+        _MutableAuthEpoch.new,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+            openWebUiAuthSessionEpochProvider.overrideWith(
+              (ref) => ref.watch(epochSource),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('direct-base-url-field')),
+        'https://new.example/v1',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(
+          const ValueKey<String>('direct-api-key-field'),
+          skipOffstage: false,
+        ),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('direct-api-key-field')),
+        'new-secret',
+      );
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Use credentials with new server?'), findsOneWidget);
+      container.read(epochSource.notifier).rotate();
+      await tester.tap(find.text('Use credentials'));
+      await tester.pumpAndSettle();
+
+      expect(remoteController.updateCalls, 0);
+      expect(
+        find.text('Open WebUI connections are unavailable.'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not save this connection.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'server editor preserves its draft and submits a refreshed reindexed record',
+    (tester) async {
+      final codec = OpenWebUiDirectConnectionsCodec(
+        serverId: 'server',
+        accountId: 'account',
+      );
+      final initial = codec.decode({
+        'ui': {
+          'directConnections': {
+            'OPENAI_API_BASE_URLS': [
+              'https://earlier.example/v1',
+              'https://target.example/v1',
+            ],
+            'OPENAI_API_KEYS': ['earlier-secret', 'target-secret'],
+            'OPENAI_API_CONFIGS': {
+              '0': {'auth_type': 'bearer'},
+              '1': {'auth_type': 'bearer'},
+            },
+          },
+        },
+      });
+      final reindexed = codec.decode({
+        'ui': {
+          'directConnections': {
+            'OPENAI_API_BASE_URLS': ['https://target.example/v1'],
+            'OPENAI_API_KEYS': ['target-secret'],
+            'OPENAI_API_CONFIGS': {
+              '0': {'auth_type': 'bearer'},
+            },
+          },
+        },
+      });
+      final initialRecord = initial.records[1];
+      final refreshedRecord = reindexed.records.single;
+      expect(refreshedRecord.profile.id, initialRecord.profile.id);
+      expect(refreshedRecord.index, 0);
+      expect(refreshedRecord.revision, isNot(initialRecord.revision));
+
+      final updateStarted = Completer<void>();
+      final releaseUpdate = Completer<void>();
+      addTearDown(() {
+        if (!releaseUpdate.isCompleted) releaseUpdate.complete();
+      });
+      final remoteController = _MutableOpenWebUiConnections(initial)
+        ..updateHandler = () async {
+          if (!updateStarted.isCompleted) updateStarted.complete();
+          await releaseUpdate.future;
+        };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: initialRecord.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final apiVersionField = find.byKey(
+        const ValueKey<String>('direct-api-version-field'),
+      );
+      await tester.scrollUntilVisible(
+        apiVersionField,
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(apiVersionField, '2026-07-15');
+
+      remoteController.setSnapshot(reindexed);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<AccessibleFormField>(apiVersionField).controller!.text,
+        '2026-07-15',
+      );
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pump();
+      await updateStarted.future.timeout(const Duration(seconds: 1));
+
+      expect(remoteController.updateCalls, 1);
+      expect(remoteController.lastUpdatedRecord?.index, refreshedRecord.index);
+      expect(
+        remoteController.lastUpdatedRecord?.revision,
+        refreshedRecord.revision,
+      );
+      expect(
+        remoteController.lastUpdatedRecord?.profile.id,
+        refreshedRecord.profile.id,
+      );
+      expect(remoteController.lastUpdatedProfile?.apiVersion, '2026-07-15');
+
+      releaseUpdate.complete();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'server editor retains its stale CAS base for a same-id content edit',
+    (tester) async {
+      final codec = OpenWebUiDirectConnectionsCodec(
+        serverId: 'server',
+        accountId: 'account',
+      );
+      final initial = codec.decode({
+        'ui': {
+          'directConnections': {
+            'OPENAI_API_BASE_URLS': ['https://target.example/v1'],
+            'OPENAI_API_KEYS': ['target-secret'],
+            'OPENAI_API_CONFIGS': {
+              '0': {
+                'auth_type': 'bearer',
+                'enable': true,
+                'tags': [
+                  {'name': 'initial'},
+                ],
+              },
+            },
+          },
+        },
+      });
+      final editedElsewhere = codec.decode({
+        'ui': {
+          'directConnections': {
+            'OPENAI_API_BASE_URLS': ['https://target.example/v1'],
+            'OPENAI_API_KEYS': ['target-secret'],
+            'OPENAI_API_CONFIGS': {
+              '0': {
+                'auth_type': 'bearer',
+                'enable': true,
+                'tags': [
+                  {'name': 'remote-edit'},
+                ],
+              },
+            },
+          },
+        },
+      });
+      final initialRecord = initial.records.single;
+      final remoteRecord = editedElsewhere.records.single;
+      expect(remoteRecord.profile.id, initialRecord.profile.id);
+      expect(
+        remoteRecord.contentRevision,
+        isNot(initialRecord.contentRevision),
+      );
+
+      final remoteController = _MutableOpenWebUiConnections(initial);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: initialRecord.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final apiVersionField = find.byKey(
+        const ValueKey<String>('direct-api-version-field'),
+      );
+      await tester.scrollUntilVisible(
+        apiVersionField,
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(apiVersionField, 'draft-version');
+
+      remoteController.setSnapshot(editedElsewhere);
+      await tester.pumpAndSettle();
+
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pumpAndSettle();
+
+      expect(remoteController.updateCalls, 1);
+      expect(
+        remoteController.lastUpdatedRecord?.revision,
+        initialRecord.revision,
+      );
+      expect(
+        remoteController.lastUpdatedRecord?.contentRevision,
+        initialRecord.contentRevision,
+      );
+    },
+  );
+
+  testWidgets(
+    'server conflict completing after auth rotation reports unavailable',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': ['https://provider.example/v1'],
+                'OPENAI_API_KEYS': ['provider-secret'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'bearer'},
+                },
+              },
+            },
+          });
+      final updateStarted = Completer<void>();
+      final releaseUpdate = Completer<void>();
+      addTearDown(() {
+        if (!releaseUpdate.isCompleted) releaseUpdate.complete();
+      });
+      final remoteController = _MutableOpenWebUiConnections(snapshot)
+        ..updateHandler = () async {
+          if (!updateStarted.isCompleted) updateStarted.complete();
+          await releaseUpdate.future;
+          throw OpenWebUiDirectConnectionConflictException(snapshot);
+        };
+      final epochSource = NotifierProvider<_MutableAuthEpoch, Object>(
+        _MutableAuthEpoch.new,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+            openWebUiAuthSessionEpochProvider.overrideWith(
+              (ref) => ref.watch(epochSource),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+      final apiVersionField = find.byKey(
+        const ValueKey<String>('direct-api-version-field'),
+      );
+      await tester.scrollUntilVisible(
+        apiVersionField,
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(apiVersionField, '2026-07-15');
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pump();
+      await updateStarted.future.timeout(const Duration(seconds: 1));
+
+      container.read(epochSource.notifier).rotate();
+      releaseUpdate.complete();
+      await tester.pumpAndSettle();
+
+      expect(remoteController.updateCalls, 1);
+      expect(
+        find.text('Open WebUI connections are unavailable.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'This connection changed elsewhere. Reopen it before saving.',
+        ),
+        findsNothing,
+      );
+      expect(find.text('Could not save this connection.'), findsNothing);
+    },
+  );
+
   testWidgets('server delete stops when auth changes during profile lookup', (
     tester,
   ) async {
@@ -743,6 +1139,247 @@ void main() {
 
     expect(remoteController.deleteCalls, 0);
   });
+
+  testWidgets(
+    'server delete restores preference and reports changed ownership',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': ['https://delete.example/v1'],
+                'OPENAI_API_KEYS': ['delete-secret'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'bearer'},
+                },
+              },
+            },
+          });
+      final remoteController = _MutableOpenWebUiConnections(snapshot);
+      final epochSource = NotifierProvider<_MutableAuthEpoch, Object>(
+        _MutableAuthEpoch.new,
+      );
+      final backendController = _BlockingPreferredBackendController();
+      addTearDown(backendController.release);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+            openWebUiAuthSessionEpochProvider.overrideWith(
+              (ref) => ref.watch(epochSource),
+            ),
+            effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+              (ref) async => [snapshot.records.single.profile],
+            ),
+            preferredBackendProvider.overrideWith(() => backendController),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Delete connection'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Delete'));
+      await tester.pump();
+      await backendController.unsetStarted.future.timeout(
+        const Duration(seconds: 1),
+      );
+
+      container.read(epochSource.notifier).rotate();
+      backendController.release();
+      await tester.pumpAndSettle();
+
+      expect(remoteController.deleteCalls, 0);
+      expect(backendController.writes, [
+        PreferredBackend.unset,
+        PreferredBackend.direct,
+      ]);
+      expect(container.read(preferredBackendProvider), PreferredBackend.direct);
+      expect(
+        find.text('Open WebUI connections are unavailable.'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not delete this connection.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'committed server delete does not restore preference after ownership change',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': ['https://delete.example/v1'],
+                'OPENAI_API_KEYS': ['delete-secret'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'bearer'},
+                },
+              },
+            },
+          });
+      final deleteStarted = Completer<void>();
+      final releaseDelete = Completer<void>();
+      addTearDown(() {
+        if (!releaseDelete.isCompleted) releaseDelete.complete();
+      });
+      final remoteController = _MutableOpenWebUiConnections(snapshot)
+        ..deleteHandler = () async {
+          if (!deleteStarted.isCompleted) deleteStarted.complete();
+          await releaseDelete.future;
+        };
+      final epochSource = NotifierProvider<_MutableAuthEpoch, Object>(
+        _MutableAuthEpoch.new,
+      );
+      final backendController = _TrackingPreferredBackendController();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+            openWebUiAuthSessionEpochProvider.overrideWith(
+              (ref) => ref.watch(epochSource),
+            ),
+            effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+              (ref) async => [snapshot.records.single.profile],
+            ),
+            preferredBackendProvider.overrideWith(() => backendController),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Delete connection'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Delete'));
+      await tester.pump();
+      await deleteStarted.future.timeout(const Duration(seconds: 1));
+
+      expect(container.read(preferredBackendProvider), PreferredBackend.unset);
+      container.read(epochSource.notifier).rotate();
+      releaseDelete.complete();
+      await tester.pumpAndSettle();
+
+      expect(remoteController.deleteCalls, 1);
+      expect(backendController.writes, [PreferredBackend.unset]);
+      expect(container.read(preferredBackendProvider), PreferredBackend.unset);
+      expect(
+        find.text('Open WebUI connections are unavailable.'),
+        findsOneWidget,
+      );
+      expect(find.text('Could not delete this connection.'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'commit-uncertain server delete leaves the direct preference cleared',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': ['https://delete.example/v1'],
+                'OPENAI_API_KEYS': ['delete-secret'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'bearer'},
+                },
+              },
+            },
+          });
+      final remoteController = _MutableOpenWebUiConnections(snapshot)
+        ..deleteHandler = () async {
+          throw const OpenWebUiDirectConnectionCommitUncertainException();
+        };
+      final backendController = _TrackingPreferredBackendController();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => remoteController,
+            ),
+            effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+              (ref) async => [snapshot.records.single.profile],
+            ),
+            preferredBackendProvider.overrideWith(() => backendController),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DirectConnectionEditorPage)),
+      );
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Delete connection'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(remoteController.deleteCalls, 1);
+      expect(backendController.writes, [PreferredBackend.unset]);
+      expect(container.read(preferredBackendProvider), PreferredBackend.unset);
+      expect(find.text('Could not delete this connection.'), findsOneWidget);
+    },
+  );
 
   testWidgets('unsupported server auth blocks execution but permits deletion', (
     tester,
@@ -1327,6 +1964,12 @@ final class _MutableOpenWebUiConnections
 
   OpenWebUiDirectConnectionsSnapshot snapshot;
   int deleteCalls = 0;
+  int updateCalls = 0;
+  OpenWebUiDirectConnectionRecord? lastUpdatedRecord;
+  DirectConnectionProfile? lastUpdatedProfile;
+  String? lastUpdatedAuthType;
+  Future<void> Function()? updateHandler;
+  Future<void> Function()? deleteHandler;
 
   @override
   Future<OpenWebUiDirectConnectionsSnapshot?> build() async => snapshot;
@@ -1339,6 +1982,20 @@ final class _MutableOpenWebUiConnections
   @override
   Future<void> delete(OpenWebUiDirectConnectionRecord record) async {
     deleteCalls++;
+    await deleteHandler?.call();
+  }
+
+  @override
+  Future<void> updateConnection(
+    OpenWebUiDirectConnectionRecord record,
+    DirectConnectionProfile profile, {
+    String? authType,
+  }) async {
+    updateCalls++;
+    lastUpdatedRecord = record;
+    lastUpdatedProfile = profile;
+    lastUpdatedAuthType = authType;
+    await updateHandler?.call();
   }
 }
 
@@ -1392,6 +2049,30 @@ final class _TrackingPreferredBackendController
   Future<void> set(PreferredBackend backend) async {
     writes.add(backend);
     state = backend;
+  }
+}
+
+final class _BlockingPreferredBackendController
+    extends PreferredBackendController {
+  final List<PreferredBackend> writes = [];
+  final Completer<void> unsetStarted = Completer<void>();
+  final Completer<void> _releaseUnset = Completer<void>();
+
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
+
+  @override
+  Future<void> set(PreferredBackend backend) async {
+    writes.add(backend);
+    if (backend == PreferredBackend.unset) {
+      if (!unsetStarted.isCompleted) unsetStarted.complete();
+      await _releaseUnset.future;
+    }
+    state = backend;
+  }
+
+  void release() {
+    if (!_releaseUnset.isCompleted) _releaseUnset.complete();
   }
 }
 

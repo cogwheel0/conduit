@@ -26,6 +26,10 @@ import '../providers/direct_connection_providers.dart';
 
 enum DirectAuthenticationMode { bearer, apiKeyHeader, none, unsupported }
 
+final class _OpenWebUiDirectConnectionOwnershipChanged implements Exception {
+  const _OpenWebUiDirectConnectionOwnershipChanged();
+}
+
 @visibleForTesting
 Map<String, String> parseDirectCustomHeaders(String source) {
   final trimmed = source.trim();
@@ -230,6 +234,22 @@ class _DirectConnectionEditorPageState
             _ => DirectAuthenticationMode.unsupported,
           };
     _enabled = profile.enabled;
+  }
+
+  void _refreshOpenWebUiRecord(OpenWebUiDirectConnectionRecord? record) {
+    final savedRecord = _savedOpenWebUiRecord;
+    if (!_hydrated ||
+        record == null ||
+        savedRecord == null ||
+        savedRecord.profile.id != record.profile.id ||
+        savedRecord.contentRevision != record.contentRevision) {
+      return;
+    }
+    // A pure reindex changes the compare-and-swap revision without changing
+    // the raw content. Refresh only that authoritative base; a same-id edit
+    // (for example enable/tags) must retain the stale revision and conflict.
+    _savedOpenWebUiRecord = record;
+    _savedProfile = record.profile;
   }
 
   DirectConnectionProfile? _profileById(
@@ -552,8 +572,9 @@ class _DirectConnectionEditorPageState
     }
     try {
       if (widget.isOpenWebUi) {
-        if (!_openWebUiOwnerIsCurrent()) {
-          throw StateError('Open WebUI direct connection ownership changed.');
+        if (!_ensureOpenWebUiOwnerIsCurrent()) {
+          if (mounted) setState(() => _saving = false);
+          return;
         }
         final controller = ref.read(
           openWebUiDirectConnectionsProvider.notifier,
@@ -573,6 +594,10 @@ class _DirectConnectionEditorPageState
           }
           await controller.updateConnection(record, draft, authType: authType);
         }
+        if (!_ensureOpenWebUiOwnerIsCurrent()) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
       } else {
         await ref
             .read(directConnectionProfilesProvider.notifier)
@@ -590,9 +615,18 @@ class _DirectConnectionEditorPageState
     } on DirectConnectionProfileConflictException {
       _showSaveConflict();
     } on OpenWebUiDirectConnectionConflictException {
+      if (!mounted) return;
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _saving = false);
+        return;
+      }
       _showSaveConflict();
     } catch (_) {
       if (!mounted) return;
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _saving = false);
+        return;
+      }
       AdaptiveSnackBar.show(
         context,
         message: AppLocalizations.of(context)!.directConnectionSaveFailed,
@@ -717,7 +751,7 @@ class _DirectConnectionEditorPageState
       }
       try {
         if (!_ensureOpenWebUiOwnerIsCurrent()) {
-          throw StateError('Open WebUI direct connection ownership changed.');
+          throw const _OpenWebUiDirectConnectionOwnershipChanged();
         }
         if (widget.isOpenWebUi) {
           final record = _savedOpenWebUiRecord;
@@ -733,7 +767,10 @@ class _DirectConnectionEditorPageState
               .remove(saved.id);
         }
       } catch (error, stackTrace) {
-        if (clearedDirectPreference) {
+        final deletionMayHaveCommitted =
+            widget.isOpenWebUi &&
+            error is OpenWebUiDirectConnectionCommitUncertainException;
+        if (clearedDirectPreference && !deletionMayHaveCommitted) {
           try {
             await preferredBackendController.set(PreferredBackend.direct);
           } catch (restoreError) {
@@ -747,7 +784,17 @@ class _DirectConnectionEditorPageState
         Error.throwWithStackTrace(error, stackTrace);
       }
       if (!mounted) return;
+      // The deletion is committed once the repository call returns. A later
+      // ownership/UI change must not restore a preference that now points at
+      // no usable direct profile.
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _deleting = false);
+        return;
+      }
       context.pop(true);
+    } on _OpenWebUiDirectConnectionOwnershipChanged {
+      if (!mounted) return;
+      setState(() => _deleting = false);
     } catch (error) {
       DebugLogger.error(
         'Direct profile deletion failed',
@@ -755,6 +802,10 @@ class _DirectConnectionEditorPageState
         data: {'errorType': error.runtimeType.toString()},
       );
       if (!mounted) return;
+      if (!_ensureOpenWebUiOwnerIsCurrent()) {
+        setState(() => _deleting = false);
+        return;
+      }
       setState(() => _deleting = false);
       AdaptiveSnackBar.show(
         context,
@@ -882,6 +933,7 @@ class _DirectConnectionEditorPageState
             ],
           );
         }
+        _refreshOpenWebUiRecord(record);
         _hydrate(record?.profile, openWebUiRecord: record);
         return _buildForm(context);
       },

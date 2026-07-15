@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../utils/debug_logger.dart';
 
@@ -25,6 +26,9 @@ class SecureCredentialStorage {
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
   static const String _directConnectionProfilesKey =
       'direct_connection_profiles_v1';
+  static const String _openWebUiDirectIdentityKey =
+      'openwebui_direct_identity_key_v1';
+  static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
 
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
@@ -343,6 +347,59 @@ class SecureCredentialStorage {
       );
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  /// Returns the durable device secret used to derive opaque Open WebUI
+  /// direct-connection record identities, creating it when needed.
+  Future<List<int>> getOrCreateOpenWebUiDirectIdentityKey() {
+    final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
+      (_) => _loadOrCreateOpenWebUiDirectIdentityKey(),
+      onError: (Object _, StackTrace _) =>
+          _loadOrCreateOpenWebUiDirectIdentityKey(),
+    );
+    _openWebUiDirectIdentityKeyQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKey() async {
+    List<int>? decodeKey(String? raw) {
+      if (raw == null || raw.isEmpty) return null;
+      try {
+        final decoded = base64Url.decode(raw);
+        return decoded.length >= 32 ? decoded : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final existing = decodeKey(
+      await _secureStorage.read(key: _openWebUiDirectIdentityKey),
+    );
+    if (existing != null) return List<int>.unmodifiable(existing);
+
+    final random = Random.secure();
+    final generated = List<int>.generate(
+      32,
+      (_) => random.nextInt(256),
+      growable: false,
+    );
+    await _secureStorage.write(
+      key: _openWebUiDirectIdentityKey,
+      value: base64UrlEncode(generated),
+    );
+    // Read back to verify that secure persistence accepted the generated key.
+    final persisted = decodeKey(
+      await _secureStorage.read(key: _openWebUiDirectIdentityKey),
+    );
+    if (persisted == null) {
+      throw StateError(
+        'Open WebUI direct identity key could not be persisted.',
+      );
+    }
+    return List<int>.unmodifiable(persisted);
   }
 
   /// Save server configurations securely

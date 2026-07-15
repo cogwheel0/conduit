@@ -754,6 +754,69 @@ void main() {
     expect(summary.single.displayModelName, 'server-prefix.Provider model');
   });
 
+  test('layout cache refreshes when direct model bindings change', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry
+        .replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'server-profile',
+            name: 'Server connection',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://provider.example/v1',
+            modelIdPrefix: 'server-prefix',
+          ),
+          [DirectRemoteModel(id: 'model', name: 'Provider model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 2,
+        )
+        .single;
+    final models = <Model>[
+      directModel,
+      const Model(id: 'server-prefix.model', name: 'Server collision'),
+    ];
+    final messages = <ChatMessage>[
+      ChatMessage(
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Visible response',
+        timestamp: DateTime(2026),
+        model: 'server-prefix.model',
+      ),
+    ];
+    final cache = debugCreateChatListStableLayoutCacheForTesting();
+
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'server-prefix.Provider model',
+    );
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'server-prefix.Provider model',
+    );
+
+    registry.removeProfile('server-profile');
+
+    expect(
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: models,
+        directModelRegistry: registry,
+      ).single.displayModelName,
+      'Server collision',
+    );
+  });
+
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
       id: 'assistant-streaming',
