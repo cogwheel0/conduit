@@ -160,7 +160,8 @@ class _GatedCompletionApi extends ApiService {
   String? assistantMessageId;
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async => const {};
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
+      const {};
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async => const [];

@@ -113,6 +113,7 @@ class BackendConfig {
     this.serverId,
     this.enableWebsocket,
     this.enableWebSearch,
+    this.enableDirectConnections,
     this.enableAudioInput,
     this.enableAudioOutput,
     this.sttProvider,
@@ -145,6 +146,9 @@ class BackendConfig {
 
   /// Mirrors `features.enable_web_search` from OpenWebUI.
   final bool? enableWebSearch;
+
+  /// Mirrors `features.enable_direct_connections` from OpenWebUI.
+  final bool? enableDirectConnections;
 
   final bool? enableAudioInput;
   final bool? enableAudioOutput;
@@ -181,6 +185,7 @@ class BackendConfig {
     String? serverId,
     bool? enableWebsocket,
     bool? enableWebSearch,
+    bool? enableDirectConnections,
     bool? enableAudioInput,
     bool? enableAudioOutput,
     String? sttProvider,
@@ -201,6 +206,8 @@ class BackendConfig {
       serverId: serverId ?? this.serverId,
       enableWebsocket: enableWebsocket ?? this.enableWebsocket,
       enableWebSearch: enableWebSearch ?? this.enableWebSearch,
+      enableDirectConnections:
+          enableDirectConnections ?? this.enableDirectConnections,
       enableAudioInput: enableAudioInput ?? this.enableAudioInput,
       enableAudioOutput: enableAudioOutput ?? this.enableAudioOutput,
       sttProvider: sttProvider ?? this.sttProvider,
@@ -243,6 +250,7 @@ class BackendConfig {
       'server_id': serverId,
       'enable_websocket': enableWebsocket,
       'enable_web_search': enableWebSearch,
+      'enable_direct_connections': enableDirectConnections,
       'enable_audio_input': enableAudioInput,
       'enable_audio_output': enableAudioOutput,
       'stt_provider': sttProvider,
@@ -265,6 +273,7 @@ class BackendConfig {
     String? serverId;
     bool? enableWebsocket;
     bool? enableWebSearch;
+    bool? enableDirectConnections;
     bool? enableAudioInput;
     bool? enableAudioOutput;
     String? sttProvider;
@@ -298,6 +307,10 @@ class BackendConfig {
     final webSearchValue = json['enable_web_search'];
     if (webSearchValue is bool) {
       enableWebSearch = webSearchValue;
+    }
+    final directConnectionsValue = json['enable_direct_connections'];
+    if (directConnectionsValue is bool) {
+      enableDirectConnections = directConnectionsValue;
     }
 
     final audioIn = json['enable_audio_input'];
@@ -373,6 +386,10 @@ class BackendConfig {
       if (nestedWebSearch is bool && enableWebSearch == null) {
         enableWebSearch = nestedWebSearch;
       }
+      final nestedDirectConnections = features['enable_direct_connections'];
+      if (nestedDirectConnections is bool && enableDirectConnections == null) {
+        enableDirectConnections = nestedDirectConnections;
+      }
       final nestedAudioIn = features['enable_audio_input'];
       if (nestedAudioIn is bool && enableAudioInput == null) {
         enableAudioInput = nestedAudioIn;
@@ -443,6 +460,7 @@ class BackendConfig {
       serverId: serverId,
       enableWebsocket: enableWebsocket,
       enableWebSearch: enableWebSearch,
+      enableDirectConnections: enableDirectConnections,
       enableAudioInput: enableAudioInput,
       enableAudioOutput: enableAudioOutput,
       sttProvider: sttProvider,

@@ -681,7 +681,8 @@ class _FakeFolderApiService extends Fake implements ApiService {
   }
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async => <String, dynamic>{};
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
+      <String, dynamic>{};
 
   @override
   Future<Map<String, dynamic>> getUserPermissions() async =>

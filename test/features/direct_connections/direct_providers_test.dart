@@ -774,6 +774,58 @@ void main() {
       await expectLater(discovery, completes);
     },
   );
+
+  test(
+    'discovery recovers when profile storage recovers from an error',
+    () async {
+      final adapter = _QueuedAdapter()
+        ..responses.add([DirectRemoteModel(id: 'recovered-model')]);
+      late _RecoveringProfilesController profilesController;
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => profilesController = _RecoveringProfilesController(),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        directModelDiscoveryProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+
+      await expectLater(
+        container.read(directModelDiscoveryProvider.future),
+        throwsStateError,
+      );
+      expect(container.read(directConnectionProfilesProvider).hasError, isTrue);
+
+      profilesController.recover([_profile()]);
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+      expect(
+        container.read(effectiveDirectConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+
+      await Future.doWhile(() async {
+        if (container.read(directModelDiscoveryProvider).hasValue) return false;
+        await Future<void>.delayed(Duration.zero);
+        return true;
+      }).timeout(const Duration(seconds: 5));
+      final recovered = container
+          .read(directModelDiscoveryProvider)
+          .requireValue;
+      expect(recovered.models.map((item) => item.name), ['recovered-model']);
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>
@@ -906,6 +958,17 @@ final class _GatedProfilesController
 
   @override
   Future<List<DirectConnectionProfile>> build() => profiles;
+}
+
+final class _RecoveringProfilesController
+    extends DirectConnectionProfilesController {
+  @override
+  Future<List<DirectConnectionProfile>> build() =>
+      Future.error(StateError('profile storage unavailable'));
+
+  void recover(List<DirectConnectionProfile> profiles) {
+    state = AsyncData(profiles);
+  }
 }
 
 final class _OverlappingAdapter implements DirectProviderAdapter {

@@ -389,14 +389,17 @@ class TerminalService {
 
   Future<Map<String, dynamic>> updateDirectTerminalSelection(
     String? selectedSelectionId,
-  ) async {
-    final settings = await api.getUserSettings();
-    final updatedSettings = _applyDirectTerminalSelection(
-      settings,
-      selectedSelectionId,
-    );
-    await api.updateUserSettings(updatedSettings);
-    return updatedSettings;
+  ) {
+    final authSnapshot = api.captureAuthSnapshot();
+    return api.serializeUserSettingsMutation(() async {
+      final settings = await api.getUserSettings(authSnapshot: authSnapshot);
+      final updatedSettings = _applyDirectTerminalSelection(
+        settings,
+        selectedSelectionId,
+      );
+      await api.updateUserSettings(updatedSettings, authSnapshot: authSnapshot);
+      return updatedSettings;
+    });
   }
 
   Future<bool> isTerminalFeatureEnabled(

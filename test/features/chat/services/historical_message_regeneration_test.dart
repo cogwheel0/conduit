@@ -192,7 +192,7 @@ class _RecordingCompletionApi extends ApiService {
   int abortCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async {
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     settingsCalls += 1;
     if (!settingsStarted.isCompleted) settingsStarted.complete();
     final gate = settingsGate;

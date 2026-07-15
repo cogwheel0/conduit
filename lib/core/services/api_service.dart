@@ -331,6 +331,7 @@ class ApiService {
   final WorkerManager _workerManager;
   final DateTime Function() _now;
   late final ApiAuthInterceptor _authInterceptor;
+  Future<void> _userSettingsMutationQueue = Future<void>.value();
   _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
   // Public getter for dio instance
   Dio get dio => _dio;
@@ -453,6 +454,22 @@ class ApiService {
       'suppressAuthFailureNotification': true,
     };
     return options;
+  }
+
+  /// Runs a user-settings mutation after every mutation already submitted to
+  /// this API service.
+  ///
+  /// Open WebUI replaces the complete settings document on update, so every
+  /// read-modify-write sequence must share this boundary to avoid committing
+  /// an older snapshot over another feature's change. A failed operation is
+  /// still removed from the tail so it cannot poison later mutations.
+  Future<T> serializeUserSettingsMutation<T>(Future<T> Function() operation) {
+    final result = _userSettingsMutationQueue.then<T>((_) => operation());
+    _userSettingsMutationQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
   }
 
   /// Ensure interceptor callbacks stay in sync if they are set after construction
@@ -2517,9 +2534,14 @@ class ApiService {
   }
 
   // User Settings
-  Future<Map<String, dynamic>> getUserSettings() async {
+  Future<Map<String, dynamic>> getUserSettings({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching user settings');
-    final response = await _dio.get('/api/v1/users/user/settings');
+    final response = await _dio.get(
+      '/api/v1/users/user/settings',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final data = response.data;
     // Handle null response from server (happens for new users with no settings)
     if (data is Map<String, dynamic>) {
@@ -2528,72 +2550,99 @@ class ApiService {
     return <String, dynamic>{};
   }
 
-  Future<void> updateUserSettings(Map<String, dynamic> settings) async {
+  Future<void> updateUserSettings(
+    Map<String, dynamic> settings, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Updating user settings');
     // Align with web client update route
-    await _dio.post('/api/v1/users/user/settings/update', data: settings);
+    await _postUserSettings(settings, authSnapshot: authSnapshot);
+  }
+
+  Future<Response<dynamic>> _postUserSettings(
+    Map<String, dynamic> settings, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
+    return _dio.post(
+      '/api/v1/users/user/settings/update',
+      data: settings,
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<ServerUserSettings> getServerUserSettingsModel() async {
     return ServerUserSettings.fromJson(await getUserSettings());
   }
 
-  Future<ServerUserSettings> updateUserSystemPrompt(
-    String? systemPrompt,
-  ) async {
-    final settings = _deepCloneJsonMap(await getUserSettings());
-    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-    final trimmed = _normalizeNullableString(systemPrompt);
+  Future<ServerUserSettings> updateUserSystemPrompt(String? systemPrompt) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+      final trimmed = _normalizeNullableString(systemPrompt);
 
-    if (trimmed == null || trimmed.isEmpty) {
-      ui.remove('system');
-    } else {
-      ui['system'] = trimmed;
-    }
+      if (trimmed == null || trimmed.isEmpty) {
+        ui.remove('system');
+      } else {
+        ui['system'] = trimmed;
+      }
 
-    settings.remove('system');
-    settings['ui'] = ui;
-    _traceApi('Updating user system prompt');
-    final response = await _dio.post(
-      '/api/v1/users/user/settings/update',
-      data: settings,
-    );
-    final data = _coerceResponseMap(response.data) ?? settings;
-    return ServerUserSettings.fromJson(data);
+      settings.remove('system');
+      settings['ui'] = ui;
+      _traceApi('Updating user system prompt');
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
   }
 
-  Future<ServerUserSettings> updateUserDefaultModel(String? modelId) async {
-    final settings = _deepCloneJsonMap(await getUserSettings());
-    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-    final trimmed = _normalizeNullableString(modelId);
+  Future<ServerUserSettings> updateUserDefaultModel(String? modelId) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+      final trimmed = _normalizeNullableString(modelId);
 
-    if (trimmed == null) {
-      ui.remove('models');
-    } else {
-      ui['models'] = <String>[trimmed];
-    }
+      if (trimmed == null) {
+        ui.remove('models');
+      } else {
+        ui['models'] = <String>[trimmed];
+      }
 
-    settings['ui'] = ui;
-    final response = await _dio.post(
-      '/api/v1/users/user/settings/update',
-      data: settings,
-    );
-    final data = _coerceResponseMap(response.data) ?? settings;
-    return ServerUserSettings.fromJson(data);
+      settings['ui'] = ui;
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
   }
 
-  Future<ServerUserSettings> updateUserMemoryEnabled(bool enabled) async {
-    final settings = _deepCloneJsonMap(await getUserSettings());
-    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-    ui['memory'] = enabled;
-    settings['ui'] = ui;
+  Future<ServerUserSettings> updateUserMemoryEnabled(bool enabled) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+      ui['memory'] = enabled;
+      settings['ui'] = ui;
 
-    final response = await _dio.post(
-      '/api/v1/users/user/settings/update',
-      data: settings,
-    );
-    final data = _coerceResponseMap(response.data) ?? settings;
-    return ServerUserSettings.fromJson(data);
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
   }
 
   /// Persists the notification preferences that Open WebUI stores server-side.
@@ -2603,41 +2652,49 @@ class ApiService {
     bool? notificationEnabled,
     bool? notificationSound,
     bool? notificationSoundAlways,
-  }) async {
-    final settings = _deepCloneJsonMap(await getUserSettings());
-    if (notificationEnabled != null) {
-      settings['notificationEnabled'] = notificationEnabled;
-    }
-    if (notificationSound != null) {
-      settings['notificationSound'] = notificationSound;
-    }
-    if (notificationSoundAlways != null) {
-      settings['notificationSoundAlways'] = notificationSoundAlways;
-    }
+  }) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      if (notificationEnabled != null) {
+        settings['notificationEnabled'] = notificationEnabled;
+      }
+      if (notificationSound != null) {
+        settings['notificationSound'] = notificationSound;
+      }
+      if (notificationSoundAlways != null) {
+        settings['notificationSoundAlways'] = notificationSoundAlways;
+      }
 
-    _traceApi('Updating user notification settings');
-    final response = await _dio.post(
-      '/api/v1/users/user/settings/update',
-      data: settings,
-    );
-    final data = _coerceResponseMap(response.data) ?? settings;
-    return ServerUserSettings.fromJson(data);
+      _traceApi('Updating user notification settings');
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
   }
 
-  Future<ServerUserSettings> updateUserPinnedModels(
-    List<String> modelIds,
-  ) async {
-    final settings = _deepCloneJsonMap(await getUserSettings());
-    final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
-    ui['pinnedModels'] = SettingsService.sanitizePinnedModels(modelIds);
-    settings['ui'] = ui;
+  Future<ServerUserSettings> updateUserPinnedModels(List<String> modelIds) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      final ui = _coerceJsonMap(settings['ui']) ?? <String, dynamic>{};
+      ui['pinnedModels'] = SettingsService.sanitizePinnedModels(modelIds);
+      settings['ui'] = ui;
 
-    final response = await _dio.post(
-      '/api/v1/users/user/settings/update',
-      data: settings,
-    );
-    final data = _coerceResponseMap(response.data) ?? settings;
-    return ServerUserSettings.fromJson(data);
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
   }
 
   // Suggestions

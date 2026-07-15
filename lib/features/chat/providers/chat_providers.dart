@@ -12582,8 +12582,13 @@ Future<_ResolvedDirectRoute?> _resolveDirectRoute(
   final DirectModelBinding? binding = registry.resolve(selectedModel);
   if (binding == null) return null;
   final List<DirectConnectionProfile> profiles = await ref.read(
-    directConnectionProfilesProvider.future,
+    effectiveDirectConnectionProfilesFutureProvider.future,
   );
+  // Profile loading may yield while logout, server switching, or a connection
+  // edit revokes this exact model object. The registry's identity check is the
+  // authority boundary, so do not let a binding captured before the await
+  // authorize a stale route afterward.
+  if (!identical(registry.resolve(selectedModel), binding)) return null;
   final DirectConnectionProfile? profile = profiles
       .where(
         (candidate) => candidate.id == binding.profileId && candidate.isUsable,

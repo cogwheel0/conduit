@@ -1334,6 +1334,73 @@ void main() {
     );
   });
 
+  test('direct send rejects a binding revoked while profiles load', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final modelRegistry = DirectModelRegistry();
+    final model = modelRegistry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+    final profiles = _GatedProfiles(profile);
+    final adapter = _Adapter();
+    final runRegistry = DirectRunRegistry();
+    final chat = await _seedDirectConversation(
+      db: db,
+      chatId: 'direct-local:revoked-route',
+      modelId: model.id,
+      suffix: 'revoked-route',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        selectedModelProvider.overrideWithValue(model),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseProvider.overrideWithValue(db),
+        directModelRegistryProvider.overrideWithValue(modelRegistry),
+        directRunRegistryProvider.overrideWithValue(runRegistry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+    final visibleBeforeSend = container.read(chatMessagesProvider);
+
+    final send = sendMessageWithContainer(
+      container,
+      'Do not use the revoked route',
+      null,
+    );
+    await profiles.started.future.timeout(const Duration(seconds: 1));
+    modelRegistry.removeProfile(profile.id);
+    expect(modelRegistry.resolve(model), isNull);
+    profiles.gate.complete([profile]);
+
+    await expectLater(send, throwsA(isA<Exception>()));
+    // Direct reservations are created only after the optimistic turn is
+    // installed. Preserving the exact list proves route preparation stopped
+    // before both reservation and provider dispatch.
+    expect(
+      identical(container.read(chatMessagesProvider), visibleBeforeSend),
+      isTrue,
+    );
+    expect(runRegistry.cancelProfile(profile.id), isEmpty);
+    expect(adapter.startCalls, 0);
+  });
+
   test(
     'tombstoned durable owner blocks provider start and settles its placeholder',
     () async {

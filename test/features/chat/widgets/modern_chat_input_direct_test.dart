@@ -307,7 +307,7 @@ final class _CountingUserSettingsApi extends ApiService {
   int userSettingsCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async {
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     userSettingsCalls++;
     return const <String, dynamic>{};
   }

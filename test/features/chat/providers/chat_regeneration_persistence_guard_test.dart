@@ -91,7 +91,7 @@ class _RecordingCompletionApi extends ApiService {
   String? lastConversationId;
 
   @override
-  Future<Map<String, dynamic>> getUserSettings() async {
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     return const <String, dynamic>{};
   }
 
