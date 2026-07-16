@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -75,6 +76,63 @@ import 'chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 
 enum _PendingChatScrollActionKind { none, restore, initialBottom }
+
+@visibleForTesting
+void reconcileManagedTimelineExtentsForTesting({
+  required ListController controller,
+  required List<String> previousKeys,
+  required List<String> nextKeys,
+}) {
+  assert(controller.isAttached);
+  assert(!controller.isLocked);
+
+  // SuperSliverList resizes its extent cache from the trailing edge when the
+  // delegate count changes. Restore the pre-resize shape first when the list
+  // grew, then describe the actual keyed insertion/removal so a trailing
+  // composer spacer keeps its cached extent instead of donating it to a new
+  // message inserted immediately before it.
+  while (controller.numberOfItems > previousKeys.length) {
+    controller.removeItem(controller.numberOfItems - 1);
+  }
+
+  final currentKeys = previousKeys
+      .take(controller.numberOfItems)
+      .toList(growable: true);
+  var prefixLength = 0;
+  final shortestLength = math.min(currentKeys.length, nextKeys.length);
+  while (prefixLength < shortestLength &&
+      currentKeys[prefixLength] == nextKeys[prefixLength]) {
+    prefixLength += 1;
+  }
+
+  // Recreate the changed tail, including matching suffix keys. The render pass
+  // preceding this callback may already have laid out a displaced cached item
+  // under its new index, so preserving that suffix could preserve the wrong
+  // measured extent even though the keys happen to match.
+  final removedCount = currentKeys.length - prefixLength;
+  for (var i = 0; i < removedCount; i += 1) {
+    controller.removeItem(prefixLength);
+  }
+
+  final insertedCount = nextKeys.length - prefixLength;
+  for (var i = 0; i < insertedCount; i += 1) {
+    controller.addItem(prefixLength + i);
+  }
+
+  assert(controller.numberOfItems == nextKeys.length);
+}
+
+@visibleForTesting
+void refreshManagedTimelineExtentForTesting({
+  required ListController controller,
+  required int index,
+}) {
+  assert(controller.isAttached);
+  assert(!controller.isLocked);
+  assert(index >= 0 && index < controller.numberOfItems);
+  controller.removeItem(index);
+  controller.addItem(index);
+}
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -252,8 +310,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<String?>? _conversationIdSub;
   int _initialBottomSettleGeneration = 0;
   int _extentCacheInvalidationGeneration = 0;
-  int _composerSpacerExtentInvalidationGeneration = 0;
   double? _lastManagedComposerSpacerExtent;
+  bool _managedComposerSpacerExtentDirty = false;
+  bool _composerSpacerExtentInvalidationScheduled = false;
+  List<String>? _managedTimelineExtentKeys;
+  List<String>? _pendingManagedTimelineExtentKeys;
+  bool _timelineExtentReconciliationScheduled = false;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -593,6 +655,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void activate() {
     super.activate();
     _isDeactivated = false;
+    if (_managedComposerSpacerExtentDirty) {
+      _scheduleComposerSpacerExtentInvalidation();
+    }
+    if (_pendingManagedTimelineExtentKeys != null) {
+      _scheduleManagedTimelineExtentReconciliation();
+    }
   }
 
   void _handleMessageSend(String text) async {
@@ -1162,8 +1230,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _trackManagedComposerSpacerExtent(double extent) {
     final previousExtent = _lastManagedComposerSpacerExtent;
     _lastManagedComposerSpacerExtent = extent;
-    if (previousExtent == null ||
-        (extent - previousExtent).abs() < _scrollCorrectionEpsilon) {
+    if (previousExtent != null &&
+        (extent - previousExtent).abs() >= _scrollCorrectionEpsilon) {
+      _managedComposerSpacerExtentDirty = true;
+    }
+    if (!_managedComposerSpacerExtentDirty) {
       return;
     }
     // This also catches voice-overlay padding changes, which do not affect the
@@ -1171,26 +1242,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _scheduleComposerSpacerExtentInvalidation();
   }
 
-  void _scheduleComposerSpacerExtentInvalidation({
-    int attempt = 0,
-    int? generation,
-  }) {
-    final invalidationGeneration =
-        generation ?? (_composerSpacerExtentInvalidationGeneration += 1);
+  void _scheduleComposerSpacerExtentInvalidation({int attempt = 0}) {
+    if (_composerSpacerExtentInvalidationScheduled) {
+      return;
+    }
+    _composerSpacerExtentInvalidationScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          _isDeactivated ||
-          invalidationGeneration !=
-              _composerSpacerExtentInvalidationGeneration) {
+      _composerSpacerExtentInvalidationScheduled = false;
+      if (!mounted || _isDeactivated) {
         return;
       }
       if (!_messageListController.isAttached ||
           _messageListController.isLocked) {
         if (attempt < 2) {
-          _scheduleComposerSpacerExtentInvalidation(
-            attempt: attempt + 1,
-            generation: invalidationGeneration,
-          );
+          _scheduleComposerSpacerExtentInvalidation(attempt: attempt + 1);
         }
         return;
       }
@@ -1202,15 +1267,77 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (spacerIndex >= _messageListController.numberOfItems) {
         return;
       }
-      // The footer is normally visible while bottom-anchored and updates from
-      // its render size directly. Invalidating also covers a detached viewport,
-      // where the off-screen footer otherwise retains its previous estimate.
-      _messageListController.invalidateExtent(spacerIndex);
+      // Recreate the slot so its numeric estimate changes immediately. Merely
+      // marking it dirty retains the old value until an off-screen spacer is
+      // laid out, leaving detached max-scroll metrics stale.
+      refreshManagedTimelineExtentForTesting(
+        controller: _messageListController,
+        index: spacerIndex,
+      );
+      _managedComposerSpacerExtentDirty = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_isDeactivated) {
           _updateScrollToBottomVisibility();
         }
       });
+    });
+  }
+
+  List<String> _managedTimelineKeys(ChatTimelineRenderModel timeline) => [
+    for (final message in timeline.historyMessages) 'message-${message.id}',
+    if (timeline.tailAssistant case final tail?) 'message-${tail.id}',
+    _composerSpacerListKey,
+  ];
+
+  void _trackManagedTimelineExtentKeys(ChatTimelineRenderModel timeline) {
+    final nextKeys = _managedTimelineKeys(timeline);
+    if (!_messageListController.isAttached) {
+      // A newly attached sliver starts with a fresh extent manager.
+      _managedTimelineExtentKeys = null;
+    }
+    final alreadyManaged = _managedTimelineExtentKeys;
+    if (_pendingManagedTimelineExtentKeys == null &&
+        alreadyManaged != null &&
+        listEquals(alreadyManaged, nextKeys)) {
+      return;
+    }
+    _pendingManagedTimelineExtentKeys = List.unmodifiable(nextKeys);
+    _scheduleManagedTimelineExtentReconciliation();
+  }
+
+  void _scheduleManagedTimelineExtentReconciliation({int attempt = 0}) {
+    if (_timelineExtentReconciliationScheduled) {
+      return;
+    }
+    _timelineExtentReconciliationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _timelineExtentReconciliationScheduled = false;
+      if (!mounted || _isDeactivated) {
+        return;
+      }
+      final nextKeys = _pendingManagedTimelineExtentKeys;
+      if (nextKeys == null) {
+        return;
+      }
+      if (!_messageListController.isAttached ||
+          _messageListController.isLocked ||
+          _messageListController.numberOfItems != nextKeys.length) {
+        if (attempt < 2) {
+          _scheduleManagedTimelineExtentReconciliation(attempt: attempt + 1);
+        }
+        return;
+      }
+
+      final previousKeys = _managedTimelineExtentKeys;
+      if (previousKeys != null) {
+        reconcileManagedTimelineExtentsForTesting(
+          controller: _messageListController,
+          previousKeys: previousKeys,
+          nextKeys: nextKeys,
+        );
+      }
+      _managedTimelineExtentKeys = nextKeys;
+      _pendingManagedTimelineExtentKeys = null;
     });
   }
 
@@ -2016,6 +2143,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       apiService: apiService,
     );
     final timeline = ChatTimelineRenderModel.fromMessages(messages);
+    _trackManagedTimelineExtentKeys(timeline);
     if (!identical(_lastExtentCacheInvalidationMetadata, layoutMetadata)) {
       _lastExtentCacheInvalidationMetadata = layoutMetadata;
       _scheduleExtentCacheInvalidation();

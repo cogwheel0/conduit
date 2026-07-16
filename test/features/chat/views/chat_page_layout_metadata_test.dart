@@ -16,6 +16,7 @@ import 'package:conduit/features/direct_connections/models/direct_remote_model.d
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -126,6 +127,99 @@ void main() {
       ).isCloseTo(maxExtentBeforeDetachedComposerGrowth + 24, 0.01);
     },
   );
+
+  testWidgets(
+    'managed timeline remaps the trailing spacer extent when a row is appended',
+    (tester) async {
+      final listController = ListController();
+      final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
+      addTearDown(listController.dispose);
+      addTearDown(itemExtents.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            height: 120,
+            child: ValueListenableBuilder<List<double>>(
+              valueListenable: itemExtents,
+              builder: (context, extents, _) => CustomScrollView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+                slivers: [
+                  SuperSliverList(
+                    listController: listController,
+                    extentEstimation: (index, _) => extents[index ?? 0],
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => SizedBox(height: extents[index]),
+                      childCount: extents.length,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      const previousKeys = ['a', 'b', 'c', 'd', 'spacer'];
+      itemExtents.value = [100, 100, 100, 100, 240, 60];
+      await tester.pump();
+
+      // The delegate count grew at the tail, but the keyed row was inserted
+      // before the composer spacer.
+      reconcileManagedTimelineExtentsForTesting(
+        controller: listController,
+        previousKeys: previousKeys,
+        nextKeys: const ['a', 'b', 'c', 'd', 'new-row', 'spacer'],
+      );
+
+      check(listController.extentForIndex(4).$1).equals(240);
+      check(listController.extentForIndex(5).$1).equals(60);
+    },
+  );
+
+  testWidgets('managed timeline refreshes an off-screen spacer estimate', (
+    tester,
+  ) async {
+    final listController = ListController();
+    final itemExtents = ValueNotifier<List<double>>([100, 100, 100, 100, 60]);
+    addTearDown(listController.dispose);
+    addTearDown(itemExtents.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          height: 120,
+          child: ValueListenableBuilder<List<double>>(
+            valueListenable: itemExtents,
+            builder: (context, extents, _) => CustomScrollView(
+              scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+              slivers: [
+                SuperSliverList(
+                  listController: listController,
+                  extentEstimation: (index, _) => extents[index ?? 0],
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) => SizedBox(height: extents[index]),
+                    childCount: extents.length,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    itemExtents.value = [100, 100, 100, 100, 140];
+    await tester.pump();
+    refreshManagedTimelineExtentForTesting(
+      controller: listController,
+      index: 4,
+    );
+
+    check(listController.extentForIndex(4).$1).equals(140);
+  });
 
   test('bottom anchor controller separates anchored and detached states', () {
     final controller = ChatBottomAnchorController(
