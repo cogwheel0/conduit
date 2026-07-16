@@ -1,3 +1,4 @@
+import CryptoKit
 import Flutter
 import PhotosUI
 import UIKit
@@ -4864,6 +4865,40 @@ private final class NativeFolderHierarchyGuideView: UIView {
     }
 }
 
+func nativeSheetImageCacheKey(
+    rawUrl: String,
+    headers: [String: String]
+) -> NSString {
+    guard !headers.isEmpty else {
+        return NSString(string: rawUrl)
+    }
+
+    let canonicalHeaders = headers
+        .map { ($0.key.lowercased(), $0.value) }
+        .sorted {
+            if $0.0 == $1.0 { return $0.1 < $1.1 }
+            return $0.0 < $1.0
+        }
+    var digestInput = Data()
+
+    func appendComponent(_ value: String) {
+        var byteCount = UInt64(value.utf8.count).bigEndian
+        withUnsafeBytes(of: &byteCount) { digestInput.append(contentsOf: $0) }
+        digestInput.append(contentsOf: value.utf8)
+    }
+
+    appendComponent(rawUrl)
+    for (key, value) in canonicalHeaders {
+        appendComponent(key)
+        appendComponent(value)
+    }
+
+    let fingerprint = SHA256.hash(data: digestInput)
+        .map { String(format: "%02x", $0) }
+        .joined()
+    return NSString(string: "\(rawUrl)#headers=\(fingerprint)")
+}
+
 private enum NativeSheetImageLoader {
     private static let cache = NSCache<NSString, UIImage>()
 
@@ -4883,7 +4918,7 @@ private enum NativeSheetImageLoader {
             return
         }
 
-        let cacheKey = NSString(string: rawUrl)
+        let cacheKey = nativeSheetImageCacheKey(rawUrl: rawUrl, headers: headers)
         if let cached = cache.object(forKey: cacheKey) {
             completion(cached)
             return

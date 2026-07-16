@@ -43,4 +43,28 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(imageView.contentMode, .scaleAspectFit)
   }
 
+  func testNativeSheetImageCacheKeyScopesAuthenticatedImagesByHeaders() {
+    let rawUrl = "https://example.test/avatar.png"
+    let accountA = nativeSheetImageCacheKey(
+      rawUrl: rawUrl,
+      headers: ["Authorization": "Bearer account-a", "Accept": "image/png"]
+    )
+    let accountAReordered = nativeSheetImageCacheKey(
+      rawUrl: rawUrl,
+      headers: ["accept": "image/png", "authorization": "Bearer account-a"]
+    )
+    let accountB = nativeSheetImageCacheKey(
+      rawUrl: rawUrl,
+      headers: ["Authorization": "Bearer account-b", "Accept": "image/png"]
+    )
+
+    XCTAssertEqual(accountA, accountAReordered)
+    XCTAssertNotEqual(accountA, accountB)
+    XCTAssertFalse(String(accountA).contains("account-a"))
+    XCTAssertEqual(
+      nativeSheetImageCacheKey(rawUrl: rawUrl, headers: [:]),
+      NSString(string: rawUrl)
+    )
+  }
+
 }

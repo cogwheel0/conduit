@@ -229,12 +229,13 @@ final class _StructuredValueLengthTraversal {
   }
 
   int _measure(Object? value, int depth) {
-    if (value == null || _saturated) return 0;
+    if (_saturated) return 0;
     if (depth > _maxStructuredValueDepth ||
         ++_nodes > _maxStructuredValueNodes) {
       _saturated = true;
       return 0;
     }
+    if (value == null) return 0;
 
     return switch (value) {
       String() => value.length,
@@ -560,11 +561,11 @@ final class _BoundedStructuredValueEquality {
   bool equals(Object? left, Object? right) => _equals(left, right, 0);
 
   bool _equals(Object? left, Object? right, int depth) {
-    if (identical(left, right) || left == right) return true;
     if (depth > _maxStructuredValueDepth ||
         ++_nodes > _maxStructuredValueNodes) {
       return false;
     }
+    if (identical(left, right) || left == right) return true;
 
     if (left is List && right is List) {
       if (left.length != right.length) return false;

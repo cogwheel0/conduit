@@ -1008,6 +1008,39 @@ void main() {
       ).isNull();
     });
 
+    for (final (label, leaf) in <(String, Object?)>[
+      ('null', null),
+      ('equal scalar', 1),
+    ]) {
+      test('counts broad flat $label values against the node budget', () {
+        List<Object?> broadValue() =>
+            List<Object?>.filled(100001, leaf, growable: false);
+
+        final projector = StructuredOutputStreamingProjector();
+        check(
+          projector.project([
+            StructuredOutputToolCallBlock(
+              id: 'call-1',
+              name: 'broad',
+              arguments: broadValue(),
+              done: false,
+            ),
+          ]),
+        ).isA<StructuredOutputStreamingReplace>();
+
+        check(
+          projector.project([
+            StructuredOutputToolCallBlock(
+              id: 'call-1',
+              name: 'broad',
+              arguments: broadValue(),
+              done: false,
+            ),
+          ]),
+        ).isA<StructuredOutputStreamingReplace>();
+      });
+    }
+
     test('replaces a long middle rewrite that also grows the tail', () {
       final projector = StructuredOutputStreamingProjector();
       final before = 'a' * 512;
