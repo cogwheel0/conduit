@@ -79,6 +79,7 @@ void main() {
       (message) async {
         final args = message! as List<Object?>;
         final config = args.single as PlatformNativeProfileSheetConfig;
+        check(config.profile.avatarIsTemplate).isTrue();
         final item = config.sections.single.items.single;
         check(item.dismissOnSelect).isTrue();
         check(item.actionId).equals('open-workspace');
@@ -94,6 +95,7 @@ void main() {
           displayName: 'User',
           email: 'user@example.com',
           initials: 'U',
+          avatarIsTemplate: true,
         ),
         editProfileLabel: 'Edit',
         menuItems: [],

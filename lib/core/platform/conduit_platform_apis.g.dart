@@ -1736,6 +1736,7 @@ class PlatformNativeProfileSheetUser {
     required this.initials,
     this.avatarUrl,
     this.avatarBytes,
+    required this.avatarIsTemplate,
     required this.avatarHeaders,
     this.bio,
     this.gender,
@@ -1752,6 +1753,8 @@ class PlatformNativeProfileSheetUser {
   String? avatarUrl;
 
   Uint8List? avatarBytes;
+
+  bool avatarIsTemplate;
 
   Map<String, String> avatarHeaders;
 
@@ -1770,6 +1773,7 @@ class PlatformNativeProfileSheetUser {
       initials,
       avatarUrl,
       avatarBytes,
+      avatarIsTemplate,
       avatarHeaders,
       bio,
       gender,
@@ -1789,11 +1793,12 @@ class PlatformNativeProfileSheetUser {
       initials: result[2]! as String,
       avatarUrl: result[3] as String?,
       avatarBytes: result[4] as Uint8List?,
-      avatarHeaders: (result[5]! as Map<Object?, Object?>).cast<String, String>(),
-      bio: result[6] as String?,
-      gender: result[7] as String?,
-      dateOfBirth: result[8] as String?,
-      profileImageUrl: result[9] as String?,
+      avatarIsTemplate: result[5]! as bool,
+      avatarHeaders: (result[6]! as Map<Object?, Object?>).cast<String, String>(),
+      bio: result[7] as String?,
+      gender: result[8] as String?,
+      dateOfBirth: result[9] as String?,
+      profileImageUrl: result[10] as String?,
     );
   }
 
@@ -1806,7 +1811,7 @@ class PlatformNativeProfileSheetUser {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(displayName, other.displayName) && _deepEquals(email, other.email) && _deepEquals(initials, other.initials) && _deepEquals(avatarUrl, other.avatarUrl) && _deepEquals(avatarBytes, other.avatarBytes) && _deepEquals(avatarHeaders, other.avatarHeaders) && _deepEquals(bio, other.bio) && _deepEquals(gender, other.gender) && _deepEquals(dateOfBirth, other.dateOfBirth) && _deepEquals(profileImageUrl, other.profileImageUrl);
+    return _deepEquals(displayName, other.displayName) && _deepEquals(email, other.email) && _deepEquals(initials, other.initials) && _deepEquals(avatarUrl, other.avatarUrl) && _deepEquals(avatarBytes, other.avatarBytes) && _deepEquals(avatarIsTemplate, other.avatarIsTemplate) && _deepEquals(avatarHeaders, other.avatarHeaders) && _deepEquals(bio, other.bio) && _deepEquals(gender, other.gender) && _deepEquals(dateOfBirth, other.dateOfBirth) && _deepEquals(profileImageUrl, other.profileImageUrl);
   }
 
   @override
@@ -1815,7 +1820,7 @@ class PlatformNativeProfileSheetUser {
 
   @override
   String toString() {
-    return 'PlatformNativeProfileSheetUser(displayName: $displayName, email: $email, initials: $initials, avatarUrl: $avatarUrl, avatarBytes: $avatarBytes, avatarHeaders: $avatarHeaders, bio: $bio, gender: $gender, dateOfBirth: $dateOfBirth, profileImageUrl: $profileImageUrl)';
+    return 'PlatformNativeProfileSheetUser(displayName: $displayName, email: $email, initials: $initials, avatarUrl: $avatarUrl, avatarBytes: $avatarBytes, avatarIsTemplate: $avatarIsTemplate, avatarHeaders: $avatarHeaders, bio: $bio, gender: $gender, dateOfBirth: $dateOfBirth, profileImageUrl: $profileImageUrl)';
   }
 }
 

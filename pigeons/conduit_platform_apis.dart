@@ -393,6 +393,7 @@ class PlatformNativeProfileSheetUser {
     required this.initials,
     this.avatarUrl,
     this.avatarBytes,
+    required this.avatarIsTemplate,
     required this.avatarHeaders,
     this.bio,
     this.gender,
@@ -405,6 +406,7 @@ class PlatformNativeProfileSheetUser {
   String initials;
   String? avatarUrl;
   Uint8List? avatarBytes;
+  bool avatarIsTemplate;
   Map<String, String> avatarHeaders;
   String? bio;
   String? gender;

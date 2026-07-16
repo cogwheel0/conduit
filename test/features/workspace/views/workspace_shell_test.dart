@@ -261,35 +261,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(NativeSheetRoutes.workspace, 'workspace-entry');
-    expect(find.byKey(const Key('settings-category-account')), findsOneWidget);
-    expect(find.byKey(const Key('settings-category-app')), findsOneWidget);
-
     await tester.scrollUntilVisible(
-      find.byKey(const Key('settings-category-ai')),
+      find.byKey(const Key('workspace-entry')),
       300,
     );
-    expect(find.byKey(const Key('settings-category-ai')), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('settings-category-server')),
-      300,
-    );
-    expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    expect(find.byKey(const Key('settings-category-account')), findsNothing);
+    expect(find.byKey(const Key('settings-category-app')), findsNothing);
+    expect(find.byKey(const Key('settings-category-ai')), findsNothing);
+    expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
     expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('settings-category-server')),
-        matching: find.byKey(const Key('workspace-entry')),
-      ),
-      findsOneWidget,
-    );
-
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('settings-category-support')),
-      300,
-    );
-    expect(find.byKey(const Key('settings-category-support')), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('workspace-entry')),
@@ -301,7 +282,7 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
   });
 
-  testWidgets('ProfilePage keeps Server category without workspace access', (
+  testWidgets('ProfilePage hides workspace entry without workspace access', (
     tester,
   ) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
@@ -334,19 +315,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.byKey(const Key('settings-category-server')),
+      find.byKey(const Key('data-connection-entry')),
       300,
     );
 
-    expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.byKey(const Key('workspace-entry')), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('settings-category-server')),
-        matching: find.byKey(const Key('data-connection-entry')),
-      ),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
     ErrorWidget.builder = originalErrorWidgetBuilder;
   });
 }

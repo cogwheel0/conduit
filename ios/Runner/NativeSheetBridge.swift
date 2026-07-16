@@ -10,6 +10,10 @@ func loadFlutterAssetImage(_ asset: String, bundle: Bundle = .main) -> UIImage? 
     return UIImage(contentsOfFile: assetPath)
 }
 
+func nativeAvatarImage(_ image: UIImage, isTemplate: Bool) -> UIImage {
+    isTemplate ? image.withRenderingMode(.alwaysTemplate) : image
+}
+
 private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
@@ -20,6 +24,7 @@ private struct NativeSheetProfile {
     let initials: String
     let avatarUrl: String?
     let avatarData: Data?
+    let avatarIsTemplate: Bool
     let avatarHeaders: [String: String]
     let bio: String
     let gender: String
@@ -687,6 +692,7 @@ private struct NativeSheetConfiguration {
             initials: initials,
             avatarUrl: profilePayload["avatarUrl"] as? String,
             avatarData: (profilePayload["avatarBytes"] as? FlutterStandardTypedData)?.data,
+            avatarIsTemplate: (profilePayload["avatarIsTemplate"] as? Bool) ?? false,
             avatarHeaders: (profilePayload["avatarHeaders"] as? [String: String]) ?? [:],
             bio: bio,
             gender: gender,
@@ -741,6 +747,7 @@ private extension PlatformNativeProfileSheetUser {
             "displayName": displayName,
             "email": email,
             "initials": initials,
+            "avatarIsTemplate": avatarIsTemplate,
             "avatarHeaders": avatarHeaders,
         ]
         payload["avatarUrl"] = avatarUrl
@@ -5360,7 +5367,13 @@ private final class NativeAvatarView: UIView {
     private func loadImage(profile: NativeSheetProfile) {
         if let avatarData = profile.avatarData,
            let image = UIImage(data: avatarData) {
-            imageView.image = image
+            if profile.avatarIsTemplate {
+                imageView.image = nativeAvatarImage(image, isTemplate: true)
+                imageView.tintColor = .label
+                imageView.contentMode = .scaleAspectFit
+            } else {
+                imageView.image = image
+            }
             imageView.isHidden = false
             return
         }

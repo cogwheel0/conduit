@@ -10,4 +10,17 @@ class RunnerTests: XCTestCase {
     XCTAssertNotNil(image)
   }
 
+  func testHermesAvatarCanUseTemplateRenderingInDarkMode() throws {
+    let image = try XCTUnwrap(loadFlutterAssetImage("assets/icons/hermes_agent.png"))
+
+    XCTAssertEqual(
+      nativeAvatarImage(image, isTemplate: true).renderingMode,
+      .alwaysTemplate
+    )
+    XCTAssertNotEqual(
+      nativeAvatarImage(image, isTemplate: false).renderingMode,
+      .alwaysTemplate
+    )
+  }
+
 }

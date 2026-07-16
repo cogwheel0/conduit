@@ -47,29 +47,23 @@ void main() {
     expect(find.text('Hermes Agent'), findsOneWidget);
     expect(find.byKey(const Key('hermes-settings-logo')), findsOneWidget);
     expect(find.byKey(const Key('settings-category-account')), findsNothing);
-    expect(find.byKey(const Key('settings-category-app')), findsOneWidget);
-    expect(find.byKey(const Key('settings-category-ai')), findsOneWidget);
+    expect(find.byKey(const Key('settings-category-app')), findsNothing);
+    expect(find.byKey(const Key('settings-category-ai')), findsNothing);
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('settings-category-server')),
-      300,
-    );
-    expect(find.byKey(const Key('settings-category-server')), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
+    expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.text('Direct Connections'), findsOneWidget);
+    expect(
+      find.text('Connect to OpenAI-compatible APIs and Ollama'),
+      findsOneWidget,
+    );
     expect(find.text('Connect to Open WebUI'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('settings-category-support')), findsOneWidget);
+    expect(find.byKey(const Key('settings-category-support')), findsNothing);
     expect(find.text('About'), findsOneWidget);
     expect(find.byKey(const Key('settings-donations')), findsOneWidget);
-    expect(
-      find.ancestor(
-        of: find.text('Buy Me a Coffee'),
-        matching: find.byKey(const Key('settings-category-support')),
-      ),
-      findsNothing,
-    );
     expect(
       find.ancestor(
         of: find.text('Buy Me a Coffee'),

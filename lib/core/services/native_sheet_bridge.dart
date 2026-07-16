@@ -574,6 +574,7 @@ class NativeProfileSheetUser {
     required this.initials,
     this.avatarUrl,
     this.avatarBytes,
+    this.avatarIsTemplate = false,
     this.avatarHeaders = const {},
     this.bio,
     this.gender,
@@ -586,6 +587,7 @@ class NativeProfileSheetUser {
   final String initials;
   final String? avatarUrl;
   final Uint8List? avatarBytes;
+  final bool avatarIsTemplate;
   final Map<String, String> avatarHeaders;
 
   /// Account profile fields (parity with Flutter account settings).
@@ -603,6 +605,7 @@ class NativeProfileSheetUser {
       'initials': initials,
       'avatarUrl': avatarUrl,
       'avatarBytes': avatarBytes,
+      'avatarIsTemplate': avatarIsTemplate,
       'avatarHeaders': avatarHeaders,
       if (bio != null) 'bio': bio,
       if (gender != null) 'gender': gender,
@@ -1003,6 +1006,7 @@ extension on NativeProfileSheetUser {
       initials: initials,
       avatarUrl: avatarUrl,
       avatarBytes: avatarBytes,
+      avatarIsTemplate: avatarIsTemplate,
       avatarHeaders: avatarHeaders,
       bio: bio,
       gender: gender,

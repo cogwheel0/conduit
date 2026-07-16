@@ -23,7 +23,6 @@ import '../../../core/models/user.dart' as models;
 import '../../../core/utils/user_display_name.dart';
 import '../../../core/utils/user_avatar_utils.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../models/settings_taxonomy.dart';
 import '../widgets/profile_setting_tile.dart';
 import '../widgets/profile_text_styles.dart';
 
@@ -100,10 +99,6 @@ class ProfilePage extends ConsumerWidget {
       api: api,
       hermesOnly: hermesOnly,
     );
-    final categories = settingsCategoriesFor(
-      items.map((item) => item.destination),
-    );
-
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -115,10 +110,11 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
-        for (final category in categories) ...[
-          _buildSettingsCategory(context, category, items),
-          const SizedBox(height: Spacing.xl),
+        for (var i = 0; i < items.length; i++) ...[
+          items[i],
+          if (i != items.length - 1) const SizedBox(height: Spacing.md),
         ],
+        const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
         if (!hermesOnly) const SizedBox(height: Spacing.xl),
         if (!hermesOnly) _buildSignOutOption(context, ref),
@@ -132,35 +128,6 @@ class ProfilePage extends ConsumerWidget {
       return mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg;
     }
     return Spacing.lg;
-  }
-
-  Widget _buildSettingsCategory(
-    BuildContext context,
-    SettingsCategory category,
-    List<_ProfileSettingsItem> items,
-  ) {
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-    final categoryItems = [
-      for (final item in items)
-        if (item.destination.category == category) item.child,
-    ];
-
-    return Column(
-      key: Key('settings-category-${category.name}'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          category.label(l10n),
-          style: theme.headingSmall?.copyWith(color: theme.sidebarForeground),
-        ),
-        const SizedBox(height: Spacing.sm),
-        for (var i = 0; i < categoryItems.length; i++) ...[
-          categoryItems[i],
-          if (i != categoryItems.length - 1) const SizedBox(height: Spacing.md),
-        ],
-      ],
-    );
   }
 
   Widget _buildDonationSection(BuildContext context) {
@@ -371,7 +338,7 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  List<_ProfileSettingsItem> _buildSettingsItems(
+  List<Widget> _buildSettingsItems(
     BuildContext context,
     WidgetRef ref, {
     required dynamic userData,
@@ -382,146 +349,112 @@ class ProfilePage extends ConsumerWidget {
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
     return [
-      if (!hermesOnly)
-        (
-          destination: SettingsDestination.profile,
-          child: _buildProfileHeader(context, userData, api),
+      if (!hermesOnly) _buildProfileHeader(context, userData, api),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.paintbrush,
+          android: Icons.palette_outlined,
         ),
-      (
-        destination: SettingsDestination.appearance,
-        child: _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.paintbrush,
-            android: Icons.palette_outlined,
-          ),
-          title: l10n.settingsAppearance,
-          subtitle: l10n.settingsAppearanceSubtitle,
-          onTap: () => context.pushNamed(RouteNames.appearanceSettings),
-        ),
+        title: l10n.settingsAppearance,
+        subtitle: l10n.settingsAppearanceSubtitle,
+        onTap: () => context.pushNamed(RouteNames.appearanceSettings),
       ),
-      (
-        destination: SettingsDestination.chats,
-        child: _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bubble_left_bubble_right,
-            android: Icons.chat_bubble_outline,
-          ),
-          title: l10n.chatSettings,
-          subtitle: l10n.settingsChatSubtitle,
-          onTap: () => context.pushNamed(RouteNames.chatSettings),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.bubble_left_bubble_right,
+          android: Icons.chat_bubble_outline,
         ),
+        title: l10n.chatSettings,
+        subtitle: l10n.settingsChatSubtitle,
+        onTap: () => context.pushNamed(RouteNames.chatSettings),
       ),
-      (
-        destination: SettingsDestination.voice,
-        child: _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.waveform,
-            android: Icons.graphic_eq,
-          ),
-          title: l10n.audioSettingsTitle,
-          subtitle: l10n.audioSettingsSubtitle,
-          onTap: () => context.pushNamed(RouteNames.audioSettings),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.waveform,
+          android: Icons.graphic_eq,
         ),
+        title: l10n.audioSettingsTitle,
+        subtitle: l10n.audioSettingsSubtitle,
+        onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
       if (!hermesOnly)
-        (
-          destination: SettingsDestination.notifications,
-          child: _buildAccountOption(
-            context,
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.bell,
-              android: Icons.notifications_outlined,
-            ),
-            title: l10n.notificationsTitle,
-            subtitle: l10n.notificationsSubtitle,
-            onTap: () => context.pushNamed(RouteNames.notificationSettings),
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.bell,
+            android: Icons.notifications_outlined,
           ),
+          title: l10n.notificationsTitle,
+          subtitle: l10n.notificationsSubtitle,
+          onTap: () => context.pushNamed(RouteNames.notificationSettings),
         ),
       if (!hermesOnly)
-        (
-          destination: SettingsDestination.personalization,
-          child: _buildAccountOption(
-            context,
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.person_crop_circle_badge_checkmark,
-              android: Icons.auto_awesome,
-            ),
-            title: l10n.personalization,
-            subtitle: l10n.personalizationSubtitle,
-            onTap: () => context.pushNamed(RouteNames.personalization),
-          ),
-        ),
-      (
-        destination: SettingsDestination.hermes,
-        child: _buildAccountOption(
+        _buildAccountOption(
           context,
-          iconAsset: 'assets/icons/hermes_agent.png',
-          title: l10n.hermesAgentSettingsTitle,
-          subtitle: l10n.hermesAgentSettingsSubtitle,
-          onTap: () => context.pushNamed(RouteNames.hermesSettings),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+            android: Icons.auto_awesome,
+          ),
+          title: l10n.personalization,
+          subtitle: l10n.personalizationSubtitle,
+          onTap: () => context.pushNamed(RouteNames.personalization),
         ),
+      _buildAccountOption(
+        context,
+        iconAsset: 'assets/icons/hermes_agent.png',
+        title: l10n.hermesAgentSettingsTitle,
+        subtitle: l10n.hermesAgentSettingsSubtitle,
+        onTap: () => context.pushNamed(RouteNames.hermesSettings),
       ),
       if (canManageWorkspace)
-        (
-          destination: SettingsDestination.workspace,
-          child: _buildAccountOption(
-            context,
-            key: const Key('workspace-entry'),
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.square_grid_2x2,
-              android: Icons.dashboard_customize_outlined,
-            ),
-            title: l10n.workspaceTitle,
-            subtitle: l10n.workspaceSubtitle,
-            onTap: () => context.pushNamed(RouteNames.workspace),
+        _buildAccountOption(
+          context,
+          key: const Key('workspace-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.square_grid_2x2,
+            android: Icons.dashboard_customize_outlined,
           ),
+          title: l10n.workspaceTitle,
+          subtitle: l10n.workspaceSubtitle,
+          onTap: () => context.pushNamed(RouteNames.workspace),
         ),
       if (!hermesOnly)
-        (
-          destination: SettingsDestination.dataConnection,
-          child: _buildAccountOption(
-            context,
-            key: const Key('data-connection-entry'),
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.antenna_radiowaves_left_right,
-              android: Icons.hub_outlined,
-            ),
-            title: l10n.settingsDataAndConnection,
-            subtitle: l10n.connectionHealth,
-            onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
-          ),
-        ),
-      (
-        destination: SettingsDestination.dataConnection,
-        child: _buildAccountOption(
+        _buildAccountOption(
           context,
+          key: const Key('data-connection-entry'),
           icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.link,
+            ios: CupertinoIcons.antenna_radiowaves_left_right,
             android: Icons.hub_outlined,
           ),
-          title: l10n.directConnectionsTitle,
-          subtitle: l10n.directConnectionsSubtitle,
-          onTap: () => context.pushNamed(RouteNames.directConnections),
+          title: l10n.settingsDataAndConnection,
+          subtitle: l10n.connectionHealth,
+          onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
         ),
+      _buildAccountOption(
+        context,
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.link,
+          android: Icons.hub_outlined,
+        ),
+        title: l10n.directConnectionsTitle,
+        subtitle: l10n.directConnectionsSubtitle,
+        onTap: () => context.pushNamed(RouteNames.directConnections),
       ),
       if (hermesOnly)
-        (
-          destination: SettingsDestination.connectOpenWebUi,
-          child: _buildAccountOption(
-            context,
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.add_circled,
-              android: Icons.add_circle_outline,
-            ),
-            title: l10n.connectOpenWebUITitle,
-            subtitle: l10n.connectOpenWebUISubtitle,
-            onTap: () => context.goNamed(RouteNames.serverConnection),
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.add_circled,
+            android: Icons.add_circle_outline,
           ),
+          title: l10n.connectOpenWebUITitle,
+          subtitle: l10n.connectOpenWebUISubtitle,
+          onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
-      (destination: SettingsDestination.about, child: _buildAboutTile(context)),
+      _buildAboutTile(context),
     ];
   }
 
@@ -657,8 +590,3 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 }
-
-typedef _ProfileSettingsItem = ({
-  SettingsDestination destination,
-  Widget child,
-});
