@@ -308,38 +308,34 @@ void main() {
   );
 
   test(
-    'bottom anchor controller re-anchors when content is not scrollable',
+    'bottom anchor controller preserves explicit short-content detachment',
     () {
       final controller = ChatBottomAnchorController(
         showThreshold: 300,
         hideThreshold: 150,
       );
 
-      // Detach first so the re-anchor is observable.
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      );
+      controller.detachByUser();
       expect(controller.isAnchoredToBottom, isFalse);
 
-      // Even with a large distance, a non-scrollable list counts as nearBottom
-      // and re-anchors.
+      // The button threshold can classify a short conversation as having no
+      // scrollable content even after the user deliberately scrolls away.
       expect(
         controller.updateAnchor(
           hasScrollableContent: false,
-          distanceFromBottom: 320,
-        ),
-        isTrue,
-      );
-      expect(controller.isAnchoredToBottom, isTrue);
-
-      // A subsequent scroll away detaches immediately.
-      expect(
-        controller.updateAnchor(
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
+          distanceFromBottom: 200,
         ),
         isFalse,
+      );
+      expect(controller.isAnchoredToBottom, isFalse);
+
+      // Returning within the hide threshold explicitly reattaches.
+      expect(
+        controller.updateAnchor(
+          hasScrollableContent: false,
+          distanceFromBottom: 100,
+        ),
+        isTrue,
       );
 
       // The button stays hidden whenever content is not scrollable.

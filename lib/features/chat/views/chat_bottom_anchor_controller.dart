@@ -14,8 +14,11 @@ class ChatBottomAnchorController {
     required bool hasScrollableContent,
     required double distanceFromBottom,
   }) {
-    isAnchoredToBottom =
-        !hasScrollableContent || distanceFromBottom <= hideThreshold;
+    if (distanceFromBottom <= hideThreshold) {
+      isAnchoredToBottom = true;
+    } else if (hasScrollableContent) {
+      isAnchoredToBottom = false;
+    }
     return isAnchoredToBottom;
   }
 
