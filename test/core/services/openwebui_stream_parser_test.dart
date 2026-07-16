@@ -944,6 +944,70 @@ void main() {
       check(completed!.content).contains(arguments.toString());
     });
 
+    test('bounds deeply nested structured values', () {
+      Object nested(String leaf) {
+        Object value = leaf;
+        for (var depth = 0; depth < 128; depth += 1) {
+          value = <Object?>[value];
+        }
+        return value;
+      }
+
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'deep',
+            arguments: nested('before'),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'deep',
+            arguments: nested('after'),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+    });
+
+    test('handles equivalent cyclic structured values safely', () {
+      List<Object?> cyclicValue() {
+        final value = <Object?>[];
+        value.add(value);
+        return value;
+      }
+
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'cyclic',
+            arguments: cyclicValue(),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'cyclic',
+            arguments: cyclicValue(),
+            done: false,
+          ),
+        ]),
+      ).isNull();
+    });
+
     test('replaces revisions and keeps split semantic tags inert', () {
       final projector = StructuredOutputStreamingProjector();
       var visible = '';

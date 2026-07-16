@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'semantic_message_builder.dart';
 import 'structured_output.dart';
 
@@ -203,24 +205,88 @@ int _logicalLength(
   return length;
 }
 
-int _valueLogicalLength(Object? value) {
-  return switch (value) {
-    null => 0,
-    String() => value.length,
-    num() || bool() => value.toString().length,
-    List() => value.fold<int>(
-      0,
-      (length, item) => length + _valueLogicalLength(item),
-    ),
-    Map() => value.entries.fold<int>(
-      0,
-      (length, entry) =>
-          length +
-          entry.key.toString().length +
-          _valueLogicalLength(entry.value),
-    ),
-    _ => value.toString().length,
-  };
+const int _maxStructuredValueDepth = 64;
+const int _maxStructuredValueNodes = 100000;
+const int _saturatedValueLogicalLength = 1 << 30;
+
+int _valueLogicalLength(Object? value) =>
+    _StructuredValueLengthTraversal().measure(value);
+
+/// Measures JSON-like values without allowing untrusted nesting, fan-out, or
+/// cycles to make streaming projection traversal unbounded.
+///
+/// The active-path set, rather than a global visited set, preserves the old
+/// behavior for acyclic graphs that reuse the same collection in multiple
+/// places: every occurrence still contributes to the logical length.
+final class _StructuredValueLengthTraversal {
+  final Set<Object> _activeContainers = HashSet<Object>.identity();
+  int _nodes = 0;
+  bool _saturated = false;
+
+  int measure(Object? value) {
+    final length = _measure(value, 0);
+    return _saturated ? _saturatedValueLogicalLength : length;
+  }
+
+  int _measure(Object? value, int depth) {
+    if (value == null || _saturated) return 0;
+    if (depth > _maxStructuredValueDepth ||
+        ++_nodes > _maxStructuredValueNodes) {
+      _saturated = true;
+      return 0;
+    }
+
+    return switch (value) {
+      String() => value.length,
+      num() || bool() => value.toString().length,
+      List() => _measureList(value, depth),
+      Map() => _measureMap(value, depth),
+      _ => value.toString().length,
+    };
+  }
+
+  int _measureList(List<dynamic> value, int depth) {
+    if (!_activeContainers.add(value)) {
+      _saturated = true;
+      return 0;
+    }
+    var length = 0;
+    try {
+      for (final item in value) {
+        length = _add(length, _measure(item, depth + 1));
+        if (_saturated) break;
+      }
+    } finally {
+      _activeContainers.remove(value);
+    }
+    return length;
+  }
+
+  int _measureMap(Map<dynamic, dynamic> value, int depth) {
+    if (!_activeContainers.add(value)) {
+      _saturated = true;
+      return 0;
+    }
+    var length = 0;
+    try {
+      for (final entry in value.entries) {
+        length = _add(length, entry.key.toString().length);
+        length = _add(length, _measure(entry.value, depth + 1));
+        if (_saturated) break;
+      }
+    } finally {
+      _activeContainers.remove(value);
+    }
+    return length;
+  }
+
+  int _add(int left, int right) {
+    if (_saturated || right >= _saturatedValueLogicalLength - left) {
+      _saturated = true;
+      return _saturatedValueLogicalLength;
+    }
+    return left + right;
+  }
 }
 
 String? _plainTailAppendDelta(
@@ -486,26 +552,73 @@ bool _boundedStringEquals(String left, String right) {
   return left.length == right.length && _hasStableCumulativePrefix(left, right);
 }
 
-bool _deepEquals(Object? left, Object? right) {
-  if (identical(left, right) || left == right) return true;
-  if (left is List && right is List) {
-    if (left.length != right.length) return false;
-    for (var index = 0; index < left.length; index += 1) {
-      if (!_deepEquals(left[index], right[index])) return false;
+bool _deepEquals(Object? left, Object? right) =>
+    _BoundedStructuredValueEquality().equals(left, right);
+
+/// Fail-closed equality for JSON-like values received from streaming events.
+///
+/// Returning false when the traversal budget is exhausted may cause one extra
+/// authoritative projection, but can never hide a server-side revision. Active
+/// identity pairs make equivalent cyclic graphs safe without changing the
+/// comparison of ordinary acyclic values.
+final class _BoundedStructuredValueEquality {
+  final Map<Object, Set<Object>> _activePairs =
+      HashMap<Object, Set<Object>>.identity();
+  int _nodes = 0;
+
+  bool equals(Object? left, Object? right) => _equals(left, right, 0);
+
+  bool _equals(Object? left, Object? right, int depth) {
+    if (identical(left, right) || left == right) return true;
+    if (depth > _maxStructuredValueDepth ||
+        ++_nodes > _maxStructuredValueNodes) {
+      return false;
     }
-    return true;
-  }
-  if (left is Map && right is Map) {
-    if (left.length != right.length) return false;
-    for (final entry in left.entries) {
-      if (!right.containsKey(entry.key) ||
-          !_deepEquals(entry.value, right[entry.key])) {
-        return false;
+
+    if (left is List && right is List) {
+      if (left.length != right.length) return false;
+      if (!_beginPair(left, right)) return true;
+      try {
+        for (var index = 0; index < left.length; index += 1) {
+          if (!_equals(left[index], right[index], depth + 1)) return false;
+        }
+        return true;
+      } finally {
+        _endPair(left, right);
       }
     }
-    return true;
+    if (left is Map && right is Map) {
+      if (left.length != right.length) return false;
+      if (!_beginPair(left, right)) return true;
+      try {
+        for (final entry in left.entries) {
+          if (!right.containsKey(entry.key) ||
+              !_equals(entry.value, right[entry.key], depth + 1)) {
+            return false;
+          }
+        }
+        return true;
+      } finally {
+        _endPair(left, right);
+      }
+    }
+    return false;
   }
-  return false;
+
+  bool _beginPair(Object left, Object right) {
+    final rights = _activePairs.putIfAbsent(
+      left,
+      () => HashSet<Object>.identity(),
+    );
+    return rights.add(right);
+  }
+
+  void _endPair(Object left, Object right) {
+    final rights = _activePairs[left];
+    if (rights == null) return;
+    rights.remove(right);
+    if (rights.isEmpty) _activePairs.remove(left);
+  }
 }
 
 String renderStructuredOutputBlocks(List<StructuredOutputBlock> blocks) {
