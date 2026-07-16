@@ -381,6 +381,23 @@ class _SessionRecordingHermesApi extends HermesApiService {
   }
 }
 
+class _SessionListingHermesApi extends _SessionRecordingHermesApi {
+  var listSessionsCalls = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessions() async {
+    listSessionsCalls++;
+    if (createSessionCalls == 0) return const [];
+    return const [
+      {
+        'id': 'fresh-session',
+        'title': 'Brand new chat',
+        'updated_at': '2026-07-16T00:00:00Z',
+      },
+    ];
+  }
+}
+
 /// Gives each input its own controllable run stream so restoration tests can
 /// retain multiple same-content snapshots for one conversation concurrently.
 class _MultiRunHermesApi extends HermesApiService {
@@ -779,6 +796,40 @@ class _ResponsesHermesApi extends HermesApiService {
       Map<String, dynamic>.from,
     ),
   );
+}
+
+class _ResponseSessionListingHermesApi extends _ResponsesHermesApi {
+  _ResponseSessionListingHermesApi({
+    this.failSessionCreation = false,
+    this.sessionAlreadyExists = false,
+  });
+
+  final bool failSessionCreation;
+  final bool sessionAlreadyExists;
+  var listSessionsCalls = 0;
+
+  @override
+  Future<String> createSession({String? title, CancelToken? cancelToken}) {
+    if (failSessionCreation) {
+      throw StateError('create endpoint unavailable');
+    }
+    return super.createSession(title: title, cancelToken: cancelToken);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessions() async {
+    listSessionsCalls++;
+    if (!sessionAlreadyExists && createSessionCalls == 0 && inputs.isEmpty) {
+      return const [];
+    }
+    return const [
+      {
+        'id': 'responses-session',
+        'title': 'Response-created chat',
+        'updated_at': '2026-07-16T00:00:00Z',
+      },
+    ];
+  }
 }
 
 class _TrailingStaleHistoryHermesApi extends _ResponsesHermesApi {
@@ -3358,6 +3409,176 @@ void main() {
       ).equals('local:hermes_fresh-session');
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
+
+    test('new Hermes session refreshes the mounted sidebar list', () async {
+      final service = _SessionListingHermesApi();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      final sidebarSubscription = container.listen(
+        hermesSessionsProvider,
+        (_, _) {},
+      );
+      addTearDown(sidebarSubscription.close);
+
+      check(await container.read(hermesSessionsProvider.future)).isEmpty();
+      container.read(chatMessagesProvider.notifier).setMessages([
+        _assistantMessage(
+          id: 'sidebar-refresh-assistant',
+          content: '',
+          isStreaming: true,
+          metadata: const {'transport': 'hermesRun'},
+        ),
+      ]);
+
+      await dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: 'sidebar-refresh-assistant',
+        input: 'brand new chat',
+        existingMessages: const [],
+      );
+
+      final sessions = await container.read(hermesSessionsProvider.future);
+      check(
+        sessions.map((session) => session.id).toList(),
+      ).deepEquals(['fresh-session']);
+      check(service.listSessionsCalls).equals(2);
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
+    test(
+      'response-created Hermes session refreshes the sidebar list',
+      () async {
+        final service = _ResponseSessionListingHermesApi(
+          failSessionCreation: true,
+        );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final sidebarSubscription = container.listen(
+          hermesSessionsProvider,
+          (_, _) {},
+        );
+        addTearDown(sidebarSubscription.close);
+
+        check(await container.read(hermesSessionsProvider.future)).isEmpty();
+        container.read(chatMessagesProvider.notifier).setMessages([
+          _assistantMessage(
+            id: 'response-sidebar-refresh-assistant',
+            content: '',
+            isStreaming: true,
+            metadata: const {'transport': 'hermesRun'},
+          ),
+        ]);
+
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: 'response-sidebar-refresh-assistant',
+          input: 'brand new response chat',
+          existingMessages: const [],
+          responseInput: HermesChatInput.text('brand new response chat'),
+        );
+
+        final sessions = await container.read(hermesSessionsProvider.future);
+        check(
+          sessions.map((session) => session.id).toList(),
+        ).deepEquals(['responses-session']);
+        check(service.listSessionsCalls).equals(2);
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    test(
+      'existing Hermes Responses turn does not refetch the sidebar',
+      () async {
+        final service = _ResponseSessionListingHermesApi(
+          sessionAlreadyExists: true,
+        );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final sidebarSubscription = container.listen(
+          hermesSessionsProvider,
+          (_, _) {},
+        );
+        addTearDown(sidebarSubscription.close);
+        check(
+          (await container.read(hermesSessionsProvider.future)).single.id,
+        ).equals('responses-session');
+
+        final placeholder = _assistantMessage(
+          id: 'existing-response-sidebar-assistant',
+          content: '',
+          isStreaming: true,
+          metadata: const {'transport': 'hermesRun'},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes_responses-session',
+                  title: 'Existing chat',
+                  createdAt: DateTime(2026, 7, 16),
+                  updatedAt: DateTime(2026, 7, 16),
+                  messages: [placeholder],
+                  metadata: const {
+                    'backend': 'hermes',
+                    'hermesSessionId': 'responses-session',
+                  },
+                ),
+              ),
+            );
+        await Future<void>.delayed(Duration.zero);
+
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: placeholder.id,
+          assistantSeed: placeholder,
+          input: 'continue existing response chat',
+          existingMessages: const [],
+          responseInput: HermesChatInput.text(
+            'continue existing response chat',
+          ),
+        );
+
+        check(service.listSessionsCalls).equals(1);
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
 
     test(
       'unsafe legacy Hermes session ids are replaced before binding',

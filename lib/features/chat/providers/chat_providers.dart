@@ -11348,6 +11348,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         ownerMessages: ownerMessages,
         sendHandle: sendHandle,
       );
+      ref.invalidate(hermesSessionsProvider);
     } catch (error) {
       if (cancelled()) return;
       if (forceNewSession) {
@@ -11482,6 +11483,9 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           ownerMessages: ownerMessages,
           sendHandle: sendHandle,
         );
+        if (responseCreatedSession) {
+          ref.invalidate(hermesSessionsProvider);
+        }
       },
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
