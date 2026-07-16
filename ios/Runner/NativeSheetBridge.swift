@@ -14,6 +14,19 @@ func nativeAvatarImage(_ image: UIImage, isTemplate: Bool) -> UIImage {
     isTemplate ? image.withRenderingMode(.alwaysTemplate) : image
 }
 
+func applyNativeAvatarImage(
+    _ image: UIImage,
+    isTemplate: Bool,
+    to imageView: UIImageView,
+    initialsLabel: UILabel
+) {
+    imageView.image = nativeAvatarImage(image, isTemplate: isTemplate)
+    imageView.tintColor = isTemplate ? .label : nil
+    imageView.contentMode = isTemplate ? .scaleAspectFit : .scaleAspectFill
+    imageView.isHidden = false
+    initialsLabel.isHidden = true
+}
+
 private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
@@ -5346,11 +5359,12 @@ private final class NativeAvatarView: UIView {
 
     func setPickedPreview(_ image: UIImage?) {
         if let image {
-            imageView.image = image
-            imageView.tintColor = nil
-            imageView.contentMode = .scaleAspectFill
-            imageView.isHidden = false
-            initialsLabel.isHidden = true
+            applyNativeAvatarImage(
+                image,
+                isTemplate: false,
+                to: imageView,
+                initialsLabel: initialsLabel
+            )
         }
     }
 
@@ -5367,14 +5381,12 @@ private final class NativeAvatarView: UIView {
     private func loadImage(profile: NativeSheetProfile) {
         if let avatarData = profile.avatarData,
            let image = UIImage(data: avatarData) {
-            if profile.avatarIsTemplate {
-                imageView.image = nativeAvatarImage(image, isTemplate: true)
-                imageView.tintColor = .label
-                imageView.contentMode = .scaleAspectFit
-            } else {
-                imageView.image = image
-            }
-            imageView.isHidden = false
+            applyNativeAvatarImage(
+                image,
+                isTemplate: profile.avatarIsTemplate,
+                to: imageView,
+                initialsLabel: initialsLabel
+            )
             return
         }
 
@@ -5383,8 +5395,13 @@ private final class NativeAvatarView: UIView {
             return
         }
         NativeSheetImageLoader.load(rawUrl: avatarUrl, headers: profile.avatarHeaders) { [weak self] image in
-            self?.imageView.image = image
-            self?.imageView.isHidden = false
+            guard let self else { return }
+            applyNativeAvatarImage(
+                image,
+                isTemplate: profile.avatarIsTemplate,
+                to: self.imageView,
+                initialsLabel: self.initialsLabel
+            )
         }
     }
 }

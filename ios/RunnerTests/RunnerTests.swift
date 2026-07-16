@@ -23,4 +23,24 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testTemplateAvatarHidesFallbackInitials() throws {
+    let image = try XCTUnwrap(loadFlutterAssetImage("assets/icons/hermes_agent.png"))
+    let imageView = UIImageView()
+    let initialsLabel = UILabel()
+    imageView.isHidden = true
+    initialsLabel.isHidden = false
+
+    applyNativeAvatarImage(
+      image,
+      isTemplate: true,
+      to: imageView,
+      initialsLabel: initialsLabel
+    )
+
+    XCTAssertFalse(imageView.isHidden)
+    XCTAssertTrue(initialsLabel.isHidden)
+    XCTAssertEqual(imageView.image?.renderingMode, .alwaysTemplate)
+    XCTAssertEqual(imageView.contentMode, .scaleAspectFit)
+  }
+
 }
