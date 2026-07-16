@@ -37,6 +37,7 @@ class NativeSheetRoutes {
   static const aiMemory = 'ai-memory';
   static const dataConnection = 'data-connection';
   static const hermes = 'hermes';
+  static const directConnections = 'open-direct-connections';
   static const helpAbout = 'help-about';
   static const about = 'about';
   static const notificationSettings = 'notification-settings';

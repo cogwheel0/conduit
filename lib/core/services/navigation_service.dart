@@ -9,6 +9,17 @@ final class NativeSheetNavigationOrigin {
   const NativeSheetNavigationOrigin();
 }
 
+typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
+
+/// Direct Connections is launched after the native profile sheet dismisses.
+/// Keep its route and transition marker coupled so this entry point cannot
+/// accidentally restore a second Cupertino transition over the native sheet.
+const NativeSheetNavigationRequest
+directConnectionsNativeSheetNavigationRequest = (
+  routeName: RouteNames.directConnections,
+  extra: NativeSheetNavigationOrigin(),
+);
+
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers

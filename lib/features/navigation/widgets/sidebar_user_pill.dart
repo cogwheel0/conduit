@@ -33,6 +33,20 @@ import '../providers/sidebar_providers.dart';
 typedef SidebarNativeProfilePresenter =
     Future<bool> Function(NativeProfileSheetConfig config);
 
+@visibleForTesting
+NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
+  required String title,
+  required String subtitle,
+}) => NativeSheetItemConfig(
+  id: NativeSheetRoutes.directConnections,
+  title: title,
+  subtitle: subtitle,
+  sfSymbol: 'link.circle',
+  dismissOnSelect: true,
+  actionId: NativeSheetRoutes.directConnections,
+  actionValue: true,
+);
+
 /// Nullable platform seam so the iOS native-sheet failure fallback is
 /// deterministic in widget tests.
 final sidebarNativeProfilePresenterProvider =
@@ -356,11 +370,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           actionId: NativeSheetRoutes.hermes,
           actionValue: true,
         ),
-        NativeSheetItemConfig(
-          id: 'open-direct-connections',
+        buildDirectConnectionsNativeSheetItem(
           title: l10n.directConnectionsTitle,
           subtitle: l10n.directConnectionsSubtitle,
-          sfSymbol: 'link.circle',
         ),
         if (canManageWorkspace)
           NativeSheetItemConfig(
