@@ -217,11 +217,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonHideThreshold = 150.0;
   static const int _initialBottomSettleMaxAttempts = 8;
   static const double _scrollCorrectionEpsilon = 1.0;
-  // During live streaming, a small per-chunk growth glides to the bottom so the
-  // newly streamed text reveals in place (with its fade) instead of stepping up
-  // via an instant jump. Larger growth still jumps so we don't lag fast streams.
-  static const double _streamingFollowDistanceThreshold = 48.0;
-  static const Duration _streamingFollowDuration = Duration(milliseconds: 140);
+  static const String _composerSpacerListKey = 'chat-composer-spacer';
 
   final ScrollController _scrollController = ScrollController();
   final ListController _messageListController = ListController();
@@ -255,10 +251,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
   int _initialBottomSettleGeneration = 0;
-  int _stickyBottomCorrectionGeneration = 0;
   int _extentCacheInvalidationGeneration = 0;
-  final Set<String> _pendingRowExtentInvalidationMessageIds = <String>{};
-  bool _rowExtentInvalidationScheduled = false;
+  int _composerSpacerExtentInvalidationGeneration = 0;
+  double? _lastManagedComposerSpacerExtent;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
@@ -267,11 +262,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _bottomAnchorController.isUserInteractingWithScroll;
   set _isUserInteractingWithScroll(bool value) {
     _bottomAnchorController.isUserInteractingWithScroll = value;
+    _syncLayoutBottomAnchor();
   }
 
   bool get _isAnchoredToBottom => _bottomAnchorController.isAnchoredToBottom;
   set _isAnchoredToBottom(bool value) {
     _bottomAnchorController.isAnchoredToBottom = value;
+    _syncLayoutBottomAnchor();
   }
 
   String _formatModelDisplayName(String name) {
@@ -306,7 +303,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (key is! ValueKey<String>) {
       return null;
     }
-    return timeline.historyIndexByMessageKey[key.value];
+    if (key.value == _composerSpacerListKey) {
+      return timeline.listItemCount;
+    }
+    return timeline.listIndexByMessageKey[key.value];
+  }
+
+  /// Keeps streaming growth anchored in the render layout pass.
+  ///
+  /// Unlike a post-frame jump or animation, this target adjusts the scroll
+  /// offset as the managed sliver learns its new extent. User interaction and
+  /// pin-to-top temporarily disable it so automatic layout never fights an
+  /// intentional gesture or prompt positioning.
+  void _syncLayoutBottomAnchor() {
+    final shouldAnchor = _bottomAnchorController
+        .shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: _wantsPinToTop);
+    _messageListController.stickTarget = shouldAnchor
+        ? const StickTarget.bottom()
+        : null;
   }
 
   bool validateFileSize(int fileSize, int maxSizeMB) {
@@ -561,7 +575,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
-    _pendingRowExtentInvalidationMessageIds.clear();
     _endScrollProfile(reason: 'disposed');
     _messageListController.dispose();
     _scrollController.dispose();
@@ -1143,58 +1156,68 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if ((nextInputHeight - _inputHeight).abs() < _scrollCorrectionEpsilon) {
       return;
     }
-
-    final shouldKeepBottomAnchored =
-        _shouldKeepConversationBottomAnchoredOnComposerHeightChange(
-          previousComposerHeight: _inputHeight,
-          nextComposerHeight: nextInputHeight,
-          isAnchoredToBottom: _isAnchoredToBottom,
-          isUserInteractingWithScroll: _isUserInteractingWithScroll,
-          wantsPinToTop: _wantsPinToTop,
-        );
-
     setState(() => _inputHeight = nextInputHeight);
-
-    if (!shouldKeepBottomAnchored) {
-      return;
-    }
-    _scheduleInitialScrollToBottom();
   }
 
-  void _handleMessageRowSizeChange(String messageId) {
-    if (!mounted || _isDeactivated) {
+  void _trackManagedComposerSpacerExtent(double extent) {
+    final previousExtent = _lastManagedComposerSpacerExtent;
+    _lastManagedComposerSpacerExtent = extent;
+    if (previousExtent == null ||
+        (extent - previousExtent).abs() < _scrollCorrectionEpsilon) {
       return;
     }
-
-    _pendingRowExtentInvalidationMessageIds.add(messageId);
-    _scheduleRowExtentInvalidation();
+    // This also catches voice-overlay padding changes, which do not affect the
+    // measured composer height itself.
+    _scheduleComposerSpacerExtentInvalidation();
   }
 
-  void _handleLiveTurnSizeChange() {
-    if (!mounted || _isDeactivated) {
-      return;
-    }
+  void _scheduleComposerSpacerExtentInvalidation({
+    int attempt = 0,
+    int? generation,
+  }) {
+    final invalidationGeneration =
+        generation ?? (_composerSpacerExtentInvalidationGeneration += 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _isDeactivated ||
+          invalidationGeneration !=
+              _composerSpacerExtentInvalidationGeneration) {
+        return;
+      }
+      if (!_messageListController.isAttached ||
+          _messageListController.isLocked) {
+        if (attempt < 2) {
+          _scheduleComposerSpacerExtentInvalidation(
+            attempt: attempt + 1,
+            generation: invalidationGeneration,
+          );
+        }
+        return;
+      }
 
-    // Token growth may glide while the turn is running. Completion UI and
-    // follow-ups can resize the same measured tail, but should preserve the
-    // bottom anchor instantly instead of chaining motion after the response.
-    final shouldSmoothFollow = _shouldSmoothFollowLiveTurnSizeChange(
-      ref.read(chatMessagesProvider),
-    );
-    final shouldKeepBottomAnchored = _bottomAnchorController
-        .prepareForStickyContentChange(wantsPinToTop: _wantsPinToTop);
-
-    if (shouldKeepBottomAnchored) {
-      _correctStickyBottomAnchor(smoothFollow: shouldSmoothFollow);
-      return;
-    }
-
-    _updateScrollToBottomVisibility();
+      final timeline = ChatTimelineRenderModel.fromMessages(
+        ref.read(chatMessagesProvider),
+      );
+      final spacerIndex = timeline.listItemCount;
+      if (spacerIndex >= _messageListController.numberOfItems) {
+        return;
+      }
+      // The footer is normally visible while bottom-anchored and updates from
+      // its render size directly. Invalidating also covers a detached viewport,
+      // where the off-screen footer otherwise retains its previous estimate.
+      _messageListController.invalidateExtent(spacerIndex);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_isDeactivated) {
+          _updateScrollToBottomVisibility();
+        }
+      });
+    });
   }
 
   void _updateBottomAnchorTracking() {
     if (!_scrollController.hasClients) {
       _bottomAnchorController.resetForDetachedScroll();
+      _syncLayoutBottomAnchor();
       return;
     }
 
@@ -1204,6 +1227,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
     );
+    _syncLayoutBottomAnchor();
   }
 
   Future<void> _refreshActiveConversation() async {
@@ -1262,6 +1286,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hasScrollableContent: hasScrollableContent,
       distanceFromBottom: distanceFromBottom,
     );
+    _syncLayoutBottomAnchor();
     final showButton = _bottomAnchorController.shouldShowScrollToBottom(
       currentlyShowing: _showScrollToBottom,
       hasScrollableContent: hasScrollableContent,
@@ -1301,10 +1326,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return false;
     }
 
-    // The message list includes bottom padding equal to the overlaid composer
-    // height so the final message is not hidden behind it. Do not show a
-    // scroll button when the only scrollable extent is that spacer or the
-    // temporary pin-to-top phantom sliver.
+    // The managed message list ends with padding equal to the overlaid
+    // composer height so the final message is not hidden behind it. Do not
+    // show a scroll button when the only scrollable extent is that footer or
+    // the temporary pin-to-top phantom sliver.
     final bottomSpacer =
         _messageListBottomPadding() + _pinToTopPhantomScrollExtent();
     final contentScrollExtent = maxScroll - bottomSpacer;
@@ -1405,80 +1430,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
-  void _cancelPendingStickyBottomCorrection() {
-    _stickyBottomCorrectionGeneration += 1;
-  }
-
-  void _correctStickyBottomAnchor({
-    int attempt = 0,
-    int? generation,
-    bool smoothFollow = false,
-  }) {
-    final correctionGeneration =
-        generation ?? (_stickyBottomCorrectionGeneration += 1);
-    // A newer correction already owns the latch — never touch it from a stale
-    // generation, including on the abandon path below.
-    if (_stickyBottomCorrectionGeneration != correctionGeneration) {
-      return;
-    }
-    if (!mounted || _isDeactivated || !_scrollController.hasClients) {
-      // Correction abandoned (widget gone / scroll detached). Drop the sticky
-      // latch so button visibility falls back to distance-based logic and the
-      // scroll-to-bottom button isn't left wrongly suppressed (e.g. when
-      // _handleLiveTurnSizeChange armed it before the scroll view attached).
-      _bottomAnchorController.verifyStickyCorrection(
-        nearBottom: false,
-        isFinalAttempt: true,
-      );
-      if (mounted && !_isDeactivated) {
-        _updateScrollToBottomVisibility();
-      }
-      return;
-    }
-    if (!_bottomAnchorController.shouldKeepAnchoredOnContentSizeChange(
-      wantsPinToTop: _wantsPinToTop,
-    )) {
-      // The user took control — leave the latch alone; the user-scroll handler
-      // (detachByUser / shouldDetachForUserScrollAway) clears it.
-      return;
-    }
-
-    if (smoothFollow &&
-        _distanceFromBottom() <= _streamingFollowDistanceThreshold) {
-      // Small per-chunk growth: glide to the bottom so the newly streamed text
-      // reveals in place (with its fade) rather than stepping up via an instant
-      // jump. We're within the small-delta window and animating to the exact
-      // bottom, so treat the correction as landed — settle the latch and stop
-      // (no per-frame re-issue; animateTo coalesces onto the moving target).
-      _scrollToBottom(smooth: true, duration: _streamingFollowDuration);
-      _bottomAnchorController.verifyStickyCorrection(nearBottom: true);
-      _updateScrollToBottomVisibility();
-      return;
-    }
-
-    _scrollToBottom(smooth: false);
-    final nearBottom = _distanceFromBottom() <= _scrollCorrectionEpsilon;
-    final isFinalAttempt = attempt >= _initialBottomSettleMaxAttempts;
-    _bottomAnchorController.verifyStickyCorrection(
-      nearBottom: nearBottom,
-      isFinalAttempt: isFinalAttempt,
-    );
-    if (nearBottom || isFinalAttempt) {
-      // Re-evaluate button visibility now that the correction has settled or
-      // given up; `_handleLiveTurnSizeChange` returns early after this call and
-      // won't run it again.
-      _updateScrollToBottomVisibility();
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _correctStickyBottomAnchor(
-        attempt: attempt + 1,
-        generation: correctionGeneration,
-      );
-    });
-  }
-
   void _beginScrollProfile(String interaction) {
     if (_activeScrollProfileTaskKey != null) {
       return;
@@ -1542,21 +1493,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     _lastConversationId = conversationId;
     _cancelPendingInitialBottomSettle();
-    _cancelPendingStickyBottomCorrection();
-    // Drop any sticky-correction latch so the incoming conversation does not
-    // inherit a stale anchored state (which would suppress the scroll-to-bottom
-    // button / mis-pin auto-scroll). The latch is cleared here rather than in
-    // _cancelPendingStickyBottomCorrection because that method is also called on
-    // drag-start, where the latch must survive to gate userScrollAwayThreshold.
-    _bottomAnchorController.verifyStickyCorrection(
-      nearBottom: false,
-      isFinalAttempt: true,
-    );
     _markdownPrewarmTimer?.cancel();
     _markdownPrewarmTimer = null;
     _markdownPrewarmGeneration++;
     _lastMarkdownPrewarmSignature = null;
-    _pendingRowExtentInvalidationMessageIds.clear();
     if (!preserveStreamingPin) {
       _pinToTopState = const _PinToTopState.inactive();
       _invalidateChatListStableLayoutMetadata();
@@ -1565,10 +1505,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (conversationId == null) {
       _pendingScrollAction = const _PendingChatScrollAction.none();
     } else if (_savedScrollOffsets.containsKey(conversationId)) {
+      // Do not let the first layout snap a returning conversation to the end
+      // before its saved position is restored.
+      _bottomAnchorController.detachByUser();
+      _syncLayoutBottomAnchor();
       _pendingScrollAction = _PendingChatScrollAction.restore(
         _savedScrollOffsets[conversationId]!,
       );
     } else {
+      _bottomAnchorController.resetForDetachedScroll();
+      _syncLayoutBottomAnchor();
       _pendingScrollAction = const _PendingChatScrollAction.initialBottom();
     }
   }
@@ -1793,62 +1739,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
-  void _scheduleRowExtentInvalidation({int attempt = 0}) {
-    if (_rowExtentInvalidationScheduled) {
-      return;
-    }
-    _rowExtentInvalidationScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _rowExtentInvalidationScheduled = false;
-      if (!mounted || _isDeactivated) {
-        _pendingRowExtentInvalidationMessageIds.clear();
-        return;
-      }
-      if (_pendingRowExtentInvalidationMessageIds.isEmpty) {
-        return;
-      }
-      if (!_messageListController.isAttached ||
-          _messageListController.isLocked) {
-        if (attempt < 2) {
-          _scheduleRowExtentInvalidation(attempt: attempt + 1);
-        } else {
-          _pendingRowExtentInvalidationMessageIds.clear();
-        }
-        return;
-      }
-
-      final timeline = ChatTimelineRenderModel.fromMessages(
-        ref.read(chatMessagesProvider),
-      );
-      final changedIndices = _messageRowIndicesForIds(
-        timeline.historyMessages,
-        _pendingRowExtentInvalidationMessageIds,
-      );
-      _pendingRowExtentInvalidationMessageIds.clear();
-      if (changedIndices.isEmpty) {
-        return;
-      }
-      for (final index in changedIndices) {
-        _messageListController.invalidateExtent(index);
-      }
-
-      final shouldKeepBottomAnchored = _bottomAnchorController
-          .prepareForStickyContentChange(wantsPinToTop: _wantsPinToTop);
-
-      if (shouldKeepBottomAnchored) {
-        _correctStickyBottomAnchor();
-        return;
-      }
-
-      _updateScrollToBottomVisibility();
-    });
-  }
-
   double _estimateMessageListExtent(
     _ChatListStableLayoutMetadata layoutMetadata,
+    ChatTimelineRenderModel timeline,
+    double composerSpacerExtent,
     int? index,
     double crossAxisExtent,
   ) {
+    if (index == timeline.listItemCount) {
+      return composerSpacerExtent;
+    }
     return _estimateMessageListExtentForIndex(
       layoutMetadata,
       index,
@@ -1998,8 +1898,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Use slivers to align with the actual messages view.
     // Do not attach the primary scroll controller here; the actual message
     // list owns it.
-    // Add top padding for the floating app bar and bottom padding for the
-    // overlaid composer section.
+    // Add padding for the floating app bar and overlaid composer skeleton.
     final topPadding =
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = _messageListBottomPadding();
@@ -2098,11 +1997,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
 
-    // Add top padding for the floating app bar and bottom padding for the
-    // overlaid composer section.
+    // Add top padding for the floating app bar. The overlaid composer keeps a
+    // matching synthetic footer inside the managed list below.
     final topPadding =
         MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
     final bottomPadding = _messageListBottomPadding();
+    _trackManagedComposerSpacerExtent(bottomPadding);
 
     // Watch models once here instead of per-message in the item builder.
     final modelsAsync = watchRef.watch(modelsProvider);
@@ -2152,112 +2052,216 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _wantsPinToTop && _pinnedUserMessageId != null
         ? layoutMetadata.indexByMessageId[_pinnedUserMessageId!] ?? -1
         : -1;
+    _syncLayoutBottomAnchor();
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        final isTouchDragStart =
-            notification is ScrollStartNotification &&
-            notification.dragDetails != null;
-        final isUserScrollUpdate =
-            notification is ScrollUpdateNotification &&
-            _shouldTreatScrollUpdateAsUserDriven(
-              hasDragDetails: notification.dragDetails != null,
-              isUserInteractingWithScroll: _isUserInteractingWithScroll,
-            );
-        final isUserDirectionalScroll =
-            notification is UserScrollNotification &&
-            notification.direction != ScrollDirection.idle;
-        final isUserScrollIdle =
-            notification is UserScrollNotification &&
-            notification.direction == ScrollDirection.idle;
-
-        // User scrolling dismisses pin-to-top once the user takes control.
-        if (isTouchDragStart || isUserScrollUpdate || isUserDirectionalScroll) {
-          if (!_isUserInteractingWithScroll) {
-            _cancelPendingInitialBottomSettle();
-            _cancelPendingStickyBottomCorrection();
-            _beginScrollProfile('user_drag');
-          }
-          _isUserInteractingWithScroll = true;
-          final nearBottom =
-              _scrollController.hasClients &&
-              _distanceFromBottom() <= _scrollButtonHideThreshold;
-          final scrollDelta = notification is ScrollUpdateNotification
-              ? notification.scrollDelta
-              : null;
-          if (_bottomAnchorController.shouldDetachForUserScrollAway(
-            nearBottom: nearBottom,
-            scrollDelta: scrollDelta,
-          )) {
-            _bottomAnchorController.detachByUser();
-          }
-          // Dismiss native platform keyboard on drag (mirrors
-          // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
-          // which only affects Flutter's text input system).
-          try {
-            ref.read(composerAutofocusEnabledProvider.notifier).set(false);
-          } catch (_) {}
-          if (_wantsPinToTop) {
-            _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
-          }
-        }
-        if (notification is ScrollEndNotification || isUserScrollIdle) {
-          _endScrollProfile(reason: 'idle');
-          final wasInteracting = _isUserInteractingWithScroll;
-          _isUserInteractingWithScroll = false;
-          // Re-check after the final drag update, but keep the same no-jump
-          // guard used during the gesture. For short conversations, removing
-          // the phantom spacer here would clamp the second prompt's offset to
-          // zero and visibly animate back to the first message.
-          if (wasInteracting && _wantsPinToTop) {
-            _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
-          }
-        }
-        return false; // Allow notification to continue bubbling
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (_) {
+        // Content and viewport dimension changes are the single source of
+        // truth for detached distance/button updates. SuperSliverList handles
+        // visible row extents and anchored corrections in its layout pass.
+        _updateScrollToBottomVisibility();
+        return false;
       },
-      child: CustomScrollView(
-        key: const ValueKey('actual_messages'),
-        controller: _scrollController,
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        physics: SuperRangeMaintainingScrollPhysics(
-          parent: platformAlwaysScrollablePhysics(context),
-        ),
-        scrollCacheExtent: const ScrollCacheExtent.pixels(600),
-        slivers: [
-          SliverToBoxAdapter(child: SizedBox(height: topPadding)),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              Spacing.inputPadding,
-              0,
-              Spacing.inputPadding,
-              0,
-            ),
-            sliver: SuperSliverList(
-              listController: _messageListController,
-              extentEstimation: (index, crossAxisExtent) =>
-                  _estimateMessageListExtent(
-                    layoutMetadata,
-                    index,
-                    crossAxisExtent,
-                  ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final message = timeline.historyMessages[index];
-                  final messageId = message.id;
-                  final rowMetadata = layoutMetadata.rows[index];
-                  final isUser = message.role == 'user';
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          final isTouchDragStart =
+              notification is ScrollStartNotification &&
+              notification.dragDetails != null;
+          final isUserScrollUpdate =
+              notification is ScrollUpdateNotification &&
+              _shouldTreatScrollUpdateAsUserDriven(
+                hasDragDetails: notification.dragDetails != null,
+                isUserInteractingWithScroll: _isUserInteractingWithScroll,
+              );
+          final isUserDirectionalScroll =
+              notification is UserScrollNotification &&
+              notification.direction != ScrollDirection.idle;
+          final isUserScrollIdle =
+              notification is UserScrollNotification &&
+              notification.direction == ScrollDirection.idle;
 
-                  if (rowMetadata.isArchivedVariant) {
-                    return const SizedBox.shrink();
-                  }
+          // User scrolling dismisses pin-to-top once the user takes control.
+          if (isTouchDragStart ||
+              isUserScrollUpdate ||
+              isUserDirectionalScroll) {
+            if (!_isUserInteractingWithScroll) {
+              _cancelPendingInitialBottomSettle();
+              _beginScrollProfile('user_drag');
+            }
+            _isUserInteractingWithScroll = true;
+            final nearBottom =
+                _scrollController.hasClients &&
+                _distanceFromBottom() <= _scrollButtonHideThreshold;
+            if (isUserScrollUpdate && !nearBottom) {
+              _bottomAnchorController.detachByUser();
+              _syncLayoutBottomAnchor();
+            }
+            // Dismiss native platform keyboard on drag (mirrors
+            // keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag
+            // which only affects Flutter's text input system).
+            try {
+              ref.read(composerAutofocusEnabledProvider.notifier).set(false);
+            } catch (_) {}
+            if (_wantsPinToTop) {
+              _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
+            }
+          }
+          if (notification is ScrollEndNotification || isUserScrollIdle) {
+            _endScrollProfile(reason: 'idle');
+            final wasInteracting = _isUserInteractingWithScroll;
+            _isUserInteractingWithScroll = false;
+            _updateBottomAnchorTracking();
+            // Re-check after the final drag update, but keep the same no-jump
+            // guard used during the gesture. For short conversations, removing
+            // the phantom spacer here would clamp the second prompt's offset to
+            // zero and visibly animate back to the first message.
+            if (wasInteracting && _wantsPinToTop) {
+              _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
+            }
+          }
+          return false; // Allow notification to continue bubbling
+        },
+        child: CustomScrollView(
+          key: const ValueKey('actual_messages'),
+          controller: _scrollController,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          physics: SuperRangeMaintainingScrollPhysics(
+            parent: platformAlwaysScrollablePhysics(context),
+          ),
+          scrollCacheExtent: const ScrollCacheExtent.pixels(600),
+          slivers: [
+            SliverToBoxAdapter(child: SizedBox(height: topPadding)),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                Spacing.inputPadding,
+                0,
+                Spacing.inputPadding,
+                0,
+              ),
+              sliver: SuperSliverList(
+                listController: _messageListController,
+                extentEstimation: (index, crossAxisExtent) =>
+                    _estimateMessageListExtent(
+                      layoutMetadata,
+                      timeline,
+                      bottomPadding,
+                      index,
+                      crossAxisExtent,
+                    ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    if (index == timeline.listItemCount) {
+                      return SizedBox(
+                        key: const ValueKey<String>(_composerSpacerListKey),
+                        height: bottomPadding,
+                      );
+                    }
+                    final tailIndex = timeline.tailAssistantListIndex;
+                    if (tailIndex != null && index == tailIndex) {
+                      final tailAssistant = timeline.tailAssistant!;
+                      final liveSourceIndex =
+                          timeline.tailAssistantSourceIndex!;
+                      final runningFooter = timeline.runningFooterHost;
+                      return KeyedSubtree(
+                        key: ValueKey<String>('message-${tailAssistant.id}'),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Consumer(
+                              builder: (context, rowRef, _) {
+                                final latestMessage = rowRef.watch(
+                                  chatMessageByIdProvider(tailAssistant.id),
+                                );
+                                if (latestMessage == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return _buildAssistantMessageRowContent(
+                                  rowRef: rowRef,
+                                  messageId: tailAssistant.id,
+                                  latestMessage: latestMessage,
+                                  rowMetadata:
+                                      layoutMetadata.rows[liveSourceIndex],
+                                  suppressStreamingHaptics:
+                                      suppressAssistantStreamingHaptics,
+                                );
+                              },
+                            ),
+                            if (runningFooter != null)
+                              Consumer(
+                                builder: (context, rowRef, _) {
+                                  final latestMessage = rowRef.watch(
+                                    chatMessageByIdProvider(
+                                      runningFooter.messageId,
+                                    ),
+                                  );
+                                  if (latestMessage == null) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return StreamingTurnFooter(
+                                    message: latestMessage,
+                                    suppressStreamingHaptics:
+                                        suppressAssistantStreamingHaptics,
+                                  );
+                                },
+                              ),
+                          ],
+                        ),
+                      );
+                    }
 
-                  if (isUser) {
-                    final isPinTarget = index == pinnedUserMessageIndex;
-                    return _buildMeasuredMessageRow(
-                      messageId: messageId,
-                      rowKey: isPinTarget
-                          ? _pinnedUserMessageKey
-                          : ValueKey<String>('message-$messageId'),
+                    final message = timeline.historyMessages[index];
+                    final messageId = message.id;
+                    final rowMetadata = layoutMetadata.rows[index];
+                    final isUser = message.role == 'user';
+
+                    if (rowMetadata.isArchivedVariant) {
+                      return const SizedBox.shrink();
+                    }
+
+                    if (isUser) {
+                      final isPinTarget = index == pinnedUserMessageIndex;
+                      return KeyedSubtree(
+                        key: isPinTarget
+                            ? _pinnedUserMessageKey
+                            : ValueKey<String>('message-$messageId'),
+                        child: Consumer(
+                          builder: (context, rowRef, _) {
+                            final latestMessage = rowRef.watch(
+                              chatMessageByIdProvider(messageId),
+                            );
+                            if (latestMessage == null) {
+                              return const SizedBox.shrink();
+                            }
+                            return UserMessageBubble(
+                              message: latestMessage,
+                              isUser: true,
+                              isStreaming: latestMessage.isStreaming,
+                              modelName: rowMetadata.displayModelName,
+                              onCopy: () {
+                                final currentMessage = rowRef.read(
+                                  chatMessageByIdProvider(messageId),
+                                );
+                                if (currentMessage != null) {
+                                  _copyMessage(currentMessage.content);
+                                }
+                              },
+                              onDelete: () {
+                                final currentMessage = rowRef.read(
+                                  chatMessageByIdProvider(messageId),
+                                );
+                                if (currentMessage != null) {
+                                  _deleteMessage(currentMessage);
+                                }
+                              },
+                              onRegenerate: () => _regenerateMessage(messageId),
+                            );
+                          },
+                        ),
+                      );
+                    }
+
+                    return KeyedSubtree(
+                      key: ValueKey<String>('message-$messageId'),
                       child: Consumer(
                         builder: (context, rowRef, _) {
                           final latestMessage = rowRef.watch(
@@ -2266,157 +2270,38 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           if (latestMessage == null) {
                             return const SizedBox.shrink();
                           }
-                          return UserMessageBubble(
-                            message: latestMessage,
-                            isUser: true,
-                            isStreaming: latestMessage.isStreaming,
-                            modelName: rowMetadata.displayModelName,
-                            onCopy: () {
-                              final currentMessage = rowRef.read(
-                                chatMessageByIdProvider(messageId),
-                              );
-                              if (currentMessage != null) {
-                                _copyMessage(currentMessage.content);
-                              }
-                            },
-                            onDelete: () {
-                              final currentMessage = rowRef.read(
-                                chatMessageByIdProvider(messageId),
-                              );
-                              if (currentMessage != null) {
-                                _deleteMessage(currentMessage);
-                              }
-                            },
-                            onRegenerate: () => _regenerateMessage(messageId),
+                          return _buildAssistantMessageRowContent(
+                            rowRef: rowRef,
+                            messageId: messageId,
+                            latestMessage: latestMessage,
+                            rowMetadata: rowMetadata,
+                            suppressStreamingHaptics:
+                                suppressAssistantStreamingHaptics,
                           );
                         },
                       ),
                     );
-                  }
-
-                  return _buildMeasuredMessageRow(
-                    messageId: messageId,
-                    rowKey: ValueKey<String>('message-$messageId'),
-                    child: Consumer(
-                      builder: (context, rowRef, _) {
-                        final latestMessage = rowRef.watch(
-                          chatMessageByIdProvider(messageId),
-                        );
-                        if (latestMessage == null) {
-                          return const SizedBox.shrink();
-                        }
-                        return _buildAssistantMessageRowContent(
-                          rowRef: rowRef,
-                          messageId: messageId,
-                          latestMessage: latestMessage,
-                          rowMetadata: rowMetadata,
-                          suppressStreamingHaptics:
-                              suppressAssistantStreamingHaptics,
-                        );
-                      },
-                    ),
-                  );
-                },
-                childCount: timeline.historyMessages.length,
-                findChildIndexCallback: (key) =>
-                    _findMessageIndexForKey(key, timeline),
-              ),
-            ),
-          ),
-          if (timeline.tailAssistant case final tailAssistant?)
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.inputPadding,
-              ),
-              sliver: SliverToBoxAdapter(
-                child: _buildMeasuredLiveTurn(
-                  rowKey: ValueKey<String>('message-${tailAssistant.id}'),
-                  child: Consumer(
-                    builder: (context, rowRef, _) {
-                      final latestMessage = rowRef.watch(
-                        chatMessageByIdProvider(tailAssistant.id),
-                      );
-                      final liveSourceIndex = timeline.tailAssistantSourceIndex;
-                      if (latestMessage == null || liveSourceIndex == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return _buildAssistantMessageRowContent(
-                        rowRef: rowRef,
-                        messageId: tailAssistant.id,
-                        latestMessage: latestMessage,
-                        rowMetadata: layoutMetadata.rows[liveSourceIndex],
-                        suppressStreamingHaptics:
-                            suppressAssistantStreamingHaptics,
-                      );
-                    },
-                  ),
+                  },
+                  childCount: timeline.listItemCount + 1,
+                  findChildIndexCallback: (key) =>
+                      _findMessageIndexForKey(key, timeline),
                 ),
               ),
             ),
-          if (timeline.runningFooterHost case final runningFooter?)
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.inputPadding,
+            // Extra bottom space when pin-to-top is active so the user
+            // message can be scrolled to the top of the viewport.
+            if (_wantsPinToTop)
+              SliverToBoxAdapter(
+                child: SizedBox(height: MediaQuery.of(context).size.height),
               ),
-              sliver: SliverToBoxAdapter(
-                child: MeasureSize(
-                  onChange: (_) => _handleLiveTurnSizeChange(),
-                  child: Consumer(
-                    builder: (context, rowRef, _) {
-                      final latestMessage = rowRef.watch(
-                        chatMessageByIdProvider(runningFooter.messageId),
-                      );
-                      if (latestMessage == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return StreamingTurnFooter(
-                        message: latestMessage,
-                        suppressStreamingHaptics:
-                            suppressAssistantStreamingHaptics,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          SliverToBoxAdapter(child: SizedBox(height: bottomPadding)),
-          // Extra bottom space when pin-to-top is active so the user
-          // message can be scrolled to the top of the viewport.
-          if (_wantsPinToTop)
-            SliverToBoxAdapter(
-              child: SizedBox(height: MediaQuery.of(context).size.height),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildMeasuredMessageRow({
-    required String messageId,
-    required Key rowKey,
-    required Widget child,
-  }) {
-    return KeyedSubtree(
-      key: rowKey,
-      child: MeasureSize(
-        onChange: (_) => _handleMessageRowSizeChange(messageId),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildMeasuredLiveTurn({required Key rowKey, required Widget child}) {
-    return KeyedSubtree(
-      key: rowKey,
-      child: MeasureSize(
-        onChange: (_) => _handleLiveTurnSizeChange(),
-        child: child,
-      ),
-    );
-  }
-
-  /// Shared assistant-row body for both the history sliver and the live-tail
-  /// sliver. Each call site keeps its own Consumer / null-check so their
+  /// Shared assistant-row body for both stable history and the live-tail slot.
+  /// Each call site keeps its own Consumer / null-check so their
   /// rebuild scoping stays distinct; only the widget wiring is shared.
   Widget _buildAssistantMessageRowContent({
     required WidgetRef rowRef,
@@ -3781,7 +3666,7 @@ bool _shouldTreatScrollUpdateAsUserDriven({
   // Touch updates carry drag details. Wheel/trackpad updates do not, but
   // Flutter dispatches a non-idle UserScrollNotification before their update,
   // which marks the interaction active. Programmatic updates have neither and
-  // must not detach the sticky bottom anchor.
+  // must not detach the bottom layout anchor.
   return hasDragDetails || isUserInteractingWithScroll;
 }
 
@@ -3806,13 +3691,6 @@ double _scrollAnimationStartOffset({
       .toDouble();
 }
 
-bool _shouldSmoothFollowLiveTurnSizeChange(List<ChatMessage> messages) {
-  if (messages.isEmpty) {
-    return false;
-  }
-  return chatTurnPhaseForMessage(messages.last) == ChatTurnPhase.running;
-}
-
 bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -3824,22 +3702,6 @@ bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   final insetChanged =
       (nextBottomInset - previousBottomInset).abs() > insetChangeEpsilon;
   return insetChanged &&
-      isAnchoredToBottom &&
-      !isUserInteractingWithScroll &&
-      !wantsPinToTop;
-}
-
-bool _shouldKeepConversationBottomAnchoredOnComposerHeightChange({
-  required double previousComposerHeight,
-  required double nextComposerHeight,
-  required bool isAnchoredToBottom,
-  required bool isUserInteractingWithScroll,
-  required bool wantsPinToTop,
-}) {
-  const heightChangeEpsilon = 1.0;
-  final composerHeightChanged =
-      (nextComposerHeight - previousComposerHeight).abs() > heightChangeEpsilon;
-  return composerHeightChanged &&
       isAnchoredToBottom &&
       !isUserInteractingWithScroll &&
       !wantsPinToTop;
@@ -3872,24 +3734,6 @@ bool _canRemovePinToTopPhantomWithoutViewportJump({
     phantomExtent: phantomExtent,
   );
   return (currentOffset - targetOffset).abs() <= epsilon;
-}
-
-List<int> _messageRowIndicesForIds(
-  List<ChatMessage> messages,
-  Iterable<String> messageIds,
-) {
-  final pendingIds = messageIds.toSet();
-  if (pendingIds.isEmpty || messages.isEmpty) {
-    return const <int>[];
-  }
-
-  final indices = <int>[];
-  for (var index = 0; index < messages.length; index += 1) {
-    if (pendingIds.contains(messages[index].id)) {
-      indices.add(index);
-    }
-  }
-  return List<int>.unmodifiable(indices);
 }
 
 double _estimateMessageListExtentForIndex(
@@ -4020,13 +3864,6 @@ double debugScrollAnimationStartOffsetForTesting({
 }
 
 @visibleForTesting
-bool debugShouldSmoothFollowLiveTurnSizeChangeForTesting(
-  List<ChatMessage> messages,
-) {
-  return _shouldSmoothFollowLiveTurnSizeChange(messages);
-}
-
-@visibleForTesting
 bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -4037,23 +3874,6 @@ bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
   return _shouldKeepConversationBottomAnchoredOnInsetChange(
     previousBottomInset: previousBottomInset,
     nextBottomInset: nextBottomInset,
-    isAnchoredToBottom: isAnchoredToBottom,
-    isUserInteractingWithScroll: isUserInteractingWithScroll,
-    wantsPinToTop: wantsPinToTop,
-  );
-}
-
-@visibleForTesting
-bool debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting({
-  required double previousComposerHeight,
-  required double nextComposerHeight,
-  required bool isAnchoredToBottom,
-  required bool isUserInteractingWithScroll,
-  required bool wantsPinToTop,
-}) {
-  return _shouldKeepConversationBottomAnchoredOnComposerHeightChange(
-    previousComposerHeight: previousComposerHeight,
-    nextComposerHeight: nextComposerHeight,
     isAnchoredToBottom: isAnchoredToBottom,
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,
@@ -4099,14 +3919,6 @@ bool debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting({
     phantomExtent: phantomExtent,
     epsilon: epsilon,
   );
-}
-
-@visibleForTesting
-List<int> debugMessageRowIndicesForIdsForTesting(
-  List<ChatMessage> messages,
-  Iterable<String> messageIds,
-) {
-  return _messageRowIndicesForIds(messages, messageIds);
 }
 
 @visibleForTesting

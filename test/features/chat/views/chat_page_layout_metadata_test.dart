@@ -15,11 +15,119 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:super_sliver_list/super_sliver_list.dart';
 
 void main() {
-  test('bottom anchor controller separates sticky and detached states', () {
+  testWidgets(
+    'managed timeline keeps its trailing edge pinned during live growth',
+    (tester) async {
+      final scrollController = ScrollController();
+      final listController = ListController()
+        ..stickTarget = const StickTarget.bottom();
+      final liveHeight = ValueNotifier<double>(180);
+      final composerSpacerHeight = ValueNotifier<double>(60);
+      var metricsNotifications = 0;
+      addTearDown(scrollController.dispose);
+      addTearDown(listController.dispose);
+      addTearDown(liveHeight.dispose);
+      addTearDown(composerSpacerHeight.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 320,
+              child: NotificationListener<ScrollMetricsNotification>(
+                onNotification: (_) {
+                  metricsNotifications += 1;
+                  return false;
+                },
+                child: CustomScrollView(
+                  controller: scrollController,
+                  slivers: [
+                    const SliverToBoxAdapter(child: SizedBox(height: 420)),
+                    SuperSliverList(
+                      listController: listController,
+                      delegate: SliverChildListDelegate.fixed([
+                        ValueListenableBuilder<double>(
+                          valueListenable: liveHeight,
+                          builder: (context, height, _) => SizedBox(
+                            key: const ValueKey('live-turn'),
+                            height: height,
+                          ),
+                        ),
+                        ValueListenableBuilder<double>(
+                          valueListenable: composerSpacerHeight,
+                          builder: (context, height, _) => SizedBox(
+                            key: const ValueKey('composer-spacer'),
+                            height: height,
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      scrollController.jumpTo(scrollController.position.maxScrollExtent);
+      await tester.pump();
+      final offsetBeforeGrowth = scrollController.offset;
+      final metricsBeforeGrowth = metricsNotifications;
+
+      liveHeight.value += 72;
+      await tester.pump();
+
+      check(scrollController.offset).isCloseTo(offsetBeforeGrowth + 72, 0.01);
+      check(
+        scrollController.offset,
+      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
+      check(scrollController.position.isScrollingNotifier.value).isFalse();
+      check(metricsNotifications).isGreaterThan(metricsBeforeGrowth);
+
+      final offsetBeforeComposerGrowth = scrollController.offset;
+      composerSpacerHeight.value += 36;
+      await tester.pump();
+
+      check(
+        scrollController.offset,
+      ).isCloseTo(offsetBeforeComposerGrowth + 36, 0.01);
+      check(
+        scrollController.offset,
+      ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
+      check(scrollController.position.isScrollingNotifier.value).isFalse();
+
+      listController.stickTarget = null;
+      scrollController.jumpTo(scrollController.offset - 100);
+      await tester.pump();
+      final detachedOffset = scrollController.offset;
+
+      liveHeight.value += 40;
+      await tester.pump();
+
+      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
+      check(
+        scrollController.position.maxScrollExtent - scrollController.offset,
+      ).isGreaterThan(100);
+
+      final maxExtentBeforeDetachedComposerGrowth =
+          scrollController.position.maxScrollExtent;
+      composerSpacerHeight.value += 24;
+      await tester.pump();
+
+      check(scrollController.offset).isCloseTo(detachedOffset, 0.01);
+      check(
+        scrollController.position.maxScrollExtent,
+      ).isCloseTo(maxExtentBeforeDetachedComposerGrowth + 24, 0.01);
+    },
+  );
+
+  test('bottom anchor controller separates anchored and detached states', () {
     final controller = ChatBottomAnchorController(
       showThreshold: 300,
       hideThreshold: 150,
@@ -56,205 +164,6 @@ void main() {
       isFalse,
     );
   });
-
-  test('bottom anchor controller keeps sticky content growth verified', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
-
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-
-    expect(
-      controller.prepareForStickyContentChange(wantsPinToTop: false),
-      isTrue,
-    );
-    expect(
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-
-    controller.verifyStickyCorrection(nearBottom: true);
-    expect(controller.isAnchoredToBottom, isTrue);
-  });
-
-  test('bottom anchor controller detaches on intentional user scroll away', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
-
-    controller.updateAnchor(hasScrollableContent: true, distanceFromBottom: 24);
-    controller.prepareForStickyContentChange(wantsPinToTop: false);
-
-    expect(
-      controller.shouldDetachForUserScrollAway(
-        nearBottom: false,
-        scrollDelta: -4,
-      ),
-      isFalse,
-    );
-    expect(
-      controller.shouldDetachForUserScrollAway(
-        nearBottom: false,
-        scrollDelta: -36,
-      ),
-      isTrue,
-    );
-    // Scrolling toward the bottom must not break the sticky latch.
-    expect(
-      controller.shouldDetachForUserScrollAway(
-        nearBottom: false,
-        scrollDelta: 36,
-      ),
-      isFalse,
-    );
-
-    controller.detachByUser();
-    expect(controller.isAnchoredToBottom, isFalse);
-  });
-
-  test(
-    'bottom anchor controller re-pins after detached programmatic scroll',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      );
-      controller.isUserInteractingWithScroll = true;
-      expect(controller.isAnchoredToBottom, isFalse);
-
-      controller.resetForDetachedScroll();
-
-      expect(controller.isAnchoredToBottom, isTrue);
-      expect(controller.isUserInteractingWithScroll, isFalse);
-      // The sticky latch was cleared, so a subsequent scroll away detaches.
-      expect(
-        controller.updateAnchor(
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isFalse,
-      );
-    },
-  );
-
-  test(
-    'bottom anchor controller never detaches near bottom or when unanchored',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 24,
-      );
-      controller.prepareForStickyContentChange(wantsPinToTop: false);
-
-      // nearBottom short-circuits regardless of delta.
-      expect(
-        controller.shouldDetachForUserScrollAway(
-          nearBottom: true,
-          scrollDelta: 999,
-        ),
-        isFalse,
-      );
-
-      // Unanchored short-circuits regardless of delta.
-      controller.detachByUser();
-      expect(controller.isAnchoredToBottom, isFalse);
-      expect(
-        controller.shouldDetachForUserScrollAway(
-          nearBottom: false,
-          scrollDelta: 999,
-        ),
-        isFalse,
-      );
-    },
-  );
-
-  test(
-    'bottom anchor controller keeps sticky pending when correction is mid-flight',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 24,
-      );
-      controller.prepareForStickyContentChange(wantsPinToTop: false);
-
-      // A non-final correction that has not reached the bottom is a no-op: the
-      // latch stays set so the scroll-to-bottom button remains hidden.
-      controller.verifyStickyCorrection(nearBottom: false);
-
-      expect(controller.isAnchoredToBottom, isTrue);
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: false,
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isFalse,
-      );
-    },
-  );
-
-  test(
-    'bottom anchor controller releases latch when sticky correction never reaches bottom',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 24,
-      );
-      expect(
-        controller.prepareForStickyContentChange(wantsPinToTop: false),
-        isTrue,
-      );
-
-      // The final correction attempt is still far from the bottom: the latch must
-      // clear so button visibility falls back to distance-based logic.
-      controller.verifyStickyCorrection(
-        nearBottom: false,
-        isFinalAttempt: true,
-      );
-
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: false,
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isTrue,
-      );
-    },
-  );
 
   test(
     'bottom anchor controller hysteresis keeps the button shown across the band',
@@ -304,195 +213,49 @@ void main() {
     },
   );
 
-  test('bottom anchor controller re-anchors when content is not scrollable', () {
-    final controller = ChatBottomAnchorController(
-      showThreshold: 300,
-      hideThreshold: 150,
-    );
-
-    // Detach first so the re-anchor is observable.
-    controller.updateAnchor(
-      hasScrollableContent: true,
-      distanceFromBottom: 320,
-    );
-    expect(controller.isAnchoredToBottom, isFalse);
-
-    // Even with a large distance, a non-scrollable list counts as nearBottom:
-    // re-anchor, clear the sticky latch, and report anchored.
-    expect(
-      controller.updateAnchor(
-        hasScrollableContent: false,
-        distanceFromBottom: 320,
-      ),
-      isTrue,
-    );
-    expect(controller.isAnchoredToBottom, isTrue);
-
-    // The latch was cleared, so a subsequent scroll away detaches immediately.
-    expect(
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-
-    // The button stays hidden whenever content is not scrollable.
-    expect(
-      controller.shouldShowScrollToBottom(
-        currentlyShowing: false,
-        hasScrollableContent: false,
-        distanceFromBottom: 320,
-      ),
-      isFalse,
-    );
-  });
-
   test(
-    'bottom anchor controller re-anchors when the final attempt is near bottom',
+    'bottom anchor controller re-anchors when content is not scrollable',
     () {
       final controller = ChatBottomAnchorController(
         showThreshold: 300,
         hideThreshold: 150,
       );
 
+      // Detach first so the re-anchor is observable.
       controller.updateAnchor(
         hasScrollableContent: true,
-        distanceFromBottom: 24,
+        distanceFromBottom: 320,
       );
-      controller.prepareForStickyContentChange(wantsPinToTop: false);
-      // Detach so only the nearBottom branch can re-anchor (the isFinalAttempt
-      // branch never sets isAnchoredToBottom back to true).
-      controller.detachByUser();
       expect(controller.isAnchoredToBottom, isFalse);
 
-      controller.verifyStickyCorrection(nearBottom: true, isFinalAttempt: true);
-
-      // nearBottom wins over isFinalAttempt: re-anchored, not merely latch-dropped.
-      expect(controller.isAnchoredToBottom, isTrue);
-    },
-  );
-
-  test(
-    'bottom anchor waits for movement, keeps a small drag, and detaches past the threshold',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-        userScrollAwayThreshold: 24,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 24,
-      );
-      expect(
-        controller.prepareForStickyContentChange(wantsPinToTop: false),
-        isTrue,
-      );
-
-      // User begins dragging during the sticky correction. A small (sub-threshold)
-      // drag must NOT detach: updateAnchor keeps the anchor while the latch holds,
-      // deferring the break to shouldDetachForUserScrollAway's threshold check.
-      controller.isUserInteractingWithScroll = true;
+      // Even with a large distance, a non-scrollable list counts as nearBottom
+      // and re-anchors.
       expect(
         controller.updateAnchor(
-          hasScrollableContent: true,
+          hasScrollableContent: false,
           distanceFromBottom: 320,
         ),
         isTrue,
       );
       expect(controller.isAnchoredToBottom, isTrue);
-      // Drag-start / directional notifications carry no delta. They must not
-      // synthesize movement and detach before the user's actual drag is measured.
+
+      // A subsequent scroll away detaches immediately.
       expect(
-        controller.shouldDetachForUserScrollAway(
-          nearBottom: false,
-          scrollDelta: null,
-        ),
-        isFalse,
-      );
-      expect(
-        controller.shouldDetachForUserScrollAway(
-          nearBottom: false,
-          scrollDelta: -4,
+        controller.updateAnchor(
+          hasScrollableContent: true,
+          distanceFromBottom: 320,
         ),
         isFalse,
       );
 
-      // But the scroll-to-bottom button still surfaces while interacting (the
-      // distance-based hysteresis is not suppressed during a drag).
+      // The button stays hidden whenever content is not scrollable.
       expect(
         controller.shouldShowScrollToBottom(
           currentlyShowing: false,
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isTrue,
-      );
-
-      // A drag past userScrollAwayThreshold breaks the latch via the scroll
-      // handler, after which updateAnchor reports detached.
-      expect(
-        controller.shouldDetachForUserScrollAway(
-          nearBottom: false,
-          scrollDelta: -40,
-        ),
-        isTrue,
-      );
-      controller.detachByUser();
-      expect(controller.isAnchoredToBottom, isFalse);
-      expect(
-        controller.updateAnchor(
-          hasScrollableContent: true,
+          hasScrollableContent: false,
           distanceFromBottom: 320,
         ),
         isFalse,
-      );
-    },
-  );
-
-  test(
-    'bottom anchor controller keeps the button hidden when the latch holds even if currently showing',
-    () {
-      final controller = ChatBottomAnchorController(
-        showThreshold: 300,
-        hideThreshold: 150,
-      );
-
-      controller.updateAnchor(
-        hasScrollableContent: true,
-        distanceFromBottom: 24,
-      );
-      expect(
-        controller.prepareForStickyContentChange(wantsPinToTop: false),
-        isTrue,
-      );
-
-      // Latch armed: even with the button already visible and a large distance,
-      // the sticky latch short-circuits visibility to hidden.
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: true,
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isFalse,
-      );
-
-      // Once the latch clears, the same call falls through to the hysteresis
-      // branch and reports the button shown.
-      controller.verifyStickyCorrection(
-        nearBottom: false,
-        isFinalAttempt: true,
-      );
-      expect(
-        controller.shouldShowScrollToBottom(
-          currentlyShowing: true,
-          hasScrollableContent: true,
-          distanceFromBottom: 320,
-        ),
-        isTrue,
       );
     },
   );
@@ -523,39 +286,6 @@ void main() {
         ),
         isFalse,
         reason: 'programmatic updates have neither user signal',
-      );
-    },
-  );
-
-  test(
-    'live turn only uses smooth bottom-follow while the response is running',
-    () {
-      final running = ChatMessage(
-        id: 'assistant-1',
-        role: 'assistant',
-        content: 'Partial',
-        timestamp: DateTime(2024, 1, 1),
-        isStreaming: true,
-      );
-
-      expect(
-        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([running]),
-        isTrue,
-      );
-      expect(
-        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
-          running.copyWith(metadata: const {'responseDone': true}),
-        ]),
-        isFalse,
-        reason: 'responseDone is settled even before isStreaming flips',
-      );
-      expect(
-        debugShouldSmoothFollowLiveTurnSizeChangeForTesting([
-          running.copyWith(isStreaming: false, followUps: const ['Ask next']),
-        ]),
-        isFalse,
-        reason:
-            'follow-up insertion must preserve the bottom without animation',
       );
     },
   );
@@ -1125,19 +855,6 @@ void main() {
     expect(extent, 0);
   });
 
-  test('composer height growth preserves bottom anchor when already pinned', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
-          previousComposerHeight: 0,
-          nextComposerHeight: 160,
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isTrue);
-  });
-
   test('message content growth preserves bottom anchor when already pinned', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
@@ -1149,79 +866,11 @@ void main() {
     expect(shouldKeepBottomAnchored, isTrue);
   });
 
-  test('row extent invalidation resolves only changed message indices', () {
-    final messages = <ChatMessage>[
-      ChatMessage(
-        id: 'user-1',
-        role: 'user',
-        content: 'Question',
-        timestamp: DateTime(2026),
-      ),
-      ChatMessage(
-        id: 'assistant-1',
-        role: 'assistant',
-        content: 'Answer',
-        timestamp: DateTime(2026),
-      ),
-      ChatMessage(
-        id: 'assistant-2',
-        role: 'assistant',
-        content: 'Another answer',
-        timestamp: DateTime(2026),
-      ),
-    ];
-
-    final indices = debugMessageRowIndicesForIdsForTesting(messages, {
-      'assistant-2',
-      'missing-message',
-      'user-1',
-    });
-
-    expect(indices, <int>[0, 2]);
-  });
-
-  test('row extent invalidation ignores stale message ids', () {
-    final messages = <ChatMessage>[
-      ChatMessage(
-        id: 'current-user',
-        role: 'user',
-        content: 'Current question',
-        timestamp: DateTime(2026),
-      ),
-      ChatMessage(
-        id: 'current-assistant',
-        role: 'assistant',
-        content: 'Current answer',
-        timestamp: DateTime(2026),
-      ),
-    ];
-
-    final indices = debugMessageRowIndicesForIdsForTesting(messages, {
-      'previous-user',
-      'previous-assistant',
-    });
-
-    expect(indices, isEmpty);
-  });
-
   test('keyboard inset growth does not jump when user left the bottom', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
           previousBottomInset: 0,
           nextBottomInset: 320,
-          isAnchoredToBottom: false,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isFalse);
-  });
-
-  test('composer height change does not jump when user left the bottom', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
-          previousComposerHeight: 0,
-          nextComposerHeight: 160,
           isAnchoredToBottom: false,
           isUserInteractingWithScroll: false,
           wantsPinToTop: false,
@@ -1321,28 +970,6 @@ void main() {
       expect(whileUserScrolling, isFalse);
     },
   );
-
-  test('composer height growth ignores pin-to-top mode and manual scrolling', () {
-    final whilePinnedToTop =
-        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
-          previousComposerHeight: 0,
-          nextComposerHeight: 160,
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: true,
-        );
-    final whileUserScrolling =
-        debugShouldKeepConversationBottomAnchoredOnComposerHeightChangeForTesting(
-          previousComposerHeight: 0,
-          nextComposerHeight: 160,
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: true,
-          wantsPinToTop: false,
-        );
-
-    expect(whilePinnedToTop, isFalse);
-    expect(whileUserScrolling, isFalse);
-  });
 
   test('message content growth ignores pin-to-top mode and manual scrolling', () {
     final whilePinnedToTop =

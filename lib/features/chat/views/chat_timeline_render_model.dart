@@ -11,7 +11,7 @@ class ChatTimelineRenderModel {
     required this.tailAssistantSourceIndex,
     required this.tailAssistantPhase,
     required this.runningFooterHost,
-    required this.historyIndexByMessageKey,
+    required this.listIndexByMessageKey,
   });
 
   factory ChatTimelineRenderModel.fromMessages(List<ChatMessage> messages) {
@@ -27,11 +27,14 @@ class ChatTimelineRenderModel {
     final footerHost = tailAssistant == null
         ? null
         : ChatTurnFooterHost(messageId: tailAssistant.id);
-    final historyIndexByMessageKey = <String, int>{};
+    final listIndexByMessageKey = <String, int>{};
 
     for (var index = 0; index < historyMessages.length; index += 1) {
       final messageId = historyMessages[index].id;
-      historyIndexByMessageKey['message-$messageId'] = index;
+      listIndexByMessageKey['message-$messageId'] = index;
+    }
+    if (tailAssistant != null) {
+      listIndexByMessageKey['message-${tailAssistant.id}'] = historyLength;
     }
 
     return ChatTimelineRenderModel._(
@@ -42,8 +45,8 @@ class ChatTimelineRenderModel {
       runningFooterHost: chatTurnPhaseShowsRunningFooter(tailAssistantPhase)
           ? footerHost
           : null,
-      historyIndexByMessageKey: Map<String, int>.unmodifiable(
-        historyIndexByMessageKey,
+      listIndexByMessageKey: Map<String, int>.unmodifiable(
+        listIndexByMessageKey,
       ),
     );
   }
@@ -53,10 +56,20 @@ class ChatTimelineRenderModel {
   final int? tailAssistantSourceIndex;
   final ChatTurnPhase tailAssistantPhase;
   final ChatTurnFooterHost? runningFooterHost;
-  final Map<String, int> historyIndexByMessageKey;
+
+  /// Stable indices for every message row in the single managed sliver.
+  ///
+  /// The live assistant remains outside [historyMessages] so streamed chunks
+  /// do not rebuild stable history, but it occupies the next list slot. Keeping
+  /// both regions in one sliver lets its render object preserve the trailing
+  /// edge during live size changes without driving a scroll animation.
+  final Map<String, int> listIndexByMessageKey;
 
   bool get hasTailAssistant => tailAssistant != null;
   bool get hasRunningTurn => runningFooterHost != null;
+  int get listItemCount => historyMessages.length + (hasTailAssistant ? 1 : 0);
+  int? get tailAssistantListIndex =>
+      hasTailAssistant ? historyMessages.length : null;
 }
 
 int? _tailAssistantIndex(List<ChatMessage> messages) {
