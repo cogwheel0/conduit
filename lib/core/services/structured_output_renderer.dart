@@ -453,21 +453,12 @@ bool _hasStableCumulativePrefix(String previous, String current) {
   if (identical(previous, current)) return true;
   if (current.length < previous.length) return false;
   if (previous.isEmpty) return true;
-
-  // The protocol defines in-progress message text as cumulative. Validate both
-  // ends of the known prefix with bounded work so this guard does not itself
-  // recreate the quadratic scan it protects against. Any detected rewrite is
-  // replaced immediately, and [StructuredOutputStreamingProjector.finish]
-  // remains the authoritative full validation.
-  const probeLength = 64;
-  if (previous.length <= probeLength * 2) {
-    return current.startsWith(previous);
-  }
-  final leading = previous.substring(0, probeLength);
-  final trailingStart = previous.length - probeLength;
-  final trailing = previous.substring(trailingStart);
-  return current.startsWith(leading) &&
-      current.startsWith(trailing, trailingStart);
+  // Structured snapshots are normally cumulative, but the server remains
+  // authoritative. Validate the complete prior value before appending so a
+  // simultaneous middle rewrite and tail growth cannot leave temporarily
+  // stale visible content. Delta-based text streams use their separate
+  // accumulator path and do not pay for this snapshot validation.
+  return current.startsWith(previous);
 }
 
 bool _blocksEquivalent(

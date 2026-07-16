@@ -1008,6 +1008,24 @@ void main() {
       ).isNull();
     });
 
+    test('replaces a long middle rewrite that also grows the tail', () {
+      final projector = StructuredOutputStreamingProjector();
+      final before = 'a' * 512;
+      final after = '${'a' * 256}b${'a' * 255} appended';
+
+      check(
+        projector.project([StructuredOutputTextBlock(text: before)]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      final revision = projector.project([
+        StructuredOutputTextBlock(text: after),
+      ]);
+      check(revision).isA<StructuredOutputStreamingReplace>();
+      check(
+        (revision! as StructuredOutputStreamingReplace).content,
+      ).equals(after);
+    });
+
     test('replaces revisions and keeps split semantic tags inert', () {
       final projector = StructuredOutputStreamingProjector();
       var visible = '';
