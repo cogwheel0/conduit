@@ -54,6 +54,8 @@ final class _RecordingHermesApi extends HermesApiService {
   var createSessionCalls = 0;
   final List<String?> sessionIds = <String?>[];
   final List<String?> previousResponseIds = <String?>[];
+  final List<List<Map<String, dynamic>>?> conversationHistories =
+      <List<Map<String, dynamic>>?>[];
 
   @override
   Future<String> createSession({
@@ -67,10 +69,12 @@ final class _RecordingHermesApi extends HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async {
     sessionIds.add(sessionId);
     previousResponseIds.add(previousResponseId);
+    conversationHistories.add(conversationHistory);
     return 'run-${sessionIds.length}';
   }
 
@@ -84,12 +88,13 @@ final class _RecordingHermesApi extends HermesApiService {
 
 ChatMessage _assistant(
   String id, {
+  String content = '',
   bool streaming = false,
   Map<String, dynamic>? metadata,
 }) => ChatMessage(
   id: id,
   role: 'assistant',
-  content: '',
+  content: content,
   timestamp: DateTime.utc(2026, 7, 14),
   isStreaming: streaming,
   metadata: metadata,
@@ -216,13 +221,14 @@ void main() {
   );
 
   test(
-    'exact locally proven mixed binding reuses its session and run',
+    'exact locally proven mixed binding reuses its session with history',
     () async {
       final service = _RecordingHermesApi();
       final container = _container(service);
       addTearDown(container.dispose);
       final history = _assistant(
         'trusted-assistant',
+        content: 'prior answer',
         metadata: <String, dynamic>{
           'hermesSessionId': 'trusted-session',
           kHermesConnectionIdentityMetadataKey: _connectionIdentity(container),
@@ -242,7 +248,13 @@ void main() {
 
       check(service.createSessionCalls).equals(0);
       check(service.sessionIds).deepEquals(<String?>['trusted-session']);
-      check(service.previousResponseIds).deepEquals(<String?>['trusted-run']);
+      check(service.previousResponseIds).deepEquals(<String?>[null]);
+      expect(
+        service.conversationHistories.single,
+        equals(<Map<String, dynamic>>[
+          <String, dynamic>{'role': 'assistant', 'content': 'prior answer'},
+        ]),
+      );
     },
   );
 

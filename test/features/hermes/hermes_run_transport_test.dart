@@ -98,6 +98,7 @@ class _FakeHermesApiService extends HermesApiService {
   List<Map<String, dynamic>>? lastResponseConversationHistory;
   String? lastResponseInstructions;
   CancelToken? lastResponseCancelToken;
+  List<Map<String, dynamic>>? lastRunConversationHistory;
 
   @override
   Future<String> createRun({
@@ -105,8 +106,10 @@ class _FakeHermesApiService extends HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async {
+    lastRunConversationHistory = conversationHistory;
     final error = createRunError;
     if (error != null) {
       if (cancelTokenOnCreateError && cancelToken != null) {
@@ -1160,12 +1163,17 @@ void main() {
     );
     var finished = false;
     var completedUi = false;
+    const history = <Map<String, dynamic>>[
+      {'role': 'user', 'content': 'earlier'},
+      {'role': 'assistant', 'content': 'prior answer'},
+    ];
 
     await dispatchHermesRun(
       service: fake,
       registry: HermesRunRegistry(),
       assistantMessageId: 'm',
       input: 'hi',
+      conversationHistory: history,
       appendContent: content.write,
       appendStatus: statuses.add,
       updateMessage: (updater) => message = updater(message),
@@ -1174,6 +1182,7 @@ void main() {
     );
 
     check(content.toString()).equals('Hello world');
+    expect(fake.lastRunConversationHistory, equals(history));
     check(statuses).has((s) => s.length, 'length').equals(2);
     check(statuses.first.done).equals(false);
     check(statuses.last.done).equals(true);

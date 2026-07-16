@@ -60,6 +60,7 @@ class _GatedApprovalService extends HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async => 'approval-run';
 

@@ -6717,22 +6717,19 @@ Future<void> _regenerateHermesMessage(
     replayedUser,
   );
 
-  final previousRunId = _lastHermesMetadataId(
-    continuityMessages,
-    'hermesRunId',
-    allowNativeHermesMetadata: true,
-  );
-  final previousResponseId = _lastHermesMetadataId(
-    continuityMessages,
-    'hermesResponseId',
-    allowNativeHermesMetadata: true,
-  );
+  final hasPreviousResponse =
+      _lastHermesMetadataId(
+        continuityMessages,
+        'hermesResponseId',
+        allowNativeHermesMetadata: true,
+      ) !=
+      null;
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
   final useResponses =
       previousAssistant?.metadata?['hermesTransportMode'] ==
           kHermesResponsesMode ||
-      previousResponseId != null ||
+      hasPreviousResponse ||
       _persistedHermesReplayRequiresResponses(
         replayedFiles,
         replayedAttachments,
@@ -6760,24 +6757,12 @@ Future<void> _regenerateHermesMessage(
         : _buildReplayVersions(previousAssistant),
     metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
   );
-  if (!useResponses && continuityMessages.isNotEmpty && previousRunId == null) {
-    assistant = assistant.copyWith(
-      isStreaming: false,
-      error: const ChatMessageError(
-        content:
-            'This Hermes conversation does not expose the response ID needed '
-            'to regenerate from this point. Start a new branch instead.',
-      ),
-    );
-  }
   final notifier = ref.read(chatMessagesProvider.notifier);
   if (previousAssistant == null) {
     notifier.addMessage(assistant);
   } else {
     notifier.updateLastMessageWithFunction((_) => assistant);
   }
-  if (!assistant.isStreaming) return;
-
   await _dispatchHermesRunFromChat(
     ref,
     assistantMessageId: assistantMessageId,
@@ -6785,9 +6770,9 @@ Future<void> _regenerateHermesMessage(
     input: replayedUser?.content ?? input,
     existingMessages: continuityMessages,
     forceNewSession: true,
-    previousResponseIdOverride: useResponses
-        ? previousResponseId
-        : previousRunId,
+    // Regeneration branches from [continuityMessages]. Chaining the response
+    // being replaced would restore the wrong tail and the wrong server session.
+    previousResponseIdOverride: null,
     responseInput: useResponses
         ? replayedUser == null
               ? HermesChatInput.text(input)
@@ -11289,7 +11274,25 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           capturedSessionId,
           sensitiveValues: _hermesIdentifierSensitiveValues(service),
         );
-  if (sessionId == null || sessionId.isEmpty) {
+  var responsePreviousResponseId = responseInput == null
+      ? null
+      : previousResponseIdOverride;
+  responsePreviousResponseId ??= responseInput == null || forceNewSession
+      ? null
+      : _lastHermesMetadataId(
+          existingMessages,
+          'hermesResponseId',
+          allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
+          mixedProvenance: mixedSessionProvenance,
+        );
+  final responseStartsNewChain =
+      responseInput != null && responsePreviousResponseId == null;
+  if (responseStartsNewChain) {
+    // The official Responses endpoint owns the session id for a new chain; it
+    // does not bind to a pre-created /api/sessions row via request headers.
+    sessionId = null;
+  }
+  if ((sessionId == null || sessionId.isEmpty) && !responseStartsNewChain) {
     try {
       // Title the session from the first user message when this is turn one.
       final title = existingMessages.isEmpty
@@ -11411,17 +11414,9 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         }
         if (cancelled()) return;
       }
-      // If Responses itself creates the session there is no pre-commit
-      // history boundary. Leave the baseline null so an older identical row
-      // can never be mistaken for the request this turn just committed.
+      // Responses owns creation of a new chain. Its returned session is
+      // prepared below before the known-empty history baseline is recorded.
     }
-    var previousResponseId = previousResponseIdOverride;
-    previousResponseId ??= _lastHermesMetadataId(
-      existingMessages,
-      'hermesResponseId',
-      allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
-      mixedProvenance: mixedSessionProvenance,
-    );
     if (cancelled()) return;
     await dispatchHermesResponse(
       service: service,
@@ -11431,20 +11426,21 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       currentRunKey: currentRunKey,
       input: responseInput,
       sessionId: sessionId,
-      previousResponseId: previousResponseId,
-      conversationHistory: previousResponseId == null ? responseHistory : null,
+      previousResponseId: responsePreviousResponseId,
+      conversationHistory: responseStartsNewChain ? responseHistory : null,
       cancelToken: cancelToken,
       onSessionEstablished: (establishedSessionId) async {
         if (establishedSessionId == null || cancelled()) return;
         final requestedSessionId = sessionId;
-        if (requestedSessionId != null &&
+        if (!responseStartsNewChain &&
+            requestedSessionId != null &&
             establishedSessionId != requestedSessionId) {
           throw StateError(
             'Hermes returned a different session for an existing-session '
             'request.',
           );
         }
-        final responseCreatedSession = sessionId == null;
+        final responseCreatedSession = responseStartsNewChain;
         if (responseCreatedSession && documentTrustConnectionIdentity != null) {
           try {
             await HermesLocalDocumentTrustStore.prepareNewSession(
@@ -11466,6 +11462,13 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
               deadline: lateSessionCleanupDeadline,
             );
             return;
+          }
+          if (hasLocalDocumentProvenance) {
+            // A new Responses chain gets a server-owned, newly allocated
+            // session. Its pre-turn history is therefore known to be empty;
+            // establishing that boundary lets exact document provenance be
+            // recorded after the turn without trusting an older lookalike.
+            baselineServerMessageIds = <String>{};
           }
         }
         sessionId = establishedSessionId;
@@ -11489,10 +11492,11 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       },
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
+        final committedBaselineMessageIds = baselineServerMessageIds;
         if (committedSessionId == null ||
             localDocumentPromptText == null ||
             localDocumentEnvelopes.isEmpty ||
-            baselineServerMessageIds == null ||
+            committedBaselineMessageIds == null ||
             documentTrustConnectionIdentity == null ||
             !owner.backendContextIsCurrent(ref)) {
           return;
@@ -11503,7 +11507,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           sessionId: committedSessionId,
           promptText: localDocumentPromptText,
           documentEnvelopes: localDocumentEnvelopes,
-          baselineMessageIds: baselineServerMessageIds,
+          baselineMessageIds: committedBaselineMessageIds,
           cancelToken: cancelToken,
         );
       },
@@ -11517,25 +11521,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     return;
   }
 
-  // Chain detachable text-only runs to the previous Hermes run.
-  var previousResponseId = previousResponseIdOverride;
-  if (previousResponseId == null) {
-    for (final m in existingMessages.reversed) {
-      if (m.role != 'assistant') continue;
-      final rid = _lastHermesMetadataId(
-        <ChatMessage>[m],
-        'hermesRunId',
-        allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
-        mixedProvenance: mixedSessionProvenance,
-      );
-      if (rid != null) {
-        previousResponseId = rid;
-        break;
-      }
-    }
-  }
-
   if (cancelled()) return;
+
+  // Hermes Runs does not interpret a prior run id as conversation state.
+  // Replay a bounded visible transcript explicitly on every text turn; this
+  // is the documented Runs contract and also lets reopened server sessions
+  // continue when their message rows do not expose response identifiers.
+  final conversationHistory = _hermesVisibleHistory(
+    existingMessages,
+    inputImagesSupported: false,
+  );
 
   await dispatchHermesRun(
     service: service,
@@ -11545,7 +11540,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     currentRunKey: currentRunKey,
     input: input,
     sessionId: sessionId,
-    previousResponseId: previousResponseId,
+    conversationHistory: conversationHistory,
     cancelToken: cancelToken,
     appendContent: appendProjectedContent,
     replaceContent: replaceProjectedContent,

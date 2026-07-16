@@ -244,14 +244,18 @@ void main() {
       ).not((value) => value.contains('provider-error-secret'));
     });
 
-    test('createRun posts to normalized path with session headers', () async {
+    test('createRun posts explicit history with session headers', () async {
       final capture = _CaptureInterceptor({'run_id': 'r1'});
       final service = _service(capture, session: 'mem-key');
+      const history = <Map<String, dynamic>>[
+        {'role': 'user', 'content': 'earlier'},
+        {'role': 'assistant', 'content': 'prior answer'},
+      ];
 
       final runId = await service.createRun(
         input: 'hello',
         sessionId: 'conv-1',
-        previousResponseId: 'r0',
+        conversationHistory: history,
       );
 
       check(runId).equals('r1');
@@ -260,7 +264,8 @@ void main() {
       check(req.method).equals('POST');
       check(req.data as Map).containsKey('input');
       check((req.data as Map)['session_id']).equals('conv-1');
-      check((req.data as Map)['previous_response_id']).equals('r0');
+      expect((req.data as Map)['conversation_history'], equals(history));
+      check((req.data as Map).containsKey('previous_response_id')).isFalse();
       check(req.headers['X-Hermes-Session-Id']).equals('conv-1');
       check(req.headers['X-Hermes-Session-Key']).equals('mem-key');
       check(req.responseType).equals(ResponseType.stream);

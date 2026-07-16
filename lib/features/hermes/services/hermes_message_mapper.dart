@@ -40,8 +40,9 @@ void markTrustedHermesLocalDocumentDescriptor(Map<String, dynamic> descriptor) {
 /// into Conduit [ChatMessage]s for display in the chat view.
 ///
 /// Tolerant of the shape variations across Hermes versions: content may be a
-/// plain string or an array of typed text/image parts, and system/tool rows are
-/// skipped from the visible transcript.
+/// plain string or an array of typed text/image parts. System rows are skipped;
+/// persisted tool rows are folded into status history on the assistant row
+/// that requested them.
 List<ChatMessage> hermesMessagesToChatMessages(
   List<Map<String, dynamic>> raw, {
   String? modelId,
@@ -51,6 +52,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
 }) {
   const uuid = Uuid();
   final messages = <ChatMessage>[];
+  final pendingTools = <String, ({int messageIndex, int statusIndex})>{};
 
   for (var i = 0; i < raw.length; i++) {
     final item = raw[i];
@@ -58,6 +60,14 @@ List<ChatMessage> hermesMessagesToChatMessages(
     final role = rawRole is String && rawRole.length <= 32
         ? rawRole.toLowerCase()
         : null;
+    if (role == 'tool') {
+      _completePersistedHermesTool(
+        item,
+        messages: messages,
+        pendingTools: pendingTools,
+      );
+      continue;
+    }
     if (role != 'user' && role != 'assistant') continue;
     final acceptedRole = role!;
 
@@ -82,7 +92,14 @@ List<ChatMessage> hermesMessagesToChatMessages(
       ...extracted.images.map<Map<String, dynamic>>(_imageFileDescriptor),
       ...restoredDocuments.files,
     ];
-    if (content.isEmpty && files.isEmpty) continue;
+    final statusHistory = acceptedRole == 'assistant'
+        ? _persistedHermesToolStarts(
+            item,
+            messageIndex: messages.length,
+            pendingTools: pendingTools,
+          )
+        : const <ChatStatusUpdate>[];
+    if (content.isEmpty && files.isEmpty && statusHistory.isEmpty) continue;
     final rawMetadata = item['metadata'];
     final itemMetadata = <String, dynamic>{};
     if (rawMetadata is Map) {
@@ -134,11 +151,94 @@ List<ChatMessage> hermesMessagesToChatMessages(
         attachmentIds: extracted.images.isEmpty ? null : extracted.images,
         files: files.isEmpty ? null : List.unmodifiable(files),
         metadata: transportMetadata.isEmpty ? null : transportMetadata,
+        statusHistory: statusHistory,
       ),
     );
   }
 
   return messages;
+}
+
+List<ChatStatusUpdate> _persistedHermesToolStarts(
+  Map<String, dynamic> item, {
+  required int messageIndex,
+  required Map<String, ({int messageIndex, int statusIndex})> pendingTools,
+}) {
+  final rawCalls = item['tool_calls'] ?? item['toolCalls'];
+  if (rawCalls is! List) return const <ChatStatusUpdate>[];
+  final occurredAt = parseHermesTimestamp(
+    item['created_at'] ?? item['timestamp'],
+  );
+  final statuses = <ChatStatusUpdate>[];
+  for (final rawCall in rawCalls.take(64)) {
+    if (rawCall is! Map) continue;
+    final function = rawCall['function'];
+    final rawName = function is Map
+        ? function['name']
+        : rawCall['name'] ?? rawCall['tool_name'];
+    if (rawName is! String || rawName.isEmpty) continue;
+    final safeName = _persistedHermesToolName(rawName);
+    final statusIndex = statuses.length;
+    statuses.add(
+      ChatStatusUpdate(
+        action: _persistedHermesToolAction(rawName, safeName),
+        description: safeName,
+        done: false,
+        occurredAt: occurredAt,
+      ),
+    );
+    final callId = validateHermesOpaqueIdentifier(
+      rawCall['id'] ?? rawCall['tool_call_id'],
+    );
+    if (callId != null) {
+      pendingTools[callId] = (
+        messageIndex: messageIndex,
+        statusIndex: statusIndex,
+      );
+    }
+  }
+  return List.unmodifiable(statuses);
+}
+
+String _persistedHermesToolName(String raw) {
+  if (raw.length > 80) return 'Hermes tool';
+  final trimmed = raw.trim();
+  if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9_.:-]*$').hasMatch(trimmed)) {
+    return 'Hermes tool';
+  }
+  return trimmed;
+}
+
+String _persistedHermesToolAction(String raw, String safeName) {
+  if (safeName != 'Hermes tool' && raw.trim() == safeName) {
+    return 'hermes_tool_$safeName';
+  }
+  return 'hermes_tool_opaque';
+}
+
+void _completePersistedHermesTool(
+  Map<String, dynamic> item, {
+  required List<ChatMessage> messages,
+  required Map<String, ({int messageIndex, int statusIndex})> pendingTools,
+}) {
+  final callId = validateHermesOpaqueIdentifier(
+    item['tool_call_id'] ?? item['toolCallId'],
+  );
+  if (callId == null) return;
+  final pending = pendingTools.remove(callId);
+  if (pending == null || pending.messageIndex >= messages.length) return;
+  final message = messages[pending.messageIndex];
+  if (pending.statusIndex >= message.statusHistory.length) return;
+  final statuses = List<ChatStatusUpdate>.from(message.statusHistory);
+  statuses[pending.statusIndex] = statuses[pending.statusIndex].copyWith(
+    done: true,
+    occurredAt:
+        parseHermesTimestamp(item['created_at'] ?? item['timestamp']) ??
+        statuses[pending.statusIndex].occurredAt,
+  );
+  messages[pending.messageIndex] = message.copyWith(
+    statusHistory: List.unmodifiable(statuses),
+  );
 }
 
 final class _ExtractedHermesContent {
