@@ -343,8 +343,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
 
     _displayedContentFrameScheduled = true;
-    WidgetsBinding.instance.scheduleFrame();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Apply the latest streamed text before build so this requested frame can
+    // render it immediately. Deferring until after the frame creates a second
+    // frame and makes iOS composite the persistent native glass twice for one
+    // visible content update.
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
       _displayedContentFrameScheduled = false;
       if (!mounted) {
         return;

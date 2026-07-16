@@ -1,8 +1,9 @@
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/streaming_helper.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,6 +47,16 @@ void main() {
         ],
       );
     }
+
+    test('append-only stream text materializes once after many deltas', () {
+      final chunks = List<String>.generate(10000, (index) => 'token-$index ');
+
+      final result = debugAccumulateStreamingTextForTesting(chunks);
+
+      expect(result['length'], (result['value']! as String).length);
+      expect(result['value'], chunks.join());
+      expect(result['materializations'], 1);
+    });
 
     test('setFollowUps skips identical lists and notifies on changes', () {
       final container = buildContainer();
@@ -107,6 +118,40 @@ void main() {
         ]);
 
         notifier.clearMessages();
+      },
+    );
+
+    testWidgets(
+      'streaming content is visible in the frame scheduled for its flush',
+      (tester) async {
+        final container = buildContainer();
+
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          _assistantMessage(content: 'Hello', isStreaming: true),
+        ]);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: _StreamingContentProbe()),
+          ),
+        );
+        expect(find.text('not-flushed'), findsOneWidget);
+
+        notifier.appendToLastMessage(' world');
+        expect(find.text('not-flushed'), findsOneWidget);
+
+        // The scheduled frame both flushes the provider and rebuilds the live
+        // tail. A post-frame flush would require one more pump here.
+        await tester.pump();
+        expect(find.text('Hello world'), findsOneWidget);
+
+        notifier.clearMessages();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(milliseconds: 1));
+        container.dispose();
+        await tester.pump(const Duration(milliseconds: 1));
       },
     );
 
@@ -448,4 +493,13 @@ void main() {
       );
     });
   });
+}
+
+class _StreamingContentProbe extends ConsumerWidget {
+  const _StreamingContentProbe();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Text(ref.watch(streamingContentProvider) ?? 'not-flushed');
+  }
 }
