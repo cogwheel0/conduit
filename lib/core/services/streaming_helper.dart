@@ -758,6 +758,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     renderedStreamingContent,
   );
   var renderedFromStructuredOutput = false;
+  final structuredOutputProjector = StructuredOutputStreamingProjector();
+  var structuredProjectionIsVisible = false;
+  var structuredOutputIsLatest = false;
   final seenStreamingToolCallKeys = <String>{};
   var inReasoningBlock = false;
   var reasoningPrefix = '';
@@ -802,6 +805,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     resetStreamingReasoning();
     renderedStreamingContent = content;
     renderedFromStructuredOutput = fromStructuredOutput;
+    structuredProjectionIsVisible = fromStructuredOutput;
+    structuredOutputIsLatest = fromStructuredOutput;
     if (plainContent != null) {
       plainStreamingContent = plainContent;
     } else if (!fromStructuredOutput) {
@@ -841,7 +846,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (blocks.isEmpty) return;
 
     final hasDetails = structuredOutputBlocksContainDetails(blocks);
-    final renderedSnapshot = renderStructuredOutputBlocks(blocks);
     final snapshotPlainText = structuredOutputBlocksPlainText(blocks);
     final hasPlainContent = plainStreamingContent.trim().isNotEmpty;
     final replacementPlainText =
@@ -849,39 +853,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             snapshotPlainText.length > plainStreamingContent.length
         ? snapshotPlainText
         : plainStreamingContent;
-    final fullSnapshotPlainText = snapshotPlainText.trim().isNotEmpty
-        ? snapshotPlainText
-        : replacementPlainText;
     final shouldRenderFullSnapshot =
         renderedStreamingContent.trim().isEmpty ||
         renderedFromStructuredOutput ||
         !hasPlainContent;
     final visibleHasStaleDetails =
         !hasDetails &&
-        renderedStreamingContent != renderedSnapshot &&
         containsRenderedSemanticDetails(renderedStreamingContent);
     final strippedVisibleContent = visibleHasStaleDetails
         ? stripRenderedSemanticDetails(renderedStreamingContent)
+        : '';
+    final renderedSnapshot = visibleHasStaleDetails
+        ? renderStructuredOutputBlocks(blocks)
         : '';
     final strippedVisibleContentMatchesSnapshot =
         strippedVisibleContent.isNotEmpty &&
         (renderedSnapshot.trim().isEmpty ||
             strippedVisibleContent.contains(renderedSnapshot));
-    final outputContent = hasDetails
-        ? shouldRenderFullSnapshot
-              ? renderedSnapshot
-              : renderStructuredOutputBlocksWithContent(
-                  blocks,
-                  replacementPlainText,
-                )
-        : visibleHasStaleDetails
-        ? strippedVisibleContentMatchesSnapshot
-              ? strippedVisibleContent
-              : renderedSnapshot
-        : renderedSnapshot != plainStreamingContent
-        ? renderedSnapshot
-        : '';
-    if (outputContent.isEmpty) return;
     final renderedToolCallKeys = blocks
         .whereType<StructuredOutputToolCallBlock>()
         .map((block) {
@@ -902,14 +890,69 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         ..addAll(renderedToolCallKeys);
     }
 
+    final replacementText = hasDetails && !shouldRenderFullSnapshot
+        ? replacementPlainText
+        : null;
+    final projection = structuredOutputProjector.project(
+      blocks,
+      replacementText: replacementText,
+      canAppend: structuredProjectionIsVisible,
+      forceReplace: visibleHasStaleDetails,
+    );
+    structuredOutputIsLatest = true;
+
+    if (visibleHasStaleDetails && strippedVisibleContentMatchesSnapshot) {
+      replaceVisibleAssistantContent(
+        strippedVisibleContent,
+        fromStructuredOutput: true,
+        plainContent: snapshotPlainText,
+      );
+      structuredProjectionIsVisible = false;
+      structuredOutputIsLatest = true;
+      return;
+    }
+
+    switch (projection) {
+      case StructuredOutputStreamingAppend(:final content, :final plainContent):
+        resetStreamingReasoning();
+        renderedStreamingContent += content;
+        renderedFromStructuredOutput = true;
+        structuredProjectionIsVisible = true;
+        structuredOutputIsLatest = true;
+        plainStreamingContent = plainContent;
+        appendToLastMessage(content);
+        updateImagesFromCurrentContent();
+      case StructuredOutputStreamingReplace(
+        :final content,
+        :final plainContent,
+      ):
+        replaceVisibleAssistantContent(
+          content,
+          // A details-only snapshot is merged around already-visible plain
+          // text. Keep that text eligible for the next cumulative snapshot;
+          // only a full output snapshot supersedes it.
+          fromStructuredOutput: replacementText == null,
+          plainContent: plainContent,
+        );
+        structuredProjectionIsVisible = true;
+        structuredOutputIsLatest = true;
+      case null:
+        break;
+    }
+  }
+
+  void finalizeStructuredOutputProjection() {
+    if (!structuredOutputIsLatest) return;
+    final projection = structuredOutputProjector.finish();
+    if (projection == null) return;
+    if (projection.content == renderedStreamingContent) {
+      plainStreamingContent = projection.plainContent;
+      return;
+    }
     replaceVisibleAssistantContent(
-      outputContent,
-      fromStructuredOutput: shouldRenderFullSnapshot,
-      plainContent: hasDetails
-          ? shouldRenderFullSnapshot
-                ? fullSnapshotPlainText
-                : replacementPlainText
-          : snapshotPlainText,
+      projection.content,
+      fromStructuredOutput: true,
+      plainContent: projection.plainContent,
     );
   }
 
@@ -945,6 +988,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void wrappedFinishStreaming() {
     if (hasFinished) return;
     finalizeStreamingReasoning();
+    finalizeStructuredOutputProjection();
     hasFinished = true;
     hasCompletedStreamingUi = true;
 
@@ -999,6 +1043,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (chunk.isEmpty) return;
     if (includeInPlainContent) {
       renderedFromStructuredOutput = false;
+      structuredProjectionIsVisible = false;
+      structuredOutputIsLatest = false;
     }
 
     if (inReasoningBlock) {
@@ -1028,6 +1074,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   void applyStreamingReasoningDelta(String chunk) {
     if (chunk.isEmpty) return;
+
+    structuredProjectionIsVisible = false;
+    structuredOutputIsLatest = false;
 
     if (!inReasoningBlock) {
       syncRenderedStreamingContentFromState();

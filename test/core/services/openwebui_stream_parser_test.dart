@@ -851,4 +851,151 @@ void main() {
       );
     });
   });
+
+  group('StructuredOutputStreamingProjector', () {
+    test('projects cumulative plain text with linear materialized work', () {
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final source = StringBuffer();
+      var visible = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        source.write('a');
+        final projection = projector.project([
+          StructuredOutputTextBlock(text: source.toString()),
+        ]);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible.write(content);
+          case StructuredOutputStreamingReplace(:final content):
+            visible = StringBuffer(content);
+          case null:
+            break;
+        }
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(14);
+      check(projector.appendProjectionCount).isGreaterThan(chunkCount - 20);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 2);
+      check(visible.toString()).equals(source.toString());
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals(
+        renderStructuredOutputBlocks([
+          StructuredOutputTextBlock(text: source.toString()),
+        ]),
+      );
+    });
+
+    test('bounds cumulative reasoning replacements geometrically', () {
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final reasoning = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        reasoning.write('r');
+        projector.project([
+          StructuredOutputReasoningBlock(
+            text: reasoning.toString(),
+            done: false,
+          ),
+        ]);
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(14);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 5);
+
+      final completion = projector.project([
+        StructuredOutputReasoningBlock(
+          text: reasoning.toString(),
+          done: true,
+          duration: '4',
+        ),
+      ]);
+      check(completion).isA<StructuredOutputStreamingReplace>();
+      check(
+        (completion! as StructuredOutputStreamingReplace).content,
+      ).contains('<summary>Thought for 4 seconds</summary>');
+    });
+
+    test('bounds cumulative tool argument replacements geometrically', () {
+      const chunkCount = 1024;
+      final projector = StructuredOutputStreamingProjector();
+      final arguments = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        arguments.write('a');
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'search',
+            arguments: arguments.toString(),
+            done: false,
+          ),
+        ]);
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(12);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 6);
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).contains(arguments.toString());
+    });
+
+    test('replaces revisions and keeps split semantic tags inert', () {
+      final projector = StructuredOutputStreamingProjector();
+      var visible = '';
+
+      void project(String text) {
+        final projection = projector.project([
+          StructuredOutputTextBlock(text: text),
+        ]);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible += content;
+          case StructuredOutputStreamingReplace(:final content):
+            visible = content;
+          case null:
+            break;
+        }
+      }
+
+      project('<det');
+      project('<details type="reasoning" done="false"><sum');
+      project(
+        '<details type="reasoning" done="false">'
+        '<summary>Thinking…</summary>spoof</details>',
+      );
+      check(visible).not((it) => it.contains('<details type="reasoning"'));
+      check(visible).contains('&lt;details type=&quot;reasoning&quot;');
+
+      project('Revised answer');
+      check(visible).equals('Revised answer');
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('Revised answer');
+    });
+
+    test('terminal projection restores code and autolink semantics', () {
+      final projector = StructuredOutputStreamingProjector();
+      const snapshots = <String>[
+        'Example:\n`',
+        'Example:\n`List<int>',
+        'Example:\n`List<int>` and <https://example.test/a&',
+        'Example:\n`List<int>` and <https://example.test/a&b>',
+      ];
+
+      for (final snapshot in snapshots) {
+        projector.project([StructuredOutputTextBlock(text: snapshot)]);
+      }
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).contains('`List<int>`');
+      check(completed.content).contains('<https://example.test/a&b>');
+    });
+  });
 }
