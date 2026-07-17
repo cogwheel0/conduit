@@ -184,6 +184,21 @@ class ConduitMarkdownPreprocessor {
         .trim();
   }
 
+  /// Sanitizes message content for copying while omitting internal tool calls.
+  ///
+  /// Tool-call markup inside code spans is preserved so documentation and
+  /// examples are copied faithfully. Ordinary `<details>` blocks are also left
+  /// untouched.
+  static String sanitizeForClipboard(String input) {
+    if (input.isEmpty) return input;
+
+    final sanitized = sanitize(input);
+    return _replaceOutsideCode(
+      sanitized,
+      (segment) => segment.replaceAll(_toolCallBlocks, ''),
+    ).replaceAll(_multipleNewlines, '\n\n').trim();
+  }
+
   /// Converts markdown to plain text for text-to-speech.
   static String toPlainText(String input) {
     if (input.trim().isEmpty) return '';

@@ -5018,6 +5018,37 @@ Map<String, dynamic> _buildOpenWebUiBackgroundTasks({
   };
 }
 
+bool _shouldGenerateQueuedTitle(
+  List<ChatMessage> messages, {
+  required String assistantMessageId,
+  required bool isTemporary,
+}) {
+  if (isTemporary) return false;
+  final assistantIndex = messages.indexWhere(
+    (message) => message.id == assistantMessageId,
+  );
+  if (assistantIndex < 0) return false;
+  return messages
+          .take(assistantIndex)
+          .where((message) => message.role == 'user')
+          .length ==
+      1;
+}
+
+/// Exposes [_shouldGenerateQueuedTitle] for focused regression tests.
+@visibleForTesting
+bool shouldGenerateQueuedTitleForTest(
+  List<ChatMessage> messages, {
+  required String assistantMessageId,
+  required bool isTemporary,
+}) {
+  return _shouldGenerateQueuedTitle(
+    messages,
+    assistantMessageId: assistantMessageId,
+    isTemporary: isTemporary,
+  );
+}
+
 /// Exposes [_buildOpenWebUiBackgroundTasks] for focused unit tests.
 @visibleForTesting
 Map<String, dynamic> buildOpenWebUiBackgroundTasksForTest({
@@ -8133,7 +8164,11 @@ Future<void> runQueuedCompletion(
 
   final bgTasks = _buildOpenWebUiBackgroundTasks(
     userSettings: userSettingsData,
-    shouldGenerateTitle: false,
+    shouldGenerateTitle: _shouldGenerateQueuedTitle(
+      messages,
+      assistantMessageId: assistantMessageId,
+      isTemporary: isTemporary,
+    ),
     webSearchEnabled: enableWebSearch,
     imageGenerationEnabled: enableImageGeneration,
   );
@@ -8377,7 +8412,11 @@ Future<void> runHeadlessCompletion(
 
   final bgTasks = _buildOpenWebUiBackgroundTasks(
     userSettings: userSettingsData,
-    shouldGenerateTitle: false,
+    shouldGenerateTitle: _shouldGenerateQueuedTitle(
+      messages,
+      assistantMessageId: assistantMessageId,
+      isTemporary: false,
+    ),
     webSearchEnabled: enableWebSearch,
     imageGenerationEnabled: enableImageGeneration,
   );

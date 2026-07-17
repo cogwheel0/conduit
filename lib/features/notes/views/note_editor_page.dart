@@ -48,6 +48,104 @@ import '../widgets/audio_player_dialog.dart';
 import '../widgets/audio_recording_overlay.dart';
 import '../widgets/note_file_attachment.dart';
 
+/// Builds the rich-note editor theme from Conduit's semantic color tokens.
+///
+/// Fleather's fallback block styles derive their colors from a separate
+/// [DefaultTextStyle]. Every block type must therefore be mapped explicitly so
+/// headings and lists remain readable in both brightness modes.
+FleatherThemeData buildNoteEditorFleatherTheme(BuildContext context) {
+  final theme = context.conduitTheme;
+  final fallback = FleatherThemeData.fallback(context);
+  final base = AppTypography.bodyLargeStyle.copyWith(
+    color: theme.textPrimary,
+    height: 1.8,
+  );
+
+  TextStyle blockStyle(TextStyle source, {Color? color}) {
+    return base
+        .merge(source)
+        .copyWith(
+          color: color ?? theme.textPrimary,
+          fontFamily: AppTypography.fontFamily,
+        );
+  }
+
+  TextBlockTheme themedBlock(
+    TextBlockTheme source, {
+    TextStyle? style,
+    BoxDecoration? decoration,
+  }) {
+    return TextBlockTheme(
+      style: style ?? blockStyle(source.style),
+      spacing: source.spacing,
+      lineSpacing: source.lineSpacing,
+      decoration: decoration ?? source.decoration,
+    );
+  }
+
+  TextStyle inlineCodeStyle(TextStyle? source) {
+    return (source ?? fallback.inlineCode.style).copyWith(
+      color: theme.codeText,
+      fontFamily: AppTypography.monospaceFontFamily,
+    );
+  }
+
+  return fallback.copyWith(
+    paragraph: TextBlockTheme(
+      style: base,
+      spacing: const VerticalSpacing(top: 0, bottom: 6),
+    ),
+    heading1: themedBlock(fallback.heading1),
+    heading2: themedBlock(fallback.heading2),
+    heading3: themedBlock(fallback.heading3),
+    heading4: themedBlock(fallback.heading4),
+    heading5: themedBlock(fallback.heading5),
+    heading6: themedBlock(fallback.heading6),
+    lists: themedBlock(fallback.lists, style: base),
+    quote: themedBlock(
+      fallback.quote,
+      style: blockStyle(fallback.quote.style, color: theme.textSecondary),
+      decoration: BoxDecoration(
+        border: BorderDirectional(
+          start: BorderSide(width: 4, color: theme.dividerColor),
+        ),
+      ),
+    ),
+    code: themedBlock(
+      fallback.code,
+      style: fallback.code.style.copyWith(
+        color: theme.codeText,
+        fontFamily: AppTypography.monospaceFontFamily,
+      ),
+      decoration: BoxDecoration(
+        color: theme.codeBackground,
+        border: Border.all(color: theme.codeBorder),
+        borderRadius:
+            fallback.code.decoration?.borderRadius ?? BorderRadius.circular(2),
+      ),
+    ),
+    inlineCode: InlineCodeThemeData(
+      style: inlineCodeStyle(fallback.inlineCode.style),
+      heading1: inlineCodeStyle(fallback.inlineCode.heading1),
+      heading2: inlineCodeStyle(fallback.inlineCode.heading2),
+      heading3: inlineCodeStyle(fallback.inlineCode.heading3),
+      backgroundColor: theme.codeBackground,
+      radius: fallback.inlineCode.radius,
+    ),
+    horizontalRuleThemeData: HorizontalRuleThemeData(
+      height: fallback.horizontalRule.height,
+      thickness: fallback.horizontalRule.thickness,
+      color: theme.dividerColor,
+    ),
+    bold: const TextStyle(fontWeight: FontWeight.bold),
+    italic: const TextStyle(fontStyle: FontStyle.italic),
+    link: TextStyle(
+      color: theme.buttonPrimary,
+      decoration: TextDecoration.underline,
+    ),
+  );
+}
+
 /// Page for editing a note with OpenWebUI-style layout.
 class NoteEditorPage extends ConsumerStatefulWidget {
   final String noteId;
@@ -2264,24 +2362,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Builds a Fleather theme derived from the app's typography and colours so
   /// the rich-text editor matches the rest of the note UI.
   FleatherThemeData _buildFleatherTheme(BuildContext context) {
-    final theme = context.conduitTheme;
-    final base = AppTypography.bodyLargeStyle.copyWith(
-      color: theme.textPrimary,
-      height: 1.8,
-    );
-    final fallback = FleatherThemeData.fallback(context);
-    return fallback.copyWith(
-      paragraph: TextBlockTheme(
-        style: base,
-        spacing: const VerticalSpacing(top: 0, bottom: 6),
-      ),
-      bold: const TextStyle(fontWeight: FontWeight.bold),
-      italic: const TextStyle(fontStyle: FontStyle.italic),
-      link: TextStyle(
-        color: theme.buttonPrimary,
-        decoration: TextDecoration.underline,
-      ),
-    );
+    return buildNoteEditorFleatherTheme(context);
   }
 
   /// Play an audio file attachment.
