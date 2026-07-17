@@ -91,9 +91,47 @@ void main() {
       check(result).contains('after');
     });
 
+    test('preserves literal reasoning blocks inside code spans and fences', () {
+      const input = '''before <think>remove me</think>
+
+``<think>`inline example`</think>``
+
+````
+<details type="reasoning">fenced example</details>
+````
+
+after''';
+
+      final result = ConduitMarkdownPreprocessor.sanitize(input);
+      check(result).not((value) => value.contains('remove me'));
+      check(result).contains('``<think>`inline example`</think>``');
+      check(result).contains(
+        '````\n<details type="reasoning">fenced example</details>\n````',
+      );
+    });
+
     test('collapses 3+ newlines to double newline', () {
       final result = ConduitMarkdownPreprocessor.sanitize('a\n\n\n\nb');
       check(result).equals('a\n\nb');
+    });
+  });
+
+  group('ConduitMarkdownPreprocessor.stripLinkReferenceDefinitions', () {
+    test('preserves definitions inside variable-length code delimiters', () {
+      const input = '''[remove]: https://example.com/remove
+
+``[inline]: `literal` ``
+
+````
+[fenced]: https://example.com/keep
+````''';
+
+      final result = ConduitMarkdownPreprocessor.stripLinkReferenceDefinitions(
+        input,
+      );
+      check(result).not((value) => value.contains('[remove]'));
+      check(result).contains('``[inline]: `literal` ``');
+      check(result).contains('````\n[fenced]: https://example.com/keep\n````');
     });
   });
 
@@ -270,6 +308,23 @@ void main() {
       );
       check(result).contains('```<details>code</details>```');
       check(result).not((s) => s.contains(' hide <details>x</details>'));
+    });
+
+    test('removes details containing code without splitting the block', () {
+      const input = '''before
+<details><summary>Hidden</summary>
+``inline `secret` ``
+````
+fenced secret
+````
+</details>
+after''';
+
+      final result = ConduitMarkdownPreprocessor.removeAllDetails(input);
+      check(result).not((value) => value.contains('Hidden'));
+      check(result).not((value) => value.contains('secret'));
+      check(result).contains('before');
+      check(result).contains('after');
     });
   });
 

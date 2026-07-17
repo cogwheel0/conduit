@@ -30,11 +30,17 @@ void main() {
     test('preserves ordinary details and literal tool-call examples', () {
       const input = '''<details><summary>Keep me</summary>Body</details>
 
-`<details type="tool_calls">example</details>`
+`<details type="tool_calls">standard inline</details>`
 
 ```
+<details type="tool_calls">standard fence</details>
+```
+
+``<details type="tool_calls">`example`</details>``
+
+````
 <details type="tool_calls">example</details>
-```''';
+````''';
 
       check(
         ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
@@ -46,11 +52,11 @@ void main() {
 
 <details type="tool_calls" done="true">
 <summary>Tool call</summary>
-`private inline payload`
+``private `inline` payload``
 
-```
+````
 private fenced payload
-```
+````
 </details>
 
 After''';
