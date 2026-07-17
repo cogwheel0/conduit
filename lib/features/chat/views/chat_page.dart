@@ -284,6 +284,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         showThreshold: _scrollButtonShowThreshold,
         hideThreshold: _scrollButtonHideThreshold,
       );
+  final ChatBottomScrollSettler _bottomScrollSettler =
+      ChatBottomScrollSettler();
   bool _showScrollToBottom = false;
   Timer? _scrollDebounceTimer;
   bool _isDeactivated = false;
@@ -637,6 +639,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _reviewerModeSub?.close();
     _conversationIdSub?.close();
     _markdownPrewarmTimer?.cancel();
+    _bottomScrollSettler.cancel();
     _endScrollProfile(reason: 'disposed');
     _messageListController.dispose();
     _scrollController.dispose();
@@ -647,6 +650,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void deactivate() {
     _isDeactivated = true;
+    _bottomScrollSettler.cancel();
     _scrollDebounceTimer?.cancel();
     super.deactivate();
   }
@@ -1504,7 +1508,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    _isUserInteractingWithScroll = false;
+    _bottomAnchorController.requestBottomAnchor();
+    _syncLayoutBottomAnchor();
     if (_wantsPinToTop) {
       _endPinToTop(instant: true, preserveStreamingId: true);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1523,6 +1528,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_isUserInteractingWithScroll || !_scrollController.hasClients) return;
     final maxScroll = _bottomScrollOffset();
     if (!maxScroll.isFinite || maxScroll <= 0) return;
+    _bottomAnchorController.requestBottomAnchor();
+    _syncLayoutBottomAnchor();
     final shouldAnimate = smooth && !context.reduceMotion;
 
     PerformanceProfiler.instance.instant(
@@ -1546,12 +1553,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if ((animationStart - _scrollController.offset).abs() >= 1) {
         _scrollController.jumpTo(animationStart);
       }
-      _scrollController.animateTo(
-        maxScroll,
-        duration: duration,
-        curve: Curves.easeOutCubic,
+      unawaited(
+        _bottomScrollSettler.animateToLatestBottom(
+          initialBottom: maxScroll,
+          animateTo: (target) => _scrollController.animateTo(
+            target,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+          ),
+          canSettle: () =>
+              mounted &&
+              !_isDeactivated &&
+              _scrollController.hasClients &&
+              !_isUserInteractingWithScroll &&
+              !_wantsPinToTop,
+          rearmBottomAnchor: () {
+            _bottomAnchorController.requestBottomAnchor();
+            _syncLayoutBottomAnchor();
+          },
+          latestBottom: _bottomScrollOffset,
+          currentOffset: () => _scrollController.offset,
+          jumpTo: _scrollController.jumpTo,
+          onSettled: _updateScrollToBottomVisibility,
+          correctionEpsilon: _scrollCorrectionEpsilon,
+        ),
       );
     } else {
+      _bottomScrollSettler.cancel();
       _scrollController.jumpTo(maxScroll);
       _updateScrollToBottomVisibility();
     }
@@ -1606,6 +1634,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
+    _bottomScrollSettler.cancel();
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     if (outgoingId != null && _scrollController.hasClients) {
@@ -2213,6 +2242,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               isUserScrollUpdate ||
               isUserDirectionalScroll) {
             if (!_isUserInteractingWithScroll) {
+              _bottomScrollSettler.cancel();
               _cancelPendingInitialBottomSettle();
               _beginScrollProfile('user_drag');
             }

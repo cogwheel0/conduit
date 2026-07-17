@@ -154,11 +154,14 @@ final class _HermesRunProjection {
     required this.message,
     required bool requiresDurablePersistence,
   }) : requiresDurablePersistence = requiresDurablePersistence,
-       durablePersistenceComplete = !requiresDurablePersistence;
+       durablePersistenceComplete = !requiresDurablePersistence,
+       contentBuffer = StringBuffer(message.content);
 
   HermesRunKey key;
   final CancelToken cancelToken;
   ChatMessage message;
+  final StringBuffer contentBuffer;
+  bool contentBufferDirty = false;
   final bool requiresDurablePersistence;
   bool finalized = false;
   bool dispatchSettled = false;
@@ -201,10 +204,13 @@ final class _HermesRunProjectionStore {
   _HermesRunProjectionStore({
     this.maxRetainedProjections = _maxRetainedHermesProjections,
     this.maxRetainedBytes = _maxRetainedHermesProjectionBytes,
+    this.debugOnContentMaterialized,
   });
 
   final int maxRetainedProjections;
   final int maxRetainedBytes;
+  @visibleForTesting
+  final void Function()? debugOnContentMaterialized;
   final Map<HermesRunKey, _HermesRunProjection> _byKey = {};
   final LinkedHashSet<_HermesRunProjection> _finalized = LinkedHashSet();
   int _retainedBytes = 0;
@@ -238,8 +244,20 @@ final class _HermesRunProjectionStore {
     ChatMessage Function(ChatMessage current) updater,
   ) {
     if (!isCurrent(projection) || projection.finalized) return false;
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    _replaceProjectionMessage(projection, current: current, updated: updated);
+    projection.persistenceRevision += 1;
+    return true;
+  }
+
+  bool appendContent(_HermesRunProjection projection, String content) {
+    if (content.isEmpty || !isCurrent(projection) || projection.finalized) {
+      return false;
+    }
     projection
-      ..message = updater(projection.message)
+      ..contentBuffer.write(content)
+      ..contentBufferDirty = true
       ..persistenceRevision += 1;
     return true;
   }
@@ -250,9 +268,10 @@ final class _HermesRunProjectionStore {
   ) {
     final projection = _byKey[key];
     if (projection == null || projection.finalized) return false;
-    projection
-      ..message = updater(projection.message)
-      ..persistenceRevision += 1;
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    _replaceProjectionMessage(projection, current: current, updated: updated);
+    projection.persistenceRevision += 1;
     return true;
   }
 
@@ -270,7 +289,7 @@ final class _HermesRunProjectionStore {
     if (projection == null) {
       return (found: false, changed: false, key: null);
     }
-    final message = projection.message;
+    final message = _materializeContent(projection);
     if (message.id != messageId ||
         message.metadata?['transport'] != kHermesTransport) {
       return (found: true, changed: false, key: projection.key);
@@ -327,14 +346,15 @@ final class _HermesRunProjectionStore {
     ChatMessage Function(ChatMessage current) updater,
   ) {
     if (!isCurrent(projection) || !projection.finalized) return false;
-    final updated = updater(projection.message);
-    if (updated.error == null || updated.error == projection.message.error) {
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    if (updated.error == null || updated.error == current.error) {
       return false;
     }
     final retainedForRecovery = _finalized.contains(projection);
     if (retainedForRecovery) _retainedBytes -= projection.retainedBytes;
     projection
-      ..message = projection.message.copyWith(error: updated.error)
+      ..message = current.copyWith(error: updated.error)
       ..persistenceRevision += 1
       ..durablePersistenceComplete = !projection.requiresDurablePersistence
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
@@ -352,8 +372,9 @@ final class _HermesRunProjectionStore {
   bool finalize(_HermesRunProjection projection) {
     if (!isCurrent(projection)) return false;
     if (projection.finalized) return true;
+    final current = _materializeContent(projection);
     projection
-      ..message = projection.message.copyWith(isStreaming: false)
+      ..message = current.copyWith(isStreaming: false)
       ..finalized = true
       ..persistenceRevision += 1
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
@@ -543,6 +564,7 @@ final class _HermesRunProjectionStore {
         _remove(projection);
         continue;
       }
+      _materializeContent(projection);
       available.add(projection);
     }
     return List<_HermesRunProjection>.unmodifiable(available);
@@ -608,6 +630,29 @@ final class _HermesRunProjectionStore {
       _byKey.remove(projection.key);
     }
     _removeFromRecoveryCache(projection);
+  }
+
+  ChatMessage _materializeContent(_HermesRunProjection projection) {
+    if (!projection.contentBufferDirty) return projection.message;
+    final content = projection.contentBuffer.toString();
+    debugOnContentMaterialized?.call();
+    projection
+      ..message = projection.message.copyWith(content: content)
+      ..contentBufferDirty = false;
+    return projection.message;
+  }
+
+  void _replaceProjectionMessage(
+    _HermesRunProjection projection, {
+    required ChatMessage current,
+    required ChatMessage updated,
+  }) {
+    projection.message = updated;
+    if (updated.content == current.content) return;
+    projection.contentBuffer
+      ..clear()
+      ..write(updated.content);
+    projection.contentBufferDirty = false;
   }
 }
 
@@ -887,6 +932,61 @@ List<String> retainedHermesProjectionIdsForTest(
   return store._finalized
       .map((projection) => projection.message.id)
       .toList(growable: false);
+}
+
+@visibleForTesting
+({
+  String beforeMetadataBoundary,
+  String afterMetadataBoundary,
+  String beforeFinalize,
+  String finalizedContent,
+  int materializationCount,
+})
+bufferedHermesProjectionContentForTest(Iterable<String> chunks) {
+  var materializationCount = 0;
+  final store = _HermesRunProjectionStore(
+    debugOnContentMaterialized: () => materializationCount += 1,
+  );
+  final projection = store.begin(
+    hermesRunKey(
+      ownerConversationId: 'test-owner',
+      assistantMessageId: 'test-assistant',
+    ),
+    cancelToken: CancelToken(),
+    initialMessage: ChatMessage(
+      id: 'test-assistant',
+      role: 'assistant',
+      content: 'seed:',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      isStreaming: true,
+    ),
+    requiresDurablePersistence: false,
+  );
+  final chunkList = chunks.toList(growable: false);
+  final boundary = chunkList.length ~/ 2;
+  for (var index = 0; index < boundary; index += 1) {
+    store.appendContent(projection, chunkList[index]);
+  }
+  final beforeMetadataBoundary = projection.message.content;
+  store.update(
+    projection,
+    (message) => message.copyWith(
+      metadata: const <String, dynamic>{'transport': kHermesTransport},
+    ),
+  );
+  final afterMetadataBoundary = projection.message.content;
+  for (var index = boundary; index < chunkList.length; index += 1) {
+    store.appendContent(projection, chunkList[index]);
+  }
+  final beforeFinalize = projection.message.content;
+  store.finalize(projection);
+  return (
+    beforeMetadataBoundary: beforeMetadataBoundary,
+    afterMetadataBoundary: afterMetadataBoundary,
+    beforeFinalize: beforeFinalize,
+    finalizedContent: projection.message.content,
+    materializationCount: materializationCount,
+  );
 }
 
 /// Regression seam for compact approval snapshots that leave the bounded
@@ -11111,10 +11211,10 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   void appendProjectedContent(String content) {
     if (content.isEmpty) return;
-    updateProjectionIfOwned(
-      (message) => message.copyWith(content: '${message.content}$content'),
-      () => notifier.appendToMessageById(assistantMessageId, content),
-    );
+    if (!projectionStore.appendContent(projection, content)) return;
+    if (owner.isActive(ref)) {
+      notifier.appendToMessageById(assistantMessageId, content);
+    }
   }
 
   void replaceProjectedContent(String content) {

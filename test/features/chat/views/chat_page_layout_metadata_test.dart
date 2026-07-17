@@ -128,6 +128,144 @@ void main() {
     },
   );
 
+  testWidgets('bottom scroll settles against response and composer growth', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final liveHeight = ValueNotifier<double>(240);
+    final composerHeight = ValueNotifier<double>(72);
+    final settler = ChatBottomScrollSettler();
+    final anchor = ChatBottomAnchorController(
+      showThreshold: 300,
+      hideThreshold: 150,
+    )..detachByUser();
+    var settled = false;
+    addTearDown(scrollController.dispose);
+    addTearDown(liveHeight.dispose);
+    addTearDown(composerHeight.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          height: 320,
+          child: CustomScrollView(
+            controller: scrollController,
+            slivers: [
+              const SliverToBoxAdapter(child: SizedBox(height: 640)),
+              SliverToBoxAdapter(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: liveHeight,
+                  builder: (context, height, _) => SizedBox(height: height),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: composerHeight,
+                  builder: (context, height, _) => SizedBox(height: height),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final initialBottom = scrollController.position.maxScrollExtent;
+    check(anchor.isAnchoredToBottom).isFalse();
+
+    final settleFuture = settler.animateToLatestBottom(
+      initialBottom: initialBottom,
+      animateTo: (target) => scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.linear,
+      ),
+      canSettle: () => true,
+      rearmBottomAnchor: anchor.requestBottomAnchor,
+      latestBottom: () => scrollController.position.maxScrollExtent,
+      currentOffset: () => scrollController.offset,
+      jumpTo: scrollController.jumpTo,
+      onSettled: () => settled = true,
+      correctionEpsilon: 1,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    liveHeight.value += 180;
+    composerHeight.value += 48;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pump();
+    await settleFuture;
+
+    check(settled).isTrue();
+    check(anchor.isAnchoredToBottom).isTrue();
+    check(
+      scrollController.offset,
+    ).isCloseTo(scrollController.position.maxScrollExtent, 0.01);
+  });
+
+  testWidgets('user interaction cancels a pending bottom settle', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final settler = ChatBottomScrollSettler();
+    var userIsInteracting = false;
+    var rearmCount = 0;
+    addTearDown(scrollController.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          height: 320,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification is ScrollStartNotification &&
+                  notification.dragDetails != null) {
+                userIsInteracting = true;
+                settler.cancel();
+              }
+              return false;
+            },
+            child: CustomScrollView(
+              controller: scrollController,
+              slivers: const [
+                SliverToBoxAdapter(child: SizedBox(height: 1400)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final settleFuture = settler.animateToLatestBottom(
+      initialBottom: scrollController.position.maxScrollExtent,
+      animateTo: (target) => scrollController.animateTo(
+        target,
+        duration: const Duration(seconds: 2),
+        curve: Curves.linear,
+      ),
+      canSettle: () => !userIsInteracting,
+      rearmBottomAnchor: () => rearmCount += 1,
+      latestBottom: () => scrollController.position.maxScrollExtent,
+      currentOffset: () => scrollController.offset,
+      jumpTo: scrollController.jumpTo,
+      onSettled: () {},
+      correctionEpsilon: 1,
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
+    await tester.pump();
+    await settleFuture;
+    final interruptedOffset = scrollController.offset;
+    await tester.pump(const Duration(milliseconds: 300));
+
+    check(userIsInteracting).isTrue();
+    check(rearmCount).equals(0);
+    check(scrollController.offset).isCloseTo(interruptedOffset, 0.01);
+    check(
+      scrollController.offset,
+    ).isLessThan(scrollController.position.maxScrollExtent);
+  });
+
   testWidgets(
     'managed timeline remaps the trailing spacer extent when a row is appended',
     (tester) async {
@@ -256,6 +394,22 @@ void main() {
     expect(
       controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
       isFalse,
+    );
+  });
+
+  test('explicit bottom request re-arms live content anchoring', () {
+    final controller =
+        ChatBottomAnchorController(showThreshold: 300, hideThreshold: 150)
+          ..detachByUser()
+          ..isUserInteractingWithScroll = true;
+
+    controller.requestBottomAnchor();
+
+    expect(controller.isAnchoredToBottom, isTrue);
+    expect(controller.isUserInteractingWithScroll, isFalse);
+    expect(
+      controller.shouldKeepAnchoredOnContentSizeChange(wantsPinToTop: false),
+      isTrue,
     );
   });
 

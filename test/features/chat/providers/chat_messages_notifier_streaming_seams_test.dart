@@ -6912,6 +6912,22 @@ void main() {
     );
 
     test(
+      'Hermes projection buffers token content between state boundaries',
+      () {
+        final chunks = List<String>.generate(2000, (index) => '$index|');
+
+        final result = bufferedHermesProjectionContentForTest(chunks);
+
+        final firstHalf = chunks.take(chunks.length ~/ 2).join();
+        check(result.beforeMetadataBoundary).equals('seed:');
+        check(result.afterMetadataBoundary).equals('seed:$firstHalf');
+        check(result.beforeFinalize).equals('seed:$firstHalf');
+        check(result.finalizedContent).equals('seed:${chunks.join()}');
+        check(result.materializationCount).equals(2);
+      },
+    );
+
+    test(
       'oversized Hermes version graph is evicted without flushing older state',
       () {
         final timestamp = DateTime(2024, 1, 1);
