@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
@@ -21,10 +22,9 @@ void main() {
 
 **After**''';
 
-      expect(
+      check(
         ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
-        'Before\n\n**After**',
-      );
+      ).equals('Before\n\n**After**');
     });
 
     test('preserves ordinary details and literal tool-call examples', () {
@@ -36,7 +36,28 @@ void main() {
 <details type="tool_calls">example</details>
 ```''';
 
-      expect(ConduitMarkdownPreprocessor.sanitizeForClipboard(input), input);
+      check(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
+      ).equals(input);
+    });
+
+    test('removes tool-call details that contain code spans', () {
+      const input = '''Before
+
+<details type="tool_calls" done="true">
+<summary>Tool call</summary>
+`private inline payload`
+
+```
+private fenced payload
+```
+</details>
+
+After''';
+
+      check(
+        ConduitMarkdownPreprocessor.sanitizeForClipboard(input),
+      ).equals('Before\n\nAfter');
     });
   });
 
@@ -56,21 +77,13 @@ void main() {
         isTemporary: false,
       );
 
-      expect(shouldGenerate, isTrue);
-      expect(
-        buildOpenWebUiBackgroundTasksForTest(
-          userSettings: null,
-          shouldGenerateTitle: shouldGenerate,
-        ),
-        containsPair('title_generation', true),
+      check(shouldGenerate).isTrue();
+      final backgroundTasks = buildOpenWebUiBackgroundTasksForTest(
+        userSettings: null,
+        shouldGenerateTitle: shouldGenerate,
       );
-      expect(
-        buildOpenWebUiBackgroundTasksForTest(
-          userSettings: null,
-          shouldGenerateTitle: shouldGenerate,
-        ),
-        containsPair('tags_generation', true),
-      );
+      check(backgroundTasks['title_generation']).equals(true);
+      check(backgroundTasks['tags_generation']).equals(true);
     });
 
     test('does not regenerate titles for later turns or temporary chats', () {
@@ -81,22 +94,20 @@ void main() {
         message('a-2', 'assistant'),
       ];
 
-      expect(
+      check(
         shouldGenerateQueuedTitleForTest(
           laterTurn,
           assistantMessageId: 'a-2',
           isTemporary: false,
         ),
-        isFalse,
-      );
-      expect(
+      ).isFalse();
+      check(
         shouldGenerateQueuedTitleForTest(
           [message('user-1', 'user'), message('a-1', 'assistant')],
           assistantMessageId: 'a-1',
           isTemporary: true,
         ),
-        isFalse,
-      );
+      ).isFalse();
     });
 
     test('anchors first-turn eligibility to the queued assistant', () {
@@ -107,14 +118,13 @@ void main() {
         message('a-2', 'assistant'),
       ];
 
-      expect(
+      check(
         shouldGenerateQueuedTitleForTest(
           queuedTurns,
           assistantMessageId: 'a-1',
           isTemporary: false,
         ),
-        isTrue,
-      );
+      ).isTrue();
     });
   });
 
@@ -144,19 +154,19 @@ void main() {
 
         final editor = fleatherTheme!;
         final colors = conduitTheme!;
-        expect(editor.paragraph.style.color, colors.textPrimary);
-        expect(editor.heading1.style.color, colors.textPrimary);
-        expect(editor.heading2.style.color, colors.textPrimary);
-        expect(editor.heading3.style.color, colors.textPrimary);
-        expect(editor.heading4.style.color, colors.textPrimary);
-        expect(editor.heading5.style.color, colors.textPrimary);
-        expect(editor.heading6.style.color, colors.textPrimary);
-        expect(editor.lists.style.color, colors.textPrimary);
-        expect(editor.lists.style.fontFamily, AppTypography.fontFamily);
-        expect(editor.code.style.color, colors.codeText);
-        expect(editor.code.decoration?.color, colors.codeBackground);
-        expect(editor.inlineCode.style.color, colors.codeText);
-        expect(editor.inlineCode.backgroundColor, colors.codeBackground);
+        check(editor.paragraph.style.color).equals(colors.textPrimary);
+        check(editor.heading1.style.color).equals(colors.textPrimary);
+        check(editor.heading2.style.color).equals(colors.textPrimary);
+        check(editor.heading3.style.color).equals(colors.textPrimary);
+        check(editor.heading4.style.color).equals(colors.textPrimary);
+        check(editor.heading5.style.color).equals(colors.textPrimary);
+        check(editor.heading6.style.color).equals(colors.textPrimary);
+        check(editor.lists.style.color).equals(colors.textPrimary);
+        check(editor.lists.style.fontFamily).equals(AppTypography.fontFamily);
+        check(editor.code.style.color).equals(colors.codeText);
+        check(editor.code.decoration?.color).equals(colors.codeBackground);
+        check(editor.inlineCode.style.color).equals(colors.codeText);
+        check(editor.inlineCode.backgroundColor).equals(colors.codeBackground);
       });
     }
   });

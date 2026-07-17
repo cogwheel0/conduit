@@ -64,6 +64,7 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
     dotAll: true,
   );
+  static final _codeSpanOrFence = RegExp(r'```[\s\S]*?```|`[\s\S]*?`');
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
     multiLine: true,
@@ -193,9 +194,8 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _replaceOutsideCode(
+    return _removeToolCallBlocksOutsideCode(
       sanitized,
-      (segment) => segment.replaceAll(_toolCallBlocks, ''),
     ).replaceAll(_multipleNewlines, '\n\n').trim();
   }
 
@@ -335,10 +335,32 @@ class ConduitMarkdownPreprocessor {
     String Function(String segment) replacer,
   ) {
     return input.splitMapJoin(
-      RegExp(r'```[\s\S]*?```|`[\s\S]*?`'),
+      _codeSpanOrFence,
       onMatch: (match) => match[0] ?? '',
       onNonMatch: replacer,
     );
+  }
+
+  static String _removeToolCallBlocksOutsideCode(String input) {
+    final codeSpans = <String>[];
+    var marker = '\u0000conduit-code-span-';
+    while (input.contains(marker)) {
+      marker = '\u0000$marker';
+    }
+
+    final masked = input.replaceAllMapped(_codeSpanOrFence, (match) {
+      final index = codeSpans.length;
+      codeSpans.add(match[0] ?? '');
+      return '$marker$index\u0000';
+    });
+    var output = masked.replaceAll(_toolCallBlocks, '');
+
+    // Placeholders inside removed tool calls no longer exist, so only code from
+    // the response itself is restored.
+    for (var index = 0; index < codeSpans.length; index++) {
+      output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
+    }
+    return output;
   }
 
   static String _removeEmojis(String input) {
