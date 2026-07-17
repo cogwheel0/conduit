@@ -2404,7 +2404,14 @@ void main() {
           connectionIdentity: connectionIdentity,
           sessionId: 'responses-session',
         ),
-      ).length.equals(1);
+      ).deepEquals(<String>{
+        HermesLocalDocumentTrustStore.documentTrustKey(
+          messageId: 'server-user-1',
+          promptText: prompt,
+          documentEnvelope: envelope,
+          startOffset: prompt.length - envelope.length,
+        ),
+      });
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
@@ -6923,6 +6930,7 @@ void main() {
         check(result.afterMetadataBoundary).equals('seed:$firstHalf');
         check(result.beforeFinalize).equals('seed:$firstHalf');
         check(result.finalizedContent).equals('seed:${chunks.join()}');
+        check(result.finalizedBufferLength).equals(0);
         check(result.materializationCount).equals(2);
       },
     );

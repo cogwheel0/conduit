@@ -378,6 +378,10 @@ final class _HermesRunProjectionStore {
       ..finalized = true
       ..persistenceRevision += 1
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
+    // The finalized message now owns the immutable content. Keeping the
+    // accumulator would retain a second, unaccounted copy for every recovery
+    // projection in the bounded cache.
+    projection.contentBuffer.clear();
     _finalized.add(projection);
     _retainedBytes += projection.retainedBytes;
     if (projection.retainedBytes > maxRetainedBytes) {
@@ -940,6 +944,7 @@ List<String> retainedHermesProjectionIdsForTest(
   String afterMetadataBoundary,
   String beforeFinalize,
   String finalizedContent,
+  int finalizedBufferLength,
   int materializationCount,
 })
 bufferedHermesProjectionContentForTest(Iterable<String> chunks) {
@@ -985,6 +990,7 @@ bufferedHermesProjectionContentForTest(Iterable<String> chunks) {
     afterMetadataBoundary: afterMetadataBoundary,
     beforeFinalize: beforeFinalize,
     finalizedContent: projection.message.content,
+    finalizedBufferLength: projection.contentBuffer.length,
     materializationCount: materializationCount,
   );
 }

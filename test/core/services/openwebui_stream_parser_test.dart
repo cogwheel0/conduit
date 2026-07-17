@@ -1053,10 +1053,10 @@ void main() {
       final revision = projector.project([
         StructuredOutputTextBlock(text: after),
       ]);
-      check(revision).isA<StructuredOutputStreamingReplace>();
-      check(
-        (revision! as StructuredOutputStreamingReplace).content,
-      ).equals(after);
+      check(revision)
+          .isA<StructuredOutputStreamingReplace>()
+          .has((replacement) => replacement.content, 'content')
+          .equals(after);
     });
 
     test('replaces revisions and keeps split semantic tags inert', () {
