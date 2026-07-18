@@ -251,6 +251,8 @@ class _PinToTopState {
   final String? userMessageId;
   final String? streamingMessageId;
 
+  _PinToTopState preserveForUserScroll() => this;
+
   _PinToTopState dismiss({bool preserveStreamingId = false}) {
     if (!preserveStreamingId) {
       return const _PinToTopState.inactive();
@@ -260,6 +262,42 @@ class _PinToTopState {
       userMessageId: userMessageId,
       streamingMessageId: streamingMessageId,
     );
+  }
+}
+
+class _PinToTopScrollPhysics extends ScrollPhysics {
+  const _PinToTopScrollPhysics({
+    required this.maximumScrollOffset,
+    super.parent,
+  });
+
+  final double? Function(ScrollMetrics position) maximumScrollOffset;
+
+  @override
+  _PinToTopScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _PinToTopScrollPhysics(
+      maximumScrollOffset: maximumScrollOffset,
+      parent: buildParent(ancestor),
+    );
+  }
+
+  @override
+  double applyBoundaryConditions(ScrollMetrics position, double value) {
+    final configuredMaximum = maximumScrollOffset(position);
+    if (configuredMaximum != null && configuredMaximum.isFinite) {
+      final effectiveMaximum = configuredMaximum
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      final overflow = _scrollOverflowBeyondMaximum(
+        currentOffset: position.pixels,
+        proposedOffset: value,
+        maximumOffset: effectiveMaximum,
+      );
+      if (overflow != 0) {
+        return overflow;
+      }
+    }
+    return super.applyBoundaryConditions(position, value);
   }
 }
 
@@ -303,6 +341,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // Pin-to-top: scroll user message to top of viewport when sending
   _PinToTopState _pinToTopState = const _PinToTopState.inactive();
   GlobalKey _pinnedUserMessageKey = GlobalKey();
+  double? _pinToTopMaximumScrollOffset;
   final _stableLayoutCache = _ChatListStableLayoutCache();
   _ChatListStableLayoutMetadata? _lastExtentCacheInvalidationMetadata;
   String? _cachedGreetingName;
@@ -322,6 +361,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool get _wantsPinToTop => _pinToTopState.isActive;
   String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
   String? get _pinnedStreamingId => _pinToTopState.streamingMessageId;
+  double? _activePinToTopMaximumScrollOffset(ScrollMetrics position) {
+    final pinnedPromptOffset = _pinToTopMaximumScrollOffset;
+    if (!_wantsPinToTop || pinnedPromptOffset == null) {
+      return null;
+    }
+    return _maximumPinToTopScrollOffset(
+      pinnedPromptOffset: pinnedPromptOffset,
+      maxScrollExtent: position.maxScrollExtent,
+      phantomExtent: _pinToTopPhantomScrollExtent(),
+    );
+  }
+
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
   set _isUserInteractingWithScroll(bool value) {
@@ -1812,10 +1863,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final targetTop = renderObject.localToGlobal(Offset.zero).dy;
     final currentOffset = _scrollController.offset;
     final maxScroll = _scrollController.position.maxScrollExtent;
-    final targetOffset = (currentOffset + targetTop - topInset).clamp(
-      0.0,
-      maxScroll,
-    );
+    final targetOffset = (currentOffset + targetTop - topInset)
+        .clamp(0.0, maxScroll)
+        .toDouble();
+    // The phantom sliver makes this offset reachable for short conversations.
+    // Keep the alignment as the minimum lower boundary while the response is
+    // short; the boundary expands with real response content as it grows.
+    _pinToTopMaximumScrollOffset = targetOffset;
 
     if ((targetOffset - currentOffset).abs() < 1.0) {
       return;
@@ -1914,50 +1968,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _endPinToTopInFlight = false;
 
-  void _dismissPinToTop({bool preserveStreamingId = false}) {
-    if (!_wantsPinToTop || !mounted) {
-      return;
-    }
-    setState(() {
-      _pinToTopState = _pinToTopState.dismiss(
-        preserveStreamingId: preserveStreamingId,
-      );
-    });
-  }
-
-  bool _canDismissPinToTopWithoutViewportJump() {
-    if (!_scrollController.hasClients) {
-      return true;
-    }
-    final position = _scrollController.position;
-    return _canRemovePinToTopPhantomWithoutViewportJump(
-      currentOffset: position.pixels,
-      maxScrollExtent: position.maxScrollExtent,
-      phantomExtent: _pinToTopPhantomScrollExtent(),
-      epsilon: _scrollCorrectionEpsilon,
-    );
-  }
-
-  void _dismissPinToTopAfterUserScroll({bool preserveStreamingId = false}) {
-    if (!_wantsPinToTop || !mounted) {
-      return;
-    }
-    if (!_canDismissPinToTopWithoutViewportJump()) {
-      return;
-    }
-    _dismissPinToTop(preserveStreamingId: preserveStreamingId);
-  }
-
   /// Transitions out of pin-to-top mode.
   ///
   /// When [instant] is true, uses jumpTo to avoid competing with streaming
   /// row-size corrections.
   void _endPinToTop({bool instant = false, bool preserveStreamingId = false}) {
     if (!_wantsPinToTop || !mounted || _endPinToTopInFlight) return;
-    if (_isUserInteractingWithScroll && !instant) {
-      _dismissPinToTopAfterUserScroll(preserveStreamingId: preserveStreamingId);
-      return;
-    }
     if (!_scrollController.hasClients) {
       setState(() {
         _pinToTopState = _pinToTopState.dismiss(
@@ -2189,6 +2205,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : null;
       if (parentUserId != null && _pinnedStreamingId != tailAssistant.id) {
         // New streaming response detected
+        _pinToTopMaximumScrollOffset = null;
         _pinToTopState = _PinToTopState.active(
           userMessageId: parentUserId,
           streamingMessageId: tailAssistant.id,
@@ -2237,10 +2254,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               notification is UserScrollNotification &&
               notification.direction == ScrollDirection.idle;
 
-          // User scrolling dismisses pin-to-top once the user takes control.
+          // User scrolling pauses automatic bottom anchoring but preserves
+          // pin-to-top. This lets the user browse older messages and return to
+          // the same pinned lower boundary without losing the prompt anchor.
           if (isTouchDragStart ||
               isUserScrollUpdate ||
               isUserDirectionalScroll) {
+            _pinToTopState = _pinToTopState.preserveForUserScroll();
             if (!_isUserInteractingWithScroll) {
               _bottomScrollSettler.cancel();
               _cancelPendingInitialBottomSettle();
@@ -2260,22 +2280,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             try {
               ref.read(composerAutofocusEnabledProvider.notifier).set(false);
             } catch (_) {}
-            if (_wantsPinToTop) {
-              _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
-            }
           }
           if (notification is ScrollEndNotification || isUserScrollIdle) {
             _endScrollProfile(reason: 'idle');
-            final wasInteracting = _isUserInteractingWithScroll;
             _isUserInteractingWithScroll = false;
             _updateBottomAnchorTracking();
-            // Re-check after the final drag update, but keep the same no-jump
-            // guard used during the gesture. For short conversations, removing
-            // the phantom spacer here would clamp the second prompt's offset to
-            // zero and visibly animate back to the first message.
-            if (wasInteracting && _wantsPinToTop) {
-              _dismissPinToTopAfterUserScroll(preserveStreamingId: true);
-            }
           }
           return false; // Allow notification to continue bubbling
         },
@@ -2283,8 +2292,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           key: const ValueKey('actual_messages'),
           controller: _scrollController,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          physics: SuperRangeMaintainingScrollPhysics(
-            parent: platformAlwaysScrollablePhysics(context),
+          physics: _PinToTopScrollPhysics(
+            maximumScrollOffset: _activePinToTopMaximumScrollOffset,
+            parent: SuperRangeMaintainingScrollPhysics(
+              parent: platformAlwaysScrollablePhysics(context),
+            ),
           ),
           scrollCacheExtent: const ScrollCacheExtent.pixels(600),
           slivers: [
@@ -3850,6 +3862,44 @@ double _scrollAnimationStartOffset({
       .toDouble();
 }
 
+double _scrollOverflowBeyondMaximum({
+  required double currentOffset,
+  required double proposedOffset,
+  required double maximumOffset,
+}) {
+  if (!currentOffset.isFinite ||
+      !proposedOffset.isFinite ||
+      !maximumOffset.isFinite) {
+    return 0.0;
+  }
+  if (maximumOffset <= currentOffset && currentOffset < proposedOffset) {
+    return proposedOffset - currentOffset;
+  }
+  if (currentOffset < maximumOffset && maximumOffset < proposedOffset) {
+    return proposedOffset - maximumOffset;
+  }
+  return 0.0;
+}
+
+double _maximumPinToTopScrollOffset({
+  required double pinnedPromptOffset,
+  required double maxScrollExtent,
+  required double phantomExtent,
+}) {
+  if (!pinnedPromptOffset.isFinite ||
+      !maxScrollExtent.isFinite ||
+      !phantomExtent.isFinite) {
+    return pinnedPromptOffset;
+  }
+  final maxWithoutPhantom = (maxScrollExtent - phantomExtent)
+      .clamp(0.0, maxScrollExtent)
+      .toDouble();
+  return math
+      .max(pinnedPromptOffset, maxWithoutPhantom)
+      .clamp(0.0, maxScrollExtent)
+      .toDouble();
+}
+
 bool _shouldKeepConversationBottomAnchoredOnInsetChange({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -3879,20 +3929,6 @@ double _scrollOffsetAfterRemovingPinToTopPhantom({
     double.infinity,
   );
   return currentOffset.clamp(0.0, maxWithoutPhantom).toDouble();
-}
-
-bool _canRemovePinToTopPhantomWithoutViewportJump({
-  required double currentOffset,
-  required double maxScrollExtent,
-  required double phantomExtent,
-  required double epsilon,
-}) {
-  final targetOffset = _scrollOffsetAfterRemovingPinToTopPhantom(
-    currentOffset: currentOffset,
-    maxScrollExtent: maxScrollExtent,
-    phantomExtent: phantomExtent,
-  );
-  return (currentOffset - targetOffset).abs() <= epsilon;
 }
 
 double _estimateMessageListExtentForIndex(
@@ -4023,6 +4059,52 @@ double debugScrollAnimationStartOffsetForTesting({
 }
 
 @visibleForTesting
+double debugScrollOverflowBeyondMaximumForTesting({
+  required double currentOffset,
+  required double proposedOffset,
+  required double maximumOffset,
+}) {
+  return _scrollOverflowBeyondMaximum(
+    currentOffset: currentOffset,
+    proposedOffset: proposedOffset,
+    maximumOffset: maximumOffset,
+  );
+}
+
+@visibleForTesting
+bool debugPinToTopRemainsActiveAfterUserScrollForTesting() {
+  const state = _PinToTopState.active(
+    userMessageId: 'user',
+    streamingMessageId: 'assistant',
+  );
+  return state.preserveForUserScroll().isActive;
+}
+
+@visibleForTesting
+ScrollPhysics debugPinToTopScrollPhysicsForTesting({
+  required double? Function(ScrollMetrics position) maximumScrollOffset,
+  ScrollPhysics? parent,
+}) {
+  return _PinToTopScrollPhysics(
+    maximumScrollOffset: maximumScrollOffset,
+    parent: parent,
+  );
+}
+
+@visibleForTesting
+double debugMaximumPinToTopScrollOffsetForTesting({
+  required double pinnedPromptOffset,
+  required double maxScrollExtent,
+  required double phantomExtent,
+}) {
+  return _maximumPinToTopScrollOffset(
+    pinnedPromptOffset: pinnedPromptOffset,
+    maxScrollExtent: maxScrollExtent,
+    phantomExtent: phantomExtent,
+  );
+}
+
+@visibleForTesting
 bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
   required double previousBottomInset,
   required double nextBottomInset,
@@ -4062,21 +4144,6 @@ double debugScrollOffsetAfterRemovingPinToTopPhantomForTesting({
     currentOffset: currentOffset,
     maxScrollExtent: maxScrollExtent,
     phantomExtent: phantomExtent,
-  );
-}
-
-@visibleForTesting
-bool debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting({
-  required double currentOffset,
-  required double maxScrollExtent,
-  required double phantomExtent,
-  double epsilon = 1.0,
-}) {
-  return _canRemovePinToTopPhantomWithoutViewportJump(
-    currentOffset: currentOffset,
-    maxScrollExtent: maxScrollExtent,
-    phantomExtent: phantomExtent,
-    epsilon: epsilon,
   );
 }
 

@@ -1134,18 +1134,7 @@ void main() {
     expect(shouldKeepBottomAnchored, isFalse);
   });
 
-  test('pin-to-top user scroll keeps phantom until removal is stable', () {
-    // Two short turns can leave the second prompt pinned beyond the real
-    // (phantom-free) scroll range. Ending the first drag must not force this
-    // offset to zero, which would jump back to the first message (#560).
-    expect(
-      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
-        currentOffset: 500,
-        maxScrollExtent: 800,
-        phantomExtent: 800,
-      ),
-      isFalse,
-    );
+  test('pin-to-top removal clamps offsets to the phantom-free range', () {
     expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 500,
@@ -1156,14 +1145,6 @@ void main() {
     );
 
     expect(
-      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
-        currentOffset: 920,
-        maxScrollExtent: 1200,
-        phantomExtent: 400,
-      ),
-      isFalse,
-    );
-    expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 920,
         maxScrollExtent: 1200,
@@ -1173,14 +1154,6 @@ void main() {
     );
 
     expect(
-      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
-        currentOffset: 760,
-        maxScrollExtent: 1200,
-        phantomExtent: 400,
-      ),
-      isTrue,
-    );
-    expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 760,
         maxScrollExtent: 1200,
@@ -1188,6 +1161,137 @@ void main() {
       ),
       760,
     );
+  });
+
+  test('pin-to-top boundary keeps the pinned prompt in view', () {
+    expect(
+      debugScrollOverflowBeyondMaximumForTesting(
+        currentOffset: 480,
+        proposedOffset: 560,
+        maximumOffset: 500,
+      ),
+      60,
+    );
+    expect(
+      debugScrollOverflowBeyondMaximumForTesting(
+        currentOffset: 500,
+        proposedOffset: 650,
+        maximumOffset: 500,
+      ),
+      150,
+    );
+    expect(
+      debugScrollOverflowBeyondMaximumForTesting(
+        currentOffset: 560,
+        proposedOffset: 600,
+        maximumOffset: 500,
+      ),
+      40,
+    );
+    expect(
+      debugScrollOverflowBeyondMaximumForTesting(
+        currentOffset: 560,
+        proposedOffset: 520,
+        maximumOffset: 500,
+      ),
+      0,
+    );
+  });
+
+  testWidgets(
+    'pin-to-top physics stops a short response at the pinned prompt',
+    (tester) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 300,
+              child: CustomScrollView(
+                controller: controller,
+                physics: debugPinToTopScrollPhysicsForTesting(
+                  maximumScrollOffset: (position) =>
+                      debugMaximumPinToTopScrollOffsetForTesting(
+                        pinnedPromptOffset: 250,
+                        maxScrollExtent: position.maxScrollExtent,
+                        phantomExtent: 800,
+                      ),
+                  parent: const SuperRangeMaintainingScrollPhysics(
+                    parent: BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                  ),
+                ),
+                slivers: const [
+                  SliverToBoxAdapter(child: SizedBox(height: 1200)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(controller.position.maxScrollExtent, 900);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+
+      expect(controller.offset, closeTo(250, 0.01));
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 100));
+      await tester.pumpAndSettle();
+
+      expect(controller.offset, lessThan(250));
+    },
+  );
+
+  testWidgets(
+    'pin-to-top physics scrolls through a long response but blocks phantom space',
+    (tester) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 300,
+              child: CustomScrollView(
+                controller: controller,
+                physics: debugPinToTopScrollPhysicsForTesting(
+                  maximumScrollOffset: (position) =>
+                      debugMaximumPinToTopScrollOffsetForTesting(
+                        pinnedPromptOffset: 250,
+                        maxScrollExtent: position.maxScrollExtent,
+                        phantomExtent: 300,
+                      ),
+                  parent: const SuperRangeMaintainingScrollPhysics(
+                    parent: BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                  ),
+                ),
+                slivers: const [
+                  SliverToBoxAdapter(child: SizedBox(height: 1200)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(controller.position.maxScrollExtent, 900);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+
+      // 900 total extent - 300 phantom extent = 600 real-content extent.
+      expect(controller.offset, closeTo(600, 0.01));
+    },
+  );
+
+  test('manual scrolling preserves active pin-to-top state', () {
+    expect(debugPinToTopRemainsActiveAfterUserScrollForTesting(), isTrue);
   });
 
   test(
