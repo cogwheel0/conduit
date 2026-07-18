@@ -2032,8 +2032,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "7a897c8ef022966758ac1f7a8d96c0a14b260c9c"
-      resolved-ref: "7a897c8ef022966758ac1f7a8d96c0a14b260c9c"
+      ref: fe038453b41305baf032b29bbdf3aa64f62b2c09
+      resolved-ref: fe038453b41305baf032b29bbdf3aa64f62b2c09
       url: "https://github.com/Telosnex/super_sliver_list.git"
     source: git
     version: "0.4.1"

@@ -154,11 +154,14 @@ final class _HermesRunProjection {
     required this.message,
     required bool requiresDurablePersistence,
   }) : requiresDurablePersistence = requiresDurablePersistence,
-       durablePersistenceComplete = !requiresDurablePersistence;
+       durablePersistenceComplete = !requiresDurablePersistence,
+       contentBuffer = StringBuffer(message.content);
 
   HermesRunKey key;
   final CancelToken cancelToken;
   ChatMessage message;
+  final StringBuffer contentBuffer;
+  bool contentBufferDirty = false;
   final bool requiresDurablePersistence;
   bool finalized = false;
   bool dispatchSettled = false;
@@ -201,10 +204,13 @@ final class _HermesRunProjectionStore {
   _HermesRunProjectionStore({
     this.maxRetainedProjections = _maxRetainedHermesProjections,
     this.maxRetainedBytes = _maxRetainedHermesProjectionBytes,
+    this.debugOnContentMaterialized,
   });
 
   final int maxRetainedProjections;
   final int maxRetainedBytes;
+  @visibleForTesting
+  final void Function()? debugOnContentMaterialized;
   final Map<HermesRunKey, _HermesRunProjection> _byKey = {};
   final LinkedHashSet<_HermesRunProjection> _finalized = LinkedHashSet();
   int _retainedBytes = 0;
@@ -238,8 +244,20 @@ final class _HermesRunProjectionStore {
     ChatMessage Function(ChatMessage current) updater,
   ) {
     if (!isCurrent(projection) || projection.finalized) return false;
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    _replaceProjectionMessage(projection, current: current, updated: updated);
+    projection.persistenceRevision += 1;
+    return true;
+  }
+
+  bool appendContent(_HermesRunProjection projection, String content) {
+    if (content.isEmpty || !isCurrent(projection) || projection.finalized) {
+      return false;
+    }
     projection
-      ..message = updater(projection.message)
+      ..contentBuffer.write(content)
+      ..contentBufferDirty = true
       ..persistenceRevision += 1;
     return true;
   }
@@ -250,9 +268,10 @@ final class _HermesRunProjectionStore {
   ) {
     final projection = _byKey[key];
     if (projection == null || projection.finalized) return false;
-    projection
-      ..message = updater(projection.message)
-      ..persistenceRevision += 1;
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    _replaceProjectionMessage(projection, current: current, updated: updated);
+    projection.persistenceRevision += 1;
     return true;
   }
 
@@ -270,7 +289,7 @@ final class _HermesRunProjectionStore {
     if (projection == null) {
       return (found: false, changed: false, key: null);
     }
-    final message = projection.message;
+    final message = _materializeContent(projection);
     if (message.id != messageId ||
         message.metadata?['transport'] != kHermesTransport) {
       return (found: true, changed: false, key: projection.key);
@@ -327,14 +346,15 @@ final class _HermesRunProjectionStore {
     ChatMessage Function(ChatMessage current) updater,
   ) {
     if (!isCurrent(projection) || !projection.finalized) return false;
-    final updated = updater(projection.message);
-    if (updated.error == null || updated.error == projection.message.error) {
+    final current = _materializeContent(projection);
+    final updated = updater(current);
+    if (updated.error == null || updated.error == current.error) {
       return false;
     }
     final retainedForRecovery = _finalized.contains(projection);
     if (retainedForRecovery) _retainedBytes -= projection.retainedBytes;
     projection
-      ..message = projection.message.copyWith(error: updated.error)
+      ..message = current.copyWith(error: updated.error)
       ..persistenceRevision += 1
       ..durablePersistenceComplete = !projection.requiresDurablePersistence
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
@@ -352,11 +372,16 @@ final class _HermesRunProjectionStore {
   bool finalize(_HermesRunProjection projection) {
     if (!isCurrent(projection)) return false;
     if (projection.finalized) return true;
+    final current = _materializeContent(projection);
     projection
-      ..message = projection.message.copyWith(isStreaming: false)
+      ..message = current.copyWith(isStreaming: false)
       ..finalized = true
       ..persistenceRevision += 1
       ..retainedBytes = _estimateHermesProjectionBytes(projection.message);
+    // The finalized message now owns the immutable content. Keeping the
+    // accumulator would retain a second, unaccounted copy for every recovery
+    // projection in the bounded cache.
+    projection.contentBuffer.clear();
     _finalized.add(projection);
     _retainedBytes += projection.retainedBytes;
     if (projection.retainedBytes > maxRetainedBytes) {
@@ -543,6 +568,7 @@ final class _HermesRunProjectionStore {
         _remove(projection);
         continue;
       }
+      _materializeContent(projection);
       available.add(projection);
     }
     return List<_HermesRunProjection>.unmodifiable(available);
@@ -608,6 +634,29 @@ final class _HermesRunProjectionStore {
       _byKey.remove(projection.key);
     }
     _removeFromRecoveryCache(projection);
+  }
+
+  ChatMessage _materializeContent(_HermesRunProjection projection) {
+    if (!projection.contentBufferDirty) return projection.message;
+    final content = projection.contentBuffer.toString();
+    debugOnContentMaterialized?.call();
+    projection
+      ..message = projection.message.copyWith(content: content)
+      ..contentBufferDirty = false;
+    return projection.message;
+  }
+
+  void _replaceProjectionMessage(
+    _HermesRunProjection projection, {
+    required ChatMessage current,
+    required ChatMessage updated,
+  }) {
+    projection.message = updated;
+    if (updated.content == current.content) return;
+    projection.contentBuffer
+      ..clear()
+      ..write(updated.content);
+    projection.contentBufferDirty = false;
   }
 }
 
@@ -887,6 +936,63 @@ List<String> retainedHermesProjectionIdsForTest(
   return store._finalized
       .map((projection) => projection.message.id)
       .toList(growable: false);
+}
+
+@visibleForTesting
+({
+  String beforeMetadataBoundary,
+  String afterMetadataBoundary,
+  String beforeFinalize,
+  String finalizedContent,
+  int finalizedBufferLength,
+  int materializationCount,
+})
+bufferedHermesProjectionContentForTest(Iterable<String> chunks) {
+  var materializationCount = 0;
+  final store = _HermesRunProjectionStore(
+    debugOnContentMaterialized: () => materializationCount += 1,
+  );
+  final projection = store.begin(
+    hermesRunKey(
+      ownerConversationId: 'test-owner',
+      assistantMessageId: 'test-assistant',
+    ),
+    cancelToken: CancelToken(),
+    initialMessage: ChatMessage(
+      id: 'test-assistant',
+      role: 'assistant',
+      content: 'seed:',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      isStreaming: true,
+    ),
+    requiresDurablePersistence: false,
+  );
+  final chunkList = chunks.toList(growable: false);
+  final boundary = chunkList.length ~/ 2;
+  for (var index = 0; index < boundary; index += 1) {
+    store.appendContent(projection, chunkList[index]);
+  }
+  final beforeMetadataBoundary = projection.message.content;
+  store.update(
+    projection,
+    (message) => message.copyWith(
+      metadata: const <String, dynamic>{'transport': kHermesTransport},
+    ),
+  );
+  final afterMetadataBoundary = projection.message.content;
+  for (var index = boundary; index < chunkList.length; index += 1) {
+    store.appendContent(projection, chunkList[index]);
+  }
+  final beforeFinalize = projection.message.content;
+  store.finalize(projection);
+  return (
+    beforeMetadataBoundary: beforeMetadataBoundary,
+    afterMetadataBoundary: afterMetadataBoundary,
+    beforeFinalize: beforeFinalize,
+    finalizedContent: projection.message.content,
+    finalizedBufferLength: projection.contentBuffer.length,
+    materializationCount: materializationCount,
+  );
 }
 
 /// Regression seam for compact approval snapshots that leave the bounded
@@ -4217,8 +4323,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     _streamingContentFrameScheduled = true;
-    SchedulerBinding.instance.scheduleFrame();
-    SchedulerBinding.instance.addPostFrameCallback((_) {
+    // Flush at the beginning of the requested frame so Riverpod can rebuild
+    // the live tail in that same frame. A post-frame flush spends one frame
+    // doing no visible work, then schedules a second frame for the provider
+    // update. That extra submit is particularly expensive on iOS because every
+    // frame must also composite the persistent Liquid Glass platform views.
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
       _streamingContentFrameScheduled = false;
       if (_disposed) {
         return;
@@ -6717,22 +6827,19 @@ Future<void> _regenerateHermesMessage(
     replayedUser,
   );
 
-  final previousRunId = _lastHermesMetadataId(
-    continuityMessages,
-    'hermesRunId',
-    allowNativeHermesMetadata: true,
-  );
-  final previousResponseId = _lastHermesMetadataId(
-    continuityMessages,
-    'hermesResponseId',
-    allowNativeHermesMetadata: true,
-  );
+  final hasPreviousResponse =
+      _lastHermesMetadataId(
+        continuityMessages,
+        'hermesResponseId',
+        allowNativeHermesMetadata: true,
+      ) !=
+      null;
   final replayedFiles = replayedUser?.files ?? const <Map<String, dynamic>>[];
   final replayedAttachments = replayedUser?.attachmentIds ?? const <String>[];
   final useResponses =
       previousAssistant?.metadata?['hermesTransportMode'] ==
           kHermesResponsesMode ||
-      previousResponseId != null ||
+      hasPreviousResponse ||
       _persistedHermesReplayRequiresResponses(
         replayedFiles,
         replayedAttachments,
@@ -6760,24 +6867,12 @@ Future<void> _regenerateHermesMessage(
         : _buildReplayVersions(previousAssistant),
     metadata: {'modelName': selectedModel.name, 'transport': kHermesTransport},
   );
-  if (!useResponses && continuityMessages.isNotEmpty && previousRunId == null) {
-    assistant = assistant.copyWith(
-      isStreaming: false,
-      error: const ChatMessageError(
-        content:
-            'This Hermes conversation does not expose the response ID needed '
-            'to regenerate from this point. Start a new branch instead.',
-      ),
-    );
-  }
   final notifier = ref.read(chatMessagesProvider.notifier);
   if (previousAssistant == null) {
     notifier.addMessage(assistant);
   } else {
     notifier.updateLastMessageWithFunction((_) => assistant);
   }
-  if (!assistant.isStreaming) return;
-
   await _dispatchHermesRunFromChat(
     ref,
     assistantMessageId: assistantMessageId,
@@ -6785,9 +6880,9 @@ Future<void> _regenerateHermesMessage(
     input: replayedUser?.content ?? input,
     existingMessages: continuityMessages,
     forceNewSession: true,
-    previousResponseIdOverride: useResponses
-        ? previousResponseId
-        : previousRunId,
+    // Regeneration branches from [continuityMessages]. Chaining the response
+    // being replaced would restore the wrong tail and the wrong server session.
+    previousResponseIdOverride: null,
     responseInput: useResponses
         ? replayedUser == null
               ? HermesChatInput.text(input)
@@ -11122,10 +11217,10 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   void appendProjectedContent(String content) {
     if (content.isEmpty) return;
-    updateProjectionIfOwned(
-      (message) => message.copyWith(content: '${message.content}$content'),
-      () => notifier.appendToMessageById(assistantMessageId, content),
-    );
+    if (!projectionStore.appendContent(projection, content)) return;
+    if (owner.isActive(ref)) {
+      notifier.appendToMessageById(assistantMessageId, content);
+    }
   }
 
   void replaceProjectedContent(String content) {
@@ -11289,7 +11384,25 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           capturedSessionId,
           sensitiveValues: _hermesIdentifierSensitiveValues(service),
         );
-  if (sessionId == null || sessionId.isEmpty) {
+  var responsePreviousResponseId = responseInput == null
+      ? null
+      : previousResponseIdOverride;
+  responsePreviousResponseId ??= responseInput == null || forceNewSession
+      ? null
+      : _lastHermesMetadataId(
+          existingMessages,
+          'hermesResponseId',
+          allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
+          mixedProvenance: mixedSessionProvenance,
+        );
+  final responseStartsNewChain =
+      responseInput != null && responsePreviousResponseId == null;
+  if (responseStartsNewChain) {
+    // The official Responses endpoint owns the session id for a new chain; it
+    // does not bind to a pre-created /api/sessions row via request headers.
+    sessionId = null;
+  }
+  if ((sessionId == null || sessionId.isEmpty) && !responseStartsNewChain) {
     try {
       // Title the session from the first user message when this is turn one.
       final title = existingMessages.isEmpty
@@ -11348,6 +11461,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         ownerMessages: ownerMessages,
         sendHandle: sendHandle,
       );
+      ref.invalidate(hermesSessionsProvider);
     } catch (error) {
       if (cancelled()) return;
       if (forceNewSession) {
@@ -11410,17 +11524,9 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         }
         if (cancelled()) return;
       }
-      // If Responses itself creates the session there is no pre-commit
-      // history boundary. Leave the baseline null so an older identical row
-      // can never be mistaken for the request this turn just committed.
+      // Responses owns creation of a new chain. Its returned session is
+      // prepared below before the known-empty history baseline is recorded.
     }
-    var previousResponseId = previousResponseIdOverride;
-    previousResponseId ??= _lastHermesMetadataId(
-      existingMessages,
-      'hermesResponseId',
-      allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
-      mixedProvenance: mixedSessionProvenance,
-    );
     if (cancelled()) return;
     await dispatchHermesResponse(
       service: service,
@@ -11430,20 +11536,21 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       currentRunKey: currentRunKey,
       input: responseInput,
       sessionId: sessionId,
-      previousResponseId: previousResponseId,
-      conversationHistory: previousResponseId == null ? responseHistory : null,
+      previousResponseId: responsePreviousResponseId,
+      conversationHistory: responseStartsNewChain ? responseHistory : null,
       cancelToken: cancelToken,
       onSessionEstablished: (establishedSessionId) async {
         if (establishedSessionId == null || cancelled()) return;
         final requestedSessionId = sessionId;
-        if (requestedSessionId != null &&
+        if (!responseStartsNewChain &&
+            requestedSessionId != null &&
             establishedSessionId != requestedSessionId) {
           throw StateError(
             'Hermes returned a different session for an existing-session '
             'request.',
           );
         }
-        final responseCreatedSession = sessionId == null;
+        final responseCreatedSession = responseStartsNewChain;
         if (responseCreatedSession && documentTrustConnectionIdentity != null) {
           try {
             await HermesLocalDocumentTrustStore.prepareNewSession(
@@ -11466,6 +11573,13 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             );
             return;
           }
+          if (hasLocalDocumentProvenance) {
+            // A new Responses chain gets a server-owned, newly allocated
+            // session. Its pre-turn history is therefore known to be empty;
+            // establishing that boundary lets exact document provenance be
+            // recorded after the turn without trusting an older lookalike.
+            baselineServerMessageIds = <String>{};
+          }
         }
         sessionId = establishedSessionId;
         _bindHermesSessionToConversation(
@@ -11482,13 +11596,17 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           ownerMessages: ownerMessages,
           sendHandle: sendHandle,
         );
+        if (responseCreatedSession) {
+          ref.invalidate(hermesSessionsProvider);
+        }
       },
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
+        final committedBaselineMessageIds = baselineServerMessageIds;
         if (committedSessionId == null ||
             localDocumentPromptText == null ||
             localDocumentEnvelopes.isEmpty ||
-            baselineServerMessageIds == null ||
+            committedBaselineMessageIds == null ||
             documentTrustConnectionIdentity == null ||
             !owner.backendContextIsCurrent(ref)) {
           return;
@@ -11499,7 +11617,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           sessionId: committedSessionId,
           promptText: localDocumentPromptText,
           documentEnvelopes: localDocumentEnvelopes,
-          baselineMessageIds: baselineServerMessageIds,
+          baselineMessageIds: committedBaselineMessageIds,
           cancelToken: cancelToken,
         );
       },
@@ -11513,25 +11631,16 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     return;
   }
 
-  // Chain detachable text-only runs to the previous Hermes run.
-  var previousResponseId = previousResponseIdOverride;
-  if (previousResponseId == null) {
-    for (final m in existingMessages.reversed) {
-      if (m.role != 'assistant') continue;
-      final rid = _lastHermesMetadataId(
-        <ChatMessage>[m],
-        'hermesRunId',
-        allowNativeHermesMetadata: !capturedSessionRequiresConnectionIdentity,
-        mixedProvenance: mixedSessionProvenance,
-      );
-      if (rid != null) {
-        previousResponseId = rid;
-        break;
-      }
-    }
-  }
-
   if (cancelled()) return;
+
+  // Hermes Runs does not interpret a prior run id as conversation state.
+  // Replay a bounded visible transcript explicitly on every text turn; this
+  // is the documented Runs contract and also lets reopened server sessions
+  // continue when their message rows do not expose response identifiers.
+  final conversationHistory = _hermesVisibleHistory(
+    existingMessages,
+    inputImagesSupported: false,
+  );
 
   await dispatchHermesRun(
     service: service,
@@ -11541,7 +11650,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     currentRunKey: currentRunKey,
     input: input,
     sessionId: sessionId,
-    previousResponseId: previousResponseId,
+    conversationHistory: conversationHistory,
     cancelToken: cancelToken,
     appendContent: appendProjectedContent,
     replaceContent: replaceProjectedContent,

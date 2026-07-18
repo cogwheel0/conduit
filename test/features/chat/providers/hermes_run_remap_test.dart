@@ -90,6 +90,7 @@ final class _LiveHermesApi extends HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async => 'live-run';
 

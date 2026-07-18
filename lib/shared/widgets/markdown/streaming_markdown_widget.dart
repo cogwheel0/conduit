@@ -311,8 +311,11 @@ class _StreamingMarkdownWidgetState
       return;
     }
     _streamingRefreshFrameScheduled = true;
-    WidgetsBinding.instance.scheduleFrame();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Start preparation before the build phase. A post-frame callback would
+    // consume a platform-view composition frame just to launch the work, then
+    // require another frame to show the result. The native Liquid Glass chrome
+    // stays mounted; only the mutable Markdown tail is refreshed.
+    WidgetsBinding.instance.scheduleFrameCallback((_) {
       _streamingRefreshFrameScheduled = false;
       if (!mounted ||
           !widget.isStreaming ||

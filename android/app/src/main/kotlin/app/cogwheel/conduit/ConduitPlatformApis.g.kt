@@ -1548,6 +1548,7 @@ data class PlatformNativeProfileSheetUser (
   val initials: String,
   val avatarUrl: String? = null,
   val avatarBytes: ByteArray? = null,
+  val avatarIsTemplate: Boolean,
   val avatarHeaders: Map<String, String>,
   val bio: String? = null,
   val gender: String? = null,
@@ -1562,12 +1563,13 @@ data class PlatformNativeProfileSheetUser (
       val initials = pigeonVar_list[2] as String
       val avatarUrl = pigeonVar_list[3] as String?
       val avatarBytes = pigeonVar_list[4] as ByteArray?
-      val avatarHeaders = pigeonVar_list[5] as Map<String, String>
-      val bio = pigeonVar_list[6] as String?
-      val gender = pigeonVar_list[7] as String?
-      val dateOfBirth = pigeonVar_list[8] as String?
-      val profileImageUrl = pigeonVar_list[9] as String?
-      return PlatformNativeProfileSheetUser(displayName, email, initials, avatarUrl, avatarBytes, avatarHeaders, bio, gender, dateOfBirth, profileImageUrl)
+      val avatarIsTemplate = pigeonVar_list[5] as Boolean
+      val avatarHeaders = pigeonVar_list[6] as Map<String, String>
+      val bio = pigeonVar_list[7] as String?
+      val gender = pigeonVar_list[8] as String?
+      val dateOfBirth = pigeonVar_list[9] as String?
+      val profileImageUrl = pigeonVar_list[10] as String?
+      return PlatformNativeProfileSheetUser(displayName, email, initials, avatarUrl, avatarBytes, avatarIsTemplate, avatarHeaders, bio, gender, dateOfBirth, profileImageUrl)
     }
   }
   fun toList(): List<Any?> {
@@ -1577,6 +1579,7 @@ data class PlatformNativeProfileSheetUser (
       initials,
       avatarUrl,
       avatarBytes,
+      avatarIsTemplate,
       avatarHeaders,
       bio,
       gender,
@@ -1592,7 +1595,7 @@ data class PlatformNativeProfileSheetUser (
       return true
     }
     val other = other as PlatformNativeProfileSheetUser
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.displayName, other.displayName) && ConduitPlatformApisPigeonUtils.deepEquals(this.email, other.email) && ConduitPlatformApisPigeonUtils.deepEquals(this.initials, other.initials) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarUrl, other.avatarUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarBytes, other.avatarBytes) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarHeaders, other.avatarHeaders) && ConduitPlatformApisPigeonUtils.deepEquals(this.bio, other.bio) && ConduitPlatformApisPigeonUtils.deepEquals(this.gender, other.gender) && ConduitPlatformApisPigeonUtils.deepEquals(this.dateOfBirth, other.dateOfBirth) && ConduitPlatformApisPigeonUtils.deepEquals(this.profileImageUrl, other.profileImageUrl)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.displayName, other.displayName) && ConduitPlatformApisPigeonUtils.deepEquals(this.email, other.email) && ConduitPlatformApisPigeonUtils.deepEquals(this.initials, other.initials) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarUrl, other.avatarUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarBytes, other.avatarBytes) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarIsTemplate, other.avatarIsTemplate) && ConduitPlatformApisPigeonUtils.deepEquals(this.avatarHeaders, other.avatarHeaders) && ConduitPlatformApisPigeonUtils.deepEquals(this.bio, other.bio) && ConduitPlatformApisPigeonUtils.deepEquals(this.gender, other.gender) && ConduitPlatformApisPigeonUtils.deepEquals(this.dateOfBirth, other.dateOfBirth) && ConduitPlatformApisPigeonUtils.deepEquals(this.profileImageUrl, other.profileImageUrl)
   }
 
   override fun hashCode(): Int {
@@ -1602,6 +1605,7 @@ data class PlatformNativeProfileSheetUser (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.initials)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarUrl)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarBytes)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarIsTemplate)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.avatarHeaders)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.bio)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.gender)
@@ -1610,7 +1614,7 @@ data class PlatformNativeProfileSheetUser (
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeProfileSheetUser(displayName=$displayName, email=$email, initials=$initials, avatarUrl=$avatarUrl, avatarBytes=${avatarBytes?.contentToString()}, avatarHeaders=$avatarHeaders, bio=$bio, gender=$gender, dateOfBirth=$dateOfBirth, profileImageUrl=$profileImageUrl)"
+    return "PlatformNativeProfileSheetUser(displayName=$displayName, email=$email, initials=$initials, avatarUrl=$avatarUrl, avatarBytes=${avatarBytes?.contentToString()}, avatarIsTemplate=$avatarIsTemplate, avatarHeaders=$avatarHeaders, bio=$bio, gender=$gender, dateOfBirth=$dateOfBirth, profileImageUrl=$profileImageUrl)"
   }
 }
 

@@ -345,6 +345,57 @@ void main() {
       check(messages[1].model).equals('hermes:agent:default');
     });
 
+    test('restores persisted tool activity onto its assistant row', () {
+      final messages = hermesMessagesToChatMessages([
+        {'id': 'user-1', 'role': 'user', 'content': 'Search for it'},
+        {
+          'id': 'assistant-tools',
+          'role': 'assistant',
+          'content': '',
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'type': 'function',
+              'function': {'name': 'web_search', 'arguments': '{}'},
+            },
+          ],
+          'timestamp': '2026-07-16T10:00:00Z',
+        },
+        {
+          'id': 'tool-1',
+          'role': 'tool',
+          'content': 'untrusted provider result',
+          'tool_call_id': 'call-1',
+          'tool_name': 'web_search',
+          'timestamp': '2026-07-16T10:00:01Z',
+        },
+        {
+          'id': 'assistant-final',
+          'role': 'assistant',
+          'content': 'Here is the answer.',
+        },
+      ]);
+
+      check(messages).length.equals(3);
+      final toolActivity = messages[1];
+      check(toolActivity.id).equals('assistant-tools');
+      check(toolActivity.content).isEmpty();
+      check(toolActivity.statusHistory).length.equals(1);
+      expect(
+        toolActivity.statusHistory.single.action,
+        startsWith('hermes_tool_'),
+      );
+      check(toolActivity.statusHistory.single.description).equals('web_search');
+      check(toolActivity.statusHistory.single.done).equals(true);
+      check(
+        toolActivity.statusHistory.single.occurredAt,
+      ).equals(DateTime.utc(2026, 7, 16, 10, 0, 1));
+      check(
+        toolActivity.statusHistory.single.description!,
+      ).not((value) => value.contains('untrusted provider result'));
+      check(messages.last.content).equals('Here is the answer.');
+    });
+
     test('preserves explicit run/response ids for regeneration branches', () {
       final messages = hermesMessagesToChatMessages([
         {'role': 'assistant', 'content': 'One', 'run_id': 'run-1'},

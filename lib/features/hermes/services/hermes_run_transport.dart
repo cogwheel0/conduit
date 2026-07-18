@@ -383,6 +383,7 @@ Future<void> dispatchHermesRun({
   required String input,
   String? sessionId,
   String? previousResponseId,
+  List<Map<String, dynamic>>? conversationHistory,
   CancelToken? cancelToken,
   Duration remoteStopTimeout = const Duration(seconds: 5),
   int maxRecoveryPolls = 120,
@@ -445,6 +446,7 @@ Future<void> dispatchHermesRun({
       input: input,
       sessionId: sessionId,
       previousResponseId: previousResponseId,
+      conversationHistory: conversationHistory,
       cancelToken: runCancelToken,
     );
     runId =

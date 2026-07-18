@@ -34,26 +34,36 @@ class AdaptiveAuthScaffold extends StatelessWidget {
     final topPadding = context.usesCupertinoChrome
         ? mediaQuery.padding.top + kTextTabBarHeight + Spacing.lg
         : Spacing.lg;
+    final backButton = AdaptiveTooltip(
+      message: backLabel,
+      child: Semantics(
+        label: backLabel,
+        button: true,
+        child: ConduitAdaptiveAppBarIconButton(
+          key: backButtonKey,
+          icon: context.usesCupertinoChrome
+              ? CupertinoIcons.chevron_back
+              : Icons.arrow_back,
+          onPressed: onBack,
+        ),
+      ),
+    );
 
     return AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
       appBar: AdaptiveAppBar(
         title: title,
         tintColor: context.conduitTheme.textPrimary,
-        leading: AdaptiveTooltip(
-          message: backLabel,
-          child: Semantics(
-            label: backLabel,
-            button: true,
-            child: ConduitAdaptiveAppBarIconButton(
-              key: backButtonKey,
-              icon: context.usesCupertinoChrome
-                  ? CupertinoIcons.chevron_back
-                  : Icons.arrow_back,
-              onPressed: onBack,
-            ),
-          ),
-        ),
+        // Material gives AppBar.leading tight 56x56 constraints. Loosen them
+        // so the adaptive surface stays at the standard 44dp action size.
+        leading: context.usesCupertinoChrome
+            ? backButton
+            : Center(
+                child: SizedBox.square(
+                  dimension: TouchTarget.minimum,
+                  child: backButton,
+                ),
+              ),
       ),
       body: Column(
         children: [

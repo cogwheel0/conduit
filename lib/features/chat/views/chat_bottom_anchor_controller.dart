@@ -2,46 +2,23 @@ class ChatBottomAnchorController {
   ChatBottomAnchorController({
     required this.showThreshold,
     required this.hideThreshold,
-    this.userScrollAwayThreshold = 24,
-  });
+  }) : assert(showThreshold > hideThreshold);
 
   final double showThreshold;
   final double hideThreshold;
-  final double userScrollAwayThreshold;
 
   bool isUserInteractingWithScroll = false;
   bool isAnchoredToBottom = true;
-  bool _hasUnverifiedStickyContentChange = false;
-
-  /// Whether an unverified sticky content change is still holding the view
-  /// anchored to the bottom (and is not being overridden by user interaction).
-  bool get _stickyLatchHolds =>
-      _hasUnverifiedStickyContentChange &&
-      isAnchoredToBottom &&
-      !isUserInteractingWithScroll;
 
   bool updateAnchor({
     required bool hasScrollableContent,
     required double distanceFromBottom,
   }) {
-    final nearBottom =
-        !hasScrollableContent || distanceFromBottom <= hideThreshold;
-    if (nearBottom) {
+    if (distanceFromBottom <= hideThreshold) {
       isAnchoredToBottom = true;
-      _hasUnverifiedStickyContentChange = false;
-      return true;
+    } else if (hasScrollableContent) {
+      isAnchoredToBottom = false;
     }
-
-    // While a sticky content change is still pending, keep the view anchored
-    // even mid-drag. Only shouldDetachForUserScrollAway (which honors
-    // userScrollAwayThreshold) may break this latch, so a minor accidental drag
-    // during streaming doesn't drop bottom anchoring.
-    if (_hasUnverifiedStickyContentChange && isAnchoredToBottom) {
-      return true;
-    }
-
-    isAnchoredToBottom = false;
-    _hasUnverifiedStickyContentChange = false;
     return isAnchoredToBottom;
   }
 
@@ -50,9 +27,6 @@ class ChatBottomAnchorController {
     required bool hasScrollableContent,
     required double distanceFromBottom,
   }) {
-    if (_stickyLatchHolds) {
-      return false;
-    }
     final farFromBottom = distanceFromBottom > showThreshold;
     final nearBottom = distanceFromBottom <= hideThreshold;
     return currentlyShowing
@@ -68,64 +42,60 @@ class ChatBottomAnchorController {
     );
   }
 
-  bool prepareForStickyContentChange({required bool wantsPinToTop}) {
-    final shouldKeepAnchored = shouldKeepAnchoredOnContentSizeChange(
-      wantsPinToTop: wantsPinToTop,
-    );
-    if (shouldKeepAnchored) {
-      _hasUnverifiedStickyContentChange = true;
-    }
-    return shouldKeepAnchored;
-  }
-
-  bool shouldDetachForUserScrollAway({
-    required bool nearBottom,
-    required double? scrollDelta,
-  }) {
-    if (nearBottom || !isAnchoredToBottom) {
-      return false;
-    }
-    // Drag-start and directional notifications do not carry movement. Wait for
-    // the first real ScrollUpdateNotification before deciding that the user
-    // scrolled away; otherwise the handler defeats the threshold below by
-    // inventing a synthetic delta at gesture start.
-    if (scrollDelta == null) {
-      return false;
-    }
-    if (!_hasUnverifiedStickyContentChange) {
-      return true;
-    }
-    // Only detach when the user scrolls *away* from the bottom. In a
-    // non-reversed list, that is a negative scrollDelta (offset decreases).
-    // Using abs() previously also broke the sticky latch on intentional
-    // downward drags back toward the bottom.
-    return scrollDelta <= -userScrollAwayThreshold;
-  }
-
-  void verifyStickyCorrection({
-    required bool nearBottom,
-    bool isFinalAttempt = false,
-  }) {
-    if (nearBottom) {
-      isAnchoredToBottom = true;
-      _hasUnverifiedStickyContentChange = false;
-    } else if (isFinalAttempt) {
-      // The correction exhausted its attempts without reaching the bottom; drop
-      // the latch so button visibility falls back to distance-based logic
-      // instead of staying falsely pinned to the bottom.
-      _hasUnverifiedStickyContentChange = false;
-    }
-  }
-
   void detachByUser() {
     isAnchoredToBottom = false;
-    _hasUnverifiedStickyContentChange = false;
+  }
+
+  void requestBottomAnchor() {
+    isUserInteractingWithScroll = false;
+    isAnchoredToBottom = true;
   }
 
   void resetForDetachedScroll() {
     isAnchoredToBottom = true;
     isUserInteractingWithScroll = false;
-    _hasUnverifiedStickyContentChange = false;
+  }
+}
+
+/// Keeps a programmatic bottom scroll tied to the newest layout extent.
+///
+/// A user gesture cancels the generation so a completed animation can never
+/// pull the viewport back after the user has taken control.
+class ChatBottomScrollSettler {
+  int _generation = 0;
+
+  void cancel() {
+    _generation += 1;
+  }
+
+  Future<void> animateToLatestBottom({
+    required double initialBottom,
+    required Future<void> Function(double target) animateTo,
+    required bool Function() canSettle,
+    required void Function() rearmBottomAnchor,
+    required double Function() latestBottom,
+    required double Function() currentOffset,
+    required void Function(double target) jumpTo,
+    required void Function() onSettled,
+    required double correctionEpsilon,
+  }) async {
+    final generation = ++_generation;
+    await animateTo(initialBottom);
+    // A drag can complete ScrollController.animateTo immediately before its
+    // ScrollStartNotification reaches the page. Yield once so that user input
+    // can cancel this generation before it performs the final correction.
+    await Future<void>.value();
+    if (generation != _generation || !canSettle()) return;
+
+    // Metrics emitted during the animation may have classified the viewport
+    // as detached while it was still travelling toward the original target.
+    rearmBottomAnchor();
+    final target = latestBottom();
+    if (!target.isFinite || target <= 0) return;
+    if ((currentOffset() - target).abs() >= correctionEpsilon) {
+      jumpTo(target);
+    }
+    onSettled();
   }
 }
 

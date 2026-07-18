@@ -1047,6 +1047,53 @@ void main() {
     );
 
     test(
+      'chat:completion appends cumulative plain output without rebuilding it',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        const snapshotCount = 2048;
+        final accumulated = StringBuffer();
+        for (var index = 0; index < snapshotCount; index += 1) {
+          accumulated.write('x');
+          registrar.emitChatEvent('chat:completion', {
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': accumulated.toString()},
+                ],
+              },
+            ],
+          }, messageId: 'msg-1');
+        }
+        await pumpMicrotasks();
+
+        check(
+          log.replacedContents,
+        ).has((it) => it.length, 'length').isLessOrEqual(12);
+        check(
+          log.appendedChunks,
+        ).has((it) => it.length, 'length').isGreaterThan(snapshotCount - 20);
+        check(
+          log.messages.last.content,
+        ).equals(List.filled(snapshotCount, 'x').join());
+      },
+    );
+
+    test(
       'chat:completion output snapshot preserves streamed text with details',
       () async {
         final log = _CallbackLog();

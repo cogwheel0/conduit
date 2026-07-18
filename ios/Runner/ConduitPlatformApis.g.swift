@@ -1567,6 +1567,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
   var initials: String
   var avatarUrl: String? = nil
   var avatarBytes: FlutterStandardTypedData? = nil
+  var avatarIsTemplate: Bool
   var avatarHeaders: [String: String]
   var bio: String? = nil
   var gender: String? = nil
@@ -1581,11 +1582,12 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
     let initials = pigeonVar_list[2] as! String
     let avatarUrl: String? = nilOrValue(pigeonVar_list[3])
     let avatarBytes: FlutterStandardTypedData? = nilOrValue(pigeonVar_list[4])
-    let avatarHeaders = pigeonVar_list[5] as! [String: String]
-    let bio: String? = nilOrValue(pigeonVar_list[6])
-    let gender: String? = nilOrValue(pigeonVar_list[7])
-    let dateOfBirth: String? = nilOrValue(pigeonVar_list[8])
-    let profileImageUrl: String? = nilOrValue(pigeonVar_list[9])
+    let avatarIsTemplate = pigeonVar_list[5] as! Bool
+    let avatarHeaders = pigeonVar_list[6] as! [String: String]
+    let bio: String? = nilOrValue(pigeonVar_list[7])
+    let gender: String? = nilOrValue(pigeonVar_list[8])
+    let dateOfBirth: String? = nilOrValue(pigeonVar_list[9])
+    let profileImageUrl: String? = nilOrValue(pigeonVar_list[10])
 
     return PlatformNativeProfileSheetUser(
       displayName: displayName,
@@ -1593,6 +1595,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
       initials: initials,
       avatarUrl: avatarUrl,
       avatarBytes: avatarBytes,
+      avatarIsTemplate: avatarIsTemplate,
       avatarHeaders: avatarHeaders,
       bio: bio,
       gender: gender,
@@ -1607,6 +1610,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
       initials,
       avatarUrl,
       avatarBytes,
+      avatarIsTemplate,
       avatarHeaders,
       bio,
       gender,
@@ -1618,7 +1622,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.displayName, rhs.displayName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.email, rhs.email) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.initials, rhs.initials) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarUrl, rhs.avatarUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarHeaders, rhs.avatarHeaders) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.bio, rhs.bio) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.gender, rhs.gender) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dateOfBirth, rhs.dateOfBirth) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.profileImageUrl, rhs.profileImageUrl)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.displayName, rhs.displayName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.email, rhs.email) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.initials, rhs.initials) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarUrl, rhs.avatarUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarIsTemplate, rhs.avatarIsTemplate) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarHeaders, rhs.avatarHeaders) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.bio, rhs.bio) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.gender, rhs.gender) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dateOfBirth, rhs.dateOfBirth) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.profileImageUrl, rhs.profileImageUrl)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1628,6 +1632,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: initials, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: avatarUrl, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: avatarBytes, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: avatarIsTemplate, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: avatarHeaders, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: bio, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: gender, hasher: &hasher)
@@ -1636,7 +1641,7 @@ struct PlatformNativeProfileSheetUser: Hashable, CustomStringConvertible {
   }
 
   public var description: String {
-    return "PlatformNativeProfileSheetUser(displayName: \(String(describing: displayName)), email: \(String(describing: email)), initials: \(String(describing: initials)), avatarUrl: \(String(describing: avatarUrl)), avatarBytes: \(String(describing: avatarBytes)), avatarHeaders: \(String(describing: avatarHeaders)), bio: \(String(describing: bio)), gender: \(String(describing: gender)), dateOfBirth: \(String(describing: dateOfBirth)), profileImageUrl: \(String(describing: profileImageUrl)))"
+    return "PlatformNativeProfileSheetUser(displayName: \(String(describing: displayName)), email: \(String(describing: email)), initials: \(String(describing: initials)), avatarUrl: \(String(describing: avatarUrl)), avatarBytes: \(String(describing: avatarBytes)), avatarIsTemplate: \(String(describing: avatarIsTemplate)), avatarHeaders: \(String(describing: avatarHeaders)), bio: \(String(describing: bio)), gender: \(String(describing: gender)), dateOfBirth: \(String(describing: dateOfBirth)), profileImageUrl: \(String(describing: profileImageUrl)))"
   }
 }
 

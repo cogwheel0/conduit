@@ -1,3 +1,4 @@
+import CryptoKit
 import Flutter
 import PhotosUI
 import UIKit
@@ -10,6 +11,23 @@ func loadFlutterAssetImage(_ asset: String, bundle: Bundle = .main) -> UIImage? 
     return UIImage(contentsOfFile: assetPath)
 }
 
+func nativeAvatarImage(_ image: UIImage, isTemplate: Bool) -> UIImage {
+    isTemplate ? image.withRenderingMode(.alwaysTemplate) : image
+}
+
+func applyNativeAvatarImage(
+    _ image: UIImage,
+    isTemplate: Bool,
+    to imageView: UIImageView,
+    initialsLabel: UILabel
+) {
+    imageView.image = nativeAvatarImage(image, isTemplate: isTemplate)
+    imageView.tintColor = isTemplate ? .label : nil
+    imageView.contentMode = isTemplate ? .scaleAspectFit : .scaleAspectFill
+    imageView.isHidden = false
+    initialsLabel.isHidden = true
+}
+
 private func nativeLocalized(_ key: String, _ fallback: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "")
 }
@@ -20,6 +38,7 @@ private struct NativeSheetProfile {
     let initials: String
     let avatarUrl: String?
     let avatarData: Data?
+    let avatarIsTemplate: Bool
     let avatarHeaders: [String: String]
     let bio: String
     let gender: String
@@ -687,6 +706,7 @@ private struct NativeSheetConfiguration {
             initials: initials,
             avatarUrl: profilePayload["avatarUrl"] as? String,
             avatarData: (profilePayload["avatarBytes"] as? FlutterStandardTypedData)?.data,
+            avatarIsTemplate: (profilePayload["avatarIsTemplate"] as? Bool) ?? false,
             avatarHeaders: (profilePayload["avatarHeaders"] as? [String: String]) ?? [:],
             bio: bio,
             gender: gender,
@@ -741,6 +761,7 @@ private extension PlatformNativeProfileSheetUser {
             "displayName": displayName,
             "email": email,
             "initials": initials,
+            "avatarIsTemplate": avatarIsTemplate,
             "avatarHeaders": avatarHeaders,
         ]
         payload["avatarUrl"] = avatarUrl
@@ -4844,6 +4865,40 @@ private final class NativeFolderHierarchyGuideView: UIView {
     }
 }
 
+func nativeSheetImageCacheKey(
+    rawUrl: String,
+    headers: [String: String]
+) -> NSString {
+    guard !headers.isEmpty else {
+        return NSString(string: rawUrl)
+    }
+
+    let canonicalHeaders = headers
+        .map { ($0.key.lowercased(), $0.value) }
+        .sorted {
+            if $0.0 == $1.0 { return $0.1 < $1.1 }
+            return $0.0 < $1.0
+        }
+    var digestInput = Data()
+
+    func appendComponent(_ value: String) {
+        var byteCount = UInt64(value.utf8.count).bigEndian
+        withUnsafeBytes(of: &byteCount) { digestInput.append(contentsOf: $0) }
+        digestInput.append(contentsOf: value.utf8)
+    }
+
+    appendComponent(rawUrl)
+    for (key, value) in canonicalHeaders {
+        appendComponent(key)
+        appendComponent(value)
+    }
+
+    let fingerprint = SHA256.hash(data: digestInput)
+        .map { String(format: "%02x", $0) }
+        .joined()
+    return NSString(string: "\(rawUrl)#headers=\(fingerprint)")
+}
+
 private enum NativeSheetImageLoader {
     private static let cache = NSCache<NSString, UIImage>()
 
@@ -4863,7 +4918,7 @@ private enum NativeSheetImageLoader {
             return
         }
 
-        let cacheKey = NSString(string: rawUrl)
+        let cacheKey = nativeSheetImageCacheKey(rawUrl: rawUrl, headers: headers)
         if let cached = cache.object(forKey: cacheKey) {
             completion(cached)
             return
@@ -5339,11 +5394,12 @@ private final class NativeAvatarView: UIView {
 
     func setPickedPreview(_ image: UIImage?) {
         if let image {
-            imageView.image = image
-            imageView.tintColor = nil
-            imageView.contentMode = .scaleAspectFill
-            imageView.isHidden = false
-            initialsLabel.isHidden = true
+            applyNativeAvatarImage(
+                image,
+                isTemplate: false,
+                to: imageView,
+                initialsLabel: initialsLabel
+            )
         }
     }
 
@@ -5360,8 +5416,12 @@ private final class NativeAvatarView: UIView {
     private func loadImage(profile: NativeSheetProfile) {
         if let avatarData = profile.avatarData,
            let image = UIImage(data: avatarData) {
-            imageView.image = image
-            imageView.isHidden = false
+            applyNativeAvatarImage(
+                image,
+                isTemplate: profile.avatarIsTemplate,
+                to: imageView,
+                initialsLabel: initialsLabel
+            )
             return
         }
 
@@ -5370,8 +5430,13 @@ private final class NativeAvatarView: UIView {
             return
         }
         NativeSheetImageLoader.load(rawUrl: avatarUrl, headers: profile.avatarHeaders) { [weak self] image in
-            self?.imageView.image = image
-            self?.imageView.isHidden = false
+            guard let self else { return }
+            applyNativeAvatarImage(
+                image,
+                isTemplate: profile.avatarIsTemplate,
+                to: self.imageView,
+                initialsLabel: self.initialsLabel
+            )
         }
     }
 }

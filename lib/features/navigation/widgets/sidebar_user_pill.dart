@@ -33,6 +33,20 @@ import '../providers/sidebar_providers.dart';
 typedef SidebarNativeProfilePresenter =
     Future<bool> Function(NativeProfileSheetConfig config);
 
+@visibleForTesting
+NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
+  required String title,
+  required String subtitle,
+}) => NativeSheetItemConfig(
+  id: NativeSheetRoutes.directConnections,
+  title: title,
+  subtitle: subtitle,
+  sfSymbol: 'link.circle',
+  dismissOnSelect: true,
+  actionId: NativeSheetRoutes.directConnections,
+  actionValue: true,
+);
+
 /// Nullable platform seam so the iOS native-sheet failure fallback is
 /// deterministic in widget tests.
 final sidebarNativeProfilePresenterProvider =
@@ -261,6 +275,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               ),
               initials: 'HA',
               avatarBytes: hermesAvatarBytes,
+              avatarIsTemplate: true,
             )
           : user == null
           ? NativeProfileSheetUser(
@@ -322,16 +337,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetItemConfig(
           id: NativeSheetRoutes.appearance,
           title: appearanceTitle,
+          subtitle: l10n.settingsAppearanceSubtitle,
           sfSymbol: 'paintpalette',
         ),
         NativeSheetItemConfig(
           id: NativeSheetRoutes.chats,
           title: chatsTitle,
+          subtitle: l10n.settingsChatSubtitle,
           sfSymbol: 'bubble.left.and.bubble.right',
         ),
         NativeSheetItemConfig(
           id: NativeSheetRoutes.voice,
           title: l10n.voice,
+          subtitle: l10n.audioSettingsSubtitle,
           sfSymbol: 'waveform',
         ),
         // Notifications are OWUI-socket-derived, so require an OWUI account.
@@ -339,33 +357,35 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           NativeSheetItemConfig(
             id: NativeSheetRoutes.notificationSettings,
             title: l10n.notificationsTitle,
+            subtitle: l10n.notificationsSubtitle,
             sfSymbol: 'bell',
           ),
         if (user != null)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.aiMemory,
             title: aiMemoryTitle,
+            subtitle: l10n.personalizationSubtitle,
             sfSymbol: 'wand.and.stars',
           ),
         NativeSheetItemConfig(
           id: NativeSheetRoutes.hermes,
           title: l10n.hermesAgentSettingsTitle,
+          subtitle: l10n.hermesAgentSettingsSubtitle,
           sfSymbol: 'sparkles',
           iconAsset: 'assets/icons/hermes_agent.png',
           dismissOnSelect: true,
           actionId: NativeSheetRoutes.hermes,
           actionValue: true,
         ),
-        NativeSheetItemConfig(
-          id: 'open-direct-connections',
+        buildDirectConnectionsNativeSheetItem(
           title: l10n.directConnectionsTitle,
           subtitle: l10n.directConnectionsSubtitle,
-          sfSymbol: 'link.circle',
         ),
         if (canManageWorkspace)
           NativeSheetItemConfig(
             id: NativeSheetRoutes.workspace,
             title: l10n.workspaceTitle,
+            subtitle: l10n.workspaceSubtitle,
             sfSymbol: 'square.grid.2x2',
             dismissOnSelect: true,
             actionId: NativeSheetRoutes.workspace,
@@ -375,6 +395,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           NativeSheetItemConfig(
             id: NativeSheetRoutes.dataConnection,
             title: dataConnectionTitle,
+            subtitle: l10n.connectionHealth,
             sfSymbol: 'network',
           ),
         if (user == null)
@@ -390,6 +411,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         NativeSheetItemConfig(
           id: NativeSheetRoutes.helpAbout,
           title: l10n.aboutApp,
+          subtitle: l10n.aboutAppSubtitle,
           sfSymbol: 'info.circle',
         ),
         if (user != null)

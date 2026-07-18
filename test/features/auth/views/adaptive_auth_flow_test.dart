@@ -81,6 +81,27 @@ void main() {
     },
   );
 
+  testWidgets('Android auth back surface stays at toolbar action size', (
+    tester,
+  ) async {
+    _usePhoneViewport(tester);
+    final harness = _AuthHarness(server: server);
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.serverConnection),
+    );
+    await tester.pumpAndSettle();
+
+    check(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('server-connection-back-button')),
+      ),
+    ).equals(const Size.square(TouchTarget.minimum));
+
+    await harness.unmount(tester);
+  });
+
   for (final platform in <TargetPlatform>[
     TargetPlatform.iOS,
     TargetPlatform.android,

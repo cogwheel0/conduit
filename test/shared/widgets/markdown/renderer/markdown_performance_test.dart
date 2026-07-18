@@ -7,6 +7,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +46,23 @@ class _RecordingPrepareMarkdownCompileService
     await Future<void>.delayed(const Duration(milliseconds: 1));
     return prepareMarkdownContent(content, streaming: streaming);
   }
+}
+
+class _SynchronousFuturePrepareMarkdownCompileService
+    extends _ImmediateMarkdownCompileService {
+  @override
+  bool shouldPrepareSynchronously(String content, {bool widgetTest = false}) =>
+      false;
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) => SynchronousFuture<String>(
+    prepareMarkdownContent(content, streaming: streaming),
+  );
 }
 
 class _BlockingPrepareMarkdownCompileService
@@ -190,6 +208,43 @@ Widget _buildStreamingHarness({
 void main() {
   setUp(debugResetParsedMarkdownCache);
   tearDown(debugResetParsedMarkdownCache);
+
+  testWidgets('deferred streaming preparation lands in its scheduled frame', (
+    tester,
+  ) async {
+    final compileService = _SynchronousFuturePrepareMarkdownCompileService();
+    addTearDown(compileService.dispose);
+
+    await tester.pumpWidget(
+      _buildStreamingHarness(
+        content: 'Initial response',
+        compileService: compileService,
+        debugRenderInterval: Duration.zero,
+      ),
+    );
+    expect(find.text('Initial response', findRichText: true), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildStreamingHarness(
+        content: 'Updated response in the scheduled frame',
+        compileService: compileService,
+        debugRenderInterval: Duration.zero,
+      ),
+    );
+    expect(
+      find.text('Updated response in the scheduled frame', findRichText: true),
+      findsNothing,
+    );
+
+    // Preparation starts in the transient callback and the synchronous
+    // result is built in this frame. A post-frame callback needs a second
+    // pump to make the result visible.
+    await tester.pump();
+    expect(
+      find.text('Updated response in the scheduled frame', findRichText: true),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('parsed markdown cache keeps recently reused entries', (
     tester,

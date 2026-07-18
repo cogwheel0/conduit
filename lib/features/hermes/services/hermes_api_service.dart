@@ -1182,6 +1182,7 @@ class HermesApiService {
     String? sessionId,
     String? instructions,
     String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
   }) async {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
@@ -1192,7 +1193,10 @@ class HermesApiService {
         'input': input,
         'session_id': ?validatedSessionId,
         'instructions': ?instructions,
-        'previous_response_id': ?previousResponseId,
+        if (conversationHistory != null && conversationHistory.isNotEmpty)
+          'conversation_history': conversationHistory
+        else
+          'previous_response_id': ?previousResponseId,
       },
       headers: _sessionHeaders(sessionId: validatedSessionId),
     );
