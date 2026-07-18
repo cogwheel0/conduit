@@ -64,6 +64,7 @@ class ConduitMarkdownPreprocessor {
     multiLine: true,
     dotAll: true,
   );
+  static final _codeSpanOrFence = RegExp(r'(`+)([\s\S]*?)\1');
   static final _allDetailsBlocks = RegExp(
     r'<details[^>]*>[\s\S]*?</details>',
     multiLine: true,
@@ -179,9 +180,26 @@ class ConduitMarkdownPreprocessor {
     return input
         .replaceAll('\r\n', '\n')
         .transform(_stripLinkReferenceDefinitions)
-        .replaceAll(_reasoningBlocks, '')
+        .transform(
+          (content) => _removeMatchesOutsideCode(content, _reasoningBlocks),
+        )
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
+  }
+
+  /// Sanitizes message content for copying while omitting internal tool calls.
+  ///
+  /// Tool-call markup inside code spans is preserved so documentation and
+  /// examples are copied faithfully. Ordinary `<details>` blocks are also left
+  /// untouched.
+  static String sanitizeForClipboard(String input) {
+    if (input.isEmpty) return input;
+
+    final sanitized = sanitize(input);
+    return _removeMatchesOutsideCode(
+      sanitized,
+      _toolCallBlocks,
+    ).replaceAll(_multipleNewlines, '\n\n').trim();
   }
 
   /// Converts markdown to plain text for text-to-speech.
@@ -228,10 +246,7 @@ class ConduitMarkdownPreprocessor {
   static String removeAllDetails(String input) {
     if (input.isEmpty) return input;
 
-    return _replaceOutsideCode(
-      input,
-      (segment) => segment.replaceAll(_allDetailsBlocks, ''),
-    );
+    return _removeMatchesOutsideCode(input, _allDetailsBlocks);
   }
 
   /// Breaks long inline code spans for better wrapping.
@@ -304,10 +319,7 @@ class ConduitMarkdownPreprocessor {
   static String _stripLinkReferenceDefinitions(String input) {
     if (!input.contains(']:')) return input;
 
-    final stripped = _replaceOutsideCode(
-      input,
-      (segment) => segment.replaceAll(_linkReferenceDefinition, ''),
-    );
+    final stripped = _removeMatchesOutsideCode(input, _linkReferenceDefinition);
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
 
@@ -315,15 +327,26 @@ class ConduitMarkdownPreprocessor {
     return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
   }
 
-  static String _replaceOutsideCode(
-    String input,
-    String Function(String segment) replacer,
-  ) {
-    return input.splitMapJoin(
-      RegExp(r'```[\s\S]*?```|`[\s\S]*?`'),
-      onMatch: (match) => match[0] ?? '',
-      onNonMatch: replacer,
-    );
+  static String _removeMatchesOutsideCode(String input, RegExp pattern) {
+    final codeSpans = <String>[];
+    var marker = '\u0000conduit-code-span-';
+    while (input.contains(marker)) {
+      marker = '\u0000$marker';
+    }
+
+    final masked = input.replaceAllMapped(_codeSpanOrFence, (match) {
+      final index = codeSpans.length;
+      codeSpans.add(match[0] ?? '');
+      return '$marker$index\u0000';
+    });
+    var output = masked.replaceAll(pattern, '');
+
+    // Placeholders inside removed matches no longer exist, so only code from
+    // the retained content is restored.
+    for (var index = 0; index < codeSpans.length; index++) {
+      output = output.replaceAll('$marker$index\u0000', codeSpans[index]);
+    }
+    return output;
   }
 
   static String _removeEmojis(String input) {

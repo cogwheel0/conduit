@@ -2584,8 +2584,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _copyMessage(String content) {
-    // Strip reasoning blocks and annotations from copied content
-    final cleanedContent = ConduitMarkdownPreprocessor.sanitize(content);
+    final cleanedContent = ConduitMarkdownPreprocessor.sanitizeForClipboard(
+      content,
+    );
     Clipboard.setData(ClipboardData(text: cleanedContent));
   }
 
