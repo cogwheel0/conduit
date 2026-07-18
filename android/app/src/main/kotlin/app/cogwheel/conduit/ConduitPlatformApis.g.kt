@@ -3532,6 +3532,7 @@ interface NativeDropdownHostApi {
 interface NativeSheetHostApi {
   fun presentProfileMenu(config: PlatformNativeProfileSheetConfig, callback: (Result<Boolean>) -> Unit)
   fun dismiss(): Boolean
+  fun requestAppStoreReview(): Boolean
   fun presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, callback: (Result<String?>) -> Unit)
   fun updateModelSelectorModels(presentationId: String, models: List<PlatformNativeSheetModelOption>)
   fun presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, callback: (Result<String?>) -> Unit)
@@ -3575,6 +3576,21 @@ interface NativeSheetHostApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.dismiss())
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.requestAppStoreReview$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.requestAppStoreReview())
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)
             }

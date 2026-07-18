@@ -21,6 +21,11 @@ final _updateModelSelectorChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+final _requestAppStoreReviewChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.requestAppStoreReview',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -38,6 +43,10 @@ void main() {
     );
     messenger.setMockDecodedMessageHandler<Object?>(
       _updateModelSelectorChannel,
+      null,
+    );
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _requestAppStoreReviewChannel,
       null,
     );
   });
@@ -176,6 +185,79 @@ void main() {
     );
 
     check(presented).isTrue();
+  });
+
+  group('NativeSheetBridge.requestAppStoreReview', () {
+    test('forwards native result on iOS', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var calls = 0;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _requestAppStoreReviewChannel,
+        (message) async {
+          calls += 1;
+          return wrapResponse(result: true);
+        },
+      );
+
+      final requested = await NativeSheetBridge.instance
+          .requestAppStoreReview();
+
+      check(requested).isTrue();
+      check(calls).equals(1);
+    });
+
+    test('preserves native false result on iOS', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _requestAppStoreReviewChannel,
+        (message) async => wrapResponse(result: false),
+      );
+
+      final requested = await NativeSheetBridge.instance
+          .requestAppStoreReview();
+
+      check(requested).isFalse();
+    });
+
+    test('converts platform errors to false', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _requestAppStoreReviewChannel,
+        (message) async =>
+            wrapResponse(error: PlatformException(code: 'NO_FOREGROUND_SCENE')),
+      );
+
+      final requested = await NativeSheetBridge.instance
+          .requestAppStoreReview();
+
+      check(requested).isFalse();
+    });
+
+    test('does not send a platform message off iOS', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = false;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var calls = 0;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _requestAppStoreReviewChannel,
+        (message) async {
+          calls += 1;
+          return wrapResponse(result: true);
+        },
+      );
+
+      final requested = await NativeSheetBridge.instance
+          .requestAppStoreReview();
+
+      check(requested).isFalse();
+      check(calls).equals(0);
+    });
   });
 
   group('NativeSheetBridge.presentModelSelector', () {

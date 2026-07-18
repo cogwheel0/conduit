@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../data/release_links.dart';
 import '../models/release_note.dart';
 
 class ReleaseNotesSheet extends StatefulWidget {
@@ -15,7 +14,7 @@ class ReleaseNotesSheet extends StatefulWidget {
     this.subtitle,
     this.showSubtitle = true,
     required this.notes,
-    required this.onOpenUrl,
+    required this.onReview,
     required this.onOpenSupport,
     required this.supportLabel,
     required this.supportIcon,
@@ -27,7 +26,7 @@ class ReleaseNotesSheet extends StatefulWidget {
   final String? subtitle;
   final bool showSubtitle;
   final List<ReleaseNote> notes;
-  final ValueChanged<String> onOpenUrl;
+  final VoidCallback onReview;
   final VoidCallback onOpenSupport;
   final String supportLabel;
   final IconData supportIcon;
@@ -51,6 +50,7 @@ class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.84;
+    final highlightHeight = (maxHeight * 0.34).clamp(176.0, 240.0);
     final highlights = <_ReleaseHighlight>[
       for (final note in widget.notes)
         for (var i = 0; i < note.bullets.length; i++)
@@ -77,50 +77,51 @@ class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxHeight),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _StaggeredReveal(
-            index: revealIndex++,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.releaseNotesTitle,
-                        style: theme.headingSmall?.copyWith(
-                          color: theme.textPrimary,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                      if (widget.showSubtitle) ...[
-                        const SizedBox(height: Spacing.xs),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _StaggeredReveal(
+              index: revealIndex++,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          widget.subtitle ??
-                              l10n.releaseNotesSubtitle(
-                                widget.previousVersion ?? widget.currentVersion,
-                                widget.currentVersion,
-                              ),
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.textSecondary,
+                          l10n.releaseNotesTitle,
+                          style: theme.headingSmall?.copyWith(
+                            color: theme.textPrimary,
+                            letterSpacing: -0.4,
                           ),
                         ),
+                        if (widget.showSubtitle) ...[
+                          const SizedBox(height: Spacing.xs),
+                          Text(
+                            widget.subtitle ??
+                                l10n.releaseNotesSubtitle(
+                                  widget.previousVersion ??
+                                      widget.currentVersion,
+                                  widget.currentVersion,
+                                ),
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                _VersionBadge(version: widget.currentVersion),
-              ],
+                  const SizedBox(width: Spacing.sm),
+                  _VersionBadge(version: widget.currentVersion),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: Spacing.md),
-          Flexible(
-            child: Column(
+            const SizedBox(height: Spacing.md),
+            Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (intro != null) ...[
@@ -137,7 +138,8 @@ class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
                   const SizedBox(height: Spacing.md),
                 ],
                 if (highlights.isNotEmpty) ...[
-                  Expanded(
+                  SizedBox(
+                    height: highlightHeight,
                     child: _StaggeredReveal(
                       index: revealIndex++,
                       child: PageView.builder(
@@ -159,32 +161,32 @@ class _ReleaseNotesSheetState extends State<ReleaseNotesSheet> {
                 ],
               ],
             ),
-          ),
-          const SizedBox(height: Spacing.md),
-          _StaggeredReveal(
-            index: revealIndex++,
-            child: _ReleaseSupportCard(
-              heading: l10n.releaseNotesSupportPromptHeading,
-              message: l10n.releaseNotesSupportPromptMessage,
-              reviewLabel: l10n.releaseNotesReviewButton,
-              supportLabel: widget.supportLabel,
-              supportIcon: widget.supportIcon,
-              reviewColor: theme.buttonPrimary,
-              supportColor: theme.warning,
-              onReview: () => widget.onOpenUrl(reviewUrlForPlatform()),
-              onSupport: widget.onOpenSupport,
+            const SizedBox(height: Spacing.md),
+            _StaggeredReveal(
+              index: revealIndex++,
+              child: _ReleaseSupportCard(
+                heading: l10n.releaseNotesSupportPromptHeading,
+                message: l10n.releaseNotesSupportPromptMessage,
+                reviewLabel: l10n.releaseNotesReviewButton,
+                supportLabel: widget.supportLabel,
+                supportIcon: widget.supportIcon,
+                reviewColor: theme.buttonPrimary,
+                supportColor: theme.warning,
+                onReview: widget.onReview,
+                onSupport: widget.onOpenSupport,
+              ),
             ),
-          ),
-          const SizedBox(height: Spacing.md),
-          _StaggeredReveal(
-            index: revealIndex,
-            child: ConduitButton(
-              text: l10n.releaseNotesDoneButton,
-              isFullWidth: true,
-              onPressed: widget.onClose,
+            const SizedBox(height: Spacing.md),
+            _StaggeredReveal(
+              index: revealIndex,
+              child: ConduitButton(
+                text: l10n.releaseNotesDoneButton,
+                isFullWidth: true,
+                onPressed: widget.onClose,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

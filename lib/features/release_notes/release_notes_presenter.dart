@@ -1,14 +1,50 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/native_sheet_bridge.dart';
+import '../../core/utils/debug_logger.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/external_link_launcher.dart';
 import '../../shared/widgets/themed_sheets.dart';
 import '../support/data/support_links.dart';
+import 'data/release_links.dart';
 import 'models/release_note.dart';
 import 'models/release_version.dart';
 import 'widgets/release_notes_sheet.dart';
+
+typedef NativeReviewRequester = Future<bool> Function();
+typedef ReviewUrlLauncher = Future<bool> Function(String url);
+
+Future<void> requestReleaseNotesReview({
+  TargetPlatform? platform,
+  NativeReviewRequester? requestNativeReview,
+  ReviewUrlLauncher? launchReviewUrl,
+}) async {
+  final resolvedPlatform = platform ?? defaultTargetPlatform;
+  final urlLauncher =
+      launchReviewUrl ??
+      (url) => launchInAppBrowserLink(url, scope: 'release-notes/review');
+
+  if (resolvedPlatform == TargetPlatform.iOS) {
+    try {
+      final requested =
+          await (requestNativeReview ??
+              NativeSheetBridge.instance.requestAppStoreReview)();
+      if (requested) return;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-review-request-failed',
+        scope: 'release-notes/review',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  await urlLauncher(reviewUrlForPlatform(resolvedPlatform));
+}
 
 Future<void> showReleaseNotesSheet({
   required BuildContext context,
@@ -25,8 +61,10 @@ Future<void> showReleaseNotesSheet({
         Navigator.of(sheetContext).maybePop();
       }
 
-      void openUrl(String url) {
-        unawaited(launchInAppBrowserLink(url, scope: 'release-notes'));
+      void requestReview() {
+        unawaited(
+          requestReleaseNotesReview(platform: Theme.of(sheetContext).platform),
+        );
       }
 
       void openSupport() {
@@ -45,7 +83,7 @@ Future<void> showReleaseNotesSheet({
           subtitle: subtitle,
           showSubtitle: showSubtitle,
           notes: notes,
-          onOpenUrl: openUrl,
+          onReview: requestReview,
           onOpenSupport: openSupport,
           supportLabel: AppLocalizations.of(sheetContext)!.buyMeACoffeeTitle,
           supportIcon: Icons.local_cafe_outlined,

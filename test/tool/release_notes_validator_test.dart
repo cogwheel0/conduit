@@ -88,6 +88,7 @@ void main() {
 
   test('fails when a locale is missing a version', () {
     writeArb('app_en.arb', validArb());
+    writeArb('app_de.arb', validArb());
     writeNotes('en', {
       'notes': [note('3.3.2'), note('4.0.0')],
     });
@@ -100,8 +101,35 @@ void main() {
     ).contains('de.json is missing version 4.0.0.');
   });
 
+  test('fails when an ARB locale has no release-note JSON file', () {
+    writeArb('app_en.arb', validArb());
+    writeArb('app_de.arb', validArb());
+    writeNotes('en', {
+      'notes': [note('4.0.0')],
+    });
+
+    check(
+      validate('4.0.0').errors,
+    ).contains('Missing release-note JSON for ARB locale de.');
+  });
+
+  test('fails when release-note JSON has no matching ARB locale', () {
+    writeArb('app_en.arb', validArb());
+    writeNotes('en', {
+      'notes': [note('4.0.0')],
+    });
+    writeNotes('de', {
+      'notes': [note('4.0.0')],
+    });
+
+    check(
+      validate('4.0.0').errors,
+    ).contains('Missing ARB locale for release-note JSON de.json.');
+  });
+
   test('fails when a locale has a different bullet count', () {
     writeArb('app_en.arb', validArb());
+    writeArb('app_de.arb', validArb());
     writeNotes('en', {
       'notes': [note('4.0.0', bulletCount: 3)],
     });
@@ -127,6 +155,7 @@ void main() {
 
   test('fails when a locale carries a version en does not have', () {
     writeArb('app_en.arb', validArb());
+    writeArb('app_de.arb', validArb());
     writeNotes('en', {
       'notes': [note('4.0.0')],
     });

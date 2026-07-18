@@ -34,11 +34,10 @@ import 'core/utils/current_localizations.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
+import 'features/release_notes/release_notes_bootstrap.dart';
 import 'features/release_notes/release_notes_coordinator.dart';
 import 'features/release_notes/data/release_notes_repository.dart';
 import 'features/release_notes/release_notes_presenter.dart';
-import 'features/support/data/support_links.dart';
-import 'shared/utils/external_link_launcher.dart';
 import 'features/tools/providers/tools_providers.dart';
 import 'core/utils/debug_logger.dart';
 import 'core/utils/system_ui_style.dart';
@@ -215,6 +214,7 @@ void main() {
       // Copy Hive-resident preferences into shared_preferences (PR-1 of the
       // Hive removal). Runs once; gated + crash-safe.
       await HivePrefsMigrator(hiveBoxes: hiveBoxes).migrateIfNeeded();
+      await captureReleaseNotesInstallProvenance();
       _startupTimeline?.instant('migration_complete');
 
       // Bound time-to-first-paint even if the platform call stalls. Provider
@@ -440,12 +440,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             extra: request.extra,
           ),
         );
-        return;
-      }
-
-      if (event.id == NativeSheetRoutes.supportDonate) {
-        await _dismissNativeSheetBeforeFollowUp();
-        await launchInAppBrowserLink(buyMeACoffeeUrl, scope: 'support/donate');
         return;
       }
 
@@ -809,9 +803,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   }
 
   Future<void> _showManualReleaseNotes(BuildContext context) async {
-    final l10n = AppLocalizations.of(context);
-    if (l10n == null) return;
-
     final packageInfo = await ref.read(packageInfoProvider.future);
     if (!context.mounted) return;
 

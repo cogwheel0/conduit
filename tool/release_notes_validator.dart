@@ -76,6 +76,20 @@ ReleaseNotesValidationResult validateReleaseNotes({
     }
   }
 
+  final arbLocales = _validateShellArbKeys(arbDirectory, errors);
+  final noteLocales = {
+    for (final file in noteFiles)
+      file.uri.pathSegments.last.replaceAll('.json', ''),
+  };
+  if (arbLocales.isNotEmpty) {
+    for (final locale in arbLocales.difference(noteLocales)) {
+      errors.add('Missing release-note JSON for ARB locale $locale.');
+    }
+    for (final locale in noteLocales.difference(arbLocales)) {
+      errors.add('Missing ARB locale for release-note JSON $locale.json.');
+    }
+  }
+
   final template = shapes[_templateLocale];
   if (template == null) {
     errors.add(
@@ -110,7 +124,6 @@ ReleaseNotesValidationResult validateReleaseNotes({
     }
   }
 
-  _validateShellArbKeys(arbDirectory, errors);
   return ReleaseNotesValidationResult(errors);
 }
 
@@ -181,10 +194,10 @@ Map<String, int>? _validateNotesFile(File file, List<String> errors) {
   return shape;
 }
 
-void _validateShellArbKeys(Directory arbDirectory, List<String> errors) {
+Set<String> _validateShellArbKeys(Directory arbDirectory, List<String> errors) {
   if (!arbDirectory.existsSync()) {
     errors.add('Missing ARB directory: ${arbDirectory.path}');
-    return;
+    return const {};
   }
   final arbFiles =
       arbDirectory
@@ -195,9 +208,14 @@ void _validateShellArbKeys(Directory arbDirectory, List<String> errors) {
         ..sort((a, b) => a.path.compareTo(b.path));
   if (arbFiles.isEmpty) {
     errors.add('No ARB files found in ${arbDirectory.path}.');
-    return;
+    return const {};
   }
+  final locales = <String>{};
   for (final file in arbFiles) {
+    final name = file.uri.pathSegments.last;
+    if (name.startsWith('app_') && name.endsWith('.arb')) {
+      locales.add(name.substring(4, name.length - 4));
+    }
     final Set<String> keys;
     try {
       final decoded = jsonDecode(file.readAsStringSync());
@@ -216,4 +234,5 @@ void _validateShellArbKeys(Directory arbDirectory, List<String> errors) {
       }
     }
   }
+  return locales;
 }
