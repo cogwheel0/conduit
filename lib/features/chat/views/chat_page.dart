@@ -719,7 +719,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
-  void _handleMessageSend(String text) async {
+  Future<void> _handleMessageSend(String text) =>
+      _sendMessage(text, includeComposerContext: true);
+
+  Future<void> _handleFollowUpSend(String text) =>
+      _sendMessage(text, includeComposerContext: false);
+
+  Future<void> _sendMessage(
+    String text, {
+    required bool includeComposerContext,
+  }) async {
     if (ref.read(isLoadingConversationProvider)) {
       return;
     }
@@ -751,7 +760,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ChatSendPlaceholderHandle? pendingSend;
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
-      final attachedFiles = ref.read(attachedFilesProvider);
+      final attachedFiles = includeComposerContext
+          ? ref.read(attachedFilesProvider)
+          : const <FileUploadState>[];
       final mediaUploadController = ref.read(mediaUploadControllerProvider);
       final sentAttachmentOwnership = mediaUploadController
           .captureAttachmentOwnership();
@@ -765,7 +776,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .toList();
 
       // Get selected tools
-      final toolIds = ref.read(selectedToolIdsProvider);
+      final toolIds = includeComposerContext
+          ? ref.read(selectedToolIdsProvider)
+          : const <String>[];
       final wasOffline = !ref.read(isOnlineProvider);
       final hasDurableOutbox =
           ref.read(appDatabaseProvider) != null &&
@@ -789,18 +802,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // by the message/outbox. Retire only the exact identities/generations
       // captured for this send: a paste or picker result published while the
       // durable transaction awaited still belongs to the next composer turn.
-      unawaited(
-        mediaUploadController
-            .retireAttachmentOwnership(sentAttachmentOwnership)
-            .catchError((Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'sent-attachment-cleanup-failed',
-                scope: 'chat/attachment',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            }),
-      );
+      if (includeComposerContext) {
+        unawaited(
+          mediaUploadController
+              .retireAttachmentOwnership(sentAttachmentOwnership)
+              .catchError((Object error, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'sent-attachment-cleanup-failed',
+                  scope: 'chat/attachment',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
+        );
+      }
 
       if (wasOffline && hasDurableOutbox && mounted) {
         AdaptiveSnackBar.show(
@@ -2509,6 +2524,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       versionModelNames: rowMetadata.versionModelNames,
       versionModelIconUrls: rowMetadata.versionModelIconUrls,
       suppressStreamingHaptics: suppressStreamingHaptics,
+      onFollowUpSelected: _handleFollowUpSend,
       onCopy: () {
         final currentMessage = rowRef.read(chatMessageByIdProvider(messageId));
         if (currentMessage != null) {

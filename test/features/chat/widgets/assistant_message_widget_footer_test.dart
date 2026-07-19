@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
@@ -71,6 +73,7 @@ Widget _buildAssistantHarness(
   bool disableAnimations = false,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
+  FutureOr<void> Function(String suggestion)? onFollowUpSelected,
 }) {
   return ProviderScope(
     overrides: [
@@ -101,6 +104,7 @@ Widget _buildAssistantHarness(
           onCopy: onCopy ?? () {},
           onRegenerate: onRegenerate ?? () {},
           onDelete: () {},
+          onFollowUpSelected: onFollowUpSelected,
         ),
       ),
     ),
@@ -398,6 +402,33 @@ void main() {
     expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
     expect(find.text('Ask again'), findsNothing);
     expect(find.text('Try another angle'), findsOneWidget);
+  });
+
+  testWidgets('follow-up selection delegates to the page send path', (
+    tester,
+  ) async {
+    final selected = <String>[];
+    final message = ChatMessage(
+      id: 'assistant-follow-up-selection',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      followUps: const ['  Ask again  '],
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        showFollowUps: true,
+        onFollowUpSelected: selected.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Ask again'));
+    await tester.pump();
+
+    expect(selected, const ['Ask again']);
   });
 
   testWidgets('follow-ups stay visible through transient empty snapshots', (

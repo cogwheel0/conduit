@@ -86,6 +86,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback onDelete;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
+  final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
 
   const AssistantMessageWidget({
     super.key,
@@ -103,6 +104,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     required this.onDelete,
     this.onLike,
     this.onDislike,
+    this.onFollowUpSelected,
   });
 
   @override
@@ -177,6 +179,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return;
     }
     try {
+      final onFollowUpSelected = widget.onFollowUpSelected;
+      if (onFollowUpSelected != null) {
+        await onFollowUpSelected(trimmed);
+        return;
+      }
       final container = ProviderScope.containerOf(context, listen: false);
       await sendMessageWithContainer(container, trimmed, null);
     } catch (err, stack) {
