@@ -48,6 +48,76 @@ void main() {
     });
   });
 
+  group('webViewUrlHasTrustedServerOrigin', () {
+    test('accepts the exact configured origin', () {
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://openwebui.example/oauth/callback',
+          'https://openwebui.example',
+        ),
+        isTrue,
+      );
+    });
+
+    test('accepts a default-port https upgrade of an http server', () {
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://openwebui.example/oauth/callback',
+          'http://openwebui.example',
+        ),
+        isTrue,
+      );
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://openwebui.example:443/auth',
+          'http://openwebui.example:80',
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects scheme downgrades and host changes on upgrade', () {
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'http://openwebui.example/auth',
+          'https://openwebui.example',
+        ),
+        isFalse,
+      );
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://evil.example/auth',
+          'http://openwebui.example',
+        ),
+        isFalse,
+      );
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://sub.openwebui.example/auth',
+          'http://openwebui.example',
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects nonstandard-port remaps on upgrade', () {
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://openwebui.example:8443/auth',
+          'http://openwebui.example',
+        ),
+        isFalse,
+      );
+      expect(
+        webViewUrlHasTrustedServerOrigin(
+          'https://openwebui.example/auth',
+          'http://openwebui.example:8080',
+        ),
+        isFalse,
+      );
+    });
+  });
+
   test('diagnostic origin omits OAuth query fragment and userinfo', () {
     const secret = 'authorization-code-must-not-log';
     final label = webViewOriginForLog(

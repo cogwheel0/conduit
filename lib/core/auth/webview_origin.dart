@@ -43,6 +43,37 @@ bool webViewUrlHasExactServerOrigin(String pageUrl, String serverUrl) {
       hasExactWebViewOrigin(pageUri, serverUri);
 }
 
+/// Whether [candidate] is a trusted origin for credential capture against
+/// [trustedServer]: the exact origin, or a secure https upgrade of an
+/// http-configured origin on default ports.
+///
+/// Reverse proxies commonly 301 an `http://` configured server to https on the
+/// default port; the WebView then completes login on the upgraded origin, so
+/// rejecting it would silently strand token capture on a setup that works
+/// everywhere else. The upgrade is strictly narrower than the configured
+/// trust — same host, http→https only, default ports only. Downgrades,
+/// host changes, and nonstandard-port remaps stay rejected.
+bool hasTrustedWebViewCaptureOrigin(Uri candidate, Uri trustedServer) {
+  final candidateOrigin = normalizeWebViewOrigin(candidate);
+  final trustedOrigin = normalizeWebViewOrigin(trustedServer);
+  if (candidateOrigin == null || trustedOrigin == null) return false;
+  if (candidateOrigin == trustedOrigin) return true;
+  return trustedOrigin.scheme == 'http' &&
+      trustedOrigin.port == 80 &&
+      candidateOrigin.scheme == 'https' &&
+      candidateOrigin.port == 443 &&
+      candidateOrigin.host == trustedOrigin.host;
+}
+
+/// String-safe form of [hasTrustedWebViewCaptureOrigin] for WebView callbacks.
+bool webViewUrlHasTrustedServerOrigin(String pageUrl, String serverUrl) {
+  final pageUri = Uri.tryParse(pageUrl);
+  final serverUri = Uri.tryParse(serverUrl);
+  return pageUri != null &&
+      serverUri != null &&
+      hasTrustedWebViewCaptureOrigin(pageUri, serverUri);
+}
+
 /// Query/fragment-free origin label for diagnostics. OAuth callback URLs can
 /// contain authorization codes, state, and tokens, so raw WebView URLs must
 /// never be interpolated into logs.

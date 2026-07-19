@@ -25,7 +25,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 bool isTrustedProxyCredentialCaptureUrl({
   required String pageUrl,
   required String serverUrl,
-}) => webViewUrlHasExactServerOrigin(pageUrl, serverUrl);
+}) => webViewUrlHasTrustedServerOrigin(pageUrl, serverUrl);
 
 @visibleForTesting
 String proxyCookieLookupUrl(String serverUrl) =>

@@ -26,7 +26,7 @@ import '../providers/unified_auth_providers.dart';
 bool isTrustedSsoTokenCaptureUrl({
   required String pageUrl,
   required String serverUrl,
-}) => webViewUrlHasExactServerOrigin(pageUrl, serverUrl);
+}) => webViewUrlHasTrustedServerOrigin(pageUrl, serverUrl);
 
 @visibleForTesting
 bool isExpectedSsoRefreshLoadStart({

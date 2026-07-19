@@ -182,5 +182,22 @@ void main() {
         isFalse,
       );
     });
+
+    test(
+      'trusts a non-throwing delete when enumeration is unimplemented',
+      () async {
+        // Android: removeAllCookies returns false for an already-empty store
+        // and getAllCookies is not implemented, so verification must not turn
+        // the routine empty-store clear into a failure.
+        expect(
+          await deleteAllWebViewCookiesWithVerification(
+            deleteAllCookies: () async => false,
+            remainingCookieCount: () =>
+                Future<int>.error(UnimplementedError('getAllCookies')),
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 }

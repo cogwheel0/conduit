@@ -25,9 +25,23 @@ Future<bool> deleteAllWebViewCookiesWithVerification({
   required Future<bool> Function() deleteAllCookies,
   required Future<int> Function() remainingCookieCount,
 }) async {
+  final bool deleted;
   try {
-    if (await deleteAllCookies()) return true;
+    deleted = await deleteAllCookies();
+  } catch (_) {
+    return false;
+  }
+  if (deleted) return true;
+  try {
     return await remainingCookieCount() == 0;
+  } on UnimplementedError {
+    // Android cannot enumerate cookies (getAllCookies is unimplemented in
+    // flutter_inappwebview_android), and its `false` from removeAllCookies
+    // means "no cookies were removed" — the normal result for an already-empty
+    // store. Treating that as failure would block every fresh SSO sign-in and
+    // permanently arm the incomplete-logout fence on Android, so when
+    // verification is unavailable the non-throwing delete is the postcondition.
+    return true;
   } catch (_) {
     return false;
   }
