@@ -335,7 +335,6 @@ void main() {
         final stagingDirectory = Directory(
           p.join(Directory.systemTemp.path, shareStagingDirectoryName),
         );
-        final artifactsBefore = await _directArtifactSet(stagingDirectory);
 
         await check(
           stageIncomingSharedFile(
@@ -346,9 +345,16 @@ void main() {
           ),
         ).throws<FileSystemException>();
         check(await file.exists()).isTrue();
+        // The staging directory is a process-global temp root shared with
+        // concurrently running suites, so assert only that THIS file was not
+        // copied into it rather than snapshotting the whole directory.
         check(
           await _directArtifactSet(stagingDirectory),
-        ).deepEquals(artifactsBefore);
+        ).not(
+          (artifacts) => artifacts.any(
+            (artifact) => artifact.contains('426614174014'),
+          ),
+        );
       },
     );
 
