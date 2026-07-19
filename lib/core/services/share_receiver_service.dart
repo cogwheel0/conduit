@@ -13,6 +13,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/auth/providers/unified_auth_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
 import '../../features/chat/services/file_attachment_service.dart';
+import '../../features/direct_connections/direct_connections.dart';
+import '../../features/hermes/models/hermes_model.dart';
 import '../../core/providers/app_providers.dart';
 import 'media_upload_controller.dart';
 import 'package:path/path.dart' as path;
@@ -349,7 +351,8 @@ _DeferredSharedRollbackRegistry _deferredSharedRollbackRegistry(Ref ref) =>
 /// Process-local bridge between durable Drift receipts and the native ack.
 ///
 /// After a restart the native payload is still present until ack, so processing
-/// reconstructs the same checksum-derived keys before acknowledgement.
+/// reconstructs the same identity-derived keys (payload id + item ordinal)
+/// before acknowledgement.
 final class _NativeShareReceiptRegistry {
   final Map<String, Set<String>> _byPayloadId = <String, Set<String>>{};
 
@@ -724,6 +727,54 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     }
   }
 
+  Future<void> releaseOrphanedNativeShareReceipts() async {
+    // Receipts stranded by a process death between the native payload ack and
+    // receipt release have no process-local registry entry and would leak
+    // forever. Release them only when native storage authoritatively reports
+    // nothing pending; the controller snapshots candidates before this
+    // confirmation runs, so a receipt for a still-pending payload — the exact
+    // race receipts exist to prevent — can never be released here.
+    if (ref.read(pendingSharedPayloadProvider)?.id != null) return;
+    try {
+      final released = await ref
+          .read(mediaUploadControllerProvider)
+          .releaseOrphanedNativeShareReceipts(
+            confirmNoPendingNativePayloads: () async {
+              if (ref.read(pendingSharedPayloadProvider)?.id != null) {
+                return false;
+              }
+              final status = await getPendingNativeShareImportStatus();
+              if (status.isInProgress) return false;
+              if (await takePendingNativeShareImportPayload() != null) {
+                return false;
+              }
+              if (Platform.isAndroid &&
+                  await hasPendingAndroidStagedSharePayload()) {
+                return false;
+              }
+              return ref.read(pendingSharedPayloadProvider)?.id == null;
+            },
+          );
+      if (released > 0) {
+        DebugLogger.log(
+          'ShareReceiver: released orphaned native share receipts',
+          scope: 'share/receiver',
+          data: {'count': released},
+        );
+      }
+    } catch (error, stackTrace) {
+      // Conservative: held receipts remain for a later GC pass. Leaked rows
+      // cannot duplicate an upload or delete bytes with a live durable owner.
+      DebugLogger.error(
+        'native-share-receipt-gc-failed',
+        scope: 'share/receiver',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+
   void showShareImportErrors(SharedAttachmentImportStatus status) {
     if (!status.hasErrors) return;
 
@@ -922,7 +973,13 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     if (!initialStatus.hasPlaceholders &&
         !initialStatus.hasErrors &&
         !hasPendingAndroidPayload) {
-      await setPendingFromNativeShareImportPayload();
+      final consumedPendingPayload =
+          await setPendingFromNativeShareImportPayload();
+      if (!consumedPendingPayload) {
+        // Native storage is fully drained: any terminal receipt-held row left
+        // behind by a crash between ack and release is now provably orphaned.
+        unawaited(releaseOrphanedNativeShareReceipts());
+      }
       return;
     }
 
@@ -998,6 +1055,14 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     pendingSharedPayloadProvider,
     (prev, next) => unawaited(maybeProcessPending()),
   );
+  // Each per-server attachment queue restore is a GC opportunity for receipts
+  // orphaned by a crash between the native payload ack and receipt release.
+  // The GC itself re-verifies that native storage holds no pending payloads.
+  ref.listen(attachmentUploadQueueProvider, (prev, next) {
+    if (next != null) {
+      unawaited(releaseOrphanedNativeShareReceipts());
+    }
+  });
 
   try {
     void onRouteChanged() => unawaited(maybeProcessPending());
@@ -1199,11 +1264,25 @@ Future<SharedPayloadProcessResult> _processPayload(
     // Prefer attaching files to the composer so user can add text before sending
     if (attachments.isNotEmpty) {
       final nativePayloadId = payload.id;
-      if (nativePayloadId == null) {
+      final selectedModel = ref.read(selectedModelProvider);
+      // Hermes/direct attachments are prepared into composer memory only, so
+      // the crash-safe durable receipt path cannot own them — the media
+      // controller rejects the import (NativeShareDurableOwnershipUnavailable)
+      // and the payload would otherwise retry forever without ever appearing.
+      // Route these models through the composer-first local path instead: the
+      // share becomes usable immediately and the native payload is
+      // acknowledged normally. A process death after the ack can lose the
+      // in-memory attachment, which matches the pre-receipt behavior.
+      final requiresLocalComposerOwnership =
+          selectedModel != null &&
+          (isHermesModel(selectedModel) ||
+              hasReservedDirectIdentity(selectedModel));
+      if (nativePayloadId == null || requiresLocalComposerOwnership) {
         // The legacy sharing-intent plugin has no durable exact-ID record to
         // dedupe across a process death. Keep its established composer-first
         // ownership policy; native Android/iOS imports always carry an ID and
-        // use the crash-safe path below.
+        // use the crash-safe path below (unless a local-only Hermes/direct
+        // model owns the composer, per above).
         ref.read(attachedFilesProvider.notifier).addFiles(attachments);
         await attachmentBatch!.commit();
         for (final prepared in attachmentBatch.prepared) {

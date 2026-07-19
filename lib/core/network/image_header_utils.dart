@@ -11,9 +11,6 @@ import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 
 int _unownedImageCacheKeyNonce = 0;
 final String _unownedImageCacheProcessSalt = _newProcessCacheSalt();
-final Expando<String> _imageCacheOwnerNonces = Expando<String>(
-  'conduit-image-cache-owner',
-);
 
 String _newProcessCacheSalt() {
   final random = Random.secure();
@@ -22,8 +19,30 @@ String _newProcessCacheSalt() {
   );
 }
 
-String _imageCacheOwnerNonce(Object owner) {
-  return _imageCacheOwnerNonces[owner] ??= _newProcessCacheSalt();
+/// Stable, restart-safe owner identity for authenticated image cache keys.
+///
+/// Derived only from one-way digests of the configured server identity and the
+/// session's auth token: two accounts (different tokens) never share cache
+/// keys, while the same account produces identical keys across app restarts so
+/// the persistent CachedNetworkImage disk cache survives a launch instead of
+/// re-downloading every image. No raw secret material enters the key — the
+/// token participates exclusively as a truncated-by-hashing sha256 digest.
+/// A same-server account transition that reuses the ApiService object still
+/// rotates this digest because `updateAuthToken` replaces the token itself.
+String _imageCacheOwnerDigest(ApiService api) {
+  final token = api.authToken ?? '';
+  final tokenDigest = token.isEmpty
+      ? 'unauthenticated'
+      : sha256.convert(utf8.encode(token)).toString();
+  final config = api.serverConfig;
+  return sha256
+      .convert(
+        utf8.encode(
+          'conduit-image-owner-v1\u0000${config.id}\u0000${config.url}\u0000'
+          '$tokenDigest',
+        ),
+      )
+      .toString();
 }
 
 /// Builds HTTP headers for protected image requests.
@@ -69,11 +88,18 @@ Map<String, String>? readImageHeadersForUrlFromWidgetRef(
 ///
 /// The default network-image cache keys only by URL. Open WebUI file URLs can
 /// be identical across accounts, so URL-only memory/disk entries can expose a
-/// previous account's bytes. API and auth-epoch objects receive opaque random
-/// ownership nonces. Unlike `identityHashCode`, these do not collide through
-/// hash truncation or deterministically reuse a persistent disk key after an
-/// app restart. Hashing also keeps signed URLs out of cache metadata.
+/// previous account's bytes. The key is scoped by a stable owner digest over
+/// the server identity and a one-way hash of the session's auth token (plus
+/// the digest of the effective request headers), so different accounts never
+/// share entries while the same account keeps identical keys across restarts
+/// and ApiService rebuilds — the persistent disk cache survives an app launch.
+/// Hashing also keeps signed URLs out of cache metadata.
 /// Cross-origin/public images retain the package's normal URL key.
+///
+/// [authSessionEpoch] is retained as an ownership-resolution gate for the
+/// calling wrappers (they fail closed to a one-shot key when it is
+/// unreadable); it contributes no key material because its identity is random
+/// per process, which would otherwise invalidate the disk cache every launch.
 String? buildSessionScopedImageCacheKey({
   required ApiService? api,
   required Object authSessionEpoch,
@@ -88,9 +114,8 @@ String? buildSessionScopedImageCacheKey({
   }
   final digest = sha256.convert(
     utf8.encode(
-      'conduit-auth-image-v2\u0000$url\u0000'
-      '${_imageCacheOwnerNonce(api)}\u0000'
-      '${_imageCacheOwnerNonce(authSessionEpoch)}\u0000'
+      'conduit-auth-image-v3\u0000$url\u0000'
+      '${_imageCacheOwnerDigest(api)}\u0000'
       '${_stableImageHeaderDigest(effectiveHeaders)}',
     ),
   );
@@ -167,9 +192,8 @@ String _buildExplicitHeaderImageCacheKey({
 }) {
   final digest = sha256.convert(
     utf8.encode(
-      'conduit-header-image-v1\u0000$url\u0000'
-      '${_imageCacheOwnerNonce(api)}\u0000'
-      '${_imageCacheOwnerNonce(authSessionEpoch)}\u0000'
+      'conduit-header-image-v2\u0000$url\u0000'
+      '${_imageCacheOwnerDigest(api)}\u0000'
       '${_stableImageHeaderDigest(effectiveHeaders)}',
     ),
   );
@@ -210,7 +234,8 @@ String _buildFailClosedImageCacheKey(String url) {
   // protected bytes can neither read nor populate a URL-shared cache entry.
   // The exceptional path intentionally forgoes cache reuse rather than risking
   // account crossover; a random process salt also prevents persistent disk-key
-  // reuse after an app restart. Normal resolution remains stable per auth epoch.
+  // reuse after an app restart. Normal resolution remains stable per
+  // account/server owner digest and survives restarts.
   final nonce = _unownedImageCacheKeyNonce++;
   final digest = sha256.convert(
     utf8.encode(

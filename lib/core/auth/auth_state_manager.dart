@@ -243,6 +243,7 @@ class AuthStateManager extends _$AuthStateManager {
   int _sessionSafetyEpoch = 0;
   int? _lastTransactionalSessionRevision;
   final List<String> _recentlyRevokedTokens = <String>[];
+  int _activeLogoutOperations = 0;
   AuthState _lastSettledState = const AuthState(status: AuthStatus.initial);
 
   // Prevent infinite retry loops
@@ -932,10 +933,18 @@ class AuthStateManager extends _$AuthStateManager {
 
     unawaited(
       Future<void>(() async {
+        // Cold starts behind slow tunnels (for example Cloudflare) can keep
+        // the API service or the first /auths request failing transiently for
+        // several seconds. Retry for roughly seven seconds in total before
+        // resolving the no-cached-user bootstrap to re-login, mirroring the
+        // pre-hardening 10s API-readiness wait.
         const retryDelays = <Duration>[
           Duration.zero,
           Duration(milliseconds: 200),
           Duration(milliseconds: 500),
+          Duration(seconds: 1),
+          Duration(seconds: 2),
+          Duration(seconds: 3),
         ];
         Object? lastTransientError;
 
@@ -1153,6 +1162,29 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// Accepts a bearer the server just handed to an interactive sign-in.
+  ///
+  /// Older Open WebUI servers (no jti claim, `JWT_EXPIRES_IN=-1`) issue a
+  /// byte-identical token for every login of the same account. Without this
+  /// hook, `_recentlyRevokedTokens` would keep rejecting logout -> login until
+  /// the app restarts. A token freshly returned by the server during the
+  /// current interactive attempt is a live session, so its stale revocation
+  /// marker is dropped.
+  ///
+  /// The removal is skipped while any logout is still executing: that logout's
+  /// remote revocation may still land, and the revocation list must keep
+  /// rejecting a resurrection of the exact bearer it is signing out (including
+  /// stale async capture tasks completing mid-logout).
+  void _acceptFreshlyIssuedServerToken(String token, {required String source}) {
+    if (_activeLogoutOperations > 0) return;
+    if (_recentlyRevokedTokens.remove(token)) {
+      DebugLogger.auth(
+        'Server reissued a previously revoked bearer during $source sign-in; '
+        'accepting it as a fresh session',
+      );
+    }
+  }
+
   /// Commits a proxy/trusted-header session whose token and user were already
   /// validated with the cookie-scoped discovery client.
   ///
@@ -1175,6 +1207,11 @@ class AuthStateManager extends _$AuthStateManager {
     if (!_isValidTokenFormat(tokenStr)) {
       throw Exception('Invalid token format');
     }
+    // An interactive proxy commit validated this token with the server during
+    // the current connect attempt; a completed logout's marker no longer
+    // applies. While a logout is still in flight, the marker keeps rejecting
+    // resurrection of the bearer being revoked.
+    _acceptFreshlyIssuedServerToken(tokenStr, source: 'proxy');
     if (_recentlyRevokedTokens.contains(tokenStr)) {
       throw Exception(
         'This sign-in session was already signed out. Please authenticate again.',
@@ -1569,6 +1606,10 @@ class AuthStateManager extends _$AuthStateManager {
       if (!_isValidTokenFormat(tokenStr)) {
         throw Exception('Invalid authentication token format');
       }
+      // This exact bearer was just returned by the server's signin endpoint
+      // for this interactive attempt, so any completed logout's revocation
+      // marker for it is stale.
+      _acceptFreshlyIssuedServerToken(tokenStr, source: 'credentials');
 
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
@@ -1689,6 +1730,10 @@ class AuthStateManager extends _$AuthStateManager {
       if (!_isValidTokenFormat(tokenStr)) {
         throw Exception('Invalid authentication token format');
       }
+      // This exact bearer was just returned by the server's signin endpoint
+      // for this interactive attempt, so any completed logout's revocation
+      // marker for it is stale.
+      _acceptFreshlyIssuedServerToken(tokenStr, source: 'credentials');
 
       // Validate the issued token before publishing authenticated state. Some
       // servers can return a token that is then rejected by /api/v1/auths/.
@@ -2676,11 +2721,11 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  /// Logout user and clear auth data while preserving non-auth server settings.
-  /// The URL and self-signed-certificate policy remain available, while custom
-  /// headers and mTLS identity material are revoked because either can
-  /// authenticate at a reverse proxy. Users can supply them again from server
-  /// settings before reconnecting.
+  /// Logout user and clear auth data while preserving connection settings.
+  /// The URL, self-signed-certificate policy, user-configured custom headers,
+  /// and the mTLS client identity remain available so a proxy-gated sign-in
+  /// page stays reachable. Captured proxy Cookie headers and the legacy
+  /// apiKey bearer are revoked with the session.
   void _publishTokenlessLogout({
     required bool durableAuthDataCleared,
     String? error,
@@ -2706,6 +2751,19 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<void> logout() async {
+    // While this counter is non-zero, `_acceptFreshlyIssuedServerToken` must
+    // not drop revocation markers: the remote sign-out may still revoke the
+    // captured bearer, and same-token resurrection has to stay rejected until
+    // this logout's cleanup and ownership arbitration have fully settled.
+    _activeLogoutOperations++;
+    try {
+      await _logoutInternal();
+    } finally {
+      _activeLogoutOperations--;
+    }
+  }
+
+  Future<void> _logoutInternal() async {
     // Capture the exact client/session synchronously. Persisting the restart
     // fence can yield long enough for another login to rotate the shared API
     // token; the eventual remote sign-out must never adopt that newer token.

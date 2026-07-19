@@ -129,6 +129,57 @@ void main() {
     });
 
     test(
+      'reclaims files staged by pre-upgrade builds under legacy roots',
+      () async {
+        for (final legacyRootName in const ['shared-incoming',
+            'shared-intents']) {
+          final legacyRoot = Directory(
+            p.join(Directory.systemTemp.path, legacyRootName),
+          );
+          await legacyRoot.create();
+          final deletable = File(
+            p.join(
+              legacyRoot.path,
+              '123e4567-e89b-12d3-a456-426614174020-'
+              '${DateTime.now().microsecondsSinceEpoch}.png',
+            ),
+          );
+          await deletable.writeAsBytes([1, 2, 3]);
+          final terminal = File(
+            p.join(
+              legacyRoot.path,
+              '123e4567-e89b-12d3-a456-426614174021-'
+              '${DateTime.now().microsecondsSinceEpoch}.png',
+            ),
+          );
+          await terminal.writeAsBytes([4, 5, 6]);
+          addTearDown(() async {
+            if (await deletable.exists()) await deletable.delete();
+            if (await terminal.exists()) await terminal.delete();
+          });
+
+          // Legacy roots are cleanup-owned only: staging must still copy out
+          // of them instead of adopting the legacy path in place.
+          check(await isShareStagingPath(deletable.path)).isFalse();
+          final stageResult = await stageIncomingSharedFileWithResult(
+            deletable.path,
+            deletePluginSourceAfterCopy: false,
+          );
+          check(stageResult.copied).isTrue();
+          await deleteShareStagingFile(stageResult.file.path);
+
+          check(
+            await deleteShareStagingFileWithResult(deletable.path),
+          ).equals(ShareStagingFileCleanupResult.removed);
+          check(await deletable.exists()).isFalse();
+
+          check(await cleanupTerminalAttachmentFile(terminal.path)).isTrue();
+          check(await terminal.exists()).isFalse();
+        }
+      },
+    );
+
+    test(
       'does not delete a UUID file under a matching outside directory',
       () async {
         final outside = await Directory.systemTemp.createTemp(

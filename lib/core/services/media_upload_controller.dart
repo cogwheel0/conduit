@@ -52,10 +52,7 @@ final class NativeShareUploadIdentity {
   final int itemOrdinal;
 }
 
-String _nativeShareReceiptKey(
-  NativeShareUploadIdentity identity, {
-  required String sourceChecksum,
-}) {
+String _nativeShareReceiptKey(NativeShareUploadIdentity identity) {
   if (identity.itemOrdinal < 0) {
     throw ArgumentError.value(
       identity.itemOrdinal,
@@ -66,8 +63,14 @@ String _nativeShareReceiptKey(
   final payloadDigest = sha256
       .convert(utf8.encode(identity.payloadId))
       .toString();
-  return 'native-share-v1:$payloadDigest:${identity.itemOrdinal}:'
-      '$sourceChecksum';
+  // v2 deliberately omits any content checksum. Image conversion rewrites
+  // owned staging files in place, so a payload re-delivered after a process
+  // death re-encodes to different bytes; a content-derived key would then miss
+  // the persisted row and duplicate the upload while leaking its receipt. The
+  // native payload id + item ordinal are durable and unique per import item,
+  // so they alone identify the row across restarts — even when the same item
+  // is re-delivered with genuinely different bytes, the row IS that item.
+  return 'native-share-v2:$payloadDigest:${identity.itemOrdinal}';
 }
 
 /// Crash-safe acceptance returned to the native share coordinator.
@@ -561,6 +564,41 @@ class MediaUploadController {
     for (final key in receiptKeys) {
       _nativeReceiptComposerPaths.remove(key);
     }
+  }
+
+  /// Garbage-collects receipts stranded by a process death between the native
+  /// exact-ID acknowledgement and [releaseNativeShareReceipts].
+  ///
+  /// Such receipts live only as terminal `receiptHeld` rows: the process-local
+  /// key registry died with the old process, so nothing will ever release them
+  /// explicitly. Releasing is safe only once native storage authoritatively
+  /// reports no pending payloads — a receipt for a payload that IS still
+  /// pending natively is exactly the dedupe fence receipts exist to provide.
+  ///
+  /// [confirmNoPendingNativePayloads] is evaluated after the candidate
+  /// snapshot is taken. A payload that arrives afterwards creates its receipts
+  /// outside the snapshot (native payload ids are unique per share event), so
+  /// the confirmation ordering guarantees a live receipt is never released.
+  /// Returns the number of receipts released.
+  Future<int> releaseOrphanedNativeShareReceipts({
+    required Future<bool> Function() confirmNoPendingNativePayloads,
+  }) async {
+    final uploader = _ref.read(attachmentUploadQueueProvider);
+    if (uploader == null) return 0;
+    await uploader.ready;
+    final candidates = <String>{
+      for (final item in uploader.queue)
+        if (item.receiptHeld &&
+            item.durableKey != null &&
+            (item.status == QueuedAttachmentStatus.completed ||
+                item.status == QueuedAttachmentStatus.failed ||
+                item.status == QueuedAttachmentStatus.cancelled))
+          item.durableKey!,
+    };
+    if (candidates.isEmpty) return 0;
+    if (!await confirmNoPendingNativePayloads()) return 0;
+    await releaseNativeShareReceipts(candidates);
+    return candidates.length;
   }
 
   Future<_InflightUpload> _enqueueUploadOwned({
@@ -1139,10 +1177,7 @@ class MediaUploadController {
       inflight.expectCancelHandler();
       final durableKey = nativeShareIdentity == null
           ? null
-          : _nativeShareReceiptKey(
-              nativeShareIdentity,
-              sourceChecksum: queuedChecksum,
-            );
+          : _nativeShareReceiptKey(nativeShareIdentity);
       final enqueueResult = await uploader.enqueueOrJoin(
         filePath: uploadPath,
         fileName: uploadFileName,

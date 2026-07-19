@@ -170,10 +170,10 @@ void main() {
 
       try {
         await container.read(authStateManagerProvider.future);
-        // The background validation retry ladder sleeps 700ms in total before
-        // resolving a transient failure, so the deadline here must comfortably
-        // exceed it.
-        for (var attempt = 0; attempt < 400; attempt++) {
+        // The background validation retry ladder sleeps roughly 6.7s in total
+        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure, so
+        // the deadline here must comfortably exceed it.
+        for (var attempt = 0; attempt < 2000; attempt++) {
           if (captured.toString().contains(
             'background-auth-validation-deferred',
           )) {

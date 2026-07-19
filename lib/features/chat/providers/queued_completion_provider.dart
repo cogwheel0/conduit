@@ -142,6 +142,19 @@ final class _QueuedCompletionOwnership {
   }
 }
 
+/// Watches one optional input of the retry/cancel ownership fence.
+///
+/// Mirrors the tolerance of `_readOpenWebUiConversationContext`: a narrow test
+/// or a teardown window can make one of these providers unreadable, and the
+/// snapshot capture below stays fail-closed on its own guarded reads. When a
+/// watched provider is in an error state the dependency is still registered,
+/// so a later recovery rebuilds this stream.
+void _watchOwnershipFenceInput(Ref ref, ProviderListenable<Object?> input) {
+  try {
+    ref.watch(input);
+  } catch (_) {}
+}
+
 @riverpod
 Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
   Ref ref,
@@ -159,6 +172,21 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
   // Rebuild the stream owner when that session epoch changes, even when the
   // active chat id and database identity happen to be unchanged.
   ref.watch(openWebUiAuthSessionEpochProvider);
+  // The retry/cancel ownership fence (openWebUiConversationReadIsCurrent)
+  // compares more than the database and auth epoch: it also requires the exact
+  // ApiService instance plus the database access phase, certified database
+  // server, and active server captured at snapshot time. Watch each of those
+  // fence inputs too, so identity churn that leaves the auth epoch untouched
+  // (for example `ref.invalidate(apiServiceProvider)` during an auth-state
+  // rollback or a logout-fence toggle) rebuilds this stream with a fresh
+  // snapshot instead of leaving the banner's Retry/Cancel actions permanently
+  // fenced out against a stale one. The rebuild cost is one re-subscription of
+  // the chat-scoped Drift outbox watcher, and these inputs only change on
+  // auth/server/service transitions.
+  _watchOwnershipFenceInput(ref, apiServiceProvider);
+  _watchOwnershipFenceInput(ref, openWebUiDatabaseAccessProvider);
+  _watchOwnershipFenceInput(ref, openWebUiCertifiedDatabaseServerProvider);
+  _watchOwnershipFenceInput(ref, activeServerProvider);
   final isOnline = ref.watch(isOnlineProvider);
   if (db == null ||
       !activeTarget.isOpenWebUi ||

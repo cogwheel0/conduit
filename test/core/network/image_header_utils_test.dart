@@ -215,20 +215,25 @@ void main() {
     });
   });
 
-  test('same server image URL gets a distinct opaque key per auth epoch', () {
+  ApiService buildKeyedApi({
+    String id = 'server-1',
+    String url = 'https://openwebui.example.com',
+    String? authToken,
+  }) {
     final workerManager = WorkerManager(debugIsWebOverride: true);
+    addTearDown(workerManager.dispose);
     final api = ApiService(
-      serverConfig: const ServerConfig(
-        id: 'server-1',
-        name: 'Open WebUI',
-        url: 'https://openwebui.example.com',
-      ),
+      serverConfig: ServerConfig(id: id, name: 'Open WebUI', url: url),
       workerManager: workerManager,
+      authToken: authToken,
     );
-    addTearDown(() {
-      api.dispose();
-      workerManager.dispose();
-    });
+    addTearDown(api.dispose);
+    return api;
+  }
+
+  test('same server image URL keeps an opaque key stable across auth-epoch '
+      'object churn', () {
+    final api = buildKeyedApi(authToken: 'account-a-token');
     const imageUrl = 'https://openwebui.example.com/api/v1/files/same/content';
     final epochA = Object();
     final epochB = Object();
@@ -243,6 +248,8 @@ void main() {
       authSessionEpoch: epochA,
       url: imageUrl,
     );
+    // A rebuilt epoch object with an unchanged account/server (mid-session
+    // provider churn) must not rotate the persistent disk key.
     final keyB = buildSessionScopedImageCacheKey(
       api: api,
       authSessionEpoch: epochB,
@@ -251,9 +258,9 @@ void main() {
 
     expect(keyA, isNotNull);
     expect(keyAAgain, keyA);
-    expect(keyB, isNotNull);
-    expect(keyB, isNot(keyA));
+    expect(keyB, keyA);
     expect(keyA, isNot(contains(imageUrl)));
+    expect(keyA, isNot(contains('account-a-token')));
     check(
       buildSessionScopedImageCacheKey(
         api: api,
@@ -263,48 +270,69 @@ void main() {
     ).isNull();
   });
 
-  test('same image and epoch get a distinct key per API owner', () {
-    final workerA = WorkerManager(debugIsWebOverride: true);
-    final workerB = WorkerManager(debugIsWebOverride: true);
-    final apiA = ApiService(
-      serverConfig: const ServerConfig(
-        id: 'server-1',
-        name: 'Open WebUI',
-        url: 'https://openwebui.example.com',
-      ),
-      workerManager: workerA,
-    );
-    final apiB = ApiService(
-      serverConfig: const ServerConfig(
-        id: 'server-1',
-        name: 'Open WebUI',
-        url: 'https://openwebui.example.com',
-      ),
-      workerManager: workerB,
-    );
-    addTearDown(() {
-      apiA.dispose();
-      apiB.dispose();
-      workerA.dispose();
-      workerB.dispose();
-    });
-    final epoch = Object();
+  test('the same logical owner gets identical keys across process restarts '
+      '(fresh objects, same server and token)', () {
+    // Two independent ApiService/epoch objects with the same persisted server
+    // config and auth token model a restarted process: the disk cache entry
+    // written before the restart must resolve to the same key afterwards.
+    final apiA = buildKeyedApi(authToken: 'account-a-token');
+    final apiB = buildKeyedApi(authToken: 'account-a-token');
     const imageUrl = 'https://openwebui.example.com/api/v1/files/a/content';
 
     final keyA = buildSessionScopedImageCacheKey(
       api: apiA,
-      authSessionEpoch: epoch,
+      authSessionEpoch: Object(),
       url: imageUrl,
     );
     final keyB = buildSessionScopedImageCacheKey(
       api: apiB,
-      authSessionEpoch: epoch,
+      authSessionEpoch: Object(),
       url: imageUrl,
     );
 
     expect(keyA, isNotNull);
-    expect(keyB, isNotNull);
+    expect(keyB, keyA);
+  });
+
+  test('different accounts and different servers never share cache keys', () {
+    const imageUrl = 'https://openwebui.example.com/api/v1/files/a/content';
+    final accountA = buildKeyedApi(authToken: 'account-a-token');
+    final accountB = buildKeyedApi(authToken: 'account-b-token');
+    final unauthenticated = buildKeyedApi();
+    final otherServer = buildKeyedApi(
+      id: 'server-2',
+      url: 'https://openwebui.example.com',
+      authToken: 'account-a-token',
+    );
+
+    final keyA = buildSessionScopedImageCacheKey(
+      api: accountA,
+      authSessionEpoch: Object(),
+      url: imageUrl,
+    );
+    final keyB = buildSessionScopedImageCacheKey(
+      api: accountB,
+      authSessionEpoch: Object(),
+      url: imageUrl,
+    );
+    final keyAnon = buildSessionScopedImageCacheKey(
+      api: unauthenticated,
+      authSessionEpoch: Object(),
+      url: imageUrl,
+    );
+    final keyOtherServer = buildSessionScopedImageCacheKey(
+      api: otherServer,
+      authSessionEpoch: Object(),
+      url: imageUrl,
+    );
+
+    expect(keyA, isNotNull);
     expect(keyB, isNot(keyA));
+    expect(keyAnon, isNot(keyA));
+    expect(keyAnon, isNot(keyB));
+    expect(keyOtherServer, isNot(keyA));
+    expect(keyA, isNot(contains('account-a-token')));
+    expect(keyB, isNot(contains('account-b-token')));
   });
 
   test('effective image headers participate through an opaque stable hash', () {

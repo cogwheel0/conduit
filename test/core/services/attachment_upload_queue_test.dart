@@ -274,6 +274,74 @@ void main() {
       });
     });
 
+    for (final (label, buildError) in <(String, Object Function())>[
+      (
+        'connection errors',
+        () => DioException(
+          requestOptions: RequestOptions(path: '/upload'),
+          type: DioExceptionType.connectionError,
+        ),
+      ),
+      (
+        'unknown socket failures',
+        () => DioException(
+          requestOptions: RequestOptions(path: '/upload'),
+          type: DioExceptionType.unknown,
+          error: const SocketException('network unreachable'),
+        ),
+      ),
+      (
+        'unknown TLS handshake failures',
+        () => DioException(
+          requestOptions: RequestOptions(path: '/upload'),
+          type: DioExceptionType.unknown,
+          error: const HandshakeException('interrupted during handshake'),
+        ),
+      ),
+    ]) {
+      test('$label defer as safe transient without burning retry budget', () {
+        // These failures occur before any request byte reaches the server, so
+        // the upload cannot exist there; they must never become terminal
+        // "indeterminate" failures with automatic retry disabled.
+        fakeAsync((async) {
+          var callCount = 0;
+          var now = DateTime.utc(2026);
+          final queue = AttachmentUploadQueue(now: () => now);
+          queue.initialize(
+            onUpload: (filePath, fileName, {cancelToken}) async {
+              callCount++;
+              throw buildError();
+            },
+            database: resolveLiveDatabase,
+          );
+          async.flushMicrotasks();
+          queue.enqueue(
+            filePath: '/tmp/offline',
+            fileName: 'offline',
+            fileSize: 1,
+          );
+          async.flushMicrotasks();
+
+          check(callCount).equals(1);
+          check(
+            queue.queue.single.status,
+          ).equals(QueuedAttachmentStatus.pending);
+          check(queue.queue.single.retryCount).equals(0);
+          check(queue.queue.single.nextRetryAt).isNotNull();
+
+          now = now.add(const Duration(seconds: 7));
+          async.elapse(const Duration(seconds: 7));
+          async.flushMicrotasks();
+          check(callCount).equals(2);
+          check(
+            queue.queue.single.status,
+          ).equals(QueuedAttachmentStatus.pending);
+          check(queue.queue.single.retryCount).equals(0);
+          queue.dispose();
+        });
+      });
+    }
+
     for (final type in const [
       DioExceptionType.sendTimeout,
       DioExceptionType.receiveTimeout,
@@ -583,6 +651,80 @@ void main() {
         check(await database.attachmentQueueDao.getAll()).isEmpty();
       },
     );
+
+    test(
+      'cancel on a disposed queue reports the tombstone as unpersisted',
+      () async {
+        final database = AppDatabase(NativeDatabase.memory());
+        addTearDown(database.close);
+        final queue = AttachmentUploadQueue();
+        await queue.initialize(
+          onUpload: (filePath, fileName, {cancelToken}) async => 'unused',
+          database: () => database,
+        );
+        final id = await queue.enqueue(
+          filePath: '/tmp/disposed-cancel',
+          fileName: 'disposed-cancel',
+          fileSize: 1,
+          holdForOwner: true,
+        );
+        queue.dispose();
+
+        // A dropped write must not report success: a caller that believed the
+        // cancellation was durable would delete staged bytes that the old
+        // server's still-pending row needs on its next activation.
+        check(await queue.cancel(id)).isFalse();
+        final row = (await database.attachmentQueueDao.getAll()).single;
+        check(row.status).equals(QueuedAttachmentStatus.pending.name);
+      },
+    );
+
+    test('durable key joins a re-delivered item whose bytes differ', () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      const durableKey = 'native-share-v2:payload-digest:0';
+      var uploadCalls = 0;
+      final queue = AttachmentUploadQueue();
+      addTearDown(queue.dispose);
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async {
+          uploadCalls++;
+          return 'server-file';
+        },
+        database: () => database,
+      );
+      final completed = queue.queueStream.firstWhere(
+        (items) => items.any(
+          (item) => item.status == QueuedAttachmentStatus.completed,
+        ),
+      );
+      final inserted = await queue.enqueueOrJoin(
+        filePath: '/tmp/native-item',
+        fileName: 'native-item',
+        fileSize: 4,
+        checksum: 'first-encode',
+        durableKey: durableKey,
+        receiptHeld: true,
+      );
+      await completed.timeout(const Duration(seconds: 1));
+
+      // Re-delivery after a process death re-converts the payload in place,
+      // so the same durable identity can legitimately arrive with different
+      // size/checksum. It must join the persisted row, not duplicate it.
+      final joined = await queue.enqueueOrJoin(
+        filePath: '/tmp/native-item',
+        fileName: 'native-item',
+        fileSize: 9,
+        checksum: 'second-encode',
+        durableKey: durableKey,
+        receiptHeld: true,
+      );
+
+      check(joined.inserted).isFalse();
+      check(joined.item.id).equals(inserted.item.id);
+      check(queue.queue).length.equals(1);
+      check(uploadCalls).equals(1);
+    });
 
     test('restored failed row retains staging for manual retry', () async {
       final database = AppDatabase(NativeDatabase.memory());

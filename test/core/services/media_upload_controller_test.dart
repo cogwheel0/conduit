@@ -955,6 +955,190 @@ void main() {
   );
 
   test(
+    'native share receipt key survives re-delivered re-encoded bytes',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-app-intents',
+      );
+      await stagingDirectory.create();
+      final staged = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-426614174130-shared.txt',
+      );
+      await staged.writeAsBytes([1, 2, 3]);
+      addTearDown(() async {
+        if (await staged.exists()) await staged.delete();
+      });
+      var uploadCalls = 0;
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async {
+          uploadCalls++;
+          return 'server-file';
+        },
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+
+      ProviderContainer buildContainer() => ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([]),
+          ),
+        ],
+      );
+      const identity = NativeShareUploadIdentity(
+        payloadId: 'native-rejoin',
+        itemOrdinal: 0,
+      );
+
+      final firstContainer = buildContainer();
+      addTearDown(firstContainer.dispose);
+      final firstAcceptance = await firstContainer
+          .read(mediaUploadControllerProvider)
+          .enqueueNativeShareUpload(
+            filePath: staged.path,
+            fileName: 'shared.txt',
+            fileSize: 3,
+            identity: identity,
+            publishAttachment: LocalAttachment(
+              file: staged,
+              displayName: 'shared.txt',
+            ),
+          );
+      // Terminal cleanup releases the staged bytes; the held receipt row stays
+      // because the native payload has not been acknowledged yet.
+      for (var attempt = 0; attempt < 100 && await staged.exists(); attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(await staged.exists(), isFalse);
+      expect(uploadCalls, 1);
+      expect(queue.queue.single.receiptHeld, isTrue);
+
+      // Simulated restart: the unacknowledged payload is re-delivered and
+      // in-place conversion re-encodes it to different bytes at the same
+      // staged pathname. The durable key must not depend on those bytes.
+      await staged.writeAsBytes([9, 8, 7, 6]);
+      final restartContainer = buildContainer();
+      addTearDown(restartContainer.dispose);
+      final rejoinAcceptance = await restartContainer
+          .read(mediaUploadControllerProvider)
+          .enqueueNativeShareUpload(
+            filePath: staged.path,
+            fileName: 'shared.txt',
+            fileSize: 4,
+            identity: identity,
+            publishAttachment: LocalAttachment(
+              file: staged,
+              displayName: 'shared.txt',
+            ),
+          );
+
+      expect(rejoinAcceptance.receiptKey, firstAcceptance.receiptKey);
+      expect(uploadCalls, 1);
+      expect(queue.queue, hasLength(1));
+      expect(queue.queue.single.fileId, 'server-file');
+
+      await restartContainer
+          .read(mediaUploadControllerProvider)
+          .releaseNativeShareReceipts([rejoinAcceptance.receiptKey]);
+      expect(queue.queue, isEmpty);
+      expect(await database.attachmentQueueDao.getAll(), isEmpty);
+    },
+  );
+
+  test(
+    'orphaned terminal receipts release only when native storage is drained',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async => 'server-file',
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+      final completed = queue.queueStream.firstWhere(
+        (items) => items.any(
+          (item) => item.status == QueuedAttachmentStatus.completed,
+        ),
+      );
+      await queue.enqueueOrJoin(
+        filePath: '/tmp/orphaned-receipt',
+        fileName: 'orphaned-receipt',
+        fileSize: 1,
+        durableKey: 'native-share-v2:orphan:0',
+        receiptHeld: true,
+      );
+      await completed.timeout(const Duration(seconds: 1));
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(mediaUploadControllerProvider);
+
+      // A payload that is still pending natively must keep its receipts: they
+      // are the dedupe fence for its re-delivery.
+      final kept = await controller.releaseOrphanedNativeShareReceipts(
+        confirmNoPendingNativePayloads: () async => false,
+      );
+      expect(kept, 0);
+      expect(queue.queue.single.receiptHeld, isTrue);
+
+      final released = await controller.releaseOrphanedNativeShareReceipts(
+        confirmNoPendingNativePayloads: () async => true,
+      );
+      expect(released, 1);
+      expect(queue.queue, isEmpty);
+      expect(await database.attachmentQueueDao.getAll(), isEmpty);
+    },
+  );
+
+  test('active receipt-held rows are never garbage collected', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async => 'server-file',
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+    await queue.enqueueOrJoin(
+      filePath: '/tmp/live-receipt',
+      fileName: 'live-receipt',
+      fileSize: 1,
+      holdForOwner: true,
+      durableKey: 'native-share-v2:live:0',
+      receiptHeld: true,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final released = await container
+        .read(mediaUploadControllerProvider)
+        .releaseOrphanedNativeShareReceipts(
+          confirmNoPendingNativePayloads: () async => true,
+        );
+
+    expect(released, 0);
+    expect(queue.queue.single.receiptHeld, isTrue);
+    expect(queue.queue.single.status, QueuedAttachmentStatus.pending);
+  });
+
+  test(
     'pre-enqueue failure preserves native paste staging for explicit retry',
     () async {
       final stagingDirectory = Directory(

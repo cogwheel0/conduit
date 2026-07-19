@@ -857,10 +857,30 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   Future<void> _navigateToSso() async {
     if (!mounted) return;
 
-    // Save server config first if needed
+    // Save server config first if needed. _saveServerConfig can throw (for
+    // example when the selected server's API client is not ready in time), so
+    // surface that like the credentials path instead of silently doing
+    // nothing; the user can then retry the SSO button.
     if (widget.serverConfig != null && !_serverConfigSaved) {
-      await _saveServerConfig(widget.serverConfig!);
-      _serverConfigSaved = true;
+      try {
+        setState(() {
+          _loginError = null;
+        });
+        await _saveServerConfig(widget.serverConfig!);
+        _serverConfigSaved = true;
+      } catch (e) {
+        DebugLogger.error(
+          'sso-server-config-save-failed',
+          scope: 'auth/page',
+          data: {'errorType': e.runtimeType.toString()},
+        );
+        if (mounted) {
+          setState(() {
+            _loginError = _formatLoginError(e.toString());
+          });
+        }
+        return;
+      }
       if (!mounted) return;
     }
 

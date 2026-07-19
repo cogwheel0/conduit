@@ -16,6 +16,7 @@ import 'package:drift/native.dart';
 import 'package:conduit/core/services/share_receiver_service.dart';
 import 'package:conduit/core/services/share_staging_cleanup.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
+import 'package:conduit/features/hermes/models/hermes_model.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -768,6 +769,89 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
         expect(restoredQueue.queue, isEmpty);
+        expect(await database.attachmentQueueDao.getAll(), isEmpty);
+      },
+    );
+
+    test(
+      'native payload with a Hermes model attaches through the local path',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'conduit_share_receiver_hermes_',
+        );
+        final database = AppDatabase(NativeDatabase.memory());
+        addTearDown(() async {
+          await database.close();
+          if (await root.exists()) await root.delete(recursive: true);
+        });
+        final source = File(p.join(root.path, 'notes.txt'));
+        await source.writeAsString('hermes local bytes');
+        var uploadCalls = 0;
+        final queue = AttachmentUploadQueue();
+        await queue.initialize(
+          onUpload: (filePath, fileName, {cancelToken}) async {
+            uploadCalls++;
+            return 'unexpected-server-file';
+          },
+          database: () => database,
+        );
+        addTearDown(queue.dispose);
+        final container = ProviderContainer(
+          overrides: [
+            fileAttachmentServiceProvider.overrideWithValue(Object()),
+            apiServiceProvider.overrideWithValue(null),
+            attachmentUploadQueueProvider.overrideWithValue(queue),
+            selectedModelProvider.overrideWith(
+              () => _ShareSelectedModel(hermesSyntheticModel()),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        _markComposerPrepared(container, 'native-hermes');
+        final staged = <File>[];
+        Future<IncomingSharedFileStageResult> stager(String filePath) async {
+          final result = await stageIncomingSharedFileWithResult(
+            filePath,
+            deletePluginSourceAfterCopy: false,
+          );
+          staged.add(result.file);
+          return result;
+        }
+
+        addTearDown(() async {
+          for (final file in staged) {
+            if (await file.exists()) {
+              await deleteShareStagingFile(file.path);
+            }
+          }
+        });
+
+        // A Hermes/direct model owns attachments in composer memory only, so
+        // the durable native receipt path would reject the import and retry
+        // forever. The payload must instead attach through the local path and
+        // finish as processed so the native record can be acknowledged.
+        final result = await processSharedPayloadForTest(
+          container,
+          SharedPayload(id: 'native-hermes', filePaths: [source.path]),
+          incomingFileStager: stager,
+        );
+
+        expect(result, SharedPayloadProcessResult.processed);
+        expect(container.read(attachedFilesProvider), hasLength(1));
+        expect(queue.queue, isEmpty);
+        for (
+          var attempt = 0;
+          attempt < 100 &&
+              container.read(attachedFilesProvider).single.status !=
+                  FileUploadStatus.completed;
+          attempt++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        final attachment = container.read(attachedFilesProvider).single;
+        expect(attachment.status, FileUploadStatus.completed);
+        expect(uploadCalls, 0);
+        expect(queue.queue, isEmpty);
         expect(await database.attachmentQueueDao.getAll(), isEmpty);
       },
     );

@@ -639,6 +639,15 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     if (_query.isEmpty) {
       final conversationsAsync = ref.watch(conversationsProvider);
       return conversationsAsync.when(
+        // Pagination (loadMore/loadMoreArchived/setArchivedChatsVisible) bumps
+        // a tick dependency that re-runs the whole Conversations build, which
+        // reports as a loading-with-previous-value reload. Keep the previous
+        // rows on screen during that reload instead of replacing the entire
+        // drawer with a spinner and tearing down scroll state; the loading
+        // branch below still renders for the true first load, which has no
+        // previous value. (skipLoadingOnRefresh already defaults to true for
+        // pull-to-refresh style invalidations.)
+        skipLoadingOnReload: true,
         data: (items) {
           final list = items;
           final conversationsNotifier = ref.read(

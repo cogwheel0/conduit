@@ -14,6 +14,19 @@ const _ownedTemporaryStagingDirectories = {
   'conduit-native-paste',
   'conduit-app-intents',
 };
+
+/// Staging roots used by pre-upgrade builds. Recognized only when deleting so
+/// files staged before the rename can still be reclaimed; new staging and
+/// ownership classification never treat them as active roots.
+const _legacyOwnedTemporaryStagingDirectories = {
+  'shared-incoming',
+  'shared-intents',
+};
+
+const _deletableTemporaryStagingDirectories = {
+  ..._ownedTemporaryStagingDirectories,
+  ..._legacyOwnedTemporaryStagingDirectories,
+};
 final _uuidPrefixedFileName = RegExp(
   r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-',
 );
@@ -296,8 +309,12 @@ Future<ShareStagingFileCleanupResult> deleteShareStagingFileWithResult(
   StagingFileDeletePreAdmission? beforeDeleteAdmission,
   StagingFileDeleteAdmission? canDelete,
 }) async {
+  // Deletion additionally recognizes legacy pre-upgrade staging roots so files
+  // staged by older builds can still be reclaimed. Staging/classification keep
+  // using only the active owned roots.
   final resolution = await _resolveOwnedStagingFileWithStatus(
     filePath,
+    allowedDirectoryNames: _deletableTemporaryStagingDirectories,
     additionalTrustedRoots: additionalTrustedRoots,
     nativeStagingRootResolver: nativeStagingRootResolver,
   );
@@ -622,8 +639,7 @@ Future<_ShareStagingPathResolution> _resolveOwnedStagingFileWithStatus(
   }
 
   var resolutionIndeterminate = false;
-  for (final directoryName in _ownedTemporaryStagingDirectories) {
-    if (!allowedDirectoryNames.contains(directoryName)) continue;
+  for (final directoryName in allowedDirectoryNames) {
     final root = Directory(path.join(Directory.systemTemp.path, directoryName));
     final resolution = await _resolveRegularFileDirectlyUnderRootWithStatus(
       filePath,

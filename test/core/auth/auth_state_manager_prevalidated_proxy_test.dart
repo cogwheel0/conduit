@@ -1311,6 +1311,177 @@ void main() {
     },
   );
 
+  test(
+    'interactive login accepts a byte-identical reissued token after logout',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      addTearDown(PreferencesStore.debugReset);
+      final storage = _Storage();
+      when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+      when(
+        () => storage.getSavedCredentialsStrict(),
+      ).thenAnswer((_) async => null);
+      when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+      when(
+        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
+      ).thenAnswer((_) async {});
+      when(() => storage.clearAuthData()).thenAnswer((_) async {});
+      _routeConditionalAuthClearToLegacyMock(storage);
+      when(
+        () => storage.captureServerSessionOwnership(
+          validatedConfig: any(named: 'validatedConfig'),
+          requireActive: true,
+        ),
+      ).thenAnswer(
+        (_) async =>
+            (revision: 1, serverConfig: previousConfig, requireActive: true),
+      );
+      when(
+        () => storage.commitExistingServerSession(
+          ownership: any(named: 'ownership'),
+          token: any(named: 'token'),
+          canCommit: any(named: 'canCommit'),
+          publish: any(named: 'publish'),
+          rememberedCredentials: any(named: 'rememberedCredentials'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        ),
+      ).thenAnswer((invocation) async {
+        final publish =
+            invocation.namedArguments[#publish] as FutureOr<void> Function();
+        await publish();
+        return true;
+      });
+      final api = _SuccessfulAuthApi();
+      final container = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          apiServiceProvider.overrideWithValue(api),
+          defaultModelProvider.overrideWith((ref) async => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(api.dispose);
+      await container.read(authStateManagerProvider.future);
+      await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+      final notifier = container.read(authStateManagerProvider.notifier);
+
+      check(await notifier.login('user', 'password')).isTrue();
+      await notifier.logout();
+
+      // Older Open WebUI servers (no jti, JWT_EXPIRES_IN=-1) deterministically
+      // reissue the exact same bearer. A fresh interactive sign-in after the
+      // logout has fully completed must accept it instead of throwing until
+      // the app restarts.
+      check(await notifier.login('user', 'password')).isTrue();
+
+      final settled = container.read(authStateManagerProvider).requireValue;
+      check(settled.status).equals(AuthStatus.authenticated);
+      check(settled.token).equals('validated-proxy-token');
+      check(settled.user).equals(user);
+      check(api.authToken).equals('validated-proxy-token');
+    },
+  );
+
+  test(
+    'prevalidated proxy commit accepts a reissued token after logout',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      addTearDown(PreferencesStore.debugReset);
+      final storage = _Storage();
+      when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+      when(
+        () => storage.getSavedCredentialsStrict(),
+      ).thenAnswer((_) async => null);
+      when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+      when(
+        () => storage.saveLocalUserWithAvatar(user, avatarUrl: null),
+      ).thenAnswer((_) async {});
+      when(() => storage.clearAuthData()).thenAnswer((_) async {});
+      _routeConditionalAuthClearToLegacyMock(storage);
+      when(
+        () => storage.captureServerSessionOwnership(
+          validatedConfig: any(named: 'validatedConfig'),
+          requireActive: true,
+        ),
+      ).thenAnswer(
+        (_) async =>
+            (revision: 1, serverConfig: previousConfig, requireActive: true),
+      );
+      when(
+        () => storage.commitExistingServerSession(
+          ownership: any(named: 'ownership'),
+          token: any(named: 'token'),
+          canCommit: any(named: 'canCommit'),
+          publish: any(named: 'publish'),
+          rememberedCredentials: any(named: 'rememberedCredentials'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        ),
+      ).thenAnswer((invocation) async {
+        final publish =
+            invocation.namedArguments[#publish] as FutureOr<void> Function();
+        await publish();
+        return true;
+      });
+      when(() => storage.stageServerConfigCandidate(candidate)).thenAnswer(
+        (_) async => (
+          configs: const [previousConfig],
+          activeServerId: previousConfig.id,
+          transactionId: 21,
+        ),
+      );
+      when(
+        () => storage.commitServerConfigCandidateSession(
+          candidate: candidate,
+          transactionId: 21,
+          token: token,
+          canCommit: any(named: 'canCommit'),
+          publish: any(named: 'publish'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        ),
+      ).thenAnswer((invocation) async {
+        final canCommit =
+            invocation.namedArguments[#canCommit] as bool Function();
+        final publish =
+            invocation.namedArguments[#publish] as FutureOr<void> Function();
+        if (!canCommit()) return false;
+        await publish();
+        return true;
+      });
+      final api = _SuccessfulAuthApi();
+      final container = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          apiServiceProvider.overrideWithValue(api),
+          defaultModelProvider.overrideWith((ref) async => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(api.dispose);
+      await container.read(authStateManagerProvider.future);
+      await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+      final notifier = container.read(authStateManagerProvider.notifier);
+
+      // The interactive login and the later proxy discovery hand back the
+      // same deterministic bearer on pre-jti servers.
+      check(await notifier.login('user', 'password')).isTrue();
+      await notifier.logout();
+
+      check(
+        await notifier.commitPrevalidatedProxySession(
+          serverConfig: candidate,
+          token: token,
+          user: user,
+        ),
+      ).isTrue();
+
+      final settled = container.read(authStateManagerProvider).requireValue;
+      check(settled.status).equals(AuthStatus.authenticated);
+      check(settled.token).equals(token);
+    },
+  );
+
   test('delayed logout completes cleanup after a newer login fails', () async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugOverride(await SharedPreferences.getInstance());

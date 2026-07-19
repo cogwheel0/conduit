@@ -1069,7 +1069,16 @@ void main() {
       expect(await storage.getAuthToken(), isNull);
       expect(await storage.getSavedCredentials(), isNull);
       final failClosedConfig = (await storage.getServerConfigs()).single;
-      expect(failClosedConfig.customHeaders, isEmpty);
+      // The fail-closed restore drops the captured proxy session cookie but
+      // keeps configured connection headers so the owner stays reachable.
+      expect(failClosedConfig.customHeaders, const {
+        'Authorization': 'Bearer stale',
+        'Proxy-Authorization': 'Basic stale',
+        'api-key': 'stale-api-key',
+        'X-Forwarded-Email': 'stale@example.test',
+        'X-Auth-Request-User': 'stale-user',
+        'X-Tenant': 'retained',
+      });
       expect(uncertaintyPublished, isTrue);
       expect(storage.isUncommittedServerConfigCandidate(candidate), isFalse);
       expect(
@@ -1353,12 +1362,14 @@ void main() {
       expect(await storage.getAuthToken(), isNull);
       expect(await storage.hasCredentials(), isFalse);
       final restored = (await storage.getServerConfigs()).single;
-      expect(restored.customHeaders, isEmpty);
-      expect(restored.mtlsCertificateChainPem, isNull);
-      expect(restored.mtlsCertificateLabel, isNull);
-      expect(restored.mtlsPrivateKeyPem, isNull);
-      expect(restored.mtlsPrivateKeyLabel, isNull);
-      expect(restored.mtlsPrivateKeyPassword, isNull);
+      // Sanitized means session-credential-free: the captured proxy cookie is
+      // dropped while connection headers and the mTLS identity survive.
+      expect(restored.customHeaders, const {'X-Tenant': 'retained'});
+      expect(restored.mtlsCertificateChainPem, 'baseline-certificate');
+      expect(restored.mtlsCertificateLabel, 'baseline.crt');
+      expect(restored.mtlsPrivateKeyPem, 'baseline-private-key');
+      expect(restored.mtlsPrivateKeyLabel, 'baseline.key');
+      expect(restored.mtlsPrivateKeyPassword, 'baseline-password');
       expect(await storage.getActiveServerId(), previous.id);
     },
   );
@@ -1406,8 +1417,18 @@ void main() {
       expect(await storage.getSavedCredentials(), isNull);
       final failClosedConfigs = await storage.getServerConfigs();
       expect(
-        failClosedConfigs.every((config) => config.customHeaders.isEmpty),
+        failClosedConfigs.every(
+          (config) => config.customHeaders.keys.every(
+            (key) => key.toLowerCase() != 'cookie',
+          ),
+        ),
         isTrue,
+      );
+      expect(
+        failClosedConfigs
+            .firstWhere((config) => config.id == previous.id)
+            .customHeaders,
+        const {'X-Tenant': 'retained'},
       );
     },
   );
@@ -1566,54 +1587,61 @@ void main() {
     expect(await storage.getAuthToken(), 'previous-token');
   });
 
-  test('logout scrubs proxy cookies and legacy config bearer fields', () async {
-    final config = _serverConfig('server-a').copyWith(
-      apiKey: 'legacy-bearer',
-      customHeaders: const {
-        'Cookie': 'session=secret',
-        'X-OpenWebUI-Key': 'arbitrary-custom-api-key',
-        'X-Tenant': 'could-also-be-configured-as-an-api-key',
-      },
-      allowSelfSignedCertificates: true,
-      mtlsCertificateChainPem: 'client-certificate',
-      mtlsCertificateLabel: 'client.crt',
-      mtlsPrivateKeyPem: 'client-private-key',
-      mtlsPrivateKeyLabel: 'client.key',
-      mtlsPrivateKeyPassword: 'private-key-password',
-      isActive: true,
-    );
-    await storage.saveServerConfigs([config]);
-    await storage.setActiveServerId(config.id);
-    await storage.saveAuthToken('token');
-    await storage.saveCredentials(
-      serverId: config.id,
-      username: 'user',
-      password: 'password',
-    );
-    secureStorageOperations.clear();
+  test(
+    'logout scrubs proxy cookies and legacy bearer but preserves connection '
+    'settings',
+    () async {
+      final config = _serverConfig('server-a').copyWith(
+        apiKey: 'legacy-bearer',
+        customHeaders: const {
+          'Cookie': 'session=secret',
+          'CF-Access-Client-Id': 'service-token-id',
+          'CF-Access-Client-Secret': 'service-token-secret',
+          'X-Tenant': 'connection-routing-value',
+        },
+        allowSelfSignedCertificates: true,
+        mtlsCertificateChainPem: 'client-certificate',
+        mtlsCertificateLabel: 'client.crt',
+        mtlsPrivateKeyPem: 'client-private-key',
+        mtlsPrivateKeyLabel: 'client.key',
+        mtlsPrivateKeyPassword: 'private-key-password',
+        isActive: true,
+      );
+      await storage.saveServerConfigs([config]);
+      await storage.setActiveServerId(config.id);
+      await storage.saveAuthToken('token');
+      await storage.saveCredentials(
+        serverId: config.id,
+        username: 'user',
+        password: 'password',
+      );
+      secureStorageOperations.clear();
 
-    await storage.clearAuthData();
+      await storage.clearAuthData();
 
-    expect(await storage.getAuthToken(), isNull);
-    expect(await storage.getSavedCredentials(), isNull);
-    expect(await storage.getServerConfigs(), [
-      config.copyWith(
-        apiKey: null,
-        customHeaders: const {},
-        mtlsCertificateChainPem: null,
-        mtlsCertificateLabel: null,
-        mtlsPrivateKeyPem: null,
-        mtlsPrivateKeyLabel: null,
-        mtlsPrivateKeyPassword: null,
-      ),
-    ]);
-    expect(
-      secureStorageOperations.indexOf('delete:auth_token_v2'),
-      lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
-    );
-  });
+      expect(await storage.getAuthToken(), isNull);
+      expect(await storage.getSavedCredentials(), isNull);
+      // Header-gated and mTLS-gated proxies must stay reachable for re-login:
+      // only the captured proxy session cookie and the legacy apiKey bearer
+      // are session credentials.
+      expect(await storage.getServerConfigs(), [
+        config.copyWith(
+          apiKey: null,
+          customHeaders: const {
+            'CF-Access-Client-Id': 'service-token-id',
+            'CF-Access-Client-Secret': 'service-token-secret',
+            'X-Tenant': 'connection-routing-value',
+          },
+        ),
+      ]);
+      expect(
+        secureStorageOperations.indexOf('delete:auth_token_v2'),
+        lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
+      );
+    },
+  );
 
-  test('logout revokes a standalone mTLS identity', () async {
+  test('logout preserves a standalone mTLS identity', () async {
     final config = _serverConfig('mtls-only').copyWith(
       allowSelfSignedCertificates: true,
       mtlsCertificateChainPem: 'standalone-certificate',
@@ -1629,14 +1657,19 @@ void main() {
 
     await storage.clearAuthData();
 
-    final revoked = (await storage.getServerConfigs()).single;
-    expect(revoked.allowSelfSignedCertificates, isTrue);
-    expect(revoked.mtlsCertificateChainPem, isNull);
-    expect(revoked.mtlsCertificateLabel, isNull);
-    expect(revoked.mtlsPrivateKeyPem, isNull);
-    expect(revoked.mtlsPrivateKeyLabel, isNull);
-    expect(revoked.mtlsPrivateKeyPassword, isNull);
-    expect(secureStorageOperations, contains('write:server_configs_v2'));
+    // The client certificate is a connection prerequisite for an mTLS-only
+    // proxy; without it the sign-in page is unreachable after logout.
+    final preserved = (await storage.getServerConfigs()).single;
+    expect(preserved.allowSelfSignedCertificates, isTrue);
+    expect(preserved.mtlsCertificateChainPem, 'standalone-certificate');
+    expect(preserved.mtlsCertificateLabel, 'standalone.crt');
+    expect(preserved.mtlsPrivateKeyPem, 'standalone-private-key');
+    expect(preserved.mtlsPrivateKeyLabel, 'standalone.key');
+    expect(preserved.mtlsPrivateKeyPassword, 'standalone-password');
+    expect(
+      secureStorageOperations,
+      isNot(contains('write:server_configs_v2')),
+    );
   });
 
   test(
@@ -1661,9 +1694,82 @@ void main() {
 
       check(secureStorageValues).containsKey('auth_token_v2');
       check(secureStorageValues.containsKey('user_credentials_v2')).isFalse();
-      check(
-        await storage.getServerConfigs(),
-      ).deepEquals([config.copyWith(apiKey: null, customHeaders: const {})]);
+      check(await storage.getServerConfigs()).deepEquals([
+        config.copyWith(
+          apiKey: null,
+          customHeaders: const {'X-Tenant': 'tenant'},
+        ),
+      ]);
+    },
+  );
+
+  test(
+    'stripping a stored legacy apiKey on save keeps the active session',
+    () async {
+      // Simulate a config persisted by a pre-hardening build that still
+      // carries the legacy apiKey bearer field.
+      final legacy = _serverConfig(
+        'server-a',
+      ).copyWith(apiKey: 'legacy-bearer', isActive: true);
+      secureStorageValues['server_configs_v2'] = jsonEncode([legacy.toJson()]);
+      await storage.setActiveServerId(legacy.id);
+      await storage.saveAuthToken('session-token');
+      await storage.saveCredentials(
+        serverId: legacy.id,
+        username: 'user',
+        password: 'password',
+      );
+
+      // First save after upgrade (any unrelated settings edit) sanitizes the
+      // legacy field. That one-time migration is not an ownership change.
+      await storage.saveServerConfigs([legacy]);
+
+      expect(await storage.getServerConfigs(), [
+        legacy.copyWith(apiKey: null),
+      ]);
+      expect(await storage.getAuthToken(), 'session-token');
+      expect(await storage.getSavedCredentials(), isNotNull);
+    },
+  );
+
+  test(
+    'header and self-signed edits keep the session; URL and mTLS edits fence',
+    () async {
+      final config = _serverConfig('server-a').copyWith(isActive: true);
+      await storage.saveServerConfigs([config]);
+      await storage.setActiveServerId(config.id);
+      await storage.saveAuthToken('session-token');
+      await storage.saveCredentials(
+        serverId: config.id,
+        username: 'user',
+        password: 'password',
+      );
+
+      // Metadata edits of the same server retain the session.
+      final metadataEdited = config.copyWith(
+        customHeaders: const {'CF-Access-Client-Id': 'service-token'},
+        allowSelfSignedCertificates: true,
+        name: 'Renamed',
+      );
+      await storage.saveServerConfigs([metadataEdited]);
+      expect(await storage.getAuthToken(), 'session-token');
+      expect(await storage.getSavedCredentials(), isNotNull);
+
+      // Changing the mTLS client identity changes who authenticates at the
+      // transport layer and still fences the stored token.
+      final mtlsEdited = metadataEdited.copyWith(
+        mtlsCertificateChainPem: 'new-certificate',
+        mtlsPrivateKeyPem: 'new-private-key',
+      );
+      await storage.saveServerConfigs([mtlsEdited]);
+      expect(await storage.getAuthToken(), isNull);
+      expect(await storage.getSavedCredentials(), isNull);
+
+      // Re-establish a session, then change the URL: still fenced.
+      await storage.saveAuthToken('second-session-token');
+      final urlEdited = mtlsEdited.copyWith(url: 'https://other.example.com');
+      await storage.saveServerConfigs([urlEdited]);
+      expect(await storage.getAuthToken(), isNull);
     },
   );
 

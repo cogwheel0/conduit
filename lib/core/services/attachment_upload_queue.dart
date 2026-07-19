@@ -448,13 +448,16 @@ class AttachmentUploadQueue {
           .where((item) => item.durableKey == durableKey)
           .firstOrNull;
       if (existing != null) {
-        // A key contains the source checksum, but validate the persisted
-        // metadata as defense in depth against malformed/migrated rows.
-        if (existing.fileSize != fileSize ||
-            existing.checksum != checksum ||
-            existing.durableKey != durableKey) {
-          throw StateError(
-            'Durable attachment ownership key does not match its source.',
+        // Durable keys are content-independent (native payload id + item
+        // ordinal): in-place image conversion re-encodes re-delivered payload
+        // bytes, so size/checksum may legitimately differ while the existing
+        // row still owns this exact share item. Join it; a second row would
+        // duplicate a non-idempotent server upload.
+        if (existing.fileSize != fileSize || existing.checksum != checksum) {
+          DebugLogger.warning(
+            'durable-attachment-join-metadata-differs',
+            scope: 'attachments/queue',
+            data: {'id': existing.id},
           );
         }
         return (item: existing, inserted: false);
@@ -709,19 +712,39 @@ class AttachmentUploadQueue {
 
   bool _isSafeTransientTransportFailure(Object error) {
     if (error is! DioException) return false;
-    return error.type == DioExceptionType.connectionTimeout;
+    // These failures surface before a connection to the server is established,
+    // so no request byte can have reached the upload route and the server
+    // cannot hold the file. They are pure connectivity outages: keep the row
+    // pending and defer (without consuming the retry budget) so the upload
+    // resumes when the network returns.
+    return switch (error.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.connectionError => true,
+      DioExceptionType.unknown =>
+        error.error is SocketException || error.error is HandshakeException,
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.transformTimeout ||
+      DioExceptionType.badCertificate ||
+      DioExceptionType.badResponse ||
+      DioExceptionType.cancel => false,
+    };
   }
 
   bool _isIndeterminateUploadFailure(Object error) {
+    // Pre-connection connectivity failures are never indeterminate: bytes were
+    // not sent, so the "server may already hold the file" rationale does not
+    // apply. Classify them first so they take the safe deferral path.
+    if (_isSafeTransientTransportFailure(error)) return false;
     if (_isTransientIoFailure(error)) return true;
     if (error is! DioException) return false;
     return switch (error.type) {
       DioExceptionType.sendTimeout ||
       DioExceptionType.receiveTimeout ||
-      DioExceptionType.transformTimeout ||
-      DioExceptionType.connectionError => true,
+      DioExceptionType.transformTimeout => true,
       DioExceptionType.unknown => _isTransientIoFailure(error.error),
       DioExceptionType.connectionTimeout ||
+      DioExceptionType.connectionError ||
       DioExceptionType.badCertificate ||
       DioExceptionType.badResponse ||
       DioExceptionType.cancel => false,
@@ -1093,7 +1116,16 @@ class AttachmentUploadQueue {
           !_queue.any((current) => identical(current, item))) {
         return;
       }
-      if (dao == null) return;
+      if (dao == null) {
+        // The queue was disposed (server switch / logout) before this write
+        // could resolve its dao. Reporting success here would let callers
+        // treat unpersisted state — notably a cancellation — as durable and
+        // delete staged bytes that the old server's still-pending row needs
+        // when it is next restored.
+        throw StateError(
+          'Attachment queue persistence is unavailable after dispose',
+        );
+      }
       await dao.upsert(_modelToCompanion(item));
     });
   }

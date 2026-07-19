@@ -617,11 +617,16 @@ class OptimizedStorageService {
         final nextActive = sanitizedConfigs
             .where((config) => config.id == nextActiveId)
             .firstOrNull;
+        // Session ownership follows the server identity (id, origin URL, mTLS
+        // client identity), not per-request metadata. Editing custom headers
+        // or the self-signed policy of the same server keeps the same account
+        // session, and stripping a legacy persisted apiKey is a one-time
+        // migration rather than an ownership change.
         final activeOwnershipChanged =
             currentActiveId != nextActiveId ||
             (currentActive != null &&
                 nextActive != null &&
-                !_hasSameServerAuthTransportIdentity(
+                !_hasSameServerSessionOwnershipIdentity(
                   currentActive,
                   nextActive,
                 ));
@@ -643,7 +648,7 @@ class OptimizedStorageService {
               credentialServerId == null ||
               currentCredentialConfig == null ||
               nextCredentialConfig == null ||
-              !_hasSameServerAuthTransportIdentity(
+              !_hasSameServerSessionOwnershipIdentity(
                 currentCredentialConfig,
                 nextCredentialConfig,
               );
@@ -682,22 +687,27 @@ class OptimizedStorageService {
   }
 
   ServerConfig _revokeServerConfigAuthArtifacts(ServerConfig config) {
-    // Open WebUI lets an administrator choose arbitrary names for trusted
-    // identity and API-key headers. A name-based denylist can therefore never
-    // prove that a retained custom header is non-authenticating: even a value
-    // such as X-Tenant may be configured as CUSTOM_API_KEY_HEADER. Logout and
-    // uncertain rollback must revoke every custom header fail closed. Client
-    // certificates and their private keys are authentication material too, so
-    // a tokenless owner must not retain an active mTLS identity.
-    return config.copyWith(
-      apiKey: null,
-      customHeaders: const <String, String>{},
-      mtlsCertificateChainPem: null,
-      mtlsCertificateLabel: null,
-      mtlsPrivateKeyPem: null,
-      mtlsPrivateKeyLabel: null,
-      mtlsPrivateKeyPassword: null,
+    // Only Open WebUI *session* credentials are revoked here. The legacy
+    // apiKey bearer and app-captured proxy session cookies (merged into a
+    // Cookie custom header by the reverse-proxy flow) authenticate a signed-in
+    // session and must not survive logout. Everything else on the config is a
+    // connection prerequisite, not a session credential: user-configured
+    // custom headers (Cloudflare Access service tokens, Authelia header
+    // gates) and the mTLS client identity are required just to reach the
+    // sign-in page, so scrubbing them would strand the user before re-login.
+    // They are preserved exactly like the server URL.
+    final hasCookieHeader = config.customHeaders.keys.any(
+      (key) => key.toLowerCase() == 'cookie',
     );
+    if (config.apiKey == null && !hasCookieHeader) return config;
+    final sanitizedHeaders = hasCookieHeader
+        ? Map<String, String>.fromEntries(
+            config.customHeaders.entries.where(
+              (entry) => entry.key.toLowerCase() != 'cookie',
+            ),
+          )
+        : config.customHeaders;
+    return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
   }
 
   void _notifyRollbackUncertainSafely(void Function()? callback) {
@@ -721,7 +731,8 @@ class OptimizedStorageService {
   /// Token deletion is the first durable write. Any crash or later storage
   /// failure therefore leaves either the old ownership or the new ownership
   /// without a Conduit bearer token. Explicit candidate custom headers remain
-  /// available for this sign-in attempt and are revoked by logout.
+  /// available for this sign-in attempt; logout later revokes captured proxy
+  /// Cookie headers while preserving user-configured connection headers.
   Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     required FutureOr<void> Function() publish,
@@ -1161,6 +1172,13 @@ class OptimizedStorageService {
     );
   }
 
+  /// Full transport identity used to pin a token commit to the exact stored
+  /// config it was validated against (URL, headers, TLS policy, mTLS
+  /// identity).
+  ///
+  /// The legacy `apiKey` field is deliberately excluded: it is stripped from
+  /// every persisted config, so a config migrated from an older install would
+  /// otherwise never match its own sanitized successor.
   bool _hasSameServerAuthTransportIdentity(
     ServerConfig stored,
     ServerConfig validated,
@@ -1168,13 +1186,32 @@ class OptimizedStorageService {
     return stored.id == validated.id &&
         _normalizedServerIdentityUrl(stored.url) ==
             _normalizedServerIdentityUrl(validated.url) &&
-        stored.apiKey == validated.apiKey &&
         _sameStringMap(stored.customHeaders, validated.customHeaders) &&
         stored.allowSelfSignedCertificates ==
             validated.allowSelfSignedCertificates &&
         stored.mtlsCertificateChainPem == validated.mtlsCertificateChainPem &&
         stored.mtlsPrivateKeyPem == validated.mtlsPrivateKeyPem &&
         stored.mtlsPrivateKeyPassword == validated.mtlsPrivateKeyPassword;
+  }
+
+  /// Narrow identity used by [saveServerConfigs] to decide whether an edited
+  /// config still owns the current session and saved credentials.
+  ///
+  /// A session belongs to a server account, identified by the config id, the
+  /// normalized origin URL, and the mTLS client identity presented to that
+  /// origin. Custom-header and self-signed-policy edits change per-request
+  /// metadata for the same server and must not sign the user out, matching
+  /// pre-hardening behavior. URL and mTLS identity changes still fence.
+  bool _hasSameServerSessionOwnershipIdentity(
+    ServerConfig stored,
+    ServerConfig next,
+  ) {
+    return stored.id == next.id &&
+        _normalizedServerIdentityUrl(stored.url) ==
+            _normalizedServerIdentityUrl(next.url) &&
+        stored.mtlsCertificateChainPem == next.mtlsCertificateChainPem &&
+        stored.mtlsPrivateKeyPem == next.mtlsPrivateKeyPem &&
+        stored.mtlsPrivateKeyPassword == next.mtlsPrivateKeyPassword;
   }
 
   String _normalizedServerIdentityUrl(String value) {
@@ -1599,7 +1636,8 @@ class OptimizedStorageService {
     }
 
     // Each fail-closed mutation is independent. A broken Keychain delete must
-    // not prevent the password delete or the durable header/mTLS scrub.
+    // not prevent the password delete or the durable proxy-cookie/legacy
+    // bearer scrub.
     await attempt(_deleteAuthTokenUnlocked);
     await attempt(_deleteSavedCredentialsUnlocked);
     final sanitized = configs
@@ -2299,9 +2337,11 @@ class OptimizedStorageService {
   }
 
   /// Clear authentication-related data (tokens, credentials, user data).
-  /// Non-auth server settings such as URL and self-signed-certificate policy
-  /// remain available. Auth-bearing custom headers and mTLS identity material
-  /// are deliberately revoked and must be supplied again before reconnecting.
+  /// Connection settings remain available for quick re-login: the URL,
+  /// self-signed-certificate policy, user-configured custom headers, and the
+  /// mTLS client identity are prerequisites for reaching the sign-in page at
+  /// all. Session credentials embedded in configs (the legacy apiKey bearer
+  /// and captured proxy Cookie headers) are deliberately revoked.
   Future<void> clearAuthData() async {
     await _authStateLock.synchronized(_clearAuthDataUnlocked);
 
