@@ -182,7 +182,6 @@ void main() {
     check(handlerEvents.first).identicalTo(handler);
     check(handlerEvents[1]).not((it) => it.identicalTo(handler));
     check(handlerEvents.last).identicalTo(handler);
-    check(handlerEvents.last).identicalTo(handler);
   });
 
   test('failed native unready transition releases the Dart handler', () async {

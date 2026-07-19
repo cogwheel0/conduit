@@ -1360,8 +1360,7 @@ class MainActivity : FlutterActivity() {
                             id = id,
                             expectedFileCount = expectedFileCount,
                             isInProgress = false,
-                            errors = errors +
-                                "Pending shared content is full. Finish importing older shared content and try again."
+                            errors = errors + aggregateShareRejectionMessage()
                         ).toString()
                     )
                 )

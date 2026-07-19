@@ -830,7 +830,7 @@ final class ShareViewController: UIViewController {
           try? FileManager.default.removeItem(at: dstURL)
           return nil
         }
-        output.write(chunk)
+        try output.write(contentsOf: chunk)
       }
       guard !isCancelled() else {
         try? FileManager.default.removeItem(at: dstURL)
