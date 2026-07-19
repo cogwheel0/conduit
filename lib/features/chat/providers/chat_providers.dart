@@ -9073,6 +9073,7 @@ bool _openWebUiAccountStorageIsCertified(dynamic ref) {
 /// no active database (reviewer mode / no active server), preserving behavior.
 final class ChatSendPlaceholderHandle {
   ChatSendPlaceholderHandle._({
+    this.userMessageId,
     required this.assistantMessageId,
     required ChatMutationOwnerToken mutationOwner,
     String? regenerationAttemptId,
@@ -9083,6 +9084,13 @@ final class ChatSendPlaceholderHandle {
        _openWebUiAuthSessionEpoch = mutationOwner.openWebUiAuthSessionEpoch,
        _regenerationAttemptId = regenerationAttemptId;
 
+  /// The optimistic user row that owns this send.
+  ///
+  /// Regeneration creates only an assistant placeholder, so this is null for
+  /// regeneration handles. Normal sends always expose it so the presentation
+  /// layer can establish its turn anchor from the exact minted identity rather
+  /// than rediscovering it later from streaming metadata.
+  final String? userMessageId;
   final String assistantMessageId;
   String? _ownerConversationId;
   final bool _usesOpenWebUiContext;
@@ -9174,8 +9182,10 @@ void recoverFailedChatSend(
 ChatSendPlaceholderHandle chatSendPlaceholderHandleForTest({
   required dynamic ref,
   required String assistantMessageId,
+  String? userMessageId,
   required Conversation? owner,
 }) => ChatSendPlaceholderHandle._(
+  userMessageId: userMessageId,
   assistantMessageId: assistantMessageId,
   mutationOwner: captureChatMutationOwner(ref, owner),
 );
@@ -9332,6 +9342,7 @@ Future<void> durableSend(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
   );
   final sendHandle = ChatSendPlaceholderHandle._(
+    userMessageId: userMessageId,
     assistantMessageId: assistantMessageId,
     mutationOwner: sendMutationOwner,
   );
@@ -14419,6 +14430,7 @@ Future<void> _sendMessageInternal(
     growable: false,
   );
   final sendHandle = ChatSendPlaceholderHandle._(
+    userMessageId: userMessageId,
     assistantMessageId: assistantMessageId,
     mutationOwner: sendMutationOwner,
   );

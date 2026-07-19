@@ -2533,6 +2533,11 @@ void main() {
       );
       final run = await started.timeout(const Duration(seconds: 1));
       expect(pendingSend, isNotNull);
+      final optimisticTurn = container.read(chatMessagesProvider);
+      expect(
+        pendingSend!.userMessageId,
+        optimisticTurn[optimisticTurn.length - 2].id,
+      );
 
       final streamingB = chatB.messages.last.copyWith(
         id: pendingSend!.assistantMessageId,
