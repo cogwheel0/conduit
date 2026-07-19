@@ -1,6 +1,9 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit/core/database/mappers/conversation_assembler.dart'
+    show kLocalConversationWorkerThreshold;
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/core/sync/chat_locks.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/pull_sync.dart';
@@ -103,6 +106,54 @@ void main() {
   }
 
   group('PullSync.run', () {
+    test('large chat normalization uses the worker-offload seam', () async {
+      var offloadCalls = 0;
+      final workerManager = WorkerManager(debugIsWebOverride: false);
+      addTearDown(workerManager.dispose);
+      pull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        rowsParseOffload: (response) {
+          offloadCalls++;
+          return workerManager.schedule(
+            parseChatRowsWorker,
+            response,
+            debugLabel: 'test.pull.normalizeChatRows',
+          );
+        },
+      );
+      server.seedChat(
+        id: 'threshold',
+        blob: blobFor(
+          'threshold',
+          messageCount: kLocalConversationWorkerThreshold,
+        ),
+        createdAt: 50,
+        updatedAt: 100,
+      );
+      server.seedChat(
+        id: 'large',
+        blob: blobFor(
+          'large',
+          messageCount: kLocalConversationWorkerThreshold + 1,
+        ),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+
+      final result = await pull.run();
+
+      check(result.success).isTrue();
+      check(offloadCalls).equals(1);
+      check(
+        (await db.messagesDao.getForChat('large')).length,
+      ).equals(kLocalConversationWorkerThreshold + 1);
+      check(
+        (await db.messagesDao.getForChat('threshold')).length,
+      ).equals(kLocalConversationWorkerThreshold);
+    });
+
     test('first-run full pull (watermark 0) lands every chat', () async {
       server.seedChat(
         id: 'plain',

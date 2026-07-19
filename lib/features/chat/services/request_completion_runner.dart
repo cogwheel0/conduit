@@ -4,8 +4,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/daos/outbox_dao.dart';
-import '../../../core/database/database_provider.dart';
 import '../../../core/database/mappers/conversation_assembler.dart';
+import '../../../core/providers/app_providers.dart';
 import '../../../core/services/conversation_parsing.dart';
 import '../../../core/services/worker_manager.dart';
 import '../../../core/sync/outbox_drainer.dart';
@@ -69,7 +69,12 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     final decoded = RequestCompletionPayload.fromJson(payload);
     final assistantMessageId = decoded.assistantMessageId;
 
-    final db = _ref.read(appDatabaseProvider);
+    // Capture database, API, auth epoch, and database certification as one
+    // synchronous ownership tuple. Reading only the database first leaves an
+    // ABA window where the same object can be reused by a different account
+    // before the completion owner is captured.
+    final conversationOwnership = captureOpenWebUiConversationRead(_ref);
+    final db = conversationOwnership?.database;
     if (db == null) {
       DebugLogger.log(
         'completion-deferred-no-db',
@@ -78,16 +83,29 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       );
       throw const CompletionDatabaseUnavailableException();
     }
+    final ownedConversationSession = conversationOwnership!;
 
-    final owner = captureOpenWebUiCompletionOwner(
-      _ref,
+    final owner = OpenWebUiCompletionOwner(
       chatId: chatId,
       database: db,
+      api: ownedConversationSession.api,
+      authSessionEpoch: ownedConversationSession.authSessionEpoch,
+      contextWasCoherent: true,
     );
+
+    void requireCurrentConversationOwner() {
+      if (!openWebUiConversationReadIsCurrent(_ref, ownedConversationSession) ||
+          !openWebUiCompletionContextIsCurrent(_ref, owner)) {
+        throw const CompletionDatabaseUnavailableException();
+      }
+    }
+
+    requireCurrentConversationOwner();
 
     // Streaming-conflict guard (R5): if a LIVE interactive stream owns this
     // exact chat, unsent work defers so it can never clobber that stream.
     void deferIfTargetIsBusy() {
+      requireCurrentConversationOwner();
       if (activeOpenWebUiChatIdForMutation(_ref, owner) == null ||
           !_ref.read(isChatStreamingProvider)) {
         return;
@@ -123,6 +141,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       chatId,
       assistantMessageId,
     );
+    requireCurrentConversationOwner();
     if (placeholder == null) {
       DebugLogger.log(
         'completion-placeholder-absent',
@@ -153,6 +172,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     //      HEADLESS: fire the completion, let the server persist it, pull it
     //      into the local DB — WITHOUT switching the user's active conversation.
     final chatRow = await db.chatsDao.getChat(chatId);
+    requireCurrentConversationOwner();
     if (chatRow == null) {
       // Chat row vanished (e.g. a delete won the race): nothing to complete.
       DebugLogger.log(
@@ -172,6 +192,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         owner: owner,
         assistantMessageId: assistantMessageId,
       );
+      requireCurrentConversationOwner();
       await recoverSubmittedOpenWebUiCompletion(
         _ref,
         owner: owner,
@@ -179,6 +200,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
       );
+      requireCurrentConversationOwner();
       return;
     }
 
@@ -214,6 +236,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     // Headless drive — no active-conversation switch, no chatMessagesProvider
     // mutation. Builds the request from this chat's DB rows.
     final rows = await db.messagesDao.getForChat(chatId);
+    requireCurrentConversationOwner();
     final conversation = await assembleConversationGuarded(
       chatRow,
       rows,
@@ -225,6 +248,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
             debugLabel: 'headless.assembleConversation',
           ),
     );
+    requireCurrentConversationOwner();
     await runHeadlessCompletion(
       _ref,
       chatId: chatId,

@@ -3,13 +3,14 @@ import 'dart:io' show Platform;
 
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../core/auth/webview_origin.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
@@ -19,6 +20,88 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../providers/unified_auth_providers.dart';
+
+/// Whether an SSO page is allowed to expose cookies or localStorage tokens.
+@visibleForTesting
+bool isTrustedSsoTokenCaptureUrl({
+  required String pageUrl,
+  required String serverUrl,
+}) => webViewUrlHasExactServerOrigin(pageUrl, serverUrl);
+
+@visibleForTesting
+bool isExpectedSsoRefreshLoadStart({
+  required String startedUrl,
+  required String expectedUrl,
+}) {
+  final started = Uri.tryParse(startedUrl);
+  final expected = Uri.tryParse(expectedUrl);
+  return started != null &&
+      expected != null &&
+      started.path == expected.path &&
+      webViewUrlHasExactServerOrigin(startedUrl, expectedUrl);
+}
+
+/// Runs the retry path appropriate for the current WebView lifecycle.
+///
+/// Cleanup failures happen before a controller is created, so retry must run
+/// full initialization again. Existing WebViews retain the cheaper reload
+/// path and clear their current sign-in cookies first.
+@visibleForTesting
+Future<void> refreshSsoAuthWebView<Controller>({
+  required Controller? controller,
+  required Future<void> Function() initialize,
+  required Future<void> Function(
+    Controller controller,
+    void Function() releaseSessionReset,
+  )
+  reload,
+  required void Function(bool inProgress) setSessionResetInProgress,
+}) async {
+  // This callback is intentionally synchronous before the first await. Token
+  // capture callbacks from the outgoing document must be fenced before cookie
+  // clearing begins, and remain fenced until replacement loading has started.
+  setSessionResetInProgress(true);
+  var resetReleased = false;
+  void releaseSessionReset() {
+    if (resetReleased) return;
+    resetReleased = true;
+    setSessionResetInProgress(false);
+  }
+
+  try {
+    if (controller == null) {
+      await initialize();
+      releaseSessionReset();
+      return;
+    }
+    await reload(controller, releaseSessionReset);
+  } catch (_) {
+    releaseSessionReset();
+    rethrow;
+  }
+}
+
+@visibleForTesting
+Future<bool> prepareFreshSsoWebViewSession({
+  Future<bool> Function()? clearCookies,
+  Future<bool> Function()? clearWebsiteData,
+}) async {
+  final cookiesCleared =
+      await (clearCookies ?? WebViewCookieHelper.clearCookies)();
+  final websiteDataCleared =
+      await (clearWebsiteData ?? WebViewCookieHelper.clearWebsiteData)();
+  return cookiesCleared && websiteDataCleared;
+}
+
+/// Claims a new refresh generation unless token handling already owns the flow.
+@visibleForTesting
+int? nextSsoAuthRefreshGeneration({
+  required bool tokenCaptureStarted,
+  required bool sessionResetInProgress,
+  required int currentGeneration,
+}) => tokenCaptureStarted || sessionResetInProgress
+    ? null
+    : currentGeneration + 1;
 
 /// SSO Authentication page that uses a WebView to handle OAuth/OIDC flows.
 ///
@@ -41,7 +124,11 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   bool _tokenCaptured = false;
   String? _error;
   String? _serverUrl;
+  ServerConfig? _ssoServerConfig;
   int _captureAttemptId = 0; // Used to cancel stale retry sequences
+  bool _sessionResetInProgress = false;
+  String? _expectedReplacementLoadUrl;
+  VoidCallback? _releasePendingSessionReset;
   bool _shouldRenderWebView = false;
 
   @override
@@ -57,6 +144,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   void dispose() {
     // Increment attempt ID to cancel any in-flight token capture operations
     _captureAttemptId++;
+    _cancelPendingSessionReset();
     // Clear controller reference (WebViewController doesn't have a dispose method,
     // but setting to null ensures callbacks check mounted state)
     _controller = null;
@@ -81,10 +169,12 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     // Get server URL from config or active server
     final config = widget.serverConfig;
     if (config != null) {
+      _ssoServerConfig = config;
       _serverUrl = config.url;
     } else {
       final activeServer = await ref.read(activeServerProvider.future);
       if (!mounted) return;
+      _ssoServerConfig = activeServer;
       _serverUrl = activeServer?.url;
     }
 
@@ -97,12 +187,39 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       return;
     }
 
-    DebugLogger.auth('Initializing SSO WebView for $_serverUrl');
+    DebugLogger.auth(
+      'Initializing SSO WebView for ${webViewOriginForLog(_serverUrl)}',
+      scope: 'auth/sso',
+    );
 
-    // Clear cookies before loading to ensure fresh session
-    await WebViewCookieHelper.clearCookies();
+    final webViewDataReady =
+        await WebViewCookieHelper.ensurePendingLogoutDataCleared();
+    if (!mounted) return;
+    if (!webViewDataReady) {
+      setState(() {
+        _error =
+            'The previous web sign-in session could not be cleared. '
+            'Please retry.';
+        _isLoading = false;
+        _shouldRenderWebView = false;
+      });
+      return;
+    }
+
+    // Clear cookies before loading to ensure a fresh identity boundary. A real
+    // platform failure blocks this WebView; an already-empty store verifies as
+    // success in WebViewCookieHelper.
+    final cookiesCleared = await prepareFreshSsoWebViewSession();
 
     if (!mounted) return;
+    if (!cookiesCleared) {
+      setState(() {
+        _error = 'The previous SSO session could not be cleared. Please retry.';
+        _isLoading = false;
+        _shouldRenderWebView = false;
+      });
+      return;
+    }
 
     setState(() {
       _controller = null;
@@ -123,15 +240,16 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       await controller.loadUrl(
         urlRequest: URLRequest(url: WebUri('$serverUrl/auth')),
       );
-    } catch (e) {
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'sso-webview-initial-load-failed',
         scope: 'auth/sso',
-        error: e,
+        error: error,
+        stackTrace: stackTrace,
       );
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = 'The SSO sign-in page could not be loaded. Please retry.';
         _isLoading = false;
       });
     }
@@ -151,7 +269,18 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   }
 
   void _onPageStarted(String url) {
-    DebugLogger.auth('SSO page started: $url');
+    DebugLogger.auth(
+      'SSO page started: ${webViewOriginForLog(url)}',
+      scope: 'auth/sso',
+    );
+    final expectedUrl = _expectedReplacementLoadUrl;
+    if (expectedUrl != null &&
+        isExpectedSsoRefreshLoadStart(
+          startedUrl: url,
+          expectedUrl: expectedUrl,
+        )) {
+      _cancelPendingSessionReset();
+    }
     // Increment attempt ID to cancel any in-progress retry sequences
     _captureAttemptId++;
     setState(() {
@@ -164,17 +293,21 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   Future<void> _onUrlChange(WebUri? url) async {
     final urlText = url?.toString();
     if (urlText == null || urlText.isEmpty) return;
-    DebugLogger.auth('SSO URL changed: $urlText');
+    DebugLogger.auth(
+      'SSO URL changed: ${webViewOriginForLog(urlText)}',
+      scope: 'auth/sso',
+    );
 
     // Try to capture token on URL change as well
-    if (_tokenCaptured) return;
+    if (_tokenCaptured || _sessionResetInProgress) return;
 
-    final uri = Uri.parse(urlText);
     final serverUrl = _serverUrl;
     if (serverUrl == null) return;
+    if (!isTrustedSsoTokenCaptureUrl(pageUrl: urlText, serverUrl: serverUrl)) {
+      return;
+    }
 
-    final serverUri = Uri.parse(serverUrl);
-    if (uri.host != serverUri.host) return;
+    final uri = Uri.parse(urlText);
 
     // Attempt single token capture (no retry) - onPageFinished will handle retries
     // This provides fast capture when URL changes, while onPageFinished
@@ -183,7 +316,12 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   }
 
   Future<void> _onPageFinished(String url) async {
-    DebugLogger.auth('SSO page finished: $url');
+    DebugLogger.auth(
+      'SSO page finished: ${webViewOriginForLog(url)}',
+      scope: 'auth/sso',
+    );
+
+    if (_sessionResetInProgress) return;
 
     setState(() {
       _isLoading = false;
@@ -196,7 +334,10 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     // Check for error parameter (OAuth failures redirect with ?error=...)
     final error = uri.queryParameters['error'];
     if (error != null && error.isNotEmpty) {
-      DebugLogger.auth('SSO error from URL: $error');
+      DebugLogger.auth(
+        'SSO callback reported an OAuth error',
+        scope: 'auth/sso',
+      );
       setState(() {
         _error = error;
       });
@@ -212,9 +353,9 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     final serverUrl = _serverUrl;
     if (serverUrl == null) return;
 
-    final serverUri = Uri.parse(serverUrl);
-    final isOurServer = uri.host == serverUri.host;
-    if (!isOurServer) return;
+    if (!isTrustedSsoTokenCaptureUrl(pageUrl: url, serverUrl: serverUrl)) {
+      return;
+    }
 
     // Skip external OAuth provider pages (they won't have our token)
     // Only check pages that could have the token set
@@ -227,7 +368,10 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     if (!isAuthRelatedPath) {
       // For other pages on our server (like /chat), still try to capture
       // the token since the user might have been redirected there after auth
-      DebugLogger.auth('Checking for token on ${uri.path}');
+      DebugLogger.auth(
+        'Checking for token on configured server page',
+        scope: 'auth/sso',
+      );
     }
 
     // Wait a moment for the frontend to persist the token
@@ -250,13 +394,21 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   }) async {
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
       // Cancel if token captured, widget disposed, or a new page load started
-      if (_tokenCaptured || !mounted || attemptId != _captureAttemptId) return;
+      if (_tokenCaptured ||
+          _sessionResetInProgress ||
+          !mounted ||
+          attemptId != _captureAttemptId) {
+        return;
+      }
 
       // Small delay to let frontend persist token (except on first attempt)
       if (attempt > 0) {
         await Future.delayed(const Duration(milliseconds: 500));
         // Re-check after delay in case state changed
-        if (_tokenCaptured || !mounted || attemptId != _captureAttemptId) {
+        if (_tokenCaptured ||
+            _sessionResetInProgress ||
+            !mounted ||
+            attemptId != _captureAttemptId) {
           return;
         }
       }
@@ -267,9 +419,10 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
 
     // After all attempts, token not found - user may still be in auth flow
     // Only log if this is still the current attempt sequence
-    if (attemptId == _captureAttemptId) {
+    if (!_sessionResetInProgress && attemptId == _captureAttemptId) {
       DebugLogger.auth(
         'No token found after $maxAttempts attempts, user may still be authenticating',
+        scope: 'auth/sso',
       );
     }
   }
@@ -280,10 +433,23 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   /// [attemptId] is checked to abort if a new page load started.
   Future<bool> _attemptTokenCapture(Uri uri, {required int attemptId}) async {
     final controller = _controller;
-    if (controller == null || !mounted) return false;
+    final serverUrl = _serverUrl;
+    if (controller == null ||
+        serverUrl == null ||
+        !mounted ||
+        _sessionResetInProgress) {
+      return false;
+    }
 
     // Abort if a new page load started
     if (attemptId != _captureAttemptId) return false;
+    if (!isTrustedSsoTokenCaptureUrl(
+          pageUrl: uri.toString(),
+          serverUrl: serverUrl,
+        ) ||
+        !await _captureAttemptOwnsTrustedOrigin(attemptId)) {
+      return false;
+    }
 
     // Strategy 1: Check token cookie via JavaScript
     // Open-WebUI sets the token cookie with httponly=False, so it's accessible
@@ -303,24 +469,29 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
 
       // Abort if widget disposed or new page load started
-      if (!mounted || attemptId != _captureAttemptId) return false;
+      if (!await _captureAttemptOwnsTrustedOrigin(attemptId)) {
+        return false;
+      }
 
       String tokenValue = _cleanJsString(cookieResult.toString());
       if (_isValidJwtFormat(tokenValue)) {
-        DebugLogger.auth('Found valid token in cookie');
+        DebugLogger.auth('Found valid token in cookie', scope: 'auth/sso');
         await _handleToken(tokenValue);
         return true;
       }
     } catch (e) {
       // Expected during page load - token may not be accessible yet
       DebugLogger.log(
-        'Cookie read failed (expected during auth flow): ${e.toString().split('\n').first}',
+        'Cookie read failed during auth flow',
         scope: 'auth/sso',
+        data: {'errorType': e.runtimeType.toString()},
       );
     }
 
     // Abort if widget disposed or new page load started
-    if (!mounted || attemptId != _captureAttemptId) return false;
+    if (!await _captureAttemptOwnsTrustedOrigin(attemptId)) {
+      return false;
+    }
 
     // Strategy 2: Check localStorage (fallback - frontend sets this)
     try {
@@ -329,23 +500,62 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       );
 
       // Abort if widget disposed or new page load started
-      if (!mounted || attemptId != _captureAttemptId) return false;
+      if (!await _captureAttemptOwnsTrustedOrigin(attemptId)) {
+        return false;
+      }
 
       String tokenValue = _cleanJsString(result.toString());
       if (_isValidJwtFormat(tokenValue)) {
-        DebugLogger.auth('Found valid token in localStorage');
+        DebugLogger.auth(
+          'Found valid token in localStorage',
+          scope: 'auth/sso',
+        );
         await _handleToken(tokenValue);
         return true;
       }
     } catch (e) {
       // Expected during page load - token may not be accessible yet
       DebugLogger.log(
-        'localStorage read failed (expected during auth flow): ${e.toString().split('\n').first}',
+        'localStorage read failed during auth flow',
         scope: 'auth/sso',
+        data: {'errorType': e.runtimeType.toString()},
       );
     }
 
     return false;
+  }
+
+  Future<bool> _captureAttemptOwnsTrustedOrigin(int attemptId) async {
+    if (!mounted || _sessionResetInProgress || attemptId != _captureAttemptId) {
+      return false;
+    }
+    final isTrusted = await _isControllerOnTrustedOrigin();
+    return isTrusted &&
+        mounted &&
+        !_sessionResetInProgress &&
+        attemptId == _captureAttemptId;
+  }
+
+  Future<bool> _isControllerOnTrustedOrigin() async {
+    final controller = _controller;
+    final serverUrl = _serverUrl;
+    if (controller == null || serverUrl == null || !mounted) return false;
+
+    try {
+      final currentUrl = await controller.getUrl();
+      return currentUrl != null &&
+          isTrustedSsoTokenCaptureUrl(
+            pageUrl: currentUrl.toString(),
+            serverUrl: serverUrl,
+          );
+    } catch (error) {
+      DebugLogger.log(
+        'Unable to verify SSO WebView origin before token capture',
+        scope: 'auth/sso',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return false;
+    }
   }
 
   /// Clean JavaScript string result by removing surrounding quotes
@@ -377,10 +587,10 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
   }
 
   Future<void> _handleToken(String token) async {
-    if (_tokenCaptured || !mounted) return;
+    if (_tokenCaptured || !mounted || _sessionResetInProgress) return;
 
     final trimmedToken = token.trim();
-    DebugLogger.auth('Handling captured SSO token');
+    DebugLogger.auth('Handling captured SSO token', scope: 'auth/sso');
     _tokenCaptured = true;
 
     setState(() {
@@ -398,12 +608,13 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
         trimmedToken,
         rememberCredentials: true,
         authType: 'sso', // Mark as SSO-obtained token for traceability
+        expectedServerConfig: _ssoServerConfig,
       );
 
       if (!mounted) return;
 
       if (success) {
-        DebugLogger.auth('SSO login successful');
+        DebugLogger.auth('SSO login successful', scope: 'auth/sso');
         // Navigation is handled automatically by the router when auth state
         // changes to authenticated. The router redirect will navigate to chat.
         // We don't need to call context.go() here - it can cause race conditions.
@@ -418,7 +629,7 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       DebugLogger.error(
         'sso-token-handling-failed',
         scope: 'auth/sso',
-        error: e,
+        data: {'errorType': e.runtimeType.toString()},
       );
       if (!mounted) return;
       setState(() {
@@ -434,14 +645,14 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
       'sso-webview-error',
       scope: 'auth/sso',
       data: {
-        'url': request.url.toString(),
-        'description': error.description,
+        'origin': webViewOriginForLog(request.url.toString()),
         'errorType': error.type.toString(),
       },
     );
 
     // Only show error for main frame failures
     if (request.isForMainFrame ?? false) {
+      _cancelPendingSessionReset();
       setState(() {
         _error = error.description;
         _isLoading = false;
@@ -454,36 +665,108 @@ class _SsoAuthPageState extends ConsumerState<SsoAuthPage> {
     NavigationAction request,
   ) async {
     final url = request.request.url;
-    DebugLogger.auth('SSO navigation request: $url');
+    DebugLogger.auth(
+      'SSO navigation request: ${webViewOriginForLog(url?.toString())}',
+      scope: 'auth/sso',
+    );
 
     // Allow all navigation - OAuth flows require redirects to external
-    // identity providers and back. The WebView is sandboxed and the token
-    // is only captured when the user returns to the Open-WebUI /auth page.
+    // identity providers and back. Credential reads are separately bound to
+    // the configured Open WebUI scheme, host, and effective port.
     //
-    // We log the URL for debugging but don't restrict navigation since:
+    // We log only the origin for debugging but don't restrict navigation since:
     // 1. OAuth providers may use various redirect URLs
     // 2. The user initiated this flow intentionally
-    // 3. Token capture only happens on the configured server's /auth page
+    // 3. Token capture only happens on the configured server origin
     return NavigationActionPolicy.ALLOW;
   }
 
   Future<void> _refresh() async {
-    final controller = _controller;
-    if (controller == null || _serverUrl == null) return;
-
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _tokenCaptured = false;
-    });
-
-    await WebViewCookieHelper.clearCookies();
-
     if (!mounted) return;
-
-    await controller.loadUrl(
-      urlRequest: URLRequest(url: WebUri('$_serverUrl/auth')),
+    final refreshGeneration = nextSsoAuthRefreshGeneration(
+      tokenCaptureStarted: _tokenCaptured,
+      sessionResetInProgress: _sessionResetInProgress,
+      currentGeneration: _captureAttemptId,
     );
+    if (refreshGeneration == null) return;
+
+    // Fence cookie/localStorage reads synchronously, before cookie clearing or
+    // WebView initialization yields. Stale captures cannot resume into the new
+    // sign-in session after either await below.
+    _captureAttemptId = refreshGeneration;
+
+    try {
+      await refreshSsoAuthWebView<InAppWebViewController>(
+        controller: _controller,
+        initialize: _initializeWebView,
+        setSessionResetInProgress: (inProgress) {
+          _sessionResetInProgress = inProgress;
+        },
+        reload: (controller, releaseSessionReset) async {
+          final serverUrl = _serverUrl;
+          if (serverUrl == null || !mounted) {
+            releaseSessionReset();
+            return;
+          }
+
+          setState(() {
+            _isLoading = true;
+            _error = null;
+            _tokenCaptured = false;
+          });
+
+          final cookiesCleared = await prepareFreshSsoWebViewSession();
+          if (!mounted) {
+            releaseSessionReset();
+            return;
+          }
+          if (!cookiesCleared) {
+            setState(() {
+              _error =
+                  'The previous SSO session could not be cleared. Please retry.';
+              _isLoading = false;
+            });
+            releaseSessionReset();
+            return;
+          }
+
+          final replacementUrl = '$serverUrl/auth';
+          _expectedReplacementLoadUrl = replacementUrl;
+          _releasePendingSessionReset = releaseSessionReset;
+          try {
+            await controller.loadUrl(
+              urlRequest: URLRequest(url: WebUri(replacementUrl)),
+            );
+          } catch (_) {
+            _cancelPendingSessionReset();
+            rethrow;
+          }
+        },
+      );
+    } catch (error, stackTrace) {
+      // The helper releases its reset lease on every failure path. Clear the
+      // page-owned callback as well so a failed load can neither strand the
+      // refresh fence nor leave the loading overlay permanently visible.
+      _cancelPendingSessionReset();
+      DebugLogger.error(
+        'sso-webview-refresh-load-failed',
+        scope: 'auth/sso',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = 'The SSO sign-in page could not be reloaded. Please retry.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _cancelPendingSessionReset() {
+    final release = _releasePendingSessionReset;
+    _releasePendingSessionReset = null;
+    _expectedReplacementLoadUrl = null;
+    release?.call();
   }
 
   @override

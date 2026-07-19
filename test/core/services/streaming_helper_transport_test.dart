@@ -458,6 +458,7 @@ class _MockSocketService implements SocketService {
   int chatSubscriptionDisposeCount = 0;
   int channelSubscriptionDisposeCount = 0;
   int channelOffCount = 0;
+  bool? lastChatKeepsAliveInBackground;
 
   @override
   SocketEventSubscription addChatEventHandler({
@@ -465,8 +466,10 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
+    lastChatKeepsAliveInBackground = keepsAliveInBackground;
     _injector._handler = handler;
     _injector._lastHandler = handler;
     return SocketEventSubscription(() {
@@ -1840,8 +1843,9 @@ void main() {
     // socket binding code won't activate. This test verifies the function
     // returns successfully with taskSocket transport. Full socket testing
     // would require a FakeSocketService which is out of scope for this task.
-    test('taskSocket returns ActiveChatStream without crash', () async {
+    test('taskSocket keeps its chat handler alive in background', () async {
       final log = _CallbackLog();
+      final socket = _MockSocketService(FakeSocketInjector());
 
       final stream = _attach(
         session: ChatCompletionSession.taskSocket(
@@ -1850,10 +1854,13 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
+        socketService: socket,
       );
 
       // The stream should be created successfully.
       check(stream.controller).isNotNull();
+      check(socket.lastChatKeepsAliveInBackground).equals(true);
+      stream.disposeWatchdog();
     });
 
     test(

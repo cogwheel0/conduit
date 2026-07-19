@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/input_validation_service.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -25,6 +27,60 @@ enum AuthMode {
   token, // JWT token
   sso, // OAuth/OIDC via WebView
   ldap, // LDAP username/password
+}
+
+@visibleForTesting
+String normalizeAuthenticationServerUrl(String value) {
+  final trimmed = value.trim();
+  final parsed = Uri.tryParse(trimmed);
+  if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty) {
+    return trimmed;
+  }
+
+  var path = parsed.path;
+  while (path.length > 1 && path.endsWith('/')) {
+    path = path.substring(0, path.length - 1);
+  }
+  if (path == '/') path = '';
+  return parsed
+      .replace(
+        scheme: parsed.scheme.toLowerCase(),
+        host: parsed.host.toLowerCase(),
+        path: path,
+      )
+      .toString();
+}
+
+@visibleForTesting
+bool authenticationServerMatchesSelection(
+  ServerConfig? actual,
+  ServerConfig expected,
+) {
+  return actual != null &&
+      actual.id == expected.id &&
+      actual.apiKey == null &&
+      normalizeAuthenticationServerUrl(actual.url) ==
+          normalizeAuthenticationServerUrl(expected.url) &&
+      mapEquals(actual.customHeaders, expected.customHeaders) &&
+      actual.allowSelfSignedCertificates ==
+          expected.allowSelfSignedCertificates &&
+      actual.mtlsCertificateChainPem == expected.mtlsCertificateChainPem &&
+      actual.mtlsPrivateKeyPem == expected.mtlsPrivateKeyPem &&
+      actual.mtlsPrivateKeyPassword == expected.mtlsPrivateKeyPassword;
+}
+
+/// Whether the selected server's newly-created API client is safe for sign-in.
+///
+/// Selection deliberately strips legacy [ServerConfig.apiKey] values, and the
+/// replacement client must not inherit a bearer from the prior session.
+@visibleForTesting
+bool authenticationApiMatchesSelection(
+  ApiService? actual,
+  ServerConfig expected,
+) {
+  return actual != null &&
+      actual.authToken == null &&
+      authenticationServerMatchesSelection(actual.serverConfig, expected);
 }
 
 class AuthenticationPage extends ConsumerStatefulWidget {
@@ -228,15 +284,15 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Future<void> _saveServerConfig(ServerConfig config) async {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    await storage.saveServerConfigs([config]);
-    await storage.setActiveServerId(config.id);
-    ref.invalidate(serverConfigsProvider);
-    ref.invalidate(activeServerProvider);
-    ref.invalidate(apiServiceProvider);
+    await ref
+        .read(authStateManagerProvider.notifier)
+        .selectUnauthenticatedServerConfig(config);
 
-    await ref.read(activeServerProvider.future);
-    await _waitForApiService(config.id);
+    final selectedServer = await ref.read(activeServerProvider.future);
+    if (!authenticationServerMatchesSelection(selectedServer, config)) {
+      throw StateError('The selected server changed before sign-in was ready.');
+    }
+    await _waitForApiService(config);
 
     final backendConfig = widget.backendConfig;
     if (backendConfig != null) {
@@ -250,15 +306,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
   }
 
-  Future<void> _waitForApiService(String serverId) async {
+  Future<void> _waitForApiService(ServerConfig selectedServer) async {
     final deadline = DateTime.now().add(const Duration(seconds: 2));
     while (DateTime.now().isBefore(deadline)) {
       final api = ref.read(apiServiceProvider);
-      if (api?.serverConfig.id == serverId) {
+      if (authenticationApiMatchesSelection(api, selectedServer)) {
         return;
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    throw StateError('The selected server connection was not ready in time.');
   }
 
   String _formatLoginError(String error) {

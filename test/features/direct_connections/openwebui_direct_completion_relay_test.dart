@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
@@ -135,6 +136,73 @@ void main() {
       },
     );
 
+    test('ignores buffered and later lines after the first terminal', () async {
+      final http = _RecordingHttpAdapter(
+        response: _streamResponse(<List<int>>[
+          utf8.encode('data: [DONE]\ndata: must-not-relay\n'),
+          utf8.encode('data: also-must-not-relay\n'),
+        ], contentType: 'text/event-stream'),
+      );
+      final emitted = <Object>[];
+      final relay = OpenWebUiDirectCompletionRelay(
+        emitChannel: (_, payload) => _recordEmission(emitted, payload),
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = relay.start(
+        profile: _profile(),
+        trustedRemoteModelId: 'trusted-model',
+        trustedUrlIndex: 2,
+        expectedAccountId: 'user-1',
+        expectedSessionId: 'socket-1',
+        payload: _payload(
+          formData: <String, dynamic>{'model': 'model', 'stream': true},
+        ),
+        acknowledge: (_) {},
+      );
+      await run.done;
+
+      expect(emitted, <Object>[
+        'data: [DONE]',
+        const <String, dynamic>{'done': true},
+      ]);
+    });
+
+    test('treats every error after terminal as a drain failure', () async {
+      final terminalBytes = utf8.encode('data: [DONE]\n');
+      final http = _TerminalThenOversizedStreamHttpAdapter(
+        terminalBytes: terminalBytes,
+        trailingBytes: utf8.encode('trailing bytes beyond the transfer budget'),
+      );
+      final emitted = <Object>[];
+      final relay = OpenWebUiDirectCompletionRelay(
+        emitChannel: (_, payload) => _recordEmission(emitted, payload),
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        maxStreamBytes: terminalBytes.length + 1,
+      );
+
+      final run = relay.start(
+        profile: _profile(),
+        trustedRemoteModelId: 'trusted-model',
+        trustedUrlIndex: 2,
+        expectedAccountId: 'user-1',
+        expectedSessionId: 'socket-1',
+        payload: _payload(
+          formData: <String, dynamic>{'model': 'model', 'stream': true},
+        ),
+        acknowledge: (_) {},
+      );
+      await run.done;
+      await http.cancelled.future.timeout(const Duration(seconds: 1));
+
+      expect(emitted, <Object>[
+        'data: [DONE]',
+        const <String, dynamic>{'done': true},
+      ]);
+    });
+
     test(
       'returns provider JSON through the acknowledgement when not streaming',
       () async {
@@ -175,6 +243,108 @@ void main() {
           const <String, dynamic>{'done': true},
         ]);
         expect((http.requests.single.data as Map)['model'], 'trusted-model');
+      },
+    );
+
+    test(
+      'standalone relay reuses one keep-alive connection for clean streams',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        var requestCount = 0;
+        final remotePorts = <int>{};
+        final serverErrors = <Object>[];
+        server.listen((request) async {
+          try {
+            requestCount++;
+            remotePorts.add(request.connectionInfo!.remotePort);
+            await utf8.decoder.bind(request).join();
+            request.response
+              ..persistentConnection = true
+              ..headers.contentType = ContentType(
+                'text',
+                'event-stream',
+                charset: 'utf-8',
+              );
+            request.response.write(
+              'data: {"choices":[{"delta":{"content":"$requestCount"}}]}\n\n',
+            );
+            request.response.write('data: [DONE]\n\n');
+            await request.response.close();
+          } catch (error) {
+            serverErrors.add(error);
+          }
+        });
+        final relay = OpenWebUiDirectCompletionRelay(
+          emitChannel: (_, _) => true,
+        );
+        final profile = _profile().copyWith(
+          baseUrl: 'http://${server.address.address}:${server.port}/v1',
+        );
+
+        try {
+          for (var index = 1; index <= 2; index++) {
+            final acknowledgements = <Object?>[];
+            final run = relay.start(
+              profile: profile,
+              trustedRemoteModelId: 'trusted-model',
+              trustedUrlIndex: 2,
+              expectedAccountId: 'user-1',
+              expectedSessionId: 'socket-1',
+              payload: _payload(
+                formData: <String, dynamic>{'model': 'model', 'stream': true},
+              ),
+              acknowledge: acknowledgements.add,
+            );
+            await run.done;
+            expect(acknowledgements, <Object?>[
+              const <String, dynamic>{'status': true},
+            ]);
+          }
+          expect(requestCount, 2);
+          expect(remotePorts, hasLength(1));
+          expect(
+            serverErrors,
+            isEmpty,
+            reason: 'responses must not be aborted',
+          );
+        } finally {
+          relay.dispose();
+          await server.close(force: true);
+        }
+      },
+    );
+
+    test(
+      'failed success-drain aborts transport before the run releases ownership',
+      () async {
+        final http = _TerminalThenPendingStreamHttpAdapter();
+        final emitted = <Object>[];
+        final relay = OpenWebUiDirectCompletionRelay(
+          emitChannel: (_, payload) => _recordEmission(emitted, payload),
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+          successDrainTimeout: const Duration(milliseconds: 10),
+        );
+
+        final run = relay.start(
+          profile: _profile(),
+          trustedRemoteModelId: 'trusted-model',
+          trustedUrlIndex: 2,
+          expectedAccountId: 'user-1',
+          expectedSessionId: 'socket-1',
+          payload: _payload(
+            formData: <String, dynamic>{'model': 'model', 'stream': true},
+          ),
+          acknowledge: (_) {},
+        );
+        await run.done.timeout(const Duration(seconds: 1));
+
+        expect(run.isCancelled, isFalse);
+        expect(http.cancelled.isCompleted, isTrue);
+        expect(emitted, <Object>[
+          'data: [DONE]',
+          const <String, dynamic>{'done': true},
+        ]);
       },
     );
 
@@ -447,6 +617,84 @@ final class _PendingStreamHttpAdapter implements HttpClientAdapter {
       cancelFuture?.then<void>((_) {
             if (!cancelled.isCompleted) cancelled.complete();
             unawaited(controller.close());
+          }) ??
+          Future<void>.value(),
+    );
+    return ResponseBody(
+      controller.stream,
+      200,
+      headers: const <String, List<String>>{
+        'content-type': <String>['text/event-stream'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _TerminalThenPendingStreamHttpAdapter implements HttpClientAdapter {
+  final Completer<void> cancelled = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final controller = StreamController<Uint8List>();
+    unawaited(
+      cancelFuture?.then<void>((_) async {
+            if (!cancelled.isCompleted) cancelled.complete();
+            await controller.close();
+          }) ??
+          Future<void>.value(),
+    );
+    scheduleMicrotask(
+      () => controller.add(Uint8List.fromList(utf8.encode('data: [DONE]\n'))),
+    );
+    return ResponseBody(
+      controller.stream,
+      200,
+      headers: const <String, List<String>>{
+        'content-type': <String>['text/event-stream'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+final class _TerminalThenOversizedStreamHttpAdapter
+    implements HttpClientAdapter {
+  _TerminalThenOversizedStreamHttpAdapter({
+    required this.terminalBytes,
+    required this.trailingBytes,
+  });
+
+  final List<int> terminalBytes;
+  final List<int> trailingBytes;
+  final Completer<void> cancelled = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    late final StreamController<Uint8List> controller;
+    controller = StreamController<Uint8List>(
+      onListen: () {
+        controller
+          ..add(Uint8List.fromList(terminalBytes))
+          ..add(Uint8List.fromList(trailingBytes));
+      },
+    );
+    unawaited(
+      cancelFuture?.then<void>((_) async {
+            if (!cancelled.isCompleted) cancelled.complete();
+            await controller.close();
           }) ??
           Future<void>.value(),
     );

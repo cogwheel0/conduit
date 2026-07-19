@@ -274,6 +274,7 @@ class _SynchronousCompletionSocketService extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     handler(<String, dynamic>{
@@ -326,6 +327,7 @@ class _CountingPassiveSocketService extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     chatRegistrationCalls += 1;

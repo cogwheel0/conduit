@@ -24,16 +24,21 @@ final class OpenWebUiDirectCompletionRelay {
   OpenWebUiDirectCompletionRelay({
     required OpenWebUiDirectChannelEmitter emitChannel,
     DirectDioFactory? dioFactory,
+    DirectHttpClientPool? clientPool,
     this.closeClients = true,
     this.streamIdleTimeout = kDirectStreamIdleTimeout,
     this.streamMaxDuration = kDirectStreamMaxDuration,
     this.maxStreamBytes = kMaxDirectStreamBytes,
     this.maxStreamCharacters = kMaxDirectStreamCharacters,
     this.maxStreamEvents = kMaxDirectStreamEvents,
+    this.successDrainTimeout = kDirectSuccessDrainTimeout,
+    this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
     this.maxLineCharacters = 4 * 1024 * 1024,
     this.maxJsonResponseBytes = kMaxDirectJsonResponseBytes,
   }) : _emitChannel = emitChannel,
-       _dioFactory = dioFactory ?? const DirectHttpClientFactory().create {
+       _dioFactory = dioFactory,
+       _clientPool = clientPool ?? DirectHttpClientPool(),
+       _ownsClientPool = clientPool == null {
     validateDirectCompletionStreamLimits(
       idleTimeout: streamIdleTimeout,
       maxDuration: streamMaxDuration,
@@ -44,21 +49,32 @@ final class OpenWebUiDirectCompletionRelay {
     if (maxLineCharacters <= 0) {
       throw ArgumentError.value(maxLineCharacters, 'maxLineCharacters');
     }
+    if (successDrainTimeout <= Duration.zero) {
+      throw ArgumentError.value(successDrainTimeout, 'successDrainTimeout');
+    }
+    if (maxSuccessDrainBytes <= 0) {
+      throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
+    }
     if (maxJsonResponseBytes <= 0) {
       throw ArgumentError.value(maxJsonResponseBytes, 'maxJsonResponseBytes');
     }
   }
 
   final OpenWebUiDirectChannelEmitter _emitChannel;
-  final DirectDioFactory _dioFactory;
+  final DirectDioFactory? _dioFactory;
+  final DirectHttpClientPool _clientPool;
+  final bool _ownsClientPool;
   final bool closeClients;
   final Duration streamIdleTimeout;
   final Duration streamMaxDuration;
   final int maxStreamBytes;
   final int maxStreamCharacters;
   final int maxStreamEvents;
+  final Duration successDrainTimeout;
+  final int maxSuccessDrainBytes;
   final int maxLineCharacters;
   final int maxJsonResponseBytes;
+  bool _disposed = false;
 
   /// Starts one trusted direct-completion RPC.
   ///
@@ -75,6 +91,9 @@ final class OpenWebUiDirectCompletionRelay {
     required Map<String, dynamic> payload,
     required OpenWebUiDirectRpcAcknowledgement acknowledge,
   }) {
+    if (_disposed) {
+      throw StateError('OpenWebUiDirectCompletionRelay is disposed');
+    }
     profile.validate();
     if (profile.adapterKey != kOpenAiCompatibleAdapterKey) {
       throw ArgumentError.value(profile.adapterKey, 'profile.adapterKey');
@@ -90,10 +109,12 @@ final class OpenWebUiDirectCompletionRelay {
 
     final cancelToken = CancelToken();
     final transportCancelToken = CancelToken();
+    final transportState = _RelayTransportState();
     final settled = Completer<void>();
     unawaited(
       cancelToken.whenCancel.then<void>((error) {
-        if (!transportCancelToken.isCancelled) {
+        if (!transportState.successfulProtocolTerminal &&
+            !transportCancelToken.isCancelled) {
           transportCancelToken.cancel(error.error ?? 'relay cancelled');
         }
       }),
@@ -109,7 +130,8 @@ final class OpenWebUiDirectCompletionRelay {
             expectedSessionId: expectedSessionId,
             payload: payload,
             acknowledge: acknowledge,
-            cancelToken: transportCancelToken,
+            transportCancelToken: transportCancelToken,
+            transportState: transportState,
           );
         } catch (_) {
           // The relay reports bounded failures through the RPC acknowledgement
@@ -134,9 +156,11 @@ final class OpenWebUiDirectCompletionRelay {
     required String expectedSessionId,
     required Map<String, dynamic> payload,
     required OpenWebUiDirectRpcAcknowledgement acknowledge,
-    required CancelToken cancelToken,
+    required CancelToken transportCancelToken,
+    required _RelayTransportState transportState,
   }) async {
     Dio? dio;
+    DirectHttpClientLease? clientLease;
     String? trustedChannel;
     var acknowledged = false;
     final sensitiveValues = directProfileSensitiveValues(profile);
@@ -152,11 +176,17 @@ final class OpenWebUiDirectCompletionRelay {
         trustedChannel: trustedChannel,
       );
 
-      dio = _dioFactory(profile);
-      const DirectHttpClientFactory().configure(dio, profile);
+      final factory = _dioFactory;
+      if (factory != null) {
+        dio = factory(profile);
+        const DirectHttpClientFactory().configure(dio, profile);
+      } else {
+        clientLease = _clientPool.acquire(profile);
+        dio = clientLease.dio;
+      }
       final response = await dio.post<ResponseBody>(
         'chat/completions',
-        cancelToken: cancelToken,
+        cancelToken: transportCancelToken,
         data: <String, dynamic>{
           ...request.formData,
           'model': trustedRemoteModelId,
@@ -182,25 +212,45 @@ final class OpenWebUiDirectCompletionRelay {
         await _relayRawLines(
           body,
           channel: trustedChannel,
-          cancelToken: cancelToken,
+          cancelToken: transportCancelToken,
+          transportState: transportState,
         );
+        transportState
+          ..successfulProtocolTerminal = true
+          ..completedCleanly = true;
       } else {
-        final value = await _decodeJson(body, cancelToken: cancelToken);
+        final value = await _decodeJson(
+          body,
+          cancelToken: transportCancelToken,
+        );
         _acknowledge(acknowledge, value);
         acknowledged = true;
+        transportState
+          ..successfulProtocolTerminal = true
+          ..completedCleanly = true;
       }
     } catch (error) {
-      final normalized = normalizeDirectProviderError(error);
+      // Once the provider has emitted its protocol terminal, every later
+      // failure belongs to the bounded HTTP-body drain. The completion is
+      // already successful; surfacing a transfer-limit, decoder, socket, or
+      // timeout error from trailing bytes would incorrectly turn that success
+      // into a second terminal error.
+      final expectedDrainFailure = transportState.successfulProtocolTerminal;
+      final normalized = expectedDrainFailure
+          ? null
+          : normalizeDirectProviderError(error);
       final safeMessage = sanitizeDirectProviderErrorMessage(
-        normalized.message,
+        normalized?.message ?? '',
         sensitiveValues: sensitiveValues,
       );
-      if (!acknowledged) {
+      if (!expectedDrainFailure && !acknowledged) {
         _acknowledge(acknowledge, <String, dynamic>{
           'status': false,
           'error': safeMessage,
         });
-      } else if (!cancelToken.isCancelled && trustedChannel != null) {
+      } else if (!expectedDrainFailure &&
+          !transportCancelToken.isCancelled &&
+          trustedChannel != null) {
         try {
           // The admission ACK has already completed, so later failures must
           // travel through the per-request channel. Open WebUI forwards maps
@@ -214,7 +264,7 @@ final class OpenWebUiDirectCompletionRelay {
           // to report the provider error. Cleanup still emits done best-effort.
         }
       }
-      if (!cancelToken.isCancelled) {
+      if (!expectedDrainFailure && !transportCancelToken.isCancelled) {
         DebugLogger.error(
           'completion-relay-failed',
           scope: 'direct-connections/openwebui-relay',
@@ -230,20 +280,38 @@ final class OpenWebUiDirectCompletionRelay {
           // and run settlement must still proceed.
         }
       }
-      if (!cancelToken.isCancelled) {
-        cancelToken.cancel('completion relay settled');
+      if (!transportState.completedCleanly &&
+          !transportCancelToken.isCancelled) {
+        // Cancel the transport token directly. Public relay cancellation is
+        // deliberately suppressed after `[DONE]` while the bounded keep-alive
+        // drain runs, but a failed drain must still abort its response before a
+        // pooled client can be leased by another request.
+        transportCancelToken.cancel('completion relay transport not reusable');
+        // Dio observes cancellation through a future callback. Let that
+        // callback abort the underlying request before the run reports settled.
+        await Future<void>.delayed(Duration.zero);
       }
-      // Dio observes cancellation through a future callback. Let that callback
-      // abort the underlying request before the run reports settled.
-      await Future<void>.delayed(Duration.zero);
-      if (closeClients) dio?.close(force: true);
+      if (clientLease != null) {
+        clientLease.release();
+      } else if (closeClients) {
+        dio?.close(force: true);
+      }
     }
+  }
+
+  /// Releases the relay's standalone HTTP pool. Relays backed by the shared
+  /// application pool leave that externally-owned pool untouched.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    if (_ownsClientPool) _clientPool.dispose();
   }
 
   Future<void> _relayRawLines(
     ResponseBody body, {
     required String channel,
     required CancelToken cancelToken,
+    required _RelayTransportState transportState,
   }) async {
     final scanner = _BoundedRawLineScanner(
       maxLineCharacters: maxLineCharacters,
@@ -257,15 +325,36 @@ final class OpenWebUiDirectCompletionRelay {
       idleTimeout: streamIdleTimeout,
       maxDuration: streamMaxDuration,
       maxBytes: maxStreamBytes,
+      successfulProtocolTerminal: () =>
+          transportState.successfulProtocolTerminal,
+      successDrainTimeout: successDrainTimeout,
+      maxSuccessDrainBytes: maxSuccessDrainBytes,
     ).transform(utf8.decoder);
 
     await for (final chunk in _cancelableText(bytes, cancelToken)) {
+      // Keep consuming the transport so its bounded success-drain policy can
+      // finish, but never parse or relay protocol data after the first terminal.
+      if (transportState.successfulProtocolTerminal) continue;
       for (final line in scanner.addChunk(chunk)) {
-        _relayLine(line, channel: channel, budget: budget);
+        _relayLine(
+          line,
+          channel: channel,
+          budget: budget,
+          transportState: transportState,
+        );
+        if (transportState.successfulProtocolTerminal) break;
       }
     }
-    for (final line in scanner.close()) {
-      _relayLine(line, channel: channel, budget: budget);
+    if (!transportState.successfulProtocolTerminal) {
+      for (final line in scanner.close()) {
+        _relayLine(
+          line,
+          channel: channel,
+          budget: budget,
+          transportState: transportState,
+        );
+        if (transportState.successfulProtocolTerminal) break;
+      }
     }
   }
 
@@ -293,11 +382,15 @@ final class OpenWebUiDirectCompletionRelay {
     String line, {
     required String channel,
     required DirectStreamBudget budget,
+    required _RelayTransportState transportState,
   }) {
     if (line.trim().isEmpty) return;
     budget.addEvent();
     budget.add(line);
     _emit(channel, line);
+    if (_isSuccessfulRelayTerminal(line)) {
+      transportState.successfulProtocolTerminal = true;
+    }
   }
 
   void _emit(String channel, Object payload) {
@@ -330,6 +423,18 @@ final class OpenWebUiDirectCompletionRelayRun {
     if (!_cancelToken.isCancelled) _cancelToken.cancel(reason);
     await done;
   }
+}
+
+final class _RelayTransportState {
+  bool successfulProtocolTerminal = false;
+  bool completedCleanly = false;
+}
+
+bool _isSuccessfulRelayTerminal(String line) {
+  final trimmed = line.trim();
+  if (trimmed == '[DONE]') return true;
+  if (!trimmed.startsWith('data:')) return false;
+  return trimmed.substring('data:'.length).trim() == '[DONE]';
 }
 
 final class _ValidatedRelayRequest {
@@ -521,6 +626,7 @@ final class _SingleCancellationStreamIterator<T> {
   final StreamIterator<T> _iterator;
   final CancelToken _cancelToken;
   Completer<bool>? _pendingMoveCancellation;
+  bool _reachedEof = false;
 
   T get current => _iterator.current;
 
@@ -536,10 +642,12 @@ final class _SingleCancellationStreamIterator<T> {
     final moveCancellation = Completer<bool>();
     _pendingMoveCancellation = moveCancellation;
     try {
-      return await Future.any<bool>(<Future<bool>>[
+      final hasNext = await Future.any<bool>(<Future<bool>>[
         _iterator.moveNext(),
         moveCancellation.future,
       ]);
+      if (!hasNext) _reachedEof = true;
+      return hasNext;
     } finally {
       if (identical(_pendingMoveCancellation, moveCancellation)) {
         _pendingMoveCancellation = null;
@@ -555,6 +663,7 @@ final class _SingleCancellationStreamIterator<T> {
   }
 
   Future<void> cancel() async {
+    if (_reachedEof) return;
     try {
       await _iterator.cancel();
     } catch (_) {

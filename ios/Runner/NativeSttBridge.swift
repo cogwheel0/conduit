@@ -6,8 +6,438 @@ import UIKit
 private let nativeSttMethodChannelName = "app.cogwheel.conduit/native_stt"
 private let nativeSttEventChannelName = "app.cogwheel.conduit/native_stt/events"
 
-private protocol NativeSttSession: AnyObject {
+protocol NativeSttSession: AnyObject {
   func stop() async
+}
+
+/// A one-shot completion shared by every caller joining an in-progress stop.
+/// `stopped` closes audio admission, while this latch marks the later point at
+/// which queued conversion, analyzer teardown, and audio-session release have
+/// all finished.
+final class NativeSttShutdownCompletion {
+  private let lock = NSLock()
+  private var completed = false
+  private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+  func wait() async {
+    if Task.isCancelled { return }
+    let waiterId = UUID()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        lock.lock()
+        if completed || Task.isCancelled {
+          lock.unlock()
+          continuation.resume()
+          return
+        }
+        waiters[waiterId] = continuation
+        lock.unlock()
+      }
+    } onCancel: {
+      self.resolveWaiter(waiterId)
+    }
+  }
+
+  func wait(timeoutNanoseconds: UInt64) async -> Bool {
+    if isCompleted { return true }
+    guard timeoutNanoseconds > 0 else { return false }
+    return await withTaskGroup(of: Bool.self) { group in
+      group.addTask { [weak self] in
+        guard let self else { return true }
+        await self.wait()
+        return self.isCompleted
+      }
+      group.addTask {
+        do {
+          try await Task.sleep(nanoseconds: timeoutNanoseconds)
+        } catch {
+          return false
+        }
+        return false
+      }
+      let result = await group.next() ?? false
+      group.cancelAll()
+      return result
+    }
+  }
+
+  var isCompleted: Bool {
+    lock.lock()
+    let value = completed
+    lock.unlock()
+    return value
+  }
+
+  func complete() {
+    lock.lock()
+    guard !completed else {
+      lock.unlock()
+      return
+    }
+    completed = true
+    let pendingWaiters = Array(waiters.values)
+    waiters.removeAll(keepingCapacity: false)
+    lock.unlock()
+    pendingWaiters.forEach { $0.resume() }
+  }
+
+  private func resolveWaiter(_ waiterId: UUID) {
+    lock.lock()
+    let waiter = waiters.removeValue(forKey: waiterId)
+    lock.unlock()
+    waiter?.resume()
+  }
+}
+
+/// Waits for an existing teardown task without cancelling that teardown when
+/// the caller's acknowledgement deadline expires.
+func waitForNativeSttTask(
+  _ task: Task<Void, Never>,
+  timeoutNanoseconds: UInt64
+) async -> Bool {
+  let completion = NativeSttShutdownCompletion()
+  Task {
+    await task.value
+    completion.complete()
+  }
+  return await completion.wait(timeoutNanoseconds: timeoutNanoseconds)
+}
+
+struct NativeSttLifecycleTransition {
+  let generation: Int
+  let shutdownTask: Task<Void, Never>
+}
+
+/// Lock-backed outer lifecycle registry. Every transition atomically retires
+/// the visible session and chains its full teardown after any predecessor.
+/// Stop may acknowledge on a deadline, but a later start always awaits this
+/// full chain before publishing new audio resources.
+final class NativeSttLifecycleState {
+  private let lock = NSLock()
+  private var generation = 0
+  private var session: NativeSttSession?
+  private var pendingShutdown: Task<Void, Never>?
+
+  func beginStart() -> NativeSttLifecycleTransition {
+    beginTransition(invalidateGeneration: true)
+  }
+
+  func beginStop(
+    invalidateGeneration: Bool = true
+  ) -> NativeSttLifecycleTransition {
+    beginTransition(invalidateGeneration: invalidateGeneration)
+  }
+
+  func install(_ candidate: NativeSttSession, generation: Int) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard self.generation == generation, session == nil else { return false }
+    session = candidate
+    return true
+  }
+
+  func isCurrent(_ generation: Int) -> Bool {
+    lock.lock()
+    let result = self.generation == generation
+    lock.unlock()
+    return result
+  }
+
+  func isInstalled(_ candidate: NativeSttSession, generation: Int) -> Bool {
+    lock.lock()
+    let result = self.generation == generation && session === candidate
+    lock.unlock()
+    return result
+  }
+
+  /// Retires a failed current candidate without invalidating the start token.
+  func retireIfCurrent(
+    _ candidate: NativeSttSession,
+    generation: Int
+  ) -> Task<Void, Never> {
+    lock.lock()
+    if self.generation == generation, session === candidate {
+      session = nil
+      let task = enqueueShutdownLocked(candidate)
+      lock.unlock()
+      return task
+    }
+    let existing = pendingShutdown ?? Task {}
+    lock.unlock()
+    return existing
+  }
+
+  /// Atomically ends a naturally finished session and invalidates every
+  /// callback guard from that start before asynchronous teardown begins.
+  func finishIfCurrent(
+    _ candidate: NativeSttSession,
+    generation: Int
+  ) -> Task<Void, Never> {
+    lock.lock()
+    if self.generation == generation, session === candidate {
+      self.generation &+= 1
+      session = nil
+      let task = enqueueShutdownLocked(candidate)
+      lock.unlock()
+      return task
+    }
+    let existing = pendingShutdown ?? Task {}
+    lock.unlock()
+    return existing
+  }
+
+  private func beginTransition(
+    invalidateGeneration: Bool
+  ) -> NativeSttLifecycleTransition {
+    lock.lock()
+    if invalidateGeneration {
+      generation &+= 1
+    }
+    let token = generation
+    let retiring = session
+    session = nil
+    let task = enqueueShutdownLocked(retiring)
+    lock.unlock()
+    return NativeSttLifecycleTransition(
+      generation: token,
+      shutdownTask: task
+    )
+  }
+
+  private func enqueueShutdownLocked(
+    _ retiring: NativeSttSession?
+  ) -> Task<Void, Never> {
+    let predecessor = pendingShutdown
+    let task = Task {
+      await predecessor?.value
+      await retiring?.stop()
+    }
+    pendingShutdown = task
+    return task
+  }
+}
+
+struct NativeSttEventDeliveryToken: Equatable {
+  let lifecycleGeneration: Int
+  let subscriptionGeneration: Int
+  let activationGeneration: Int
+}
+
+/// Binds queued Flutter events to both the STT start that produced them and
+/// the exact EventChannel subscription that was listening at that time.
+final class NativeSttEventDeliveryGate {
+  private let lock = NSLock()
+  private var subscriptionGeneration = 0
+  private var activationGeneration = 0
+  private var activeToken: NativeSttEventDeliveryToken?
+  private var terminalReservedToken: NativeSttEventDeliveryToken?
+  private var eventSink: FlutterEventSink?
+
+  func listen(_ sink: @escaping FlutterEventSink) {
+    lock.lock()
+    subscriptionGeneration &+= 1
+    activeToken = nil
+    terminalReservedToken = nil
+    eventSink = sink
+    lock.unlock()
+  }
+
+  func cancelSubscription() {
+    lock.lock()
+    subscriptionGeneration &+= 1
+    activeToken = nil
+    terminalReservedToken = nil
+    eventSink = nil
+    lock.unlock()
+  }
+
+  func activate(lifecycleGeneration: Int) -> NativeSttEventDeliveryToken {
+    lock.lock()
+    activationGeneration &+= 1
+    let token = NativeSttEventDeliveryToken(
+      lifecycleGeneration: lifecycleGeneration,
+      subscriptionGeneration: subscriptionGeneration,
+      activationGeneration: activationGeneration
+    )
+    activeToken = token
+    terminalReservedToken = nil
+    lock.unlock()
+    return token
+  }
+
+  func deactivate() {
+    lock.lock()
+    activeToken = nil
+    terminalReservedToken = nil
+    lock.unlock()
+  }
+
+  /// Deactivates only the producer that still owns delivery admission. A
+  /// delayed failure from an older start must not silence its replacement.
+  @discardableResult
+  func deactivate(_ token: NativeSttEventDeliveryToken) -> Bool {
+    lock.lock()
+    guard activeToken == token else {
+      lock.unlock()
+      return false
+    }
+    activeToken = nil
+    terminalReservedToken = nil
+    lock.unlock()
+    return true
+  }
+
+  /// Reserves delivery order under the same lock that closes terminal
+  /// admission. Dispatching to main while holding this lock means every event
+  /// admitted before `done` is queued before it, while any producer racing
+  /// after `done` is rejected rather than appearing after the terminal event.
+  @discardableResult
+  func enqueue(
+    _ event: [String: Any],
+    token: NativeSttEventDeliveryToken,
+    isTerminal: Bool
+  ) -> Bool {
+    lock.lock()
+    guard activeToken == token,
+          terminalReservedToken == nil else {
+      lock.unlock()
+      return false
+    }
+    if isTerminal {
+      terminalReservedToken = token
+    }
+    guard eventSink != nil else {
+      if isTerminal {
+        activeToken = nil
+        terminalReservedToken = nil
+      }
+      lock.unlock()
+      return false
+    }
+    DispatchQueue.main.async { [weak self] in
+      self?.deliverQueued(event, token: token, isTerminal: isTerminal)
+    }
+    lock.unlock()
+    return true
+  }
+
+  @discardableResult
+  func deliver(
+    _ event: [String: Any],
+    token: NativeSttEventDeliveryToken
+  ) -> Bool {
+    lock.lock()
+    guard activeToken == token,
+          terminalReservedToken == nil,
+          let sink = eventSink else {
+      lock.unlock()
+      return false
+    }
+    lock.unlock()
+    sink(event)
+    return true
+  }
+
+  private func deliverQueued(
+    _ event: [String: Any],
+    token: NativeSttEventDeliveryToken,
+    isTerminal: Bool
+  ) {
+    lock.lock()
+    guard activeToken == token,
+          token.subscriptionGeneration == subscriptionGeneration,
+          (!isTerminal || terminalReservedToken == token),
+          let sink = eventSink else {
+      lock.unlock()
+      return
+    }
+    if isTerminal {
+      // Natural completion consumes the token at the terminal delivery
+      // boundary. Previously queued events still precede this block on main;
+      // no later producer can be admitted after the reservation above.
+      activeToken = nil
+      terminalReservedToken = nil
+    }
+    lock.unlock()
+    sink(event)
+  }
+}
+
+/// Prevents teardown from touching AVAudioEngine while prepare/start is in
+/// progress, without holding a mutex on the real-time audio callback path.
+final class NativeSttResourceMutationGate {
+  private let lock = NSLock()
+  private var closed = false
+  private var activeMutations = 0
+  private let drained = NativeSttShutdownCompletion()
+
+  func begin() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !closed else { return false }
+    activeMutations += 1
+    return true
+  }
+
+  func end() {
+    lock.lock()
+    precondition(activeMutations > 0)
+    activeMutations -= 1
+    let didDrain = closed && activeMutations == 0
+    lock.unlock()
+    if didDrain { drained.complete() }
+  }
+
+  func close() {
+    lock.lock()
+    closed = true
+    let didDrain = activeMutations == 0
+    lock.unlock()
+    if didDrain { drained.complete() }
+  }
+
+  func waitUntilDrained() async {
+    close()
+    await drained.wait()
+  }
+}
+
+/// Closes an individual SFSpeech request to new audio and synchronously drains
+/// appends that were admitted before request teardown or segment restart.
+final class NativeSttAudioAppendGate {
+  private let condition = NSCondition()
+  private var closed = false
+  private var activeAppends = 0
+
+  func begin() -> Bool {
+    condition.lock()
+    guard !closed else {
+      condition.unlock()
+      return false
+    }
+    activeAppends += 1
+    condition.unlock()
+    return true
+  }
+
+  func end() {
+    condition.lock()
+    precondition(activeAppends > 0)
+    activeAppends -= 1
+    if closed && activeAppends == 0 {
+      condition.broadcast()
+    }
+    condition.unlock()
+  }
+
+  func closeAndWait() {
+    condition.lock()
+    closed = true
+    while activeAppends > 0 {
+      condition.wait()
+    }
+    condition.unlock()
+  }
 }
 
 private enum NativeSttAvailability {
@@ -31,23 +461,173 @@ private enum NativeSttText {
   }
 }
 
+/// Copies only initialized linear-PCM frames from an engine-owned tap buffer.
+/// AudioBufferList byte sizes preserve interleaved channel stride, unlike the
+/// planar channel-pointer APIs which are not valid for every PCM layout.
+func copyNativeSttPCMBuffer(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+  let format = buffer.format
+  guard let copy = AVAudioPCMBuffer(
+    pcmFormat: format,
+    frameCapacity: buffer.frameLength
+  ), copyNativeSttPCMBuffer(buffer, into: copy) else { return nil }
+  return copy
+}
+
+@discardableResult
+func copyNativeSttPCMBuffer(
+  _ sourceBuffer: AVAudioPCMBuffer,
+  into destinationBuffer: AVAudioPCMBuffer
+) -> Bool {
+  let format = sourceBuffer.format
+  let description = format.streamDescription.pointee
+  let destinationFormat = destinationBuffer.format
+  guard description.mFormatID == kAudioFormatLinearPCM,
+        sourceBuffer.frameLength > 0,
+        sourceBuffer.frameLength <= sourceBuffer.frameCapacity,
+        sourceBuffer.frameLength <= destinationBuffer.frameCapacity,
+        format.channelCount > 0,
+        description.mBytesPerFrame > 0,
+        format.channelCount == destinationFormat.channelCount,
+        format.commonFormat == destinationFormat.commonFormat,
+        format.isInterleaved == destinationFormat.isInterleaved,
+        format.sampleRate == destinationFormat.sampleRate else {
+    return false
+  }
+  switch format.commonFormat {
+  case .pcmFormatFloat32, .pcmFormatInt16, .pcmFormatInt32:
+    break
+  default:
+    return false
+  }
+
+  let frameLength = Int(sourceBuffer.frameLength)
+  let bytesPerFrame = Int(description.mBytesPerFrame)
+  guard frameLength <= Int.max / bytesPerFrame else { return false }
+  let initializedByteCount = frameLength * bytesPerFrame
+  destinationBuffer.frameLength = sourceBuffer.frameLength
+
+  let sourceBuffers = UnsafeMutableAudioBufferListPointer(
+    sourceBuffer.mutableAudioBufferList
+  )
+  let destinationBuffers = UnsafeMutableAudioBufferListPointer(
+    destinationBuffer.mutableAudioBufferList
+  )
+  let expectedBufferCount = format.isInterleaved
+    ? 1
+    : Int(format.channelCount)
+  guard sourceBuffers.count == expectedBufferCount,
+        destinationBuffers.count == expectedBufferCount
+  else {
+    return false
+  }
+
+  for index in 0..<expectedBufferCount {
+    let source = sourceBuffers[index]
+    let destination = destinationBuffers[index]
+    guard source.mNumberChannels == destination.mNumberChannels,
+          Int(source.mDataByteSize) >= initializedByteCount,
+          Int(destination.mDataByteSize) >= initializedByteCount,
+          let sourceData = source.mData,
+          let destinationData = destination.mData
+    else {
+      return false
+    }
+    memcpy(destinationData, sourceData, initializedByteCount)
+  }
+  return true
+}
+
+struct NativeSttPCMBufferLease {
+  let buffer: AVAudioPCMBuffer
+  fileprivate let pool: NativeSttPCMBufferPool
+  fileprivate let index: Int
+
+  fileprivate init(
+    buffer: AVAudioPCMBuffer,
+    pool: NativeSttPCMBufferPool,
+    index: Int
+  ) {
+    self.buffer = buffer
+    self.pool = pool
+    self.index = index
+  }
+
+  func release() {
+    pool.returnBuffer(at: index)
+  }
+}
+
+/// A fixed-capacity copy pool for AVAudioEngine's real-time tap callback.
+/// Acquisition is non-blocking; a saturated pool drops the newest frame.
+final class NativeSttPCMBufferPool {
+  private let lock = NSLock()
+  private let buffers: [AVAudioPCMBuffer]
+  private var availableIndices: [Int]
+
+  init?(format: AVAudioFormat, frameCapacity: AVAudioFrameCount, count: Int) {
+    guard frameCapacity > 0, count > 0 else { return nil }
+    var allocated: [AVAudioPCMBuffer] = []
+    allocated.reserveCapacity(count)
+    for _ in 0..<count {
+      guard let buffer = AVAudioPCMBuffer(
+        pcmFormat: format,
+        frameCapacity: frameCapacity
+      ) else { return nil }
+      allocated.append(buffer)
+    }
+    buffers = allocated
+    availableIndices = Array(allocated.indices.reversed())
+  }
+
+  func copyFromTap(_ source: AVAudioPCMBuffer) -> NativeSttPCMBufferLease? {
+    guard lock.try() else { return nil }
+    guard let index = availableIndices.popLast() else {
+      lock.unlock()
+      return nil
+    }
+    lock.unlock()
+
+    let destination = buffers[index]
+    guard copyNativeSttPCMBuffer(source, into: destination) else {
+      returnBuffer(at: index)
+      return nil
+    }
+    return NativeSttPCMBufferLease(
+      buffer: destination,
+      pool: self,
+      index: index
+    )
+  }
+
+  var availableCount: Int {
+    lock.lock()
+    let value = availableIndices.count
+    lock.unlock()
+    return value
+  }
+
+  fileprivate func returnBuffer(at index: Int) {
+    lock.lock()
+    availableIndices.append(index)
+    lock.unlock()
+  }
+}
+
 final class NativeSttBridge: NSObject, FlutterStreamHandler {
   static let shared = NativeSttBridge()
+  private static let stopAcknowledgementTimeoutNanoseconds: UInt64 =
+    1_000_000_000
 
   private var methodChannel: FlutterMethodChannel?
-  private var eventSink: FlutterEventSink?
-  private var session: NativeSttSession?
-  private var lifecycleGeneration = 0
+  private let lifecycle = NativeSttLifecycleState()
+  private let eventDeliveryGate = NativeSttEventDeliveryGate()
 
   private override init() {
     super.init()
   }
 
   deinit {
-    let session = session
-    Task {
-      await session?.stop()
-    }
+    _ = lifecycle.beginStop()
   }
 
   func configure(messenger: FlutterBinaryMessenger) {
@@ -67,14 +647,18 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
   }
 
   func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-    eventSink = events
+    eventDeliveryGate.listen(events)
     return nil
   }
 
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    eventSink = nil
+    eventDeliveryGate.cancelSubscription()
+    let transition = lifecycle.beginStop()
     Task {
-      await stopCurrentSession()
+      await waitForStopTransition(
+        transition,
+        waitForFullShutdown: false
+      )
     }
     return nil
   }
@@ -100,8 +684,15 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     case "getLocales":
       result(localesPayload(deviceLocaleId: deviceLocaleId ?? localeId))
     case "start":
+      // Invalidate the retiring producer at command-receipt time. The new
+      // start may await a long shutdown chain before it can activate its own
+      // token, and teardown events from the prior session must not leak into
+      // that gap.
+      eventDeliveryGate.deactivate()
+      let transition = lifecycle.beginStart()
       Task {
         let availability = await start(
+          transition: transition,
           localeId: localeId,
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
@@ -111,8 +702,13 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
         await MainActor.run { result(availability) }
       }
     case "stop":
+      eventDeliveryGate.deactivate()
+      let transition = lifecycle.beginStop()
       Task {
-        await stopCurrentSession()
+        await waitForStopTransition(
+          transition,
+          waitForFullShutdown: false
+        )
         await MainActor.run { result(nil) }
       }
     default:
@@ -145,14 +741,26 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
   }
 
   private func start(
+    transition: NativeSttLifecycleTransition,
     localeId: String?,
     preserveAudioSession: Bool,
     emitPartialResults: Bool,
     accumulateResults: Bool,
     allowOnlineFallback: Bool
   ) async -> [String: Any] {
-    let generation = nextLifecycleGeneration()
-    await stopCurrentSession(invalidateStart: false)
+    let generation = transition.generation
+    await transition.shutdownTask.value
+    guard lifecycle.isCurrent(generation) else {
+      return NativeSttAvailability.unavailable(
+        "Speech recognition start was cancelled"
+      )
+    }
+    let analyzerEventToken = eventDeliveryGate.activate(
+      lifecycleGeneration: generation
+    )
+    let analyzerEmit: ([String: Any]) -> Void = { [weak self] event in
+      self?.emit(event, token: analyzerEventToken)
+    }
     var speechAnalyzerFailure: Error?
 
     if #available(iOS 26.0, *) {
@@ -162,32 +770,71 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
           preserveAudioSession: preserveAudioSession,
           emitPartialResults: emitPartialResults,
           accumulateResults: accumulateResults,
-          emit: emit,
+          emit: analyzerEmit,
           isCurrent: { [weak self] in
-            self?.isCurrentGeneration(generation) == true
+            self?.lifecycle.isCurrent(generation) == true
+          },
+          onFinished: { [weak self] finishedSession in
+            self?.finishCurrentSession(
+              finishedSession,
+              generation: generation
+            )
           }
         )
-        session = speechAnalyzerSession
-        try await speechAnalyzerSession.start()
-        guard isCurrentGeneration(generation) else {
-          await clearSessionIfCurrent(speechAnalyzerSession)
+        guard lifecycle.install(
+          speechAnalyzerSession,
+          generation: generation
+        ) else {
+          eventDeliveryGate.deactivate(analyzerEventToken)
+          return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+        }
+        do {
+          try await speechAnalyzerSession.start()
+        } catch {
+          eventDeliveryGate.deactivate(analyzerEventToken)
+          let shutdown = lifecycle.retireIfCurrent(
+            speechAnalyzerSession,
+            generation: generation
+          )
+          await shutdown.value
+          throw error
+        }
+        guard lifecycle.isInstalled(
+          speechAnalyzerSession,
+          generation: generation
+        ) else {
+          // A newer transition already owns the serialized shutdown chain.
+          eventDeliveryGate.deactivate(analyzerEventToken)
+          await lifecycle.retireIfCurrent(
+            speechAnalyzerSession,
+            generation: generation
+          ).value
           return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
         }
         return NativeSttAvailability.available("speechAnalyzer")
       } catch is CancellationError {
-        if isCurrentGeneration(generation) {
-          await stopCurrentSession(invalidateStart: false)
-        }
+        eventDeliveryGate.deactivate(analyzerEventToken)
         return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
       } catch {
-        guard isCurrentGeneration(generation) else {
+        eventDeliveryGate.deactivate(analyzerEventToken)
+        guard lifecycle.isCurrent(generation) else {
           return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
         }
-        await stopCurrentSession(invalidateStart: false)
         speechAnalyzerFailure = error
       }
     }
 
+    guard lifecycle.isCurrent(generation) else {
+      return NativeSttAvailability.unavailable(
+        "Speech recognition start was cancelled"
+      )
+    }
+    let fallbackEventToken = eventDeliveryGate.activate(
+      lifecycleGeneration: generation
+    )
+    let fallbackEmit: ([String: Any]) -> Void = { [weak self] event in
+      self?.emit(event, token: fallbackEventToken)
+    }
     do {
       let fallbackSession = try SFSpeechNativeSttSession(
         localeId: localeId,
@@ -195,58 +842,87 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
         emitPartialResults: emitPartialResults,
         accumulateResults: accumulateResults,
         allowOnlineFallback: allowOnlineFallback,
-        emit: emit,
+        emit: fallbackEmit,
         isCurrent: { [weak self] in
-          self?.isCurrentGeneration(generation) == true
+          self?.lifecycle.isCurrent(generation) == true
         },
-        onFinished: { [weak self] in
-          Task { await self?.stopCurrentSession() }
+        onFinished: { [weak self] finishedSession in
+          self?.finishCurrentSession(
+            finishedSession,
+            generation: generation
+          )
         }
       )
-      session = fallbackSession
-      try await fallbackSession.start()
-      guard isCurrentGeneration(generation) else {
-        await clearSessionIfCurrent(fallbackSession)
+      guard lifecycle.install(fallbackSession, generation: generation) else {
+        eventDeliveryGate.deactivate(fallbackEventToken)
+        return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
+      }
+      do {
+        try await fallbackSession.start()
+      } catch {
+        eventDeliveryGate.deactivate(fallbackEventToken)
+        let shutdown = lifecycle.retireIfCurrent(
+          fallbackSession,
+          generation: generation
+        )
+        await shutdown.value
+        throw error
+      }
+      guard lifecycle.isInstalled(
+        fallbackSession,
+        generation: generation
+      ) else {
+        // A concurrent stop/start already retired this session. Join that
+        // serialized teardown instead of invoking stop concurrently.
+        eventDeliveryGate.deactivate(fallbackEventToken)
+        await lifecycle.retireIfCurrent(
+          fallbackSession,
+          generation: generation
+        ).value
         return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
       }
       return NativeSttAvailability.available("sfSpeech")
     } catch is CancellationError {
+      eventDeliveryGate.deactivate(fallbackEventToken)
       return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
     } catch {
-      guard isCurrentGeneration(generation) else {
+      eventDeliveryGate.deactivate(fallbackEventToken)
+      guard lifecycle.isCurrent(generation) else {
         return NativeSttAvailability.unavailable("Speech recognition start was cancelled")
       }
-      await stopCurrentSession(invalidateStart: false)
       let analyzerMessage = speechAnalyzerFailure.map { "; SpeechAnalyzer: \($0.localizedDescription)" } ?? ""
       return NativeSttAvailability.unavailable("\(error.localizedDescription)\(analyzerMessage)")
     }
   }
 
-  private func stopCurrentSession(invalidateStart: Bool = true) async {
-    if invalidateStart {
-      lifecycleGeneration += 1
+  private func waitForStopTransition(
+    _ transition: NativeSttLifecycleTransition,
+    waitForFullShutdown: Bool
+  ) async {
+    if waitForFullShutdown {
+      await transition.shutdownTask.value
+    } else {
+      _ = await waitForNativeSttTask(
+        transition.shutdownTask,
+        timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds
+      )
     }
-    let current = session
-    session = nil
-    await current?.stop()
   }
 
-  private func clearSessionIfCurrent(_ current: NativeSttSession) async {
-    guard let active = session, active === current else {
-      await current.stop()
-      return
+  private func finishCurrentSession(
+    _ session: NativeSttSession,
+    generation: Int
+  ) {
+    let shutdown = lifecycle.finishIfCurrent(
+      session,
+      generation: generation
+    )
+    Task {
+      _ = await waitForNativeSttTask(
+        shutdown,
+        timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds
+      )
     }
-    session = nil
-    await current.stop()
-  }
-
-  private func nextLifecycleGeneration() -> Int {
-    lifecycleGeneration += 1
-    return lifecycleGeneration
-  }
-
-  private func isCurrentGeneration(_ generation: Int) -> Bool {
-    lifecycleGeneration == generation
   }
 
   private func sfSpeechRecognizer(localeId: String?) -> SFSpeechRecognizer? {
@@ -293,19 +969,15 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     locale.identifier.replacingOccurrences(of: "_", with: "-")
   }
 
-  private func emit(_ event: [String: Any]) {
-    DispatchQueue.main.async { [weak self] in
-      self?.eventSink?(event)
-    }
-  }
-
-  private func emitError(code: String, message: String, engine: String) {
-    emit([
-      "type": "error",
-      "code": code,
-      "message": message,
-      "engine": engine,
-    ])
+  private func emit(
+    _ event: [String: Any],
+    token: NativeSttEventDeliveryToken
+  ) {
+    _ = eventDeliveryGate.enqueue(
+      event,
+      token: token,
+      isTerminal: event["type"] as? String == "done"
+    )
   }
 }
 
@@ -317,13 +989,26 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   private let accumulateResults: Bool
   private let emit: ([String: Any]) -> Void
   private let isCurrent: () -> Bool
+  private let onFinished: (SpeechAnalyzerSttSession) -> Void
   private let audioEngine = AVAudioEngine()
   private var analyzer: SpeechAnalyzer?
   private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
   private var resultTask: Task<Void, Never>?
   private var analyzerTask: Task<Void, Never>?
+  private let audioLifecycleLock = NSLock()
   private var stopped = false
+  private var acceptsAudioConversions = false
   private var tapInstalled = false
+  private let audioConversionQueue = DispatchQueue(
+    label: "app.cogwheel.conduit.speech-analyzer-audio",
+    qos: .userInteractive
+  )
+  private let audioConversionQueueKey = DispatchSpecificKey<UInt8>()
+  private let engineMutationGate = NativeSttResourceMutationGate()
+  private let startupCompletion = NativeSttShutdownCompletion()
+  private let shutdownCompletion = NativeSttShutdownCompletion()
+  private let finishNotificationLock = NSLock()
+  private var didNotifyFinished = false
 
   init(
     localeId: String?,
@@ -331,7 +1016,8 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     emitPartialResults: Bool,
     accumulateResults: Bool,
     emit: @escaping ([String: Any]) -> Void,
-    isCurrent: @escaping () -> Bool
+    isCurrent: @escaping () -> Bool,
+    onFinished: @escaping (SpeechAnalyzerSttSession) -> Void
   ) async throws {
     self.localeId = localeId
     self.preserveAudioSession = preserveAudioSession
@@ -339,6 +1025,11 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     self.accumulateResults = accumulateResults
     self.emit = emit
     self.isCurrent = isCurrent
+    self.onFinished = onFinished
+    audioConversionQueue.setSpecific(
+      key: audioConversionQueueKey,
+      value: 1
+    )
   }
 
   deinit {
@@ -354,6 +1045,19 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   func start() async throws {
+    do {
+      try await performStart()
+      startupCompletion.complete()
+    } catch {
+      // Publish the end of startup before joining stop; an external stop may
+      // already be waiting to make its final rollback pass.
+      startupCompletion.complete()
+      await stop()
+      throw error
+    }
+  }
+
+  private func performStart() async throws {
     let requestedLocale = try await Self.requiredSupportedLocale(localeId: localeId)
     try checkActive()
     let transcriber = Self.makeTranscriber(locale: requestedLocale)
@@ -371,7 +1075,9 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       modules: modules,
       options: SpeechAnalyzer.Options(priority: .userInitiated, modelRetention: .whileInUse)
     )
-    self.analyzer = analyzer
+    try withActiveResourceMutation {
+      self.analyzer = analyzer
+    }
 
     guard await Self.requestSpeechAuthorization() else {
       throw NSError(
@@ -383,11 +1089,32 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     try checkActive()
     try await Self.requestMicrophonePermission()
     try checkActive()
-    try configureAudioSession()
+
+    // Hold engine mutation admission before the first input-node access. Voice
+    // processing and format discovery can mutate AVAudioEngine internally;
+    // stop() must not remove taps or stop the engine concurrently with them.
+    guard engineMutationGate.begin() else {
+      throw CancellationError()
+    }
+    defer { engineMutationGate.end() }
+    try withActiveResourceMutation {
+      try configureAudioSession()
+    }
     let inputNode = audioEngine.inputNode
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
+    guard let tapBufferPool = NativeSttPCMBufferPool(
+      format: inputFormat,
+      frameCapacity: 1024,
+      count: 4
+    ) else {
+      throw NSError(
+        domain: "NativeSttBridge",
+        code: 11,
+        userInfo: [NSLocalizedDescriptionKey: "Unable to allocate microphone buffers"]
+      )
+    }
     let analyzerFormat = try await Self.analyzerFormat(
       compatibleWith: modules,
       naturalFormat: inputFormat
@@ -396,16 +1123,25 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     try await analyzer.prepareToAnalyze(in: analyzerFormat)
     try checkActive()
 
-    let inputStream = AsyncStream<AnalyzerInput> { continuation in
-      self.inputContinuation = continuation
+    let inputStream = AsyncStream<AnalyzerInput>(
+      bufferingPolicy: .bufferingNewest(4)
+    ) { continuation in
+      self.syncOnAudioConversionQueue {
+        self.inputContinuation = continuation
+      }
+    }
+
+    if isStopped {
+      await finishAudioInputAfterDraining()
+      throw CancellationError()
     }
 
     var committedText = ""
-    resultTask = Task { [weak self] in
+    let pendingResultTask = Task { [weak self] in
       guard let self else { return }
       do {
         for try await result in transcriber.results {
-          guard !self.stopped, self.isCurrent() else { return }
+          guard !self.isStopped, self.isCurrent() else { return }
           let text = String(result.text.characters)
           if result.isFinal {
             let emittedText: String
@@ -423,90 +1159,257 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
             self.emitResult(emittedText, isFinal: false)
           }
         }
-        if !self.stopped, self.isCurrent() {
+        self.finishIfActive { self.emitDone() }
+      } catch is CancellationError {
+        self.finishIfActive { self.emitDone() }
+      } catch {
+        self.finishIfActive {
+          self.emitError(
+            code: "SPEECH_ANALYZER_ERROR",
+            message: error.localizedDescription
+          )
           self.emitDone()
         }
-      } catch is CancellationError {
-      } catch {
-        guard !self.stopped, self.isCurrent() else { return }
-        self.emitError(code: "SPEECH_ANALYZER_ERROR", message: error.localizedDescription)
       }
     }
 
-    analyzerTask = Task { [weak self] in
+    let pendingAnalyzerTask = Task { [weak self] in
       guard let self else { return }
       do {
         try await analyzer.start(inputSequence: inputStream)
+        // `start(inputSequence:)` returns once SpeechAnalyzer has accepted the
+        // sequence; it is not a terminal recognition signal. The transcriber
+        // results task owns natural completion and emits the single `done`
+        // event. Retiring here would tear down a successfully started session
+        // before its first result arrives.
       } catch is CancellationError {
+        self.finishIfActive { self.emitDone() }
       } catch {
-        guard !self.stopped, self.isCurrent() else { return }
-        self.emitError(code: "SPEECH_ANALYZER_ERROR", message: error.localizedDescription)
+        self.finishIfActive {
+          self.emitError(
+            code: "SPEECH_ANALYZER_ERROR",
+            message: error.localizedDescription
+          )
+          self.emitDone()
+        }
       }
     }
-
-    inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-      guard let self,
-            !self.stopped,
-            self.isCurrent(),
-            let analyzerBuffer = Self.copyOrConvert(
-              buffer: buffer,
-              targetFormat: analyzerFormat,
-              converter: converter
-            )
-      else {
-        return
-      }
-      self.inputContinuation?.yield(AnalyzerInput(buffer: analyzerBuffer))
-    }
-    tapInstalled = true
 
     do {
-      try checkActive()
-      audioEngine.prepare()
-      try audioEngine.start()
-      emit(["type": "status", "message": "listening", "engine": "speechAnalyzer"])
+      try withActiveResourceMutation {
+        resultTask = pendingResultTask
+        analyzerTask = pendingAnalyzerTask
+      }
     } catch {
-      audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
+      pendingAnalyzerTask.cancel()
+      pendingResultTask.cancel()
+      await finishAudioInputAfterDraining()
       throw error
+    }
+
+    let didInstallTap = installAudioTapIfActive {
+      inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+        guard let self,
+              let inputLease = tapBufferPool.copyFromTap(buffer) else { return }
+        // AVAudioEngine owns the tap buffer. The render callback only performs
+        // a bounded copy into one of four preallocated buffers plus a
+        // non-blocking queue admission. Conversion and any durable allocation
+        // happen on the serial worker.
+        let didEnqueue = self.enqueueAudioConversionIfActive { [weak self] in
+          defer { inputLease.release() }
+          guard let self else { return }
+          guard self.isAcceptingAudioConversions, self.isCurrent() else { return }
+          let analyzerBuffer: AVAudioPCMBuffer
+          if let converter {
+            guard let converted = Self.convert(
+              buffer: inputLease.buffer,
+              to: analyzerFormat,
+              using: converter
+            ) else { return }
+            analyzerBuffer = converted
+          } else {
+            // AnalyzerInput retains its AVAudioPCMBuffer. Make the durable
+            // buffer on this worker before returning the pool slot.
+            guard let copied = copyNativeSttPCMBuffer(inputLease.buffer) else {
+              return
+            }
+            analyzerBuffer = copied
+          }
+          guard self.isAcceptingAudioConversions else { return }
+          self.inputContinuation?.yield(AnalyzerInput(buffer: analyzerBuffer))
+        }
+        if !didEnqueue {
+          inputLease.release()
+        }
+      }
+    }
+    guard didInstallTap else {
+      await finishAudioInputAfterDraining()
+      analyzerTask?.cancel()
+      resultTask?.cancel()
+      throw CancellationError()
+    }
+
+    try checkActive()
+    audioEngine.prepare()
+    try audioEngine.start()
+    try checkActive()
+    if !isStopped {
+      emit(["type": "status", "message": "listening", "engine": "speechAnalyzer"])
     }
   }
 
   func stop() async {
-    guard !stopped else { return }
-    stopped = true
-    if tapInstalled {
+    let stopState = beginStopping()
+    guard stopState.shouldStop else {
+      await shutdownCompletion.wait()
+      return
+    }
+    await engineMutationGate.waitUntilDrained()
+    await tearDownResources(hadTap: stopState.hadTap, finalPass: false)
+    // Permission, asset, and analyzer APIs are not synchronously cancellable.
+    // Wait until their startup continuation exits, then make a second pass so
+    // anything created after the first stop pass cannot survive stop().
+    await startupCompletion.wait()
+    await tearDownResources(
+      hadTap: takeInstalledTapForCleanup(),
+      finalPass: true
+    )
+    shutdownCompletion.complete()
+  }
+
+  private func tearDownResources(hadTap: Bool, finalPass: Bool) async {
+    if hadTap {
       audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
     }
     audioEngine.stop()
-    inputContinuation?.finish()
-    inputContinuation = nil
+    // beginStopping() closes admission under the same lock used when a tap
+    // callback enqueues conversion work. The queue barrier therefore runs
+    // after every accepted conversion and no later callback can enqueue
+    // behind it. Finish the AsyncStream only after that barrier drains.
+    await finishAudioInputAfterDraining()
     analyzerTask?.cancel()
     resultTask?.cancel()
-    await analyzer?.cancelAndFinishNow()
-    analyzer = nil
+    let analyzerToCancel = analyzer
+    await analyzerToCancel?.cancelAndFinishNow()
+    // Keep the analyzer reachable through the first pass. Startup may still
+    // resume an async prepare call with its local reference; the final pass
+    // cancels that same object again after startup has definitely exited.
+    if finalPass {
+      analyzer = nil
+    }
     if !preserveAudioSession {
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
   }
 
   private func cleanupForDeinit() {
-    stopped = true
-    if tapInstalled {
+    engineMutationGate.close()
+    let stopState = beginStopping()
+    if stopState.hadTap {
       audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
     }
     audioEngine.stop()
-    inputContinuation?.finish()
-    inputContinuation = nil
+    syncOnAudioConversionQueue {
+      inputContinuation?.finish()
+      inputContinuation = nil
+    }
     analyzerTask?.cancel()
     resultTask?.cancel()
+    startupCompletion.complete()
+    shutdownCompletion.complete()
   }
 
   private func checkActive() throws {
-    if stopped || !isCurrent() || Task.isCancelled {
+    if isStopped || !isCurrent() || Task.isCancelled {
       throw CancellationError()
+    }
+  }
+
+  private var isStopped: Bool {
+    audioLifecycleLock.lock()
+    let value = stopped
+    audioLifecycleLock.unlock()
+    return value
+  }
+
+  private var isAcceptingAudioConversions: Bool {
+    audioLifecycleLock.lock()
+    let value = acceptsAudioConversions && !stopped
+    audioLifecycleLock.unlock()
+    return value
+  }
+
+  private func installAudioTapIfActive(_ install: () -> Void) -> Bool {
+    audioLifecycleLock.lock()
+    defer { audioLifecycleLock.unlock() }
+    guard !stopped else { return false }
+    install()
+    tapInstalled = true
+    acceptsAudioConversions = true
+    return true
+  }
+
+  private func enqueueAudioConversionIfActive(
+    _ conversion: @escaping () -> Void
+  ) -> Bool {
+    // Never block AVAudioEngine's real-time callback behind teardown.
+    guard audioLifecycleLock.try() else { return false }
+    defer { audioLifecycleLock.unlock() }
+    guard acceptsAudioConversions, !stopped else { return false }
+    // Enqueue while holding the lifecycle lock. beginStopping() acquires the
+    // same lock before it closes admission, so its later queue barrier cannot
+    // overtake any conversion that was already accepted here.
+    audioConversionQueue.async(execute: conversion)
+    return true
+  }
+
+  private func beginStopping() -> (shouldStop: Bool, hadTap: Bool) {
+    engineMutationGate.close()
+    audioLifecycleLock.lock()
+    defer { audioLifecycleLock.unlock() }
+    guard !stopped else { return (false, false) }
+    stopped = true
+    acceptsAudioConversions = false
+    let hadTap = tapInstalled
+    tapInstalled = false
+    return (true, hadTap)
+  }
+
+  private func takeInstalledTapForCleanup() -> Bool {
+    audioLifecycleLock.lock()
+    let hadTap = tapInstalled
+    tapInstalled = false
+    acceptsAudioConversions = false
+    audioLifecycleLock.unlock()
+    return hadTap
+  }
+
+  private func withActiveResourceMutation(_ mutation: () throws -> Void) throws {
+    audioLifecycleLock.lock()
+    defer { audioLifecycleLock.unlock() }
+    guard !stopped, isCurrent(), !Task.isCancelled else {
+      throw CancellationError()
+    }
+    try mutation()
+  }
+
+  private func finishAudioInputAfterDraining() async {
+    await withCheckedContinuation { continuation in
+      let finishWork = DispatchWorkItem { [weak self] in
+        self?.inputContinuation?.finish()
+        self?.inputContinuation = nil
+        continuation.resume()
+      }
+      audioConversionQueue.async(execute: finishWork)
+    }
+  }
+
+  private func syncOnAudioConversionQueue(_ work: () -> Void) {
+    if DispatchQueue.getSpecific(key: audioConversionQueueKey) == 1 {
+      work()
+    } else {
+      audioConversionQueue.sync(execute: work)
     }
   }
 
@@ -541,7 +1444,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     try session.setCategory(
       .playAndRecord,
       mode: .measurement,
-      options: [.allowBluetooth, .defaultToSpeaker]
+      options: [.allowBluetoothHFP, .defaultToSpeaker]
     )
     try session.setActive(true, options: .notifyOthersOnDeactivation)
   }
@@ -551,9 +1454,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     preserveAudioSession: Bool
   ) {
     guard preserveAudioSession else { return }
-    if #available(iOS 13.0, *) {
-      try? inputNode.setVoiceProcessingEnabled(true)
-    }
+    try? inputNode.setVoiceProcessingEnabled(true)
   }
 
   private static func requestSpeechAuthorization() async -> Bool {
@@ -657,15 +1558,21 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     emit(["type": "done", "engine": "speechAnalyzer"])
   }
 
-  private static func copyOrConvert(
-    buffer: AVAudioPCMBuffer,
-    targetFormat: AVAudioFormat,
-    converter: AVAudioConverter?
-  ) -> AVAudioPCMBuffer? {
-    guard let converter else {
-      return copy(buffer: buffer)
+  private func finishIfActive(_ emitTerminalEvent: () -> Void) {
+    guard !isStopped, isCurrent() else { return }
+    finishNotificationLock.lock()
+    guard !didNotifyFinished else {
+      finishNotificationLock.unlock()
+      return
     }
-    return convert(buffer: buffer, to: targetFormat, using: converter)
+    didNotifyFinished = true
+    finishNotificationLock.unlock()
+
+    // An explicit stop can win after the initial eligibility check. Its
+    // lifecycle transition owns teardown and has already deactivated events.
+    guard !isStopped, isCurrent() else { return }
+    emitTerminalEvent()
+    onFinished(self)
   }
 
   private static func convert(
@@ -703,33 +1610,6 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     return outputBuffer
   }
 
-  private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-    guard let copy = AVAudioPCMBuffer(
-      pcmFormat: buffer.format,
-      frameCapacity: buffer.frameLength
-    ) else {
-      return nil
-    }
-    copy.frameLength = buffer.frameLength
-
-    let channelCount = Int(buffer.format.channelCount)
-    let frameLength = Int(buffer.frameLength)
-    if let source = buffer.floatChannelData, let destination = copy.floatChannelData {
-      for channel in 0..<channelCount {
-        memcpy(destination[channel], source[channel], frameLength * MemoryLayout<Float>.size)
-      }
-    } else if let source = buffer.int16ChannelData, let destination = copy.int16ChannelData {
-      for channel in 0..<channelCount {
-        memcpy(destination[channel], source[channel], frameLength * MemoryLayout<Int16>.size)
-      }
-    } else if let source = buffer.int32ChannelData, let destination = copy.int32ChannelData {
-      for channel in 0..<channelCount {
-        memcpy(destination[channel], source[channel], frameLength * MemoryLayout<Int32>.size)
-      }
-    }
-
-    return copy
-  }
 }
 
 private final class SFSpeechNativeSttSession: NativeSttSession {
@@ -742,7 +1622,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   private let allowOnlineFallback: Bool
   private let emit: ([String: Any]) -> Void
   private let isCurrent: () -> Bool
-  private let onFinished: () -> Void
+  private let onFinished: (SFSpeechNativeSttSession) -> Void
   private let audioEngine = AVAudioEngine()
   private var recognizer: SFSpeechRecognizer?
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -751,8 +1631,19 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   private var committedFormattedText = ""
   private var pendingFinalText = ""
   private var pendingFormattedText = ""
+  private var didNotifyFinished = false
+  private let lifecycleLock = NSLock()
   private var stopped = false
   private var tapInstalled = false
+  private var audioAppendGate: NativeSttAudioAppendGate?
+  private let stateQueue = DispatchQueue(
+    label: "app.cogwheel.conduit.sf-speech-state",
+    qos: .userInitiated
+  )
+  private let stateQueueKey = DispatchSpecificKey<UInt8>()
+  private let engineMutationGate = NativeSttResourceMutationGate()
+  private let startupCompletion = NativeSttShutdownCompletion()
+  private let shutdownCompletion = NativeSttShutdownCompletion()
 
   init(
     localeId: String?,
@@ -762,7 +1653,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     allowOnlineFallback: Bool,
     emit: @escaping ([String: Any]) -> Void,
     isCurrent: @escaping () -> Bool,
-    onFinished: @escaping () -> Void
+    onFinished: @escaping (SFSpeechNativeSttSession) -> Void
   ) throws {
     self.localeId = localeId
     self.preserveAudioSession = preserveAudioSession
@@ -772,6 +1663,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     self.emit = emit
     self.isCurrent = isCurrent
     self.onFinished = onFinished
+    stateQueue.setSpecific(key: stateQueueKey, value: 1)
   }
 
   deinit {
@@ -779,6 +1671,17 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   func start() async throws {
+    do {
+      try await performStart()
+      startupCompletion.complete()
+    } catch {
+      startupCompletion.complete()
+      await stop()
+      throw error
+    }
+  }
+
+  private func performStart() async throws {
     guard await requestSpeechAuthorization() else {
       throw NSError(
         domain: "NativeSttBridge",
@@ -789,34 +1692,53 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     try checkActive()
 
     let recognizer = try makeRecognizer()
-    self.recognizer = recognizer
+    try withActiveResourceMutation {
+      syncOnStateQueue {
+        self.recognizer = recognizer
+      }
+    }
     try await Self.requestMicrophonePermission()
     try checkActive()
 
-    try configureAudioSession()
+    guard engineMutationGate.begin() else { throw CancellationError() }
+    defer { engineMutationGate.end() }
+    try withActiveResourceMutation {
+      try syncOnStateQueue {
+        try configureAudioSession()
+        try startRecognitionTaskOnStateQueue(recognizer)
+        audioEngine.prepare()
+        try audioEngine.start()
+      }
+    }
     try checkActive()
-    try startRecognitionTask(recognizer)
-
-    do {
-      try checkActive()
-      audioEngine.prepare()
-      try audioEngine.start()
+    if !isStopped {
       emit(["type": "status", "message": "listening", "engine": "sfSpeech"])
-    } catch {
-      audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
-      throw error
     }
   }
 
   func stop() async {
-    stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
+    guard beginStopping() else {
+      await shutdownCompletion.wait()
+      return
+    }
+    await engineMutationGate.waitUntilDrained()
+    syncOnStateQueue {
+      stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
+    }
+    await startupCompletion.wait()
+    // A permission continuation can resume after the first cleanup. Repeat
+    // teardown after startup exits so late recognizer/audio resources cannot
+    // outlive the acknowledged stop.
+    syncOnStateQueue {
+      stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
+    }
+    shutdownCompletion.complete()
   }
 
   private func stopRecognitionResources(deactivateAudioSession: Bool) {
-    guard !stopped else { return }
-    stopped = true
     cancelSegmentFinalization()
+    audioAppendGate?.closeAndWait()
+    audioAppendGate = nil
     if tapInstalled {
       audioEngine.inputNode.removeTap(onBus: 0)
       tapInstalled = false
@@ -832,9 +1754,13 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     }
   }
 
-  private func startRecognitionTask(_ recognizer: SFSpeechRecognizer) throws {
-    try checkActive()
+  /// Runs only on `stateQueue`; lifecycle admission is held by the caller.
+  private func startRecognitionTaskOnStateQueue(
+    _ recognizer: SFSpeechRecognizer
+  ) throws {
     cancelSegmentFinalization()
+    audioAppendGate?.closeAndWait()
+    audioAppendGate = nil
     recognitionTask?.cancel()
     recognitionRequest?.endAudio()
     recognitionTask = nil
@@ -851,35 +1777,38 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       request.addsPunctuation = true
     }
     recognitionRequest = request
+    let appendGate = NativeSttAudioAppendGate()
+    audioAppendGate = appendGate
 
     let inputNode = audioEngine.inputNode
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
-    inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-      guard
-        let self,
-        !self.stopped,
-        self.isCurrent(),
-        self.recognitionRequest === request
-      else { return }
+    inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
+      guard appendGate.begin() else { return }
+      defer { appendGate.end() }
+      // Admission is the request's ownership boundary. Do not acquire the
+      // session lifecycle lock from AVAudioEngine's real-time callback: a
+      // segment restart closes this gate while holding that lifecycle lock
+      // and must be able to drain every callback already admitted here.
       request.append(buffer)
     }
     tapInstalled = true
 
     recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
       guard let self else { return }
-      guard
-        !self.stopped,
-        self.isCurrent(),
-        self.recognitionRequest === request
-      else { return }
-      if let result {
-        self.handleRecognitionResult(result)
-      }
+      self.stateQueue.async { [weak self] in
+        guard let self,
+              !self.isStopped,
+              self.isCurrent(),
+              self.recognitionRequest === request else { return }
+        if let result {
+          self.handleRecognitionResult(result)
+        }
 
-      if let error {
-        self.handleRecognitionError(error)
+        if let error {
+          self.handleRecognitionError(error)
+        }
       }
     }
   }
@@ -915,21 +1844,36 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func restartRecognitionAfterFinal() {
-    guard !stopped, isCurrent() else { return }
-    DispatchQueue.main.async { [weak self] in
-      guard let self, !self.stopped, self.isCurrent() else { return }
-      guard let recognizer = self.recognizer else {
-        self.emit(["type": "done", "engine": "sfSpeech"])
-        self.onFinished()
-        return
-      }
+    guard !isStopped, isCurrent() else { return }
+    stateQueue.async { [weak self] in
+      guard let self, !self.isStopped, self.isCurrent() else { return }
+      guard self.engineMutationGate.begin() else { return }
+      defer { self.engineMutationGate.end() }
       do {
-        try self.startRecognitionTask(recognizer)
-        if !self.audioEngine.isRunning {
+        var recognizer: SFSpeechRecognizer?
+        try self.withActiveResourceMutation {
+          recognizer = self.recognizer
+        }
+        guard let recognizer else {
+          self.emit(["type": "done", "engine": "sfSpeech"])
+          self.notifyFinished()
+          return
+        }
+        var shouldStartEngine = false
+        try self.withActiveResourceMutation {
+          try self.startRecognitionTaskOnStateQueue(recognizer)
+          shouldStartEngine = !self.audioEngine.isRunning
+        }
+        if shouldStartEngine {
+          try self.checkActive()
           self.audioEngine.prepare()
           try self.audioEngine.start()
         }
-        self.emit(["type": "status", "message": "listening", "engine": "sfSpeech"])
+        try self.checkActive()
+        if !self.isStopped {
+          self.emit(["type": "status", "message": "listening", "engine": "sfSpeech"])
+        }
+      } catch is CancellationError {
       } catch {
         self.handleRecognitionError(error)
       }
@@ -937,8 +1881,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func handleRecognitionError(_ error: Error) {
-    guard !stopped, isCurrent() else { return }
-    stopRecognitionResources(deactivateAudioSession: !preserveAudioSession)
+    guard !isStopped, isCurrent() else { return }
     emit([
       "type": "error",
       "code": "SFSPEECH_ERROR",
@@ -946,7 +1889,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       "engine": "sfSpeech",
     ])
     emit(["type": "done", "engine": "sfSpeech"])
-    onFinished()
+    notifyFinished()
   }
 
   private func scheduleSegmentFinalization() {
@@ -955,7 +1898,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
       self?.finalizePendingSegment()
     }
     finalizationWorkItem = workItem
-    DispatchQueue.main.asyncAfter(
+    stateQueue.asyncAfter(
       deadline: .now() + Self.segmentFinalizationDelay,
       execute: workItem
     )
@@ -967,7 +1910,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
   }
 
   private func finalizePendingSegment() {
-    guard !stopped, isCurrent() else { return }
+    guard !isStopped, isCurrent() else { return }
     let text = pendingFinalText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else { return }
 
@@ -984,14 +1927,60 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     finalizationWorkItem = nil
   }
 
+  private func notifyFinished() {
+    guard !didNotifyFinished else { return }
+    didNotifyFinished = true
+    onFinished(self)
+  }
+
   private func cleanupForDeinit() {
-    stopRecognitionResources(deactivateAudioSession: false)
+    engineMutationGate.close()
+    _ = beginStopping()
+    syncOnStateQueue {
+      stopRecognitionResources(deactivateAudioSession: false)
+    }
+    startupCompletion.complete()
+    shutdownCompletion.complete()
   }
 
   private func checkActive() throws {
-    if stopped || !isCurrent() || Task.isCancelled {
+    if isStopped || !isCurrent() || Task.isCancelled {
       throw CancellationError()
     }
+  }
+
+  private var isStopped: Bool {
+    lifecycleLock.lock()
+    let value = stopped
+    lifecycleLock.unlock()
+    return value
+  }
+
+  private func beginStopping() -> Bool {
+    engineMutationGate.close()
+    lifecycleLock.lock()
+    defer { lifecycleLock.unlock() }
+    guard !stopped else { return false }
+    stopped = true
+    return true
+  }
+
+  private func withActiveResourceMutation(_ mutation: () throws -> Void) throws {
+    lifecycleLock.lock()
+    defer { lifecycleLock.unlock() }
+    guard !stopped, isCurrent(), !Task.isCancelled else {
+      throw CancellationError()
+    }
+    try mutation()
+  }
+
+  private func syncOnStateQueue<T>(
+    _ work: () throws -> T
+  ) rethrows -> T {
+    if DispatchQueue.getSpecific(key: stateQueueKey) == 1 {
+      return try work()
+    }
+    return try stateQueue.sync(execute: work)
   }
 
   private func emitResult(_ text: String, isFinal: Bool) {
@@ -1052,7 +2041,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     try session.setCategory(
       .playAndRecord,
       mode: .measurement,
-      options: [.allowBluetooth, .defaultToSpeaker]
+      options: [.allowBluetoothHFP, .defaultToSpeaker]
     )
     try session.setActive(true, options: .notifyOthersOnDeactivation)
   }
@@ -1062,9 +2051,7 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
     preserveAudioSession: Bool
   ) {
     guard preserveAudioSession else { return }
-    if #available(iOS 13.0, *) {
-      try? inputNode.setVoiceProcessingEnabled(true)
-    }
+    try? inputNode.setVoiceProcessingEnabled(true)
   }
 
   private func requestSpeechAuthorization() async -> Bool {

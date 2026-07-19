@@ -2213,6 +2213,14 @@
   "@proxyAuthFailed": {
     "description": "Error message when proxy authentication fails."
   },
+  "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
+  "@proxyServerVerificationFailed": {
+    "description": "Error shown when a server cannot be verified after proxy authentication."
+  },
+  "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",
+  "@proxyManualSignInRequired": {
+    "description": "Error shown when trusted-proxy authentication cannot produce a valid Open WebUI session."
+  },
   "proxyAuthHelpText": "Complete sign-in through your organization's proxy, then sign in to Open WebUI. You'll be redirected automatically.",
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
@@ -3399,6 +3407,24 @@
   "openPreview": "Open preview",
   "@openPreview": {
     "description": "Button to open a deferred preview."
+  },
+  "loadMermaidPreview": "Load Mermaid preview",
+  "@loadMermaidPreview": {
+    "description": "Button to activate a deferred Mermaid diagram preview."
+  },
+  "loadChartPreview": "Load chart preview",
+  "@loadChartPreview": {
+    "description": "Button to activate a deferred chart preview."
+  },
+  "loadPdfPreview": "Load PDF preview: {title}",
+  "@loadPdfPreview": {
+    "description": "Accessibility label for a PDF preview that has not loaded yet.",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Quarterly report"
+      }
+    }
   },
   "copiedToClipboard": "Copied to clipboard",
   "@copiedToClipboard": {

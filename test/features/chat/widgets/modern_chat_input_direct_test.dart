@@ -312,5 +312,9 @@ final class _CountingUserSettingsApi extends ApiService {
     return const <String, dynamic>{};
   }
 
-  void dispose() => _workerManager.dispose();
+  @override
+  void dispose() {
+    super.dispose();
+    _workerManager.dispose();
+  }
 }

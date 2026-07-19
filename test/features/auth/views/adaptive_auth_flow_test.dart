@@ -6,8 +6,10 @@ import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
@@ -36,6 +38,57 @@ void main() {
     name: 'Open WebUI',
     url: 'https://open-webui.example',
     isActive: true,
+  );
+
+  test(
+    'authentication server ownership requires the full tokenless transport identity',
+    () {
+      const expected = ServerConfig(
+        id: 'server-1',
+        name: 'Open WebUI',
+        url: 'https://open-webui.example',
+        apiKey: 'legacy-token-that-selection-must-strip',
+        customHeaders: {'Cookie': 'proxy=session'},
+        isActive: true,
+        allowSelfSignedCertificates: true,
+        mtlsCertificateChainPem: 'certificate',
+        mtlsPrivateKeyPem: 'private-key',
+        mtlsPrivateKeyPassword: 'passphrase',
+      );
+      final selected = expected.copyWith(
+        url: 'https://OPEN-WEBUI.example/',
+        apiKey: null,
+      );
+
+      check(authenticationServerMatchesSelection(selected, expected)).isTrue();
+      for (final mismatched in <ServerConfig>[
+        selected.copyWith(id: 'replacement-id'),
+        selected.copyWith(url: 'https://replacement.example'),
+        selected.copyWith(apiKey: 'stale-bearer'),
+        selected.copyWith(customHeaders: const {'Cookie': 'proxy=other'}),
+        selected.copyWith(allowSelfSignedCertificates: false),
+        selected.copyWith(mtlsCertificateChainPem: 'other-certificate'),
+        selected.copyWith(mtlsPrivateKeyPem: 'other-private-key'),
+        selected.copyWith(mtlsPrivateKeyPassword: 'other-passphrase'),
+      ]) {
+        check(
+          authenticationServerMatchesSelection(mismatched, expected),
+        ).isFalse();
+      }
+      check(authenticationServerMatchesSelection(null, expected)).isFalse();
+
+      final workerManager = WorkerManager();
+      final api = ApiService(
+        serverConfig: selected,
+        workerManager: workerManager,
+      );
+      addTearDown(api.dispose);
+      addTearDown(workerManager.dispose);
+      check(authenticationApiMatchesSelection(api, expected)).isTrue();
+
+      api.updateAuthToken('prior-session-bearer');
+      check(authenticationApiMatchesSelection(api, expected)).isFalse();
+    },
   );
 
   testWidgets(
@@ -636,8 +689,10 @@ class _AuthHarness {
     this.disableAnimations = false,
   }) {
     when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
-    when(() => storage.getAuthToken()).thenAnswer((_) async => '');
-    when(() => storage.hasCredentials()).thenAnswer((_) async => false);
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(
+      () => storage.getSavedCredentialsStrict(),
+    ).thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => storage.getReviewerMode()).thenAnswer((_) async => false);

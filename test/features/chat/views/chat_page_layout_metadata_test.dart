@@ -791,6 +791,49 @@ void main() {
     );
   });
 
+  test(
+    'layout cache skips structural signature work for an identical list',
+    () {
+      final cache = debugCreateChatListStableLayoutCacheForTesting();
+      final registry = DirectModelRegistry();
+      final messages = <ChatMessage>[
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Stable response',
+          timestamp: DateTime(2026),
+        ),
+      ];
+
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: null,
+        directModelRegistry: registry,
+      );
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: null,
+        directModelRegistry: registry,
+      );
+
+      check(
+        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
+      ).equals(1);
+
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        List<ChatMessage>.of(messages),
+        models: null,
+        directModelRegistry: registry,
+      );
+      check(
+        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
+      ).equals(2);
+    },
+  );
+
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
       id: 'assistant-streaming',

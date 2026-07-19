@@ -164,6 +164,46 @@ void main() {
       expect(forwarded?.headers['Authorization'], 'Bearer account-a');
     });
 
+    test(
+      'candidate validation tokens are request-scoped and do not rotate session',
+      () async {
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'settled-session',
+        );
+        final firstHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(
+          RequestOptions(
+            path: '/api/v1/auths/',
+            extra: const {
+              ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-a',
+            },
+          ),
+          firstHandler,
+        );
+        final secondHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(
+          RequestOptions(
+            path: '/api/v1/auths/',
+            extra: const {
+              ApiAuthInterceptor.candidateAuthTokenExtraKey: 'candidate-b',
+            },
+          ),
+          secondHandler,
+        );
+
+        expect(
+          (await firstHandler.forwardedRequest)?.headers['Authorization'],
+          'Bearer candidate-a',
+        );
+        expect(
+          (await secondHandler.forwardedRequest)?.headers['Authorization'],
+          'Bearer candidate-b',
+        );
+        expect(interceptor.authToken, 'settled-session');
+      },
+    );
+
     test('stale auth snapshot rejects locally after token rotation', () async {
       final interceptor = ApiAuthInterceptor(
         serverUrl: _serverUrl,
@@ -241,13 +281,148 @@ void main() {
           authFailureCount++;
         },
       );
+      final requestHandler = _TestRequestInterceptorHandler();
+      interceptor.onRequest(
+        RequestOptions(path: '/api/v1/auths/'),
+        requestHandler,
+      );
+      final dispatched = await requestHandler.forwardedRequest;
       final handler = _TestErrorInterceptorHandler();
 
-      interceptor.onError(_dioError(401, '/api/v1/auths/'), handler);
+      interceptor.onError(
+        DioException(
+          requestOptions: dispatched!,
+          response: Response<dynamic>(
+            requestOptions: dispatched,
+            statusCode: 401,
+          ),
+          type: DioExceptionType.badResponse,
+        ),
+        handler,
+      );
       await handler.done;
 
       expect(authFailureCount, 1);
     });
+
+    test(
+      '401 dispatched by an older bearer session cannot fail the new session',
+      () async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'account-a',
+          onAuthTokenInvalid: () {
+            authFailureCount++;
+          },
+        );
+        final requestHandler = _TestRequestInterceptorHandler();
+        final request = RequestOptions(path: '/api/v1/auths/');
+        interceptor.onRequest(request, requestHandler);
+        final dispatched = await requestHandler.forwardedRequest;
+        expect(dispatched, isNotNull);
+
+        interceptor.updateAuthToken('account-b');
+        final errorHandler = _TestErrorInterceptorHandler();
+        interceptor.onError(
+          DioException(
+            requestOptions: dispatched!,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: 401,
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+          errorHandler,
+        );
+        await errorHandler.done;
+
+        expect(authFailureCount, 0);
+      },
+    );
+
+    test(
+      'cookie suppression removes proxy cookie and invalidates old callbacks',
+      () async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'account-a',
+          customHeaders: const {'Cookie': 'proxy_session=secret'},
+          onAuthTokenInvalid: () {
+            authFailureCount++;
+          },
+        );
+        final oldHandler = _TestRequestInterceptorHandler();
+        final oldRequest = RequestOptions(path: '/api/v1/auths/');
+        interceptor.onRequest(oldRequest, oldHandler);
+        final dispatched = await oldHandler.forwardedRequest;
+        expect(dispatched?.headers['Cookie'], 'proxy_session=secret');
+
+        interceptor.setCookieCustomHeaderSuppressed(true);
+        final newHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(RequestOptions(path: '/health'), newHandler);
+        final cookieFree = await newHandler.forwardedRequest;
+        expect(
+          cookieFree!.headers.keys.map((key) => key.toLowerCase()),
+          isNot(contains('cookie')),
+        );
+
+        final errorHandler = _TestErrorInterceptorHandler();
+        interceptor.onError(
+          DioException(
+            requestOptions: dispatched!,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: 401,
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+          errorHandler,
+        );
+        await errorHandler.done;
+        expect(authFailureCount, 0);
+      },
+    );
+
+    test(
+      'a live cookie fence invalidates callbacks dispatched before suppression',
+      () async {
+        var authFailureCount = 0;
+        var suppressCookie = false;
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'account-a',
+          customHeaders: const {'Cookie': 'proxy_session=secret'},
+          shouldSuppressCookieCustomHeader: () => suppressCookie,
+          onAuthTokenInvalid: () => authFailureCount++,
+        );
+        final requestHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(
+          RequestOptions(path: '/api/v1/auths/'),
+          requestHandler,
+        );
+        final dispatched = await requestHandler.forwardedRequest;
+        expect(dispatched?.headers['Cookie'], 'proxy_session=secret');
+
+        suppressCookie = true;
+        final errorHandler = _TestErrorInterceptorHandler();
+        interceptor.onError(
+          DioException(
+            requestOptions: dispatched!,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: 401,
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+          errorHandler,
+        );
+        await errorHandler.done;
+
+        expect(authFailureCount, 0);
+      },
+    );
 
     test(
       '401 from cross-origin auth-shaped path does not notify auth failure',
@@ -287,14 +462,17 @@ void main() {
           baseUrl: 'https://host.example/openwebui',
           path: '/api/v1/auths/',
         );
+        final requestHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(request, requestHandler);
+        final dispatched = await requestHandler.forwardedRequest;
         final handler = _TestErrorInterceptorHandler();
 
         expect(request.uri.path, '/openwebui/api/v1/auths/');
         interceptor.onError(
           DioException(
-            requestOptions: request,
+            requestOptions: dispatched!,
             response: Response<dynamic>(
-              requestOptions: request,
+              requestOptions: dispatched,
               statusCode: 401,
             ),
             type: DioExceptionType.badResponse,
@@ -380,11 +558,24 @@ void main() {
         serverUrl: _serverUrl,
         authToken: 'token',
       );
+      final requestHandler = _TestRequestInterceptorHandler();
+      interceptor.onRequest(
+        RequestOptions(path: '/api/v1/notes/$pathSecret?token=$querySecret'),
+        requestHandler,
+      );
+      final dispatched = await requestHandler.forwardedRequest;
       final handler = _TestErrorInterceptorHandler();
 
       try {
         interceptor.onError(
-          _dioError(403, '/api/v1/notes/$pathSecret?token=$querySecret'),
+          DioException(
+            requestOptions: dispatched!,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: 403,
+            ),
+            type: DioExceptionType.badResponse,
+          ),
           handler,
         );
         await handler.done;

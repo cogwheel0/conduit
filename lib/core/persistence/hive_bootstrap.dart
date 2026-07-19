@@ -18,18 +18,18 @@ class HiveBootstrap {
 
     await Hive.initFlutter('conduit_hive');
 
-    final preferences = await Hive.openBox<dynamic>(HiveBoxNames.preferences);
-    final caches = await Hive.openBox<dynamic>(HiveBoxNames.caches);
-    final attachmentQueue = await Hive.openBox<dynamic>(
-      HiveBoxNames.attachmentQueue,
-    );
-    final metadata = await Hive.openBox<dynamic>(HiveBoxNames.metadata);
+    final opened = await Future.wait<Box<dynamic>>([
+      Hive.openBox<dynamic>(HiveBoxNames.preferences),
+      Hive.openBox<dynamic>(HiveBoxNames.caches),
+      Hive.openBox<dynamic>(HiveBoxNames.attachmentQueue),
+      Hive.openBox<dynamic>(HiveBoxNames.metadata),
+    ]);
 
     _boxes = HiveBoxes(
-      preferences: preferences,
-      caches: caches,
-      attachmentQueue: attachmentQueue,
-      metadata: metadata,
+      preferences: opened[0],
+      caches: opened[1],
+      attachmentQueue: opened[2],
+      metadata: opened[3],
     );
 
     return _boxes!;

@@ -43,6 +43,7 @@ void main() {
     bool attachDatabase = true,
     int recoveryAttempts = 6,
     Duration recoveryDelay = const Duration(seconds: 2),
+    Object Function()? authSessionEpoch,
   }) {
     final runnerProvider = Provider<RequestCompletionRunner>((ref) {
       return ChatRequestCompletionRunner(
@@ -62,6 +63,10 @@ void main() {
         // (headless vs live vs defer) without a real transport.
         apiServiceProvider.overrideWithValue(null),
         socketServiceProvider.overrideWithValue(null),
+        if (authSessionEpoch != null)
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => authSessionEpoch(),
+          ),
       ],
     );
     addTearDown(container.dispose);
@@ -335,6 +340,42 @@ void main() {
     final rows = await db.messagesDao.getForChat(chatId);
     check(rows).isEmpty();
   });
+
+  test(
+    'same-database auth-session switch defers after an awaited read',
+    () async {
+      const chatId = 'chat-session-switch';
+      const assistantId = 'asst-session-switch';
+      await seedChat(chatId);
+      await seedMessage(chatId, assistantId, '');
+      var authSessionEpoch = Object();
+      final (:container, :runner) = makeRunner(
+        isStreaming: false,
+        active: conv(chatId),
+        authSessionEpoch: () => authSessionEpoch,
+      );
+
+      final transactionEntered = Completer<void>();
+      final releaseTransaction = Completer<void>();
+      final transaction = db.transaction(() async {
+        transactionEntered.complete();
+        await releaseTransaction.future;
+      });
+      await transactionEntered.future;
+
+      final completion = runner.run(
+        chatId: chatId,
+        payload: payload(assistantId),
+      );
+      await Future<void>.delayed(Duration.zero);
+      authSessionEpoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      releaseTransaction.complete();
+      await transaction;
+
+      await check(completion).throws<CompletionDatabaseUnavailableException>();
+    },
+  );
 
   test('Option B: runs HEADLESS (never switches the active chat) when a '
       'DIFFERENT chat is foregrounded', () async {

@@ -65,12 +65,6 @@ class SecureCredentialStorage {
     String authType = 'credentials',
   }) async {
     try {
-      // First check if secure storage is available
-      final isAvailable = await isSecureStorageAvailable();
-      if (!isAvailable) {
-        throw Exception('Secure storage is not available on this device');
-      }
-
       final credentials = {
         'serverId': serverId,
         'username': username,
@@ -93,87 +87,145 @@ class SecureCredentialStorage {
 
       DebugLogger.storage(
         'save-ok',
-        scope: 'credentials',
+        scope: 'credentials/storage',
         data: {'version': '2.1'},
       );
     } catch (e) {
-      DebugLogger.error('save-failed', scope: 'credentials', error: e);
+      DebugLogger.error('save-failed', scope: 'credentials/storage', error: e);
       rethrow;
     }
   }
 
   /// Retrieve saved credentials
   Future<Map<String, String>?> getSavedCredentials() async {
+    final String? storedData;
     try {
-      final storedData = await _secureStorage.read(key: _credentialsKey);
-      if (storedData == null || storedData.isEmpty) {
-        return null;
-      }
+      storedData = await _secureStorage.read(key: _credentialsKey);
+    } catch (error, stackTrace) {
+      // A Keychain/keystore read failure is not proof that credentials are
+      // absent. Propagate it so the optimized storage layer can retry without
+      // negative-caching a transient platform failure.
+      DebugLogger.error(
+        'read-failed',
+        scope: 'credentials/storage',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
 
-      final jsonString = storedData;
-      final decoded = jsonDecode(jsonString);
-
-      if (decoded is! Map<String, dynamic>) {
-        DebugLogger.warning('invalid-format', scope: 'credentials');
-        await deleteSavedCredentials();
-        return null;
-      }
-
-      // Validate required fields
-      if (!decoded.containsKey('serverId') ||
-          !decoded.containsKey('username') ||
-          !decoded.containsKey('password')) {
-        DebugLogger.warning('missing-fields', scope: 'credentials');
-        await deleteSavedCredentials();
-        return null;
-      }
-
-      // Check if credentials are too old (optional expiration)
-      final savedAt = decoded['savedAt']?.toString();
-      if (savedAt != null) {
-        try {
-          final savedTime = DateTime.parse(savedAt);
-          final now = DateTime.now();
-          final daysSinceCreated = now.difference(savedTime).inDays;
-
-          // Warn if credentials are very old (but don't delete them)
-          if (daysSinceCreated > 90) {
-            DebugLogger.info(
-              'credentials-old',
-              scope: 'credentials',
-              data: {'ageDays': daysSinceCreated},
-            );
-          }
-        } catch (e) {
-          DebugLogger.warning(
-            'savedat-parse-failed',
-            scope: 'credentials',
-            data: {'raw': savedAt, 'error': e.toString()},
-          );
-        }
-      }
-
-      return {
-        'serverId': decoded['serverId']?.toString() ?? '',
-        'username': decoded['username']?.toString() ?? '',
-        'password': decoded['password']?.toString() ?? '',
-        'savedAt': decoded['savedAt']?.toString() ?? '',
-        'authType': decoded['authType']?.toString() ?? 'credentials',
-      };
-    } catch (e) {
-      DebugLogger.error('read-failed', scope: 'credentials', error: e);
-      // Don't delete credentials on retrieval errors - they might be recoverable
+    if (storedData == null || storedData.isEmpty) {
       return null;
     }
+
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(storedData);
+    } catch (error) {
+      // Parsing failures are distinct from platform read failures. Preserve the
+      // payload here: a future app version may still be able to recover it.
+      // FormatException messages may quote the malformed JSON, including
+      // credential values, so only record its non-sensitive runtime type.
+      DebugLogger.error(
+        'decode-failed',
+        scope: 'credentials/storage',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      DebugLogger.warning('invalid-format', scope: 'credentials/storage');
+      await deleteSavedCredentials();
+      return null;
+    }
+
+    // Do not coerce malformed JSON values into apparently usable credentials.
+    // Password content is intentionally not trimmed: spaces and control
+    // characters can be legitimate password bytes, but the value must exist.
+    final serverId = decoded['serverId'];
+    final username = decoded['username'];
+    final password = decoded['password'];
+    if (serverId is! String ||
+        serverId.trim().isEmpty ||
+        username is! String ||
+        username.trim().isEmpty ||
+        password is! String ||
+        password.isEmpty) {
+      DebugLogger.warning(
+        'invalid-required-fields',
+        scope: 'credentials/storage',
+      );
+      await deleteSavedCredentials();
+      return null;
+    }
+
+    // Check if credentials are too old (optional expiration)
+    final savedAt = decoded['savedAt']?.toString();
+    if (savedAt != null) {
+      try {
+        final savedTime = DateTime.parse(savedAt);
+        final now = DateTime.now();
+        final daysSinceCreated = now.difference(savedTime).inDays;
+
+        // Warn if credentials are very old (but don't delete them)
+        if (daysSinceCreated > 90) {
+          DebugLogger.info(
+            'credentials-old',
+            scope: 'credentials/storage',
+            data: {'ageDays': daysSinceCreated},
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'savedat-parse-failed',
+          scope: 'credentials/storage',
+          data: {
+            'errorType': error.runtimeType.toString(),
+            'valueLength': savedAt.length,
+          },
+        );
+      }
+    }
+
+    return {
+      'serverId': serverId,
+      'username': username,
+      'password': password,
+      'savedAt': decoded['savedAt']?.toString() ?? '',
+      'authType': decoded['authType']?.toString() ?? 'credentials',
+    };
+  }
+
+  /// Returns the exact versioned credential payload without converting a
+  /// Keychain/keystore read failure into an absent value.
+  ///
+  /// Auth-session transactions use this to restore the prior credential bytes
+  /// if a later ownership/token write fails. The public parsed read remains
+  /// intentionally forgiving for normal bootstrap behavior.
+  Future<String?> getSavedCredentialsPayloadStrict() =>
+      _secureStorage.read(key: _credentialsKey);
+
+  /// Restores an exact payload captured by
+  /// [getSavedCredentialsPayloadStrict], or removes it when none existed.
+  Future<void> restoreSavedCredentialsPayload(String? payload) {
+    if (payload == null) {
+      return _secureStorage.delete(key: _credentialsKey);
+    }
+    return _secureStorage.write(key: _credentialsKey, value: payload);
   }
 
   /// Delete saved credentials
   Future<void> deleteSavedCredentials() async {
     try {
       await _secureStorage.delete(key: _credentialsKey);
-      DebugLogger.storage('delete-ok', scope: 'credentials');
+      DebugLogger.storage('delete-ok', scope: 'credentials/storage');
     } catch (e) {
-      DebugLogger.error('delete-failed', scope: 'credentials', error: e);
+      DebugLogger.error(
+        'delete-failed',
+        scope: 'credentials/storage',
+        error: e,
+      );
       rethrow;
     }
   }
@@ -208,6 +260,15 @@ class SecureCredentialStorage {
       return null;
     }
   }
+
+  /// Read the auth token without converting a Keychain/keystore failure into
+  /// an absent token.
+  ///
+  /// Transactional callers use this before changing any durable auth state so
+  /// a transient platform read failure cannot be mistaken for a legitimate
+  /// null snapshot and erase an existing session during rollback.
+  Future<String?> getAuthTokenStrict() =>
+      _secureStorage.read(key: _authTokenKey);
 
   /// Delete auth token
   Future<void> deleteAuthToken() async {
@@ -466,6 +527,7 @@ class SecureCredentialStorage {
       );
     } catch (e) {
       DebugLogger.error('clear-failed', scope: 'credentials', error: e);
+      rethrow;
     }
   }
 

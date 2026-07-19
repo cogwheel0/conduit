@@ -1,7 +1,119 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/proxy_auth_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('ProxyAuthDocumentFence', () {
+    test('same-origin main-frame navigation invalidates older capture', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/proxy/login');
+      final loginGeneration = fence.generation;
+
+      check(
+        fence.ownsDocument(loginGeneration, 'https://chat.example/proxy/login'),
+      ).isTrue();
+
+      fence.startNavigation('https://chat.example/oauth/callback');
+
+      check(fence.ownsGeneration(loginGeneration)).isFalse();
+      check(
+        fence.ownsDocument(loginGeneration, 'https://chat.example/proxy/login'),
+      ).isFalse();
+      check(
+        fence.ownsDocument(
+          fence.generation,
+          'https://chat.example/oauth/callback#complete',
+        ),
+      ).isTrue();
+    });
+
+    test('explicit invalidation owns no prior document', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      final generation = fence.generation;
+
+      fence.invalidate();
+
+      check(fence.ownsGeneration(generation)).isFalse();
+      check(
+        fence.ownsDocument(fence.generation, 'https://chat.example/auth'),
+      ).isFalse();
+    });
+  });
+
+  group('refreshProxyAuthWebView', () {
+    test(
+      'retries full initialization when cleanup left no controller',
+      () async {
+        var initializeCalls = 0;
+        var reloadCalls = 0;
+
+        await refreshProxyAuthWebView<Object>(
+          controller: null,
+          initialize: () async => initializeCalls++,
+          reload: (_) async => reloadCalls++,
+        );
+
+        check(initializeCalls).equals(1);
+        check(reloadCalls).equals(0);
+      },
+    );
+
+    test('reloads an existing controller without rebuilding it', () async {
+      final controller = Object();
+      Object? reloadedController;
+      var initializeCalls = 0;
+
+      await refreshProxyAuthWebView<Object>(
+        controller: controller,
+        initialize: () async => initializeCalls++,
+        reload: (value) async => reloadedController = value,
+      );
+
+      check(initializeCalls).equals(0);
+      check(reloadedController).identicalTo(controller);
+    });
+  });
+
+  group('isTrustedProxyCredentialCaptureUrl', () {
+    test('allows Open WebUI paths on the exact configured origin', () {
+      expect(
+        isTrustedProxyCredentialCaptureUrl(
+          pageUrl: 'https://chat.example/oauth/oidc/callback',
+          serverUrl: 'https://CHAT.example:443',
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects same-host HTTPS to HTTP downgrade', () {
+      expect(
+        isTrustedProxyCredentialCaptureUrl(
+          pageUrl: 'http://chat.example/auth',
+          serverUrl: 'https://chat.example',
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects same-host alternate port', () {
+      expect(
+        isTrustedProxyCredentialCaptureUrl(
+          pageUrl: 'https://chat.example:8443/auth',
+          serverUrl: 'https://chat.example',
+        ),
+        isFalse,
+      );
+    });
+
+    test('cookie lookup includes cookies scoped below a slashless base', () {
+      expect(
+        proxyCookieLookupUrl('https://chat.example/openwebui'),
+        'https://chat.example/openwebui/',
+      );
+    });
+  });
+
   group('hasCapturedJwtToken', () {
     test('returns false for missing or blank tokens', () {
       expect(hasCapturedJwtToken(null), isFalse);
@@ -184,6 +296,31 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test('stale document cannot publish a JWT-wait requirement', () {
+      final fence = ProxyAuthDocumentFence();
+      fence.startNavigation('https://chat.example/auth');
+      final staleGeneration = fence.generation;
+      fence.startNavigation('https://chat.example/');
+
+      final requirement = resolveProxyAuthJwtRequirement(
+        ownsDocument: fence.ownsGeneration(staleGeneration),
+        hasPendingJwtWait: false,
+        currentPageShouldWait: true,
+      );
+
+      expect(requirement, isNull);
+    });
+
+    test('current document can publish a sticky JWT-wait requirement', () {
+      final requirement = resolveProxyAuthJwtRequirement(
+        ownsDocument: true,
+        hasPendingJwtWait: false,
+        currentPageShouldWait: true,
+      );
+
+      expect(requirement, isTrue);
     });
   });
 

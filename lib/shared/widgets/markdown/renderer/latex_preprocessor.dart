@@ -219,9 +219,10 @@ class LatexPreprocessor {
     Widget buildMath() {
       return Math2SVG(
         math: tex,
-        // `flutter_tex` caches rendered SVGs internally; keep alive helps
-        // preserve that state for still-mounted formulas in scrolling views.
-        wantKeepAlive: true,
+        // flutter_tex already caches rendered SVGs. Let virtualized chat rows
+        // release their WebView-backed formula state when they leave the cache
+        // extent instead of pinning the whole sliver subtree.
+        wantKeepAlive: false,
         loadingWidgetBuilder: (_) => _buildLatexFallback(tex, textStyle),
         errorWidgetBuilder: (_, _) => _buildLatexFallback(tex, textStyle),
         formulaWidgetBuilder: (context, svg) {

@@ -81,6 +81,26 @@ void main() {
     },
   );
 
+  test(
+    're-upserting an unchanged chat does not rewrite message rows',
+    () async {
+      final fixture = loadChatBlobFixtures().singleWhere(
+        (f) => f.name == '02_linear_multi_turn',
+      );
+      final rows = rowsFromFixture(fixture);
+      await db.chatsDao.upsertServerChat(rows: rows);
+      final before = await _totalDatabaseChanges(db);
+
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+
+      final delta = await _totalDatabaseChanges(db) - before;
+      check(
+        because: 'only the chat envelope upsert should touch SQLite',
+        delta,
+      ).equals(1);
+    },
+  );
+
   group('watchChatList', () {
     test(
       'projection SQL selects no payload/rawExtra/blobMeta/meta columns',
@@ -190,6 +210,176 @@ void main() {
       );
       final entries = await db.chatsDao.watchChatList().first;
       check(entries.single.archived).isTrue();
+    });
+
+    test(
+      'regularLimit pages unpinned rows but always includes pinned',
+      () async {
+        for (var i = 1; i <= 3; i++) {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'regular-$i',
+            title: 'Regular $i',
+            createdAt: i,
+            updatedAt: i,
+          );
+        }
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'old-pinned',
+          title: 'Pinned',
+          createdAt: 0,
+          updatedAt: 0,
+          pinned: true,
+        );
+
+        final entries = await db.chatsDao.watchChatList(regularLimit: 2).first;
+
+        check(
+          entries.map((entry) => entry.id).toList(),
+        ).deepEquals(['regular-3', 'regular-2', 'old-pinned']);
+      },
+    );
+
+    test(
+      'regularLimit keeps archived rows without displacing active rows',
+      () async {
+        for (var i = 1; i <= 3; i++) {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'active-$i',
+            title: 'Active $i',
+            createdAt: i,
+            updatedAt: i,
+          );
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'archived-$i',
+            title: 'Archived $i',
+            createdAt: 100 + i,
+            updatedAt: 100 + i,
+            archived: true,
+          );
+        }
+
+        final entries = await db.chatsDao.watchChatList(regularLimit: 2).first;
+
+        check(entries.map((entry) => entry.id).toList()).deepEquals([
+          'archived-3',
+          'archived-2',
+          'archived-1',
+          'active-3',
+          'active-2',
+        ]);
+      },
+    );
+
+    test('archivedLimit independently bounds archived rows', () async {
+      for (var i = 1; i <= 3; i++) {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'active-$i',
+          title: 'Active $i',
+          createdAt: i,
+          updatedAt: i,
+        );
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'archived-$i',
+          title: 'Archived $i',
+          createdAt: 100 + i,
+          updatedAt: 100 + i,
+          archived: true,
+        );
+      }
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'old-pinned',
+        title: 'Pinned',
+        createdAt: 0,
+        updatedAt: 0,
+        pinned: true,
+      );
+
+      final bounded = await db.chatsDao
+          .watchChatList(regularLimit: 2, archivedLimit: 2)
+          .first;
+      check(bounded.map((entry) => entry.id).toList()).deepEquals([
+        'archived-3',
+        'archived-2',
+        'active-3',
+        'active-2',
+        'old-pinned',
+      ]);
+
+      final collapsed = await db.chatsDao
+          .watchChatList(regularLimit: 2, archivedLimit: 0)
+          .first;
+      check(
+        collapsed.map((entry) => entry.id).toList(),
+      ).deepEquals(['active-3', 'active-2', 'old-pinned']);
+    });
+
+    test('archived count is exact, live, and excludes pinned rows', () async {
+      final counts = <int>[];
+      final subscription = db.chatsDao.watchArchivedChatCount().listen(
+        counts.add,
+      );
+      addTearDown(subscription.cancel);
+      await _waitFor(() => counts.isNotEmpty);
+      check(counts.last).equals(0);
+
+      await db.transaction(() async {
+        for (var i = 0; i < 3; i++) {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'archived-$i',
+            title: 'Archived $i',
+            createdAt: i,
+            updatedAt: i,
+            archived: true,
+          );
+        }
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'pinned-archived',
+          title: 'Pinned archived',
+          createdAt: 10,
+          updatedAt: 10,
+          pinned: true,
+          archived: true,
+        );
+      });
+
+      await _waitFor(() => counts.last == 3);
+      check(counts.last).equals(3);
+    });
+
+    test('bounded windows and archive count avoid full chats scans', () async {
+      final windowPlan = await db.chatsDao.debugExplainChatListWindow(
+        regularLimit: 200,
+        archivedLimit: 200,
+      );
+      final countPlan = await db.chatsDao.debugExplainArchivedChatCount();
+      final directFullScan = RegExp(r'\bSCAN\s+(?:TABLE\s+)?chats\b');
+      final chatIndexName = RegExp(r'\bidx_chats_list_window\b');
+
+      check(
+        because: 'window plan: ${windowPlan.join(' | ')}',
+        windowPlan.where(directFullScan.hasMatch),
+      ).isEmpty();
+      check(
+        because: 'count plan: ${countPlan.join(' | ')}',
+        countPlan.where(directFullScan.hasMatch),
+      ).isEmpty();
+
+      final windowChatAccesses = windowPlan.where(
+        (detail) => RegExp(r'\bchats\b').hasMatch(detail),
+      );
+      check(windowChatAccesses.length).equals(3);
+      check(
+        because: 'every window branch must use the composite index',
+        windowChatAccesses.every(chatIndexName.hasMatch),
+      ).isTrue();
+      check(
+        because: 'archive count must use the composite index',
+        countPlan.any(
+          (detail) =>
+              detail.contains('USING COVERING INDEX') &&
+              chatIndexName.hasMatch(detail),
+        ),
+      ).isTrue();
     });
   });
 
@@ -412,36 +602,38 @@ void main() {
       check(row.archived).isTrue();
     });
 
-    test('preserves a dirty local title while refreshing summary fields',
-        () async {
-      await db.chatsDao.upsertEnvelopeStub(
-        id: 'dirty-title',
-        title: 'Original',
-        createdAt: 1,
-        updatedAt: 1,
-        archived: true,
-      );
-      await db.chatsDao.updateEnvelopeWithOutbox(
-        'dirty-title',
-        title: const Value('Local rename'),
-        updatedAt: const Value(10),
-        enqueue: true,
-      );
+    test(
+      'preserves a dirty local title while refreshing summary fields',
+      () async {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'dirty-title',
+          title: 'Original',
+          createdAt: 1,
+          updatedAt: 1,
+          archived: true,
+        );
+        await db.chatsDao.updateEnvelopeWithOutbox(
+          'dirty-title',
+          title: const Value('Local rename'),
+          updatedAt: const Value(10),
+          enqueue: true,
+        );
 
-      await db.chatsDao.upsertEnvelopeStub(
-        id: 'dirty-title',
-        title: 'Server summary title',
-        createdAt: 1,
-        updatedAt: 2,
-        archived: false,
-      );
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'dirty-title',
+          title: 'Server summary title',
+          createdAt: 1,
+          updatedAt: 2,
+          archived: false,
+        );
 
-      final row = await db.chatsDao.getChat('dirty-title');
-      check(row!.title).equals('Local rename');
-      check(row.dirty).isTrue();
-      check(row.updatedAt).equals(10);
-      check(row.archived).isFalse();
-    });
+        final row = await db.chatsDao.getChat('dirty-title');
+        check(row!.title).equals('Local rename');
+        check(row.dirty).isTrue();
+        check(row.updatedAt).equals(10);
+        check(row.archived).isFalse();
+      },
+    );
 
     test('absent folderId leaves the existing value alone on update', () async {
       await db.chatsDao.upsertEnvelopeStub(
@@ -581,6 +773,13 @@ class _SelectRecorder extends QueryInterceptor {
     statements.add(statement);
     return executor.runSelect(statement, args);
   }
+}
+
+Future<int> _totalDatabaseChanges(AppDatabase db) async {
+  final row = await db
+      .customSelect('SELECT total_changes() AS total')
+      .getSingle();
+  return row.read<int>('total');
 }
 
 Future<void> _waitFor(

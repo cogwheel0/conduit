@@ -1,9 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_state_manager.dart';
 import '../../../core/models/user.dart';
-import '../../../core/providers/app_providers.dart';
+import '../../../core/models/server_config.dart';
 import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/services/api_service.dart';
 import '../../../core/utils/debug_logger.dart';
 
 /// Unified auth providers using the new auth state manager
@@ -79,12 +78,28 @@ class AuthActions {
     String apiKey, {
     bool rememberCredentials = false,
     String authType = 'token',
+    ServerConfig? expectedServerConfig,
   }) {
     return _completeOpenWebUiAuth(
       () => _auth.loginWithApiKey(
         apiKey,
         rememberCredentials: rememberCredentials,
         authType: authType,
+        expectedServerConfig: expectedServerConfig,
+      ),
+    );
+  }
+
+  Future<bool> commitPrevalidatedProxySession({
+    required ServerConfig serverConfig,
+    required String token,
+    required User user,
+  }) {
+    return _completeOpenWebUiAuth(
+      () => _auth.commitPrevalidatedProxySession(
+        serverConfig: serverConfig,
+        token: token,
+        user: user,
       ),
     );
   }
@@ -172,29 +187,6 @@ final authStatusProvider = Provider<AuthStatus>((ref) {
 });
 
 // Use `ref.read(authActionsProvider).refresh()` instead of refresh providers
-
-/// Provider to watch for auth state changes and update API service
-final authApiIntegrationProvider = Provider<void>((ref) {
-  void syncToken(ApiService? api, String? token) {
-    if (api == null) return;
-    if (token == null || token.isEmpty) {
-      api.updateAuthToken(null);
-      return;
-    }
-    api.updateAuthToken(token);
-  }
-
-  // Ensure the current ApiService instance immediately picks up the cached token.
-  syncToken(ref.read(apiServiceProvider), ref.read(authTokenProvider3));
-
-  ref.listen<ApiService?>(apiServiceProvider, (previous, next) {
-    syncToken(next, ref.read(authTokenProvider3));
-  });
-
-  ref.listen<String?>(authTokenProvider3, (previous, next) {
-    syncToken(ref.read(apiServiceProvider), next);
-  });
-});
 
 /// Navigation helper provider - determines where user should go
 final authNavigationStateProvider = Provider<AuthNavigationState>((ref) {

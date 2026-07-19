@@ -25,6 +25,7 @@
 		D2A0B2242F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */; };
 		D2A0B2252F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */; };
 		D2A0B2262F5E4D6C7B8A9012 /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */; };
+		D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
 		F15AFED12EE5499E00A1FABB /* ConduitWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F15AFEC22EE5499D00A1FABB /* ConduitWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -114,6 +115,7 @@
 		D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
 		D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitCarPlayBridge.swift; sourceTree = "<group>"; };
 		D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitCarPlaySceneDelegate.swift; sourceTree = "<group>"; };
+		D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ShareExtension/NativeShareEnvelopeStore.swift; sourceTree = "<group>"; };
 		D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ConduitWidget/ConduitWidget.xcconfig; sourceTree = "<group>"; };
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
 				D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */,
 				D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */,
+				D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -648,6 +651,7 @@
 				D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
+				D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
@@ -807,7 +811,9 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEPLOYMENT_POSTPROCESSING = YES;
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -823,11 +829,12 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-Wl,-u,_OrtGetApiBase",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				STRIP_INSTALLED_PRODUCT = NO;
+				STRIP_INSTALLED_PRODUCT = YES;
 				STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -1048,7 +1055,9 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEPLOYMENT_POSTPROCESSING = YES;
 				DEVELOPMENT_TEAM = X2662V5DT2;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -1064,11 +1073,12 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-Wl,-u,_OrtGetApiBase",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				STRIP_INSTALLED_PRODUCT = NO;
+				STRIP_INSTALLED_PRODUCT = YES;
 				STRIP_STYLE = "non-global";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

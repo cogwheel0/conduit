@@ -1077,6 +1077,7 @@ void main() {
           ).overrideWith(
             (ref) => Stream<QueuedCompletionInfo?>.value(
               const QueuedCompletionInfo(
+                databaseOwner: Object(),
                 seq: 42,
                 chatId: 'chat-1',
                 scopedChatId: 'chat-1',
@@ -1142,6 +1143,7 @@ void main() {
           ).overrideWith(
             (ref) => Stream<QueuedCompletionInfo?>.value(
               const QueuedCompletionInfo(
+                databaseOwner: Object(),
                 seq: 43,
                 chatId: 'chat-1',
                 scopedChatId: 'chat-1',
@@ -1203,6 +1205,7 @@ void main() {
           ).overrideWith(
             (ref) => Stream<QueuedCompletionInfo?>.value(
               const QueuedCompletionInfo(
+                databaseOwner: Object(),
                 seq: 44,
                 chatId: 'chat-1',
                 scopedChatId: 'chat-1',

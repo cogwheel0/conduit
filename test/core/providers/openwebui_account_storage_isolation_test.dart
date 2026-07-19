@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
+import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
@@ -108,6 +109,9 @@ final class _CachedRestartStorage extends Fake
   Future<String?> getAuthToken() async => token;
 
   @override
+  Future<String?> getAuthTokenStrict() async => token;
+
+  @override
   Future<User?> getLocalUser() async => cachedUser;
 
   @override
@@ -140,8 +144,11 @@ final class _GatedRestartValidationApi extends ApiService {
   Future<bool> checkHealth() async => true;
 
   @override
-  Future<User> getCurrentUser({bool suppressAuthFailureNotification = false}) =>
-      validatedUser.future;
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) => validatedUser.future;
 }
 
 final class _GatedCurrentUserApi extends ApiService {
@@ -152,7 +159,11 @@ final class _GatedCurrentUserApi extends ApiService {
   final Completer<void> requestStarted = Completer<void>();
 
   @override
-  Future<User> getCurrentUser({bool suppressAuthFailureNotification = false}) {
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     if (!requestStarted.isCompleted) requestStarted.complete();
     return response.future;
   }
@@ -238,12 +249,31 @@ final class _TrackingChatDatabaseRepository extends ChatDatabaseRepository {
   final List<Future<void>> _cancellationResults;
 
   int watchCalls = 0;
+  int mergedWatchCalls = 0;
+  int directWatchCalls = 0;
   int activeSubscriptions = 0;
   int maxActiveSubscriptions = 0;
   int cancellations = 0;
 
   @override
-  Stream<List<LocatedChatListEntry>> watchMergedChatList() {
+  Stream<List<LocatedChatListEntry>> watchMergedChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) {
+    mergedWatchCalls++;
+    return _recordingWatch();
+  }
+
+  @override
+  Stream<List<LocatedChatListEntry>> watchDirectLocalChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) {
+    directWatchCalls++;
+    return _recordingWatch();
+  }
+
+  Stream<List<LocatedChatListEntry>> _recordingWatch() {
     watchCalls++;
     late final StreamController<List<LocatedChatListEntry>> controller;
     controller = StreamController<List<LocatedChatListEntry>>(
@@ -924,6 +954,34 @@ void main() {
       await direct.close();
     }
   });
+
+  test(
+    'closed account gate subscribes only to the direct-local list',
+    () async {
+      final direct = AppDatabase(NativeDatabase.memory());
+      final repository = _TrackingChatDatabaseRepository(direct);
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          activeServerProvider.overrideWith((ref) async => _server),
+          appDatabaseProvider.overrideWithValue(null),
+          chatDatabaseRepositoryProvider.overrideWithValue(repository),
+        ],
+      );
+      try {
+        await container.read(activeServerProvider.future);
+        await container.read(conversationsProvider.future);
+
+        check(repository.directWatchCalls).equals(1);
+        check(repository.mergedWatchCalls).equals(0);
+        check(repository.activeSubscriptions).equals(1);
+      } finally {
+        container.dispose();
+        await Future<void>.delayed(Duration.zero);
+        await direct.close();
+      }
+    },
+  );
 
   test(
     'list watcher awaits async cancellation and contains cancellation errors',

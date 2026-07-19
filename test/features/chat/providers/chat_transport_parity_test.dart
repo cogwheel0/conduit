@@ -412,6 +412,7 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     final handlerId = 'test-${_nextHandlerId++}';

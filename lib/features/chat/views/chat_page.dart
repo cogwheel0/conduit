@@ -48,6 +48,7 @@ import '../widgets/assistant_message_widget.dart' as assistant;
 import '../widgets/file_attachment_widget.dart';
 import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
+import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/historical_message_regeneration.dart';
@@ -751,6 +752,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
       final attachedFiles = ref.read(attachedFilesProvider);
+      final mediaUploadController = ref.read(mediaUploadControllerProvider);
+      final sentAttachmentOwnership = mediaUploadController
+          .captureAttachmentOwnership();
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
@@ -781,8 +785,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         },
       );
 
-      // Clear attachments after successful send
-      ref.read(attachedFilesProvider.notifier).clearAll();
+      // Clear only after durableSend has transferred every attachment needed
+      // by the message/outbox. Retire only the exact identities/generations
+      // captured for this send: a paste or picker result published while the
+      // durable transaction awaited still belongs to the next composer turn.
+      unawaited(
+        mediaUploadController
+            .retireAttachmentOwnership(sentAttachmentOwnership)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'chat/attachment',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
 
       if (wasOffline && hasDurableOutbox && mounted) {
         AdaptiveSnackBar.show(
@@ -1028,48 +1046,41 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   /// Handles images/files pasted from clipboard into the chat input.
-  Future<void> _handlePastedAttachments(
-    List<LocalAttachment> attachments,
-  ) async {
-    if (attachments.isEmpty) return;
+  Future<void> _handlePastedAttachments(List<LocalAttachment> attachments) {
+    if (attachments.isEmpty) return Future<void>.value();
 
     DebugLogger.log(
       'Processing ${attachments.length} pasted attachment(s)',
       scope: 'chat/page',
     );
 
-    // Add attachments to the list
-    ref.read(attachedFilesProvider.notifier).addFiles(attachments);
-
-    // Drive uploads via the shared media-upload controller for unified
-    // retry/progress.
-    for (final attachment in attachments) {
-      try {
-        final fileSize = await attachment.file.length();
-        DebugLogger.log(
-          'Pasted file: ${attachment.displayName}, size: $fileSize bytes',
-          scope: 'chat/page',
-        );
-        unawaited(
-          ref
-              .read(mediaUploadControllerProvider)
-              .upload(
-                filePath: attachment.file.path,
-                fileName: attachment.displayName,
-                fileSize: fileSize,
-              )
-              .catchError((Object e) {
-                DebugLogger.log('Pasted upload failed: $e', scope: 'chat/page');
-              }),
-        );
-      } catch (e) {
-        DebugLogger.log('Pasted upload prep failed: $e', scope: 'chat/page');
-      }
-    }
-
-    DebugLogger.log(
-      'Added ${attachments.length} pasted attachment(s)',
-      scope: 'chat/page',
+    final mediaUpload = ref.read(mediaUploadControllerProvider);
+    // Keep this callback non-async. The native paste lease commits only if
+    // [addFiles] returns synchronously; an `async` wrapper would turn a
+    // notifier exception into a later Future error and falsely acknowledge the
+    // native payload.
+    final preparation = acceptPastedAttachments(
+      attachments: attachments,
+      addFiles: ref.read(attachedFilesProvider.notifier).addFiles,
+      upload: (attachment, fileSize) => mediaUpload.enqueueUpload(
+        filePath: attachment.file.path,
+        fileName: attachment.displayName,
+        fileSize: fileSize,
+      ),
+      rollback: (attachment) async {
+        await mediaUpload.removeAttachment(attachment.file.path);
+      },
+      logScope: 'chat/page',
+    );
+    return preparation.then<void>(
+      (_) => DebugLogger.log(
+        'Added ${attachments.length} pasted attachment(s)',
+        scope: 'chat/page',
+      ),
+      onError: (Object _, StackTrace _) {
+        // The helper logs preparation and rollback failures. Composer
+        // ownership has already been restored.
+      },
     );
   }
 
@@ -2558,13 +2569,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    final preparedContents = filteredCandidateIndices
-        .map(
-          (index) => prepareMarkdownContent(
-            messages[index].content.trim(),
-            streaming: false,
-          ),
-        )
+    final rawContents = filteredCandidateIndices
+        .map((index) => messages[index].content.trim())
         .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
     _markdownPrewarmGeneration += 1;
@@ -2574,9 +2580,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (!mounted || generation != _markdownPrewarmGeneration) {
         return;
       }
-      ref
-          .read(markdownCompileServiceProvider)
-          .prewarmPrepared(preparedContents);
+      unawaited(
+        ref
+            .read(markdownCompileServiceProvider)
+            .prewarmContents(rawContents, streaming: false),
+      );
     });
   }
 
@@ -3645,10 +3653,21 @@ class _ChatListStableLayoutCacheKey {
 final class _ChatListStableLayoutCache {
   _ChatListStableLayoutMetadata? _metadata;
   _ChatListStableLayoutCacheKey? _key;
+  List<ChatMessage>? _messages;
+  List<Model>? _models;
+  ApiService? _apiService;
+  double? _crossAxisExtent;
+  int? _directModelRegistryRevision;
+  int _signatureBuildCount = 0;
 
   void invalidate() {
     _metadata = null;
     _key = null;
+    _messages = null;
+    _models = null;
+    _apiService = null;
+    _crossAxisExtent = null;
+    _directModelRegistryRevision = null;
   }
 
   _ChatListStableLayoutMetadata resolve({
@@ -3658,14 +3677,33 @@ final class _ChatListStableLayoutCache {
     required DirectModelRegistry directModelRegistry,
     required double crossAxisExtent,
   }) {
+    final cached = _metadata;
+    final registryRevision = directModelRegistry.revision;
+    // Scroll callbacks and other chrome-only rebuilds reuse the immutable
+    // Riverpod message list. Return before constructing the O(messages ×
+    // versions) structural signature in that overwhelmingly common path.
+    if (cached != null &&
+        identical(_messages, messages) &&
+        identical(_models, models) &&
+        identical(_apiService, apiService) &&
+        _crossAxisExtent == crossAxisExtent &&
+        _directModelRegistryRevision == registryRevision) {
+      return cached;
+    }
+
+    _signatureBuildCount += 1;
     final nextKey = _ChatListStableLayoutCacheKey(
       signature: _buildChatListStableLayoutSignature(messages),
       models: models,
       apiService: apiService,
       crossAxisExtent: crossAxisExtent,
-      directModelRegistryRevision: directModelRegistry.revision,
+      directModelRegistryRevision: registryRevision,
     );
-    final cached = _metadata;
+    _messages = messages;
+    _models = models;
+    _apiService = apiService;
+    _crossAxisExtent = crossAxisExtent;
+    _directModelRegistryRevision = registryRevision;
     if (cached != null && _key == nextKey) return cached;
 
     final next = _buildChatListStableLayoutMetadata(
@@ -3679,6 +3717,8 @@ final class _ChatListStableLayoutCache {
     _key = nextKey;
     return next;
   }
+
+  int get debugSignatureBuildCount => _signatureBuildCount;
 }
 
 @immutable
@@ -3956,6 +3996,10 @@ String debugBuildChatListStableLayoutSignatureForTesting(
 @visibleForTesting
 Object debugCreateChatListStableLayoutCacheForTesting() =>
     _ChatListStableLayoutCache();
+
+@visibleForTesting
+int debugChatListStableLayoutSignatureBuildCountForTesting(Object cache) =>
+    (cache as _ChatListStableLayoutCache).debugSignatureBuildCount;
 
 @visibleForTesting
 List<

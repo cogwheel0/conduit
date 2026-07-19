@@ -422,6 +422,10 @@ void main() {
         openWebUiDirectConnectionsProvider.future,
       ))!;
       final earlierDuplicate = initial.records.first;
+      final pool = container.read(directHttpClientPoolProvider);
+      final retainedLease = pool.acquire(earlierDuplicate.profile);
+      final retainedDio = retainedLease.dio;
+      retainedLease.release();
       final registry = container.read(directModelRegistryProvider);
       final staleModel = registry
           .replaceProfileModels(
@@ -457,8 +461,44 @@ void main() {
       expect(retainedDuplicate.profile.id, earlierDuplicate.profile.id);
       expect(registry.resolve(staleModel), isNull);
       expect(runRegistry.hasLiveIntent(runKey), isFalse);
+      final staleSnapshotLease = pool.acquire(earlierDuplicate.profile);
+      expect(staleSnapshotLease.dio, isNot(same(retainedDio)));
+      staleSnapshotLease.release();
     },
   );
+
+  test('server profile deletion retires its retained HTTP client', () async {
+    var settings = _settings(urls: const ['https://old.example/v1']);
+    final store = OpenWebUiDirectConnectionStore(
+      serverId: 'server-a',
+      accountId: 'account-a',
+      readSettings: () async => settings,
+      writeSettings: (next) async => settings = next,
+    );
+    final container = _container(local: const [], store: store);
+    addTearDown(container.dispose);
+
+    final initial = (await container.read(
+      openWebUiDirectConnectionsProvider.future,
+    ))!;
+    final record = initial.records.single;
+    final pool = container.read(directHttpClientPoolProvider);
+    final retainedLease = pool.acquire(record.profile);
+    final retainedDio = retainedLease.dio;
+    retainedLease.release();
+
+    await container
+        .read(openWebUiDirectConnectionsProvider.notifier)
+        .delete(record);
+
+    expect(
+      container.read(openWebUiDirectConnectionsProvider).requireValue!.records,
+      isEmpty,
+    );
+    final staleSnapshotLease = pool.acquire(record.profile);
+    expect(staleSnapshotLease.dio, isNot(same(retainedDio)));
+    staleSnapshotLease.release();
+  });
 
   test(
     'uncertain commits revoke stale bindings and require a reload',
@@ -729,5 +769,9 @@ final class _CountingSettingsApi extends ApiService {
     return _settings(urls: const ['https://remote.example/v1']);
   }
 
-  void dispose() => _workerManager.dispose();
+  @override
+  void dispose() {
+    super.dispose();
+    _workerManager.dispose();
+  }
 }

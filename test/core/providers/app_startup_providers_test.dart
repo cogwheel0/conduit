@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/conversation.dart';
 import 'package:conduit/core/models/folder.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/connectivity_service.dart';
+import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -23,11 +28,43 @@ Future<void> _flushMicrotasks([int count = 1]) async {
   }
 }
 
+Future<void> _waitForFileDeletion(File file) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 1));
+  while (await file.exists() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 const _testServer = ServerConfig(
   id: 'test-server',
   name: 'Test Server',
   url: 'https://example.com',
 );
+
+typedef _AuthOwnerSignal = ({String? token, AuthNavigationState navigation});
+
+final _authOwnerSignalProvider =
+    NotifierProvider<_AuthOwnerSignalNotifier, _AuthOwnerSignal>(
+      _AuthOwnerSignalNotifier.new,
+    );
+
+final class _AuthOwnerSignalNotifier extends Notifier<_AuthOwnerSignal> {
+  @override
+  _AuthOwnerSignal build() =>
+      (token: 'test-token', navigation: AuthNavigationState.authenticated);
+
+  void signOut() {
+    state = (token: null, navigation: AuthNavigationState.needsLogin);
+  }
+
+  void signIn({String token = 'replacement-token'}) {
+    state = (token: token, navigation: AuthNavigationState.authenticated);
+  }
+
+  void beginSameSessionRevalidation() {
+    state = (token: state.token, navigation: AuthNavigationState.loading);
+  }
+}
 
 class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
   @override
@@ -133,6 +170,277 @@ void main() {
 
     expect(runCalls, 1);
   });
+
+  test('auth owner loss clears attachments through owned cleanup', () async {
+    final stagingDirectory = Directory(
+      '${Directory.systemTemp.path}/conduit-native-paste',
+    );
+    await stagingDirectory.create();
+    final image = File(
+      '${stagingDirectory.path}/'
+      '123e4567-e89b-12d3-a456-426614174110-paste.png',
+    );
+    await image.writeAsBytes([1]);
+    addTearDown(() async {
+      if (await image.exists()) await image.delete();
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        authTokenProvider3.overrideWith(
+          (ref) => ref.watch(_authOwnerSignalProvider).token,
+        ),
+        authNavigationStateProvider.overrideWith(
+          (ref) => ref.watch(_authOwnerSignalProvider).navigation,
+        ),
+        isAuthLoadingProvider2.overrideWithValue(false),
+        openWebUiAccountStorageIsolationProvider.overrideWith(
+          _NoopAccountStorageIsolation.new,
+        ),
+        selectedModelProvider.overrideWith(_NullSelectedModel.new),
+        apiServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: image, displayName: 'paste.png'),
+    ]);
+    container.read(userScopedProviderCleanupProvider);
+
+    container.read(_authOwnerSignalProvider.notifier).signOut();
+    await _flushMicrotasks(2);
+    check(container.read(authTokenProvider3)).isNull();
+    check(
+      container.read(authNavigationStateProvider),
+    ).equals(AuthNavigationState.needsLogin);
+
+    for (var attempt = 0; attempt < 50; attempt++) {
+      if (container.read(attachedFilesProvider).isEmpty &&
+          !await image.exists()) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    check(container.read(attachedFilesProvider)).isEmpty();
+    check(await image.exists()).isFalse();
+    check(
+      container
+          .read(mediaUploadControllerProvider)
+          .debugTrackedPathGenerationCount,
+    ).equals(0);
+  });
+
+  test(
+    'same-token reauthentication retires only departing attachment owners',
+    () async {
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-native-paste',
+      );
+      await stagingDirectory.create();
+      final oldImage = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-426614174111-old.png',
+      );
+      final replacementImage = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-426614174112-new.png',
+      );
+      await oldImage.writeAsBytes([1]);
+      await replacementImage.writeAsBytes([2]);
+      addTearDown(() async {
+        if (await oldImage.exists()) await oldImage.delete();
+        if (await replacementImage.exists()) await replacementImage.delete();
+      });
+
+      final container = ProviderContainer(
+        overrides: [
+          authTokenProvider3.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).token,
+          ),
+          authNavigationStateProvider.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).navigation,
+          ),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          openWebUiAccountStorageIsolationProvider.overrideWith(
+            _NoopAccountStorageIsolation.new,
+          ),
+          selectedModelProvider.overrideWith(_NullSelectedModel.new),
+          apiServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(attachedFilesProvider.notifier).addFiles([
+        LocalAttachment(file: oldImage, displayName: 'old.png'),
+      ]);
+      container.read(userScopedProviderCleanupProvider);
+
+      final authOwner = container.read(_authOwnerSignalProvider.notifier);
+      authOwner.signOut();
+      await _flushMicrotasks();
+      check(container.read(authTokenProvider3)).isNull();
+      check(
+        container.read(authNavigationStateProvider),
+      ).equals(AuthNavigationState.needsLogin);
+      authOwner.signIn(token: 'test-token');
+      container.read(attachedFilesProvider.notifier).addFiles([
+        LocalAttachment(file: replacementImage, displayName: 'new.png'),
+      ]);
+
+      for (var attempt = 0; attempt < 50; attempt++) {
+        final attachments = container.read(attachedFilesProvider);
+        if (attachments.length == 1 &&
+            attachments.single.file.path == replacementImage.path &&
+            !await oldImage.exists()) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      final attachments = container.read(attachedFilesProvider);
+      check(attachments).length.equals(1);
+      check(attachments.single.file.path).equals(replacementImage.path);
+      check(await oldImage.exists()).isFalse();
+      check(await replacementImage.exists()).isTrue();
+    },
+  );
+
+  test(
+    'same-token navigation revalidation preserves composer attachments',
+    () async {
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-native-paste',
+      );
+      await stagingDirectory.create();
+      final image = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-426614174116-revalidation.png',
+      );
+      await image.writeAsBytes([1]);
+      addTearDown(() async {
+        if (await image.exists()) await image.delete();
+      });
+
+      final container = ProviderContainer(
+        overrides: [
+          authTokenProvider3.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).token,
+          ),
+          authNavigationStateProvider.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).navigation,
+          ),
+          isAuthLoadingProvider2.overrideWith(
+            (ref) =>
+                ref.watch(_authOwnerSignalProvider).navigation ==
+                AuthNavigationState.loading,
+          ),
+          openWebUiAccountStorageIsolationProvider.overrideWith(
+            _NoopAccountStorageIsolation.new,
+          ),
+          selectedModelProvider.overrideWith(_NullSelectedModel.new),
+          apiServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(attachedFilesProvider.notifier).addFiles([
+        LocalAttachment(file: image, displayName: 'revalidation.png'),
+      ]);
+      container.read(userScopedProviderCleanupProvider);
+
+      check(container.read(isAuthLoadingProvider2)).isFalse();
+
+      container
+          .read(_authOwnerSignalProvider.notifier)
+          .beginSameSessionRevalidation();
+      check(container.read(isAuthLoadingProvider2)).isTrue();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      check(container.read(authTokenProvider3)).equals('test-token');
+      check(container.read(attachedFilesProvider)).length.equals(1);
+      check(await image.readAsBytes()).deepEquals([1]);
+    },
+  );
+
+  test(
+    'reauthentication during slow attachment cleanup preserves new providers',
+    () async {
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-native-paste',
+      );
+      await stagingDirectory.create();
+      final oldImage = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-426614174117-old.png',
+      );
+      await oldImage.writeAsBytes([1]);
+      addTearDown(() async {
+        if (await oldImage.exists()) await oldImage.delete();
+      });
+      final cleanupStarted = Completer<void>();
+      final releaseCleanup = Completer<void>();
+
+      final container = ProviderContainer(
+        overrides: [
+          authTokenProvider3.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).token,
+          ),
+          authNavigationStateProvider.overrideWith(
+            (ref) => ref.watch(_authOwnerSignalProvider).navigation,
+          ),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          openWebUiAccountStorageIsolationProvider.overrideWith(
+            _NoopAccountStorageIsolation.new,
+          ),
+          selectedModelProvider.overrideWith(_NullSelectedModel.new),
+          apiServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          terminalAttachmentCleanupProvider.overrideWithValue((
+            filePath, {
+            required beforeDeleteAdmission,
+            required canDelete,
+          }) async {
+            if (!cleanupStarted.isCompleted) cleanupStarted.complete();
+            await releaseCleanup.future;
+            await beforeDeleteAdmission();
+            if (!canDelete()) return true;
+            final file = File(filePath);
+            if (await file.exists()) await file.delete();
+            return true;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(attachedFilesProvider.notifier).addFiles([
+        LocalAttachment(file: oldImage, displayName: 'old.png'),
+      ]);
+      container.read(userScopedProviderCleanupProvider);
+
+      final authOwner = container.read(_authOwnerSignalProvider.notifier);
+      authOwner.signOut();
+      await _flushMicrotasks(2);
+      check(container.read(authTokenProvider3)).isNull();
+      check(
+        container.read(authNavigationStateProvider),
+      ).equals(AuthNavigationState.needsLogin);
+      await cleanupStarted.future.timeout(const Duration(seconds: 1));
+      authOwner.signIn();
+      final replacementConversation = _conversation('replacement-chat');
+      container
+          .read(activeConversationProvider.notifier)
+          .set(replacementConversation);
+      releaseCleanup.complete();
+      await _waitForFileDeletion(oldImage);
+
+      check(container.read(authTokenProvider3)).equals('replacement-token');
+      check(
+        container.read(activeConversationProvider),
+      ).identicalTo(replacementConversation);
+      check(await oldImage.exists()).isFalse();
+    },
+  );
 
   test(
     'forced warmup refreshes populated conversations while warming folders',
@@ -480,6 +788,17 @@ void main() {
 
 abstract class _TrackingWarmupFolders extends Folders {
   int warmIfNeededCalls = 0;
+}
+
+final class _NoopAccountStorageIsolation
+    extends OpenWebUiAccountStorageIsolation {
+  @override
+  void build() {}
+}
+
+final class _NullSelectedModel extends SelectedModel {
+  @override
+  Model? build() => null;
 }
 
 class _RecordingWarmupConversations extends Conversations {

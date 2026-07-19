@@ -188,7 +188,15 @@ Future<List<ServerMemory>> _loadMemories(ProviderContainer container) async {
 class _FakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
   @override
+  bool isUncommittedServerConfigCandidate(ServerConfig config) => false;
+
+  @override
   Future<List<ServerConfig>> getServerConfigs() async => const [_serverConfig];
+
+  @override
+  Future<List<ServerConfig>> getServerConfigsStrict() async => const [
+    _serverConfig,
+  ];
 
   @override
   Future<String?> getActiveServerId() async => _serverConfig.id;

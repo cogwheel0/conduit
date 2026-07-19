@@ -21,15 +21,20 @@ import 'direct_provider_adapter.dart';
 final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   OpenAiCompatibleAdapter({
     DirectDioFactory? dioFactory,
+    DirectHttpClientPool? clientPool,
     this.closeClients = true,
     this.streamIdleTimeout = kDirectStreamIdleTimeout,
     this.streamMaxDuration = kDirectStreamMaxDuration,
     this.maxStreamBytes = kMaxDirectStreamBytes,
     this.maxStreamCharacters = kMaxDirectStreamCharacters,
     this.maxStreamEvents = kMaxDirectStreamEvents,
+    this.successDrainTimeout = kDirectSuccessDrainTimeout,
+    this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
     this.maxSseLineCharacters = 4 * 1024 * 1024,
     this.maxSseFrameDataCharacters = 4 * 1024 * 1024,
-  }) : _dioFactory = dioFactory ?? const DirectHttpClientFactory().create {
+  }) : _dioFactory = dioFactory,
+       _clientPool = clientPool ?? DirectHttpClientPool(),
+       _ownsClientPool = clientPool == null {
     validateDirectCompletionStreamLimits(
       idleTimeout: streamIdleTimeout,
       maxDuration: streamMaxDuration,
@@ -40,6 +45,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     if (maxSseLineCharacters <= 0) {
       throw ArgumentError.value(maxSseLineCharacters, 'maxSseLineCharacters');
     }
+    if (successDrainTimeout <= Duration.zero) {
+      throw ArgumentError.value(successDrainTimeout, 'successDrainTimeout');
+    }
+    if (maxSuccessDrainBytes <= 0) {
+      throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
+    }
     if (maxSseFrameDataCharacters <= 0) {
       throw ArgumentError.value(
         maxSseFrameDataCharacters,
@@ -48,23 +59,43 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     }
   }
 
-  final DirectDioFactory _dioFactory;
+  final DirectDioFactory? _dioFactory;
+  final DirectHttpClientPool _clientPool;
+  final bool _ownsClientPool;
   final bool closeClients;
   final Duration streamIdleTimeout;
   final Duration streamMaxDuration;
   final int maxStreamBytes;
   final int maxStreamCharacters;
   final int maxStreamEvents;
+  final Duration successDrainTimeout;
+  final int maxSuccessDrainBytes;
   final int maxSseLineCharacters;
   final int maxSseFrameDataCharacters;
 
   @override
   String get key => kOpenAiCompatibleAdapterKey;
 
-  Dio _client(DirectConnectionProfile profile) {
-    final dio = _dioFactory(profile);
-    const DirectHttpClientFactory().configure(dio, profile);
-    return dio;
+  ({Dio dio, void Function() release}) _client(
+    DirectConnectionProfile profile,
+  ) {
+    final factory = _dioFactory;
+    if (factory != null) {
+      final dio = factory(profile);
+      const DirectHttpClientFactory().configure(dio, profile);
+      return (
+        dio: dio,
+        release: () {
+          if (closeClients) dio.close(force: true);
+        },
+      );
+    }
+    final lease = _clientPool.acquire(profile);
+    return (dio: lease.dio, release: lease.release);
+  }
+
+  void dispose() {
+    if (_ownsClientPool) _clientPool.dispose();
   }
 
   @override
@@ -74,7 +105,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final manualModels = directManualModels(profile);
     if (manualModels != null) return manualModels;
 
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
     try {
       final response = await dio.get<ResponseBody>(
         'models',
@@ -157,7 +189,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       );
       throw normalized;
     } finally {
-      if (closeClients) dio.close(force: true);
+      client.release();
     }
   }
 
@@ -177,7 +209,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   Future<DirectConnectionProbe> _probeManualConnection(
     DirectConnectionProfile profile,
   ) async {
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
     try {
       // HEAD cannot create a completion or consume model quota. A 2xx status
       // confirms the route directly; 405 confirms a route without HEAD.
@@ -209,7 +242,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         message: normalized.message,
       );
     } finally {
-      if (closeClients) dio.close(force: true);
+      client.release();
     }
   }
 
@@ -218,21 +251,25 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) {
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
     final cancelToken = CancelToken();
     final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
     final settled = Completer<void>();
     final sensitiveValues = directProfileSensitiveValues(profile);
+    var successfulProtocolTerminal = false;
     unawaited(
       cancelToken.whenCancel.then<void>((error) {
-        if (!transportCancelToken.isCancelled) {
+        if (!successfulProtocolTerminal && !transportCancelToken.isCancelled) {
           transportCancelToken.cancel(error.error ?? 'run cancelled');
         }
       }),
     );
     controller.onCancel = () {
-      if (!cancelToken.isCancelled) cancelToken.cancel('listener cancelled');
+      if (!successfulProtocolTerminal && !cancelToken.isCancelled) {
+        cancelToken.cancel('listener cancelled');
+      }
     };
 
     unawaited(
@@ -242,7 +279,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           maxCharacters: maxStreamCharacters,
           maxEvents: maxStreamEvents,
           sensitiveValues: sensitiveValues,
+          onSuccessfulTerminal: () => successfulProtocolTerminal = true,
         );
+        var transportCompletedCleanly = false;
         try {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
@@ -284,6 +323,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
               );
             }
             if (!emitter.terminalSent) emitter.done();
+            transportCompletedCleanly = emitter.completedSuccessfully;
           } else if (responsesMode) {
             await _consumeResponsesStream(body, emitter);
             if (!emitter.terminalSent && !cancelToken.isCancelled) {
@@ -291,6 +331,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 'The provider stream ended before its response.completed marker.',
               );
             }
+            transportCompletedCleanly = emitter.completedSuccessfully;
           } else {
             await _consumeChatStream(body, emitter);
             if (!emitter.terminalSent && !cancelToken.isCancelled) {
@@ -298,18 +339,21 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 'The provider stream ended before its completion marker.',
               );
             }
+            transportCompletedCleanly = emitter.completedSuccessfully;
           }
         } catch (error) {
-          if (!cancelToken.isCancelled && !controller.isClosed) {
+          final expectedDrainFailure =
+              error is DirectStreamDrainException &&
+              emitter.completedSuccessfully;
+          if (!expectedDrainFailure &&
+              !cancelToken.isCancelled &&
+              !controller.isClosed) {
             final normalized = normalizeDirectProviderError(error);
             final safeMessage = sanitizeDirectProviderErrorMessage(
               normalized.message,
               sensitiveValues: sensitiveValues,
             );
-            emitter.error(
-              normalized.message,
-              statusCode: normalized.statusCode,
-            );
+            emitter.error(safeMessage, statusCode: normalized.statusCode);
             DebugLogger.error(
               'completion-failed',
               scope: 'direct-connections/openai',
@@ -317,14 +361,19 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             );
           }
         } finally {
-          if (!transportCancelToken.isCancelled) {
-            transportCancelToken.cancel('completion settled');
+          if (!transportCompletedCleanly) {
+            if (!transportCancelToken.isCancelled) {
+              transportCancelToken.cancel('completion transport not reusable');
+            }
+            // Dio observes cancellation through a future callback. Let that
+            // callback abort the underlying request before `done` settles.
+            // Listener cancellation may already have cancelled the token, but
+            // it needs the same settlement fence before the pooled client can
+            // be released.
+            await Future<void>.delayed(Duration.zero);
           }
-          // Dio observes cancellation through a future callback. Let that
-          // callback abort the underlying request before `done` settles.
-          await Future<void>.delayed(Duration.zero);
           unawaited(controller.close());
-          if (closeClients) dio.close(force: true);
+          client.release();
           if (!settled.isCompleted) settled.complete();
         }
       }),
@@ -350,11 +399,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         idleTimeout: streamIdleTimeout,
         maxDuration: streamMaxDuration,
         maxBytes: maxStreamBytes,
+        successfulProtocolTerminal: () => emitter.completedSuccessfully,
+        successDrainTimeout: successDrainTimeout,
+        maxSuccessDrainBytes: maxSuccessDrainBytes,
       ),
       maxLineCharacters: maxSseLineCharacters,
       maxFrameDataCharacters: maxSseFrameDataCharacters,
     )) {
-      if (emitter.terminalSent) break;
+      if (emitter.terminalSent) {
+        if (emitter.completedSuccessfully) continue;
+        return;
+      }
       emitter.protocolEvent();
       if (raw.isDone) {
         if (!emitter.hasCompletion) {
@@ -363,7 +418,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           );
         }
         emitter.done();
-        break;
+        continue;
       }
       final payload = raw.json;
       if (payload == null) {
@@ -371,7 +426,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       }
       if (raw.event == 'error' || payload['error'] != null) {
         emitter.protocolError(payload['error'] ?? payload);
-        break;
+        return;
       }
 
       if (_chatPayloadHasToolCall(payload)) {
@@ -409,11 +464,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         idleTimeout: streamIdleTimeout,
         maxDuration: streamMaxDuration,
         maxBytes: maxStreamBytes,
+        successfulProtocolTerminal: () => emitter.completedSuccessfully,
+        successDrainTimeout: successDrainTimeout,
+        maxSuccessDrainBytes: maxSuccessDrainBytes,
       ),
       maxLineCharacters: maxSseLineCharacters,
       maxFrameDataCharacters: maxSseFrameDataCharacters,
     )) {
-      if (emitter.terminalSent) break;
+      if (emitter.terminalSent) {
+        if (emitter.completedSuccessfully) continue;
+        return;
+      }
       emitter.protocolEvent();
       if (raw.isDone) break;
       final payload = raw.json;
@@ -497,11 +558,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         default:
           break;
       }
-      // A Responses lifecycle event is the protocol terminal. Do not ask the
-      // HTTP stream for another frame: compatible servers are allowed to keep
-      // the connection open after sending it, and waiting here would delay
-      // `events`/`done` settlement until the transport idle timeout.
-      if (emitter.terminalSent) return;
+      // Successful lifecycle terminals switch the byte source into its small,
+      // bounded keep-alive drain window. Error terminals remain non-reusable.
+      if (emitter.terminalSent && !emitter.completedSuccessfully) return;
     }
   }
 }
@@ -937,16 +996,20 @@ final class _DirectEmitter {
     required int maxCharacters,
     required int maxEvents,
     required Iterable<String> sensitiveValues,
+    required void Function() onSuccessfulTerminal,
   }) : budget = DirectStreamBudget(
          maxCharacters: maxCharacters,
          maxEvents: maxEvents,
        ),
-       _sensitiveValues = List.unmodifiable(sensitiveValues);
+       _sensitiveValues = List.unmodifiable(sensitiveValues),
+       _onSuccessfulTerminal = onSuccessfulTerminal;
 
   final StreamController<DirectStreamEvent> controller;
   final DirectStreamBudget budget;
   final List<String> _sensitiveValues;
+  final void Function() _onSuccessfulTerminal;
   bool terminalSent = false;
+  bool completedSuccessfully = false;
   bool _hasNonWhitespaceCompletion = false;
   final StringBuffer _contentText = StringBuffer();
   final StringBuffer _responseReasoningText = StringBuffer();
@@ -1021,7 +1084,9 @@ final class _DirectEmitter {
 
   void done() {
     if (!terminalSent && !controller.isClosed) {
+      completedSuccessfully = true;
       terminalSent = true;
+      _onSuccessfulTerminal();
       controller.add(const DirectStreamDone());
     }
   }

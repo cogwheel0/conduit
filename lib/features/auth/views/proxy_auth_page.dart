@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/native_cookie_manager.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
+import '../../../core/auth/webview_origin.dart';
 import '../../../core/models/server_config.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/widgets/error_boundary.dart';
@@ -18,6 +19,35 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+
+/// Whether a proxy page is allowed to expose cookies or localStorage tokens.
+@visibleForTesting
+bool isTrustedProxyCredentialCaptureUrl({
+  required String pageUrl,
+  required String serverUrl,
+}) => webViewUrlHasExactServerOrigin(pageUrl, serverUrl);
+
+@visibleForTesting
+String proxyCookieLookupUrl(String serverUrl) =>
+    webViewCookieLookupUrl(serverUrl);
+
+/// Runs the retry path appropriate for the current WebView lifecycle.
+///
+/// A failed pre-WebView cleanup leaves no controller to reload, so retry must
+/// repeat initialization. Once a controller exists, reloading preserves the
+/// current platform view and its proxy-auth session.
+@visibleForTesting
+Future<void> refreshProxyAuthWebView<Controller>({
+  required Controller? controller,
+  required Future<void> Function() initialize,
+  required Future<void> Function(Controller controller) reload,
+}) async {
+  if (controller == null) {
+    await initialize();
+    return;
+  }
+  await reload(controller);
+}
 
 /// Result of proxy authentication.
 class ProxyAuthResult {
@@ -106,6 +136,21 @@ bool shouldRequireJwtForAutomaticCapture({
   required bool currentPageShouldWait,
 }) {
   return hasPendingJwtWait || currentPageShouldWait;
+}
+
+/// Resolves the sticky automatic JWT requirement only while the asynchronous
+/// page inspection still owns its original main-frame document.
+@visibleForTesting
+bool? resolveProxyAuthJwtRequirement({
+  required bool ownsDocument,
+  required bool hasPendingJwtWait,
+  required bool currentPageShouldWait,
+}) {
+  if (!ownsDocument) return null;
+  return shouldRequireJwtForAutomaticCapture(
+    hasPendingJwtWait: hasPendingJwtWait,
+    currentPageShouldWait: currentPageShouldWait,
+  );
 }
 
 /// Returns whether the current path is owned by OpenWebUI's auth flow.
@@ -298,11 +343,43 @@ class ProxyAuthPage extends ConsumerStatefulWidget {
   ConsumerState<ProxyAuthPage> createState() => _ProxyAuthPageState();
 }
 
+/// Binds asynchronous credential capture to one main-frame document.
+@visibleForTesting
+final class ProxyAuthDocumentFence {
+  int _generation = 0;
+  String? _documentKey;
+
+  int get generation => _generation;
+
+  void startNavigation(String url) {
+    _generation++;
+    _documentKey = _key(url);
+  }
+
+  void invalidate() {
+    _generation++;
+    _documentKey = null;
+  }
+
+  bool ownsGeneration(int generation) => generation == _generation;
+
+  bool ownsDocument(int generation, String url) =>
+      ownsGeneration(generation) && _documentKey == _key(url);
+
+  static String _key(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    // Fragments do not select a different credential origin/document.
+    return uri.replace(fragment: '').toString();
+  }
+}
+
 class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   InAppWebViewController? _controller;
   bool _isLoading = true;
   bool _cookiesCaptured = false;
   final _captureQueue = ProxyAuthCaptureQueue();
+  final _documentFence = ProxyAuthDocumentFence();
   bool _automaticCaptureRequiresJwt = false;
   String? _error;
   bool _isOnTargetServer = false;
@@ -318,8 +395,25 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
   @override
   void dispose() {
+    _documentFence.invalidate();
+    _captureQueue.reset();
     _controller = null;
     super.dispose();
+  }
+
+  bool _ownsCaptureGeneration(int generation) =>
+      mounted && _documentFence.ownsGeneration(generation);
+
+  bool _ownsCaptureDocument(int generation, String url) =>
+      mounted && _documentFence.ownsDocument(generation, url);
+
+  void _invalidateCaptureQueue({String? navigationUrl}) {
+    if (navigationUrl == null) {
+      _documentFence.invalidate();
+    } else {
+      _documentFence.startNavigation(navigationUrl);
+    }
+    _captureQueue.reset();
   }
 
   Future<void> _initializeWebView() async {
@@ -337,10 +431,27 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     }
 
     final serverUrl = widget.config.serverConfig.url;
-    DebugLogger.auth('Initializing Proxy Auth WebView for $serverUrl');
+    DebugLogger.auth(
+      'Initializing Proxy Auth WebView for ${webViewOriginForLog(serverUrl)}',
+      scope: 'auth/proxy',
+    );
 
-    // Don't clear cookies - preserve any existing proxy session
+    // Don't clear cookies - preserve any existing proxy session. Do wait for
+    // a logout purge that was already requested before this flow so that purge
+    // cannot erase cookies/storage after the new WebView starts loading.
+    final webViewDataReady =
+        await WebViewCookieHelper.ensurePendingLogoutDataCleared();
     if (!mounted) return;
+    if (!webViewDataReady) {
+      setState(() {
+        _error =
+            'The previous web sign-in session could not be cleared. '
+            'Please retry.';
+        _isLoading = false;
+        _shouldRenderWebView = false;
+      });
+      return;
+    }
 
     setState(() {
       _controller = null;
@@ -356,15 +467,16 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final serverUrl = widget.config.serverConfig.url;
     try {
       await controller.loadUrl(urlRequest: URLRequest(url: WebUri(serverUrl)));
-    } catch (e) {
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'proxy-webview-initial-load-failed',
         scope: 'auth/proxy',
-        error: e,
+        error: error,
+        stackTrace: stackTrace,
       );
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = 'The sign-in page could not be loaded. Please retry.';
         _isLoading = false;
       });
     }
@@ -382,16 +494,33 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
   void _onPageStarted(String url) {
     if (!mounted) return;
-    DebugLogger.auth('Proxy auth page started: $url');
+    // Invalidate capture synchronously before any state update. Same-origin
+    // proxy pages are distinct documents; origin checks alone cannot stop an
+    // async capture from the previous page from completing after navigation.
+    _invalidateCaptureQueue(navigationUrl: url);
+    DebugLogger.auth(
+      'Proxy auth page started: ${webViewOriginForLog(url)}',
+      scope: 'auth/proxy',
+    );
+    final isOnTargetServer = isTrustedProxyCredentialCaptureUrl(
+      pageUrl: url,
+      serverUrl: widget.config.serverConfig.url,
+    );
     setState(() {
       _isLoading = true;
       _error = null;
+      _isOnTargetServer = isOnTargetServer;
     });
   }
 
   Future<void> _onPageFinished(String url) async {
     if (!mounted) return;
-    DebugLogger.auth('Proxy auth page finished: $url');
+    final generation = _documentFence.generation;
+    if (!_ownsCaptureDocument(generation, url)) return;
+    DebugLogger.auth(
+      'Proxy auth page finished: ${webViewOriginForLog(url)}',
+      scope: 'auth/proxy',
+    );
 
     setState(() {
       _isLoading = false;
@@ -399,12 +528,19 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     if (_cookiesCaptured) return;
 
-    final uri = Uri.parse(url);
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      _isOnTargetServer = false;
+      return;
+    }
 
     // Check for error parameter
     final error = uri.queryParameters['error'];
     if (error != null && error.isNotEmpty) {
-      DebugLogger.auth('Proxy auth error from URL: $error');
+      DebugLogger.auth(
+        'Proxy auth callback reported an OAuth error',
+        scope: 'auth/proxy',
+      );
       setState(() {
         _error = error;
       });
@@ -413,21 +549,35 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
     // Check if we're on our target server
     final serverUrl = widget.config.serverConfig.url;
-    final serverUri = Uri.parse(serverUrl);
-    if (uri.host == serverUri.host) {
+    final isOnTargetServer = isTrustedProxyCredentialCaptureUrl(
+      pageUrl: url,
+      serverUrl: serverUrl,
+    );
+    _isOnTargetServer = isOnTargetServer;
+    if (isOnTargetServer) {
       // We've reached our server - proxy auth must be complete
       _isOnTargetServer = true;
-      await _checkIfOpenWebUI(url);
+      await _checkIfOpenWebUI(url, generation);
     }
   }
 
   /// Checks if we're on the OpenWebUI page and captures cookies if so.
-  Future<void> _checkIfOpenWebUI(String url) async {
-    if (_cookiesCaptured || !mounted) return;
+  Future<void> _checkIfOpenWebUI(String url, int generation) async {
+    if (_cookiesCaptured || !_ownsCaptureDocument(generation, url)) return;
 
     final controller = _controller;
     if (controller == null) return;
-    final path = Uri.tryParse(url)?.path ?? '/';
+    final serverUrl = widget.config.serverConfig.url;
+    if (!isTrustedProxyCredentialCaptureUrl(
+          pageUrl: url,
+          serverUrl: serverUrl,
+        ) ||
+        !await _isControllerOnTargetOrigin()) {
+      _isOnTargetServer = false;
+      return;
+    }
+    if (!_ownsCaptureDocument(generation, url)) return;
+    final path = Uri.parse(url).path;
 
     try {
       // Check if this is an OpenWebUI page by looking for specific elements
@@ -457,11 +607,17 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted) return;
+      if (!_ownsCaptureDocument(generation, url) ||
+          !await _isControllerOnTargetOrigin() ||
+          !_ownsCaptureDocument(generation, url)) {
+        _isOnTargetServer = false;
+        return;
+      }
 
       final isOpenWebUI = result.toString().contains('true');
       DebugLogger.auth(
         'OpenWebUI detection: $isOpenWebUI (on target server: $_isOnTargetServer)',
+        scope: 'auth/proxy',
       );
 
       if (!_isOnTargetServer) {
@@ -472,35 +628,57 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         looksLikeOpenWebUi: isOpenWebUI,
         path: path,
       )) {
-        final request = await _buildAutomaticCaptureRequest(url);
-        await _requestProxyCookieCapture(request);
+        final request = await _buildAutomaticCaptureRequest(url, generation);
+        if (request == null || !_ownsCaptureDocument(generation, url)) return;
+        await _requestProxyCookieCapture(
+          request,
+          expectedGeneration: generation,
+        );
         return;
       }
 
       DebugLogger.auth(
-        'Same-host page does not look like OpenWebUI yet; waiting on $path',
+        'Same-host page does not look like OpenWebUI yet; waiting',
+        scope: 'auth/proxy',
       );
     } catch (e) {
       DebugLogger.log(
-        'OpenWebUI detection failed: ${e.toString().split('\n').first}',
+        'OpenWebUI detection failed',
         scope: 'auth/proxy',
+        data: {'errorType': e.runtimeType.toString()},
       );
 
       // If detection fails, only fall back to automatic capture on OpenWebUI's
       // own auth routes. Same-host proxy login pages must stay in the WebView.
-      if (_isOnTargetServer && isKnownOpenWebUiProxyAuthPath(path)) {
+      if (_ownsCaptureDocument(generation, url) &&
+          _isOnTargetServer &&
+          isKnownOpenWebUiProxyAuthPath(path)) {
         try {
-          final request = await _buildAutomaticCaptureRequest(url);
-          await _requestProxyCookieCapture(request);
-        } catch (captureError) {
-          if (!mounted) return;
+          final request = await _buildAutomaticCaptureRequest(url, generation);
+          if (request == null || !_ownsCaptureDocument(generation, url)) return;
+          await _requestProxyCookieCapture(
+            request,
+            expectedGeneration: generation,
+          );
+        } catch (captureError, captureStackTrace) {
+          if (!_ownsCaptureDocument(generation, url)) return;
+          DebugLogger.error(
+            'automatic-proxy-capture-failed',
+            scope: 'auth/proxy',
+            error: captureError,
+            stackTrace: captureStackTrace,
+            data: {'errorType': captureError.runtimeType.toString()},
+          );
           setState(() {
-            _error = captureError.toString();
+            _error =
+                'The proxy sign-in session could not be captured. '
+                'Please retry or continue manually.';
           });
         }
       } else {
         DebugLogger.auth(
-          'Skipping automatic proxy capture on non-OpenWebUI page: $path',
+          'Skipping automatic proxy capture on non-OpenWebUI page',
+          scope: 'auth/proxy',
         );
       }
     }
@@ -512,18 +690,34 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   /// OpenWebUI auto-authenticates the user after proxy auth. In this case,
   /// we can capture the JWT token and skip the sign-in page entirely.
   Future<void> _requestProxyCookieCapture(
-    ProxyAuthCaptureRequest request,
-  ) async {
+    ProxyAuthCaptureRequest request, {
+    int? expectedGeneration,
+  }) async {
     if (_cookiesCaptured || !mounted) return;
+    final generation = expectedGeneration ?? _documentFence.generation;
+    if (!_ownsCaptureGeneration(generation)) return;
+    if (!await _isControllerOnTargetOrigin()) {
+      if (!_ownsCaptureGeneration(generation)) return;
+      _isOnTargetServer = false;
+      DebugLogger.auth(
+        'Skipping proxy credential capture outside the configured origin',
+        scope: 'auth/proxy',
+      );
+      return;
+    }
+    if (!_ownsCaptureGeneration(generation)) return;
 
     final captureRequest = _captureQueue.begin(request);
     if (captureRequest == null) return;
 
-    await _captureProxyCookies(captureRequest);
+    await _captureProxyCookies(captureRequest, generation);
   }
 
-  Future<void> _captureProxyCookies(ProxyAuthCaptureRequest request) async {
-    if (_cookiesCaptured || !mounted) return;
+  Future<void> _captureProxyCookies(
+    ProxyAuthCaptureRequest request,
+    int generation,
+  ) async {
+    if (_cookiesCaptured || !_ownsCaptureGeneration(generation)) return;
 
     var didComplete = false;
     Object? pendingError;
@@ -531,16 +725,35 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     ProxyAuthCaptureRequest? nextRequest;
 
     try {
+      if (!await _isControllerOnTargetOrigin()) {
+        if (!_ownsCaptureGeneration(generation)) return;
+        _isOnTargetServer = false;
+        return;
+      }
+      if (!_ownsCaptureGeneration(generation)) return;
+
       final serverUrl = widget.config.serverConfig.url;
-      DebugLogger.auth('Capturing proxy cookies for $serverUrl');
+      DebugLogger.auth(
+        'Capturing proxy cookies for ${webViewOriginForLog(serverUrl)}',
+        scope: 'auth/proxy',
+      );
 
       // Get cookies from native cookie store
-      final cookies = await NativeCookieManager.getCookiesForUrl(serverUrl);
+      final cookies = await NativeCookieManager.getCookiesForUrl(
+        proxyCookieLookupUrl(serverUrl),
+      );
 
-      if (!mounted) return;
+      if (!_ownsCaptureGeneration(generation)) return;
+      if (!await _isControllerOnTargetOrigin()) {
+        if (!_ownsCaptureGeneration(generation)) return;
+        _isOnTargetServer = false;
+        return;
+      }
+      if (!_ownsCaptureGeneration(generation)) return;
 
       DebugLogger.auth(
-        'Captured ${cookies.length} cookies: ${cookies.keys.toList()}',
+        'Captured ${cookies.length} proxy cookies',
+        scope: 'auth/proxy',
       );
 
       if (cookies.isEmpty) {
@@ -554,6 +767,13 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       // This happens when oauth2-proxy sets X-Forwarded-Email and OpenWebUI
       // auto-creates/logs in the user
       final jwtToken = await _tryCaptureJwtTokenWithRetry();
+      if (!_ownsCaptureGeneration(generation)) return;
+      if (!await _isControllerOnTargetOrigin()) {
+        if (!_ownsCaptureGeneration(generation)) return;
+        _isOnTargetServer = false;
+        return;
+      }
+      if (!_ownsCaptureGeneration(generation)) return;
       final decision = decideProxyAuthCapture(
         activeRequest: request,
         queuedRequest: _captureQueue.queuedRequest,
@@ -564,15 +784,17 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         case ProxyAuthCaptureDecision.deferToQueuedRequest:
           DebugLogger.auth(
             'Deferring proxy auth completion to a newer queued request',
+            scope: 'auth/proxy',
           );
           break;
         case ProxyAuthCaptureDecision.waitForJwt:
           DebugLogger.auth(
             'JWT token not available yet - keeping proxy auth page open',
+            scope: 'auth/proxy',
           );
           break;
         case ProxyAuthCaptureDecision.complete:
-          if (!mounted) return;
+          if (!mounted || !_ownsCaptureGeneration(generation)) return;
 
           _cookiesCaptured = true;
           didComplete = true;
@@ -586,29 +808,41 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
           );
       }
     } catch (e, stackTrace) {
+      if (!_ownsCaptureGeneration(generation)) return;
       pendingError = e;
       pendingStackTrace = stackTrace;
-      DebugLogger.warning('Cookie capture failed: $e', scope: 'auth/proxy');
-    } finally {
-      nextRequest = _captureQueue.finish(
-        completed: didComplete || _cookiesCaptured,
+      DebugLogger.warning(
+        'Cookie capture failed',
+        scope: 'auth/proxy',
+        data: {'errorType': e.runtimeType.toString()},
       );
+    } finally {
+      if (_ownsCaptureGeneration(generation)) {
+        nextRequest = _captureQueue.finish(
+          completed: didComplete || _cookiesCaptured,
+        );
+      }
     }
 
-    if (nextRequest != null && !_cookiesCaptured && mounted) {
+    if (nextRequest != null &&
+        !_cookiesCaptured &&
+        _ownsCaptureGeneration(generation)) {
       await _requestProxyCookieCapture(nextRequest);
     }
 
     if (pendingError != null &&
         pendingStackTrace != null &&
-        !_cookiesCaptured) {
+        !_cookiesCaptured &&
+        _ownsCaptureGeneration(generation)) {
       Error.throwWithStackTrace(pendingError, pendingStackTrace);
     }
   }
 
-  Future<ProxyAuthCaptureRequest> _buildAutomaticCaptureRequest(
+  Future<ProxyAuthCaptureRequest?> _buildAutomaticCaptureRequest(
     String url,
+    int generation,
   ) async {
+    if (!_ownsCaptureDocument(generation, url)) return null;
     final path = Uri.tryParse(url)?.path ?? '/';
     if (_automaticCaptureRequiresJwt) {
       return ProxyAuthCaptureRequest.automatic(
@@ -620,10 +854,12 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     final currentPageShouldWait = await _shouldWaitForAutomaticProxyAuthCapture(
       path,
     );
-    final shouldWaitForJwt = shouldRequireJwtForAutomaticCapture(
+    final shouldWaitForJwt = resolveProxyAuthJwtRequirement(
+      ownsDocument: _ownsCaptureDocument(generation, url),
       hasPendingJwtWait: _automaticCaptureRequiresJwt,
       currentPageShouldWait: currentPageShouldWait,
     );
+    if (shouldWaitForJwt == null) return null;
     if (shouldWaitForJwt) {
       _automaticCaptureRequiresJwt = true;
     }
@@ -637,7 +873,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   Future<bool> _shouldWaitForAutomaticProxyAuthCapture(String path) async {
     if (path.toLowerCase().contains('/oauth/')) {
       DebugLogger.auth(
-        'Automatic proxy auth capture waiting for JWT on OAuth route: $path',
+        'Automatic proxy auth capture waiting for JWT on OAuth route',
+        scope: 'auth/proxy',
       );
       return true;
     }
@@ -651,7 +888,8 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
 
       if (!shouldWait) {
         DebugLogger.auth(
-          'Automatic proxy auth capture can complete without JWT on $path',
+          'Automatic proxy auth capture can complete without JWT',
+          scope: 'auth/proxy',
         );
         return false;
       }
@@ -662,13 +900,17 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       }
     }
 
-    DebugLogger.auth('Automatic proxy auth capture waiting for JWT on $path');
+    DebugLogger.auth(
+      'Automatic proxy auth capture waiting for JWT',
+      scope: 'auth/proxy',
+    );
     return true;
   }
 
   Future<bool> _currentPageHasPasswordField() async {
     final controller = _controller;
     if (controller == null || !mounted) return false;
+    if (!await _isControllerOnTargetOrigin()) return false;
 
     try {
       final result = await controller.evaluateJavascript(
@@ -681,12 +923,13 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted) return false;
+      if (!mounted || !await _isControllerOnTargetOrigin()) return false;
       return result.toString().contains('true');
     } catch (e) {
       DebugLogger.log(
-        'Password field detection failed: ${e.toString().split('\n').first}',
+        'Password field detection failed',
         scope: 'auth/proxy',
+        data: {'errorType': e.runtimeType.toString()},
       );
       return false;
     }
@@ -715,6 +958,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   Future<String?> _tryCaptureJwtToken() async {
     final controller = _controller;
     if (controller == null || !mounted) return null;
+    if (!await _isControllerOnTargetOrigin()) return null;
 
     // Strategy 1: Check token cookie
     try {
@@ -733,24 +977,26 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         ''',
       );
 
-      if (!mounted) return null;
+      if (!mounted || !await _isControllerOnTargetOrigin()) return null;
 
       String tokenValue = _cleanJsString(cookieResult.toString());
       if (_isValidJwtFormat(tokenValue)) {
         DebugLogger.auth(
           'Found JWT token in cookie - user already authenticated via '
           'trusted headers',
+          scope: 'auth/proxy',
         );
         return tokenValue;
       }
     } catch (e) {
       DebugLogger.log(
-        'Cookie JWT check failed: ${e.toString().split('\n').first}',
+        'Cookie JWT check failed',
         scope: 'auth/proxy',
+        data: {'errorType': e.runtimeType.toString()},
       );
     }
 
-    if (!mounted) return null;
+    if (!mounted || !await _isControllerOnTargetOrigin()) return null;
 
     // Strategy 2: Check localStorage
     try {
@@ -758,28 +1004,52 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
         source: 'localStorage.getItem("token")',
       );
 
-      if (!mounted) return null;
+      if (!mounted || !await _isControllerOnTargetOrigin()) return null;
 
       String tokenValue = _cleanJsString(result.toString());
       if (_isValidJwtFormat(tokenValue)) {
         DebugLogger.auth(
           'Found JWT token in localStorage - user already authenticated via '
           'trusted headers',
+          scope: 'auth/proxy',
         );
         return tokenValue;
       }
     } catch (e) {
       DebugLogger.log(
-        'localStorage JWT check failed: ${e.toString().split('\n').first}',
+        'localStorage JWT check failed',
         scope: 'auth/proxy',
+        data: {'errorType': e.runtimeType.toString()},
       );
     }
 
     DebugLogger.auth(
       'No JWT token found - proxy may not use trusted headers, '
       'will proceed to normal sign-in',
+      scope: 'auth/proxy',
     );
     return null;
+  }
+
+  Future<bool> _isControllerOnTargetOrigin() async {
+    final controller = _controller;
+    if (controller == null || !mounted) return false;
+
+    try {
+      final currentUrl = await controller.getUrl();
+      return currentUrl != null &&
+          isTrustedProxyCredentialCaptureUrl(
+            pageUrl: currentUrl.toString(),
+            serverUrl: widget.config.serverConfig.url,
+          );
+    } catch (error) {
+      DebugLogger.log(
+        'Unable to verify proxy WebView origin before credential capture',
+        scope: 'auth/proxy',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return false;
+    }
   }
 
   String _cleanJsString(String value) {
@@ -808,8 +1078,7 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       'proxy-webview-error',
       scope: 'auth/proxy',
       data: {
-        'url': request.url.toString(),
-        'description': error.description,
+        'origin': webViewOriginForLog(request.url.toString()),
         'errorType': error.type.toString(),
       },
     );
@@ -827,38 +1096,71 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
     NavigationAction request,
   ) async {
     final url = request.request.url;
-    DebugLogger.auth('Proxy auth navigation request: $url');
+    DebugLogger.auth(
+      'Proxy auth navigation request: ${webViewOriginForLog(url?.toString())}',
+      scope: 'auth/proxy',
+    );
     return NavigationActionPolicy.ALLOW;
   }
 
   Future<void> _refresh() async {
-    final controller = _controller;
-    if (controller == null || !mounted) return;
-
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _cookiesCaptured = false;
-      _isOnTargetServer = false;
-    });
-    _captureQueue.reset();
-    _automaticCaptureRequiresJwt = false;
-
     if (!mounted) return;
+    // Invalidate in-flight cookie/JWT work before any reload await. Its
+    // finally block must not finish or mutate the fresh queue.
+    _invalidateCaptureQueue();
 
-    await controller.loadUrl(
-      urlRequest: URLRequest(url: WebUri(widget.config.serverConfig.url)),
-    );
+    try {
+      await refreshProxyAuthWebView<InAppWebViewController>(
+        controller: _controller,
+        initialize: _initializeWebView,
+        reload: (controller) async {
+          if (!mounted) return;
+          setState(() {
+            _isLoading = true;
+            _error = null;
+            _cookiesCaptured = false;
+            _isOnTargetServer = false;
+          });
+          _automaticCaptureRequiresJwt = false;
+
+          if (!mounted) return;
+          await controller.loadUrl(
+            urlRequest: URLRequest(url: WebUri(widget.config.serverConfig.url)),
+          );
+        },
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'proxy-webview-refresh-load-failed',
+        scope: 'auth/proxy',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = 'The sign-in page could not be reloaded. Please retry.';
+        _isLoading = false;
+      });
+    }
   }
 
   /// Manual completion button for when auto-detection doesn't work.
   Future<void> _manualComplete() async {
     try {
       await _requestProxyCookieCapture(const ProxyAuthCaptureRequest.manual());
-    } catch (e) {
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'manual-proxy-capture-failed',
+        scope: 'auth/proxy',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'errorType': error.runtimeType.toString()},
+      );
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error =
+            'The proxy sign-in session could not be captured. '
+            'Please retry or continue manually.';
       });
     }
   }

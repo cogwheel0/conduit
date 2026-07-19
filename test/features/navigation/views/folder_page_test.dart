@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/models/chat_message.dart';
@@ -16,6 +19,7 @@ import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/navigation/views/folder_page.dart';
 import 'package:conduit/features/tools/providers/tools_providers.dart';
@@ -32,6 +36,130 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
+  test('pasted attachments acknowledge before terminal uploads', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_folder_paste_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final first = File('${directory.path}/first.png');
+    final second = File('${directory.path}/second.png');
+    await first.writeAsBytes([1]);
+    await second.writeAsBytes([2, 3]);
+    final uploads = <String>[];
+    final firstTerminal = Completer<void>();
+    final secondTerminal = Completer<void>();
+    addTearDown(() {
+      if (!firstTerminal.isCompleted) firstTerminal.complete();
+      if (!secondTerminal.isCompleted) secondTerminal.complete();
+    });
+    List<LocalAttachment>? added;
+    final attachments = [
+      LocalAttachment(file: first, displayName: 'first.png'),
+      LocalAttachment(file: second, displayName: 'second.png'),
+    ];
+
+    await acceptFolderPastedAttachments(
+      attachments: attachments,
+      addFiles: (value) => added = value,
+      upload: (attachment, fileSize) {
+        uploads.add('${attachment.displayName}:$fileSize');
+        return attachment.file.path == first.path
+            ? firstTerminal.future
+            : secondTerminal.future;
+      },
+      rollback: (_) async {
+        throw StateError('successful preparation must not roll back');
+      },
+    ).timeout(const Duration(seconds: 1));
+
+    check(added).identicalTo(attachments);
+    check(uploads).deepEquals(['first.png:1', 'second.png:2']);
+    check(firstTerminal.isCompleted).isFalse();
+    check(secondTerminal.isCompleted).isFalse();
+  });
+
+  test('pasted size failure rolls back ownership and staged files', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_folder_paste_rollback_',
+    );
+    addTearDown(() async {
+      if (await directory.exists()) await directory.delete(recursive: true);
+    });
+    final staged = File('${directory.path}/staged.png');
+    await staged.writeAsBytes([1]);
+    final missing = File('${directory.path}/missing.png');
+    final attachments = <LocalAttachment>[
+      LocalAttachment(file: staged, displayName: 'staged.png'),
+      LocalAttachment(file: missing, displayName: 'missing.png'),
+    ];
+    final visible = <LocalAttachment>[];
+    final rolledBack = <String>[];
+    var uploadCalls = 0;
+
+    await check(
+      acceptFolderPastedAttachments(
+        attachments: attachments,
+        addFiles: visible.addAll,
+        upload: (_, _) async => uploadCalls++,
+        rollback: (attachment) async {
+          visible.removeWhere(
+            (current) => current.file.path == attachment.file.path,
+          );
+          rolledBack.add(attachment.displayName);
+          if (await attachment.file.exists()) {
+            await attachment.file.delete();
+          }
+        },
+      ),
+    ).throws<FileSystemException>();
+
+    check(visible).isEmpty();
+    check(rolledBack).deepEquals(['staged.png', 'missing.png']);
+    check(uploadCalls).equals(0);
+    check(await staged.exists()).isFalse();
+  });
+
+  test('oversized pasted image rolls back before upload preparation', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_folder_paste_oversized_',
+    );
+    addTearDown(() async {
+      if (await directory.exists()) await directory.delete(recursive: true);
+    });
+    final oversized = File('${directory.path}/oversized.png');
+    final handle = await oversized.open(mode: FileMode.write);
+    try {
+      await handle.truncate(20 * 1024 * 1024 + 1);
+    } finally {
+      await handle.close();
+    }
+    final attachment = LocalAttachment(
+      file: oversized,
+      displayName: 'oversized.png',
+    );
+    final visible = <LocalAttachment>[];
+    var uploadCalls = 0;
+
+    await expectLater(
+      acceptFolderPastedAttachments(
+        attachments: <LocalAttachment>[attachment],
+        addFiles: visible.addAll,
+        upload: (_, _) async => uploadCalls++,
+        rollback: (value) async {
+          visible.removeWhere(
+            (current) => current.file.path == value.file.path,
+          );
+          if (await value.file.exists()) await value.file.delete();
+        },
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    check(visible).isEmpty();
+    check(uploadCalls).equals(0);
+    check(await oversized.exists()).isFalse();
+  });
+
   testWidgets('shows the chat-style top bar, folder header, and composer', (
     tester,
   ) async {

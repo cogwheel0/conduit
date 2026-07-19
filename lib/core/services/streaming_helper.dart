@@ -3565,6 +3565,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       sessionId: sessionId,
       messageId: assistantMessageId,
       requireFocus: false,
+      keepsAliveInBackground: true,
       handler: chatHandler,
     );
     if (localResourcesDisposed) {

@@ -544,6 +544,11 @@ class SyncEngine extends _$SyncEngine {
         envelope,
         debugLabel: 'pull.assembleConversation',
       ),
+      rowsParseOffload: (response) => workerManager.schedule(
+        parseChatRowsWorker,
+        response,
+        debugLabel: 'pull.normalizeChatRows',
+      ),
     );
   }
 

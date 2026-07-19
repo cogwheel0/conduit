@@ -142,6 +142,10 @@ class _StreamingMarkdownWidgetState
   _MarkdownRenderSnapshot _snapshot = const _MarkdownRenderSnapshot.empty();
   Timer? _debugStreamingDelayTimer;
   bool _snapshotInFlight = false;
+  bool _settledSnapshotInFlight = false;
+  bool _settledPreparationPending = false;
+  ({String content, int generation, bool clearStaleDocument})?
+  _pendingSettledSnapshot;
   bool _streamingRefreshFrameScheduled = false;
   String? _pendingStreamingContent;
   String? _selectedText;
@@ -167,11 +171,39 @@ class _StreamingMarkdownWidgetState
       isWidgetTest: () => _isWidgetTest,
       onStateChanged: _applyCompiledDocumentState,
     );
-    _snapshot = _buildMarkdownSnapshot(
+    final compiler = ref.read(markdownCompileServiceProvider);
+    if (compiler.shouldPrepareSynchronously(
       widget.content,
-      streaming: widget.isStreaming,
-    );
-    _resolveCompiledDocument(_snapshot);
+      widgetTest: _isWidgetTest,
+    )) {
+      _snapshot = _buildMarkdownSnapshot(
+        widget.content,
+        streaming: widget.isStreaming,
+      );
+      _resolveCompiledDocument(_snapshot);
+    } else if (widget.content.trim().isNotEmpty) {
+      // Long normalization performs several full-string passes. Keep it off
+      // the first UI frame and let the existing generation checks reject stale
+      // results if a stream advances before preparation completes.
+      if (widget.isStreaming) {
+        if (widget.content.length > markdownSynchronousPrepareThreshold) {
+          // Route a long initial snapshot through the same coalescing window as
+          // subsequent token updates. Starting it immediately would make the
+          // seed snapshot consume a worker slot even when a newer stream value
+          // arrives during the first frame.
+          _markPendingStreamingContent(widget.content);
+          _scheduleStreamingRefresh();
+        } else {
+          // Test doubles and platform-specific backends may still request the
+          // async path for small inputs. Those are cheap and should remain
+          // available on the initial frame.
+          unawaited(_refreshStreamingSnapshot(widget.content));
+        }
+      } else {
+        final generation = ++_snapshotGeneration;
+        _queueSettledSnapshot(widget.content, generation: generation);
+      }
+    }
   }
 
   @override
@@ -198,14 +230,29 @@ class _StreamingMarkdownWidgetState
 
     if (!widget.isStreaming) {
       _invalidatePendingAsyncSnapshot();
-      _applyPreparedSnapshotIfNeeded(
-        prepareMarkdownContent(widget.content, streaming: false),
-        // A scope change means a new message/version, not a continuation of the
-        // current content. Clear the stale document so the previous scope's
-        // content isn't shown while the new body compiles (the skeleton covers
-        // the gap instead). Same-scope growth keeps its document (issue #540).
-        clearStaleDocument: scopeChanged,
-      );
+      final compiler = ref.read(markdownCompileServiceProvider);
+      if (compiler.shouldPrepareSynchronously(
+        widget.content,
+        widgetTest: _isWidgetTest,
+      )) {
+        _settledPreparationPending = false;
+        _applyPreparedSnapshotIfNeeded(
+          prepareMarkdownContent(widget.content, streaming: false),
+          // A scope change means a new message/version, not a continuation of
+          // the current content. Clear stale content while the new body compiles.
+          clearStaleDocument: scopeChanged,
+        );
+      } else {
+        if (scopeChanged) {
+          _documentController.clearDocument();
+        }
+        final generation = _snapshotGeneration;
+        _queueSettledSnapshot(
+          widget.content,
+          generation: generation,
+          clearStaleDocument: scopeChanged,
+        );
+      }
       return;
     }
 
@@ -236,6 +283,12 @@ class _StreamingMarkdownWidgetState
     // let the old document paint for one frame under the new scope (#541). The
     // scheduled refresh below then compiles the new content. (The sync paths
     // above clear/replace the document synchronously and don't need this.)
+    // A settled preparation may still be running from the previous widget
+    // state. Its generation check prevents publication, while clearing its
+    // queued successor and loading flag keeps streaming blank until its own
+    // snapshot is ready (streaming must never show the settled skeleton).
+    _pendingSettledSnapshot = null;
+    _settledPreparationPending = false;
     if (scopeChanged) {
       _documentController.clearDocument();
     }
@@ -289,6 +342,8 @@ class _StreamingMarkdownWidgetState
     _debugStreamingDelayTimer?.cancel();
     _debugStreamingDelayTimer = null;
     _pendingStreamingContent = null;
+    _pendingSettledSnapshot = null;
+    _settledPreparationPending = false;
     _snapshotGeneration += 1;
     _documentController.invalidatePending();
   }
@@ -382,6 +437,81 @@ class _StreamingMarkdownWidgetState
     }
   }
 
+  Future<void> _refreshSettledSnapshot(
+    String content, {
+    required int generation,
+    bool clearStaleDocument = false,
+  }) async {
+    String preparedContent;
+    try {
+      preparedContent = await ref
+          .read(markdownCompileServiceProvider)
+          .prepareContent(content, streaming: false);
+    } catch (_) {
+      // Preserve rendering if the long-lived worker is unavailable. The
+      // service normally handles this fallback itself; this also protects test
+      // doubles and unexpected disposal races.
+      preparedContent = prepareMarkdownContent(content, streaming: false);
+    }
+    if (!mounted ||
+        generation != _snapshotGeneration ||
+        widget.isStreaming ||
+        widget.content != content) {
+      return;
+    }
+
+    final needsUpdate = _needsPreparedSnapshotUpdate(preparedContent);
+    _settledPreparationPending = false;
+    if (needsUpdate) {
+      _applyPreparedSnapshotIfNeeded(
+        preparedContent,
+        clearStaleDocument: clearStaleDocument,
+      );
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _queueSettledSnapshot(
+    String content, {
+    required int generation,
+    bool clearStaleDocument = false,
+  }) {
+    final previous = _pendingSettledSnapshot;
+    _pendingSettledSnapshot = (
+      content: content,
+      generation: generation,
+      clearStaleDocument:
+          clearStaleDocument || (previous?.clearStaleDocument ?? false),
+    );
+    _settledPreparationPending = true;
+    if (!_settledSnapshotInFlight) {
+      unawaited(_drainSettledSnapshots());
+    }
+  }
+
+  Future<void> _drainSettledSnapshots() async {
+    if (_settledSnapshotInFlight) return;
+    _settledSnapshotInFlight = true;
+    try {
+      while (mounted) {
+        final pending = _pendingSettledSnapshot;
+        if (pending == null) break;
+        _pendingSettledSnapshot = null;
+        await _refreshSettledSnapshot(
+          pending.content,
+          generation: pending.generation,
+          clearStaleDocument: pending.clearStaleDocument,
+        );
+      }
+    } finally {
+      _settledSnapshotInFlight = false;
+      if (mounted && _pendingSettledSnapshot != null) {
+        unawaited(_drainSettledSnapshots());
+      }
+    }
+  }
+
   void _applySnapshot(
     _MarkdownRenderSnapshot nextSnapshot, {
     bool clearStaleDocument = false,
@@ -429,6 +559,9 @@ class _StreamingMarkdownWidgetState
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
     if (snapshot.normalizedContent.trim().isEmpty) {
+      if (_settledPreparationPending && widget.content.trim().isNotEmpty) {
+        return MarkdownLoadingSkeleton(contentLength: widget.content.length);
+      }
       return const SizedBox.shrink();
     }
 
@@ -460,13 +593,15 @@ class _StreamingMarkdownWidgetState
       child: _buildMarkdownDisplayParts(compiledDocument),
     );
 
-    // Only wrap in SelectionArea when not streaming AND the rendered document is
-    // fresh for the current content. A stale-but-valid document shown during
-    // ongoing updates (the responseDone-gap growing-content path that #540's fix
-    // now keeps on screen) must not be made selectable: SelectionArea over
-    // rapidly-changing content triggers concurrent-modification errors in
-    // Flutter's selection system. It becomes selectable once the compile settles.
-    if (widget.isStreaming || !hasFreshCompiledDocument) {
+    // Only wrap in SelectionArea when not streaming, no settled normalization
+    // is pending, AND the rendered document is fresh for the current content.
+    // A stale/equivalent document shown during ongoing updates (the
+    // responseDone-gap growing-content path that #540's fix now keeps on screen)
+    // must not be made selectable: SelectionArea over rapidly-changing content
+    // triggers concurrent-modification errors in Flutter's selection system.
+    if (widget.isStreaming ||
+        _settledPreparationPending ||
+        !hasFreshCompiledDocument) {
       return result;
     }
 
@@ -690,6 +825,7 @@ class _StreamingMarkdownWidgetState
     // Rebuild so the freshly compiled document (or a cleared document) is
     // reflected. Any stale document already on screen is superseded here.
     setState(() {});
+    scheduleEmbeddedPreviewEligibilityRecheck();
   }
 }
 

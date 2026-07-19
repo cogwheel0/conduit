@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,48 +21,38 @@ import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/network/self_signed_image_cache_manager.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/image_attachment_cache_service.dart';
 import '../../../core/services/performance_profiler.dart';
 import '../../../core/services/worker_manager.dart';
 
+export '../../../core/services/image_attachment_cache_service.dart'
+    show
+        ImageAttachmentCacheScope,
+        debugDecodedImageAttachmentByteBudget,
+        debugDecodedImageAttachmentCount,
+        debugDecodedImageAttachmentWeight,
+        debugHasDecodedImageAttachment,
+        debugHasImageAttachmentError,
+        debugHasResolvedImageAttachment,
+        debugResetImageAttachmentCaches,
+        debugResolvedImageAttachmentCount,
+        debugSeedImageAttachmentError,
+        debugSeedResolvedImageAttachment,
+        imageAttachmentCacheLifecycleProvider,
+        preCacheImageBytes;
+
 final _base64WhitespacePattern = RegExp(r'\s');
-final _imageAttachmentCaches = _ImageAttachmentCaches();
-
-/// Pre-cache image bytes for instant display after upload.
-/// Call this with the server file ID and image bytes after successful upload.
-void preCacheImageBytes(String fileId, Uint8List bytes) {
-  if (fileId.isEmpty || bytes.isEmpty) return;
-  _imageAttachmentCaches.cacheBytes(fileId, bytes);
-}
-
-@visibleForTesting
-void debugResetImageAttachmentCaches() => _imageAttachmentCaches.clear();
-
-@visibleForTesting
-void debugSeedResolvedImageAttachment(
-  String attachmentId,
-  String resolvedData,
-) {
-  _imageAttachmentCaches.debugSeedResolvedData(attachmentId, resolvedData);
-}
-
-@visibleForTesting
-bool debugHasResolvedImageAttachment(String attachmentId) {
-  return _imageAttachmentCaches.hasResolvedData(attachmentId);
-}
-
-@visibleForTesting
-bool debugHasDecodedImageAttachment(String attachmentId) {
-  return _imageAttachmentCaches.hasDecodedBytes(attachmentId);
-}
 
 @visibleForTesting
 Future<void> debugDecodeCachedResolvedImageAttachment({
   required String attachmentId,
   required WorkerManager workerManager,
+  ImageAttachmentCacheScope? scope,
 }) async {
-  await _imageAttachmentCaches.decodeCachedResolvedDataForTesting(
+  await _imageAttachmentLoader.decodeCachedResolvedDataForTesting(
     attachmentId: attachmentId,
     workerManager: workerManager,
+    scope: scope,
   );
 }
 
@@ -72,17 +61,20 @@ Future<String?> debugDecodeCachedResolvedImageAttachmentError({
   required String attachmentId,
   required WorkerManager workerManager,
   required AppLocalizations l10n,
+  ImageAttachmentCacheScope? scope,
 }) async {
   final result = await _guardImageLoadFailure(
     attachmentId: attachmentId,
+    cacheScope: scope,
     l10n: l10n,
     load: () async {
-      await _imageAttachmentCaches.decodeCachedResolvedDataForTesting(
+      await _imageAttachmentLoader.decodeCachedResolvedDataForTesting(
         attachmentId: attachmentId,
         workerManager: workerManager,
+        scope: scope,
       );
-      return _imageAttachmentCaches.readCached(attachmentId) ??
-          const _ImageLoadResult(isSvg: false);
+      return imageAttachmentCacheStore.read(attachmentId, scope: scope) ??
+          const ImageAttachmentCacheEntry(isSvg: false);
     },
   );
   return result.error;
@@ -93,23 +85,22 @@ Future<String?> debugLoadImageAttachmentError({
   required String attachmentId,
   required WorkerManager workerManager,
   required AppLocalizations l10n,
+  ApiService? api,
+  ImageAttachmentCacheScope? scope,
 }) async {
   final result = await _guardImageLoadFailure(
     attachmentId: attachmentId,
+    cacheScope: scope,
     l10n: l10n,
-    load: () => _imageAttachmentCaches.load(
+    load: () => _imageAttachmentLoader.load(
       attachmentId: attachmentId,
       workerManager: workerManager,
-      api: null,
+      api: api,
       l10n: l10n,
+      cacheScope: scope,
     ),
   );
   return result.error;
-}
-
-@visibleForTesting
-int debugResolvedImageAttachmentCount() {
-  return _imageAttachmentCaches.resolvedDataCount;
 }
 
 Uint8List _decodeImageData(String data) {
@@ -126,192 +117,63 @@ Uint8List _decodeImageData(String data) {
 }
 
 /// Checks if data URL or content indicates SVG format.
-bool _isSvgDataUrl(String data) {
-  final lower = data.toLowerCase();
-  return lower.startsWith('data:image/svg+xml');
-}
+bool _isSvgDataUrl(String data) => imageAttachmentDataIsSvg(data);
 
 /// Checks if a URL points to an SVG file.
-bool _isSvgUrl(String url) {
-  final lowerUrl = url.toLowerCase();
-
-  // Check for .svg file extension (with or without query string)
-  final queryIndex = lowerUrl.indexOf('?');
-  final pathPart = queryIndex >= 0
-      ? lowerUrl.substring(0, queryIndex)
-      : lowerUrl;
-  if (pathPart.endsWith('.svg')) return true;
-
-  // Check for SVG MIME type in query parameters only (not in path)
-  // This handles cases like ?format=image/svg+xml or &type=image/svg+xml
-  if (queryIndex >= 0) {
-    final queryPart = lowerUrl.substring(queryIndex);
-    if (queryPart.contains('image/svg+xml')) return true;
-  }
-
-  return false;
-}
+bool _isSvgUrl(String url) => imageAttachmentUrlIsSvg(url);
 
 /// Checks if decoded bytes represent SVG content by looking for the SVG tag.
-bool _isSvgBytes(Uint8List bytes) {
-  // Check first 1KB for SVG tag (not just XML declaration, which is too broad)
-  final checkLength = bytes.length < 1024 ? bytes.length : 1024;
-  final header = utf8.decode(
-    bytes.sublist(0, checkLength),
-    allowMalformed: true,
+bool _isSvgBytes(Uint8List bytes) => imageAttachmentBytesAreSvg(bytes);
+
+bool _isRemoteContentValue(String data) => imageAttachmentContentIsRemote(data);
+
+typedef _ImageLoadResult = ImageAttachmentCacheEntry;
+const _imageAttachmentLoader = _ImageAttachmentLoader();
+
+class _ImageAttachmentLoader {
+  const _ImageAttachmentLoader();
+
+  _ImageLoadResult? readCached(
+    String attachmentId, {
+    ImageAttachmentCacheScope? scope,
+  }) => imageAttachmentCacheStore.read(attachmentId, scope: scope);
+
+  void cacheBytes(
+    String attachmentId,
+    Uint8List bytes, {
+    ImageAttachmentCacheScope? scope,
+    bool? isSvg,
+  }) => imageAttachmentCacheStore.cacheBytes(
+    attachmentId,
+    bytes,
+    scope: scope,
+    isSvg: isSvg,
   );
-  return header.toLowerCase().contains('<svg');
-}
 
-bool _isRemoteContentValue(String data) => data.startsWith('http');
+  void cacheError(
+    String attachmentId,
+    String error, {
+    ImageAttachmentCacheScope? scope,
+  }) => imageAttachmentCacheStore.cacheError(attachmentId, error, scope: scope);
 
-class _LruCache<K, V> {
-  _LruCache({required this.maxEntries});
-
-  final int maxEntries;
-  final LinkedHashMap<K, V> _entries = LinkedHashMap<K, V>();
-
-  V? read(K key) {
-    final value = _entries.remove(key);
-    if (value == null) {
-      return null;
-    }
-    _entries[key] = value;
-    return value;
-  }
-
-  void write(K key, V value) {
-    _entries.remove(key);
-    _entries[key] = value;
-    while (_entries.length > maxEntries) {
-      _entries.remove(_entries.keys.first);
-    }
-  }
-
-  void remove(K key) {
-    _entries.remove(key);
-  }
-
-  void removeIfSame(K key, V value) {
-    final existing = _entries[key];
-    if (identical(existing, value)) {
-      _entries.remove(key);
-    }
-  }
-
-  void clear() {
-    _entries.clear();
-  }
-
-  bool containsKey(K key) => _entries.containsKey(key);
-
-  int get length => _entries.length;
-}
-
-class _ImageLoadResult {
-  const _ImageLoadResult({
-    this.resolvedData,
-    this.bytes,
-    this.error,
-    required this.isSvg,
-  });
-
-  final String? resolvedData;
-  final Uint8List? bytes;
-  final String? error;
-  final bool isSvg;
-
-  bool get hasContent => resolvedData != null || bytes != null || error != null;
-  bool get needsDecode =>
-      error == null &&
-      bytes == null &&
-      resolvedData != null &&
-      !_isRemoteContentValue(resolvedData!);
-}
-
-class _ImageAttachmentCaches {
-  _ImageAttachmentCaches();
-
-  static const int _resolvedDataEntries = 80;
-  static const int _byteEntries = 48;
-  static const int _metadataEntries = 96;
-  static const int _errorEntries = 48;
-  static const int _inFlightEntries = 24;
-
-  final _LruCache<String, String> _resolvedData = _LruCache<String, String>(
-    maxEntries: _resolvedDataEntries,
+  void _cacheResolvedData(
+    String attachmentId,
+    String resolvedData, {
+    required bool isSvg,
+    ImageAttachmentCacheScope? scope,
+  }) => imageAttachmentCacheStore.cacheResolvedData(
+    attachmentId,
+    resolvedData,
+    isSvg: isSvg,
+    scope: scope,
   );
-  final _LruCache<String, Uint8List> _decodedBytes =
-      _LruCache<String, Uint8List>(maxEntries: _byteEntries);
-  final _LruCache<String, bool> _svgFlags = _LruCache<String, bool>(
-    maxEntries: _metadataEntries,
-  );
-  final _LruCache<String, String> _errors = _LruCache<String, String>(
-    maxEntries: _errorEntries,
-  );
-  final _LruCache<String, Future<_ImageLoadResult>> _inFlightLoads =
-      _LruCache<String, Future<_ImageLoadResult>>(maxEntries: _inFlightEntries);
-
-  _ImageLoadResult? readCached(String attachmentId) {
-    final error = _errors.read(attachmentId);
-    if (error != null) {
-      return _ImageLoadResult(
-        error: error,
-        isSvg: _svgFlags.read(attachmentId) ?? false,
-      );
-    }
-
-    final data = _resolvedData.read(attachmentId);
-    final bytes = _decodedBytes.read(attachmentId);
-    final isSvg = _svgFlags.read(attachmentId) ?? false;
-    if (data == null && bytes == null) {
-      return null;
-    }
-    return _ImageLoadResult(resolvedData: data, bytes: bytes, isSvg: isSvg);
-  }
-
-  void cacheBytes(String attachmentId, Uint8List bytes) {
-    _errors.remove(attachmentId);
-    _decodedBytes.write(attachmentId, bytes);
-    _svgFlags.write(attachmentId, _isSvgBytes(bytes));
-  }
-
-  void cacheError(String attachmentId, String error) {
-    _errors.write(attachmentId, error);
-    _resolvedData.remove(attachmentId);
-    _decodedBytes.remove(attachmentId);
-    _svgFlags.remove(attachmentId);
-  }
-
-  void clear() {
-    _resolvedData.clear();
-    _decodedBytes.clear();
-    _svgFlags.clear();
-    _errors.clear();
-    _inFlightLoads.clear();
-  }
-
-  void debugSeedResolvedData(String attachmentId, String resolvedData) {
-    _errors.remove(attachmentId);
-    _resolvedData.write(attachmentId, resolvedData);
-    _svgFlags.write(attachmentId, _isSvgDataUrl(resolvedData));
-  }
-
-  bool hasResolvedData(String attachmentId) {
-    return _resolvedData.containsKey(attachmentId);
-  }
-
-  bool hasDecodedBytes(String attachmentId) {
-    return _decodedBytes.containsKey(attachmentId);
-  }
-
-  int get resolvedDataCount => _resolvedData.length;
 
   Future<_ImageLoadResult> decodeCachedResolvedDataForTesting({
     required String attachmentId,
     required WorkerManager workerManager,
+    ImageAttachmentCacheScope? scope,
   }) {
-    final cached = readCached(attachmentId);
+    final cached = readCached(attachmentId, scope: scope);
     if (cached == null || !cached.needsDecode || cached.resolvedData == null) {
       throw StateError(
         'No decodable cached resolved data exists for $attachmentId',
@@ -319,6 +181,7 @@ class _ImageAttachmentCaches {
     }
     return _decodeResolvedDataWithWorker(
       attachmentId: attachmentId,
+      cacheScope: scope,
       worker: workerManager,
       source: cached.resolvedData!,
       svgHint: cached.isSvg,
@@ -330,38 +193,25 @@ class _ImageAttachmentCaches {
     required WorkerManager workerManager,
     required ApiService? api,
     required AppLocalizations l10n,
+    ImageAttachmentCacheScope? cacheScope,
   }) {
-    final cached = readCached(attachmentId);
-    if (cached != null &&
-        (!cached.needsDecode || cached.bytes != null || cached.error != null)) {
-      return Future<_ImageLoadResult>.value(cached);
-    }
-
-    final inFlight = _inFlightLoads.read(attachmentId);
-    if (inFlight != null) {
-      return inFlight;
-    }
-
-    late final Future<_ImageLoadResult> future;
-    future = () async {
-      try {
-        return await _loadInternal(
-          attachmentId: attachmentId,
-          workerManager: workerManager,
-          api: api,
-          l10n: l10n,
-          cached: cached,
-        );
-      } finally {
-        _inFlightLoads.removeIfSame(attachmentId, future);
-      }
-    }();
-    _inFlightLoads.write(attachmentId, future);
-    return future;
+    return imageAttachmentCacheStore.load(
+      attachmentId,
+      scope: cacheScope,
+      loader: (cached) => _loadInternal(
+        attachmentId: attachmentId,
+        cacheScope: cacheScope,
+        workerManager: workerManager,
+        api: api,
+        l10n: l10n,
+        cached: cached,
+      ),
+    );
   }
 
   Future<_ImageLoadResult> _loadInternal({
     required String attachmentId,
+    required ImageAttachmentCacheScope? cacheScope,
     required WorkerManager workerManager,
     required ApiService? api,
     required AppLocalizations l10n,
@@ -374,6 +224,7 @@ class _ImageAttachmentCaches {
     if (cached?.needsDecode == true && cached?.resolvedData != null) {
       return _decodeResolvedData(
         attachmentId: attachmentId,
+        cacheScope: cacheScope,
         workerManager: workerManager,
         source: cached!.resolvedData!,
         svgHint: cached.isSvg,
@@ -383,10 +234,13 @@ class _ImageAttachmentCaches {
     if (attachmentId.startsWith('data:') || attachmentId.startsWith('http')) {
       final isSvgContent =
           _isSvgDataUrl(attachmentId) || _isSvgUrl(attachmentId);
-      _resolvedData.write(attachmentId, attachmentId);
-      _svgFlags.write(attachmentId, isSvgContent);
+      _cacheResolvedData(
+        attachmentId,
+        attachmentId,
+        isSvg: isSvgContent,
+        scope: cacheScope,
+      );
       if (_isRemoteContentValue(attachmentId)) {
-        _errors.remove(attachmentId);
         return _ImageLoadResult(
           resolvedData: attachmentId,
           isSvg: isSvgContent,
@@ -394,6 +248,7 @@ class _ImageAttachmentCaches {
       }
       return _decodeResolvedData(
         attachmentId: attachmentId,
+        cacheScope: cacheScope,
         workerManager: workerManager,
         source: attachmentId,
         svgHint: isSvgContent,
@@ -403,20 +258,24 @@ class _ImageAttachmentCaches {
     if (attachmentId.startsWith('/')) {
       if (api == null) {
         final error = l10n.unableToLoadImage;
-        cacheError(attachmentId, error);
+        // API availability is lifecycle state, not an immutable property of
+        // this attachment. Do not turn bootstrap/teardown into a process-long
+        // negative cache entry.
         return _ImageLoadResult(error: error, isSvg: false);
       }
       final fullUrl = api.baseUrl + attachmentId;
       final isSvgContent = _isSvgUrl(fullUrl);
-      _resolvedData.write(attachmentId, fullUrl);
-      _svgFlags.write(attachmentId, isSvgContent);
-      _errors.remove(attachmentId);
+      _cacheResolvedData(
+        attachmentId,
+        fullUrl,
+        isSvg: isSvgContent,
+        scope: cacheScope,
+      );
       return _ImageLoadResult(resolvedData: fullUrl, isSvg: isSvgContent);
     }
 
     if (api == null) {
       final error = l10n.apiUnavailable;
-      cacheError(attachmentId, error);
       return _ImageLoadResult(error: error, isSvg: false);
     }
 
@@ -441,15 +300,18 @@ class _ImageAttachmentCaches {
       final isImageByContentType = contentType.startsWith('image/');
       if (!isImageByExt && !isImageByContentType) {
         final error = l10n.notAnImageFile(fileName);
-        cacheError(attachmentId, error);
+        cacheError(attachmentId, error, scope: cacheScope);
         return _ImageLoadResult(error: error, isSvg: false);
       }
 
       final isSvgFile = ext == 'svg' || contentType.contains('svg');
       final fileContent = await api.getFileContent(attachmentId);
-      _resolvedData.write(attachmentId, fileContent);
-      _svgFlags.write(attachmentId, isSvgFile);
-      _errors.remove(attachmentId);
+      _cacheResolvedData(
+        attachmentId,
+        fileContent,
+        isSvg: isSvgFile,
+        scope: cacheScope,
+      );
 
       if (_isRemoteContentValue(fileContent)) {
         return _ImageLoadResult(resolvedData: fileContent, isSvg: isSvgFile);
@@ -457,25 +319,29 @@ class _ImageAttachmentCaches {
 
       return _decodeResolvedData(
         attachmentId: attachmentId,
+        cacheScope: cacheScope,
         workerManager: workerManager,
         source: fileContent,
         svgHint: isSvgFile,
       );
     } catch (error) {
       final message = l10n.failedToLoadImage(error.toString());
-      cacheError(attachmentId, message);
+      // File metadata/content requests can fail transiently. Return the error
+      // to this mounted caller but leave the shared cache retryable on remount.
       return _ImageLoadResult(error: message, isSvg: false);
     }
   }
 
   Future<_ImageLoadResult> _decodeResolvedData({
     required String attachmentId,
+    required ImageAttachmentCacheScope? cacheScope,
     required WorkerManager workerManager,
     required String source,
     required bool svgHint,
   }) async {
     return _decodeResolvedDataWithWorker(
       attachmentId: attachmentId,
+      cacheScope: cacheScope,
       worker: workerManager,
       source: source,
       svgHint: svgHint,
@@ -485,6 +351,7 @@ class _ImageAttachmentCaches {
 
 Future<_ImageLoadResult> _decodeResolvedDataWithWorker({
   required String attachmentId,
+  required ImageAttachmentCacheScope? cacheScope,
   required WorkerManager worker,
   required String source,
   required bool svgHint,
@@ -494,15 +361,19 @@ Future<_ImageLoadResult> _decodeResolvedDataWithWorker({
     source,
     debugLabel: 'decode_image',
   );
-  _imageAttachmentCaches.cacheBytes(attachmentId, bytes);
   final isSvg = _isSvgBytes(bytes) || _isSvgDataUrl(source) || svgHint;
-  _imageAttachmentCaches._svgFlags.write(attachmentId, isSvg);
-  _imageAttachmentCaches._errors.remove(attachmentId);
+  imageAttachmentCacheStore.cacheBytes(
+    attachmentId,
+    bytes,
+    scope: cacheScope,
+    isSvg: isSvg,
+  );
   return _ImageLoadResult(resolvedData: source, bytes: bytes, isSvg: isSvg);
 }
 
 Future<_ImageLoadResult> _guardImageLoadFailure({
   required String attachmentId,
+  ImageAttachmentCacheScope? cacheScope,
   required AppLocalizations l10n,
   required Future<_ImageLoadResult> Function() load,
 }) async {
@@ -510,7 +381,11 @@ Future<_ImageLoadResult> _guardImageLoadFailure({
     return await load();
   } catch (_) {
     final decodeError = l10n.failedToDecodeImage;
-    _imageAttachmentCaches.cacheError(attachmentId, decodeError);
+    imageAttachmentCacheStore.cacheError(
+      attachmentId,
+      decodeError,
+      scope: cacheScope,
+    );
     return _ImageLoadResult(error: decodeError, isSvg: false);
   }
 }
@@ -585,16 +460,25 @@ class _EnhancedImageAttachmentState
   bool _retryLoadScheduled = false;
   int _loadGeneration = 0;
   Timer? _retryLoadTimer;
+  ImageAttachmentCacheScope? _cacheScope;
 
   String get _profileImageKey =>
       widget.attachmentId.hashCode.toUnsigned(32).toRadixString(16);
 
+  // The process-wide byte-bounded cache preserves inexpensive remounts. Do not
+  // pin every image row and its decoded widget state in a virtualized chat list.
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => false;
 
   @override
   void initState() {
     super.initState();
+    _cacheScope = usesAccountScopedImageCache(widget.attachmentId)
+        ? ImageAttachmentCacheScope(
+            api: ref.read(apiServiceProvider),
+            authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider),
+          )
+        : null;
     _heroTag = 'image_${widget.attachmentId}_${identityHashCode(this)}';
     // Defer loading until after first frame to avoid accessing inherited widgets
     // (e.g., Localizations) during initState
@@ -675,7 +559,11 @@ class _EnhancedImageAttachmentState
       return;
     }
 
-    final cached = _imageAttachmentCaches.readCached(widget.attachmentId);
+    final requestScope = _cacheScope;
+    final cached = _imageAttachmentLoader.readCached(
+      widget.attachmentId,
+      scope: requestScope,
+    );
     if (cached != null) {
       _applyLoadResult(cached);
       if (!cached.needsDecode) {
@@ -710,15 +598,19 @@ class _EnhancedImageAttachmentState
       final l10n = AppLocalizations.of(context)!;
       final result = await _guardImageLoadFailure(
         attachmentId: widget.attachmentId,
+        cacheScope: requestScope,
         l10n: l10n,
-        load: () => _imageAttachmentCaches.load(
+        load: () => _imageAttachmentLoader.load(
           attachmentId: widget.attachmentId,
           workerManager: ref.read(workerManagerProvider),
-          api: ref.read(apiServiceProvider),
+          api: requestScope?.api,
           l10n: l10n,
+          cacheScope: requestScope,
         ),
       );
-      if (!mounted || requestGeneration != _loadGeneration) {
+      if (!mounted ||
+          requestGeneration != _loadGeneration ||
+          requestScope != _cacheScope) {
         return;
       }
 
@@ -786,6 +678,30 @@ class _EnhancedImageAttachmentState
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
+
+    // Literal data/HTTP sources do not consult the Open WebUI API, and their
+    // process-local cache key is already the literal itself. Avoid pulling the
+    // authenticated app graph into public/generated image rows; server file IDs
+    // still watch both ownership identities and reset immediately on a switch.
+    final currentScope = usesAccountScopedImageCache(widget.attachmentId)
+        ? ImageAttachmentCacheScope(
+            api: ref.watch(apiServiceProvider),
+            authSessionEpoch: ref.watch(openWebUiAuthSessionEpochProvider),
+          )
+        : null;
+    if (currentScope != _cacheScope) {
+      _cacheScope = currentScope;
+      _cachedImageData = null;
+      _cachedBytes = null;
+      _hasAttemptedLoad = false;
+      _isLoading = true;
+      _errorMessage = null;
+      _isSvg = false;
+      _loadGeneration += 1;
+      _retryLoadTimer?.cancel();
+      _loadScheduled = false;
+      _retryLoadScheduled = false;
+    }
 
     if (!_hasAttemptedLoad && !_loadScheduled) {
       _scheduleLoadIfNeeded();
@@ -971,12 +887,18 @@ class _EnhancedImageAttachmentState
       _cachedImageData!,
     );
     final headers = _mergeHeaders(defaultHeaders, widget.httpHeaders);
+    final networkCacheKey = buildImageCacheKeyForUrlFromWidgetRef(
+      ref,
+      _cachedImageData!,
+      effectiveHeaders: headers,
+    );
     final dimensions = _cacheDimensions(context);
 
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
     final imageWidget = CachedNetworkImage(
       key: ValueKey('image_${widget.attachmentId}'),
       imageUrl: _cachedImageData!,
+      cacheKey: networkCacheKey,
       fit: BoxFit.cover,
       cacheManager: cacheManager,
       httpHeaders: headers,
@@ -1009,12 +931,18 @@ class _EnhancedImageAttachmentState
       _cachedImageData!,
     );
     final headers = _mergeHeaders(defaultHeaders, widget.httpHeaders);
+    final networkCacheKey = buildImageCacheKeyForUrlFromWidgetRef(
+      ref,
+      _cachedImageData!,
+      effectiveHeaders: headers,
+    );
 
     final svgWidget = JovialSvgImage.network(
       _cachedImageData!,
       key: ValueKey('svg_${widget.attachmentId}'),
       fit: BoxFit.contain,
       headers: headers,
+      cacheIdentity: networkCacheKey,
       placeholderBuilder: (context) => _buildSkeletonPlaceholder(),
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = AppLocalizations.of(
@@ -1203,12 +1131,18 @@ class FullScreenImageViewer extends ConsumerWidget {
         imageData!,
       );
       final headers = _mergeHeaders(defaultHeaders, customHeaders);
+      final networkCacheKey = buildImageCacheKeyForUrlFromWidgetRef(
+        ref,
+        imageData!,
+        effectiveHeaders: headers,
+      );
 
       if (isSvg || _isSvgUrl(imageData!)) {
         imageWidget = JovialSvgImage.network(
           imageData!,
           fit: BoxFit.contain,
           headers: headers,
+          cacheIdentity: networkCacheKey,
           placeholderBuilder: (context) => Center(
             child: CircularProgressIndicator(
               color: context.conduitTheme.buttonPrimary,
@@ -1226,6 +1160,7 @@ class FullScreenImageViewer extends ConsumerWidget {
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
         imageWidget = CachedNetworkImage(
           imageUrl: imageData!,
+          cacheKey: networkCacheKey,
           fit: BoxFit.contain,
           cacheManager: cacheManager,
           httpHeaders: headers,

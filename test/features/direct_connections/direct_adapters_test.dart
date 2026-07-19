@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
@@ -13,6 +15,81 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'successful pooled completions reuse one keep-alive connection',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final remotePorts = <int>{};
+      final serverErrors = <Object>[];
+      var requestCount = 0;
+      final handledBoth = Completer<void>();
+      final subscription = server.listen((request) async {
+        try {
+          remotePorts.add(request.connectionInfo!.remotePort);
+          await request.drain<void>();
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..persistentConnection = true;
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+            charset: 'utf-8',
+          );
+          request.response.write(
+            'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+          );
+          request.response.write('data: [DONE]\n\n');
+          await request.response.close();
+        } catch (error) {
+          serverErrors.add(error);
+        } finally {
+          requestCount++;
+          if (requestCount == 2 && !handledBoth.isCompleted) {
+            handledBoth.complete();
+          }
+        }
+      });
+      final pool = DirectHttpClientPool();
+      final adapter = OpenAiCompatibleAdapter(clientPool: pool);
+      addTearDown(() async {
+        adapter.dispose();
+        pool.dispose();
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+      final profile = DirectConnectionProfile(
+        id: 'keep-alive-profile',
+        name: 'Keep alive',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'http://${server.address.address}:${server.port}/v1',
+      );
+      final request = DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      );
+
+      for (var index = 0; index < 2; index++) {
+        final run = adapter.startCompletion(profile, request);
+        final events = await run.events.toList().timeout(
+          const Duration(seconds: 5),
+        );
+        await run.done.timeout(const Duration(seconds: 5));
+        expect(events.whereType<DirectContentDelta>().single.content, 'ok');
+        expect(events.whereType<DirectStreamDone>(), hasLength(1));
+        expect(events.whereType<DirectStreamError>(), isEmpty);
+      }
+      await handledBoth.future.timeout(const Duration(seconds: 5));
+
+      expect(serverErrors, isEmpty, reason: 'responses must not be aborted');
+      expect(requestCount, 2);
+      expect(
+        remotePorts,
+        hasLength(1),
+        reason: 'both completions should share one accepted TCP connection',
+      );
+    },
+  );
+
   test(
     'adapters reject invalid completion limits before creating a client or run',
     () {
@@ -383,6 +460,44 @@ void main() {
       );
       expect(events.whereType<DirectStreamError>(), isEmpty);
       expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test(
+    'successful terminal drain is time-bounded despite heartbeats',
+    () async {
+      final http = _HeartbeatAdapter(
+        utf8.encode(
+          'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+          'data: [DONE]\n\n',
+        ),
+        contentType: 'text/event-stream',
+      );
+      final run =
+          OpenAiCompatibleAdapter(
+            dioFactory: (_) => _dio(http),
+            closeClients: false,
+            streamIdleTimeout: const Duration(seconds: 30),
+            streamMaxDuration: const Duration(minutes: 1),
+            successDrainTimeout: const Duration(milliseconds: 25),
+            maxSuccessDrainBytes: 64 * 1024 * 1024,
+          ).startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          );
+
+      final events = await run.events.toList().timeout(
+        const Duration(seconds: 1),
+      );
+      await run.done.timeout(const Duration(seconds: 1));
+
+      expect(events.whereType<DirectContentDelta>().single.content, 'ok');
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(http.sourceCancelled, isTrue);
     },
   );
 
@@ -1068,6 +1183,39 @@ void main() {
     expect(message, isNot(contains(headerSecret)));
     expect(message, isNot(contains('\u0000')));
     expect(message, contains('provider detail'));
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
+  test('OpenAI adapter redacts credentials from transport errors', () async {
+    const apiKey = 'transport-api-key-value';
+    const headerSecret = 'transport-header-value';
+    final http = _ThrowingAdapter(
+      StateError(
+        'Authorization: Bearer $apiKey; '
+        'X-Service-Token: $headerSecret',
+      ),
+    );
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _openAiProfile(
+        apiKey: apiKey,
+        customHeaders: const {'X-Service-Token': headerSecret},
+      ),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      ),
+    );
+
+    final events = await run.events.toList();
+    await run.done;
+
+    final message = events.whereType<DirectStreamError>().single.message;
+    expect(message, isNot(contains(apiKey)));
+    expect(message, isNot(contains(headerSecret)));
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 

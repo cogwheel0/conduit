@@ -86,6 +86,7 @@ class _FakeSocketService extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     void wrapped(

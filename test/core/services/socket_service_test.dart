@@ -33,6 +33,65 @@ void main() {
     expect(service.forceConnectCalls, isEmpty);
   });
 
+  test('best-effort connect observes a throwing socket factory', () async {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _flushMicrotasks();
+
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: (_, _, _) => throw StateError('factory failed'),
+    );
+    addTearDown(service.dispose);
+    final uncaughtErrors = <Object>[];
+
+    await runZonedGuarded<Future<void>>(() async {
+      service.connectBestEffort(reason: 'test-throwing-factory');
+      await _flushMicrotasks(4);
+    }, (error, _) => uncaughtErrors.add(error));
+
+    expect(uncaughtErrors, isEmpty);
+    await expectLater(service.connect(force: true), throwsA(isA<StateError>()));
+  });
+
+  test('a waiterless forced fallback reports its factory failure', () async {
+    final socketFactory = _RecordingSocketFactory();
+    var factoryCalls = 0;
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      websocketOnly: true,
+      socketFactory: (base, builder, config) {
+        factoryCalls++;
+        if (factoryCalls > 1) throw StateError('fallback factory failed');
+        return socketFactory.create(base, builder, config);
+      },
+    );
+    addTearDown(service.dispose);
+    final originalDebugPrint = debugPrint;
+    final messages = <String>[];
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) messages.add(message);
+    };
+    addTearDown(() => debugPrint = originalDebugPrint);
+
+    await service.connect();
+    socketFactory.sockets.single.emitReserved(
+      'connect_error',
+      StateError('websocket failed'),
+    );
+    await _flushMicrotasks(4);
+
+    expect(factoryCalls, 2);
+    expect(
+      messages.any(
+        (message) =>
+            message.contains('Best-effort socket operation failed') &&
+            message.contains('reason=websocket-polling-fallback'),
+      ),
+      isTrue,
+    );
+  });
+
   test('resuming from background forces a fresh socket connection', () async {
     final binding = TestWidgetsFlutterBinding.ensureInitialized();
     binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -97,6 +156,8 @@ void main() {
       expect(received, ['first']);
 
       final oldSocket = socketFactory.sockets.single;
+      oldSocket.emitReserved('connect');
+      await _flushMicrotasks(2);
       await service.connect(force: true);
       expect(socketFactory.sockets, hasLength(2));
 
@@ -106,6 +167,90 @@ void main() {
       expect(received, ['first', 'second']);
     },
   );
+
+  test('forced reconnects coalesce until the active attempt settles', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      authToken: 'session-token',
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    final firstSocket = socketFactory.sockets.single;
+    final firstSocketEvents = <String>[];
+    firstSocket.onAnyOutgoing(
+      (event, _) => firstSocketEvents.add(event.toString()),
+    );
+
+    final firstForced = service.connect(force: true);
+    final secondForced = service.connect(force: true);
+    await _flushMicrotasks(2);
+
+    // A force request cannot dispose or replace a negotiating socket.
+    expect(socketFactory.sockets, hasLength(1));
+    expect(service.socket, same(firstSocket));
+
+    firstSocket.emitReserved('connect');
+    await Future.wait([firstForced, secondForced]);
+    await _flushMicrotasks(2);
+
+    expect(socketFactory.sockets, hasLength(2));
+    expect(service.socket, same(socketFactory.sockets.last));
+    expect(firstSocketEvents, isNot(contains('user-join')));
+
+    // Events queued by the retired attempt cannot trigger another fallback
+    // or replace the fresh socket after ownership has moved on.
+    firstSocket.emitReserved('connect_error', StateError('stale failure'));
+    await _flushMicrotasks(2);
+    expect(socketFactory.sockets, hasLength(2));
+    expect(service.socket, same(socketFactory.sockets.last));
+  });
+
+  test('pausing during handshake allows a fresh socket on resume', () async {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _flushMicrotasks();
+
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    expect(socketFactory.sockets, hasLength(1));
+
+    // The test socket deliberately emits no disconnect terminal event while
+    // it is still negotiating.
+    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await _flushMicrotasks(2);
+
+    expect(socketFactory.sockets, hasLength(2));
+    expect(service.socket, same(socketFactory.sockets.last));
+  });
+
+  test('going offline during handshake allows a fresh socket online', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    expect(socketFactory.sockets, hasLength(1));
+
+    service.updateNetworkAvailability(false);
+    service.updateNetworkAvailability(true);
+    await _flushMicrotasks(2);
+
+    expect(socketFactory.sockets, hasLength(2));
+    expect(service.socket, same(socketFactory.sockets.last));
+  });
 
   test(
     'connect includes the Conduit User-Agent in handshake headers',
@@ -242,6 +387,246 @@ void main() {
       expect(reconnectCount, 1);
     },
   );
+
+  test(
+    'resume reconciles an already-connected background lease without replacing it',
+    () async {
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+      var reconnectCount = 0;
+      final reconnectSub = service.onReconnect.listen((_) => reconnectCount++);
+      addTearDown(reconnectSub.cancel);
+
+      await service.connect();
+      final socket = socketFactory.sockets.single;
+      socket.connected = true;
+      socket.id = 'leased-background-session';
+      socket.emitReserved('connect');
+      await _flushMicrotasks(2);
+      final lease = service.acquireBackgroundActivityLease();
+      addTearDown(lease.dispose);
+
+      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      expect(socket.connected, isTrue);
+      expect(socket.io.reconnection, isTrue);
+
+      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await _flushMicrotasks(2);
+
+      expect(socketFactory.sockets, hasLength(1));
+      expect(service.socket, same(socket));
+      expect(service.isConnected, isTrue);
+      expect(reconnectCount, 1);
+    },
+  );
+
+  test('background disables reconnect for an idle socket', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    final socket = socketFactory.sockets.single;
+    expect(socket.io.reconnection, isTrue);
+
+    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    expect(socket.io.reconnection, isFalse);
+    expect(service.backgroundActivityLeaseCount, 0);
+  });
+
+  test('late reconnect success is retired while transport is gated', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+    var reconnectSignals = 0;
+    final reconnectSub = service.onReconnect.listen((_) => reconnectSignals++);
+    addTearDown(reconnectSub.cancel);
+
+    await service.connect();
+    final socket = socketFactory.sockets.single;
+    socket.connected = true;
+    socket.id = 'connected-before-pause';
+    socket.emitReserved('connect');
+    await _flushMicrotasks(2);
+    expect(service.isConnected, isTrue);
+
+    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    socket.connected = true;
+    socket.emitReserved('reconnect', 1);
+    await _flushMicrotasks(2);
+
+    expect(socket.io.reconnection, isFalse);
+    expect(socket.connected, isFalse);
+    expect(reconnectSignals, 0);
+  });
+
+  test(
+    'late initial connect cannot authenticate after the app pauses',
+    () async {
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        authToken: 'session-token',
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+
+      await service.connect();
+      final socket = socketFactory.sockets.single;
+      final outgoingEvents = <String>[];
+      socket.onAnyOutgoing((event, _) => outgoingEvents.add(event.toString()));
+
+      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      // Model the platform delivering a successful handshake callback after the
+      // pause already retired the negotiating transport.
+      socket.connected = true;
+      socket.emitReserved('connect');
+      await _flushMicrotasks(2);
+
+      expect(socket.connected, isFalse);
+      expect(socket.io.reconnection, isFalse);
+      expect(outgoingEvents, isNot(contains('user-join')));
+    },
+  );
+
+  test(
+    'late forced connect cannot authenticate or signal reconnect when offline',
+    () async {
+      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await _flushMicrotasks();
+
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        authToken: 'session-token',
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+      var reconnectSignals = 0;
+      final reconnectSub = service.onReconnect.listen(
+        (_) => reconnectSignals++,
+      );
+      addTearDown(reconnectSub.cancel);
+
+      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await _flushMicrotasks(2);
+      final socket = socketFactory.sockets.single;
+      final outgoingEvents = <String>[];
+      socket.onAnyOutgoing((event, _) => outgoingEvents.add(event.toString()));
+
+      service.updateNetworkAvailability(false);
+      socket.connected = true;
+      socket.emitReserved('connect');
+      await _flushMicrotasks(2);
+
+      expect(socket.connected, isFalse);
+      expect(socket.io.reconnection, isFalse);
+      expect(outgoingEvents, isNot(contains('user-join')));
+      expect(reconnectSignals, 0);
+    },
+  );
+
+  test(
+    'resume while offline reconciles after network recovery connects',
+    () async {
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+      var reconnectSignals = 0;
+      final reconnectSub = service.onReconnect.listen((_) {
+        reconnectSignals += 1;
+      });
+      addTearDown(reconnectSub.cancel);
+
+      await service.connect();
+      final socket = socketFactory.sockets.single;
+      service.updateNetworkAvailability(false);
+      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await _flushMicrotasks(2);
+
+      expect(socket.io.reconnection, isFalse);
+      expect(socketFactory.sockets, hasLength(1));
+      expect(reconnectSignals, 0);
+
+      service.updateNetworkAvailability(true);
+      await _flushMicrotasks(2);
+
+      expect(socketFactory.sockets, hasLength(2));
+      final recoveredSocket = socketFactory.sockets.last;
+      recoveredSocket.connected = true;
+      recoveredSocket.id = 'recovered-after-offline-resume';
+      recoveredSocket.emitReserved('connect');
+      await _flushMicrotasks(2);
+
+      expect(service.isConnected, isTrue);
+      expect(reconnectSignals, 1);
+    },
+  );
+
+  test('active stream lease keeps reconnect enabled in background', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    final subscription = service.addChatEventHandler(
+      sessionId: 'stream-session',
+      requireFocus: false,
+      keepsAliveInBackground: true,
+      handler: (_, _) {},
+    );
+    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+
+    expect(socketFactory.sockets.single.io.reconnection, isTrue);
+    expect(service.backgroundActivityLeaseCount, 1);
+
+    subscription.dispose();
+    expect(socketFactory.sockets.single.io.reconnection, isFalse);
+    expect(service.backgroundActivityLeaseCount, 0);
+  });
+
+  test('a handler lease does not create the initial transport', () async {
+    final socketFactory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: socketFactory.create,
+    );
+    addTearDown(service.dispose);
+
+    final subscription = service.addChatEventHandler(
+      sessionId: 'detached-stream-session',
+      requireFocus: false,
+      keepsAliveInBackground: true,
+      handler: (_, _) {},
+    );
+    addTearDown(subscription.dispose);
+    await _flushMicrotasks(2);
+
+    expect(socketFactory.sockets, isEmpty);
+    expect(service.backgroundActivityLeaseCount, 1);
+
+    await service.connect();
+    expect(socketFactory.sockets, hasLength(1));
+  });
 }
 
 const _serverConfig = ServerConfig(

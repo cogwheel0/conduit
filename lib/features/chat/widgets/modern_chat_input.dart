@@ -36,6 +36,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/utils/debug_logger.dart';
 import '../../chat/services/voice_input_service.dart';
 import '../../../core/models/knowledge_base.dart';
 import '../../../core/models/knowledge_base_file.dart';
@@ -222,7 +223,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// focus loss during active typing (e.g. from widget tree restructures).
   DateTime _lastEditTime = DateTime(0);
   StreamSubscription<String>? _voiceStreamSubscription;
-  StreamSubscription<IosNativePastePayload>? _pasteSubscription;
+  final Object _nativePasteHandlerOwner = Object();
   StreamSubscription<IosKeyboardAttachmentEvent>?
   _keyboardAttachmentSubscription;
   VoiceInputService? _voiceService;
@@ -269,11 +270,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _controller.addListener(_handleComposerChanged);
 
     if (!kIsWeb && Platform.isIOS) {
-      _pasteSubscription = IosNativePasteService.instance.onPaste.listen((
-        payload,
-      ) {
-        unawaited(_handleNativePastePayload(payload));
-      });
+      IosNativePasteService.instance.registerHandler(
+        owner: _nativePasteHandlerOwner,
+        handler: _handleNativePastePayload,
+      );
       _keyboardAttachmentSubscription = IosKeyboardAttachmentBridge
           .instance
           .events
@@ -339,7 +339,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _focusNode.dispose();
     _pendingFocus = false;
     _voiceStreamSubscription?.cancel();
-    _pasteSubscription?.cancel();
+    if (!kIsWeb && Platform.isIOS) {
+      IosNativePasteService.instance.unregisterHandler(
+        _nativePasteHandlerOwner,
+      );
+    }
     _keyboardAttachmentSubscription?.cancel();
     _textSub?.cancel();
     _contextSuggestionDebounce?.cancel();
@@ -516,37 +520,67 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
-  Future<void> _handleNativePastePayload(IosNativePastePayload payload) async {
+  Future<void> _handleNativePastePayload(
+    IosNativePastePayload payload,
+    IosNativePasteDispatchLease lease,
+  ) async {
     if (!mounted ||
+        _isDeactivated ||
         !widget.enabled ||
         !_focusNode.hasFocus ||
         !_selectedModelAcceptsImageInput) {
       return;
     }
 
-    final onPasted = widget.onPastedAttachments;
-    if (onPasted == null) {
+    if (widget.onPastedAttachments == null) {
       return;
     }
 
     switch (payload) {
       case IosNativeTextPaste():
         return;
-      case IosNativeImagePaste(:final items):
-        final attachments = <LocalAttachment>[];
-        for (final item in items) {
-          final attachment = await _clipboardService
-              .createAttachmentFromImageData(
-                imageData: item.data,
-                mimeType: item.mimeType,
-              );
-          if (attachment != null) {
-            attachments.add(attachment);
-          }
+      case IosNativeImagePaste(:final deliveryId, :final items):
+        if (!isValidIosNativePasteDeliveryId(deliveryId)) return;
+        final prepared = await _clipboardService.prepareNativePasteAttachments(
+          deliveryId: deliveryId!,
+          items: items,
+        );
+        // Native still owns every file and will reclaim the complete delivery
+        // when any marker, path, link, item name, or size is invalid.
+        if (prepared == null) return;
+        if (!mounted ||
+            _isDeactivated ||
+            !widget.enabled ||
+            !_focusNode.hasFocus ||
+            !_selectedModelAcceptsImageInput) {
+          return;
         }
-        if (attachments.isNotEmpty) {
-          await onPasted(attachments);
-        }
+        final currentOnPasted = widget.onPastedAttachments;
+        if (currentOnPasted == null) return;
+
+        // `Future.timeout` does not cancel this handler. Cross the ownership
+        // boundary only through the delivery lease, immediately before the
+        // callback synchronously adds the files to composer state. Once that
+        // transfer succeeds, upload preparation may safely continue in the
+        // background without delaying the native acknowledgement.
+        lease.tryCommit(() {
+          _clipboardService.claimNativePasteSync(prepared, (attachments) {
+            unawaited(
+              currentOnPasted(attachments).catchError((
+                Object error,
+                StackTrace stackTrace,
+              ) {
+                DebugLogger.error(
+                  'Native pasted attachment processing failed',
+                  scope: 'clipboard/native-paste',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
+            );
+          });
+        });
+        return;
       case IosNativeUnsupportedPaste():
         return;
     }

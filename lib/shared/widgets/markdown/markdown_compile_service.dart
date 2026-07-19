@@ -20,6 +20,7 @@ import 'renderer/mention_inline_syntax.dart';
 
 const int markdownSynchronousCompileThreshold = 384;
 const int markdownSynchronousPrepareThreshold = 768;
+const int _markdownPrewarmPrepareBatchSize = 8;
 const Set<String> _groupableCompiledDetailTypes = {'tool_calls'};
 final _detailsAttributeUnescape = HtmlUnescape();
 
@@ -385,6 +386,63 @@ class MarkdownCompileService {
       return;
     }
     unawaited(compilePreparedBatch(pendingContents));
+  }
+
+  /// Normalizes raw Markdown before prewarming without running long, multi-pass
+  /// preprocessing on the UI isolate.
+  Future<void> prewarmContents(
+    Iterable<String> contents, {
+    required bool streaming,
+    bool widgetTest = false,
+  }) async {
+    if (_disposed) {
+      return;
+    }
+    final seenContents = <String>{};
+    final pendingBatch = <String>[];
+
+    Future<void> prepareAndSubmitBatch() async {
+      final batch = List<String>.unmodifiable(pendingBatch);
+      pendingBatch.clear();
+      final preparedBatch = await Future.wait<String>(
+        batch.map(
+          (content) => prepareContent(
+            content,
+            streaming: streaming,
+            // Production prewarming must never spend even the "small input"
+            // normalization budget on the UI isolate. Widget tests opt into
+            // the synchronous path because they lack native worker isolates.
+            allowSynchronous: widgetTest,
+            widgetTest: widgetTest,
+          ),
+        ),
+      );
+      if (_disposed) return;
+      // Submit and release one bounded preparation batch at a time so a long
+      // transcript cannot retain every normalized slice simultaneously.
+      await compilePreparedBatch(
+        preparedBatch,
+        allowSynchronous: widgetTest,
+        widgetTest: widgetTest,
+      );
+      // Even a test/backend implementation that completes synchronously must
+      // yield between admission batches. This keeps trimming and hashing a
+      // large transcript from monopolizing the UI isolate before the first
+      // background preparation result arrives.
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    for (final content in contents) {
+      if (_disposed) return;
+      if (content.trim().isEmpty || !seenContents.add(content)) continue;
+      pendingBatch.add(content);
+      if (pendingBatch.length == _markdownPrewarmPrepareBatchSize) {
+        await prepareAndSubmitBatch();
+      }
+    }
+    if (pendingBatch.isNotEmpty) {
+      await prepareAndSubmitBatch();
+    }
   }
 
   void dispose() {

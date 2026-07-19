@@ -85,6 +85,7 @@ class JovialSvgImage extends StatefulWidget {
     String url, {
     Key? key,
     Map<String, String>? headers,
+    Object? cacheIdentity,
     BoxFit fit = BoxFit.contain,
     Alignment alignment = Alignment.center,
     double? width,
@@ -96,7 +97,7 @@ class JovialSvgImage extends StatefulWidget {
     final normalizedHeaders = _normalizeHeaders(headers);
     return JovialSvgImage._(
       key: key,
-      sourceKey: _NetworkSvgSourceKey(url, normalizedHeaders),
+      sourceKey: _NetworkSvgSourceKey(url, normalizedHeaders, cacheIdentity),
       loader: () => ScalableImage.fromSvgHttpUrl(
         Uri.parse(url),
         httpHeaders: normalizedHeaders,
@@ -291,16 +292,18 @@ Map<String, String>? _normalizeHeaders(Map<String, String>? headers) {
 
 @immutable
 class _NetworkSvgSourceKey {
-  const _NetworkSvgSourceKey(this.url, this.headers);
+  const _NetworkSvgSourceKey(this.url, this.headers, this.cacheIdentity);
 
   final String url;
   final Map<String, String>? headers;
+  final Object? cacheIdentity;
 
   @override
   bool operator ==(Object other) {
     return other is _NetworkSvgSourceKey &&
         other.url == url &&
-        mapEquals(other.headers, headers);
+        mapEquals(other.headers, headers) &&
+        other.cacheIdentity == cacheIdentity;
   }
 
   @override
@@ -309,6 +312,7 @@ class _NetworkSvgSourceKey {
         headers?.entries ?? const <MapEntry<String, String>>[];
     return Object.hash(
       url,
+      cacheIdentity,
       Object.hashAll(
         headerEntries.map((entry) => Object.hash(entry.key, entry.value)),
       ),

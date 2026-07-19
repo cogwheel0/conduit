@@ -16,6 +16,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../core/auth/webview_cookie_helper.dart';
 import '../../../core/models/backend_config.dart';
 import '../../../core/models/server_config.dart';
+import '../../../core/models/user.dart';
 import '../../../core/network/conduit_user_agent.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/api_service.dart';
@@ -37,6 +38,55 @@ const int _maxConnectionErrorCharacters = 640;
 const int _maxConnectionSecretCharacters = 8 * 1024;
 const int _maxConnectionSecretPatterns = 32;
 const int _maxConnectionSecretTotalCharacters = 32 * 1024;
+
+/// Builds the deliberately credential-free client options used to discover
+/// whether a scheme-less address redirects from HTTP to HTTPS.
+///
+/// This request is the only request sent before the user-selected scheme is
+/// known. Custom headers can contain bearer tokens, cookies, or reverse-proxy
+/// credentials, so they must not be exposed to the initial plaintext origin.
+@visibleForTesting
+BaseOptions buildSchemeLessPlaintextHealthProbeOptions(String baseUrl) {
+  return BaseOptions(
+    baseUrl: baseUrl,
+    connectTimeout: const Duration(seconds: 2),
+    receiveTimeout: const Duration(seconds: 2),
+    followRedirects: false,
+    validateStatus: (status) => true,
+    headers: ConduitUserAgent.mergeHeaders(),
+  );
+}
+
+/// Merges proxy cookies into headers without leaving alternate-cased Cookie
+/// fields or duplicate cookie names. Newly captured values are authoritative.
+@visibleForTesting
+Map<String, String> mergeCapturedProxyCookiesIntoHeaders({
+  required Map<String, String> headers,
+  required Map<String, String> capturedCookies,
+}) {
+  final mergedHeaders = Map<String, String>.from(headers);
+  final mergedCookies = <String, String>{};
+
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() != 'cookie') continue;
+    for (final component in entry.value.split(';')) {
+      final separator = component.indexOf('=');
+      if (separator <= 0) continue;
+      final name = component.substring(0, separator).trim();
+      if (name.isEmpty) continue;
+      mergedCookies[name] = component.substring(separator + 1).trim();
+    }
+  }
+
+  mergedHeaders.removeWhere((key, _) => key.toLowerCase() == 'cookie');
+  mergedCookies.addAll(capturedCookies);
+  if (mergedCookies.isNotEmpty) {
+    mergedHeaders['Cookie'] = mergedCookies.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
+  }
+  return mergedHeaders;
+}
 
 /// Redacts configured header values before normalizing and bounding text that
 /// came from a server, proxy, or transport error.
@@ -270,6 +320,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _connectionError = null;
     });
 
+    ApiService? connectionApi;
     try {
       final rawUrl = _urlController.text.trim();
       String url = _validateAndFormatUrl(rawUrl);
@@ -297,6 +348,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         serverConfig: tempConfig,
         workerManager: workerManager,
       );
+      connectionApi = api;
 
       // First check connectivity with proxy detection
       DebugLogger.log('Checking server health...', scope: 'auth/connection');
@@ -314,7 +366,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           'Server behind proxy detected, prompting for proxy auth',
           scope: 'auth/connection',
         );
-        await _handleProxyAuth(tempConfig, api, workerManager);
+        api.dispose();
+        connectionApi = null;
+        await _handleProxyAuth(tempConfig, workerManager);
         return;
       }
 
@@ -370,6 +424,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         });
       }
     } finally {
+      connectionApi?.dispose();
       if (mounted) {
         setState(() {
           _isConnecting = false;
@@ -387,7 +442,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// the server config. Then the normal authentication flow proceeds.
   Future<void> _handleProxyAuth(
     ServerConfig tempConfig,
-    ApiService api,
     WorkerManager workerManager,
   ) async {
     // Check if WebView is supported
@@ -428,31 +482,21 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     );
 
     // Build updated headers with proxy cookies
-    final updatedHeaders = Map<String, String>.from(tempConfig.customHeaders);
+    var updatedHeaders = Map<String, String>.from(tempConfig.customHeaders);
     if (result.cookies != null && result.cookies!.isNotEmpty) {
-      // Format cookies as Cookie header
-      final proxyCookieHeader = result.cookies!.entries
-          .map((e) => '${e.key}=${e.value}')
-          .join('; ');
-
-      // Merge with existing Cookie header if present (from advanced settings)
-      final existingCookies = updatedHeaders['Cookie'];
-      if (existingCookies != null && existingCookies.isNotEmpty) {
-        updatedHeaders['Cookie'] = '$existingCookies; $proxyCookieHeader';
-        DebugLogger.log(
-          'Merged ${result.cookies!.length} proxy cookies with existing Cookie header',
-          scope: 'auth/connection',
-        );
-      } else {
-        updatedHeaders['Cookie'] = proxyCookieHeader;
-        DebugLogger.log(
-          'Added Cookie header with ${result.cookies!.length} cookies',
-          scope: 'auth/connection',
-        );
-      }
+      updatedHeaders = mergeCapturedProxyCookiesIntoHeaders(
+        headers: updatedHeaders,
+        capturedCookies: result.cookies!,
+      );
+      DebugLogger.log(
+        'Merged ${result.cookies!.length} freshly captured proxy cookies',
+        scope: 'auth/connection',
+      );
     }
 
-    // Create updated config with proxy cookies (and possibly JWT token)
+    // Create an updated cookie-scoped config. A discovered JWT is supplied
+    // only to the operation-scoped API client below; it is never embedded in a
+    // ServerConfig where it could survive logout or a server switch.
     final configWithCookies = ServerConfig(
       id: tempConfig.id,
       name: tempConfig.name,
@@ -465,8 +509,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       mtlsPrivateKeyPem: tempConfig.mtlsPrivateKeyPem,
       mtlsPrivateKeyLabel: tempConfig.mtlsPrivateKeyLabel,
       mtlsPrivateKeyPassword: tempConfig.mtlsPrivateKeyPassword,
-      // If we got a JWT token, store it as apiKey for API auth
-      apiKey: result.jwtToken,
     );
 
     // Create new API service with updated config
@@ -477,78 +519,123 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       authToken: result.jwtToken,
     );
 
-    // Now verify it's an OpenWebUI server
-    DebugLogger.log(
-      'Verifying OpenWebUI server with proxy cookies...',
-      scope: 'auth/connection',
-    );
-
-    final BackendConfig? backendConfig;
     try {
-      backendConfig = await apiWithCookies.verifyAndGetConfig();
-    } catch (error) {
-      DebugLogger.error(
-        'proxy-server-verification-error',
-        scope: 'auth/connection',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-      if (mounted) {
-        final proxySensitiveValues = <String>[
-          ...updatedHeaders.values,
-          ...?result.cookies?.values,
-          if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
-        ];
-        setState(() {
-          _connectionError = _formatConnectionError(
-            error,
-            sensitiveValues: proxySensitiveValues,
-          );
-          _isConnecting = false;
-        });
-      }
-      return;
-    }
-    if (backendConfig == null) {
-      if (mounted) {
-        setState(() {
-          _connectionError =
-              'Could not verify OpenWebUI server. The proxy cookies may '
-              'have expired or be invalid. Please try again.';
-          _isConnecting = false;
-        });
-      }
-      return;
-    }
-
-    // Check if user is already fully authenticated via trusted headers
-    // (e.g., oauth2-proxy with X-Forwarded-Email)
-    if (result.isFullyAuthenticated) {
+      // Now verify it's an OpenWebUI server
       DebugLogger.log(
-        'User already authenticated via trusted headers, '
-        'skipping sign-in page',
+        'Verifying OpenWebUI server with proxy cookies...',
         scope: 'auth/connection',
       );
 
-      // Save the server config and go directly to chat
-      await _completeAuthWithToken(
-        configWithCookies,
-        result.jwtToken!,
-        backendConfig,
-      );
-      return;
-    }
+      final BackendConfig? backendConfig;
+      try {
+        backendConfig = await apiWithCookies.verifyAndGetConfig();
+      } catch (error) {
+        DebugLogger.error(
+          'proxy-server-verification-error',
+          scope: 'auth/connection',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        if (mounted) {
+          final proxySensitiveValues = <String>[
+            ...updatedHeaders.values,
+            ...?result.cookies?.values,
+            if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
+          ];
+          setState(() {
+            _connectionError = _formatConnectionError(
+              error,
+              sensitiveValues: proxySensitiveValues,
+            );
+            _isConnecting = false;
+          });
+        }
+        return;
+      }
+      if (backendConfig == null) {
+        if (mounted) {
+          final message = AppLocalizations.of(
+            context,
+          )!.proxyServerVerificationFailed;
+          setState(() {
+            _connectionError = message;
+            _isConnecting = false;
+          });
+        }
+        return;
+      }
 
-    DebugLogger.log(
-      'Server validated with proxy cookies, navigating to auth page',
-      scope: 'auth/connection',
-    );
+      // Check if user is already fully authenticated via trusted headers
+      // (e.g., oauth2-proxy with X-Forwarded-Email)
+      if (result.isFullyAuthenticated) {
+        DebugLogger.log(
+          'User already authenticated via trusted headers, '
+          'skipping sign-in page',
+          scope: 'auth/connection',
+        );
 
-    if (mounted) {
-      final authFlowConfig = AuthFlowConfig(
-        serverConfig: configWithCookies,
-        backendConfig: backendConfig,
+        final token = result.jwtToken?.trim();
+        if (token == null || token.isEmpty) {
+          if (mounted) {
+            final message = AppLocalizations.of(
+              context,
+            )!.proxyManualSignInRequired;
+            setState(() {
+              _connectionError = message;
+              _isConnecting = false;
+            });
+          }
+          return;
+        }
+
+        // Validate with the same cookie-scoped client before any server config,
+        // active-server id, or token is persisted. Trusted-header discovery can
+        // report success while returning an already-expired/rejected JWT.
+        final User validatedUser;
+        try {
+          validatedUser = await apiWithCookies.getCurrentUser(
+            suppressAuthFailureNotification: true,
+          );
+        } catch (error) {
+          DebugLogger.error(
+            'proxy-issued-token-validation-failed',
+            scope: 'auth/connection',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+          if (mounted) {
+            final message = AppLocalizations.of(
+              context,
+            )!.proxyManualSignInRequired;
+            setState(() {
+              _connectionError = message;
+              _isConnecting = false;
+            });
+          }
+          return;
+        }
+
+        await _completeAuthWithToken(
+          configWithCookies,
+          token,
+          validatedUser,
+          backendConfig,
+        );
+        return;
+      }
+
+      DebugLogger.log(
+        'Server validated with proxy cookies, navigating to auth page',
+        scope: 'auth/connection',
       );
-      context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
+
+      if (mounted) {
+        final authFlowConfig = AuthFlowConfig(
+          serverConfig: configWithCookies,
+          backendConfig: backendConfig,
+        );
+        context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
+      }
+    } finally {
+      apiWithCookies.dispose();
     }
   }
 
@@ -557,25 +644,39 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _completeAuthWithToken(
     ServerConfig serverConfig,
     String token,
+    User validatedUser,
     BackendConfig backendConfig,
   ) async {
     try {
-      // Save the server config first (needed for auth actions)
-      await _saveServerConfig(serverConfig, backendConfig: backendConfig);
-
-      // Use the same auth flow as SSO - loginWithApiKey handles
-      // saving credentials and updating auth state
       final authActions = ref.read(authActionsProvider);
-      final success = await authActions.loginWithApiKey(
-        token,
-        rememberCredentials: true,
-        authType: 'proxy-sso', // Mark as proxy-obtained token
+      final success = await authActions.commitPrevalidatedProxySession(
+        serverConfig: serverConfig,
+        token: token,
+        user: validatedUser,
       );
 
       if (!mounted) return;
 
       if (success) {
-        DebugLogger.auth('Proxy SSO login successful');
+        DebugLogger.auth(
+          'Proxy SSO login successful',
+          scope: 'auth/connection',
+        );
+        try {
+          await ref.read(activeServerProvider.future);
+          await ref.read(backendConfigProvider.future);
+          await ref
+              .read(backendConfigProvider.notifier)
+              .cacheForServer(backendConfig, serverConfig.id);
+        } catch (error) {
+          // The authenticated session is authoritative; a cache warmup failure
+          // must not roll it back or make the UI report auth failure.
+          DebugLogger.warning(
+            'proxy-backend-config-cache-failed',
+            scope: 'auth/connection',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+        }
         // Navigation is handled automatically by the router when auth state
         // changes to authenticated. The router redirect will navigate to chat.
       } else {
@@ -594,26 +695,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           _isConnecting = false;
         });
       }
-    }
-  }
-
-  /// Saves server config (extracted from authentication_page.dart)
-  Future<void> _saveServerConfig(
-    ServerConfig config, {
-    BackendConfig? backendConfig,
-  }) async {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    await storage.saveServerConfigs([config]);
-    await storage.setActiveServerId(config.id);
-    ref.invalidate(serverConfigsProvider);
-    ref.invalidate(activeServerProvider);
-
-    if (backendConfig != null) {
-      await ref.read(activeServerProvider.future);
-      await ref.read(backendConfigProvider.future);
-      await ref
-          .read(backendConfigProvider.notifier)
-          .cacheForServer(backendConfig, config.id);
     }
   }
 
@@ -678,18 +759,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       return url;
     }
 
+    final dio = Dio(buildSchemeLessPlaintextHealthProbeOptions(url));
     try {
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: url,
-          connectTimeout: const Duration(seconds: 2),
-          receiveTimeout: const Duration(seconds: 2),
-          followRedirects: false,
-          validateStatus: (status) => true,
-          headers: ConduitUserAgent.mergeHeaders(_customHeaders),
-        ),
-      );
-
       final response = await dio.get('/health');
       final redirectedUrl = _sameHostHttpsRedirectBaseUrl(
         originalUri,
@@ -714,6 +785,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         scope: 'auth/connection',
       );
       return url;
+    } finally {
+      dio.close(force: true);
     }
   }
 

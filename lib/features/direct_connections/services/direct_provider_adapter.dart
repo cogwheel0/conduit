@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
@@ -17,6 +19,46 @@ abstract interface class DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   );
+}
+
+/// Optional discovery capability for adapters that can stop provider work
+/// when a newer profile generation supersedes the current one.
+abstract interface class CancellableDirectModelDiscovery {
+  Future<List<DirectRemoteModel>> listModelsCancellable(
+    DirectConnectionProfile profile, {
+    required DirectDiscoveryCancellation cancellation,
+  });
+}
+
+/// Generation-scoped cancellation shared by discovery orchestration and an
+/// adapter's provider-specific enrichment work.
+final class DirectDiscoveryCancellation {
+  DirectDiscoveryCancellation(this.generation);
+
+  final int generation;
+  final Completer<void> _cancelled = Completer<void>();
+
+  bool get isCancelled => _cancelled.isCompleted;
+  Future<void> get whenCancelled => _cancelled.future;
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
+
+  void throwIfCancelled() {
+    if (isCancelled) throw DirectDiscoveryCancelled(generation);
+  }
+}
+
+/// Internal control-flow signal: superseded discovery is not a provider error
+/// and must never replace cached models or surface a profile error.
+final class DirectDiscoveryCancelled implements Exception {
+  const DirectDiscoveryCancelled(this.generation);
+
+  final int generation;
+
+  @override
+  String toString() => 'Direct discovery generation $generation cancelled.';
 }
 
 /// Builds the optimistic entries configured for providers without discovery.

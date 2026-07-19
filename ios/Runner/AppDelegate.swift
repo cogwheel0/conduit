@@ -1,8 +1,11 @@
 import AVFoundation
 import BackgroundTasks
+import CryptoKit
+import Darwin
 import Flutter
 import AppIntents
 import UIKit
+import UniformTypeIdentifiers
 import WebKit
 
 private func appLocalized(_ key: String, _ fallback: String) -> String {
@@ -10,13 +13,126 @@ private func appLocalized(_ key: String, _ fallback: String) -> String {
 }
 
 private let conduitShareChannelName = "conduit/share_receiver_text"
-private let conduitShareUserDefaultsKey = "SharingKey"
-private let conduitShareMessageKey = "SharingMessageKey"
-private let conduitShareImportStatusKey = "ShareImportStatusKey"
 private let conduitShareAppGroupIdKey = "AppGroupId"
 private let conduitVoiceAudioRouteChannelName = "app.cogwheel.conduit/voice_audio_route"
 private let nativeIosTtsMethodChannelName = "app.cogwheel.conduit/native_ios_tts"
 private let nativeIosTtsEventChannelName = "app.cogwheel.conduit/native_ios_tts/events"
+
+func nativeSharedPayloadTypeIsText(_ type: Any?) -> Bool {
+  if let type = type as? String {
+    return type == "text" || type == "url"
+  }
+  if let type = type as? NSNumber {
+    // JSON booleans bridge through NSNumber, where false.intValue is 0 and
+    // true.intValue is 1. They are not valid share-media type codes.
+    guard CFGetTypeID(type) != CFBooleanGetTypeID() else { return false }
+    let value = type.intValue
+    return value == 0 || value == 1 || value == 5
+  }
+  if let type = type as? Int {
+    return type == 0 || type == 1 || type == 5
+  }
+  return false
+}
+
+/// Builds the acknowledgement-bearing payload only from a complete native
+/// record. Returning content without its durable status identifier would make
+/// the record impossible for Dart to acknowledge and permanently wedge the
+/// pending-share signal.
+func nativeValidatedShareImportPayload(
+  rawItems: [[String: Any]],
+  message: String?,
+  status: [String: Any]?,
+  shareStagingDirectoryPath: String?
+) -> [String: Any]? {
+  guard let id = (status?["id"] as? String)?
+    .trimmingCharacters(in: .whitespacesAndNewlines),
+    !id.isEmpty else {
+    return nil
+  }
+
+  var textParts: [String] = []
+  var seenText = Set<String>()
+  var filePaths: [String] = []
+  var seenFilePaths = Set<String>()
+
+  func addText(_ value: String?) {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let trimmed, !trimmed.isEmpty,
+          seenText.insert(trimmed).inserted else { return }
+    textParts.append(trimmed)
+  }
+
+  func addFilePath(_ value: String?) -> Bool {
+    guard let value = value?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ), !value.isEmpty else { return false }
+
+    let path: String
+    if value.lowercased().hasPrefix("file:") {
+      guard let url = URL(string: value), url.isFileURL,
+            url.host == nil || url.host?.isEmpty == true ||
+              url.host?.lowercased() == "localhost" else {
+        return false
+      }
+      path = url.standardizedFileURL.path
+    } else {
+      guard value.hasPrefix("/") else { return false }
+      path = URL(fileURLWithPath: value).standardizedFileURL.path
+    }
+    guard !path.isEmpty, path.hasPrefix("/"),
+          let rawRoot = shareStagingDirectoryPath,
+          rawRoot.hasPrefix("/") else { return false }
+    let root = URL(fileURLWithPath: rawRoot, isDirectory: true)
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+    let candidate = URL(fileURLWithPath: path).standardizedFileURL
+    let canonicalCandidate = candidate.resolvingSymlinksInPath()
+      .standardizedFileURL
+    guard canonicalCandidate.deletingLastPathComponent().path == root.path else {
+      return false
+    }
+    var rootMetadata = stat()
+    var candidateMetadata = stat()
+    guard root.path.withCString({ lstat($0, &rootMetadata) }) == 0,
+          rootMetadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR),
+          candidate.path.withCString({ lstat($0, &candidateMetadata) }) == 0,
+          candidateMetadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+      return false
+    }
+    if seenFilePaths.insert(canonicalCandidate.path).inserted {
+      filePaths.append(canonicalCandidate.path)
+    }
+    return true
+  }
+
+  addText(message)
+  for item in rawItems {
+    // Every encoded media entry must carry both its type and content. Treat a
+    // partially decoded map as corruption instead of silently returning an
+    // unacknowledgeable or truncated handoff.
+    guard item["type"] != nil,
+          let value = item["path"] as? String ?? item["value"] as? String,
+          !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return nil
+    }
+    if nativeSharedPayloadTypeIsText(item["type"]) {
+      addText(value)
+    } else {
+      guard addFilePath(value) else { return nil }
+    }
+  }
+
+  guard !textParts.isEmpty || !filePaths.isEmpty else { return nil }
+  var payload: [String: Any] = [
+    "id": id,
+    "filePaths": filePaths,
+  ]
+  if !textParts.isEmpty {
+    payload["text"] = textParts.joined(separator: "\n")
+  }
+  return payload
+}
 
 /// Manages AVAudioSession for voice calls in the background.
 ///
@@ -84,7 +200,7 @@ final class VoiceBackgroundAudioManager {
                     options: [
                         // Keep the session on duplex-capable routes while the
                         // server-side recorder is streaming PCM from the mic.
-                        .allowBluetooth,
+                        .allowBluetoothHFP,
                         .defaultToSpeaker,
                     ]
                 )
@@ -441,10 +557,9 @@ final class NativeIosTtsBridge: NSObject, FlutterStreamHandler, AVSpeechSynthesi
             return "Default"
         case .enhanced:
             return "Enhanced"
+        case .premium:
+            return "Premium"
         @unknown default:
-            if quality.rawValue == 3 {
-                return "Premium"
-            }
             return "Unknown"
         }
     }
@@ -928,90 +1043,803 @@ class BackgroundStreamingHandler: NSObject, BackgroundStreamingHostApi {
 
 /// Manages the method channel for App Intent invocations to Flutter.
 /// Native Swift intents call this to invoke Flutter-side business logic.
-final class AppIntentBridge {
-    static var shared: AppIntentBridge?
+final class AppIntentReadiness {
+    private let lock = NSLock()
+    private var ready = false
+    private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+
+    func update(_ value: Bool) {
+        lock.lock()
+        ready = value
+        let readyWaiters: [CheckedContinuation<Bool, Never>]
+        if value {
+            readyWaiters = Array(waiters.values)
+            waiters.removeAll(keepingCapacity: false)
+        } else {
+            readyWaiters = []
+        }
+        lock.unlock()
+        readyWaiters.forEach { $0.resume(returning: true) }
+    }
+
+    func currentValue() -> Bool {
+        lock.lock()
+        let value = ready
+        lock.unlock()
+        return value
+    }
+
+    func waitUntilReady(timeoutNanoseconds: UInt64) async -> Bool {
+        if Task.isCancelled { return false }
+        if currentValue() { return true }
+        guard timeoutNanoseconds > 0 else { return false }
+
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                return await self.waitForReadySignal()
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func waitForReadySignal() async -> Bool {
+        if Task.isCancelled { return false }
+        let waiterId = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if ready {
+                    lock.unlock()
+                    continuation.resume(returning: true)
+                    return
+                }
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(returning: false)
+                    return
+                }
+                waiters[waiterId] = continuation
+                lock.unlock()
+            }
+        } onCancel: {
+            self.resolveWaiter(waiterId, value: false)
+        }
+    }
+
+    private func resolveWaiter(_ waiterId: UUID, value: Bool) {
+        lock.lock()
+        let continuation = waiters.removeValue(forKey: waiterId)
+        lock.unlock()
+        continuation?.resume(returning: value)
+    }
+}
+
+let appIntentNativeDispatchStateKey = "_nativeDispatchState"
+let appIntentNativeDispatchNotDispatched = "notDispatched"
+let appIntentNativeDispatchCompleted = "completed"
+let appIntentNativeDispatchIndeterminate = "indeterminate"
+let appIntentNativeOwnedFilePathKey = "_nativeOwnedFilePath"
+
+struct AppIntentInvocationLease: Equatable {
+    let invocationId: String
+    fileprivate let fingerprint: String
+}
+
+/// Persists the identity of an invocation whose dispatch outcome was
+/// indeterminate. App Intents does not expose an execution identifier, so a
+/// retry is correlated by a privacy-safe digest of the intent and its
+/// canonical inputs. Completed and provably-undispatched calls immediately
+/// release their lease; only an interrupted dispatched call remains reusable.
+final class AppIntentInvocationStore: @unchecked Sendable {
+    private struct Record: Codable, Equatable {
+        let invocationId: String
+        let fingerprint: String
+        var expiresAtMilliseconds: Int64
+    }
+
+    private struct LegacyRecord: Codable {
+        let invocationId: String
+        let expiresAtMilliseconds: Int64
+    }
+
+    static let shared = AppIntentInvocationStore()
+
+    private static let defaultsKey =
+        "app.cogwheel.conduit.app-intent-invocations-v1"
+    private static let leaseLifetimeMilliseconds: Int64 = 5 * 60 * 1_000
+
+    private let lock = NSLock()
+    private let defaults: UserDefaults
+    private let nowMilliseconds: () -> Int64
+    // Activity is intentionally process-local. A record left behind by
+    // process termination must become retryable when the next process starts.
+    private var activeInvocationIds = Set<String>()
+
+    init(
+        defaults: UserDefaults = .standard,
+        nowMilliseconds: @escaping () -> Int64 = {
+            Int64(Date().timeIntervalSince1970 * 1_000)
+        }
+    ) {
+        self.defaults = defaults
+        self.nowMilliseconds = nowMilliseconds
+    }
+
+    func lease(
+        identifier: String,
+        canonicalParameters: [String: String]
+    ) -> AppIntentInvocationLease {
+        let fingerprint = Self.fingerprint(
+            identifier: identifier,
+            canonicalParameters: canonicalParameters
+        )
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = nowMilliseconds()
+        var records = readRecordsLocked().filter {
+            $0.value.expiresAtMilliseconds > now
+        }
+        activeInvocationIds.formIntersection(records.keys)
+        if let reusable = records.values
+            .filter({
+                !activeInvocationIds.contains($0.invocationId) &&
+                    $0.fingerprint == fingerprint &&
+                    UUID(uuidString: $0.invocationId) != nil
+            })
+            .max(by: {
+                if $0.expiresAtMilliseconds == $1.expiresAtMilliseconds {
+                    return $0.invocationId < $1.invocationId
+                }
+                return $0.expiresAtMilliseconds < $1.expiresAtMilliseconds
+            }) {
+            var renewed = reusable
+            renewed.expiresAtMilliseconds =
+                now + Self.leaseLifetimeMilliseconds
+            records[renewed.invocationId] = renewed
+            activeInvocationIds.insert(renewed.invocationId)
+            persistLocked(records)
+            return AppIntentInvocationLease(
+                invocationId: renewed.invocationId,
+                fingerprint: fingerprint
+            )
+        }
+
+        let invocationId = UUID().uuidString.lowercased()
+        records[invocationId] = Record(
+            invocationId: invocationId,
+            fingerprint: fingerprint,
+            expiresAtMilliseconds: now + Self.leaseLifetimeMilliseconds
+        )
+        activeInvocationIds.insert(invocationId)
+        persistLocked(records)
+        return AppIntentInvocationLease(
+            invocationId: invocationId,
+            fingerprint: fingerprint
+        )
+    }
+
+    func resolve(
+        _ lease: AppIntentInvocationLease,
+        dispatchState: String?
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        var records = readRecordsLocked()
+        activeInvocationIds.remove(lease.invocationId)
+        guard var record = records[lease.invocationId],
+              record.fingerprint == lease.fingerprint else { return }
+        if dispatchState == appIntentNativeDispatchIndeterminate {
+            record.expiresAtMilliseconds =
+                nowMilliseconds() + Self.leaseLifetimeMilliseconds
+            records[lease.invocationId] = record
+        } else {
+            records.removeValue(forKey: lease.invocationId)
+        }
+        persistLocked(records)
+    }
+
+    static func fingerprint(
+        identifier: String,
+        canonicalParameters: [String: String]
+    ) -> String {
+        var input = Data()
+        func append(_ value: String) {
+            let bytes = Data(value.utf8)
+            var length = UInt64(bytes.count).bigEndian
+            withUnsafeBytes(of: &length) { input.append(contentsOf: $0) }
+            input.append(bytes)
+        }
+        append(identifier)
+        for key in canonicalParameters.keys.sorted() {
+            append(key)
+            append(canonicalParameters[key] ?? "")
+        }
+        return SHA256.hash(data: input)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func readRecordsLocked() -> [String: Record] {
+        guard let data = defaults.data(forKey: Self.defaultsKey) else {
+            return [:]
+        }
+        if let records = try? JSONDecoder().decode(
+            [String: Record].self,
+            from: data
+        ) {
+            return records
+        }
+        guard let legacyRecords = try? JSONDecoder().decode(
+            [String: LegacyRecord].self,
+            from: data
+        ) else { return [:] }
+        return legacyRecords.reduce(into: [:]) { records, entry in
+            let (fingerprint, legacy) = entry
+            guard UUID(uuidString: legacy.invocationId) != nil else { return }
+            records[legacy.invocationId] = Record(
+                invocationId: legacy.invocationId,
+                fingerprint: fingerprint,
+                expiresAtMilliseconds: legacy.expiresAtMilliseconds
+            )
+        }
+    }
+
+    private func persistLocked(_ records: [String: Record]) {
+        if records.isEmpty {
+            defaults.removeObject(forKey: Self.defaultsKey)
+        } else if let data = try? JSONEncoder().encode(records) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+        // App Intent execution may be terminated immediately after perform()
+        // returns; flush the tiny lease record before exposing the result.
+        defaults.synchronize()
+    }
+}
+
+/// Exactly-once bridge between callback-based Pigeon calls and async App
+/// Intents. Cancellation can race continuation installation, so the gate also
+/// retains an early terminal payload until the continuation is ready.
+final class AppIntentInvocationCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<[String: Any], Never>?
+    private var earlyPayload: [String: Any]?
+    private var resolved = false
+    private var dispatched = false
+
+    var isResolved: Bool {
+        lock.lock()
+        let value = resolved
+        lock.unlock()
+        return value
+    }
+
+    func install(
+        _ continuation: CheckedContinuation<[String: Any], Never>
+    ) {
+        lock.lock()
+        if resolved {
+            let payload = earlyPayload ?? Self.failurePayload(
+                "App Intent was cancelled.",
+                dispatchState: appIntentNativeDispatchNotDispatched
+            )
+            earlyPayload = nil
+            lock.unlock()
+            continuation.resume(returning: payload)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    /// Atomically claims the right to send the Pigeon message.
+    func beginDispatch() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resolved, !dispatched else { return false }
+        dispatched = true
+        return true
+    }
+
+    @discardableResult
+    func resolveCompleted(_ payload: [String: Any]) -> Bool {
+        resolve(
+            Self.payload(
+                payload,
+                dispatchState: appIntentNativeDispatchCompleted
+            )
+        )
+    }
+
+    @discardableResult
+    func resolveTransportFailure(_ message: String) -> Bool {
+        resolve(Self.failurePayload(
+            message,
+            dispatchState: appIntentNativeDispatchIndeterminate
+        ))
+    }
+
+    @discardableResult
+    func resolveNotDispatched(_ message: String) -> Bool {
+        resolve(Self.failurePayload(
+            message,
+            dispatchState: appIntentNativeDispatchNotDispatched
+        ))
+    }
+
+    @discardableResult
+    func resolveInterrupted(_ message: String) -> Bool {
+        lock.lock()
+        let dispatchState = dispatched
+            ? appIntentNativeDispatchIndeterminate
+            : appIntentNativeDispatchNotDispatched
+        guard !resolved else {
+            lock.unlock()
+            return false
+        }
+        resolved = true
+        let payload = Self.failurePayload(
+            message,
+            dispatchState: dispatchState
+        )
+        let callback = continuation
+        continuation = nil
+        if callback == nil {
+            earlyPayload = payload
+        }
+        lock.unlock()
+        callback?.resume(returning: payload)
+        return true
+    }
+
+    private func resolve(_ payload: [String: Any]) -> Bool {
+        lock.lock()
+        guard !resolved else {
+            lock.unlock()
+            return false
+        }
+        resolved = true
+        let callback = continuation
+        continuation = nil
+        if callback == nil {
+            earlyPayload = payload
+        }
+        lock.unlock()
+        callback?.resume(returning: payload)
+        return true
+    }
+
+    private static func payload(
+        _ payload: [String: Any],
+        dispatchState: String
+    ) -> [String: Any] {
+        var result = payload
+        result[appIntentNativeDispatchStateKey] = dispatchState
+        return result
+    }
+
+    private static func failurePayload(
+        _ message: String,
+        dispatchState: String
+    ) -> [String: Any] {
+        payload(
+            ["success": false, "error": message],
+            dispatchState: dispatchState
+        )
+    }
+}
+
+struct AppIntentStagedImage: Equatable {
+    let filePath: String
+    let contentDigest: String
+}
+
+final class AppIntentBridge: AppIntentHostApi, @unchecked Sendable {
+    private static let sharedLock = NSLock()
+    private static var storedShared: AppIntentBridge?
+    private static let sharedReadiness = AppIntentReadiness()
+
+    static var shared: AppIntentBridge? {
+        get {
+            sharedLock.lock()
+            let bridge = storedShared
+            sharedLock.unlock()
+            return bridge
+        }
+        set {
+            sharedLock.lock()
+            storedShared = newValue
+            let ready = newValue?.readiness.currentValue() ?? false
+            sharedReadiness.update(ready)
+            sharedLock.unlock()
+        }
+    }
+
+    private static let imageByteLimit = 20 * 1024 * 1024
+    private static let imageStagingDirectoryName = "conduit-app-intents"
+    private static let invocationTimeout: TimeInterval = 10
 
     private let api: AppIntentFlutterApi
+    private let readiness = AppIntentReadiness()
 
     init(messenger: FlutterBinaryMessenger) {
         api = AppIntentFlutterApi(binaryMessenger: messenger)
+        AppIntentHostApiSetup.setUp(binaryMessenger: messenger, api: self)
+    }
+
+    func setReady(ready: Bool) throws {
+        // Pigeon acknowledges this synchronous host call as soon as the
+        // method returns. Apply readiness before returning so Dart never sees
+        // a successful setReady(true) while native intents still see false.
+        Self.sharedLock.lock()
+        readiness.update(ready)
+        if Self.storedShared === self {
+            Self.sharedReadiness.update(ready)
+        }
+        Self.sharedLock.unlock()
+    }
+
+    /// Waits for both the Flutter engine and the Dart handler to be ready.
+    /// App Intents can be asked to run while a cold launch is still between
+    /// native plugin registration and the deferred Dart coordinator startup.
+    static func readyBridge() async -> AppIntentBridge? {
+        let deadline = ProcessInfo.processInfo.systemUptime + 8
+        while true {
+            guard !Task.isCancelled else { return nil }
+            if let bridge = readySharedBridge() {
+                return bridge
+            }
+            let remainingSeconds = deadline - ProcessInfo.processInfo.systemUptime
+            guard remainingSeconds > 0 else { return nil }
+            let remainingNanoseconds = UInt64(
+                min(remainingSeconds * 1_000_000_000, Double(UInt64.max))
+            )
+            guard await sharedReadiness.waitUntilReady(
+                timeoutNanoseconds: remainingNanoseconds
+            ) else { return nil }
+        }
+    }
+
+    private static func readySharedBridge() -> AppIntentBridge? {
+        sharedLock.lock()
+        let bridge = storedShared
+        let ready = bridge?.readiness.currentValue() ?? false
+        sharedLock.unlock()
+        return ready ? bridge : nil
+    }
+
+    static func stageImage(data: Data, filename: String) async throws -> String {
+        try await stageImageArtifact(data: data, filename: filename).filePath
+    }
+
+    static func stageImageArtifact(
+        data: Data,
+        filename: String
+    ) async throws -> AppIntentStagedImage {
+        guard !data.isEmpty, data.count <= imageByteLimit else {
+            throw AppIntentError.executionFailed(
+                appLocalized("appIntent.imageTooLarge", "Image is too large (20 MB maximum).")
+            )
+        }
+        let stagingTask = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let directory = try imageStagingDirectory()
+            let fileExtension = safeImageFileExtension(filename)
+            let destination = directory.appendingPathComponent(
+                "\(UUID().uuidString)-intent.\(fileExtension)"
+            )
+            var completed = false
+            defer {
+                if !completed {
+                    try? FileManager.default.removeItem(at: destination)
+                }
+            }
+            try data.write(to: destination, options: [.atomic])
+            try Task.checkCancellation()
+            completed = true
+            return AppIntentStagedImage(
+                filePath: destination.path,
+                contentDigest: SHA256.hash(data: data)
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+            )
+        }
+        return try await withTaskCancellationHandler {
+            try await stagingTask.value
+        } onCancel: {
+            stagingTask.cancel()
+        }
+    }
+
+    static func stageImage(fileURL: URL, filename: String) async throws -> String {
+        try await stageImageArtifact(
+            fileURL: fileURL,
+            filename: filename
+        ).filePath
+    }
+
+    static func stageImageArtifact(
+        fileURL: URL,
+        filename: String
+    ) async throws -> AppIntentStagedImage {
+        let stagingTask = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let didAccessSecurityScope = fileURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessSecurityScope {
+                    fileURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let values = try fileURL.resourceValues(
+                forKeys: [
+                    .fileSizeKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ]
+            )
+            guard values.isRegularFile == true,
+                  values.isSymbolicLink != true else {
+                throw CocoaError(.fileReadUnsupportedScheme)
+            }
+            if let fileSize = values.fileSize,
+               fileSize <= 0 || fileSize > imageByteLimit {
+                throw AppIntentError.executionFailed(
+                    appLocalized(
+                        "appIntent.imageTooLarge",
+                        "Image is too large (20 MB maximum)."
+                    )
+                )
+            }
+
+            let directory = try imageStagingDirectory()
+            let destination = directory.appendingPathComponent(
+                "\(UUID().uuidString)-intent.\(safeImageFileExtension(filename))"
+            )
+            guard FileManager.default.createFile(
+                atPath: destination.path,
+                contents: nil
+            ) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+
+            var completed = false
+            defer {
+                if !completed {
+                    try? FileManager.default.removeItem(at: destination)
+                }
+            }
+            let input = try FileHandle(forReadingFrom: fileURL)
+            let output = try FileHandle(forWritingTo: destination)
+            defer {
+                try? input.close()
+                try? output.close()
+            }
+
+            var totalBytes = 0
+            var digest = SHA256()
+            while let chunk = try input.read(upToCount: 64 * 1024),
+                  !chunk.isEmpty {
+                try Task.checkCancellation()
+                guard chunk.count <= imageByteLimit - totalBytes else {
+                    throw AppIntentError.executionFailed(
+                        appLocalized(
+                            "appIntent.imageTooLarge",
+                            "Image is too large (20 MB maximum)."
+                        )
+                    )
+                }
+                try output.write(contentsOf: chunk)
+                digest.update(data: chunk)
+                totalBytes += chunk.count
+            }
+            try Task.checkCancellation()
+            guard totalBytes > 0 else {
+                throw AppIntentError.executionFailed(
+                    appLocalized(
+                        "appIntent.imageTooLarge",
+                        "Image is too large (20 MB maximum)."
+                    )
+                )
+            }
+            completed = true
+            return AppIntentStagedImage(
+                filePath: destination.path,
+                contentDigest: digest.finalize()
+                    .map { String(format: "%02x", $0) }
+                    .joined()
+            )
+        }
+        return try await withTaskCancellationHandler {
+            try await stagingTask.value
+        } onCancel: {
+            stagingTask.cancel()
+        }
+    }
+
+    static func removeStagedImageIfOwned(atPath filePath: String) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(imageStagingDirectoryName, isDirectory: true)
+            .standardizedFileURL
+        let candidate = URL(fileURLWithPath: filePath).standardizedFileURL
+        guard candidate.deletingLastPathComponent().path == root.path,
+              let values = try? candidate.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+              ),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true
+        else { return }
+        try? FileManager.default.removeItem(at: candidate)
+    }
+
+    private static func imageStagingDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(imageStagingDirectoryName, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let values = try directory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        return directory.standardizedFileURL
+    }
+
+    private static func safeImageFileExtension(_ filename: String) -> String {
+        let rawExtension = (filename as NSString).pathExtension.lowercased()
+        let allowed = rawExtension.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0)
+        }
+        let sanitized = String(String.UnicodeScalarView(allowed)).prefix(10)
+        return sanitized.isEmpty ? "img" : String(sanitized)
     }
 
     /// Invokes a Flutter handler for the given intent identifier.
     func invokeIntent(
         identifier: String,
-        parameters: [String: Any]
+        parameters: [String: Any],
+        canonicalParameters: [String: String]
     ) async -> [String: Any] {
+        let invocationLease = AppIntentInvocationStore.shared.lease(
+            identifier: identifier,
+            canonicalParameters: canonicalParameters
+        )
+        let result: [String: Any]
         switch identifier {
         case "app.cogwheel.conduit.ask_chat":
-            return await invoke { completion in
-                self.api.askChat(
+            result = await invoke { bridge, completion in
+                bridge.api.askChat(
+                    invocationId: invocationLease.invocationId,
                     prompt: parameters["prompt"] as? String,
                     completion: completion
                 )
             }
         case "app.cogwheel.conduit.start_voice_call":
-            return await invoke { completion in
-                self.api.startVoiceCall(completion: completion)
+            result = await invoke { bridge, completion in
+                bridge.api.startVoiceCall(
+                    invocationId: invocationLease.invocationId,
+                    completion: completion
+                )
             }
         case "app.cogwheel.conduit.send_text":
-            return await invoke { completion in
-                self.api.sendText(
+            result = await invoke { bridge, completion in
+                bridge.api.sendText(
+                    invocationId: invocationLease.invocationId,
                     text: parameters["text"] as? String ?? "",
                     completion: completion
                 )
             }
         case "app.cogwheel.conduit.send_url":
-            return await invoke { completion in
-                self.api.sendUrl(
+            result = await invoke { bridge, completion in
+                bridge.api.sendUrl(
+                    invocationId: invocationLease.invocationId,
                     url: parameters["url"] as? String ?? "",
                     completion: completion
                 )
             }
         case "app.cogwheel.conduit.send_image":
-            guard let data = parameters["bytes"] as? Data else {
-                return [
+            guard let filePath = parameters["filePath"] as? String,
+                  !filePath.isEmpty else {
+                result = [
                     "success": false,
-                    "error": "No image data provided."
+                    "error": "No staged image provided."
                 ]
+                break
             }
             let payload = PlatformAppIntentImagePayload(
                 filename: parameters["filename"] as? String ?? "shared_image.jpg",
-                bytes: FlutterStandardTypedData(bytes: data)
+                filePath: filePath
             )
-            return await invoke { completion in
-                self.api.sendImage(payload: payload, completion: completion)
+            result = await invoke { bridge, completion in
+                bridge.api.sendImage(
+                    invocationId: invocationLease.invocationId,
+                    payload: payload,
+                    completion: completion
+                )
             }
         default:
-            return [
+            result = [
                 "success": false,
                 "error": "Unknown intent: \(identifier)"
             ]
         }
+        AppIntentInvocationStore.shared.resolve(
+            invocationLease,
+            dispatchState: result[appIntentNativeDispatchStateKey] as? String
+        )
+        return result
     }
 
     private func invoke(
-        _ call: @escaping (@escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) -> Void
+        _ call: @escaping (
+            AppIntentBridge,
+            @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void
+        ) -> Void
     ) async -> [String: Any] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                call { result in
-                    switch result {
-                    case .success(let response):
-                        var payload: [String: Any] = [
-                            "success": response.success,
-                        ]
-                        payload["value"] = response.value
-                        payload["error"] = response.error
-                        continuation.resume(returning: payload)
-                    case .failure(let error):
-                        continuation.resume(returning: [
-                            "success": false,
-                            "error": error.message ?? error.localizedDescription,
-                        ])
+        let completion = AppIntentInvocationCompletion()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                completion.install(continuation)
+                guard !completion.isResolved else { return }
+
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                    deadline: .now() + Self.invocationTimeout
+                ) {
+                    completion.resolveInterrupted(
+                        "App Intent timed out waiting for Conduit."
+                    )
+                }
+
+                DispatchQueue.main.async {
+                    // Reacquire at the dispatch boundary. The bridge returned
+                    // by readyBridge() can be replaced (or deallocated)
+                    // before this block reaches the main queue; the current
+                    // ready bridge receives the same durable invocation.
+                    guard let targetBridge = Self.readySharedBridge() else {
+                        completion.resolveNotDispatched(
+                            "App Intent bridge was replaced."
+                        )
+                        return
+                    }
+                    guard completion.beginDispatch() else { return }
+                    call(targetBridge) { result in
+                        switch result {
+                        case .success(let response):
+                            var payload: [String: Any] = [
+                                "success": response.success,
+                            ]
+                            payload["value"] = response.value
+                            payload["error"] = response.error
+                            payload[appIntentNativeOwnedFilePathKey] =
+                                response.ownedFilePath
+                            completion.resolveCompleted(payload)
+                        case .failure(let error):
+                            // The message crossed the engine boundary, but a
+                            // transport failure cannot prove whether Dart took
+                            // ownership before its response was lost.
+                            completion.resolveTransportFailure(
+                                error.message ?? error.localizedDescription
+                            )
+                        }
                     }
                 }
             }
+        } onCancel: {
+            completion.resolveInterrupted("App Intent was cancelled.")
         }
     }
 }
@@ -1045,7 +1873,7 @@ struct AskConduitIntent: AppIntent {
     func perform() async throws
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
-        guard let channel = AppIntentBridge.shared else {
+        guard let channel = await AppIntentBridge.readyBridge() else {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
@@ -1054,7 +1882,8 @@ struct AskConduitIntent: AppIntent {
             : [:]
         let result = await channel.invokeIntent(
             identifier: "app.cogwheel.conduit.ask_chat",
-            parameters: parameters
+            parameters: parameters,
+            canonicalParameters: ["prompt": prompt ?? ""]
         )
 
         if let success = result["success"] as? Bool, success {
@@ -1080,13 +1909,14 @@ struct StartVoiceCallIntent: AppIntent {
     func perform() async throws
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
-        guard let channel = AppIntentBridge.shared else {
+        guard let channel = await AppIntentBridge.readyBridge() else {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let result = await channel.invokeIntent(
             identifier: "app.cogwheel.conduit.start_voice_call",
-            parameters: [:]
+            parameters: [:],
+            canonicalParameters: [:]
         )
 
         if let success = result["success"] as? Bool, success {
@@ -1118,14 +1948,15 @@ struct ConduitSendTextIntent: AppIntent {
     func perform() async throws
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
-        guard let channel = AppIntentBridge.shared else {
+        guard let channel = await AppIntentBridge.readyBridge() else {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await channel.invokeIntent(
             identifier: "app.cogwheel.conduit.send_text",
-            parameters: ["text": trimmed ?? ""]
+            parameters: ["text": trimmed ?? ""],
+            canonicalParameters: ["text": trimmed ?? ""]
         )
 
         if let success = result["success"] as? Bool, success {
@@ -1156,13 +1987,14 @@ struct ConduitSendUrlIntent: AppIntent {
     func perform() async throws
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
-        guard let channel = AppIntentBridge.shared else {
+        guard let channel = await AppIntentBridge.readyBridge() else {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
         let result = await channel.invokeIntent(
             identifier: "app.cogwheel.conduit.send_url",
-            parameters: ["url": url.absoluteString]
+            parameters: ["url": url.absoluteString],
+            canonicalParameters: ["url": url.absoluteString]
         )
 
         if let success = result["success"] as? Bool, success {
@@ -1193,7 +2025,7 @@ struct ConduitSendImageIntent: AppIntent {
     func perform() async throws
         -> some IntentResult & ReturnsValue<String> & OpensIntent
     {
-        guard let channel = AppIntentBridge.shared else {
+        guard let channel = await AppIntentBridge.readyBridge() else {
             throw AppIntentError.executionFailed(appLocalized("appIntent.appNotReady", "App not ready"))
         }
 
@@ -1203,20 +2035,59 @@ struct ConduitSendImageIntent: AppIntent {
             )
         }
 
-        let data = try image.data
-        let name = image.filename ?? "shared_image.jpg"
+        let name = image.filename
+        let stagedImage: AppIntentStagedImage
+        if let fileURL = image.fileURL {
+            stagedImage = try await AppIntentBridge.stageImageArtifact(
+                fileURL: fileURL,
+                filename: name
+            )
+        } else {
+            // Some providers expose only in-memory data. Keep this fallback,
+            // but prefer file-backed streaming so the 20 MB limit is enforced
+            // before materializing the full image in the app process.
+            stagedImage = try await AppIntentBridge.stageImageArtifact(
+                data: image.data,
+                filename: name
+            )
+        }
+        let filePath = stagedImage.filePath
+        var dartMayOwnStagedImage = false
+        defer {
+            if !dartMayOwnStagedImage {
+                AppIntentBridge.removeStagedImageIfOwned(atPath: filePath)
+            }
+        }
 
         let result = await channel.invokeIntent(
             identifier: "app.cogwheel.conduit.send_image",
             parameters: [
                 "filename": name,
-                "bytes": data,
+                "filePath": filePath,
+            ],
+            canonicalParameters: [
+                "filename": name,
+                "contentDigest": stagedImage.contentDigest,
             ]
         )
 
         if let success = result["success"] as? Bool, success {
+            // A retry stages a fresh copy but reuses the invocation ID. Dart
+            // may return the cached result for the original path; transfer
+            // only the exact path Dart reports owning so the duplicate copy
+            // is reclaimed by this defer.
+            dartMayOwnStagedImage =
+                result[appIntentNativeOwnedFilePathKey] as? String == filePath
             let value = result["value"] as? String ?? appLocalized("appIntent.sentImageToConduit", "Sent image to Conduit")
             return .result(value: value)
+        }
+
+        // A timeout, cancellation, or transport failure after dispatch is an
+        // indeterminate ownership boundary. Dart may already have persisted a
+        // queue row for this exact path, so native cleanup must fail safe.
+        if result[appIntentNativeDispatchStateKey] as? String ==
+            appIntentNativeDispatchIndeterminate {
+            dartMayOwnStagedImage = true
         }
 
         let message = result["error"] as? String ?? appLocalized("appIntent.unableSendImage", "Unable to send image")
@@ -1272,6 +2143,106 @@ struct AppShortcuts: AppShortcutsProvider {
     }
 }
 
+/// Matches an HTTP cookie using its host-only/domain scope, Secure attribute,
+/// and RFC 6265 path boundary rules.
+func cookieMatchesUrl(cookie: HTTPCookie, url: URL) -> Bool {
+    guard let host = url.host?.lowercased(), !host.isEmpty else {
+        return false
+    }
+
+    if cookie.isSecure && url.scheme?.lowercased() != "https" {
+        return false
+    }
+
+    let rawDomain = cookie.domain.lowercased()
+    let isDomainCookie = rawDomain.hasPrefix(".")
+    let cookieHost = isDomainCookie
+        ? String(rawDomain.dropFirst())
+        : rawDomain
+    guard !cookieHost.isEmpty else { return false }
+
+    if isDomainCookie {
+        guard host == cookieHost || host.hasSuffix(".\(cookieHost)") else {
+            return false
+        }
+    } else if host != cookieHost {
+        return false
+    }
+
+    // RFC 6265 compares the request-target path as encoded octets. `URL.path`
+    // decodes `%2F` into `/`, which would incorrectly broaden `/admin` to
+    // match a request for `/admin%2Fpublic`.
+    let encodedPath = URLComponents(
+        url: url,
+        resolvingAgainstBaseURL: false
+    )?.percentEncodedPath ?? ""
+    let requestPath = encodedPath.isEmpty ? "/" : encodedPath
+    let cookiePath = cookie.path.isEmpty ? "/" : cookie.path
+    guard requestPath.hasPrefix(cookiePath) else { return false }
+    if requestPath == cookiePath || cookiePath.hasSuffix("/") {
+        return true
+    }
+
+    let boundary = requestPath.index(
+        requestPath.startIndex,
+        offsetBy: cookiePath.count
+    )
+    return requestPath[boundary] == "/"
+}
+
+/// Collapses matching cookies to the name/value map expected by Dart.
+///
+/// WKHTTPCookieStore does not promise a useful order. Prefer the cookie with
+/// the longest matching path for duplicate names, then apply stable scope and
+/// lexical tie-breakers so store enumeration order cannot change the result.
+func cookieValuesForUrl(cookies: [HTTPCookie], url: URL) -> [String: String] {
+    var selected: [String: HTTPCookie] = [:]
+    for cookie in cookies where cookieMatchesUrl(cookie: cookie, url: url) {
+        guard let current = selected[cookie.name] else {
+            selected[cookie.name] = cookie
+            continue
+        }
+        if cookieIsPreferred(candidate: cookie, over: current) {
+            selected[cookie.name] = cookie
+        }
+    }
+    return selected.mapValues(\.value)
+}
+
+private func cookieIsPreferred(
+    candidate: HTTPCookie,
+    over current: HTTPCookie
+) -> Bool {
+    let candidatePath = candidate.path.isEmpty ? "/" : candidate.path
+    let currentPath = current.path.isEmpty ? "/" : current.path
+    if candidatePath.utf8.count != currentPath.utf8.count {
+        return candidatePath.utf8.count > currentPath.utf8.count
+    }
+
+    let candidateHostOnly = !candidate.domain.hasPrefix(".")
+    let currentHostOnly = !current.domain.hasPrefix(".")
+    if candidateHostOnly != currentHostOnly {
+        return candidateHostOnly
+    }
+
+    if candidate.isSecure != current.isSecure {
+        return candidate.isSecure
+    }
+
+    let candidateDomain = candidate.domain.lowercased()
+    let currentDomain = current.domain.lowercased()
+    if candidateDomain.utf8.count != currentDomain.utf8.count {
+        return candidateDomain.utf8.count > currentDomain.utf8.count
+    }
+    if candidatePath != currentPath {
+        return candidatePath < currentPath
+    }
+    if candidateDomain != currentDomain {
+        return candidateDomain < currentDomain
+    }
+    return candidate.value < current.value
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var backgroundStreamingHandler: BackgroundStreamingHandler?
@@ -1281,130 +2252,93 @@ struct AppShortcuts: AppShortcutsProvider {
   private var cookieChannel: FlutterMethodChannel?
   private var shareImportChannel: FlutterMethodChannel?
 
-  /// Checks if a cookie matches a given URL based on domain.
-  private func cookieMatchesUrl(cookie: HTTPCookie, url: URL) -> Bool {
-    guard let host = url.host?.lowercased() else { return false }
-    let domain = cookie.domain.lowercased()
-
-    // Remove leading dot from cookie domain if present
-    let cleanDomain = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
-
-    // Exact match or subdomain match
-    return host == cleanDomain || host.hasSuffix(".\(cleanDomain)")
-  }
-
-  private func shareUserDefaults() -> UserDefaults? {
+  private func shareAppGroupId() -> String? {
     let appGroupId = Bundle.main.object(
       forInfoDictionaryKey: conduitShareAppGroupIdKey
     ) as? String
     let defaultGroupId = Bundle.main.bundleIdentifier.map { "group.\($0)" }
-    guard let groupId = appGroupId ?? defaultGroupId else { return nil }
+    return appGroupId ?? defaultGroupId
+  }
+
+  private func shareUserDefaults() -> UserDefaults? {
+    guard let groupId = shareAppGroupId() else { return nil }
     return UserDefaults(suiteName: groupId)
   }
 
-  private func pendingShareImportStatus() -> [String: Any]? {
-    guard let data = shareUserDefaults()?.data(
-      forKey: conduitShareImportStatusKey
-    ) else {
+  private lazy var shareEnvelopeStore: NativeShareEnvelopeStore? = {
+    guard let groupId = shareAppGroupId(),
+          let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: groupId
+          ) else { return nil }
+    return NativeShareEnvelopeStore(
+      containerURL: container,
+      legacyDefaults: shareUserDefaults()
+    )
+  }()
+
+  private func shareStagingDirectoryPath() -> String? {
+    guard let groupId = shareAppGroupId(),
+          let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: groupId
+          ) else { return nil }
+    let directory = container.appendingPathComponent(
+      nativeShareStagingDirectoryName,
+      isDirectory: true
+    )
+    do {
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      let values = try directory.resourceValues(
+        forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+      )
+      guard values.isDirectory == true, values.isSymbolicLink != true else {
+        return nil
+      }
+      return directory.resolvingSymlinksInPath().standardizedFileURL.path
+    } catch {
       return nil
     }
+  }
 
+  private func pendingShareImportStatus() -> [String: Any]? {
+    guard let store = shareEnvelopeStore,
+          let data = try? store.currentStatusJSON() else {
+      return nil
+    }
     return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
   }
 
   private func clearShareImportStatus(id: String?) {
-    guard let defaults = shareUserDefaults() else { return }
-    if let id,
-       let current = pendingShareImportStatus(),
-       let currentId = current["id"] as? String,
-       !currentId.isEmpty,
-       currentId != id {
-      return
-    }
-
-    defaults.removeObject(forKey: conduitShareImportStatusKey)
-    defaults.synchronize()
+    guard let store = shareEnvelopeStore else { return }
+    _ = try? store.clearStatus(id: id)
   }
 
   private func takePendingShareImportPayload() -> [String: Any]? {
-    guard let defaults = shareUserDefaults(),
-          let data = defaults.data(forKey: conduitShareUserDefaultsKey),
-          let rawItems = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
-    else {
+    guard let store = shareEnvelopeStore,
+          let snapshot = try? store.takeCurrent(),
+          let rawItems = (try? JSONSerialization.jsonObject(
+            with: snapshot.envelope.itemsJSON
+          ))
+      as? [[String: Any]],
+      let status = (try? JSONSerialization.jsonObject(
+        with: snapshot.statusJSON
+      )) as? [String: Any],
+      let payload = nativeValidatedShareImportPayload(
+        rawItems: rawItems,
+        message: snapshot.envelope.message,
+        status: status,
+        shareStagingDirectoryPath: shareStagingDirectoryPath()
+      ) else {
       return nil
-    }
-
-    let status = pendingShareImportStatus()
-    let payloadId = status?["id"] as? String ?? UUID().uuidString
-    let message = defaults.string(forKey: conduitShareMessageKey)?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    var textParts: [String] = []
-    var seenText = Set<String>()
-    var filePaths: [String] = []
-    var seenFilePaths = Set<String>()
-
-    func addText(_ value: String?) {
-      let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard let trimmed, !trimmed.isEmpty, seenText.insert(trimmed).inserted else {
-        return
-      }
-      textParts.append(trimmed)
-    }
-
-    func addFilePath(_ value: String?) {
-      guard var path = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !path.isEmpty else {
-        return
-      }
-      if path.hasPrefix("file://"),
-         let url = URL(string: path) {
-        path = url.path
-      }
-      guard seenFilePaths.insert(path).inserted else { return }
-      filePaths.append(path)
-    }
-
-    addText(message)
-    for item in rawItems {
-      let type = item["type"]
-      let path = item["path"] as? String ?? item["value"] as? String
-      if isSharedTextType(type) {
-        addText(path)
-      } else {
-        addFilePath(path)
-      }
-    }
-
-    defaults.removeObject(forKey: conduitShareUserDefaultsKey)
-    defaults.removeObject(forKey: conduitShareMessageKey)
-    defaults.synchronize()
-
-    if textParts.isEmpty && filePaths.isEmpty {
-      return nil
-    }
-
-    var payload: [String: Any] = [
-      "id": payloadId,
-      "filePaths": filePaths,
-    ]
-    if !textParts.isEmpty {
-      payload["text"] = textParts.joined(separator: "\n")
     }
     return payload
   }
 
-  private func isSharedTextType(_ type: Any?) -> Bool {
-    if let type = type as? String {
-      return type == "text" || type == "url"
-    }
-    if let type = type as? Int {
-      return type == 0 || type == 1 || type == 5
-    }
-    if let type = type as? NSNumber {
-      let value = type.intValue
-      return value == 0 || value == 1 || value == 5
-    }
-    return false
+  private func acknowledgePendingShareImportPayload(id: String?) -> Bool {
+    guard let id, let store = shareEnvelopeStore else { return false }
+    return (try? store.acknowledge(id: id)) == true
   }
 
   func notifyShareImportEvent() {
@@ -1511,6 +2445,13 @@ struct AppShortcuts: AppShortcutsProvider {
         result(self.pendingShareImportStatus())
       case "takePendingShareImportPayload":
         result(self.takePendingShareImportPayload())
+      case "ackPendingShareImportPayload":
+        let arguments = call.arguments as? [String: Any]
+        result(self.acknowledgePendingShareImportPayload(
+          id: arguments?["id"] as? String
+        ))
+      case "shareStagingDirectoryPath":
+        result(self.shareStagingDirectoryPath())
       case "clearShareImportStatus":
         let arguments = call.arguments as? [String: Any]
         self.clearShareImportStatus(id: arguments?["id"] as? String)
@@ -1526,7 +2467,7 @@ struct AppShortcuts: AppShortcutsProvider {
     )
     self.cookieChannel = cookieChannel
 
-    cookieChannel.setMethodCallHandler { [weak self] (call, result) in
+    cookieChannel.setMethodCallHandler { (call, result) in
       if call.method == "getCookies" {
         guard let args = call.arguments as? [String: Any],
               let urlString = args["url"] as? String,
@@ -1536,22 +2477,8 @@ struct AppShortcuts: AppShortcutsProvider {
         }
 
         // Get cookies from WKWebView's cookie store
-        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
-          guard let self = self else {
-            // Always call result to avoid leaving Dart side hanging
-            result([:])
-            return
-          }
-          var cookieDict: [String: String] = [:]
-
-          for cookie in cookies {
-            // Filter cookies for this domain
-            if self.cookieMatchesUrl(cookie: cookie, url: url) {
-              cookieDict[cookie.name] = cookie.value
-            }
-          }
-
-          result(cookieDict)
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+          result(cookieValuesForUrl(cookies: cookies, url: url))
         }
       } else {
         result(FlutterMethodNotImplemented)
