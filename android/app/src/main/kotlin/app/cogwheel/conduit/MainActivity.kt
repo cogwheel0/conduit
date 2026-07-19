@@ -420,10 +420,97 @@ internal object PendingShareImportRuntime {
     var isImportInProgress: Boolean = false
 }
 
-private data class PendingShareDurableState(
+internal data class PendingShareDurableState(
     val queue: PendingSharePayloadQueue = PendingSharePayloadQueue(),
     val status: String? = null
 )
+
+internal fun encodePendingShareState(state: PendingShareDurableState): String {
+    return JSONObject()
+        .put("version", 1)
+        .put("backlog", JSONArray(state.queue.backlog))
+        .apply {
+            state.queue.current?.let { put("current", it) }
+            state.status?.let { put("status", it) }
+        }
+        .toString()
+}
+
+internal fun decodePendingShareState(raw: String): PendingShareDurableState? {
+    return try {
+        val json = JSONObject(raw)
+        if (json.optInt("version", -1) != 1) return null
+        val backlogJson = json.optJSONArray("backlog") ?: JSONArray()
+        val backlog = buildList(backlogJson.length()) {
+            for (index in 0 until backlogJson.length()) {
+                val record = backlogJson.opt(index) as? String ?: return null
+                if (record.isEmpty()) return null
+                add(record)
+            }
+        }
+        val currentValue = json.opt("current")
+        val current = when (currentValue) {
+            null, JSONObject.NULL -> null
+            is String -> currentValue.takeIf { it.isNotEmpty() } ?: return null
+            else -> return null
+        }
+        val statusValue = json.opt("status")
+        val status = when (statusValue) {
+            null, JSONObject.NULL -> null
+            is String -> statusValue.takeIf { it.isNotEmpty() } ?: return null
+            else -> return null
+        }
+        PendingShareDurableState(
+            queue = PendingSharePayloadQueue(backlog = backlog, current = current),
+            status = status
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * Loads the durable pending-share state, self-healing an undecodable file.
+ *
+ * A state file that exists but no longer decodes (corruption, or a version
+ * this build does not understand after an upgrade/downgrade) would otherwise
+ * disable native share staging forever: durable begins fail, takes and acks
+ * return nothing, and the bare file keeps hasPendingStagedSharePayload()
+ * true, so Dart polls for a payload that can never be taken. Healing
+ * atomically rewrites an empty state instead of deleting the file, because a
+ * deleted file would re-enter the legacy SharedPreferences migration and
+ * could resurrect already-consumed payloads.
+ *
+ * Callers hold the import coordinator monitor for both the read and the
+ * healing write, so the contents being judged cannot belong to a concurrent
+ * writer. Transient read failures ([readRaw] throwing after the file was
+ * found) are never healed destructively; only successfully read contents
+ * that fail to decode are reset.
+ */
+internal fun loadPendingShareState(
+    readRaw: () -> String,
+    migrateLegacy: () -> PendingShareDurableState?,
+    writeState: (PendingShareDurableState) -> Boolean,
+    logWarning: (String) -> Unit
+): PendingShareDurableState? {
+    val raw = try {
+        readRaw()
+    } catch (_: FileNotFoundException) {
+        return migrateLegacy()
+    } catch (error: Exception) {
+        logWarning("Pending share state read failed (${error.javaClass.simpleName})")
+        return null
+    }
+    decodePendingShareState(raw)?.let { return it }
+
+    val healed = PendingShareDurableState()
+    if (!writeState(healed)) {
+        logWarning("Pending share state was malformed; healing reset was deferred")
+        return null
+    }
+    logWarning("Pending share state was malformed; reset to an empty state")
+    return healed
+}
 
 class MainActivity : FlutterActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
@@ -1203,50 +1290,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun encodePendingShareState(state: PendingShareDurableState): String {
-        return JSONObject()
-            .put("version", 1)
-            .put("backlog", JSONArray(state.queue.backlog))
-            .apply {
-                state.queue.current?.let { put("current", it) }
-                state.status?.let { put("status", it) }
-            }
-            .toString()
-    }
-
-    private fun decodePendingShareState(raw: String): PendingShareDurableState? {
-        return try {
-            val json = JSONObject(raw)
-            if (json.optInt("version", -1) != 1) return null
-            val backlogJson = json.optJSONArray("backlog") ?: JSONArray()
-            val backlog = buildList(backlogJson.length()) {
-                for (index in 0 until backlogJson.length()) {
-                    val record = backlogJson.opt(index) as? String ?: return null
-                    if (record.isEmpty()) return null
-                    add(record)
-                }
-            }
-            val currentValue = json.opt("current")
-            val current = when (currentValue) {
-                null, JSONObject.NULL -> null
-                is String -> currentValue.takeIf { it.isNotEmpty() } ?: return null
-                else -> return null
-            }
-            val statusValue = json.opt("status")
-            val status = when (statusValue) {
-                null, JSONObject.NULL -> null
-                is String -> statusValue.takeIf { it.isNotEmpty() } ?: return null
-                else -> return null
-            }
-            PendingShareDurableState(
-                queue = PendingSharePayloadQueue(backlog = backlog, current = current),
-                status = status
-            )
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private fun writePendingShareState(state: PendingShareDurableState): Boolean {
         var output: FileOutputStream? = null
         return try {
@@ -1280,9 +1323,17 @@ class MainActivity : FlutterActivity() {
             prefs.contains(PENDING_SHARE_IMPORT_STATUS_KEY)
         if (!hasLegacyState) return PendingShareDurableState()
 
+        // A malformed legacy backlog can never become decodable, so migrate
+        // without it instead of failing every future read.
         val backlog = decodePendingSharePayloadBacklog(
             prefs.getString(PENDING_STAGED_SHARE_BACKLOG_KEY, null)
-        ) ?: return null
+        ) ?: run {
+            Log.w(
+                "MainActivity",
+                "Legacy pending share backlog was malformed; migrating without it"
+            )
+            emptyList()
+        }
         val state = PendingShareDurableState(
             queue = PendingSharePayloadQueue(
                 backlog = backlog,
@@ -1306,21 +1357,19 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun pendingShareState(): PendingShareDurableState? {
-        return try {
-            // Always let AtomicFile.openRead() restore an interrupted write's
-            // backup before deciding that no canonical state exists.
-            pendingShareStateFile.openRead().bufferedReader(StandardCharsets.UTF_8).use {
-                decodePendingShareState(it.readText())
-            }
-        } catch (_: FileNotFoundException) {
-            migrateLegacyPendingShareState()
-        } catch (error: Exception) {
-            Log.w(
-                "MainActivity",
-                "Pending share state read failed (${error.javaClass.simpleName})"
-            )
-            null
-        }
+        return loadPendingShareState(
+            readRaw = {
+                // Always let AtomicFile.openRead() restore an interrupted
+                // write's backup before deciding that no canonical state
+                // exists.
+                pendingShareStateFile.openRead()
+                    .bufferedReader(StandardCharsets.UTF_8)
+                    .use { it.readText() }
+            },
+            migrateLegacy = ::migrateLegacyPendingShareState,
+            writeState = ::writePendingShareState,
+            logWarning = { message -> Log.w("MainActivity", message) }
+        )
     }
 
     private fun finalizePendingStagedSharePayload(

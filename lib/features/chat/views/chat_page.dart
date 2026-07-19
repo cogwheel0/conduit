@@ -267,43 +267,88 @@ class _PinToTopState {
   }
 }
 
-class _AnchoredEndSpace extends StatefulWidget {
-  const _AnchoredEndSpace({
+class _AnchoredComposerSpacer extends StatefulWidget {
+  const _AnchoredComposerSpacer({
     super.key,
     required this.listController,
     required this.anchorIndex,
-    required this.managedItemCount,
+    required this.messageItemCount,
+    required this.composerExtent,
     required this.availableExtent,
     required this.fallbackContentExtentFromAnchor,
-    required this.onExtentChanged,
+    required this.onEndSpaceExtentChanged,
   });
 
   final ListController listController;
   final int anchorIndex;
-  final int managedItemCount;
+  final int messageItemCount;
+  final double composerExtent;
   final double availableExtent;
   final double fallbackContentExtentFromAnchor;
-  final ValueChanged<double> onExtentChanged;
+  final ValueChanged<double> onEndSpaceExtentChanged;
 
   @override
-  State<_AnchoredEndSpace> createState() => _AnchoredEndSpaceState();
+  State<_AnchoredComposerSpacer> createState() =>
+      _AnchoredComposerSpacerState();
 }
 
-class _AnchoredEndSpaceState extends State<_AnchoredEndSpace> {
-  double? _lastReportedExtent;
+class _AnchoredComposerSpacerState extends State<_AnchoredComposerSpacer> {
+  double? _lastReportedEndSpaceExtent;
+  bool _extentRefreshScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.listController.extentsChangedListenable.addListener(
+      _scheduleExtentRefresh,
+    );
+  }
+
+  @override
+  void didUpdateWidget(_AnchoredComposerSpacer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.listController != widget.listController) {
+      oldWidget.listController.extentsChangedListenable.removeListener(
+        _scheduleExtentRefresh,
+      );
+      widget.listController.extentsChangedListenable.addListener(
+        _scheduleExtentRefresh,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.listController.extentsChangedListenable.removeListener(
+      _scheduleExtentRefresh,
+    );
+    super.dispose();
+  }
+
+  void _scheduleExtentRefresh() {
+    if (_extentRefreshScheduled) return;
+    _extentRefreshScheduled = true;
+    // SuperSliverList reports extent changes during performLayout. Rebuilding
+    // directly from that notification triggers "Build scheduled during frame"
+    // in debug and can wedge this element dirty. Coalesce into the next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _extentRefreshScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
 
   double _contentExtentFromAnchor() {
     final controller = widget.listController;
     if (!controller.isAttached ||
         widget.anchorIndex < 0 ||
-        controller.numberOfItems < widget.managedItemCount) {
+        controller.numberOfItems <= widget.messageItemCount) {
       return widget.fallbackContentExtentFromAnchor;
     }
 
-    var extent = 0.0;
+    var extent = widget.composerExtent;
     for (
       var index = widget.anchorIndex;
-      index < widget.managedItemCount;
+      index < widget.messageItemCount;
       index += 1
     ) {
       extent += controller.extentForIndex(index).$1;
@@ -311,29 +356,27 @@ class _AnchoredEndSpaceState extends State<_AnchoredEndSpace> {
     return extent;
   }
 
-  void _reportExtent(double extent) {
-    if (_lastReportedExtent == extent) return;
-    _lastReportedExtent = extent;
+  void _reportEndSpaceExtent(double extent) {
+    if (_lastReportedEndSpaceExtent == extent) return;
+    _lastReportedEndSpaceExtent = extent;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _lastReportedExtent == extent) {
-        widget.onExtentChanged(extent);
+      if (mounted && _lastReportedEndSpaceExtent == extent) {
+        widget.onEndSpaceExtentChanged(extent);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.listController.extentsChangedListenable,
-      builder: (context, _) {
-        final extent = resolveChatAnchoredEndSpaceExtent(
-          availableExtent: widget.availableExtent,
-          contentExtentFromAnchor: _contentExtentFromAnchor(),
-        );
-        _reportExtent(extent);
-        return SizedBox(height: extent);
-      },
+    final endSpaceExtent = resolveChatAnchoredEndSpaceExtent(
+      availableExtent: widget.availableExtent,
+      contentExtentFromAnchor: _contentExtentFromAnchor(),
     );
+    _reportEndSpaceExtent(endSpaceExtent);
+    // Keep the reserved end space inside SuperSliverList. Its item-target
+    // reachability math is sliver-local, so a separate trailing sliver is
+    // invisible and makes the package fall back to bottom-stick corrections.
+    return SizedBox(height: widget.composerExtent + endSpaceExtent);
   }
 }
 
@@ -2072,7 +2115,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     double crossAxisExtent,
   ) {
     if (index == timeline.listItemCount) {
-      return composerSpacerExtent;
+      return composerSpacerExtent + _pinToTopEndSpaceScrollExtent();
     }
     return _estimateMessageListExtentForIndex(
       layoutMetadata,
@@ -2274,12 +2317,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         (topPadding / MediaQuery.sizeOf(context).height)
             .clamp(0.0, 1.0)
             .toDouble();
-    final managedItemCount = timeline.listItemCount + 1;
     var fallbackContentExtentFromAnchor = 0.0;
     if (pinnedUserMessageIndex >= 0) {
       for (
         var index = pinnedUserMessageIndex;
-        index < managedItemCount;
+        index < timeline.listItemCount;
         index += 1
       ) {
         fallbackContentExtentFromAnchor += _estimateMessageListExtent(
@@ -2290,6 +2332,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _chatListCrossAxisExtent(),
         );
       }
+      fallbackContentExtentFromAnchor += bottomPadding;
     }
     _syncLayoutBottomAnchor();
 
@@ -2386,6 +2429,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       if (index == timeline.listItemCount) {
+                        if (_wantsPinToTop && pinnedUserMessageIndex >= 0) {
+                          return _AnchoredComposerSpacer(
+                            key: const ValueKey<String>(_composerSpacerListKey),
+                            listController: _messageListController,
+                            anchorIndex: pinnedUserMessageIndex,
+                            messageItemCount: timeline.listItemCount,
+                            composerExtent: bottomPadding,
+                            availableExtent: math.max(
+                              0,
+                              MediaQuery.sizeOf(context).height - topPadding,
+                            ),
+                            fallbackContentExtentFromAnchor:
+                                fallbackContentExtentFromAnchor,
+                            onEndSpaceExtentChanged: (extent) {
+                              if (!_wantsPinToTop ||
+                                  _pinnedUserMessageId !=
+                                      messages[pinnedUserMessageIndex].id ||
+                                  (_pinToTopEndSpaceExtent - extent).abs() <
+                                      0.5) {
+                                return;
+                              }
+                              _pinToTopEndSpaceExtent = extent;
+                              _syncLayoutBottomAnchor();
+                              _scheduleComposerSpacerExtentInvalidation();
+                            },
+                          );
+                        }
                         return SizedBox(
                           key: const ValueKey<String>(_composerSpacerListKey),
                           height: bottomPadding,
@@ -2524,34 +2594,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ),
                 ),
               ),
-              // Reserve exactly the unused viewport below the anchored turn.
-              // As the response grows this shrinks by the same amount, keeping
-              // the total scroll range stable until real content fills it.
-              if (_wantsPinToTop && pinnedUserMessageIndex >= 0)
-                SliverToBoxAdapter(
-                  child: _AnchoredEndSpace(
-                    key: ValueKey<String>(
-                      'chat-anchor-end-space-${_pinnedUserMessageId!}',
-                    ),
-                    listController: _messageListController,
-                    anchorIndex: pinnedUserMessageIndex,
-                    managedItemCount: managedItemCount,
-                    availableExtent: math.max(
-                      0,
-                      MediaQuery.sizeOf(context).height - topPadding,
-                    ),
-                    fallbackContentExtentFromAnchor:
-                        fallbackContentExtentFromAnchor,
-                    onExtentChanged: (extent) {
-                      if (_wantsPinToTop &&
-                          _pinnedUserMessageId ==
-                              messages[pinnedUserMessageIndex].id) {
-                        _pinToTopEndSpaceExtent = extent;
-                        _syncLayoutBottomAnchor();
-                      }
-                    },
-                  ),
-                ),
             ],
           ),
         ),

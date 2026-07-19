@@ -1,6 +1,7 @@
 package app.cogwheel.conduit
 
 import java.io.ByteArrayInputStream
+import java.io.FileNotFoundException
 import java.io.InputStream
 import java.io.IOException
 import java.nio.file.Files
@@ -568,6 +569,140 @@ class PendingSharePayloadPolicyTest {
             root.toFile().deleteRecursively()
             sibling.toFile().deleteRecursively()
         }
+    }
+
+    @Test
+    fun durableStateRoundTripsAndRejectsUndecodableEncodings() {
+        val state = PendingShareDurableState(
+            queue = PendingSharePayloadQueue(
+                backlog = listOf("older:payload"),
+                current = "newest:payload"
+            ),
+            status = """{"id":"abc"}"""
+        )
+        assertEquals(state, decodePendingShareState(encodePendingShareState(state)))
+        assertEquals(
+            PendingShareDurableState(),
+            decodePendingShareState(encodePendingShareState(PendingShareDurableState()))
+        )
+
+        assertNull(decodePendingShareState("not json at all"))
+        assertNull(decodePendingShareState("""{"version":2,"backlog":[]}"""))
+        assertNull(decodePendingShareState("""{"backlog":[]}"""))
+        assertNull(decodePendingShareState("""{"version":1,"backlog":[""]}"""))
+        assertNull(decodePendingShareState("""{"version":1,"current":7}"""))
+        assertNull(decodePendingShareState("""{"version":1,"status":[]}"""))
+    }
+
+    @Test
+    fun corruptStateFileIsHealedByAtomicallyResettingToAnEmptyState() {
+        for (raw in listOf("garbage", """{"version":2,"backlog":["kept"]}""")) {
+            val writes = ArrayList<PendingShareDurableState>()
+            val warnings = ArrayList<String>()
+
+            val healed = loadPendingShareState(
+                readRaw = { raw },
+                migrateLegacy = {
+                    throw AssertionError("Legacy migration must not run for an existing file")
+                },
+                writeState = { state ->
+                    writes.add(state)
+                    true
+                },
+                logWarning = warnings::add
+            )
+
+            assertEquals(PendingShareDurableState(), healed)
+            assertEquals(listOf(PendingShareDurableState()), writes)
+            assertTrue(warnings.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun healedEmptyStateUnblocksDurableBeginsAndReportsNoPendingPayload() {
+        val healed = loadPendingShareState(
+            readRaw = { "corrupt" },
+            migrateLegacy = { throw AssertionError("Legacy migration must not run") },
+            writeState = { true },
+            logWarning = {}
+        )
+
+        assertNotNull(healed)
+        // hasPendingStagedSharePayload() no longer reports a phantom payload.
+        assertFalse(healed!!.queue.hasRecords)
+        assertNull(healed.status)
+        // beginShareImport's durable begin can retire the current record again.
+        assertEquals(
+            PendingSharePayloadQueue(),
+            healed.queue.retireCurrent(replacementId = "next") { it }
+        )
+    }
+
+    @Test
+    fun validStateFileIsReturnedWithoutAnyHealingWrite() {
+        val state = PendingShareDurableState(
+            queue = PendingSharePayloadQueue(current = "id:payload")
+        )
+
+        val loaded = loadPendingShareState(
+            readRaw = { encodePendingShareState(state) },
+            migrateLegacy = { throw AssertionError("Legacy migration must not run") },
+            writeState = { throw AssertionError("A valid state must not be rewritten") },
+            logWarning = { throw AssertionError("A valid state must not warn") }
+        )
+
+        assertEquals(state, loaded)
+    }
+
+    @Test
+    fun missingStateFileStillMigratesLegacyStateWithoutHealing() {
+        val migrated = PendingShareDurableState(status = """{"id":"legacy"}""")
+
+        val loaded = loadPendingShareState(
+            readRaw = { throw FileNotFoundException("no canonical state") },
+            migrateLegacy = { migrated },
+            writeState = { throw AssertionError("Missing files are migrated, not healed") },
+            logWarning = { throw AssertionError("Missing files must not warn") }
+        )
+
+        assertSame(migrated, loaded)
+    }
+
+    @Test
+    fun transientReadFailureIsNeverHealedDestructively() {
+        var warned = false
+
+        val loaded = loadPendingShareState(
+            readRaw = { throw IOException("EIO") },
+            migrateLegacy = {
+                throw AssertionError("Legacy migration must not run on read failure")
+            },
+            writeState = {
+                throw AssertionError("Read failures must not overwrite durable state")
+            },
+            logWarning = { warned = true }
+        )
+
+        assertNull(loaded)
+        assertTrue(warned)
+    }
+
+    @Test
+    fun deferredHealingWriteLeavesStateUnresolvedForRetry() {
+        var writeAttempts = 0
+
+        val loaded = loadPendingShareState(
+            readRaw = { "corrupt" },
+            migrateLegacy = { throw AssertionError("Legacy migration must not run") },
+            writeState = {
+                writeAttempts++
+                false
+            },
+            logWarning = {}
+        )
+
+        assertNull(loaded)
+        assertEquals(1, writeAttempts)
     }
 
     private class UnknownLengthChunkedInputStream(

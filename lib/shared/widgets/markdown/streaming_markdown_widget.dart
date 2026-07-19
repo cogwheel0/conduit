@@ -172,36 +172,50 @@ class _StreamingMarkdownWidgetState
       onStateChanged: _applyCompiledDocumentState,
     );
     final compiler = ref.read(markdownCompileServiceProvider);
-    if (compiler.shouldPrepareSynchronously(
-      widget.content,
-      widgetTest: _isWidgetTest,
-    )) {
+    if (!widget.isStreaming ||
+        compiler.shouldPrepareSynchronously(
+          widget.content,
+          widgetTest: _isWidgetTest,
+        )) {
+      // Settled rows must mount at their final extent. Deferring long settled
+      // preparation would mount a loading skeleton whose height differs from
+      // the real content, so rows built while scrolling up through history
+      // would change extent a few frames later and visibly jump the viewport.
+      // Only live streaming updates may take the async coalescing path below.
       _snapshot = _buildMarkdownSnapshot(
         widget.content,
         streaming: widget.isStreaming,
       );
-      _resolveCompiledDocument(_snapshot);
-    } else if (widget.content.trim().isNotEmpty) {
-      // Long normalization performs several full-string passes. Keep it off
-      // the first UI frame and let the existing generation checks reject stale
-      // results if a stream advances before preparation completes.
       if (widget.isStreaming) {
-        if (widget.content.length > markdownSynchronousPrepareThreshold) {
-          // Route a long initial snapshot through the same coalescing window as
-          // subsequent token updates. Starting it immediately would make the
-          // seed snapshot consume a worker slot even when a newer stream value
-          // arrives during the first frame.
-          _markPendingStreamingContent(widget.content);
-          _scheduleStreamingRefresh();
-        } else {
-          // Test doubles and platform-specific backends may still request the
-          // async path for small inputs. Those are cheap and should remain
-          // available on the initial frame.
-          unawaited(_refreshStreamingSnapshot(widget.content));
-        }
+        _resolveCompiledDocument(_snapshot);
       } else {
-        final generation = ++_snapshotGeneration;
-        _queueSettledSnapshot(widget.content, generation: generation);
+        // The first settled render must have its final structure and extent.
+        // An async compile would still replace this row with a loading skeleton
+        // before the real document arrives, recreating the scroll-up jump even
+        // though normalization above is synchronous. Later edits remain on the
+        // controller's coalesced async path.
+        final prepared = _snapshot.normalizedContent;
+        final document =
+            compiler.peekPrepared(prepared) ??
+            compiler.compilePreparedSynchronously(prepared);
+        _documentController.applyDirectDocument(document);
+      }
+    } else if (widget.content.trim().isNotEmpty) {
+      // Long normalization performs several full-string passes. For a row that
+      // mounts mid-stream, keep it off the first UI frame and let the existing
+      // generation checks reject stale results as the stream advances.
+      if (widget.content.length > markdownSynchronousPrepareThreshold) {
+        // Route a long initial snapshot through the same coalescing window as
+        // subsequent token updates. Starting it immediately would make the
+        // seed snapshot consume a worker slot even when a newer stream value
+        // arrives during the first frame.
+        _markPendingStreamingContent(widget.content);
+        _scheduleStreamingRefresh();
+      } else {
+        // Test doubles and platform-specific backends may still request the
+        // async path for small inputs. Those are cheap and should remain
+        // available on the initial frame.
+        unawaited(_refreshStreamingSnapshot(widget.content));
       }
     }
   }

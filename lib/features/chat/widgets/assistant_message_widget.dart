@@ -15,6 +15,7 @@ import '../../../core/providers/app_providers.dart'
 import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
 import '../providers/text_to_speech_provider.dart';
 import '../providers/queued_completion_provider.dart';
+import '../providers/streaming_haptic_memory.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../hermes/services/hermes_run_transport.dart';
 import '../../hermes/widgets/hermes_approval_card.dart';
@@ -144,9 +145,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   String? _visibleFollowUpScopeId;
   List<String> _visibleFollowUps = const <String>[];
 
-  /// Guards the triple-haptic so it fires only once per streaming session.
-  bool _hasTriggeredContentHaptic = false;
   ProviderSubscription<String?>? _streamingContentSub;
+
+  /// Remount-proof per-message guards for the streaming haptics; a recreated
+  /// State must never replay the content-arrival or completion pulses.
+  StreamingHapticMemory get _hapticMemory =>
+      ref.read(streamingHapticMemoryProvider);
 
   bool get _shouldAnimateOnMount =>
       widget.animateOnMount && !_disableAnimations;
@@ -261,7 +265,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _clearVisibleFollowUps();
       _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
-      _hasTriggeredContentHaptic = false;
       _fadeController.value = _shouldAnimateOnMount ? 0.0 : 1.0;
       _streamingContentFadeController.value = 1.0;
     }
@@ -275,14 +278,25 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _syncStreamingContentSubscription();
     }
 
-    // Reset fade controller when streaming ends for the same message
+    // A transport flag can flap while ownership moves between optimistic,
+    // durable, and server-echo rows. Completion haptics therefore follow the
+    // durable responseDone transition, not raw isStreaming changes.
+    final responseCompleted =
+        oldWidget.message.metadata?['responseDone'] != true &&
+        widget.message.metadata?['responseDone'] == true;
+    if (responseCompleted &&
+        oldWidget.message.id == widget.message.id &&
+        _hapticMemory.markFired(
+          widget.message.id,
+          StreamingHapticEvent.turnCompleted,
+        )) {
+      _streamingHaptic(HapticType.medium);
+    }
+
+    // Genuine streaming end: allow the action row to replace the indicator.
     if (oldWidget.isStreaming &&
         !widget.isStreaming &&
         oldWidget.message.id == widget.message.id) {
-      _hasTriggeredContentHaptic = false;
-      // Haptic: streaming finished
-      _streamingHaptic(HapticType.medium);
-      // Genuine streaming end: allow the action row to replace the indicator.
       _hasStreamedThisMessage = true;
       _actionRowSettled = true;
     }
@@ -833,10 +847,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void _onStreamingChunk(int previousLength, int newLength) {
     if (newLength <= previousLength) return;
 
-    // Haptic: triple-tap when main content first arrives
-    if (previousLength == 0 && !_hasTriggeredContentHaptic) {
-      _hasTriggeredContentHaptic = true;
-      _tripleHaptic();
+    // The streamed value is replayed immediately when a virtualized row
+    // remounts. Keep this guard outside widget State so that replay cannot
+    // synthesize another 0→N "first chunk" and replay the pulse.
+    if (previousLength == 0 &&
+        _hapticMemory.markFired(
+          widget.message.id,
+          StreamingHapticEvent.contentArrival,
+        )) {
+      // One acknowledgement is enough; the previous three pulses at
+      // 0/150/300ms felt like an unintended rapid vibration after every send.
+      _streamingHaptic(HapticType.medium);
     }
   }
 
@@ -847,23 +868,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       type: type,
       hapticEnabled: enabled,
     );
-  }
-
-  /// Fires three distinct haptic taps to signal content arrival.
-  ///
-  /// Each tap is spaced 150ms apart so the user perceives three
-  /// separate impulses rather than a single buzz.
-  void _tripleHaptic() {
-    if (!_streamingHapticsAllowed) return;
-    PlatformService.hapticFeedback(type: HapticType.medium);
-    Future.delayed(const Duration(milliseconds: 150), () {
-      if (!mounted || !_streamingHapticsAllowed) return;
-      PlatformService.hapticFeedback(type: HapticType.medium);
-    });
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted || !_streamingHapticsAllowed) return;
-      PlatformService.hapticFeedback(type: HapticType.medium);
-    });
   }
 
   bool get _streamingHapticsAllowed =>

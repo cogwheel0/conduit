@@ -2376,14 +2376,17 @@ Tail keeps growing
         await tester.pumpWidget(
           buildAssistantHarness(
             container: container,
-            message: message.copyWith(content: 'Hello'),
+            message: message.copyWith(
+              content: 'Hello',
+              metadata: const {'responseDone': true},
+            ),
             isStreaming: false,
             disableAnimations: true,
           ),
         );
         await tester.pump();
 
-        expect(_mediumImpactCalls(platformCalls), hasLength(4));
+        expect(_mediumImpactCalls(platformCalls), hasLength(2));
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         container.dispose();
@@ -3327,7 +3330,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'shows a loading skeleton when a completed document mounts before async compile finishes',
+    'completed documents mount at final extent without a loading skeleton',
     (tester) async {
       final compiler = _DelayedMarkdownCompileService();
       addTearDown(compiler.dispose);
@@ -3355,13 +3358,6 @@ Tail keeps growing
       }
 
       await tester.pumpWidget(buildDelayedHarness());
-      await tester.pump();
-
-      expect(skeletonFinder, findsOneWidget);
-      expect(find.text('Completed response', findRichText: true), findsNothing);
-
-      compiler.release();
-      await tester.pump();
       await tester.pump();
 
       expect(skeletonFinder, findsNothing);
@@ -3517,19 +3513,22 @@ Tail keeps growing
       );
     }
 
+    // The initial settled row prepares synchronously so it mounts at its final
+    // extent. Subsequent settled edits still use the coalescing async queue.
     await tester.pumpWidget(buildSettledHarness(first));
-    await compiler.firstStarted.future;
+    check(compiler.preparedInputs).isEmpty();
     await tester.pumpWidget(buildSettledHarness(superseded));
+    await compiler.firstStarted.future;
     await tester.pumpWidget(buildSettledHarness(newest));
     await tester.pump();
 
-    check(compiler.preparedInputs).deepEquals([first]);
+    check(compiler.preparedInputs).deepEquals([superseded]);
     check(compiler.maxActivePreparations).equals(1);
 
     compiler.releaseFirst();
     await tester.pumpAndSettle();
 
-    check(compiler.preparedInputs).deepEquals([first, newest]);
+    check(compiler.preparedInputs).deepEquals([superseded, newest]);
     check(compiler.maxActivePreparations).equals(1);
     check(tester.any(find.textContaining('Newest settled body'))).isTrue();
     check(tester.any(find.textContaining('Superseded settled body'))).isFalse();
@@ -3566,11 +3565,14 @@ Tail keeps growing
       }
 
       await tester.pumpWidget(buildHarness(firstSettled, isStreaming: false));
-      await compiler.firstStarted.future;
+      check(compiler.preparedInputs).isEmpty();
       await tester.pumpWidget(
         buildHarness(supersededSettled, isStreaming: false),
       );
-      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+      await compiler.firstStarted.future;
+      // Keep the already-rendered settled document visible while its update is
+      // prepared; never regress to an approximate-height skeleton.
+      check(tester.any(find.byType(MarkdownLoadingSkeleton))).isFalse();
 
       await tester.pumpWidget(buildHarness(streaming, isStreaming: true));
 
@@ -3578,7 +3580,7 @@ Tail keeps growing
       compiler.releaseFirst();
       await tester.pumpAndSettle();
 
-      check(compiler.preparedInputs).deepEquals([firstSettled, streaming]);
+      check(compiler.preparedInputs).deepEquals([supersededSettled, streaming]);
       check(
         tester.any(find.textContaining('Superseded settled body')),
       ).isFalse();
