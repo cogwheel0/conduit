@@ -1177,7 +1177,18 @@ void main() {
     expect(shouldKeepBottomAnchored, isFalse);
   });
 
-  test('pin-to-top removal clamps offsets to the phantom-free range', () {
+  test('pin-to-top user scroll keeps phantom until removal is stable', () {
+    // Two short turns can leave the second prompt pinned beyond the real
+    // (phantom-free) scroll range. Ending the drag must not remove the spacer
+    // and clamp the viewport back to the first turn (#560).
+    expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 500,
+        maxScrollExtent: 800,
+        phantomExtent: 800,
+      ),
+      isFalse,
+    );
     expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 500,
@@ -1188,6 +1199,14 @@ void main() {
     );
 
     expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 920,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      isFalse,
+    );
+    expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 920,
         maxScrollExtent: 1200,
@@ -1196,6 +1215,14 @@ void main() {
       800,
     );
 
+    expect(
+      debugCanRemovePinToTopPhantomWithoutViewportJumpForTesting(
+        currentOffset: 760,
+        maxScrollExtent: 1200,
+        phantomExtent: 400,
+      ),
+      isTrue,
+    );
     expect(
       debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
         currentOffset: 760,
@@ -1332,10 +1359,6 @@ void main() {
       expect(controller.offset, closeTo(600, 0.01));
     },
   );
-
-  test('manual scrolling preserves active pin-to-top state', () {
-    expect(debugPinToTopRemainsActiveAfterUserScrollForTesting(), isTrue);
-  });
 
   test(
     'keyboard inset growth ignores pin-to-top mode and manual scrolling',
