@@ -350,6 +350,44 @@ void main() {
     check(payload!).not((it) => it.contains('original response'));
   });
 
+  test('completed image retry reclaims its fresh staged file', () async {
+    String? payload;
+    var executions = 0;
+    final ledger = AppIntentInvocationLedger(
+      readPayload: () => payload,
+      writePayload: (next) async => payload = next,
+    );
+    final original = await _createAppIntentStagingFile('original.png');
+    final retry = await _createAppIntentStagingFile('retry.png');
+
+    final first = await dispatchAppIntentInvocation(
+      ledger: ledger,
+      invocationId: 'completed-image-retry',
+      ownedFilePathOnSuccess: original.path,
+      execute: () async {
+        executions++;
+        return PlatformAppIntentResponse(success: true);
+      },
+    );
+    final duplicate = await dispatchAppIntentInvocation(
+      ledger: ledger,
+      invocationId: 'completed-image-retry',
+      ownedFilePathOnSuccess: retry.path,
+      execute: () async {
+        executions++;
+        return PlatformAppIntentResponse(success: true);
+      },
+    );
+
+    check(first.success).isTrue();
+    check(first.ownedFilePath).equals(original.path);
+    check(duplicate.success).isTrue();
+    check(duplicate.ownedFilePath).isNull();
+    check(executions).equals(1);
+    check(await original.exists()).isTrue();
+    check(await retry.exists()).isFalse();
+  });
+
   test('join-only lookup never claims an unseen invocation', () {
     var reads = 0;
     var writes = 0;

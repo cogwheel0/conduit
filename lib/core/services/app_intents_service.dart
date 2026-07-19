@@ -619,6 +619,45 @@ final AppIntentInvocationLedger _appIntentInvocationLedger =
       ),
     );
 
+@visibleForTesting
+Future<PlatformAppIntentResponse> dispatchAppIntentInvocation({
+  required AppIntentInvocationLedger ledger,
+  required String invocationId,
+  required Future<PlatformAppIntentResponse> Function() execute,
+  String? ownedFilePathOnSuccess,
+}) async {
+  final response = await ledger.dispatch(invocationId, () async {
+    final response = await execute();
+    if (response.success && ownedFilePathOnSuccess != null) {
+      // Only the invocation that actually executes transfers its exact staged
+      // file. Durable completed/running duplicates must not adopt a fresh
+      // retry path that no upload operation references.
+      response.ownedFilePath = ownedFilePathOnSuccess;
+    }
+    return response;
+  });
+
+  if (ownedFilePathOnSuccess != null &&
+      response.ownedFilePath != ownedFilePathOnSuccess) {
+    try {
+      // A cached or joined duplicate did not adopt this delivery's fresh
+      // staging path. Reclaim it on the Dart side as well as the native path.
+      await AppIntentStagedFileOwnership(
+        ownedFilePathOnSuccess,
+      ).cleanupIfUntransferred();
+    } catch (error) {
+      // Preserve the durable invocation result if cleanup fails. The staging
+      // sweeper can retry without exposing the sensitive path.
+      DebugLogger.warning(
+        'duplicate-image-cleanup-failed',
+        scope: 'app-intents/dispatch',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+  return response;
+}
+
 /// Handles iOS App Intents for Siri/Shortcuts.
 ///
 /// Native Swift code in AppDelegate.swift defines the App Intents with proper
@@ -703,29 +742,27 @@ class AppIntentCoordinator extends _$AppIntentCoordinator
     String? ownedFilePathOnSuccess,
   }) async {
     try {
-      return await _appIntentInvocationLedger.dispatch(invocationId, () async {
-        try {
-          final response = _responseFromMap(await handler());
-          if (response.success && ownedFilePathOnSuccess != null) {
-            // Only the invocation that actually executes transfers its exact
-            // staged file. Durable completed/running duplicates must not adopt
-            // a fresh retry path that no upload operation references.
-            response.ownedFilePath = ownedFilePathOnSuccess;
+      return await dispatchAppIntentInvocation(
+        ledger: _appIntentInvocationLedger,
+        invocationId: invocationId,
+        ownedFilePathOnSuccess: ownedFilePathOnSuccess,
+        execute: () async {
+          try {
+            return _responseFromMap(await handler());
+          } catch (error, stackTrace) {
+            DebugLogger.error(
+              'app-intents-dispatch',
+              scope: 'app-intents/dispatch',
+              error: error,
+              stackTrace: stackTrace,
+            );
+            return PlatformAppIntentResponse(
+              success: false,
+              error: 'Unable to complete the request. Please try again.',
+            );
           }
-          return response;
-        } catch (error, stackTrace) {
-          DebugLogger.error(
-            'app-intents-dispatch',
-            scope: 'app-intents/dispatch',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          return PlatformAppIntentResponse(
-            success: false,
-            error: 'Unable to complete the request. Please try again.',
-          );
-        }
-      });
+        },
+      );
     } catch (error, stackTrace) {
       // JSON corruption and the initial durable claim write happen outside the
       // execution callback. Collapse those boundary failures into the Pigeon-
