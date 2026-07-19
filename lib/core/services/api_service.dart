@@ -56,6 +56,34 @@ const Set<int> _publicHealthRedirectStatusCodes = {
   HttpStatus.permanentRedirect,
 };
 
+const int _maximumSameOriginRedirectHops = 5;
+const String _sameOriginRedirectHopExtraKey = 'conduit.sameOriginRedirectHops';
+
+int _effectiveHttpPort(Uri uri) {
+  if (uri.hasPort) return uri.port;
+  return uri.scheme.toLowerCase() == 'https' ? 443 : 80;
+}
+
+/// Whether a redirect target may keep this client's credentials: the exact
+/// request origin, or its default-port https upgrade. Cross-origin hops,
+/// scheme downgrades, and port remaps must surface to the caller instead.
+@visibleForTesting
+bool isCredentialSafeRedirectTarget(Uri from, Uri to) {
+  final fromScheme = from.scheme.toLowerCase();
+  final toScheme = to.scheme.toLowerCase();
+  if (toScheme != 'http' && toScheme != 'https') return false;
+  if (to.host.isEmpty || to.host.toLowerCase() != from.host.toLowerCase()) {
+    return false;
+  }
+  if (toScheme == fromScheme) {
+    return _effectiveHttpPort(to) == _effectiveHttpPort(from);
+  }
+  return fromScheme == 'http' &&
+      toScheme == 'https' &&
+      _effectiveHttpPort(from) == 80 &&
+      _effectiveHttpPort(to) == 443;
+}
+
 final class _PublicHealthDeadline {
   _PublicHealthDeadline(this.budget) : _clock = Stopwatch()..start();
 
@@ -879,7 +907,71 @@ class ApiService {
     // 1. Auth interceptor (must be first to add auth headers)
     _dio.interceptors.add(_authInterceptor);
 
-    // 2. Validation interceptor removed (no schema loading/logging)
+    // 2. Same-origin redirect recovery. Base options disable redirect
+    // following because Dart's client cannot guarantee credential stripping on
+    // cross-origin Location hops. Reverse proxies still commonly redirect API
+    // paths within the SAME origin (trailing slashes, canonical rewrites, and
+    // default-port http→https upgrades), and those worked before redirect
+    // following was disabled, so safe idempotent hops are replayed here with
+    // the target restricted by [isCredentialSafeRedirectTarget].
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (error, handler) async {
+          final response = error.response;
+          final status = response?.statusCode;
+          if (error.type != DioExceptionType.badResponse ||
+              response == null ||
+              status == null ||
+              !_publicHealthRedirectStatusCodes.contains(status)) {
+            return handler.next(error);
+          }
+          final options = error.requestOptions;
+          final method = options.method.toUpperCase();
+          final convertsToGet =
+              status == HttpStatus.seeOther && method != 'HEAD';
+          if (method != 'GET' && method != 'HEAD' && !convertsToGet) {
+            return handler.next(error);
+          }
+          final locationValue = response.headers.value(
+            HttpHeaders.locationHeader,
+          );
+          final location = locationValue == null
+              ? null
+              : Uri.tryParse(locationValue);
+          if (location == null) return handler.next(error);
+          final target = options.uri.resolveUri(location);
+          final hops =
+              (options.extra[_sameOriginRedirectHopExtraKey] as int?) ?? 0;
+          if (hops >= _maximumSameOriginRedirectHops ||
+              !isCredentialSafeRedirectTarget(options.uri, target)) {
+            return handler.next(error);
+          }
+          options.extra = Map<String, dynamic>.of(options.extra)
+            ..[_sameOriginRedirectHopExtraKey] = hops + 1;
+          // Location carries the complete target including its query; the
+          // original queryParameters must not be re-merged on top of it.
+          options.path = target.toString();
+          options.queryParameters = <String, dynamic>{};
+          if (convertsToGet) {
+            options.method = 'GET';
+            options.data = null;
+            // Stale body headers would make the bodyless GET claim content it
+            // never sends, which the server-side parser rejects.
+            options.headers.removeWhere((name, _) {
+              final normalized = name.toLowerCase();
+              return normalized == Headers.contentLengthHeader ||
+                  normalized == Headers.contentTypeHeader;
+            });
+          }
+          try {
+            final redirected = await _dio.fetch<dynamic>(options);
+            return handler.resolve(redirected);
+          } on DioException catch (redirectError) {
+            return handler.next(redirectError);
+          }
+        },
+      ),
+    );
 
     // 3. Error handling interceptor (transforms errors to standardized format)
     _dio.interceptors.add(
@@ -1045,6 +1137,23 @@ class ApiService {
     if (onTokenInvalidated != null) {
       this.onTokenInvalidated = onTokenInvalidated;
       _authInterceptor.onTokenInvalidated = onTokenInvalidated;
+    }
+  }
+
+  /// Warms the service-wide Dio pool so the first real request (often a chat
+  /// completion) does not pay DNS/TCP/TLS handshake latency. [checkHealth]
+  /// deliberately uses a request-scoped client it can force-close, so it no
+  /// longer touches the pool the completion path uses; this probe does.
+  Future<void> warmConnectionPool() async {
+    try {
+      await _dio.get<dynamic>(
+        '/health',
+        options: Options(
+          extra: const {'suppressAuthFailureNotification': true},
+        ),
+      );
+    } catch (_) {
+      // Best-effort: warmup failures are routine offline and must stay silent.
     }
   }
 
@@ -1506,7 +1615,12 @@ class ApiService {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    _dio.close(force: true);
+    // Graceful close: new work is rejected but in-flight requests run to
+    // completion. Provider rebuilds can retire a service for the same server
+    // mid-generation (config writes, fence flips); force-closing there would
+    // abort an active SSE chat stream that survived such rebuilds before this
+    // client owned its pool.
+    _dio.close();
   }
 
   /// Verifies this is actually an OpenWebUI server by checking the /api/config

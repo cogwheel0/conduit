@@ -1652,9 +1652,11 @@ class AppStartupFlow extends _$AppStartupFlow {
   /// Warm the API client's connection pool as soon as we're authenticated, so
   /// the first chat completion doesn't race a cold TLS/HTTP handshake and
   /// transiently fail (which would otherwise queue a retry). Fire-and-forget on
-  /// the SAME Dio the completion uses; `checkHealth()` swallows its own errors.
+  /// the SAME Dio the completion uses; `warmConnectionPool()` swallows its own
+  /// errors. (`checkHealth()` now probes with a request-scoped client it
+  /// force-closes, which leaves the completion pool cold.)
   void _warmApiConnection(ApiService api) {
-    unawaited(api.checkHealth());
+    unawaited(api.warmConnectionPool());
   }
 
   void _requestPostAuthenticationStartup({

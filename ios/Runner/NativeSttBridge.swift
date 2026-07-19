@@ -540,12 +540,13 @@ func copyNativeSttPCMBuffer(
 struct NativeSttPCMBufferLease {
   let buffer: AVAudioPCMBuffer
   fileprivate let pool: NativeSttPCMBufferPool
-  fileprivate let index: Int
+  /// Pool slot index, or nil for a one-off buffer allocated outside the pool.
+  fileprivate let index: Int?
 
   fileprivate init(
     buffer: AVAudioPCMBuffer,
     pool: NativeSttPCMBufferPool,
-    index: Int
+    index: Int?
   ) {
     self.buffer = buffer
     self.pool = pool
@@ -553,15 +554,20 @@ struct NativeSttPCMBufferLease {
   }
 
   func release() {
+    guard let index = index else { return }
     pool.returnBuffer(at: index)
   }
 }
 
 /// A fixed-capacity copy pool for AVAudioEngine's real-time tap callback.
 /// Acquisition is non-blocking; a saturated pool drops the newest frame.
+/// iOS treats the requested tap bufferSize as a hint and can deliver larger
+/// buffers (notably with voice processing enabled), so oversized frames fall
+/// back to a one-off allocation instead of being dropped.
 final class NativeSttPCMBufferPool {
   private let lock = NSLock()
   private let buffers: [AVAudioPCMBuffer]
+  private let frameCapacity: AVAudioFrameCount
   private var availableIndices: [Int]
 
   init?(format: AVAudioFormat, frameCapacity: AVAudioFrameCount, count: Int) {
@@ -576,10 +582,18 @@ final class NativeSttPCMBufferPool {
       allocated.append(buffer)
     }
     buffers = allocated
+    self.frameCapacity = frameCapacity
     availableIndices = Array(allocated.indices.reversed())
   }
 
   func copyFromTap(_ source: AVAudioPCMBuffer) -> NativeSttPCMBufferLease? {
+    if source.frameLength > frameCapacity {
+      // The delivered buffer cannot fit a pool slot. Copy it into a one-off
+      // allocation sized to the delivered frame so the frame is not dropped;
+      // its lease never touches pool slot accounting.
+      guard let oversized = copyNativeSttPCMBuffer(source) else { return nil }
+      return NativeSttPCMBufferLease(buffer: oversized, pool: self, index: nil)
+    }
     guard lock.try() else { return nil }
     guard let index = availableIndices.popLast() else {
       lock.unlock()
@@ -1104,9 +1118,13 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     Self.enableVoiceProcessingIfAvailable(inputNode, preserveAudioSession: preserveAudioSession)
     let inputFormat = inputNode.outputFormat(forBus: 0)
     try Self.validateInputFormat(inputFormat)
+    // The tap below requests 1024 frames, but iOS treats that as a hint and
+    // can deliver 4096+ frame buffers (especially with voice processing).
+    // Size the pool so those still take the preallocated fast path; anything
+    // larger falls back to a one-off copy inside the pool.
     guard let tapBufferPool = NativeSttPCMBufferPool(
       format: inputFormat,
-      frameCapacity: 1024,
+      frameCapacity: 4096,
       count: 4
     ) else {
       throw NSError(
@@ -1211,10 +1229,11 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
         guard let self,
               let inputLease = tapBufferPool.copyFromTap(buffer) else { return }
-        // AVAudioEngine owns the tap buffer. The render callback only performs
-        // a bounded copy into one of four preallocated buffers plus a
-        // non-blocking queue admission. Conversion and any durable allocation
-        // happen on the serial worker.
+        // AVAudioEngine owns the tap buffer. The render callback normally only
+        // performs a bounded copy into one of four preallocated buffers plus a
+        // non-blocking queue admission; buffers larger than a pool slot take a
+        // one-off allocation rather than being dropped. Conversion and any
+        // other durable allocation happen on the serial worker.
         let didEnqueue = self.enqueueAudioConversionIfActive { [weak self] in
           defer { inputLease.release() }
           guard let self else { return }

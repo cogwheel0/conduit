@@ -5946,9 +5946,14 @@ private final class NativeModelAvatarView: UIView {
             return
         }
 
+        // Dart builds nonempty avatar headers only for URLs on the active
+        // server origin (see imageUrlIsServerOrigin), so the avatar URL itself
+        // is the origin these credentials were issued for. Cross-origin
+        // redirects still drop the request entirely.
         imageLoadToken = NativeSheetImageLoader.load(
             rawUrl: avatarUrl,
             headers: avatarHeaders,
+            trustedServerOriginURL: URL(string: avatarUrl),
             targetPixelSize: 96
         ) { [weak self] image in
             guard let self,
@@ -6352,9 +6357,14 @@ private final class NativeAvatarView: UIView {
               !avatarUrl.isEmpty else {
             return
         }
+        // Dart builds nonempty avatar headers only for URLs on the active
+        // server origin (see imageUrlIsServerOrigin), so the avatar URL itself
+        // is the origin these credentials were issued for. Cross-origin
+        // redirects still drop the request entirely.
         imageLoadToken = NativeSheetImageLoader.load(
             rawUrl: avatarUrl,
             headers: profile.avatarHeaders,
+            trustedServerOriginURL: URL(string: avatarUrl),
             targetPixelSize: 408
         ) { [weak self] image in
             guard let self,

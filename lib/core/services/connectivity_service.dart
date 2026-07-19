@@ -64,7 +64,11 @@ class ConnectivityService with WidgetsBindingObserver {
 
   static const Duration _healthyProbeInterval = Duration(minutes: 2);
   static const Duration _recentTrafficWindow = Duration(minutes: 1);
-  static const Duration _maximumFailureBackoff = Duration(minutes: 5);
+  // Recovery latency ceiling after a server blip. Sockets are suspended while
+  // offline and only resume on a successful probe, so this bound is the
+  // worst-case realtime outage once the server is back; keep it at the healthy
+  // probe interval rather than letting exponential backoff stretch further.
+  static const Duration _maximumFailureBackoff = Duration(minutes: 2);
   static const Duration _probeDeadline = Duration(seconds: 6);
   static const Duration _probeConnectTimeout = Duration(seconds: 5);
 

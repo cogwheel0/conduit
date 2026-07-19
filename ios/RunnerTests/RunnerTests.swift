@@ -169,6 +169,18 @@ class RunnerTests: XCTestCase {
     )
     XCTAssertEqual(sameOrigin.value(forHTTPHeaderField: "X-Tenant"), "one")
 
+    // Production avatar views pass the avatar URL itself as the trust anchor
+    // because Dart only attaches headers built for that URL's server origin.
+    let selfTrusted = try XCTUnwrap(nativeSheetImageRequest(
+      rawUrl: "https://server.example/avatar.png",
+      headers: headers,
+      trustedServerOriginURL: URL(string: "https://server.example/avatar.png")
+    ))
+    XCTAssertEqual(
+      selfTrusted.value(forHTTPHeaderField: "Authorization"),
+      "Bearer secret"
+    )
+
     let offOrigin = try XCTUnwrap(nativeSheetImageRequest(
       rawUrl: "https://cdn.example/avatar.png",
       headers: headers,
@@ -2481,6 +2493,45 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(pool.availableCount, 0)
     second.release()
     reused.release()
+    XCTAssertEqual(pool.availableCount, 2)
+  }
+
+  func testNativeSttPcmBufferPoolCopiesOversizedTapBuffersOffPool() throws {
+    let format = try XCTUnwrap(
+      AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: true
+      )
+    )
+    // iOS treats the requested tap bufferSize as a hint; a delivered buffer
+    // larger than a pool slot must still reach the analyzer.
+    let source = try XCTUnwrap(
+      AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8)
+    )
+    source.frameLength = 8
+    let samples = try XCTUnwrap(source.int16ChannelData?[0])
+    for index in 0..<8 { samples[index] = Int16(index + 1) }
+    let pool = try XCTUnwrap(
+      NativeSttPCMBufferPool(format: format, frameCapacity: 4, count: 2)
+    )
+
+    let oversized = try XCTUnwrap(pool.copyFromTap(source))
+    XCTAssertEqual(pool.availableCount, 2)
+    XCTAssertEqual(oversized.buffer.frameLength, 8)
+    XCTAssertEqual(oversized.buffer.int16ChannelData?[0][7], 8)
+
+    // Releasing a one-off lease must not mint a phantom pool slot.
+    oversized.release()
+    XCTAssertEqual(pool.availableCount, 2)
+
+    source.frameLength = 4
+    let pooledFirst = try XCTUnwrap(pool.copyFromTap(source))
+    let pooledSecond = try XCTUnwrap(pool.copyFromTap(source))
+    XCTAssertNil(pool.copyFromTap(source))
+    pooledFirst.release()
+    pooledSecond.release()
     XCTAssertEqual(pool.availableCount, 2)
   }
 
