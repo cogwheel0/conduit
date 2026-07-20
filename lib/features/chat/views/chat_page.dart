@@ -136,6 +136,10 @@ void refreshManagedTimelineExtentForTesting({
 }
 
 @visibleForTesting
+double debugChatMessageScrollCachePixels({required bool streaming}) =>
+    streaming ? 120.0 : 600.0;
+
+@visibleForTesting
 bool shouldShowChatModelDropdown({
   required Model? selectedModel,
   required bool isHermesOnly,
@@ -440,6 +444,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   List<String>? _managedTimelineExtentKeys;
   List<String>? _pendingManagedTimelineExtentKeys;
   bool _timelineExtentReconciliationScheduled = false;
+  bool? _lastProfiledMessageCacheStreamingState;
 
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
@@ -2167,14 +2172,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     watchRef.watch(chatMessageStructureSignatureProvider);
     // Rebuild the list shell only when streaming starts or ends so pin-to-top
     // cleanup runs on completion without rebuilding on every streamed chunk.
-    watchRef.watch(isChatStreamingProvider);
+    final isStreaming = watchRef.watch(isChatStreamingProvider);
     final messages = watchRef.read(chatMessagesProvider);
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
     final showLoadingSkeleton = isLoadingConversation && messages.isEmpty;
     if (showLoadingSkeleton) {
       return _buildLoadingMessagesList();
     }
-    return _buildActualMessagesList(messages, watchRef);
+    return _buildActualMessagesList(
+      messages,
+      watchRef,
+      isStreaming: isStreaming,
+    );
   }
 
   Widget _buildLoadingMessagesList() {
@@ -2257,8 +2266,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildActualMessagesList(
     List<ChatMessage> messages,
-    WidgetRef watchRef,
-  ) {
+    WidgetRef watchRef, {
+    required bool isStreaming,
+  }) {
     if (messages.isEmpty) {
       return _buildEmptyState(Theme.of(context));
     }
@@ -2335,6 +2345,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       fallbackContentExtentFromAnchor += bottomPadding;
     }
     _syncLayoutBottomAnchor();
+    final messageCachePixels = debugChatMessageScrollCachePixels(
+      streaming: isStreaming,
+    );
+    if (_lastProfiledMessageCacheStreamingState != isStreaming) {
+      _lastProfiledMessageCacheStreamingState = isStreaming;
+      PerformanceProfiler.instance.instant(
+        'message_cache_policy',
+        scope: 'platform_views',
+        data: <String, Object?>{
+          'streaming': isStreaming,
+          'cachePixels': messageCachePixels,
+        },
+      );
+    }
 
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: (_) {
@@ -2406,7 +2430,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             physics: SuperRangeMaintainingScrollPhysics(
               parent: platformAlwaysScrollablePhysics(context),
             ),
-            scrollCacheExtent: const ScrollCacheExtent.pixels(600),
+            scrollCacheExtent: ScrollCacheExtent.pixels(messageCachePixels),
             slivers: [
               SliverToBoxAdapter(child: SizedBox(height: topPadding)),
               SliverPadding(

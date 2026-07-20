@@ -144,12 +144,16 @@ class _DeferredEmbeddedPreview extends StatefulWidget {
     required this.loadActionLabel,
     required this.icon,
     required this.builder,
+    this.requiresExplicitActivation = false,
+    this.activationIdentity,
   });
 
   final double placeholderHeight;
   final String loadActionLabel;
   final IconData icon;
   final WidgetBuilder builder;
+  final bool requiresExplicitActivation;
+  final Object? activationIdentity;
 
   @override
   State<_DeferredEmbeddedPreview> createState() =>
@@ -158,12 +162,16 @@ class _DeferredEmbeddedPreview extends StatefulWidget {
 
 class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
   final Object _budgetToken = Object();
+  final GlobalKey _previewKey = GlobalKey();
   ScrollPosition? _position;
   bool _viewportCheckScheduled = false;
+  bool _measurementScheduled = false;
   bool _nearViewport = false;
   bool _routeVisible = true;
   bool _eligible = false;
+  bool _explicitlyActivated = false;
   bool _lastActive = false;
+  double? _lastMeasuredHeight;
 
   bool get _active => _embeddedPreviewBudget.isActive(_budgetToken);
 
@@ -195,6 +203,12 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
   @override
   void didUpdateWidget(covariant _DeferredEmbeddedPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.requiresExplicitActivation &&
+        widget.activationIdentity != oldWidget.activationIdentity) {
+      _explicitlyActivated = false;
+      _lastMeasuredHeight = null;
+      _embeddedPreviewBudget.update(_budgetToken, eligible: false);
+    }
     scheduleEmbeddedPreviewEligibilityRecheck();
   }
 
@@ -219,6 +233,29 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
     if (!mounted || nextActive == _lastActive) return;
     _lastActive = nextActive;
     setState(() {});
+  }
+
+  void _activate() {
+    if (widget.requiresExplicitActivation) {
+      _explicitlyActivated = true;
+      _embeddedPreviewBudget.update(_budgetToken, eligible: _eligible);
+    }
+    _embeddedPreviewBudget.prioritize(_budgetToken);
+  }
+
+  void _scheduleMeasurement() {
+    if (_measurementScheduled || !mounted) return;
+    _measurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measurementScheduled = false;
+      if (!mounted) return;
+      final renderObject = _previewKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderBox || !renderObject.hasSize) return;
+      final height = renderObject.size.height;
+      if (height.isFinite && height > 0) {
+        _lastMeasuredHeight = height;
+      }
+    });
   }
 
   void _scheduleViewportCheck() {
@@ -250,7 +287,12 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
     }
     _nearViewport = nextNearViewport;
     _eligible = nextEligible;
-    _embeddedPreviewBudget.update(_budgetToken, eligible: nextEligible);
+    _embeddedPreviewBudget.update(
+      _budgetToken,
+      eligible:
+          nextEligible &&
+          (!widget.requiresExplicitActivation || _explicitlyActivated),
+    );
   }
 
   bool _isNearEnclosingViewport(RenderBox target, {required double margin}) {
@@ -317,17 +359,31 @@ class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
     // Ancestor markdown/layout rebuilds can move this preview while the scroll
     // position remains unchanged. Recheck against its post-layout geometry.
     _scheduleViewportCheck();
-    // Platform views are intentionally absent in widget tests; keeping the
-    // child in the tree preserves existing structural assertions there.
-    if (_isRunningInWidgetTest() || _active) {
-      return widget.builder(context);
+    // Platform views are intentionally absent in widget tests; keeping
+    // non-sensitive previews in the tree preserves structural assertions.
+    // Explicitly activated previews still require the same user action in tests.
+    if (_active ||
+        (_isRunningInWidgetTest() && !widget.requiresExplicitActivation)) {
+      return NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          _scheduleMeasurement();
+          return false;
+        },
+        child: SizeChangedLayoutNotifier(
+          child: SizedBox(
+            key: _previewKey,
+            width: double.infinity,
+            child: widget.builder(context),
+          ),
+        ),
+      );
     }
     return SizedBox(
-      height: widget.placeholderHeight,
+      height: _lastMeasuredHeight ?? widget.placeholderHeight,
       width: double.infinity,
       child: Center(
         child: TextButton.icon(
-          onPressed: () => _embeddedPreviewBudget.prioritize(_budgetToken),
+          onPressed: _activate,
           icon: Icon(widget.icon),
           label: Text(widget.loadActionLabel),
         ),
@@ -462,11 +518,18 @@ class ConduitMarkdown {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          WebContentEmbed(
-            source: code,
-            deferUntilExpanded: false,
-            initiallyExpanded: true,
-            previewTitle: _previewTitleForLanguage(language),
+          _DeferredEmbeddedPreview(
+            placeholderHeight: _mermaidPreviewMinHeight,
+            loadActionLabel: 'Load SVG preview',
+            icon: Icons.image_outlined,
+            requiresExplicitActivation: true,
+            activationIdentity: code,
+            builder: (_) => WebContentEmbed(
+              source: code,
+              deferUntilExpanded: false,
+              initiallyExpanded: true,
+              previewTitle: _previewTitleForLanguage(language),
+            ),
           ),
         ],
       ),

@@ -22,6 +22,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 void main() {
+  test('message cache shrinks only while streaming', () {
+    check(debugChatMessageScrollCachePixels(streaming: false)).equals(600);
+    check(debugChatMessageScrollCachePixels(streaming: true)).equals(120);
+  });
+
   testWidgets(
     'managed timeline keeps its trailing edge pinned during live growth',
     (tester) async {

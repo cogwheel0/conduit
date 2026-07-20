@@ -1,20 +1,71 @@
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  Widget buildHarness(String data) {
+  Widget buildHarness(
+    String data, {
+    MarkdownHeavyBlockPolicy heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
+  }) {
     return ProviderScope(
       child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: SingleChildScrollView(
-            child: ConduitMarkdownWidget(data: data),
+            child: ConduitMarkdownWidget(
+              data: data,
+              heavyBlockPolicy: heavyBlockPolicy,
+            ),
           ),
         ),
       ),
     );
   }
+
+  testWidgets('inline SVG preview waits for eager heavy-block policy', (
+    tester,
+  ) async {
+    const content = '```svg\n<svg><circle cx="5" cy="5" r="4" /></svg>\n```';
+
+    await tester.pumpWidget(
+      buildHarness(content, heavyBlockPolicy: MarkdownHeavyBlockPolicy.defer),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(WebContentEmbed), findsNothing);
+    expect(find.textContaining('<svg>', findRichText: true), findsOneWidget);
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpAndSettle();
+    expect(find.byType(WebContentEmbed), findsNothing);
+    expect(find.text('Load SVG preview'), findsOneWidget);
+
+    await tester.tap(find.text('Load SVG preview'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WebContentEmbed), findsOneWidget);
+  });
+
+  testWidgets('changed inline SVG requires a new explicit activation', (
+    tester,
+  ) async {
+    const first = '```svg\n<svg><circle r="4" /></svg>\n```';
+    const second = '```svg\n<svg><rect width="8" height="8" /></svg>\n```';
+
+    await tester.pumpWidget(buildHarness(first));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Load SVG preview'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WebContentEmbed), findsOneWidget);
+
+    await tester.pumpWidget(buildHarness(second));
+    await tester.pumpAndSettle();
+    expect(find.byType(WebContentEmbed), findsNothing);
+    expect(find.text('Load SVG preview'), findsOneWidget);
+  });
 
   testWidgets('large JSON code blocks stay collapsed until expanded', (
     tester,

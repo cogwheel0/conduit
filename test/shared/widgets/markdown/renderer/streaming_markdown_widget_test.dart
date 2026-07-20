@@ -4056,7 +4056,7 @@ Tail keeps growing
   );
 
   testWidgets(
-    'renders oversized svg previews inline without the deferred open-preview card',
+    'requires explicit activation for oversized inline svg previews',
     (tester) async {
       final circles = List<String>.generate(
         1800,
@@ -4074,12 +4074,21 @@ $circles
       await tester.pumpWidget(buildHarness(content));
 
       expect(find.text('SVG Preview'), findsNothing);
+      expect(find.text('Load SVG preview'), findsOneWidget);
+      expect(
+        find.text('Embedded content preview is unavailable in widget tests.'),
+        findsNothing,
+      );
+      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Preview deferred for large content.'), findsNothing);
+
+      await tester.tap(find.text('Load SVG preview'));
+      await tester.pumpAndSettle();
+
       expect(
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsOneWidget,
       );
-      expect(find.text('Open preview'), findsNothing);
-      expect(find.text('Preview deferred for large content.'), findsNothing);
     },
   );
 
