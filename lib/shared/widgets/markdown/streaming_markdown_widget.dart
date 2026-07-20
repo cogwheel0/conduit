@@ -179,6 +179,7 @@ class _StreamingMarkdownWidgetState
   int _snapshotGeneration = 0;
   bool _isAppForeground = true;
   bool _isRouteVisible = true;
+  ImageBuilder? _adaptedImageBuilder;
 
   CompiledMarkdownDocument? get _compiledDocument =>
       _documentController.compiledDocument;
@@ -203,6 +204,7 @@ class _StreamingMarkdownWidgetState
       WidgetsBinding.instance.lifecycleState,
     );
     _compileService = ref.read(markdownCompileServiceProvider);
+    _adaptedImageBuilder = _adaptImageBuilder(widget.imageBuilderOverride);
     _documentController = MarkdownDocumentController(
       readCompiler: () => _compileService,
       isWidgetTest: () => _isWidgetTest,
@@ -267,13 +269,20 @@ class _StreamingMarkdownWidgetState
   void didUpdateWidget(covariant StreamingMarkdownWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     final scopeChanged = widget.stateScopeId != oldWidget.stateScopeId;
+    final imageBuilderChanged = !identical(
+      widget.imageBuilderOverride,
+      oldWidget.imageBuilderOverride,
+    );
     if (scopeChanged) {
       _retirePreparationSession();
+    }
+    if (imageBuilderChanged) {
+      _adaptedImageBuilder = _adaptImageBuilder(widget.imageBuilderOverride);
     }
     if (!identical(widget.sources, oldWidget.sources) ||
         widget.onSourceTap != oldWidget.onSourceTap ||
         widget.onTapLink != oldWidget.onTapLink ||
-        widget.imageBuilderOverride != oldWidget.imageBuilderOverride ||
+        imageBuilderChanged ||
         scopeChanged) {
       setState(() {});
     }
@@ -660,8 +669,9 @@ class _StreamingMarkdownWidgetState
   /// Adapts the legacy [imageBuilderOverride] callback
   /// to the [ImageBuilder] signature used by the custom
   /// renderer.
-  ImageBuilder? _adaptImageBuilder() {
-    final override = widget.imageBuilderOverride;
+  ImageBuilder? _adaptImageBuilder(
+    Widget Function(Uri uri, String? title, String? alt)? override,
+  ) {
     if (override == null) return null;
     return (String src, String? alt, String? title) {
       final uri = Uri.tryParse(src);
@@ -809,7 +819,7 @@ class _StreamingMarkdownWidgetState
     return ConduitMarkdownWidget(
       compiledDocument: document,
       onLinkTap: widget.onTapLink,
-      imageBuilder: _adaptImageBuilder(),
+      imageBuilder: _adaptedImageBuilder,
       sources: widget.sources,
       onSourceTap: widget.onSourceTap,
       stateScopeId: stateScopeId,

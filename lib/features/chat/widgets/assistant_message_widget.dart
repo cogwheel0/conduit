@@ -144,6 +144,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _isRouteVisible = true;
   String? _visibleFollowUpScopeId;
   List<String> _visibleFollowUps = const <String>[];
+  late final void Function(String url, String title) _markdownLinkTapCallback;
+  late final Widget Function(Uri uri, String? title, String? alt)
+  _markdownImageBuilder;
 
   ProviderSubscription<String?>? _streamingContentSub;
 
@@ -202,6 +205,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void initState() {
     super.initState();
+    _markdownLinkTapCallback = _handleMarkdownLinkTap;
+    _markdownImageBuilder = _buildMarkdownImage;
     WidgetsBinding.instance.addObserver(this);
     _isAppForeground = _isLifecycleForeground(
       WidgetsBinding.instance.lifecycleState,
@@ -1574,6 +1579,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  void _handleMarkdownLinkTap(String url, String _) {
+    launchExternalLink(url, scope: 'chat/assistant');
+  }
+
+  Widget _buildMarkdownImage(Uri uri, String? title, String? alt) {
+    return RepaintBoundary(
+      child: EnhancedImageAttachment(
+        attachmentId: uri.toString(),
+        isMarkdownFormat: true,
+        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
+        disableAnimation: _uiTreatsAsStreaming,
+      ),
+    );
+  }
+
   Widget _buildEnhancedMarkdownContent(String content) {
     if (content.trim().isEmpty) {
       return const SizedBox.shrink();
@@ -1595,20 +1615,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         enableStreamingTextFade: false,
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
-        onTapLink: (url, _) => launchExternalLink(url, scope: 'chat/assistant'),
+        onTapLink: _markdownLinkTapCallback,
         sources: activeSources,
-        imageBuilderOverride: (uri, title, alt) {
-          // Route markdown images through the enhanced image widget so they
-          // get caching, auth headers, fullscreen viewer, and sharing.
-          return RepaintBoundary(
-            child: EnhancedImageAttachment(
-              attachmentId: uri.toString(),
-              isMarkdownFormat: true,
-              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
-              disableAnimation: bodyTreatsAsStreaming,
-            ),
-          );
-        },
+        imageBuilderOverride: _markdownImageBuilder,
       );
     }
 

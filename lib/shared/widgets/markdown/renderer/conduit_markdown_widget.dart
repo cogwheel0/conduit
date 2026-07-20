@@ -274,6 +274,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   // itself is freshly derived every build, so caching on it would never reuse;
   // these inputs only change when the theme/scaling actually changes.
   Object? _renderedThemeKey;
+  TextTheme? _renderedTextTheme;
   TextScaler? _renderedTextScaler;
   Future<void>? _renderedLatexStartupFuture;
   MarkdownRenderTier? _renderedTier;
@@ -354,8 +355,22 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     }
 
     try {
-      final style = ConduitMarkdownStyle.fromTheme(context);
-      _ensureBaseRender(style);
+      final themeKey = context.conduitTheme;
+      final textTheme = Theme.of(context).textTheme;
+      final textScaler = MediaQuery.textScalerOf(context);
+      if (!_canReuseBaseRender(
+        themeKey: themeKey,
+        textTheme: textTheme,
+        textScaler: textScaler,
+      )) {
+        final style = ConduitMarkdownStyle.fromTheme(context);
+        _rebuildBaseRender(
+          style,
+          themeKey: themeKey,
+          textTheme: textTheme,
+          textScaler: textScaler,
+        );
+      }
       return _cachedView!;
     } finally {
       PerformanceProfiler.instance.finishTask(
@@ -389,19 +404,15 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     return widget.enableStreamingTextFade ? this : null;
   }
 
-  /// Builds (or reuses) the opacity-1 base render for the current document.
-  ///
-  /// The span tree and gesture recognizers are produced once per content change
-  /// (or when a render input such as the resolved [style] or LaTeX startup
-  /// future changes). Fade frames reuse this cache, so they never rebuild the
-  /// span tree or recreate [TapGestureRecognizer]s.
-  void _ensureBaseRender(ConduitMarkdownStyle style) {
-    final themeKey = context.conduitTheme;
-    final textScaler = MediaQuery.textScalerOf(context);
-    final reuse =
-        _cachedView != null &&
+  bool _canReuseBaseRender({
+    required Object themeKey,
+    required TextTheme textTheme,
+    required TextScaler textScaler,
+  }) {
+    return _cachedView != null &&
         identical(_renderedDocument, widget.document) &&
         identical(_renderedThemeKey, themeKey) &&
+        _renderedTextTheme == textTheme &&
         _renderedTextScaler == textScaler &&
         identical(_renderedLatexStartupFuture, _latexStartupFuture) &&
         _renderedTier == widget.document.renderTier &&
@@ -414,10 +425,20 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
         identical(_renderedOnSourceTap, widget.onSourceTap) &&
         identical(_renderedImageBuilder, widget.imageBuilder) &&
         _renderedStateScopeId == widget.stateScopeId;
-    if (reuse) {
-      return;
-    }
+  }
 
+  /// Rebuilds the opacity-1 base render after its cheap cache keys change.
+  ///
+  /// The span tree and gesture recognizers are produced once per content change
+  /// (or when a render input such as the resolved [style] or LaTeX startup
+  /// future changes). Fade frames reuse this cache, so they never rebuild the
+  /// span tree or recreate [TapGestureRecognizer]s.
+  void _rebuildBaseRender(
+    ConduitMarkdownStyle style, {
+    required Object themeKey,
+    required TextTheme textTheme,
+    required TextScaler textScaler,
+  }) {
     widget.debugOnBaseRender?.call();
 
     // Recognizer churn happens here — once per content change — not per frame.
@@ -456,6 +477,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
 
     _renderedDocument = widget.document;
     _renderedThemeKey = themeKey;
+    _renderedTextTheme = textTheme;
     _renderedTextScaler = textScaler;
     _renderedLatexStartupFuture = _latexStartupFuture;
     _renderedTier = widget.document.renderTier;
@@ -472,6 +494,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   void _invalidateBaseRender() {
     _renderedDocument = null;
     _renderedThemeKey = null;
+    _renderedTextTheme = null;
     _renderedTextScaler = null;
     _renderedLatexStartupFuture = null;
     _renderedTier = null;

@@ -999,24 +999,28 @@ void main() {
     expect(parts[1].partId, 'markdownBlock:dup:1');
   });
 
+  final defaultHarnessTheme = AppTheme.light(TweakcnThemes.t3Chat);
+
   Widget buildHarness(
     String content, {
     bool isStreaming = false,
     String? stateScopeId,
     List<ChatSourceReference> sources = const <ChatSourceReference>[],
     Locale? locale,
+    ThemeData? theme,
     Duration? debugRenderInterval,
     VoidCallback? onCompiledViewMounted,
     VoidCallback? onCompiledViewDisposed,
     VoidCallback? onStreamingRefreshFrame,
     VoidCallback? onBaseRender,
     MarkdownLinkTapCallback? onTapLink,
+    Widget Function(Uri uri, String? title, String? alt)? imageBuilderOverride,
     bool enableStreamingTextFade = false,
   }) {
     return ProviderScope(
       child: MaterialApp(
         locale: locale,
-        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        theme: theme ?? defaultHarnessTheme,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -1027,6 +1031,7 @@ void main() {
               stateScopeId: stateScopeId,
               sources: sources,
               onTapLink: onTapLink,
+              imageBuilderOverride: imageBuilderOverride,
               enableStreamingTextFade: enableStreamingTextFade,
               debugRenderInterval: debugRenderInterval,
               debugOnCompiledViewMounted: onCompiledViewMounted,
@@ -1588,6 +1593,94 @@ graph TD
       expect(baseRenders, afterFade, reason: 'settling adds no base render');
     },
   );
+
+  testWidgets(
+    'stable image override preserves the cached base render across rebuilds',
+    (tester) async {
+      var baseRenders = 0;
+      void countBaseRender() => baseRenders += 1;
+      Widget firstImageBuilder(Uri uri, String? title, String? alt) {
+        return const SizedBox(key: ValueKey<String>('first-image'));
+      }
+
+      Widget secondImageBuilder(Uri uri, String? title, String? alt) {
+        return const SizedBox(key: ValueKey<String>('second-image'));
+      }
+
+      const content = '![preview](https://example.test/image.png)';
+      await tester.pumpWidget(
+        buildHarness(
+          content,
+          imageBuilderOverride: firstImageBuilder,
+          onBaseRender: countBaseRender,
+        ),
+      );
+      await tester.pump();
+      final initialBaseRenders = baseRenders;
+      expect(initialBaseRenders, greaterThan(0));
+
+      await tester.pumpWidget(
+        buildHarness(
+          content,
+          imageBuilderOverride: firstImageBuilder,
+          onBaseRender: countBaseRender,
+        ),
+      );
+      await tester.pump();
+      expect(baseRenders, initialBaseRenders);
+
+      await tester.pumpWidget(
+        buildHarness(
+          content,
+          imageBuilderOverride: secondImageBuilder,
+          onBaseRender: countBaseRender,
+        ),
+      );
+      await tester.pump();
+      expect(baseRenders, greaterThan(initialBaseRenders));
+    },
+  );
+
+  testWidgets('text theme changes invalidate the cached base render', (
+    tester,
+  ) async {
+    var baseRenders = 0;
+    void countBaseRender() => baseRenders += 1;
+    final baseTheme = AppTheme.light(TweakcnThemes.t3Chat);
+    final updatedTheme = baseTheme.copyWith(
+      textTheme: baseTheme.textTheme.copyWith(
+        displaySmall: baseTheme.textTheme.displaySmall?.copyWith(fontSize: 41),
+      ),
+    );
+    expect(
+      identical(
+        baseTheme.extension<ConduitThemeExtension>(),
+        updatedTheme.extension<ConduitThemeExtension>(),
+      ),
+      isTrue,
+    );
+
+    await tester.pumpWidget(
+      buildHarness(
+        '# Heading',
+        theme: baseTheme,
+        onBaseRender: countBaseRender,
+      ),
+    );
+    await tester.pump();
+    final initialBaseRenders = baseRenders;
+    expect(initialBaseRenders, greaterThan(0));
+
+    await tester.pumpWidget(
+      buildHarness(
+        '# Heading',
+        theme: updatedTheme,
+        onBaseRender: countBaseRender,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(baseRenders, greaterThan(initialBaseRenders));
+  });
 
   testWidgets('only the faded suffix changes alpha and recognizers are stable', (
     tester,
