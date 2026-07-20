@@ -40,6 +40,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
 import '../../chat/providers/context_attachments_provider.dart';
+import '../../chat/services/clipboard_attachment_service.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/model_selector_sheet.dart';
 import '../../chat/widgets/context_attachment_widget.dart';
@@ -50,6 +51,25 @@ import '../../chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
+
+typedef FolderPastedAttachmentUploader =
+    Future<void> Function(LocalAttachment attachment, int fileSize);
+typedef FolderPastedAttachmentRollback =
+    Future<void> Function(LocalAttachment attachment);
+
+@visibleForTesting
+Future<void> acceptFolderPastedAttachments({
+  required List<LocalAttachment> attachments,
+  required void Function(List<LocalAttachment>) addFiles,
+  required FolderPastedAttachmentUploader upload,
+  required FolderPastedAttachmentRollback rollback,
+}) => acceptPastedAttachments(
+  attachments: attachments,
+  addFiles: addFiles,
+  upload: upload,
+  rollback: rollback,
+  logScope: 'navigation/folder',
+);
 
 /// Displays a folder-focused page with its direct child folders and chats.
 class FolderPage extends ConsumerStatefulWidget {
@@ -97,7 +117,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ref.read(chat.chatMessagesProvider.notifier).clearMessages();
     ref.read(activeConversationProvider.notifier).clear();
     ref.read(contextAttachmentsProvider.notifier).clear();
-    ref.read(attachedFilesProvider.notifier).clearAll();
+    _clearAttachmentsForConversationBoundary();
     try {
       ref.read(chat.prefilledInputTextProvider.notifier).clear();
     } catch (_) {}
@@ -313,6 +333,22 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
   }
 
+  void _clearAttachmentsForConversationBoundary() {
+    unawaited(
+      ref.read(mediaUploadControllerProvider).clearAttachments().catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        DebugLogger.error(
+          'attachment-boundary-cleanup-failed',
+          scope: 'navigation/folder',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
+  }
+
   void _toggleDrawer() {
     final layout = ResponsiveDrawerLayout.of(context);
     if (layout == null) {
@@ -328,7 +364,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   void _handleNewChat() {
     ConduitHaptics.selectionClick();
     _dismissComposerFocus();
-    ref.read(attachedFilesProvider.notifier).clearAll();
+    _clearAttachmentsForConversationBoundary();
     try {
       ref.read(chat.prefilledInputTextProvider.notifier).clear();
     } catch (_) {}
@@ -436,6 +472,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       }
 
       final attachedFiles = container.read(attachedFilesProvider);
+      final mediaUploadController = container.read(
+        mediaUploadControllerProvider,
+      );
+      final sentAttachmentOwnership = mediaUploadController
+          .captureAttachmentOwnership();
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
@@ -471,7 +512,19 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         },
       );
 
-      container.read(attachedFilesProvider.notifier).clearAll();
+      // durableSend has now transferred all message/outbox ownership.
+      unawaited(
+        mediaUploadController
+            .retireAttachmentOwnership(sentAttachmentOwnership)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'navigation/folder',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
     } catch (e, stackTrace) {
       // durableSend adds an optimistic streaming placeholder before its
       // throwable DB work; on failure recover the UI by finishing the
@@ -672,25 +725,25 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     } catch (_) {}
   }
 
-  Future<void> _handlePastedAttachments(
-    List<LocalAttachment> attachments,
-  ) async {
-    if (attachments.isEmpty) {
-      return;
-    }
-
-    ref.read(attachedFilesProvider.notifier).addFiles(attachments);
-    for (final attachment in attachments) {
-      try {
-        await ref
-            .read(mediaUploadControllerProvider)
-            .upload(
-              filePath: attachment.file.path,
-              fileName: attachment.displayName,
-              fileSize: await attachment.file.length(),
-            );
-      } catch (_) {}
-    }
+  Future<void> _handlePastedAttachments(List<LocalAttachment> attachments) {
+    // Adding the files transfers composer ownership before native paste is
+    // acknowledged. Start every upload concurrently and let the shared
+    // controller retain terminal cleanup responsibility.
+    final mediaUpload = ref.read(mediaUploadControllerProvider);
+    // Deliberately return the helper Future without an `async` boundary so a
+    // synchronous composer-ownership failure reaches the native paste lease.
+    return acceptFolderPastedAttachments(
+      attachments: attachments,
+      addFiles: ref.read(attachedFilesProvider.notifier).addFiles,
+      upload: (attachment, fileSize) => mediaUpload.enqueueUpload(
+        filePath: attachment.file.path,
+        fileName: attachment.displayName,
+        fileSize: fileSize,
+      ),
+      rollback: (attachment) async {
+        await mediaUpload.removeAttachment(attachment.file.path);
+      },
+    );
   }
 
   void _handleVoiceCall() {

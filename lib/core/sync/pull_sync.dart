@@ -25,6 +25,52 @@ const int kPullFetchConcurrency = kAdapterPullFetchConcurrency;
 /// `get_archived_session_user_chat_list`, `limit = 60` — NOT 50).
 const int kOpenWebUiChatListPageSize = 60;
 
+/// Worker-isolate seam for decomposing a full Open WebUI chat blob into
+/// normalized rows before the database transaction begins.
+typedef ChatRowsParseOffload =
+    Future<ChatRows> Function(Map<String, dynamic> response);
+
+/// Top-level callback used by [WorkerManager] through the injected
+/// [ChatRowsParseOffload]. Keeping this pure also makes it directly testable.
+ChatRows parseChatRowsWorker(Map<String, dynamic> response) =>
+    _chatRowsFromResponse(response);
+
+ChatRows _chatRowsFromResponse(Map<String, dynamic> response) {
+  final id = response['id'] as String;
+  final createdAt = _parseServerEpochSeconds(response['created_at']) ?? 0;
+  final updatedAt = _parseServerEpochSeconds(response['updated_at']) ?? 0;
+  final blob = response['chat'];
+  return ChatBlobMapper.blobToRows(
+    chatId: id,
+    blob: blob is Map<String, dynamic>
+        ? blob
+        : (blob is Map ? Map<String, dynamic>.from(blob) : <String, dynamic>{}),
+    title: response['title'] is String ? response['title'] as String : '',
+    folderId: response['folder_id'] is String
+        ? response['folder_id'] as String
+        : null,
+    pinned: response['pinned'] == true,
+    archived: response['archived'] == true,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+  );
+}
+
+int _chatMessageCount(Map<String, dynamic> response) {
+  final chat = response['chat'];
+  if (chat is! Map) return 0;
+  final history = chat['history'];
+  if (history is! Map) return 0;
+  final messages = history['messages'];
+  return messages is Map ? messages.length : 0;
+}
+
+int? _parseServerEpochSeconds(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return null;
+}
+
 /// Outcome of one pull cycle.
 class PullResult {
   const PullResult({
@@ -86,17 +132,20 @@ class PullSync {
     required ConversationLocks locks,
     IdRemapper? remapper,
     ConversationParseOffload? parseOffload,
+    ChatRowsParseOffload? rowsParseOffload,
   }) : _client = client,
        _db = db,
        _locks = locks,
        _remapper = remapper,
-       _parseOffload = parseOffload;
+       _parseOffload = parseOffload,
+       _rowsParseOffload = rowsParseOffload;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final ConversationLocks _locks;
   final IdRemapper? _remapper;
   final ConversationParseOffload? _parseOffload;
+  final ChatRowsParseOffload? _rowsParseOffload;
 
   /// Runs one pull cycle. The watermark advances only when every list page
   /// and every chat fetch succeeded (REQ 5); on any failure it stays frozen
@@ -396,24 +445,13 @@ class PullSync {
     final id = resp['id'] as String;
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
-    final blob = resp['chat'];
     final meta = resp['meta'];
-    final rows = ChatBlobMapper.blobToRows(
-      chatId: id,
-      blob: blob is Map<String, dynamic>
-          ? blob
-          : (blob is Map
-                ? Map<String, dynamic>.from(blob)
-                : <String, dynamic>{}),
-      title: resp['title'] is String ? resp['title'] as String : '',
-      folderId: resp['folder_id'] is String
-          ? resp['folder_id'] as String
-          : null,
-      pinned: resp['pinned'] == true,
-      archived: resp['archived'] == true,
-      createdAt: createdAt,
-      updatedAt: updatedAt,
-    );
+    final rowsParser = _rowsParseOffload;
+    final rows =
+        rowsParser != null &&
+            _chatMessageCount(resp) > kLocalConversationWorkerThreshold
+        ? await rowsParser(resp)
+        : _chatRowsFromResponse(resp);
 
     // §7.3 createChat crash-heal: if this server chat is the materialization of
     // a local createChat that crashed between server-create and remap-commit,
@@ -564,8 +602,6 @@ class PullSync {
 
   /// Server epoch seconds; never derived from the device clock (REQ 5).
   static int? _asEpochSeconds(Object? value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return null;
+    return _parseServerEpochSeconds(value);
   }
 }

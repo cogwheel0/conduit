@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/text_to_speech_provider.dart';
@@ -27,10 +30,42 @@ final nativeSheetAvatarBytesHydratorProvider =
       (_) => NativeSheetAvatarBytesHydrator(),
     );
 
+@visibleForTesting
+class NativeSheetHydrationGeneration {
+  int _current = 0;
+
+  int begin() => ++_current;
+
+  bool isActive(int generation) => generation == _current;
+
+  void finish(int generation) {
+    if (isActive(generation)) {
+      _current += 1;
+    }
+  }
+}
+
+@visibleForTesting
+class NativeSheetPresentationAdmission {
+  bool _active = false;
+
+  bool tryBegin() {
+    if (_active) return false;
+    _active = true;
+    return true;
+  }
+
+  void finish() => _active = false;
+}
+
 class NativeSheetHydrationService {
   NativeSheetHydrationService(this._ref);
 
   final Ref _ref;
+  final NativeSheetHydrationGeneration _modelSelectorHydration =
+      NativeSheetHydrationGeneration();
+  final NativeSheetPresentationAdmission _modelSelectorPresentation =
+      NativeSheetPresentationAdmission();
 
   Future<List<Model>> loadModels({bool refreshOnError = true}) async {
     final modelsAsync = _ref.read(modelsProvider);
@@ -53,60 +88,113 @@ class NativeSheetHydrationService {
     bool allowsPinning = false,
     bool rethrowErrors = true,
   }) async {
-    final api = _ref.read(apiServiceProvider);
-    final container = ProviderScope.containerOf(context, listen: false);
-    final l10n = AppLocalizations.of(context);
-    final pinnedModelIds = allowsPinning
-        ? _ref.read(effectivePinnedModelIdsProvider)
-        : const <String>[];
-    // The Hermes agent has its own dedicated tab; never list it in the picker.
-    final pickerModels = models.where((m) => !isHermesModel(m)).toList();
-    final orderedModels = allowsPinning
-        ? sortModelsWithPinnedOrder(pickerModels, pinnedModelIds)
-        : List<Model>.of(pickerModels, growable: false);
-    final canTogglePinnedModels =
-        allowsPinning && _ref.read(canTogglePinnedModelsProvider);
+    // Native permits only one selector at a time. Reject overlap before a
+    // second call can advance the hydration generation and silence progressive
+    // avatar updates for the selector that is already visible.
+    if (!_modelSelectorPresentation.tryBegin()) return null;
+    int? hydrationGeneration;
+    try {
+      final api = _ref.read(apiServiceProvider);
+      final container = ProviderScope.containerOf(context, listen: false);
+      final l10n = AppLocalizations.of(context);
+      final pinnedModelIds = allowsPinning
+          ? _ref.read(effectivePinnedModelIdsProvider)
+          : const <String>[];
+      // The Hermes agent has its own dedicated tab; never list it in the picker.
+      final pickerModels = models.where((m) => !isHermesModel(m)).toList();
+      final orderedModels = allowsPinning
+          ? sortModelsWithPinnedOrder(pickerModels, pinnedModelIds)
+          : List<Model>.of(pickerModels, growable: false);
+      final canTogglePinnedModels =
+          allowsPinning && _ref.read(canTogglePinnedModelsProvider);
 
-    final modelOptions = [
-      ...leadingOptions,
-      ...orderedModels.map((model) {
-        final avatarUrl = resolveModelIconUrlForModel(api, model);
-        final avatarHeaders = avatarUrl == null
-            ? const <String, String>{}
-            : buildImageHeadersForUrlFromContainer(container, avatarUrl) ??
-                  const <String, String>{};
-        return NativeSheetModelOption(
-          id: model.id,
-          name: model.name,
-          subtitle: model.description,
-          avatarUrl: avatarUrl,
-          avatarHeaders: avatarHeaders,
-          tags: model.modelTags,
-        );
-      }),
-    ];
+      final modelOptions = [
+        ...leadingOptions,
+        ...orderedModels.map((model) {
+          final avatarUrl = resolveModelIconUrlForModel(api, model);
+          final avatarHeaders = avatarUrl == null
+              ? const <String, String>{}
+              : buildImageHeadersForUrlFromContainer(container, avatarUrl) ??
+                    const <String, String>{};
+          return NativeSheetModelOption(
+            id: model.id,
+            name: model.name,
+            subtitle: model.description,
+            avatarUrl: avatarUrl,
+            avatarHeaders: avatarHeaders,
+            tags: model.modelTags,
+          );
+        }),
+      ];
 
-    final hydratedModelOptions = await _ref
-        .read(nativeSheetAvatarBytesHydratorProvider)
-        .hydrateModelOptions(api: api, options: modelOptions);
-    if (!context.mounted) {
-      return null;
+      // Present immediately. Same-server custom-TLS URLs are withheld from
+      // native URLSession because it cannot inherit Dart's TLS identity/trust;
+      // those rows use initials until Dart progressively supplies bytes.
+      final bridge = NativeSheetBridge.instance;
+      final avatarHydrator = _ref.read(nativeSheetAvatarBytesHydratorProvider);
+      final nativePresentationOptions = avatarHydrator
+          .prepareForNativePresentation(api: api, options: modelOptions);
+      final activeHydrationGeneration = _modelSelectorHydration.begin();
+      hydrationGeneration = activeHydrationGeneration;
+      final presentationId = const Uuid().v4();
+      final result = bridge.presentModelSelector(
+        presentationId: presentationId,
+        title: title,
+        selectedModelId: selectedModelId,
+        pinnedModelIds: pinnedModelIds,
+        pinTitle: allowsPinning ? l10n?.pin : null,
+        unpinTitle: allowsPinning ? l10n?.unpin : null,
+        onTogglePinned: canTogglePinnedModels
+            ? (modelId) => _ref
+                  .read(personalizationSettingsProvider.notifier)
+                  .togglePinnedModel(modelId)
+            : null,
+        models: nativePresentationOptions,
+        rethrowErrors: rethrowErrors,
+      );
+      unawaited(
+        avatarHydrator
+            .hydrateModelOptions(
+              api: api,
+              options: modelOptions,
+              maxWait: const Duration(seconds: 5),
+              onProgress: (models) {
+                if (_modelSelectorHydration.isActive(
+                  activeHydrationGeneration,
+                )) {
+                  unawaited(
+                    bridge.updateModelSelectorModels(
+                      avatarHydrator.prepareForNativePresentation(
+                        api: api,
+                        options: models,
+                      ),
+                      presentationId: presentationId,
+                    ),
+                  );
+                }
+              },
+              isActive: () =>
+                  context.mounted &&
+                  _modelSelectorHydration.isActive(activeHydrationGeneration) &&
+                  identical(_ref.read(apiServiceProvider), api),
+            )
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'native-model-avatar-progressive-hydration-failed',
+                scope: 'native-sheet/model-avatar-hydration',
+                error: error,
+                stackTrace: stackTrace,
+              );
+              return nativePresentationOptions;
+            }),
+      );
+      return await result;
+    } finally {
+      if (hydrationGeneration != null) {
+        _modelSelectorHydration.finish(hydrationGeneration);
+      }
+      _modelSelectorPresentation.finish();
     }
-
-    return NativeSheetBridge.instance.presentModelSelector(
-      title: title,
-      selectedModelId: selectedModelId,
-      pinnedModelIds: pinnedModelIds,
-      pinTitle: allowsPinning ? l10n?.pin : null,
-      unpinTitle: allowsPinning ? l10n?.unpin : null,
-      onTogglePinned: canTogglePinnedModels
-          ? (modelId) => _ref
-                .read(personalizationSettingsProvider.notifier)
-                .togglePinnedModel(modelId)
-          : null,
-      models: hydratedModelOptions,
-      rethrowErrors: rethrowErrors,
-    );
   }
 
   Future<void> hydrateDetail(String detailId) async {

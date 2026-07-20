@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../utils/debug_logger.dart';
 import '../../sync/chat_merger.dart';
@@ -13,6 +14,68 @@ import '../tables/messages.dart';
 import 'outbox_dao.dart';
 
 part 'chats_dao.g.dart';
+
+const _chatListColumns =
+    'id, title, created_at, updated_at, pinned, archived, folder_id, '
+    'last_read_at';
+
+const _archivedChatCountSql = '''
+SELECT COUNT(id) AS archived_count
+FROM chats
+WHERE deleted = 0 AND pinned = 0 AND archived = 1
+''';
+
+final class _ChatListWindowStatement {
+  const _ChatListWindowStatement(this.sql, this.variables);
+
+  final String sql;
+  final List<Variable<int>> variables;
+}
+
+_ChatListWindowStatement _chatListWindowStatement({
+  required int? regularLimit,
+  required int? archivedLimit,
+}) {
+  final variables = <Variable<int>>[];
+
+  String unpinnedBranch({required bool archived, required int? limit}) {
+    final buffer = StringBuffer('''
+SELECT $_chatListColumns
+FROM chats
+WHERE deleted = 0 AND pinned = 0 AND archived = ${archived ? 1 : 0}
+''');
+    if (limit != null) {
+      variables.add(Variable<int>(math.max(0, limit)));
+      buffer.write('''
+ORDER BY updated_at DESC, id ASC
+LIMIT ?
+''');
+    }
+    return buffer.toString();
+  }
+
+  final regularSql = unpinnedBranch(archived: false, limit: regularLimit);
+  final archivedSql = unpinnedBranch(archived: true, limit: archivedLimit);
+  return _ChatListWindowStatement('''
+WITH pinned_rows AS (
+  SELECT $_chatListColumns
+  FROM chats
+  WHERE deleted = 0 AND pinned = 1
+),
+regular_rows AS (
+$regularSql
+),
+archived_rows AS (
+$archivedSql
+)
+SELECT * FROM pinned_rows
+UNION ALL
+SELECT * FROM regular_rows
+UNION ALL
+SELECT * FROM archived_rows
+ORDER BY updated_at DESC, id ASC
+''', variables);
+}
 
 /// Exactly the fields the conversation-list UI uses plus `createdAt`
 /// (required by `Conversation`). REQ §10.2: never message bodies.
@@ -50,13 +113,68 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// NARROW projection (REQ §10.2): selectOnly() with exactly the
   /// [ChatListEntry] columns — payload/rawExtra/blobMeta/meta MUST NOT appear
   /// in the SQL. WHERE deleted = false; ORDER BY updatedAt DESC, id ASC.
-  /// Includes archived rows (filtered/archived split happens in existing
-  /// derived providers).
-  Stream<List<ChatListEntry>> watchChatList() {
+  /// [regularLimit] and [archivedLimit] independently window unpinned active
+  /// and archived rows. Pinned rows are always included regardless of age.
+  Stream<List<ChatListEntry>> watchChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) {
+    if (regularLimit != null || archivedLimit != null) {
+      final statement = _chatListWindowStatement(
+        regularLimit: regularLimit,
+        archivedLimit: archivedLimit,
+      );
+      final query = customSelect(
+        statement.sql,
+        variables: statement.variables,
+        readsFrom: {chats},
+      );
+      return query.watch().map(
+        (rows) => rows.map(_entryFromCustomRow).toList(growable: false),
+      );
+    }
     final query = _activeChatsListQuery();
     return query.watch().map(
       (rows) => rows.map(_entryFromProjection).toList(growable: false),
     );
+  }
+
+  /// Exact live count for the independently paged archived drawer section.
+  /// Pinned rows belong to the pinned section even if a stale server envelope
+  /// also marks them archived, so they are deliberately excluded here.
+  Stream<int> watchArchivedChatCount() {
+    return customSelect(
+      _archivedChatCountSql,
+      readsFrom: {chats},
+    ).watchSingle().map((row) => row.read<int>('archived_count'));
+  }
+
+  @visibleForTesting
+  Future<List<String>> debugExplainChatListWindow({
+    required int regularLimit,
+    required int archivedLimit,
+  }) async {
+    final statement = _chatListWindowStatement(
+      regularLimit: regularLimit,
+      archivedLimit: archivedLimit,
+    );
+    final rows = await customSelect(
+      'EXPLAIN QUERY PLAN ${statement.sql}',
+      variables: statement.variables,
+    ).get();
+    return rows
+        .map((row) => row.read<String>('detail'))
+        .toList(growable: false);
+  }
+
+  @visibleForTesting
+  Future<List<String>> debugExplainArchivedChatCount() async {
+    final rows = await customSelect(
+      'EXPLAIN QUERY PLAN $_archivedChatCountSql',
+    ).get();
+    return rows
+        .map((row) => row.read<String>('detail'))
+        .toList(growable: false);
   }
 
   /// Shared WHERE + ORDER BY for the active-chats list. Both [watchChatList]
@@ -72,16 +190,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       ]);
   }
 
-  /// Internal first-page fast-path (CDT-RFC-001 §10 LIST CONTRACT). Same NARROW
-  /// [_listProjection] as [watchChatList] (REQ §10.2/§10.5 — never message
-  /// bodies), WHERE deleted = false, ORDER BY updatedAt DESC, id ASC, with
-  /// LIMIT/OFFSET. The ordering is byte-for-byte identical to [watchChatList],
-  /// so a paged read would compose seamlessly with the watch stream that takes
-  /// over after first paint — the page is a render-fast hydrate, not a new
-  /// source of truth. Currently this first-page projection is exercised by the
-  /// perf-budget test (`test/core/database/fts_perf_test.dart`) and is not yet
-  /// wired into the live list hydrate; the Conversations provider's PUBLIC API
-  /// is unchanged and `hasMore`/`loadMore` remain no-ops.
+  /// One-shot page using the same narrow projection and deterministic ordering
+  /// as [watchChatList]. The live UI uses [watchChatList]'s regular-row window;
+  /// this offset form remains useful for cold-read budgets and batch callers.
   Future<List<ChatListEntry>> getChatPage({
     required int limit,
     required int offset,
@@ -344,10 +455,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// `chatDirty: false` (chat row + messages all `dirty=false`); the three-way
   /// caller passes `chatDirty: true` with the surviving [dirtyMessageIds] so
   /// those message rows stay dirty. Always `deleted=false`, `bodySynced=true`,
-  /// and the delete+reinsert of message rows. `serverUpdatedAt` is the caller's
-  /// contract (fast-forward advances it to today's body; three-way keeps it at
-  /// `base` so the push advances it). Local-only chats pass null because they
-  /// have no remote merge base.
+  /// and an incremental synchronization of message rows. `serverUpdatedAt` is
+  /// the caller's contract (fast-forward advances it to today's body; three-way
+  /// keeps it at `base` so the push advances it). Local-only chats pass null
+  /// because they have no remote merge base.
   Future<void> _writeChatRows({
     required ChatRows rows,
     required String? shareId,
@@ -383,9 +494,144 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       ),
     );
 
-    await (delete(messages)..where((t) => t.chatId.equals(chat.id))).go();
+    await _syncMessages(chat.id, rows.messages, dirtyIds: dirtyMessageIds);
+  }
 
-    await _insertMessages(rows.messages, dirtyIds: dirtyMessageIds);
+  Future<void> _syncMessages(
+    String chatId,
+    List<MessageRowData> incoming, {
+    Set<String> dirtyIds = const {},
+  }) async {
+    final existingRows = await (select(
+      messages,
+    )..where((t) => t.chatId.equals(chatId))).get();
+    final existingById = <String, MessageRow>{
+      for (final row in existingRows) row.id: row,
+    };
+    final incomingIds = <String>{};
+    final inserts = <MessagesCompanion>[];
+    final updates =
+        <
+          ({
+            MessageRow existing,
+            MessageRowData row,
+            String payload,
+            bool dirty,
+          })
+        >[];
+
+    for (final row in incoming) {
+      incomingIds.add(row.id);
+      final payload = jsonEncode(row.payload);
+      final dirty = dirtyIds.contains(row.id);
+      final existing = existingById[row.id];
+      if (existing == null) {
+        inserts.add(_messageCompanion(row, payload: payload, dirty: dirty));
+        continue;
+      }
+      if (!_messageRowMatches(existing, row, payload: payload, dirty: dirty)) {
+        updates.add((
+          existing: existing,
+          row: row,
+          payload: payload,
+          dirty: dirty,
+        ));
+      }
+    }
+
+    final staleIds = existingById.keys
+        .where((id) => !incomingIds.contains(id))
+        .toList(growable: false);
+    if (staleIds.isEmpty && inserts.isEmpty && updates.isEmpty) return;
+
+    await batch((b) {
+      for (final id in staleIds) {
+        b.deleteWhere(
+          messages,
+          (t) => t.chatId.equals(chatId) & t.id.equals(id),
+        );
+      }
+      if (inserts.isNotEmpty) {
+        b.insertAll(messages, inserts);
+      }
+      for (final update in updates) {
+        b.update(
+          messages,
+          _messageUpdateCompanion(
+            update.existing,
+            update.row,
+            payload: update.payload,
+            dirty: update.dirty,
+          ),
+          where: (t) => t.chatId.equals(chatId) & t.id.equals(update.row.id),
+        );
+      }
+    });
+  }
+
+  MessagesCompanion _messageCompanion(
+    MessageRowData row, {
+    required String payload,
+    required bool dirty,
+  }) {
+    return MessagesCompanion.insert(
+      id: row.id,
+      chatId: row.chatId,
+      parentId: Value(row.parentId),
+      role: row.role,
+      content: row.content,
+      model: Value(row.model),
+      createdAt: row.createdAt,
+      orderIndex: row.orderIndex,
+      payload: payload,
+      dirty: Value(dirty),
+    );
+  }
+
+  MessagesCompanion _messageUpdateCompanion(
+    MessageRow existing,
+    MessageRowData row, {
+    required String payload,
+    required bool dirty,
+  }) {
+    return MessagesCompanion(
+      parentId: existing.parentId == row.parentId
+          ? const Value.absent()
+          : Value(row.parentId),
+      role: existing.role == row.role ? const Value.absent() : Value(row.role),
+      content: existing.content == row.content
+          ? const Value.absent()
+          : Value(row.content),
+      model: existing.model == row.model
+          ? const Value.absent()
+          : Value(row.model),
+      createdAt: existing.createdAt == row.createdAt
+          ? const Value.absent()
+          : Value(row.createdAt),
+      orderIndex: existing.orderIndex == row.orderIndex
+          ? const Value.absent()
+          : Value(row.orderIndex),
+      payload: existing.payload == payload
+          ? const Value.absent()
+          : Value(payload),
+      dirty: existing.dirty == dirty ? const Value.absent() : Value(dirty),
+    );
+  }
+
+  bool _messageRowMatches(
+    MessageRow existing,
+    MessageRowData incoming, {
+    required String payload,
+    required bool dirty,
+  }) {
+    return existing.parentId == incoming.parentId &&
+        existing.role == incoming.role &&
+        existing.content == incoming.content &&
+        existing.model == incoming.model &&
+        existing.createdAt == incoming.createdAt &&
+        existing.orderIndex == incoming.orderIndex &&
+        existing.payload == payload &&
+        existing.dirty == dirty;
   }
 
   /// Batch-inserts message rows for a chat (caller owns the preceding
@@ -400,17 +646,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     await batch((b) {
       b.insertAll(messages, [
         for (final message in rows)
-          MessagesCompanion.insert(
-            id: message.id,
-            chatId: message.chatId,
-            parentId: Value(message.parentId),
-            role: message.role,
-            content: message.content,
-            model: Value(message.model),
-            createdAt: message.createdAt,
-            orderIndex: message.orderIndex,
+          _messageCompanion(
+            message,
             payload: jsonEncode(message.payload),
-            dirty: Value(allDirty || dirtyIds.contains(message.id)),
+            dirty: allDirty || dirtyIds.contains(message.id),
           ),
       ]);
     });
@@ -1109,6 +1348,19 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       archived: row.read(chats.archived)!,
       folderId: row.read(chats.folderId),
       lastReadAt: row.read(chats.lastReadAt),
+    );
+  }
+
+  ChatListEntry _entryFromCustomRow(QueryRow row) {
+    return ChatListEntry(
+      id: row.read<String>('id'),
+      title: row.read<String>('title'),
+      createdAt: row.read<int>('created_at'),
+      updatedAt: row.read<int>('updated_at'),
+      pinned: row.read<bool>('pinned'),
+      archived: row.read<bool>('archived'),
+      folderId: row.readNullable<String>('folder_id'),
+      lastReadAt: row.readNullable<int>('last_read_at'),
     );
   }
 }

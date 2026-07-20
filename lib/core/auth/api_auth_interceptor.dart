@@ -18,11 +18,21 @@ final class ApiAuthSnapshot {
 /// Implements security requirements from OpenAPI specification
 class ApiAuthInterceptor extends Interceptor {
   static const String authSnapshotExtraKey = 'conduit.api.auth_snapshot';
+  static const String candidateAuthTokenExtraKey =
+      'conduit.api.candidate_auth_token';
+  static const String _requestAuthRevisionExtraKey =
+      'conduit.api.request_auth_revision';
+  static const String _requestAuthTokenExtraKey =
+      'conduit.api.request_auth_token';
+  static const String _requestCookieSuppressedExtraKey =
+      'conduit.api.request_cookie_suppressed';
 
   String? _authToken;
   int _authRevision = 0;
   final Uri _serverUri;
   final Map<String, String> customHeaders;
+  bool _suppressCookieCustomHeader;
+  final bool Function()? _shouldSuppressCookieCustomHeader;
 
   // Callbacks for auth events
   void Function()? onAuthTokenInvalid;
@@ -30,7 +40,6 @@ class ApiAuthInterceptor extends Interceptor {
 
   // Public endpoints that don't require authentication
   static const Set<String> _publicEndpoints = {
-    '/health',
     '/api/v1/auths/signin',
     '/api/v1/auths/signup',
     '/api/v1/auths/ldap',
@@ -38,6 +47,7 @@ class ApiAuthInterceptor extends Interceptor {
 
   // Endpoints that have optional authentication (work without but better with)
   static const Set<String> _optionalAuthEndpoints = {
+    '/health',
     '/api/config',
     '/api/models',
   };
@@ -56,8 +66,12 @@ class ApiAuthInterceptor extends Interceptor {
     this.onAuthTokenInvalid,
     this.onTokenInvalidated,
     this.customHeaders = const {},
+    bool suppressCookieCustomHeader = false,
+    bool Function()? shouldSuppressCookieCustomHeader,
   }) : _serverUri = Uri.parse(serverUrl),
-       _authToken = authToken;
+       _authToken = authToken,
+       _suppressCookieCustomHeader = suppressCookieCustomHeader,
+       _shouldSuppressCookieCustomHeader = shouldSuppressCookieCustomHeader;
 
   void updateAuthToken(String? token) {
     if (token == _authToken) return;
@@ -66,6 +80,34 @@ class ApiAuthInterceptor extends Interceptor {
   }
 
   String? get authToken => _authToken;
+
+  /// Monotonic identity for account-scoped caches owned by this interceptor.
+  int get authenticationEpoch => _authRevision;
+
+  void setCookieCustomHeaderSuppressed(bool suppressed) {
+    if (_suppressCookieCustomHeader == suppressed) return;
+    _suppressCookieCustomHeader = suppressed;
+    // Cookie credentials are part of the authenticated transport identity.
+    // Rotating their availability invalidates callbacks from dispatched work
+    // just like rotating the bearer token does.
+    _authRevision++;
+  }
+
+  /// Whether a configured reverse-proxy Cookie must be omitted right now.
+  ///
+  /// The optional resolver lets short-lived clients observe a logout fence
+  /// that can change after construction. Resolver failures are fail-closed so
+  /// provider teardown can never reattach a persisted proxy session.
+  bool get cookieCustomHeaderSuppressed {
+    if (_suppressCookieCustomHeader) return true;
+    final resolver = _shouldSuppressCookieCustomHeader;
+    if (resolver == null) return false;
+    try {
+      return resolver();
+    } catch (_) {
+      return true;
+    }
+  }
 
   ApiAuthSnapshot captureSnapshot() =>
       ApiAuthSnapshot._(_authToken, _authRevision);
@@ -161,7 +203,23 @@ class ApiAuthInterceptor extends Interceptor {
       );
       return;
     }
-    final token = snapshot is ApiAuthSnapshot ? snapshot._token : _authToken;
+    final candidateToken = options.extra[candidateAuthTokenExtraKey];
+    final token = candidateToken is String
+        ? candidateToken
+        : snapshot is ApiAuthSnapshot
+        ? snapshot._token
+        : _authToken;
+    final requestCookieSuppressed = cookieCustomHeaderSuppressed;
+    // Bind any eventual 401/403 callback to the session that dispatched this
+    // request. A response from account A must not flip account B to an error
+    // after the shared interceptor has rotated tokens.
+    // Callers commonly pass const Options.extra maps. Dio exposes the same map
+    // on RequestOptions, so take a mutable request-local copy before stamping
+    // response ownership metadata.
+    options.extra = Map<String, dynamic>.of(options.extra);
+    options.extra[_requestAuthRevisionExtraKey] = _authRevision;
+    options.extra[_requestAuthTokenExtraKey] = token;
+    options.extra[_requestCookieSuppressedExtraKey] = requestCookieSuppressed;
 
     if (authMode == _EndpointAuthMode.required) {
       if (token == null || token.isEmpty) {
@@ -196,6 +254,7 @@ class ApiAuthInterceptor extends Interceptor {
           );
           return;
         }
+        if (requestCookieSuppressed && lowerKey == 'cookie') return;
         options.headers[key] = value;
       });
     }
@@ -223,8 +282,20 @@ class ApiAuthInterceptor extends Interceptor {
 
     final suppressAuthFailureNotification =
         err.requestOptions.extra['suppressAuthFailureNotification'] == true;
+    final requestRevision =
+        err.requestOptions.extra[_requestAuthRevisionExtraKey];
+    final requestToken = err.requestOptions.extra[_requestAuthTokenExtraKey];
+    final requestCookieSuppressed =
+        err.requestOptions.extra[_requestCookieSuppressedExtraKey];
+    final responseOwnsCurrentSession =
+        requestRevision == _authRevision &&
+        requestToken == _authToken &&
+        requestCookieSuppressed is bool &&
+        requestCookieSuppressed == cookieCustomHeaderSuppressed;
     if (statusCode case final code?
-        when !suppressAuthFailureNotification && (code == 401 || code == 403)) {
+        when !suppressAuthFailureNotification &&
+            responseOwnsCurrentSession &&
+            (code == 401 || code == 403)) {
       _handleAuthorizationError(path: path, statusCode: code);
     }
 

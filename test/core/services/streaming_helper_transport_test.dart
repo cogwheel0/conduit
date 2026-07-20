@@ -458,6 +458,7 @@ class _MockSocketService implements SocketService {
   int chatSubscriptionDisposeCount = 0;
   int channelSubscriptionDisposeCount = 0;
   int channelOffCount = 0;
+  bool? lastChatKeepsAliveInBackground;
 
   @override
   SocketEventSubscription addChatEventHandler({
@@ -465,8 +466,10 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
+    lastChatKeepsAliveInBackground = keepsAliveInBackground;
     _injector._handler = handler;
     _injector._lastHandler = handler;
     return SocketEventSubscription(() {
@@ -1312,6 +1315,169 @@ void main() {
     );
 
     test(
+      'chat:completion same-payload output suppresses transient tool placeholder',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isFalse();
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
+      'chat:completion preserves a different same-name pending tool call',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-2',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isTrue();
+        check(
+          RegExp(
+            '<details type="tool_calls"',
+          ).allMatches(log.messages.last.content).length,
+        ).equals(2);
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-2',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'updated docs'},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'updated result',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final updatedContent = log.messages.last.content;
+        check(
+          RegExp(
+            '<details type="tool_calls"',
+          ).allMatches(updatedContent).length,
+        ).equals(2);
+        check(updatedContent).contains('updated result');
+        check(updatedContent).contains('Executing...');
+      },
+    );
+
+    test(
+      'chat:completion same-payload tool name suppresses transient placeholder',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isFalse();
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
       'chat:completion output snapshot replaces pending tool placeholder',
       () async {
         final log = _CallbackLog();
@@ -1408,6 +1574,73 @@ void main() {
         }, messageId: 'msg-1');
         await pumpMicrotasks();
         check(log.messages.last.content).equals('intermediate answer');
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+      },
+    );
+
+    test(
+      'chat:completion structured append clears injected tool details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        void emitOutput(String text) {
+          registrar.emitChatEvent('chat:completion', {
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': text},
+                ],
+              },
+            ],
+          }, messageId: 'msg-1');
+        }
+
+        final toolCallPayload = {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        };
+
+        emitOutput('Hello structured');
+        await pumpMicrotasks();
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        emitOutput('Hello structured world');
+        await pumpMicrotasks();
+        check(log.messages.last.content).equals('Hello structured world');
+        check(
+          log.messages.last.content,
+        ).not((it) => it.contains('Executing...'));
 
         registrar.emitChatEvent(
           'chat:completion',
@@ -1840,8 +2073,9 @@ void main() {
     // socket binding code won't activate. This test verifies the function
     // returns successfully with taskSocket transport. Full socket testing
     // would require a FakeSocketService which is out of scope for this task.
-    test('taskSocket returns ActiveChatStream without crash', () async {
+    test('taskSocket keeps its chat handler alive in background', () async {
       final log = _CallbackLog();
+      final socket = _MockSocketService(FakeSocketInjector());
 
       final stream = _attach(
         session: ChatCompletionSession.taskSocket(
@@ -1850,10 +2084,13 @@ void main() {
           taskId: 'task-1',
         ),
         log: log,
+        socketService: socket,
       );
 
       // The stream should be created successfully.
       check(stream.controller).isNotNull();
+      check(socket.lastChatKeepsAliveInBackground).equals(true);
+      stream.disposeWatchdog();
     });
 
     test(

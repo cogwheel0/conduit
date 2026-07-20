@@ -6,6 +6,7 @@ import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
@@ -29,6 +30,367 @@ typedef MarkdownLinkTapCallback = void Function(String url, String title);
 const _chartPreviewMinHeight = 320.0;
 const _mermaidPreviewMinHeight = 360.0;
 const _embeddedPreviewMaxHeight = 1200.0;
+const _maxConcurrentEmbeddedPreviews = 2;
+
+final _embeddedPreviewBudget = _EmbeddedPreviewBudget(
+  maxActive: _maxConcurrentEmbeddedPreviews,
+);
+final Set<_DeferredEmbeddedPreviewState> _embeddedPreviewRegistry =
+    HashSet<_DeferredEmbeddedPreviewState>.identity();
+bool _embeddedPreviewRegistryCheckScheduled = false;
+
+/// Re-evaluates every retained preview after markdown registry/layout changes.
+///
+/// Scroll listeners cover ordinary viewport movement, but inserting/removing a
+/// markdown block can move sibling previews without changing scroll offset.
+void scheduleEmbeddedPreviewEligibilityRecheck() {
+  if (_embeddedPreviewRegistryCheckScheduled ||
+      _embeddedPreviewRegistry.isEmpty) {
+    return;
+  }
+  _embeddedPreviewRegistryCheckScheduled = true;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _embeddedPreviewRegistryCheckScheduled = false;
+    for (final preview in _embeddedPreviewRegistry.toList(growable: false)) {
+      if (preview.mounted) {
+        preview._updateViewportEligibility();
+      }
+    }
+  });
+  WidgetsBinding.instance.ensureVisualUpdate();
+}
+
+@visibleForTesting
+void debugResetEmbeddedPreviewBudget() => _embeddedPreviewBudget.reset();
+
+@visibleForTesting
+void debugRequestEmbeddedPreviewBudget(
+  Object token, {
+  required bool eligible,
+  bool prioritize = false,
+}) {
+  _embeddedPreviewBudget.update(token, eligible: eligible);
+  if (prioritize) {
+    _embeddedPreviewBudget.prioritize(token);
+  }
+}
+
+@visibleForTesting
+bool debugHasEmbeddedPreviewBudget(Object token) =>
+    _embeddedPreviewBudget.isActive(token);
+
+@visibleForTesting
+int get debugActiveEmbeddedPreviewCount => _embeddedPreviewBudget.activeCount;
+
+class _EmbeddedPreviewBudget extends ChangeNotifier {
+  _EmbeddedPreviewBudget({required this.maxActive});
+
+  final int maxActive;
+  final LinkedHashSet<Object> _eligible = LinkedHashSet<Object>.identity();
+  final Set<Object> _active = HashSet<Object>.identity();
+
+  int get activeCount => _active.length;
+
+  bool isActive(Object token) => _active.contains(token);
+
+  void update(Object token, {required bool eligible}) {
+    final changed = eligible ? _eligible.add(token) : _eligible.remove(token);
+    if (changed) {
+      _recompute();
+      scheduleEmbeddedPreviewEligibilityRecheck();
+    }
+  }
+
+  void prioritize(Object token) {
+    if (!_eligible.contains(token)) {
+      _eligible.add(token);
+    }
+    final ordered = <Object>[
+      token,
+      ..._eligible.where((item) => item != token),
+    ];
+    _eligible
+      ..clear()
+      ..addAll(ordered);
+    _recompute();
+    scheduleEmbeddedPreviewEligibilityRecheck();
+  }
+
+  void reset() {
+    if (_eligible.isEmpty && _active.isEmpty) {
+      return;
+    }
+    _eligible.clear();
+    _active.clear();
+    notifyListeners();
+    scheduleEmbeddedPreviewEligibilityRecheck();
+  }
+
+  void _recompute() {
+    final next = HashSet<Object>.identity()..addAll(_eligible.take(maxActive));
+    if (setEquals(next, _active)) {
+      return;
+    }
+    _active
+      ..clear()
+      ..addAll(next);
+    notifyListeners();
+  }
+}
+
+class _DeferredEmbeddedPreview extends StatefulWidget {
+  const _DeferredEmbeddedPreview({
+    required this.placeholderHeight,
+    required this.loadActionLabel,
+    required this.icon,
+    required this.builder,
+    this.requiresExplicitActivation = false,
+    this.activationIdentity,
+  });
+
+  final double placeholderHeight;
+  final String loadActionLabel;
+  final IconData icon;
+  final WidgetBuilder builder;
+  final bool requiresExplicitActivation;
+  final Object? activationIdentity;
+
+  @override
+  State<_DeferredEmbeddedPreview> createState() =>
+      _DeferredEmbeddedPreviewState();
+}
+
+class _DeferredEmbeddedPreviewState extends State<_DeferredEmbeddedPreview> {
+  final Object _budgetToken = Object();
+  final GlobalKey _previewKey = GlobalKey();
+  ScrollPosition? _position;
+  bool _viewportCheckScheduled = false;
+  bool _measurementScheduled = false;
+  bool _nearViewport = false;
+  bool _routeVisible = true;
+  bool _eligible = false;
+  bool _explicitlyActivated = false;
+  bool _lastActive = false;
+  double? _lastMeasuredHeight;
+
+  bool get _active => _embeddedPreviewBudget.isActive(_budgetToken);
+
+  @override
+  void initState() {
+    super.initState();
+    _embeddedPreviewRegistry.add(this);
+    _embeddedPreviewBudget.addListener(_handleBudgetChanged);
+    scheduleEmbeddedPreviewEligibilityRecheck();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Register a dependency on the enclosing route so covered chat pages stop
+    // competing with the current route for the global platform-view budget.
+    _routeVisible =
+        TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+    final nextPosition = Scrollable.maybeOf(context)?.position;
+    if (!identical(nextPosition, _position)) {
+      _position?.removeListener(_scheduleViewportCheck);
+      _position = nextPosition;
+      _position?.addListener(_scheduleViewportCheck);
+    }
+    _scheduleViewportCheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DeferredEmbeddedPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.requiresExplicitActivation &&
+        widget.activationIdentity != oldWidget.activationIdentity) {
+      _explicitlyActivated = false;
+      _lastMeasuredHeight = null;
+      _embeddedPreviewBudget.update(_budgetToken, eligible: false);
+    }
+    scheduleEmbeddedPreviewEligibilityRecheck();
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_scheduleViewportCheck);
+    _embeddedPreviewRegistry.remove(this);
+    _embeddedPreviewBudget.removeListener(_handleBudgetChanged);
+    final budgetToken = _budgetToken;
+    // Removing this token can activate a waiting sibling and synchronously
+    // notify its State. Element disposal happens inside finalizeTree, where a
+    // sibling setState is illegal, so release the global budget post-frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _embeddedPreviewBudget.update(budgetToken, eligible: false);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+    super.dispose();
+  }
+
+  void _handleBudgetChanged() {
+    final nextActive = _active;
+    if (!mounted || nextActive == _lastActive) return;
+    _lastActive = nextActive;
+    setState(() {});
+  }
+
+  void _activate() {
+    if (widget.requiresExplicitActivation) {
+      _explicitlyActivated = true;
+      _embeddedPreviewBudget.update(_budgetToken, eligible: _eligible);
+    }
+    _embeddedPreviewBudget.prioritize(_budgetToken);
+  }
+
+  void _scheduleMeasurement() {
+    if (_measurementScheduled || !mounted) return;
+    _measurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measurementScheduled = false;
+      if (!mounted) return;
+      final renderObject = _previewKey.currentContext?.findRenderObject();
+      if (renderObject is! RenderBox || !renderObject.hasSize) return;
+      final height = renderObject.size.height;
+      if (height.isFinite && height > 0) {
+        _lastMeasuredHeight = height;
+      }
+    });
+  }
+
+  void _scheduleViewportCheck() {
+    if (_viewportCheckScheduled || !mounted) {
+      return;
+    }
+    _viewportCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportCheckScheduled = false;
+      if (mounted) {
+        _updateViewportEligibility();
+      }
+    });
+  }
+
+  void _updateViewportEligibility() {
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return;
+    }
+    final margin = widget.placeholderHeight * 0.75;
+    final nextNearViewport = _isNearEnclosingViewport(
+      renderObject,
+      margin: margin,
+    );
+    final nextEligible = nextNearViewport && _routeVisible;
+    if (_nearViewport == nextNearViewport && _eligible == nextEligible) {
+      return;
+    }
+    _nearViewport = nextNearViewport;
+    _eligible = nextEligible;
+    _embeddedPreviewBudget.update(
+      _budgetToken,
+      eligible:
+          nextEligible &&
+          (!widget.requiresExplicitActivation || _explicitlyActivated),
+    );
+  }
+
+  bool _isNearEnclosingViewport(RenderBox target, {required double margin}) {
+    final position = _position;
+    final viewport = RenderAbstractViewport.maybeOf(target);
+    final RenderBox? viewportRenderObject = viewport is RenderBox
+        ? viewport as RenderBox
+        : null;
+    if (position != null &&
+        position.hasViewportDimension &&
+        viewportRenderObject != null &&
+        viewportRenderObject.hasSize) {
+      // Compare in the viewport's own coordinate system. Global screen bounds
+      // incorrectly admit previews clipped below a short/nested scroll view.
+      final targetRect = MatrixUtils.transformRect(
+        target.getTransformTo(viewportRenderObject),
+        target.paintBounds,
+      );
+      final viewportRect = viewportRenderObject.paintBounds;
+      return _rectIsNearViewport(
+        targetRect,
+        viewportRect,
+        axis: axisDirectionToAxis(position.axisDirection),
+        margin: margin,
+      );
+    }
+
+    // Non-scrollable markdown can still contain a preview (for example in a
+    // fixed sheet). Fall back to the visible media rectangle, while retaining
+    // cross-axis clipping instead of checking vertical coordinates alone.
+    final targetRect = MatrixUtils.transformRect(
+      target.getTransformTo(null),
+      target.paintBounds,
+    );
+    final viewportRect = Offset.zero & MediaQuery.sizeOf(context);
+    return _rectIsNearViewport(
+      targetRect,
+      viewportRect,
+      axis: Axis.vertical,
+      margin: margin,
+    );
+  }
+
+  bool _rectIsNearViewport(
+    Rect target,
+    Rect viewport, {
+    required Axis axis,
+    required double margin,
+  }) {
+    if (axis == Axis.vertical) {
+      return target.bottom >= viewport.top - margin &&
+          target.top <= viewport.bottom + margin &&
+          target.right >= viewport.left &&
+          target.left <= viewport.right;
+    }
+    return target.right >= viewport.left - margin &&
+        target.left <= viewport.right + margin &&
+        target.bottom >= viewport.top &&
+        target.top <= viewport.bottom;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Ancestor markdown/layout rebuilds can move this preview while the scroll
+    // position remains unchanged. Recheck against its post-layout geometry.
+    _scheduleViewportCheck();
+    // Platform views are intentionally absent in widget tests; keeping
+    // non-sensitive previews in the tree preserves structural assertions.
+    // Explicitly activated previews still require the same user action in tests.
+    if (_active ||
+        (_isRunningInWidgetTest() && !widget.requiresExplicitActivation)) {
+      return NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          _scheduleMeasurement();
+          return false;
+        },
+        child: SizeChangedLayoutNotifier(
+          child: SizedBox(
+            key: _previewKey,
+            width: double.infinity,
+            child: widget.builder(context),
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      height: _lastMeasuredHeight ?? widget.placeholderHeight,
+      width: double.infinity,
+      child: Center(
+        child: TextButton.icon(
+          onPressed: _activate,
+          icon: Icon(widget.icon),
+          label: Text(widget.loadActionLabel),
+        ),
+      ),
+    );
+  }
+}
 
 bool _isRunningInWidgetTest() {
   return WidgetsBinding.instance.runtimeType.toString().contains(
@@ -156,11 +518,18 @@ class ConduitMarkdown {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          WebContentEmbed(
-            source: code,
-            deferUntilExpanded: false,
-            initiallyExpanded: true,
-            previewTitle: _previewTitleForLanguage(language),
+          _DeferredEmbeddedPreview(
+            placeholderHeight: _mermaidPreviewMinHeight,
+            loadActionLabel: 'Load SVG preview',
+            icon: Icons.image_outlined,
+            requiresExplicitActivation: true,
+            activationIdentity: code,
+            builder: (_) => WebContentEmbed(
+              source: code,
+              deferUntilExpanded: false,
+              initiallyExpanded: true,
+              previewTitle: _previewTitleForLanguage(language),
+            ),
           ),
         ],
       ),
@@ -358,37 +727,44 @@ class ConduitMarkdown {
     BuildContext context,
     ConduitThemeExtension theme,
   ) {
-    // Read headers and optional self-signed cache manager from Riverpod
-    final container = ProviderScope.containerOf(context, listen: false);
-    final headers = buildImageHeadersForUrlFromContainer(container, url);
-    final cacheManager = container.read(selfSignedImageCacheManagerProvider);
+    // A markdown document can remain mounted across an account transition.
+    // Watch ownership here so both stale credentials and the URL cache identity
+    // are replaced without requiring the whole document to rebuild.
+    return Consumer(
+      builder: (context, ref, child) {
+        final headers = buildImageHeadersForUrlFromWidgetRef(ref, url);
+        final cacheKey = buildImageCacheKeyForUrlFromWidgetRef(ref, url);
+        final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
 
-    return CachedNetworkImage(
-      imageUrl: url,
-      cacheManager: cacheManager,
-      httpHeaders: headers,
-      placeholder: (context, _) => Container(
-        height: 200,
-        decoration: BoxDecoration(
-          color: theme.surfaceBackground.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-        ),
-        child: Center(
-          child: CircularProgressIndicator(
-            color: theme.loadingIndicator,
-            strokeWidth: 2,
+        return CachedNetworkImage(
+          imageUrl: url,
+          cacheKey: cacheKey,
+          cacheManager: cacheManager,
+          httpHeaders: headers,
+          placeholder: (context, _) => Container(
+            height: 200,
+            decoration: BoxDecoration(
+              color: theme.surfaceBackground.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+            ),
+            child: Center(
+              child: CircularProgressIndicator(
+                color: theme.loadingIndicator,
+                strokeWidth: 2,
+              ),
+            ),
           ),
-        ),
-      ),
-      errorBuilder: (context, error, stackTrace) =>
-          buildImageError(context, theme),
-      imageBuilder: (context, imageProvider) => Container(
-        margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
-        ),
-      ),
+          errorBuilder: (context, error, stackTrace) =>
+              buildImageError(context, theme),
+          imageBuilder: (context, imageProvider) => Container(
+            margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppBorderRadius.md),
+              image: DecorationImage(image: imageProvider, fit: BoxFit.contain),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -440,6 +816,7 @@ class ConduitMarkdown {
     required String code,
   }) {
     final tokens = context.colorTokens;
+    final l10n = AppLocalizations.of(context);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
       decoration: BoxDecoration(
@@ -452,11 +829,16 @@ class ConduitMarkdown {
       width: double.infinity,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-        child: MermaidDiagram(
-          code: code,
-          brightness: materialTheme.brightness,
-          colorScheme: materialTheme.colorScheme,
-          tokens: tokens,
+        child: _DeferredEmbeddedPreview(
+          placeholderHeight: _mermaidPreviewMinHeight,
+          loadActionLabel: l10n?.loadMermaidPreview ?? 'Load Mermaid preview',
+          icon: Icons.account_tree_outlined,
+          builder: (_) => MermaidDiagram(
+            code: code,
+            brightness: materialTheme.brightness,
+            colorScheme: materialTheme.colorScheme,
+            tokens: tokens,
+          ),
         ),
       ),
     );
@@ -550,6 +932,7 @@ class ConduitMarkdown {
     required String htmlContent,
   }) {
     final tokens = context.colorTokens;
+    final l10n = AppLocalizations.of(context);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: Spacing.sm),
       decoration: BoxDecoration(
@@ -562,11 +945,16 @@ class ConduitMarkdown {
       width: double.infinity,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-        child: ChartJsDiagram(
-          htmlContent: htmlContent,
-          brightness: materialTheme.brightness,
-          colorScheme: materialTheme.colorScheme,
-          tokens: tokens,
+        child: _DeferredEmbeddedPreview(
+          placeholderHeight: _chartPreviewMinHeight,
+          loadActionLabel: l10n?.loadChartPreview ?? 'Load chart preview',
+          icon: Icons.bar_chart_outlined,
+          builder: (_) => ChartJsDiagram(
+            htmlContent: htmlContent,
+            brightness: materialTheme.brightness,
+            colorScheme: materialTheme.colorScheme,
+            tokens: tokens,
+          ),
         ),
       ),
     );
@@ -1197,6 +1585,13 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
   bool get _isRunningInTestEnvironment => _isRunningInWidgetTest();
 
   @override
+  void dispose() {
+    _loadRequestId += 1;
+    _controller = null;
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(ChartJsDiagram oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_controller == null || _script == null) {
@@ -1666,6 +2061,13 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
       };
 
   bool get _isRunningInTestEnvironment => _isRunningInWidgetTest();
+
+  @override
+  void dispose() {
+    _loadRequestId += 1;
+    _controller = null;
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(MermaidDiagram oldWidget) {

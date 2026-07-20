@@ -93,7 +93,7 @@ class _TestMessagesNotifier extends ChatMessagesNotifier {
   }
 
   @override
-  void bufferLastMessageContent(String content) {
+  void bufferLastMessageContent(String content, {bool immediate = true}) {
     replaceLastMessageContent(content);
   }
 
@@ -274,6 +274,7 @@ class _SynchronousCompletionSocketService extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     handler(<String, dynamic>{
@@ -326,6 +327,7 @@ class _CountingPassiveSocketService extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     chatRegistrationCalls += 1;

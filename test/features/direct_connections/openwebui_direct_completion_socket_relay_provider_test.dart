@@ -61,6 +61,8 @@ void main() {
 
         expect(socket.registration, same(registration));
         expect(socket.registration!.requireFocus, isFalse);
+        expect(socket.registration!.keepsAliveInBackground, isFalse);
+        expect(socket.backgroundActivityLeaseCount, 0);
       },
     );
 
@@ -269,6 +271,7 @@ void main() {
           return true;
         }).timeout(const Duration(seconds: 1));
         expect(responseStream.hasListener, isTrue);
+        expect(socket.backgroundActivityLeaseCount, 1);
 
         snapshotController.replace(_snapshot());
         await Future<void>.delayed(Duration.zero);
@@ -287,6 +290,8 @@ void main() {
         }).timeout(const Duration(seconds: 1));
         expect(responseStream.hasListener, isFalse);
         await socket.doneEmission.timeout(const Duration(seconds: 1));
+        await Future<void>.delayed(Duration.zero);
+        expect(socket.backgroundActivityLeaseCount, 0);
         expect(socket.emissions, <_Emission>[
           const _Emission(
             expectedSessionId: 'socket-1',
@@ -368,6 +373,73 @@ void main() {
             data: <String, dynamic>{'done': true},
           ),
         ]);
+      },
+    );
+
+    test(
+      'teardown releases leases from reentrant same-channel replacements',
+      () async {
+        final socket = _FakeSocketService();
+        final adapters = <_PendingRelayHttpAdapter>[
+          _PendingRelayHttpAdapter(),
+          _PendingRelayHttpAdapter(),
+        ];
+        addTearDown(socket.dispose);
+        addTearDown(() async {
+          for (final adapter in adapters) {
+            await adapter.closeResponse();
+          }
+        });
+        var factoryCalls = 0;
+        final nestedAcknowledgements = <Object?>[];
+        late final ProviderContainer container;
+        container = _container(
+          socket: socket,
+          snapshot: _snapshot(),
+          relayFactory: ({required emitChannel}) {
+            final call = factoryCalls++;
+            if (call == 0) {
+              // Re-enter before the outer handler publishes its run. Both runs
+              // legitimately acquire a bounded lease for the same channel;
+              // only the outer run remains the channel-map owner.
+              socket.registration!.handler(
+                _requestEnvelope(
+                  urlIndex: 2,
+                  wireModelId: 'server-prefix.remote-model',
+                ),
+                nestedAcknowledgements.add,
+              );
+            }
+            return OpenWebUiDirectCompletionRelay(
+              emitChannel: emitChannel,
+              dioFactory: (_) => _dio(adapters[call]),
+              closeClients: false,
+            );
+          },
+        );
+
+        var disposed = false;
+        try {
+          await container.read(openWebUiDirectConnectionsProvider.future);
+          container.read(openWebUiDirectCompletionSocketRelayProvider);
+          final outerAcknowledgements = <Object?>[];
+          socket.registration!.handler(
+            _requestEnvelope(
+              urlIndex: 2,
+              wireModelId: 'server-prefix.remote-model',
+            ),
+            outerAcknowledgements.add,
+          );
+
+          expect(factoryCalls, 2);
+          expect(socket.backgroundActivityLeaseCount, 2);
+          container.dispose();
+          disposed = true;
+
+          expect(socket.backgroundActivityLeaseCount, 0);
+        } finally {
+          if (!disposed) container.dispose();
+        }
       },
     );
 
@@ -588,10 +660,12 @@ final class _MutableSnapshotController
 final class _CapturedRegistration {
   const _CapturedRegistration({
     required this.requireFocus,
+    required this.keepsAliveInBackground,
     required this.handler,
   });
 
   final bool requireFocus;
+  final bool keepsAliveInBackground;
   final SocketChatEventHandler handler;
 }
 
@@ -610,9 +684,24 @@ final class _FakeSocketService implements SocketService {
   final Completer<void> _doneEmission = Completer<void>();
   final List<_Emission> emissions = <_Emission>[];
   _CapturedRegistration? registration;
+  int _backgroundActivityLeaseCount = 0;
 
   @override
   bool get isConnected => true;
+
+  @override
+  int get backgroundActivityLeaseCount => _backgroundActivityLeaseCount;
+
+  @override
+  SocketBackgroundActivityLease acquireBackgroundActivityLease() {
+    _backgroundActivityLeaseCount += 1;
+    var released = false;
+    return SocketBackgroundActivityLease.forTesting(() {
+      if (released) return;
+      released = true;
+      _backgroundActivityLeaseCount -= 1;
+    });
+  }
 
   @override
   String? get sessionId => 'socket-1';
@@ -631,10 +720,12 @@ final class _FakeSocketService implements SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     final captured = _CapturedRegistration(
       requireFocus: requireFocus,
+      keepsAliveInBackground: keepsAliveInBackground,
       handler: handler,
     );
     registration = captured;
@@ -758,4 +849,38 @@ final class _RecordingHttpAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+final class _PendingRelayHttpAdapter implements HttpClientAdapter {
+  StreamController<Uint8List>? _response;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final response = StreamController<Uint8List>();
+    _response = response;
+    unawaited(
+      cancelFuture?.then<void>((_) => closeResponse()) ?? Future<void>.value(),
+    );
+    return ResponseBody(
+      response.stream,
+      200,
+      headers: const <String, List<String>>{
+        'content-type': <String>['text/event-stream'],
+      },
+    );
+  }
+
+  Future<void> closeResponse() async {
+    final response = _response;
+    if (response != null && !response.isClosed) await response.close();
+  }
+
+  @override
+  void close({bool force = false}) {
+    unawaited(closeResponse());
+  }
 }

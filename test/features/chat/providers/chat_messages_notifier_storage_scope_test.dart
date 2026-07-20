@@ -68,6 +68,7 @@ final class _CountingSocket extends SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     handlers++;

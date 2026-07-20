@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
@@ -12,6 +14,7 @@ import 'package:conduit/features/direct_connections/services/direct_connection_p
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -264,6 +267,46 @@ void main() {
     },
   );
 
+  test('profile updates and removal retire retained HTTP clients', () async {
+    final original = _profile(apiKey: 'old-secret');
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        original,
+      ]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    await container.read(directConnectionProfilesProvider.future);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final pool = container.read(directHttpClientPoolProvider);
+
+    final originalLease = pool.acquire(original);
+    final originalDio = originalLease.dio;
+    originalLease.release();
+
+    await controller.upsert(original.copyWith(apiKey: 'new-secret'));
+
+    final staleLease = pool.acquire(original);
+    expect(staleLease.dio, isNot(same(originalDio)));
+    staleLease.release();
+
+    final updated = container
+        .read(directConnectionProfilesProvider)
+        .requireValue
+        .single;
+    final updatedLease = pool.acquire(updated);
+    final updatedDio = updatedLease.dio;
+    updatedLease.release();
+
+    await controller.remove(updated.id);
+
+    final removedSnapshotLease = pool.acquire(updated);
+    expect(removedSnapshotLease.dio, isNot(same(updatedDio)));
+    removedSnapshotLease.release();
+  });
+
   test('setEnabled observes earlier queued profile edits', () async {
     final original = _profile();
     FlutterSecureStorage.setMockInitialValues({
@@ -398,6 +441,60 @@ void main() {
       'unrelated-secret',
     );
   });
+
+  test(
+    'a conflict completing after disposal preserves its original result',
+    () async {
+      final original = _profile(apiKey: 'original-secret');
+      final winner = original.copyWith(
+        name: 'Durable winner',
+        apiKey: 'winner-secret',
+      );
+      final storage = _DisposeConflictSecureStorage(
+        initialDocument: DirectConnectionProfilesDocument([original]).encode(),
+        conflictDocument: DirectConnectionProfilesDocument([winner]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      var disposed = false;
+      try {
+        await container.read(directConnectionProfilesProvider.future);
+        final controller = container.read(
+          directConnectionProfilesProvider.notifier,
+        );
+
+        final mutation = controller.upsert(
+          original.copyWith(name: 'Stale edit'),
+          expectedPrevious: original,
+        );
+        await storage.conflictReadStarted.future.timeout(
+          const Duration(seconds: 1),
+        );
+        container.dispose();
+        disposed = true;
+        storage.releaseConflictRead.complete();
+
+        await expectLater(
+          mutation.timeout(const Duration(seconds: 1)),
+          throwsA(isA<DirectConnectionProfileConflictException>()),
+        );
+      } finally {
+        if (!storage.releaseConflictRead.isCompleted) {
+          storage.releaseConflictRead.complete();
+        }
+        if (!disposed) container.dispose();
+      }
+    },
+  );
 
   test('atomic profile edit preserves unrelated durable profiles', () async {
     final original = _profile(apiKey: 'original-secret');
@@ -713,6 +810,99 @@ void main() {
     );
   });
 
+  test('profile discovery globally caps concurrent adapter calls', () async {
+    final adapter = _ConcurrencyAdapter();
+    final profiles = [
+      for (var index = 0; index < 10; index++)
+        _profile(id: 'profile-$index', name: 'Profile $index'),
+    ];
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument(
+        profiles,
+      ).encode(),
+    });
+    final container = _container(adapter);
+    addTearDown(container.dispose);
+
+    final discovery = container.read(directModelDiscoveryProvider.future);
+    await adapter.firstWaveStarted.future.timeout(const Duration(seconds: 5));
+
+    expect(adapter.listCalls, 4);
+    expect(adapter.maxActive, 4);
+
+    adapter.release.complete();
+    final result = await discovery.timeout(const Duration(seconds: 5));
+
+    expect(adapter.listCalls, 10);
+    expect(adapter.maxActive, 4);
+    expect(result.models, hasLength(10));
+  });
+
+  test(
+    'superseded Ollama discovery stops launching stale enrichment',
+    () async {
+      final http = _SupersededOllamaHttpAdapter();
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final profile = _profile(
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          profile,
+        ]).encode(),
+      });
+      final container = _container(adapter);
+      addTearDown(() {
+        container.dispose();
+        adapter.dispose();
+      });
+
+      final initial = container.read(directModelDiscoveryProvider.future);
+      await http.oldWaveStarted.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError(
+          'Initial Ollama enrichment did not start '
+          '(tags=${http.tagsRequests}, shows=${http.oldShowRequests}).',
+        ),
+      );
+
+      final controller = container.read(directModelDiscoveryProvider.notifier);
+      final firstRefresh = controller.refresh();
+      final coalescedRefresh = controller.refresh();
+      expect(identical(firstRefresh, coalescedRefresh), isTrue);
+      await firstRefresh.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError(
+          'Superseding refresh did not settle '
+          '(tags=${http.tagsRequests}, old=${http.oldShowRequests}, '
+          'new=${http.newShowRequests}).',
+        ),
+      );
+
+      final result = container.read(directModelDiscoveryProvider).requireValue;
+      expect(http.tagsRequests, 2);
+      expect(result.models.map((item) => item.name), ['new-model']);
+
+      http.releaseOldShows.complete();
+      await initial.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw StateError('Initial discovery did not settle.'),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        http.oldShowRequests,
+        4,
+        reason: 'cancelled workers must not reserve more stale models',
+      );
+      expect(http.newShowRequests, 1);
+    },
+  );
+
   for (final disableProfile in [false, true]) {
     test(
       '${disableProfile ? 'disabled' : 'removed'} profile models disappear while other profiles rediscover',
@@ -894,14 +1084,16 @@ ProviderContainer _container(DirectProviderAdapter adapter) =>
 DirectConnectionProfile _profile({
   String id = 'profile-one',
   String name = 'Direct',
+  String adapterKey = kOpenAiCompatibleAdapterKey,
+  String baseUrl = 'https://example.test/v1',
   String? apiKey,
   Map<String, String> customHeaders = const {},
   List<String> manualModelIds = const [],
 }) => DirectConnectionProfile(
   id: id,
   name: name,
-  adapterKey: kOpenAiCompatibleAdapterKey,
-  baseUrl: 'https://example.test/v1',
+  adapterKey: adapterKey,
+  baseUrl: baseUrl,
   apiKey: apiKey,
   customHeaders: customHeaders,
   manualModelIds: manualModelIds,
@@ -1086,6 +1278,120 @@ final class _RediscoveryGateAdapter implements DirectProviderAdapter {
   ) => throw UnimplementedError();
 }
 
+final class _ConcurrencyAdapter implements DirectProviderAdapter {
+  final Completer<void> firstWaveStarted = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  int listCalls = 0;
+  int _active = 0;
+  int maxActive = 0;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async {
+    listCalls++;
+    _active++;
+    if (_active > maxActive) maxActive = _active;
+    if (listCalls == 4 && !firstWaveStarted.isCompleted) {
+      firstWaveStarted.complete();
+    }
+    try {
+      await release.future;
+      return [DirectRemoteModel(id: 'model-${profile.id}')];
+    } finally {
+      _active--;
+    }
+  }
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
+}
+
+final class _SupersededOllamaHttpAdapter implements HttpClientAdapter {
+  final Completer<void> oldWaveStarted = Completer<void>();
+  final Completer<void> releaseOldShows = Completer<void>();
+  int tagsRequests = 0;
+  int oldShowRequests = 0;
+  int newShowRequests = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.path.endsWith('api/tags')) {
+      tagsRequests++;
+      return _jsonResponse({
+        'models': tagsRequests == 1
+            ? [
+                for (var index = 0; index < 12; index++)
+                  {
+                    'name': 'old-model-$index',
+                    'details': {
+                      'families': ['llama'],
+                    },
+                  },
+              ]
+            : [
+                {
+                  'name': 'new-model',
+                  'details': {
+                    'families': ['llama'],
+                  },
+                },
+              ],
+      });
+    }
+    if (options.path.endsWith('api/show')) {
+      final data = options.data as Map;
+      final modelId = data['model']?.toString() ?? '';
+      if (modelId.startsWith('old-model-')) {
+        oldShowRequests++;
+        if (oldShowRequests == 4 && !oldWaveStarted.isCompleted) {
+          oldWaveStarted.complete();
+        }
+        // Deliberately ignore cancelFuture. The adapter's generation checks
+        // after these in-flight requests settle must prevent more work.
+        await releaseOldShows.future;
+      } else {
+        newShowRequests++;
+      }
+      return _jsonResponse({
+        'capabilities': ['completion'],
+      });
+    }
+    throw StateError('Unexpected Ollama request: ${options.uri}');
+  }
+
+  ResponseBody _jsonResponse(Map<String, dynamic> value) => ResponseBody(
+    Stream<Uint8List>.value(Uint8List.fromList(utf8.encode(jsonEncode(value)))),
+    200,
+    headers: {
+      Headers.contentTypeHeader: ['application/json; charset=utf-8'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+Dio _dio(HttpClientAdapter adapter) {
+  final dio = Dio();
+  dio.httpClientAdapter = adapter;
+  return dio;
+}
+
 final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   _ReloadGateSecureStorage(String initialDocument)
     : _profileDocument = initialDocument;
@@ -1142,6 +1448,42 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
+  _DisposeConflictSecureStorage({
+    required this.initialDocument,
+    required this.conflictDocument,
+  });
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final String initialDocument;
+  final String conflictDocument;
+  final Completer<void> conflictReadStarted = Completer<void>();
+  final Completer<void> releaseConflictRead = Completer<void>();
+  int _profileReadCalls = 0;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    _profileReadCalls++;
+    if (_profileReadCalls == 1) return initialDocument;
+    conflictReadStarted.complete();
+    await releaseConflictRead.future;
+    return conflictDocument;
   }
 
   @override

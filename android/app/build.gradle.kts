@@ -76,6 +76,8 @@ dependencies {
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests; the mockable android.jar only stubs it.
+    testImplementation("org.json:json:20240303")
 }
 
 flutter {

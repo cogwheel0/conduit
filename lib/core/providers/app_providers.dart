@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/cupertino.dart';
@@ -213,22 +214,31 @@ class AppLocale extends _$AppLocale {
 }
 
 // Server connection providers - optimized with caching
-@Riverpod(keepAlive: true)
+Duration? _doNotRetryServerConfigRead(int retryCount, Object error) => null;
+
+@Riverpod(keepAlive: true, retry: _doNotRetryServerConfigRead)
 Future<List<ServerConfig>> serverConfigs(Ref ref) async {
   final storage = ref.watch(optimizedStorageServiceProvider);
-  return storage.getServerConfigs();
+  return storage.getServerConfigsStrict();
 }
 
 @Riverpod(keepAlive: true)
 Future<ServerConfig?> activeServer(Ref ref) async {
   final storage = ref.watch(optimizedStorageServiceProvider);
   final configs = await ref.watch(serverConfigsProvider.future);
+  // A trusted-proxy login stages its validated config before committing the
+  // active id and token. Never let the legacy fallback below auto-promote that
+  // provisional row during an unrelated provider rebuild.
+  final publishedConfigs = configs
+      .where((config) => !storage.isUncommittedServerConfigCandidate(config))
+      .toList(growable: false);
+
+  if (publishedConfigs.isEmpty) return null;
+
   final activeId = await storage.getActiveServerId();
 
-  if (configs.isEmpty) return null;
-
   ServerConfig? fallback;
-  for (final config in configs) {
+  for (final config in publishedConfigs) {
     if (activeId != null && config.id == activeId) {
       return config;
     }
@@ -236,10 +246,12 @@ Future<ServerConfig?> activeServer(Ref ref) async {
       fallback = config;
     }
   }
-  fallback ??= configs.length == 1 ? configs.first : null;
+  fallback ??= publishedConfigs.length == 1 ? publishedConfigs.first : null;
   if (fallback == null) return null;
 
-  await storage.setActiveServerId(fallback.id);
+  // Resolution must stay side-effect free. Persisting a fallback derived from
+  // an async snapshot can race a server switch/auth transaction and overwrite
+  // the newer active id after its lock is released.
   return fallback.isActive ? fallback : fallback.copyWith(isActive: true);
 }
 
@@ -445,6 +457,86 @@ final socketTransportOptionsProvider = Provider<SocketTransportAvailability>((
   return _resolveTransportAvailability(config);
 });
 
+/// Fail-closed process/restart fence for an incomplete logout.
+///
+/// A failed Keychain/preferences rewrite must not let an ApiService rebuild
+/// from a still-unsanitized ServerConfig, reattach its Cookie header, or let
+/// bootstrap restore a surviving bearer/credential. The marker remains set
+/// until cleanup or a durable session commit establishes a new owner.
+@Riverpod(keepAlive: true)
+final class IncompleteLogoutFence extends _$IncompleteLogoutFence {
+  Future<void> _writeTail = Future<void>.value();
+  bool _desiredSuppressed = false;
+  int _writeGeneration = 0;
+
+  @override
+  bool build() {
+    final stored =
+        PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence) ?? false;
+    _desiredSuppressed = stored;
+    return stored;
+  }
+
+  /// Latest requested durable state, including a write that is queued or
+  /// currently blocked before SharedPreferences reflects it.
+  bool get desiredSuppressed => _desiredSuppressed;
+
+  /// Identifies whether an asynchronous completion still belongs to the most
+  /// recent fence request. Older failures must not enqueue a fail-closed write
+  /// over a newer checked clear that is establishing a valid session.
+  int get requestGeneration => _writeGeneration;
+
+  bool ownsRequest(int generation) => generation == _writeGeneration;
+
+  void setSuppressed(bool suppressed) {
+    if (state == suppressed) return;
+    state = suppressed;
+  }
+
+  /// Updates the live request boundary first, then makes the fail-safe marker
+  /// durable. Callers may recover from a failed preference flush while the
+  /// in-memory suppression remains active.
+  Future<bool> persist(bool suppressed, {bool publishState = true}) async {
+    final generation = ++_writeGeneration;
+    // A checked clear is not safe until its write succeeds. Keep both pending
+    // intent and (when requested) the live boundary fail-closed while it is
+    // queued/in flight. A newer request owns the final desired state.
+    _desiredSuppressed = true;
+    if (publishState) setSuppressed(true);
+    final operation = _writeTail.then<bool>((_) async {
+      if (!PreferencesStore.isReady) return false;
+      final admitted = await PreferencesStore.putCheckedIf(
+        PreferenceKeys.incompleteLogoutFence,
+        suppressed ? true : null,
+        // A fail-closed write is always safe. A clear must still own the most
+        // recent request at SharedPreferences' synchronous mutation boundary.
+        canWrite: () => suppressed || generation == _writeGeneration,
+      );
+      return admitted;
+    });
+    // A failed write must not poison the queue: later fail-closed writes still
+    // need to reach durable preferences in invocation order.
+    _writeTail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    final succeeded = await operation;
+    if (!suppressed && succeeded) {
+      // A newer request makes this clear stale even though its own disk write
+      // completed. It is still important to report the disk result accurately:
+      // duplicate clear callers otherwise mistake a successful older write for
+      // failure and enqueue a new fail-closed marker over the newer clear.
+      // Security-sensitive publishers separately require desiredSuppressed to
+      // be false before exposing authentication.
+      if (generation == _writeGeneration) {
+        _desiredSuppressed = false;
+        if (publishState) setSuppressed(false);
+      }
+    }
+    return succeeded;
+  }
+}
+
 // API Service provider with unified auth integration
 final apiServiceProvider = Provider<ApiService?>((ref) {
   // If reviewer mode is enabled, skip creating ApiService
@@ -454,6 +546,10 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
   }
   final activeServer = ref.watch(activeServerProvider);
   final workerManager = ref.watch(workerManagerProvider);
+  final liveFence = ref.watch(incompleteLogoutFenceProvider);
+  final suppressCookieHeader =
+      liveFence ||
+      ref.read(incompleteLogoutFenceProvider.notifier).desiredSuppressed;
 
   return activeServer.maybeWhen(
     data: (server) {
@@ -463,6 +559,7 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
         serverConfig: server,
         workerManager: workerManager,
         authToken: null, // Will be set by auth state manager
+        suppressCookieCustomHeader: suppressCookieHeader,
       );
 
       // Keep callbacks in sync so interceptor can notify auth manager
@@ -494,6 +591,7 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
         authManager.onAuthIssue();
       };
 
+      ref.onDispose(apiService.dispose);
       return apiService;
     },
     orElse: () => null,
@@ -959,10 +1057,9 @@ class SocketServiceManager extends _$SocketServiceManager {
         if (service == null) return;
 
         if (next == ConnectivityStatus.offline) {
-          // Network is offline - socket will handle its own disconnection
-          // via the underlying transport. We just log it for debugging.
+          service.updateNetworkAvailability(false);
           DebugLogger.log(
-            'Connectivity offline - socket may disconnect',
+            'Connectivity offline - socket transport suspended',
             scope: 'socket/provider',
           );
         } else if (previous == ConnectivityStatus.offline &&
@@ -972,9 +1069,10 @@ class SocketServiceManager extends _$SocketServiceManager {
             'Connectivity restored - forcing socket reconnect',
             scope: 'socket/provider',
           );
-          unawaited(service.connect(force: true));
+          service.updateNetworkAvailability(true);
         }
       },
+      fireImmediately: true,
     );
 
     return _service;
@@ -1022,13 +1120,11 @@ class SocketServiceManager extends _$SocketServiceManager {
 
   void _scheduleConnect(SocketService service) {
     final token = ++_connectToken;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!ref.mounted) return;
       if (_connectToken != token) return;
       if (!identical(_service, service)) return;
-      try {
-        unawaited(service.connect());
-      } catch (_) {}
+      service.connectBestEffort(reason: 'provider-post-frame');
     });
   }
 
@@ -1069,11 +1165,17 @@ final socketServiceProvider = Provider<SocketService?>((ref) {
 // server (and ApiService object) is deliberately preserved. On server switch or
 // logout, `ref.onDispose` cancels in-flight uploads and closes the stream so
 // awaiting upload completers resolve via `onDone`. Null while unauthenticated,
-// in reviewer mode, or when there is no active server.
+// in reviewer mode, when there is no active server, or until that server's
+// durable database is available.
 final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   if (!ref.watch(isAuthenticatedProvider2)) return null;
   final api = ref.watch(apiServiceProvider);
   if (api == null) return null;
+  // Database opening can be temporarily deferred on iOS (for example while
+  // protected data is unavailable). Stay null and rebuild reactively instead
+  // of publishing an apparently-ready queue that skipped durable rows forever.
+  final database = ref.watch(appDatabaseProvider);
+  if (database == null) return null;
 
   final queue = AttachmentUploadQueue();
   ref.onDispose(queue.dispose);
@@ -1084,7 +1186,7 @@ final attachmentUploadQueueProvider = Provider<AttachmentUploadQueue?>((ref) {
   final initialization = queue.initialize(
     onUpload: (filePath, fileName, {cancelToken}) =>
         api.uploadFile(filePath, fileName, cancelToken: cancelToken),
-    database: () => ref.read(appDatabaseProvider),
+    database: () => database,
   );
   unawaited(initialization.catchError((Object _, StackTrace _) {}));
   return queue;
@@ -2639,35 +2741,89 @@ int _conversationIndexForSelection(
 // the same call, so the next stream emission always agrees with the
 // optimistic state.
 @Riverpod(keepAlive: true)
+class _ConversationListPageTick extends _$ConversationListPageTick {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+@Riverpod(keepAlive: true)
 class Conversations extends _$Conversations {
+  static const int _regularPageSize = 200;
+  static const int _archivedPageSize = 200;
+
   int _databaseWatchGeneration = 0;
   StreamSubscription<List<LocatedChatListEntry>>? _databaseSubscription;
+  StreamSubscription<int>? _archivedCountSubscription;
   Future<void> _databaseWatchCancellation = Future<void>.value();
+  Object? _paginationRepository;
+  bool? _paginationIncludesOpenWebUi;
+  Object? _paginationAuthSessionEpoch;
+  int _regularChatLimit = _regularPageSize;
+  int _archivedChatLimit = 0;
+  bool _hasMoreRegularChats = false;
+  bool _isLoadingMoreRegularChats = false;
+  int _archivedChatCount = 0;
+  bool _hasMoreArchivedChats = false;
+  bool _isLoadingMoreArchivedChats = false;
+  List<Conversation>? _lastSuccessfulDatabaseProjection;
 
-  /// Every chat row is local now; pagination is permanently exhausted.
-  bool hasMoreRegularChats() => false;
-  bool isLoadingMoreRegularChats() => false;
+  bool hasMoreRegularChats() => _hasMoreRegularChats;
+  bool isLoadingMoreRegularChats() => _isLoadingMoreRegularChats;
+  int archivedChatCount() => _archivedChatCount;
+  bool hasMoreArchivedChats() => _hasMoreArchivedChats;
+  bool isLoadingMoreArchivedChats() => _isLoadingMoreArchivedChats;
+  bool archivedChatsVisible() => _archivedChatLimit > 0;
 
   @override
   Future<List<Conversation>> build() async {
+    ref.watch(_conversationListPageTickProvider);
     final generation = ++_databaseWatchGeneration;
     final previousSubscription = _databaseSubscription;
+    final previousArchivedCountSubscription = _archivedCountSubscription;
     _databaseSubscription = null;
+    _archivedCountSubscription = null;
     ref.onDispose(() {
       if (generation == _databaseWatchGeneration) {
         _databaseWatchGeneration++;
         final subscription = _databaseSubscription;
+        final archivedCountSubscription = _archivedCountSubscription;
         _databaseSubscription = null;
-        unawaited(_queueDatabaseWatchCancellation(subscription));
+        _archivedCountSubscription = null;
+        unawaited(
+          _queueDatabaseWatchCancellation(
+            subscription,
+            archivedCountSubscription,
+          ),
+        );
       }
     });
-    await _queueDatabaseWatchCancellation(previousSubscription);
+    await _queueDatabaseWatchCancellation(
+      previousSubscription,
+      previousArchivedCountSubscription,
+    );
     if (!ref.mounted || generation != _databaseWatchGeneration) {
       return const <Conversation>[];
     }
 
     if (ref.watch(reviewerModeProvider)) {
-      return _demoConversations();
+      final conversations = _demoConversations();
+      // Force the next real database build to establish a fresh ownership
+      // context. Demo rows must never become the retained fallback for a
+      // production watch that fails before its first emission.
+      _paginationRepository = null;
+      _paginationIncludesOpenWebUi = null;
+      _paginationAuthSessionEpoch = null;
+      _lastSuccessfulDatabaseProjection = conversations;
+      _hasMoreRegularChats = false;
+      _isLoadingMoreRegularChats = false;
+      _archivedChatCount = conversations
+          .where((chat) => !chat.pinned && chat.archived)
+          .length;
+      _hasMoreArchivedChats = false;
+      _isLoadingMoreArchivedChats = false;
+      return conversations;
     }
 
     final accessPhase = ref.watch(openWebUiDatabaseAccessProvider);
@@ -2693,30 +2849,103 @@ class Conversations extends _$Conversations {
     // direct-local database is independent and remains available while signed
     // out or while switching servers.
     final repository = ref.watch(chatDatabaseRepositoryProvider);
+    final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+    if (!identical(_paginationRepository, repository) ||
+        _paginationIncludesOpenWebUi != includeOpenWebUi ||
+        !identical(_paginationAuthSessionEpoch, authSessionEpoch)) {
+      _lastSuccessfulDatabaseProjection = null;
+      _paginationRepository = repository;
+      _paginationIncludesOpenWebUi = includeOpenWebUi;
+      _paginationAuthSessionEpoch = authSessionEpoch;
+      _regularChatLimit = _regularPageSize;
+      _archivedChatLimit = 0;
+      _hasMoreRegularChats = false;
+      _isLoadingMoreRegularChats = false;
+      _archivedChatCount = 0;
+      _hasMoreArchivedChats = false;
+      _isLoadingMoreArchivedChats = false;
+    }
 
     final completer = Completer<List<Conversation>>();
     // Cold-start instrumentation (CDT-RFC-001 §10 Budget 1): time from build()
     // start to the FIRST narrow-projection emission. Numeric-only data (no chat
     // content) so nothing untrusted is logged.
     final coldStart = Stopwatch()..start();
-    final subscription = repository.watchMergedChatList().listen(
+    final listStream = includeOpenWebUi
+        ? repository.watchMergedChatList(
+            regularLimit: _regularChatLimit + 1,
+            archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
+          )
+        : repository.watchDirectLocalChatList(
+            regularLimit: _regularChatLimit + 1,
+            archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
+          );
+    final archivedCountStream = includeOpenWebUi
+        ? repository.watchMergedArchivedChatCount()
+        : repository.watchDirectLocalArchivedChatCount();
+    final archivedCountSubscription = archivedCountStream.listen(
+      (count) {
+        if (generation != _databaseWatchGeneration) return;
+        final normalizedCount = math.max(0, count);
+        final changed = normalizedCount != _archivedChatCount;
+        _archivedChatCount = normalizedCount;
+        _hasMoreArchivedChats = _archivedChatCount > _archivedChatLimit;
+        if (changed && completer.isCompleted && ref.mounted) {
+          final current = state.asData?.value;
+          if (current != null) {
+            state = AsyncData<List<Conversation>>(
+              List<Conversation>.unmodifiable(current),
+            );
+          }
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (generation != _databaseWatchGeneration) return;
+        DebugLogger.error(
+          'archived-count-watch-failed',
+          scope: 'conversations/watch',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      },
+    );
+    _archivedCountSubscription = archivedCountSubscription;
+    final subscription = listStream.listen(
       (entries) {
         if (generation != _databaseWatchGeneration) return;
-        final visibleEntries = includeOpenWebUi
-            ? entries
-            : entries
-                  .where(
-                    (located) => located.storage == ChatStorageKind.directLocal,
-                  )
-                  .toList(growable: false);
+        final activeEntries = entries
+            .where(
+              (located) => !located.entry.pinned && !located.entry.archived,
+            )
+            .toList(growable: false);
+        final archivedEntries = entries
+            .where((located) => !located.entry.pinned && located.entry.archived)
+            .toList(growable: false);
+        final includedUnpinned = <LocatedChatListEntry>{
+          ...activeEntries.take(_regularChatLimit),
+          ...archivedEntries.take(_archivedChatLimit),
+        };
+        final pagedEntries = entries
+            .where(
+              (located) =>
+                  located.entry.pinned || includedUnpinned.contains(located),
+            )
+            .toList(growable: false);
+        _hasMoreRegularChats = activeEntries.length > _regularChatLimit;
+        _isLoadingMoreRegularChats = false;
+        _hasMoreArchivedChats =
+            archivedEntries.length > _archivedChatLimit ||
+            _archivedChatCount > _archivedChatLimit;
+        _isLoadingMoreArchivedChats = false;
         final conversations = List<Conversation>.unmodifiable(
-          visibleEntries.map((located) {
+          pagedEntries.map((located) {
             return withChatStorageProvenance(
               conversationFromListEntry(located.entry),
               located.storage,
             );
           }),
         );
+        _lastSuccessfulDatabaseProjection = conversations;
         if (!completer.isCompleted) {
           coldStart.stop();
           DebugLogger.log(
@@ -2733,14 +2962,32 @@ class Conversations extends _$Conversations {
       },
       onError: (Object error, StackTrace stackTrace) {
         if (generation != _databaseWatchGeneration) return;
+        _isLoadingMoreRegularChats = false;
+        _isLoadingMoreArchivedChats = false;
         DebugLogger.error(
           'watch-failed',
-          scope: 'conversations',
+          scope: 'conversations/watch',
           error: error,
           stackTrace: stackTrace,
         );
         if (!completer.isCompleted) {
-          completer.complete(const <Conversation>[]);
+          final retained = _lastSuccessfulDatabaseProjection;
+          if (retained != null) {
+            // A pagination/replacement watch can fail before its first row.
+            // Keep the last projection from this exact repository/account
+            // context instead of publishing a synthetic empty conversation
+            // list. A true cold-start failure remains observable below.
+            completer.complete(List<Conversation>.unmodifiable(retained));
+          } else {
+            completer.completeError(error, stackTrace);
+          }
+        } else if (ref.mounted) {
+          final current = state.asData?.value;
+          if (current != null) {
+            state = AsyncData<List<Conversation>>(
+              List<Conversation>.unmodifiable(current),
+            );
+          }
         }
       },
     );
@@ -2749,19 +2996,32 @@ class Conversations extends _$Conversations {
   }
 
   Future<void> _queueDatabaseWatchCancellation(
-    StreamSubscription<List<LocatedChatListEntry>>? subscription,
-  ) {
+    StreamSubscription<List<LocatedChatListEntry>>? subscription, [
+    StreamSubscription<int>? archivedCountSubscription,
+  ]) {
     final prior = _databaseWatchCancellation;
     final cancellation = () async {
       await prior;
-      if (subscription == null) return;
       try {
-        await subscription.cancel();
+        await subscription?.cancel();
       } catch (_) {
         // A stale/closed Drift executor must not reject an async provider build
         // or escape as an unhandled error during provider disposal.
         try {
-          DebugLogger.error('watch-cancel-failed', scope: 'conversations');
+          DebugLogger.error(
+            'watch-cancel-failed',
+            scope: 'conversations/watch',
+          );
+        } catch (_) {}
+      }
+      try {
+        await archivedCountSubscription?.cancel();
+      } catch (_) {
+        try {
+          DebugLogger.error(
+            'archived-count-watch-cancel-failed',
+            scope: 'conversations/watch',
+          );
         } catch (_) {}
       }
     }();
@@ -2790,8 +3050,43 @@ class Conversations extends _$Conversations {
     folderConversationRefresh.bumpIfMounted();
   }
 
-  /// All chats are local rows; nothing to page in.
-  Future<void> loadMore() async {}
+  /// Expands the live database window; the replacement stream remains the
+  /// source of truth and includes all pinned rows regardless of age.
+  Future<void> loadMore() async {
+    if (_isLoadingMoreRegularChats || !_hasMoreRegularChats) return;
+    _isLoadingMoreRegularChats = true;
+    _regularChatLimit += _regularPageSize;
+    ref.read(_conversationListPageTickProvider.notifier).bump();
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  /// Opens or releases the independently paged archived-row window.
+  Future<void> setArchivedChatsVisible(bool visible) async {
+    final nextLimit = visible ? _archivedPageSize : 0;
+    if ((visible && _archivedChatLimit > 0) ||
+        (!visible && _archivedChatLimit == 0)) {
+      return;
+    }
+    _archivedChatLimit = nextLimit;
+    _isLoadingMoreArchivedChats = visible;
+    _hasMoreArchivedChats = _archivedChatCount > _archivedChatLimit;
+    ref.read(_conversationListPageTickProvider.notifier).bump();
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  /// Expands only the archived-row window; active-chat pagination is untouched.
+  Future<void> loadMoreArchived() async {
+    if (_archivedChatLimit <= 0 ||
+        _isLoadingMoreArchivedChats ||
+        !_hasMoreArchivedChats) {
+      return;
+    }
+    _isLoadingMoreArchivedChats = true;
+    _archivedChatLimit += _archivedPageSize;
+    _hasMoreArchivedChats = _archivedChatCount > _archivedChatLimit;
+    ref.read(_conversationListPageTickProvider.notifier).bump();
+    await Future<void>.delayed(Duration.zero);
+  }
 
   void removeConversation(String id) {
     final identity = ChatStorageIdentity.parse(id);
@@ -3579,18 +3874,86 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
 // Provider to automatically load and set the default model from user settings or OpenWebUI
 @Riverpod(keepAlive: true)
 Future<Model?> defaultModel(Ref ref) async {
+  Model? resolved;
+  while (true) {
+    final reviewerAtStart = ref.read(reviewerModeProvider);
+    final selectedAtStart = ref.read(selectedModelProvider);
+    final manualAtStart = ref.read(isManualModelSelectionProvider);
+    final candidate = await _resolveDefaultModel(ref);
+    if (!ref.mounted) return null;
+
+    if (ref.read(reviewerModeProvider) != reviewerAtStart) {
+      final latestSelected = ref.read(selectedModelProvider);
+      final latestManual = ref.read(isManualModelSelectionProvider);
+      final hasNewManualSelection =
+          latestSelected != null &&
+          latestManual &&
+          (!manualAtStart || !identical(latestSelected, selectedAtStart));
+      if (hasNewManualSelection) {
+        resolved = latestSelected;
+        break;
+      }
+      // The mode may change after the resolver's final internal checkpoint but
+      // before this provider resumes its await. Loop once more so the cached
+      // value and dependency watches belong to the current reviewer universe.
+      continue;
+    }
+    resolved = candidate;
+    break;
+  }
+
+  // Register reactive dependencies only after async resolution settles. A
+  // later input change invalidates the cached result, while a change during an
+  // in-flight one-shot `.future` read cannot cancel and orphan that read.
+  ref.watch(preferredBackendProvider);
+  ref.watch(hermesConfigProvider);
+  ref.watch(apiServiceProvider);
+  ref.watch(_modelAuthReadinessProvider);
+  ref.watch(reviewerModeProvider);
+  return resolved;
+}
+
+Future<Model?> _resolveDefaultModel(Ref ref) async {
   DebugLogger.log('provider-called', scope: 'models/default');
 
   final storage = ref.read(optimizedStorageServiceProvider);
-  final preferredBackend = ref.watch(preferredBackendProvider);
-  final hermesConfig = ref.watch(hermesConfigProvider);
-  // Read settings without subscribing to rebuilds to avoid watch/await hazards
+  // This provider is commonly consumed through a one-shot `.future` read.
+  // Snapshot mutable inputs instead of subscribing across awaits: invalidating
+  // an in-flight build can otherwise orphan the caller's future. SelectedModel
+  // owns reconciliation, and the post-await checks below reject stale
+  // snapshots.
+  final preferredBackend = ref.read(preferredBackendProvider);
+  final hermesConfig = ref.read(hermesConfigProvider);
   final reviewerMode = ref.read(reviewerModeProvider);
+  final selectedAtResolutionStart = ref.read(selectedModelProvider);
+  final manualAtResolutionStart = ref.read(isManualModelSelectionProvider);
+
+  bool isGenuinelyNewManualSelection(
+    Model? latestSelected,
+    bool latestManual,
+  ) =>
+      latestSelected != null &&
+      latestManual &&
+      (!manualAtResolutionStart ||
+          !identical(latestSelected, selectedAtResolutionStart));
+
+  Future<Model?>? reviewerRedirectAfterAwait() {
+    if (ref.read(reviewerModeProvider) == reviewerMode) return null;
+    final latestSelected = ref.read(selectedModelProvider);
+    final latestManual = ref.read(isManualModelSelectionProvider);
+    if (isGenuinelyNewManualSelection(latestSelected, latestManual)) {
+      return Future<Model?>.value(latestSelected);
+    }
+    // Re-enter from the current reviewer state instead of caching an automatic
+    // selection from the backend universe that owned the completed await.
+    return _resolveDefaultModel(ref);
+  }
+
   if (reviewerMode) {
     DebugLogger.log('reviewer-mode', scope: 'models/default');
     // Check if a model is manually selected
-    final currentSelected = ref.read(selectedModelProvider);
-    final isManualSelection = ref.read(isManualModelSelectionProvider);
+    final currentSelected = selectedAtResolutionStart;
+    final isManualSelection = manualAtResolutionStart;
 
     if (currentSelected != null && isManualSelection) {
       DebugLogger.log(
@@ -3607,9 +3970,20 @@ Future<Model?> defaultModel(Ref ref) async {
     // Get demo models and select the first one
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    final reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
+    final latestSelected = ref.read(selectedModelProvider);
+    final latestManual = ref.read(isManualModelSelectionProvider);
+    if (isGenuinelyNewManualSelection(latestSelected, latestManual)) {
+      return latestSelected;
+    }
+    if (!identical(latestSelected, currentSelected) ||
+        latestManual != isManualSelection) {
+      return _resolveDefaultModel(ref);
+    }
     if (models.isNotEmpty) {
       final defaultModel = models.first;
-      if (!ref.read(isManualModelSelectionProvider)) {
+      if (!isManualSelection) {
         ref.read(selectedModelProvider.notifier).set(defaultModel);
         DebugLogger.log(
           'auto-select',
@@ -3626,7 +4000,7 @@ Future<Model?> defaultModel(Ref ref) async {
     return null;
   }
 
-  final api = ref.watch(apiServiceProvider);
+  final api = ref.read(apiServiceProvider);
   var modelAuth = ref.read(_modelAuthReadinessProvider);
   final selectedBeforeAuthSettles = ref.read(selectedModelProvider);
   final authBuildFuture =
@@ -3643,6 +4017,8 @@ Future<Model?> defaultModel(Ref ref) async {
     // return immediately.
     final settledAuth = await authBuildFuture;
     if (!ref.mounted) return null;
+    final reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     modelAuth = (
       authenticated: settledAuth.isAuthenticated,
       loading:
@@ -3676,6 +4052,8 @@ Future<Model?> defaultModel(Ref ref) async {
     } else if (preferredBackend == PreferredBackend.direct) {
       final discovery = await ref.read(directModelDiscoveryProvider.future);
       if (!ref.mounted) return null;
+      final reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       final registry = ref.read(directModelRegistryProvider);
       standalone = _accountlessSelection(
         models: discovery.models.where(
@@ -3687,6 +4065,8 @@ Future<Model?> defaultModel(Ref ref) async {
     } else {
       final models = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
+      final reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       standalone = _accountlessSelection(
         models: models,
         current: currentSelected,
@@ -3698,6 +4078,8 @@ Future<Model?> defaultModel(Ref ref) async {
     // locally minted Hermes fast path under the same Riverpod contract.
     await Future<void>.delayed(Duration.zero);
     if (!ref.mounted) return null;
+    final reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     final latestSelected = ref.read(selectedModelProvider);
     final latestAuth = ref.read(_modelAuthReadinessProvider);
     final preferenceIsCurrent =
@@ -3780,6 +4162,8 @@ Future<Model?> defaultModel(Ref ref) async {
     final selectionSnapshot = ref.read(selectedModelProvider);
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    final reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
       return ref.read(selectedModelProvider);
     }
@@ -3812,6 +4196,8 @@ Future<Model?> defaultModel(Ref ref) async {
         settingsDefaultId ??
         await SettingsService.getDefaultModel().catchError((_) => null);
     if (!ref.mounted) return null;
+    var reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
       return ref.read(selectedModelProvider);
     }
@@ -3819,6 +4205,8 @@ Future<Model?> defaultModel(Ref ref) async {
     if (storedDefaultId != null && storedDefaultId.isNotEmpty) {
       final availableModels = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
@@ -3859,6 +4247,8 @@ Future<Model?> defaultModel(Ref ref) async {
       }
       final cachedMatch = await selectCachedModel(storage, storedDefaultId);
       if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
@@ -3884,6 +4274,8 @@ Future<Model?> defaultModel(Ref ref) async {
     if (preferredBackend == PreferredBackend.direct) {
       final availableModels = await ref.read(modelsProvider.future);
       if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
@@ -3901,18 +4293,24 @@ Future<Model?> defaultModel(Ref ref) async {
     try {
       final cached = await storage.getLocalDefaultModel();
       if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
       if (cached != null && !ref.read(isManualModelSelectionProvider)) {
         final cachedMatch = await selectCachedModel(storage, cached.id);
         if (!ref.mounted) return null;
+        reviewerRedirect = reviewerRedirectAfterAwait();
+        if (reviewerRedirect != null) return reviewerRedirect;
         if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
           return ref.read(selectedModelProvider);
         }
         if (cachedMatch == null) {
           await storage.saveLocalDefaultModel(null);
           if (!ref.mounted) return null;
+          reviewerRedirect = reviewerRedirectAfterAwait();
+          if (reviewerRedirect != null) return reviewerRedirect;
           if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
             return ref.read(selectedModelProvider);
           }
@@ -3929,19 +4327,30 @@ Future<Model?> defaultModel(Ref ref) async {
           return cachedMatch;
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
+      if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
+        return ref.read(selectedModelProvider);
+      }
+    }
 
     // 3) Fallback: server-provided automatic resolution when no app-local
     // preference exists.
     try {
       final serverDefault = await api.getDefaultModel();
       if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
       if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
         return ref.read(selectedModelProvider);
       }
       if (serverDefault != null && serverDefault.isNotEmpty) {
         final availableModels = await ref.read(modelsProvider.future);
         if (!ref.mounted) return null;
+        reviewerRedirect = reviewerRedirectAfterAwait();
+        if (reviewerRedirect != null) return reviewerRedirect;
         if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
           return ref.read(selectedModelProvider);
         }
@@ -3951,6 +4360,8 @@ Future<Model?> defaultModel(Ref ref) async {
         if (resolved == null) {
           final models = await api.getModels();
           if (!ref.mounted) return null;
+          reviewerRedirect = reviewerRedirectAfterAwait();
+          if (reviewerRedirect != null) return reviewerRedirect;
           if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
             return ref.read(selectedModelProvider);
           }
@@ -3983,12 +4394,18 @@ Future<Model?> defaultModel(Ref ref) async {
           return resolved;
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!ref.mounted) return null;
+      reviewerRedirect = reviewerRedirectAfterAwait();
+      if (reviewerRedirect != null) return reviewerRedirect;
+    }
 
     // 4) Fallback: fetch models and pick first available
     DebugLogger.log('fallback-path', scope: 'models/default');
     final models = await ref.read(modelsProvider.future);
     if (!ref.mounted) return null;
+    reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     if (!authenticatedResolutionIsCurrent(selectionSnapshot)) {
       return ref.read(selectedModelProvider);
     }
@@ -4031,6 +4448,9 @@ Future<Model?> defaultModel(Ref ref) async {
     }
     return selectedModel;
   } catch (e) {
+    if (!ref.mounted) return null;
+    final reviewerRedirect = reviewerRedirectAfterAwait();
+    if (reviewerRedirect != null) return reviewerRedirect;
     DebugLogger.error('set-default-failed', scope: 'models/default', error: e);
     return null;
   }
@@ -4117,62 +4537,6 @@ Model? resolveSafeRemoteDefaultModel(
   }
   return models.first;
 }
-
-// Background model loading provider that doesn't block UI
-// This just schedules the loading, doesn't wait for it
-final backgroundModelLoadProvider = Provider<void>((ref) {
-  // Ensure API token updater is initialized
-  ref.watch(apiTokenUpdaterProvider);
-
-  // Watch auth state to trigger model loading when authenticated
-  final navState = ref.watch(authNavigationStateProvider);
-  if (navState != AuthNavigationState.authenticated) {
-    DebugLogger.log('skip-not-authed', scope: 'models/background');
-    return;
-  }
-
-  // Use a flag to prevent multiple concurrent loads
-  var isLoading = false;
-
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (isLoading) return;
-    isLoading = true;
-
-    // Schedule background loading without blocking startup frame
-    Future.microtask(() async {
-      // Reduced delay for faster startup model selection
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      if (!ref.mounted) {
-        DebugLogger.log('cancelled-unmounted', scope: 'models/background');
-        return;
-      }
-
-      DebugLogger.log('bg-start', scope: 'models/background');
-      try {
-        final model = await ref.read(defaultModelProvider.future);
-        if (!ref.mounted) {
-          DebugLogger.log('complete-unmounted', scope: 'models/background');
-          return;
-        }
-        DebugLogger.log(
-          'bg-complete',
-          scope: 'models/background',
-          data: {
-            'backend': _modelBackendForDiagnostics(model),
-            'source': 'background',
-          },
-        );
-      } catch (e) {
-        DebugLogger.error('bg-failed', scope: 'models/background', error: e);
-      } finally {
-        isLoading = false;
-      }
-    });
-  });
-
-  return;
-});
 
 // Search query provider
 @Riverpod(keepAlive: true)

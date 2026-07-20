@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
@@ -1252,13 +1253,35 @@ class StreamingContent extends _$StreamingContent {
   void set(String? value) => state = value;
 }
 
+enum StreamingContentSizeBucket {
+  under1k,
+  from1k,
+  from2k,
+  from4k,
+  from8k,
+  from16k,
+}
+
+@immutable
+class StreamingContentUpdatePolicy {
+  const StreamingContentUpdatePolicy({
+    required this.interval,
+    required this.bucket,
+    required this.isMobileTarget,
+  });
+
+  final Duration interval;
+  final StreamingContentSizeBucket bucket;
+  final bool isMobileTarget;
+}
+
 @visibleForTesting
-Duration debugStreamingContentUpdateIntervalForBuffer(
+StreamingContentUpdatePolicy debugStreamingContentUpdatePolicyForBuffer(
   int length, {
   bool isWeb = false,
   TargetPlatform platform = TargetPlatform.android,
 }) {
-  return _streamingContentUpdateIntervalForTarget(
+  return _streamingContentUpdatePolicyForTarget(
     length,
     isMobileTarget:
         !isWeb &&
@@ -1266,38 +1289,60 @@ Duration debugStreamingContentUpdateIntervalForBuffer(
   );
 }
 
-Duration _streamingContentUpdateIntervalForTarget(
+@visibleForTesting
+Duration debugStreamingContentUpdateIntervalForBuffer(
+  int length, {
+  bool isWeb = false,
+  TargetPlatform platform = TargetPlatform.android,
+}) => debugStreamingContentUpdatePolicyForBuffer(
+  length,
+  isWeb: isWeb,
+  platform: platform,
+).interval;
+
+StreamingContentUpdatePolicy _streamingContentUpdatePolicyForTarget(
   int length, {
   required bool isMobileTarget,
 }) {
-  if (length >= 16000) {
-    return isMobileTarget
-        ? const Duration(milliseconds: 750)
-        : const Duration(milliseconds: 420);
-  }
-  if (length >= 8000) {
-    return isMobileTarget
-        ? const Duration(milliseconds: 500)
-        : const Duration(milliseconds: 280);
-  }
-  if (length >= 4000) {
-    return isMobileTarget
-        ? const Duration(milliseconds: 300)
-        : const Duration(milliseconds: 180);
-  }
-  if (length >= 2000) {
-    return isMobileTarget
-        ? const Duration(milliseconds: 220)
-        : const Duration(milliseconds: 140);
-  }
-  if (length >= 1000) {
-    return isMobileTarget
-        ? const Duration(milliseconds: 160)
-        : const Duration(milliseconds: 120);
-  }
-  return isMobileTarget
-      ? const Duration(milliseconds: 100)
-      : const Duration(milliseconds: 80);
+  final bucket = switch (length) {
+    >= 16000 => StreamingContentSizeBucket.from16k,
+    >= 8000 => StreamingContentSizeBucket.from8k,
+    >= 4000 => StreamingContentSizeBucket.from4k,
+    >= 2000 => StreamingContentSizeBucket.from2k,
+    >= 1000 => StreamingContentSizeBucket.from1k,
+    _ => StreamingContentSizeBucket.under1k,
+  };
+  final interval = switch (bucket) {
+    StreamingContentSizeBucket.from16k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 750)
+          : const Duration(milliseconds: 420),
+    StreamingContentSizeBucket.from8k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 500)
+          : const Duration(milliseconds: 280),
+    StreamingContentSizeBucket.from4k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 300)
+          : const Duration(milliseconds: 180),
+    StreamingContentSizeBucket.from2k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 220)
+          : const Duration(milliseconds: 140),
+    StreamingContentSizeBucket.from1k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 160)
+          : const Duration(milliseconds: 120),
+    StreamingContentSizeBucket.under1k =>
+      isMobileTarget
+          ? const Duration(milliseconds: 100)
+          : const Duration(milliseconds: 80),
+  };
+  return StreamingContentUpdatePolicy(
+    interval: interval,
+    bucket: bucket,
+    isMobileTarget: isMobileTarget,
+  );
 }
 
 // Loading state for conversation (used to show chat skeletons during fetch)
@@ -1307,6 +1352,15 @@ class IsLoadingConversation extends _$IsLoadingConversation {
   bool build() => false;
 
   void set(bool value) => state = value;
+}
+
+enum _StreamingContentFlushReason {
+  firstContent,
+  cadence,
+  terminal,
+  stop,
+  comparison,
+  replacement,
 }
 
 // Chat messages notifier class
@@ -1332,6 +1386,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   DateTime? _lastStreamingContentFlushAt;
   int _streamingBufferVersion = 0;
   int _lastFlushedStreamingBufferVersion = -1;
+  _StreamingContentFlushReason _pendingStreamingFlushReason =
+      _StreamingContentFlushReason.cadence;
+  int _streamingVisibleFlushCount = 0;
+  int _streamingCoalescedUpdateCount = 0;
   Timer? _taskStatusTimer;
   String? _remoteTaskMonitorMessageId;
   Timer? _passiveConversationRefreshTimer;
@@ -1373,7 +1431,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   String? _streamingProfileMessageId;
   DateTime? _streamingProfileStartedAt;
   int _streamingProfileChunkCount = 0;
-  int _streamingProfileBytes = 0;
+  int _streamingProfileCharacters = 0;
+  int _streamingProfileUtf8Bytes = 0;
 
   bool _initialized = false;
   bool _disposed = false;
@@ -2824,6 +2883,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingContentFrameScheduled = false;
     _lastStreamingContentFlushAt = null;
     _lastFlushedStreamingBufferVersion = -1;
+    _pendingStreamingFlushReason = _StreamingContentFlushReason.cadence;
     try {
       ref.read(streamingContentProvider.notifier).set(null);
     } on Object catch (_) {
@@ -2845,7 +2905,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingProfileMessageId = message.id;
     _streamingProfileStartedAt = DateTime.now();
     _streamingProfileChunkCount = 0;
-    _streamingProfileBytes = message.content.length;
+    _streamingProfileCharacters = message.content.length;
+    _streamingProfileUtf8Bytes = PerformanceProfiler.isEnabled
+        ? utf8.encode(message.content).length
+        : 0;
+    _streamingVisibleFlushCount = 0;
+    _streamingCoalescedUpdateCount = 0;
     _streamingProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_stream',
       scope: 'chat',
@@ -2869,7 +2934,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     _beginStreamingProfile(lastMessage);
     _streamingProfileChunkCount += 1;
-    _streamingProfileBytes += content.length;
+    _streamingProfileCharacters += content.length;
+    final chunkUtf8Bytes = PerformanceProfiler.isEnabled
+        ? utf8.encode(content).length
+        : 0;
+    _streamingProfileUtf8Bytes += chunkUtf8Bytes;
     if (_streamingProfileChunkCount == 1 ||
         _streamingProfileChunkCount % 25 == 0) {
       PerformanceProfiler.instance.instant(
@@ -2878,8 +2947,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         data: {
           'messageId': lastMessage.id,
           'chunkCount': _streamingProfileChunkCount,
-          'chunkBytes': content.length,
-          'bufferBytes': _streamingProfileBytes,
+          'chunkCharacters': content.length,
+          'chunkUtf8Bytes': chunkUtf8Bytes,
+          'bufferCharacters': _streamingProfileCharacters,
+          'bufferUtf8Bytes': _streamingProfileUtf8Bytes,
         },
       );
     }
@@ -2895,7 +2966,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     _beginStreamingProfile(lastMessage);
-    _streamingProfileBytes = lastMessage.content.length;
+    _streamingProfileCharacters = lastMessage.content.length;
+    _streamingProfileUtf8Bytes = PerformanceProfiler.isEnabled
+        ? utf8.encode(lastMessage.content).length
+        : 0;
   }
 
   void _syncStreamingProfileWithBufferedContent() {
@@ -2908,8 +2982,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     _beginStreamingProfile(lastMessage);
-    _streamingProfileBytes =
-        _streamingBuffer?.length ?? lastMessage.content.length;
+    final buffer = _streamingBuffer;
+    _streamingProfileCharacters = buffer?.length ?? lastMessage.content.length;
+    _streamingProfileUtf8Bytes = PerformanceProfiler.isEnabled
+        ? utf8.encode(buffer?.toString() ?? lastMessage.content).length
+        : 0;
   }
 
   void _finishStreamingProfile({required String reason, ChatMessage? message}) {
@@ -2920,7 +2997,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _streamingProfileMessageId = null;
       _streamingProfileStartedAt = null;
       _streamingProfileChunkCount = 0;
-      _streamingProfileBytes = 0;
+      _streamingProfileCharacters = 0;
+      _streamingProfileUtf8Bytes = 0;
       return;
     }
 
@@ -2934,7 +3012,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         'messageId': messageId,
         'reason': reason,
         'chunkCount': _streamingProfileChunkCount,
-        'bufferBytes': _streamingProfileBytes,
+        'bufferCharacters': _streamingProfileCharacters,
+        'bufferUtf8Bytes': _streamingProfileUtf8Bytes,
+        'visibleFlushCount': _streamingVisibleFlushCount,
+        'coalescedUpdateCount': _streamingCoalescedUpdateCount,
         'elapsedMs': elapsed?.inMilliseconds ?? 0,
         'finalLength': finalMessage?.content.length ?? 0,
       },
@@ -2943,7 +3024,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _streamingProfileMessageId = null;
     _streamingProfileStartedAt = null;
     _streamingProfileChunkCount = 0;
-    _streamingProfileBytes = 0;
+    _streamingProfileCharacters = 0;
+    _streamingProfileUtf8Bytes = 0;
   }
 
   void _markStreamingBufferChanged() {
@@ -3731,7 +3813,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// This is used by explicit stop flows where the user expects the partial
   /// assistant response to remain visible after streaming ends.
   void cancelActiveMessageStreamPreservingContent() {
-    _flushStreamingContentUpdate();
+    _flushStreamingContentUpdate(reason: _StreamingContentFlushReason.stop);
     _syncStreamingBufferToState();
     _cancelMessageStream(clearStreamingContent: false);
   }
@@ -4196,7 +4278,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _recordStreamingChunk(content);
 
     _scheduleStreamingContentUpdate();
-    _syncStreamingProfileWithBufferedContent();
     _touchStreamingActivity();
   }
 
@@ -4276,49 +4357,66 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return message;
   }
 
-  void _scheduleStreamingContentUpdate() {
+  void _scheduleStreamingContentUpdate({
+    bool immediate = false,
+    _StreamingContentFlushReason reason = _StreamingContentFlushReason.cadence,
+  }) {
     if (_disposed || _streamingBuffer == null) {
       return;
     }
     final currentVisible = ref.read(streamingContentProvider);
     if (currentVisible == null || currentVisible.isEmpty) {
-      _scheduleStreamingContentFrame();
+      _scheduleStreamingContentFrame(
+        reason: _StreamingContentFlushReason.firstContent,
+      );
+      return;
+    }
+    if (immediate) {
+      _scheduleStreamingContentFrame(reason: reason);
       return;
     }
     if (_streamingContentFrameScheduled || _streamingContentTimer != null) {
       return;
     }
-    final interval = _streamingContentUpdateIntervalForBuffer(
+    final policy = _streamingContentUpdatePolicyForBuffer(
       _streamingBuffer!.length,
     );
     final lastFlushAt = _lastStreamingContentFlushAt;
     if (lastFlushAt == null) {
-      _scheduleStreamingContentFrame();
+      _scheduleStreamingContentFrame(reason: reason);
       return;
     }
     final elapsed = DateTime.now().difference(lastFlushAt);
-    final remaining = interval - elapsed;
+    final remaining = policy.interval - elapsed;
     if (remaining <= Duration.zero) {
-      _scheduleStreamingContentFrame();
+      _scheduleStreamingContentFrame(reason: reason);
       return;
     }
-    _streamingContentTimer = Timer(remaining, _scheduleStreamingContentFrame);
+    _streamingContentTimer = Timer(
+      remaining,
+      () => _scheduleStreamingContentFrame(reason: reason),
+    );
   }
 
-  Duration _streamingContentUpdateIntervalForBuffer(int length) {
+  StreamingContentUpdatePolicy _streamingContentUpdatePolicyForBuffer(
+    int length,
+  ) {
     final isMobileTarget =
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
-    return _streamingContentUpdateIntervalForTarget(
+    return _streamingContentUpdatePolicyForTarget(
       length,
       isMobileTarget: isMobileTarget,
     );
   }
 
-  void _scheduleStreamingContentFrame() {
+  void _scheduleStreamingContentFrame({
+    _StreamingContentFlushReason reason = _StreamingContentFlushReason.cadence,
+  }) {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
+    _pendingStreamingFlushReason = reason;
     if (_disposed || _streamingContentFrameScheduled) {
       return;
     }
@@ -4333,11 +4431,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (_disposed) {
         return;
       }
-      _flushStreamingContentUpdate();
+      final flushReason = _pendingStreamingFlushReason;
+      _pendingStreamingFlushReason = _StreamingContentFlushReason.cadence;
+      _flushStreamingContentUpdate(reason: flushReason);
     });
   }
 
-  void _flushStreamingContentUpdate() {
+  void _flushStreamingContentUpdate({
+    _StreamingContentFlushReason reason = _StreamingContentFlushReason.cadence,
+  }) {
     if (_disposed) {
       return;
     }
@@ -4346,13 +4448,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (_streamingBufferVersion == _lastFlushedStreamingBufferVersion) {
       return;
     }
+    final previousVersion = _lastFlushedStreamingBufferVersion < 0
+        ? 0
+        : _lastFlushedStreamingBufferVersion;
+    final coalescedUpdates = math.max(
+      0,
+      _streamingBufferVersion - previousVersion - 1,
+    );
     final nextContent = buffer.toString();
     if (ref.read(streamingContentProvider) == nextContent) {
       _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
+      _streamingCoalescedUpdateCount += coalescedUpdates;
       return;
     }
+    final policy = _streamingContentUpdatePolicyForBuffer(nextContent.length);
     _lastStreamingContentFlushAt = DateTime.now();
     _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
+    _streamingVisibleFlushCount += 1;
+    _streamingCoalescedUpdateCount += coalescedUpdates;
+    PerformanceProfiler.instance.instant(
+      'chat_stream_visible_flush',
+      scope: 'chat',
+      data: {
+        'reason': reason.name,
+        'bufferVersion': _streamingBufferVersion,
+        'coalescedUpdates': coalescedUpdates,
+        'contentCharacters': nextContent.length,
+        if (PerformanceProfiler.isEnabled)
+          'contentUtf8Bytes': utf8.encode(nextContent).length,
+        'intervalMs': policy.interval.inMilliseconds,
+        'sizeBucket': policy.bucket.name,
+        'mobileTarget': policy.isMobileTarget,
+      },
+    );
     ref.read(streamingContentProvider.notifier).set(nextContent);
   }
 
@@ -4384,7 +4512,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   _readStreamingMessageComparisonSnapshot(String messageId) {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
-    _flushStreamingContentUpdate();
+    _flushStreamingContentUpdate(
+      reason: _StreamingContentFlushReason.comparison,
+    );
     _syncStreamingBufferToState();
 
     final refreshedMessage = state
@@ -4439,7 +4569,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// still receives frequent updates through [streamingContentProvider]. The
   /// canonical message list is updated only when the stream is explicitly
   /// flushed or completed.
-  void bufferLastMessageContent(String content) {
+  void bufferLastMessageContent(String content, {bool immediate = true}) {
     if (state.isEmpty) return;
 
     final lastMessage = state.last;
@@ -4451,7 +4581,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _streamingBuffer = StringBuffer(sanitized);
     _markStreamingBufferChanged();
-    _scheduleStreamingContentUpdate();
+    _scheduleStreamingContentUpdate(
+      immediate: immediate,
+      reason: immediate
+          ? _StreamingContentFlushReason.replacement
+          : _StreamingContentFlushReason.cadence,
+    );
     _touchStreamingActivity();
     _syncStreamingProfileWithBufferedContent();
   }
@@ -4477,7 +4612,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _streamingBuffer = StringBuffer(sanitized);
     _markStreamingBufferChanged();
-    _scheduleStreamingContentUpdate();
+    _scheduleStreamingContentUpdate(
+      immediate: true,
+      reason: _StreamingContentFlushReason.replacement,
+    );
     _touchStreamingActivity();
     _syncStreamingProfileWithBufferedContent();
   }
@@ -4564,7 +4702,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) {
     _streamingContentTimer?.cancel();
     _streamingContentTimer = null;
-    _flushStreamingContentUpdate();
+    _flushStreamingContentUpdate(reason: _StreamingContentFlushReason.terminal);
     _streamingSyncTimer?.cancel();
     _streamingSyncTimer = null;
     final bufferedLastMessage = state.isEmpty
@@ -9073,6 +9211,7 @@ bool _openWebUiAccountStorageIsCertified(dynamic ref) {
 /// no active database (reviewer mode / no active server), preserving behavior.
 final class ChatSendPlaceholderHandle {
   ChatSendPlaceholderHandle._({
+    this.userMessageId,
     required this.assistantMessageId,
     required ChatMutationOwnerToken mutationOwner,
     String? regenerationAttemptId,
@@ -9083,6 +9222,13 @@ final class ChatSendPlaceholderHandle {
        _openWebUiAuthSessionEpoch = mutationOwner.openWebUiAuthSessionEpoch,
        _regenerationAttemptId = regenerationAttemptId;
 
+  /// The optimistic user row that owns this send.
+  ///
+  /// Regeneration creates only an assistant placeholder, so this is null for
+  /// regeneration handles. Normal sends always expose it so the presentation
+  /// layer can establish its turn anchor from the exact minted identity rather
+  /// than rediscovering it later from streaming metadata.
+  final String? userMessageId;
   final String assistantMessageId;
   String? _ownerConversationId;
   final bool _usesOpenWebUiContext;
@@ -9174,8 +9320,10 @@ void recoverFailedChatSend(
 ChatSendPlaceholderHandle chatSendPlaceholderHandleForTest({
   required dynamic ref,
   required String assistantMessageId,
+  String? userMessageId,
   required Conversation? owner,
 }) => ChatSendPlaceholderHandle._(
+  userMessageId: userMessageId,
   assistantMessageId: assistantMessageId,
   mutationOwner: captureChatMutationOwner(ref, owner),
 );
@@ -9332,6 +9480,7 @@ Future<void> durableSend(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
   );
   final sendHandle = ChatSendPlaceholderHandle._(
+    userMessageId: userMessageId,
     assistantMessageId: assistantMessageId,
     mutationOwner: sendMutationOwner,
   );
@@ -14419,6 +14568,7 @@ Future<void> _sendMessageInternal(
     growable: false,
   );
   final sendHandle = ChatSendPlaceholderHandle._(
+    userMessageId: userMessageId,
     assistantMessageId: assistantMessageId,
     mutationOwner: sendMutationOwner,
   );

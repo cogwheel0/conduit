@@ -62,6 +62,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   String? _pendingConversationId;
   bool _isLoadingMoreConversations = false;
   bool _isRefreshingEmptyState = false;
+  bool _hasVisiblePaginatedRows = false;
 
   @override
   void initState() {
@@ -119,11 +120,27 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     });
   }
 
+  void _queueArchivedVisibilitySync(bool visible) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _query.isNotEmpty) return;
+      final notifier = ref.read(conversationsProvider.notifier);
+      if (notifier.archivedChatsVisible() == visible) return;
+      unawaited(notifier.setArchivedChatsVisible(visible));
+    });
+  }
+
   Future<void> _maybeLoadMoreConversations() async {
-    if (!mounted || _query.isNotEmpty || _isLoadingMoreConversations) {
+    await _loadMoreConversations(automatic: true);
+  }
+
+  Future<void> _loadMoreConversations({bool automatic = false}) async {
+    if (!mounted ||
+        _query.isNotEmpty ||
+        _isLoadingMoreConversations ||
+        (automatic && !_hasVisiblePaginatedRows)) {
       return;
     }
-    if (!_listController.hasClients) {
+    if (automatic && !_listController.hasClients) {
       return;
     }
 
@@ -137,16 +154,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         notifier.isLoadingMoreRegularChats()) {
       return;
     }
-    if (ref.read(apiServiceProvider) == null) {
-      return;
-    }
-
-    final position = _listController.position;
-    final distanceToBottom = position.maxScrollExtent - position.pixels;
-    final shouldLoadMore =
-        position.maxScrollExtent <= 0 || distanceToBottom <= 240;
-    if (!shouldLoadMore) {
-      return;
+    if (automatic) {
+      final position = _listController.position;
+      final distanceToBottom = position.maxScrollExtent - position.pixels;
+      final shouldLoadMore =
+          position.maxScrollExtent <= 0 || distanceToBottom <= 240;
+      if (!shouldLoadMore) {
+        return;
+      }
     }
 
     setState(() => _isLoadingMoreConversations = true);
@@ -225,6 +240,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _buildPaginationFooter() {
     final theme = context.conduitTheme;
     final showSpinner = _isLoadingMoreConversations;
+    final showManualLoadMore = !showSpinner && !_hasVisiblePaginatedRows;
 
     return SliverToBoxAdapter(
       child: Padding(
@@ -241,7 +257,48 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     ),
                   ),
                 )
+              : showManualLoadMore
+              ? ConduitButton(
+                  key: const ValueKey<String>('chats-load-more'),
+                  text: AppLocalizations.of(context)!.workspaceLoadMore,
+                  onPressed: () => unawaited(_loadMoreConversations()),
+                  isSecondary: true,
+                  isCompact: true,
+                )
               : const SizedBox(height: Spacing.md),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildArchivedPaginationFooter() {
+    final theme = context.conduitTheme;
+    final notifier = ref.read(conversationsProvider.notifier);
+    final showSpinner = notifier.isLoadingMoreArchivedChats();
+    final l10n = AppLocalizations.of(context)!;
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+        child: Center(
+          child: showSpinner
+              ? SizedBox(
+                  width: IconSize.sm,
+                  height: IconSize.sm,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      theme.loadingIndicator,
+                    ),
+                  ),
+                )
+              : ConduitButton(
+                  key: const ValueKey<String>('chats-archived-load-more'),
+                  text: '${l10n.workspaceLoadMore}: ${l10n.archived}',
+                  onPressed: () => unawaited(notifier.loadMoreArchived()),
+                  isSecondary: true,
+                  isCompact: true,
+                ),
         ),
       ),
     );
@@ -330,6 +387,42 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       return null;
     }
     return parentId;
+  }
+
+  bool _hasVisibleFolderConversationRows({
+    required List<Folder> folders,
+    required Set<String> folderIdsWithConversations,
+    required Map<String, bool> expandedFolders,
+  }) {
+    if (folderIdsWithConversations.isEmpty) return false;
+
+    final foldersById = <String, Folder>{
+      for (final folder in folders) folder.id: folder,
+    };
+    for (final folderId in folderIdsWithConversations) {
+      final startingFolder = foldersById[folderId];
+      if (startingFolder == null) continue;
+      var folder = startingFolder;
+
+      final visitedFolderIds = <String>{};
+      var branchIsVisible = true;
+      while (true) {
+        if (!visitedFolderIds.add(folder.id) ||
+            !(expandedFolders[folder.id] ?? folder.isExpanded)) {
+          branchIsVisible = false;
+          break;
+        }
+
+        final parentId = _normalizeParentId(folder.parentId);
+        if (parentId == null || !foldersById.containsKey(parentId)) {
+          break;
+        }
+        folder = foldersById[parentId]!;
+      }
+
+      if (branchIsVisible) return true;
+    }
+    return false;
   }
 
   List<Widget> _buildFolderSectionSlivers({
@@ -541,10 +634,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   Widget _buildConversationList(BuildContext context) {
     final theme = context.conduitTheme;
+    _hasVisiblePaginatedRows = false;
 
     if (_query.isEmpty) {
       final conversationsAsync = ref.watch(conversationsProvider);
       return conversationsAsync.when(
+        // Pagination (loadMore/loadMoreArchived/setArchivedChatsVisible) bumps
+        // a tick dependency that re-runs the whole Conversations build, which
+        // reports as a loading-with-previous-value reload. Keep the previous
+        // rows on screen during that reload instead of replacing the entire
+        // drawer with a spinner and tearing down scroll state; the loading
+        // branch below still renders for the true first load, which has no
+        // previous value. (skipLoadingOnRefresh already defaults to true for
+        // pull-to-refresh style invalidations.)
+        skipLoadingOnReload: true,
         data: (items) {
           final list = items;
           final conversationsNotifier = ref.read(
@@ -560,8 +663,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             orElse: () => const <Folder>[],
           );
           final hasVisibleFolders = foldersEnabled && folders.isNotEmpty;
+          final providerArchivedCount = conversationsNotifier
+              .archivedChatCount();
 
-          if (list.isEmpty && !hasVisibleFolders) {
+          if (list.isEmpty &&
+              !hasVisibleFolders &&
+              providerArchivedCount == 0) {
             return _buildEmptyState(
               AppLocalizations.of(context)!.noConversationsYet,
             );
@@ -600,11 +707,40 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             }
           }
 
-          final archived = list.where((c) => c.archived == true).toList();
+          final archived = list
+              .where((c) => c.pinned != true && c.archived == true)
+              .toList();
 
           final showPinned = ref.watch(showPinnedProvider);
           final showFolders = ref.watch(showFoldersProvider);
           final showRecent = ref.watch(showRecentProvider);
+          final showArchived = ref.watch(showArchivedProvider);
+          if (showArchived != conversationsNotifier.archivedChatsVisible()) {
+            _queueArchivedVisibilitySync(showArchived);
+          }
+          final archivedCount = providerArchivedCount > archived.length
+              ? providerArchivedCount
+              : archived.length;
+          final hasMoreArchivedChats = conversationsNotifier
+              .hasMoreArchivedChats();
+          final isLoadingMoreArchivedChats = conversationsNotifier
+              .isLoadingMoreArchivedChats();
+          final expandedFolders = showFolders && foldersEnabled
+              ? ref.watch(expandedFoldersProvider)
+              : const <String, bool>{};
+          _hasVisiblePaginatedRows =
+              (showRecent && regular.isNotEmpty) ||
+              (showFolders &&
+                  foldersEnabled &&
+                  _hasVisibleFolderConversationRows(
+                    folders: folders,
+                    folderIdsWithConversations: <String>{
+                      ...folderConversationFallbacks.keys,
+                      for (final folder in folders)
+                        if (folder.conversationIds.isNotEmpty) folder.id,
+                    },
+                    expandedFolders: expandedFolders,
+                  ));
 
           final slivers = <Widget>[
             if (pinned.isNotEmpty) ...[
@@ -673,26 +809,30 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ],
             ],
 
-            if (archived.isNotEmpty) ...[
+            if (archivedCount > 0) ...[
               const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
                 sliver: SliverToBoxAdapter(
-                  child: _buildArchivedHeader(archived.length),
+                  child: _buildArchivedHeader(archivedCount),
                 ),
               ),
-              if (ref.watch(showArchivedProvider)) ...[
-                const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(
-                  archived,
-                  foldersEnabled: foldersEnabled,
-                  folders: folders,
-                ),
+              if (showArchived) ...[
+                if (archived.isNotEmpty) ...[
+                  const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
+                  _conversationsSliver(
+                    archived,
+                    foldersEnabled: foldersEnabled,
+                    folders: folders,
+                  ),
+                ],
+                if (isLoadingMoreArchivedChats || hasMoreArchivedChats)
+                  _buildArchivedPaginationFooter(),
               ],
             ],
             if (hasMoreRegularChats) _buildPaginationFooter(),
           ];
-          if (hasMoreRegularChats) {
+          if (hasMoreRegularChats && _hasVisiblePaginatedRows) {
             _queuePaginationCheck();
           }
           return _buildRefreshableScrollableSlivers(slivers: slivers);
@@ -758,7 +898,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           }
         }
 
-        final archived = list.where((c) => c.archived == true).toList();
+        final archived = list
+            .where((c) => c.pinned != true && c.archived == true)
+            .toList();
 
         final showPinned = ref.watch(showPinnedProvider);
         final showFolders = ref.watch(showFoldersProvider);
@@ -1594,7 +1736,17 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final show = ref.watch(showArchivedProvider);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => ref.read(showArchivedProvider.notifier).set(!show),
+      onTap: () {
+        final visible = !show;
+        ref.read(showArchivedProvider.notifier).set(visible);
+        if (_query.isEmpty) {
+          unawaited(
+            ref
+                .read(conversationsProvider.notifier)
+                .setArchivedChatsVisible(visible),
+          );
+        }
+      },
       child: Container(
         decoration: BoxDecoration(
           color: show

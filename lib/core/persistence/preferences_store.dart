@@ -120,7 +120,46 @@ class PreferencesStore {
     }
   }
 
-  static Future<bool> _writeValue(String key, Object? value) async {
+  /// Persists a security-sensitive value only if [canWrite] still owns the
+  /// mutation at the exact synchronous cache-write boundary.
+  ///
+  /// The optional test interceptor may yield before a real SharedPreferences
+  /// call. Checking admission inside [_writeValue], after that yield and
+  /// immediately before `set*`/`remove`, prevents a queued stale clear from
+  /// deleting a newer fail-closed marker. Returns false when ownership was
+  /// lost without touching the preference.
+  static Future<bool> putCheckedIf(
+    String key,
+    Object? value, {
+    required bool Function() canWrite,
+  }) async {
+    if (_prefs == null) {
+      throw StateError(
+        'PreferencesStore.ensureInitialized() must be awaited before a checked '
+        'preference write.',
+      );
+    }
+    var admitted = false;
+    final succeeded = await _writeValue(
+      key,
+      value,
+      beforeWrite: () {
+        if (!canWrite()) return false;
+        admitted = true;
+        return true;
+      },
+    );
+    if (!succeeded) {
+      throw StateError('Preference write failed for "$key".');
+    }
+    return admitted;
+  }
+
+  static Future<bool> _writeValue(
+    String key,
+    Object? value, {
+    bool Function()? beforeWrite,
+  }) async {
     final prefs = _prefs;
     // Ordinary preference writes are best-effort before bootstrap: true means
     // the write was intentionally skipped, not that anything reached disk.
@@ -128,8 +167,12 @@ class PreferencesStore {
     final interceptor = _debugWriteInterceptor;
     if (interceptor != null) {
       final intercepted = await interceptor(prefs, key, value);
-      if (intercepted != null) return intercepted;
+      if (intercepted != null) {
+        if (beforeWrite != null && !beforeWrite()) return true;
+        return intercepted;
+      }
     }
+    if (beforeWrite != null && !beforeWrite()) return true;
     if (value == null) {
       return prefs.remove(key);
     }

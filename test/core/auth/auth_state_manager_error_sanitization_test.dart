@@ -1,7 +1,9 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/auth/auth_state_manager.dart';
+import 'package:conduit/core/auth/api_auth_interceptor.dart';
 import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/models/user.dart';
+import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
@@ -11,6 +13,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _passwordSecret = 'foreground-password-secret';
 const _tokenSecret = 'foreground-token-secret-long-enough';
@@ -20,9 +23,24 @@ const _uriSecret = 'provider-reflected-uri-secret';
 const _ldapDiagnosticSecret = 'ldap-upstream-diagnostic-secret';
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(() => true);
+    registerFallbackValue(
+      const ServerConfig(
+        id: 'fallback',
+        name: 'Fallback',
+        url: 'https://fallback.test',
+      ),
+    );
+  });
+
   test(
     'foreground auth flows never publish, throw, or log reflected secrets',
     () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      addTearDown(PreferencesStore.debugReset);
+
       final captured = StringBuffer();
       final previousDebugPrint = debugPrint;
       debugPrint = (message, {wrapWidth}) {
@@ -32,12 +50,24 @@ void main() {
       try {
         for (final mode in _AuthMode.values) {
           final storage = _Storage();
-          when(() => storage.getAuthToken()).thenAnswer((_) async => '');
-          when(() => storage.hasCredentials()).thenAnswer((_) async => false);
+          when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+          when(
+            () => storage.getSavedCredentialsStrict(),
+          ).thenAnswer((_) async => null);
           when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
           when(() => storage.clearAuthData()).thenAnswer((_) async {});
+          when(
+            () => storage.clearAuthDataIf(canClear: any(named: 'canClear')),
+          ).thenAnswer((invocation) async {
+            final canClear =
+                invocation.namedArguments[#canClear] as bool Function();
+            if (!canClear()) return false;
+            await storage.clearAuthData();
+            return true;
+          });
 
           final api = _ReflectingAuthApi(mode);
+          _stubOwnershipCapture(storage, api.serverConfig);
           final container = ProviderContainer(
             overrides: [
               apiServiceProvider.overrideWithValue(api),
@@ -115,7 +145,9 @@ void main() {
     'background stored-token validation never logs reflected secrets',
     () async {
       final storage = _Storage();
-      when(() => storage.getAuthToken()).thenAnswer((_) async => _tokenSecret);
+      when(
+        () => storage.getAuthTokenStrict(),
+      ).thenAnswer((_) async => _tokenSecret);
       when(
         () => storage.getLocalUserWithAvatar(),
       ).thenAnswer((_) async => null);
@@ -138,13 +170,16 @@ void main() {
 
       try {
         await container.read(authStateManagerProvider.future);
-        for (var attempt = 0; attempt < 100; attempt++) {
+        // The background validation retry ladder sleeps roughly 6.7s in total
+        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure, so
+        // the deadline here must comfortably exceed it.
+        for (var attempt = 0; attempt < 2000; attempt++) {
           if (captured.toString().contains(
             'background-auth-validation-deferred',
           )) {
             break;
           }
-          await Future<void>.delayed(const Duration(milliseconds: 5));
+          await Future<void>.delayed(const Duration(milliseconds: 10));
         }
       } finally {
         debugPrint = previousDebugPrint;
@@ -171,10 +206,13 @@ void main() {
     'LDAP-disabled 400 publishes only the recognized safe message',
     () async {
       final storage = _Storage();
-      when(() => storage.getAuthToken()).thenAnswer((_) async => '');
-      when(() => storage.hasCredentials()).thenAnswer((_) async => false);
+      when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+      when(
+        () => storage.getSavedCredentialsStrict(),
+      ).thenAnswer((_) async => null);
       when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
       final api = _LdapDisabledAuthApi();
+      _stubOwnershipCapture(storage, api.serverConfig);
       final container = ProviderContainer(
         overrides: [
           apiServiceProvider.overrideWithValue(api),
@@ -204,6 +242,20 @@ void main() {
       check(visible).not((value) => value.contains(_passwordSecret));
       check(visible).not((value) => value.contains(_ldapDiagnosticSecret));
     },
+  );
+}
+
+void _stubOwnershipCapture(
+  OptimizedStorageService storage,
+  ServerConfig config,
+) {
+  when(
+    () => storage.captureServerSessionOwnership(
+      validatedConfig: any(named: 'validatedConfig'),
+      requireActive: true,
+    ),
+  ).thenAnswer(
+    (_) async => (revision: 1, serverConfig: config, requireActive: true),
   );
 }
 
@@ -259,7 +311,11 @@ final class _ReflectingAuthApi extends ApiService {
   }
 
   @override
-  Future<User> getCurrentUser({bool suppressAuthFailureNotification = false}) {
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     throw _reflectedFailure;
   }
 
@@ -267,7 +323,7 @@ final class _ReflectingAuthApi extends ApiService {
   Future<bool> checkHealth() async => true;
 
   @override
-  Future<void> logout() async {
+  Future<void> logout({ApiAuthSnapshot? authSnapshot}) async {
     throw _reflectedFailure;
   }
 }

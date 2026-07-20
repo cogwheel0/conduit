@@ -251,6 +251,7 @@ void main() {
         queuedCompletionInfoForMessageProvider('assistant-queued').overrideWith(
           (ref) => Stream<QueuedCompletionInfo?>.value(
             const QueuedCompletionInfo(
+              databaseOwner: Object(),
               seq: 1,
               chatId: 'chat-1',
               scopedChatId: 'chat-1',

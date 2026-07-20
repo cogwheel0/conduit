@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/database/daos/chats_dao.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -299,6 +302,108 @@ void main() {
       ).equals('directLocal');
     });
 
+    test('sums archived counts across both storage domains', () async {
+      await serverDatabase.chatsDao.upsertEnvelopeStub(
+        id: 'server-archived',
+        title: 'Server archived',
+        createdAt: 10,
+        updatedAt: 10,
+        archived: true,
+      );
+      await localDatabase.chatsDao.upsertEnvelopeStub(
+        id: 'local-archived',
+        title: 'Local archived',
+        createdAt: 20,
+        updatedAt: 20,
+        archived: true,
+      );
+
+      check(await repository.watchMergedArchivedChatCount().first).equals(2);
+      check(
+        await repository
+            .watchMergedChatList(regularLimit: 10, archivedLimit: 0)
+            .first,
+      ).isEmpty();
+    });
+
+    test('applies chat-list windows globally while retaining pins', () async {
+      Future<void> seed(
+        AppDatabase database,
+        String id,
+        int updatedAt, {
+        bool pinned = false,
+        bool archived = false,
+      }) {
+        return database.chatsDao.upsertEnvelopeStub(
+          id: id,
+          title: id,
+          createdAt: updatedAt,
+          updatedAt: updatedAt,
+          pinned: pinned,
+          archived: archived,
+        );
+      }
+
+      await Future.wait([
+        seed(serverDatabase, 'server-regular-new', 60),
+        seed(serverDatabase, 'server-regular-old', 30),
+        seed(localDatabase, 'local-regular-new', 50),
+        seed(localDatabase, 'local-regular-old', 40),
+        seed(serverDatabase, 'server-archived', 20, archived: true),
+        seed(localDatabase, 'local-archived', 25, archived: true),
+        seed(serverDatabase, 'server-pinned', 10, pinned: true),
+        seed(localDatabase, 'local-pinned', 5, pinned: true),
+      ]);
+
+      final entries = await repository
+          .watchMergedChatList(regularLimit: 2, archivedLimit: 1)
+          .first;
+
+      check(entries.map((entry) => entry.entry.id).toList()).deepEquals([
+        'server-regular-new',
+        'local-regular-new',
+        'local-archived',
+        'server-pinned',
+        'local-pinned',
+      ]);
+    });
+
+    test('direct-local watcher never subscribes to Open WebUI rows', () async {
+      await serverDatabase.chatsDao.upsertServerChat(
+        rows: _chatRows(id: 'server-only', updatedAt: 30),
+      );
+      await localDatabase.chatsDao.upsertLocalOnlyChat(
+        rows: _chatRows(id: 'device-only', updatedAt: 20),
+      );
+
+      final emissions = <List<LocatedChatListEntry>>[];
+      final initialEmission = Completer<void>();
+      final subscription = repository.watchDirectLocalChatList().listen((
+        entries,
+      ) {
+        emissions.add(entries);
+        if (!initialEmission.isCompleted) initialEmission.complete();
+      });
+      addTearDown(subscription.cancel);
+      await initialEmission.future.timeout(const Duration(seconds: 1));
+
+      check(
+        emissions.single.map((entry) => entry.entry.id).toList(),
+      ).deepEquals(['device-only']);
+      check(
+        emissions.single.every(
+          (entry) => entry.storage == ChatStorageKind.directLocal,
+        ),
+      ).isTrue();
+
+      await serverDatabase.chatsDao.upsertServerChat(
+        rows: _chatRows(id: 'later-server-only', updatedAt: 40),
+      );
+      await pumpEventQueue(times: 20);
+
+      check(emissions).length.equals(1);
+    });
+
     test('loads the full conversation from its owning store', () async {
       await localDatabase.chatsDao.upsertLocalOnlyChat(
         rows: _chatRows(
@@ -419,6 +524,77 @@ void main() {
         check(hits.map((hit) => hit.scopedId).toSet().length).equals(2);
       },
     );
+  });
+
+  group('merged list stream coalescing', () {
+    test('emits the first complete server/local pair immediately', () {
+      fakeAsync((async) {
+        final server = StreamController<List<ChatListEntry>>(sync: true);
+        final local = StreamController<List<ChatListEntry>>(sync: true);
+        final emissions = <List<LocatedChatListEntry>>[];
+        final subscription = debugCombineChatLists(
+          server.stream,
+          local.stream,
+        ).listen(emissions.add);
+
+        server.add([_listEntry('server', updatedAt: 10)]);
+        async.flushMicrotasks();
+        check(emissions).isEmpty();
+
+        local.add([_listEntry('local', updatedAt: 20)]);
+        async.flushMicrotasks();
+
+        check(emissions).length.equals(1);
+        check(
+          emissions.single.map((entry) => entry.entry.id).toList(),
+        ).deepEquals(['local', 'server']);
+
+        unawaited(subscription.cancel());
+        unawaited(server.close());
+        unawaited(local.close());
+        async.flushMicrotasks();
+      });
+    });
+
+    test('continuous updates cannot starve a coalesced emission', () {
+      fakeAsync((async) {
+        final server = StreamController<List<ChatListEntry>>(sync: true);
+        final local = StreamController<List<ChatListEntry>>(sync: true);
+        final emissions = <List<LocatedChatListEntry>>[];
+        final subscription = debugCombineChatLists(
+          server.stream,
+          local.stream,
+        ).listen(emissions.add);
+
+        server.add([_listEntry('server', updatedAt: 1)]);
+        local.add([_listEntry('local', updatedAt: 0)]);
+        async.flushMicrotasks();
+        check(emissions).length.equals(1);
+
+        server.add([_listEntry('server', updatedAt: 2)]);
+        for (final updatedAt in [6, 10, 15]) {
+          async.elapse(const Duration(milliseconds: 4));
+          server.add([_listEntry('server', updatedAt: updatedAt)]);
+          async.flushMicrotasks();
+        }
+        async.elapse(const Duration(milliseconds: 3));
+        server.add([_listEntry('server', updatedAt: 19)]);
+        async.flushMicrotasks();
+        check(emissions).length.equals(1);
+
+        // The first update opened a fixed 16 ms window. Later updates replace
+        // the pending value without pushing that deadline into the future.
+        async.elapse(const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        check(emissions).length.equals(2);
+        check(emissions.last.first.entry.updatedAt).equals(19);
+
+        unawaited(subscription.cancel());
+        unawaited(server.close());
+        unawaited(local.close());
+        async.flushMicrotasks();
+      });
+    });
   });
 
   group('direct-provider persistence facade', () {
@@ -784,5 +960,16 @@ MessageRowData _message({
       'parentId': null,
       'childrenIds': <String>[],
     },
+  );
+}
+
+ChatListEntry _listEntry(String id, {required int updatedAt}) {
+  return ChatListEntry(
+    id: id,
+    title: 'Chat $id',
+    createdAt: updatedAt,
+    updatedAt: updatedAt,
+    pinned: false,
+    archived: false,
   );
 }

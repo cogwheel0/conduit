@@ -14,6 +14,18 @@ class AttachmentQueue extends Table {
   TextColumn get mimeType => text().nullable()();
   TextColumn get checksum => text().nullable()();
 
+  /// Stable, per-server ownership receipt for crash-safe native imports.
+  ///
+  /// The key includes the native payload identity, item ordinal, and source
+  /// checksum. SQLite permits multiple NULL values in a UNIQUE column, so
+  /// ordinary uploads remain unaffected while native retries can join the
+  /// exact row that already owns their bytes.
+  TextColumn get durableKey => text().nullable()();
+
+  /// Keeps a terminal row as a durable dedupe receipt until native storage has
+  /// confirmed that the corresponding payload was acknowledged.
+  BoolColumn get receiptHeld => boolean().withDefault(const Constant(false))();
+
   TextColumn get status => text()();
   IntColumn get retryCount => integer().withDefault(const Constant(0))();
   IntColumn get nextRetryAt => integer().nullable()();

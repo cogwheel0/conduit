@@ -22,6 +22,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 
 void main() {
+  test('message cache shrinks only while streaming', () {
+    check(debugChatMessageScrollCachePixels(streaming: false)).equals(600);
+    check(debugChatMessageScrollCachePixels(streaming: true)).equals(120);
+  });
+
   testWidgets(
     'managed timeline keeps its trailing edge pinned during live growth',
     (tester) async {
@@ -791,6 +796,49 @@ void main() {
     );
   });
 
+  test(
+    'layout cache skips structural signature work for an identical list',
+    () {
+      final cache = debugCreateChatListStableLayoutCacheForTesting();
+      final registry = DirectModelRegistry();
+      final messages = <ChatMessage>[
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Stable response',
+          timestamp: DateTime(2026),
+        ),
+      ];
+
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: null,
+        directModelRegistry: registry,
+      );
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        messages,
+        models: null,
+        directModelRegistry: registry,
+      );
+
+      check(
+        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
+      ).equals(1);
+
+      debugResolveChatListStableLayoutCacheForTesting(
+        cache,
+        List<ChatMessage>.of(messages),
+        models: null,
+        directModelRegistry: registry,
+      );
+      check(
+        debugChatListStableLayoutSignatureBuildCountForTesting(cache),
+      ).equals(2);
+    },
+  );
+
   test('layout signature ignores streaming content-only changes', () {
     final streamingMessage = ChatMessage(
       id: 'assistant-streaming',
@@ -1134,164 +1182,87 @@ void main() {
     expect(shouldKeepBottomAnchored, isFalse);
   });
 
-  test('pin-to-top removal clamps offsets to the phantom-free range', () {
+  test('pin-to-top reserves only the measured unused viewport', () {
+    // Mirrors T3 Code's anchoredEndSpace contract: the synthetic tail is the
+    // viewport remainder below the anchored turn, not a full-screen spacer.
     expect(
-      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
-        currentOffset: 500,
-        maxScrollExtent: 800,
-        phantomExtent: 800,
+      resolveChatAnchoredEndSpaceExtent(
+        availableExtent: 700,
+        contentExtentFromAnchor: 260,
       ),
-      0,
-    );
-
-    expect(
-      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
-        currentOffset: 920,
-        maxScrollExtent: 1200,
-        phantomExtent: 400,
-      ),
-      800,
-    );
-
-    expect(
-      debugScrollOffsetAfterRemovingPinToTopPhantomForTesting(
-        currentOffset: 760,
-        maxScrollExtent: 1200,
-        phantomExtent: 400,
-      ),
-      760,
-    );
-  });
-
-  test('pin-to-top boundary keeps the pinned prompt in view', () {
-    expect(
-      debugScrollOverflowBeyondMaximumForTesting(
-        currentOffset: 480,
-        proposedOffset: 560,
-        maximumOffset: 500,
-      ),
-      60,
+      440,
     );
     expect(
-      debugScrollOverflowBeyondMaximumForTesting(
-        currentOffset: 500,
-        proposedOffset: 650,
-        maximumOffset: 500,
+      resolveChatAnchoredEndSpaceExtent(
+        availableExtent: 700,
+        contentExtentFromAnchor: 600,
       ),
-      150,
+      100,
     );
     expect(
-      debugScrollOverflowBeyondMaximumForTesting(
-        currentOffset: 560,
-        proposedOffset: 600,
-        maximumOffset: 500,
-      ),
-      40,
-    );
-    expect(
-      debugScrollOverflowBeyondMaximumForTesting(
-        currentOffset: 560,
-        proposedOffset: 520,
-        maximumOffset: 500,
+      resolveChatAnchoredEndSpaceExtent(
+        availableExtent: 700,
+        contentExtentFromAnchor: 760,
       ),
       0,
     );
   });
 
-  testWidgets(
-    'pin-to-top physics stops a short response at the pinned prompt',
-    (tester) async {
-      final controller = ScrollController();
-      addTearDown(controller.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              height: 300,
-              child: CustomScrollView(
-                controller: controller,
-                physics: debugPinToTopScrollPhysicsForTesting(
-                  maximumScrollOffset: (position) =>
-                      debugMaximumPinToTopScrollOffsetForTesting(
-                        pinnedPromptOffset: 250,
-                        maxScrollExtent: position.maxScrollExtent,
-                        phantomExtent: 800,
-                      ),
-                  parent: const SuperRangeMaintainingScrollPhysics(
-                    parent: BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                  ),
-                ),
-                slivers: const [
-                  SliverToBoxAdapter(child: SizedBox(height: 1200)),
-                ],
-              ),
-            ),
-          ),
-        ),
+  test(
+    'pin-to-top anchors the prompt until real content fills the viewport',
+    () {
+      final positioning = resolveChatPinStickTargetForTesting(
+        anchorIndex: 4,
+        anchorAlignment: 0.16,
+        isAutoFollowing: true,
+        isUserInteracting: false,
+        isPositionSettled: false,
+        anchoredEndSpaceExtent: 0,
+      );
+      final reservedSpace = resolveChatPinStickTargetForTesting(
+        anchorIndex: 4,
+        anchorAlignment: 0.16,
+        isAutoFollowing: true,
+        isUserInteracting: false,
+        isPositionSettled: true,
+        anchoredEndSpaceExtent: 220,
+      );
+      final overflowing = resolveChatPinStickTargetForTesting(
+        anchorIndex: 4,
+        anchorAlignment: 0.16,
+        isAutoFollowing: true,
+        isUserInteracting: false,
+        isPositionSettled: true,
+        anchoredEndSpaceExtent: 0,
       );
 
-      expect(controller.position.maxScrollExtent, 900);
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
-      await tester.pumpAndSettle();
-
-      expect(controller.offset, closeTo(250, 0.01));
-
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, 100));
-      await tester.pumpAndSettle();
-
-      expect(controller.offset, lessThan(250));
+      expect(positioning?.isBottom, isFalse);
+      expect(positioning?.index, 4);
+      expect(positioning?.alignment, 0.16);
+      expect(reservedSpace?.isBottom, isFalse);
+      expect(overflowing?.isBottom, isTrue);
     },
   );
 
-  testWidgets(
-    'pin-to-top physics scrolls through a long response but blocks phantom space',
-    (tester) async {
-      final controller = ScrollController();
-      addTearDown(controller.dispose);
+  test('pin-to-top layout corrections stop on the first user gesture', () {
+    final target = resolveChatPinStickTargetForTesting(
+      anchorIndex: 4,
+      anchorAlignment: 0.16,
+      isAutoFollowing: false,
+      isUserInteracting: true,
+      isPositionSettled: true,
+      anchoredEndSpaceExtent: 0,
+    );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              height: 300,
-              child: CustomScrollView(
-                controller: controller,
-                physics: debugPinToTopScrollPhysicsForTesting(
-                  maximumScrollOffset: (position) =>
-                      debugMaximumPinToTopScrollOffsetForTesting(
-                        pinnedPromptOffset: 250,
-                        maxScrollExtent: position.maxScrollExtent,
-                        phantomExtent: 300,
-                      ),
-                  parent: const SuperRangeMaintainingScrollPhysics(
-                    parent: BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                  ),
-                ),
-                slivers: const [
-                  SliverToBoxAdapter(child: SizedBox(height: 1200)),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
+    expect(target, isNull);
+  });
 
-      expect(controller.position.maxScrollExtent, 900);
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
-      await tester.pumpAndSettle();
+  test('manual navigation cancels follow without discarding the anchor', () {
+    final state = debugPinStateAfterManualNavigationForTesting();
 
-      // 900 total extent - 300 phantom extent = 600 real-content extent.
-      expect(controller.offset, closeTo(600, 0.01));
-    },
-  );
-
-  test('manual scrolling preserves active pin-to-top state', () {
-    expect(debugPinToTopRemainsActiveAfterUserScrollForTesting(), isTrue);
+    expect(state.anchorActive, isTrue);
+    expect(state.autoFollowing, isFalse);
+    expect(state.userMessageId, 'user-message');
   });
 
   test(

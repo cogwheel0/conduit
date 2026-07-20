@@ -13,18 +13,24 @@ import 'direct_http_client.dart';
 import 'direct_provider_adapter.dart';
 import 'ollama_stream_parser.dart';
 
-final class OllamaAdapter implements DirectProviderAdapter {
+final class OllamaAdapter
+    implements DirectProviderAdapter, CancellableDirectModelDiscovery {
   static const int _maxShowConcurrency = 4;
 
   OllamaAdapter({
     DirectDioFactory? dioFactory,
+    DirectHttpClientPool? clientPool,
     this.closeClients = true,
     this.streamIdleTimeout = kDirectStreamIdleTimeout,
     this.streamMaxDuration = kDirectStreamMaxDuration,
     this.maxStreamBytes = kMaxDirectStreamBytes,
     this.maxStreamCharacters = kMaxDirectStreamCharacters,
     this.maxStreamEvents = kMaxDirectStreamEvents,
-  }) : _dioFactory = dioFactory ?? const DirectHttpClientFactory().create {
+    this.successDrainTimeout = kDirectSuccessDrainTimeout,
+    this.maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
+  }) : _dioFactory = dioFactory,
+       _clientPool = clientPool ?? DirectHttpClientPool(),
+       _ownsClientPool = clientPool == null {
     validateDirectCompletionStreamLimits(
       idleTimeout: streamIdleTimeout,
       maxDuration: streamMaxDuration,
@@ -32,38 +38,88 @@ final class OllamaAdapter implements DirectProviderAdapter {
       maxCharacters: maxStreamCharacters,
       maxEvents: maxStreamEvents,
     );
+    if (successDrainTimeout <= Duration.zero) {
+      throw ArgumentError.value(successDrainTimeout, 'successDrainTimeout');
+    }
+    if (maxSuccessDrainBytes <= 0) {
+      throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
+    }
   }
 
-  final DirectDioFactory _dioFactory;
+  final DirectDioFactory? _dioFactory;
+  final DirectHttpClientPool _clientPool;
+  final bool _ownsClientPool;
   final bool closeClients;
   final Duration streamIdleTimeout;
   final Duration streamMaxDuration;
   final int maxStreamBytes;
   final int maxStreamCharacters;
   final int maxStreamEvents;
+  final Duration successDrainTimeout;
+  final int maxSuccessDrainBytes;
 
   @override
   String get key => kOllamaAdapterKey;
 
-  Dio _client(DirectConnectionProfile profile) {
-    final dio = _dioFactory(profile);
-    const DirectHttpClientFactory().configure(dio, profile);
-    return dio;
+  ({Dio dio, void Function() release}) _client(
+    DirectConnectionProfile profile,
+  ) {
+    final factory = _dioFactory;
+    if (factory != null) {
+      final dio = factory(profile);
+      const DirectHttpClientFactory().configure(dio, profile);
+      return (
+        dio: dio,
+        release: () {
+          if (closeClients) dio.close(force: true);
+        },
+      );
+    }
+    final lease = _clientPool.acquire(profile);
+    return (dio: lease.dio, release: lease.release);
+  }
+
+  void dispose() {
+    if (_ownsClientPool) _clientPool.dispose();
   }
 
   @override
-  Future<List<DirectRemoteModel>> listModels(
-    DirectConnectionProfile profile,
-  ) async {
+  Future<List<DirectRemoteModel>> listModels(DirectConnectionProfile profile) =>
+      _listModels(profile);
+
+  @override
+  Future<List<DirectRemoteModel>> listModelsCancellable(
+    DirectConnectionProfile profile, {
+    required DirectDiscoveryCancellation cancellation,
+  }) => _listModels(profile, cancellation: cancellation);
+
+  Future<List<DirectRemoteModel>> _listModels(
+    DirectConnectionProfile profile, {
+    DirectDiscoveryCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     final manualModels = directManualModels(profile);
     if (manualModels != null) return manualModels;
 
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
+    final requestCancellation = cancellation == null ? null : CancelToken();
+    if (cancellation != null) {
+      unawaited(
+        cancellation.whenCancelled.then<void>((_) {
+          if (!requestCancellation!.isCancelled) {
+            requestCancellation.cancel('model discovery superseded');
+          }
+        }),
+      );
+    }
     try {
       final response = await dio.get<ResponseBody>(
         'api/tags',
+        cancelToken: requestCancellation,
         options: Options(responseType: ResponseType.stream),
       );
+      cancellation?.throwIfCancelled();
       final responseBody = response.data;
       if (responseBody == null) {
         throw const FormatException('Ollama model list response is empty.');
@@ -96,8 +152,18 @@ final class OllamaAdapter implements DirectProviderAdapter {
           ),
         );
       }
-      return await _enrichModels(dio, profile, candidates);
+      cancellation?.throwIfCancelled();
+      return await _enrichModels(
+        dio,
+        profile,
+        candidates,
+        cancellation: cancellation,
+        requestCancellation: requestCancellation,
+      );
+    } on DirectDiscoveryCancelled {
+      rethrow;
     } catch (error) {
+      cancellation?.throwIfCancelled();
       final normalized = normalizeDirectProviderError(error);
       final safeMessage = sanitizeDirectProviderErrorMessage(
         normalized.message,
@@ -110,22 +176,33 @@ final class OllamaAdapter implements DirectProviderAdapter {
       );
       throw normalized;
     } finally {
-      if (closeClients) dio.close(force: true);
+      client.release();
     }
   }
 
   Future<List<DirectRemoteModel>> _enrichModels(
     Dio dio,
     DirectConnectionProfile profile,
-    List<_OllamaModelCandidate> candidates,
-  ) async {
+    List<_OllamaModelCandidate> candidates, {
+    DirectDiscoveryCancellation? cancellation,
+    CancelToken? requestCancellation,
+  }) async {
     final models = List<DirectRemoteModel?>.filled(candidates.length, null);
     var nextIndex = 0;
 
     Future<void> worker() async {
-      while (nextIndex < candidates.length) {
+      while (true) {
+        cancellation?.throwIfCancelled();
+        if (nextIndex >= candidates.length) return;
         final index = nextIndex++;
-        models[index] = await _enrichModel(dio, profile, candidates[index]);
+        models[index] = await _enrichModel(
+          dio,
+          profile,
+          candidates[index],
+          cancellation: cancellation,
+          requestCancellation: requestCancellation,
+        );
+        cancellation?.throwIfCancelled();
       }
     }
 
@@ -142,13 +219,23 @@ final class OllamaAdapter implements DirectProviderAdapter {
   Future<DirectRemoteModel> _enrichModel(
     Dio dio,
     DirectConnectionProfile profile,
-    _OllamaModelCandidate candidate,
-  ) async {
+    _OllamaModelCandidate candidate, {
+    DirectDiscoveryCancellation? cancellation,
+    CancelToken? requestCancellation,
+  }) async {
     // `api/tags` does not reliably expose modalities. Each deduplicated model
     // is enriched once per discovery pass via Ollama's `api/show`. Avoid a
     // cross-refresh cache so model replacement, auth/header edits, and older
     // servers cannot leave stale capability authority behind.
-    final shown = await _fetchShowDetails(dio, profile, candidate.id);
+    cancellation?.throwIfCancelled();
+    final shown = await _fetchShowDetails(
+      dio,
+      profile,
+      candidate.id,
+      cancellation: cancellation,
+      requestCancellation: requestCancellation,
+    );
+    cancellation?.throwIfCancelled();
     final effectiveCapabilities = shown == null
         ? candidate.capabilities
         : <String>{
@@ -175,17 +262,22 @@ final class OllamaAdapter implements DirectProviderAdapter {
   Future<_OllamaShowDetails?> _fetchShowDetails(
     Dio dio,
     DirectConnectionProfile profile,
-    String modelId,
-  ) async {
+    String modelId, {
+    DirectDiscoveryCancellation? cancellation,
+    CancelToken? requestCancellation,
+  }) async {
     try {
+      cancellation?.throwIfCancelled();
       final response = await dio.post<ResponseBody>(
         'api/show',
+        cancelToken: requestCancellation,
         data: ollama.ShowRequest(model: modelId).toJson(),
         options: Options(responseType: ResponseType.stream),
       );
       final responseBody = response.data;
       if (responseBody == null) return null;
       final body = await decodeDirectJsonBody(responseBody);
+      cancellation?.throwIfCancelled();
       final shown = ollama.ShowResponse.fromJson(body);
       final capabilities = _lowercaseStringList(shown.capabilities);
       return _OllamaShowDetails(
@@ -194,7 +286,10 @@ final class OllamaAdapter implements DirectProviderAdapter {
             capabilities.contains('vision') ||
             _hasVisionMetadata(shown, body['projector_info']),
       );
+    } on DirectDiscoveryCancelled {
+      rethrow;
     } catch (_) {
+      cancellation?.throwIfCancelled();
       // A single old/broken model must not hide the entire catalog. Retain the
       // conservative /api/tags heuristic and retry on the next refresh.
       DebugLogger.warning(
@@ -223,7 +318,8 @@ final class OllamaAdapter implements DirectProviderAdapter {
   Future<DirectConnectionProbe> _probeManualConnection(
     DirectConnectionProfile profile,
   ) async {
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
     try {
       // Ollama exposes this non-generative endpoint independently of model
       // discovery, making it suitable for profiles with manual model IDs.
@@ -251,7 +347,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
         message: normalized.message,
       );
     } finally {
-      if (closeClients) dio.close(force: true);
+      client.release();
     }
   }
 
@@ -260,21 +356,25 @@ final class OllamaAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) {
-    final dio = _client(profile);
+    final client = _client(profile);
+    final dio = client.dio;
     final cancelToken = CancelToken();
     final transportCancelToken = CancelToken();
     final controller = StreamController<DirectStreamEvent>();
     final settled = Completer<void>();
     final sensitiveValues = directProfileSensitiveValues(profile);
+    var successfulProtocolTerminal = false;
     unawaited(
       cancelToken.whenCancel.then<void>((error) {
-        if (!transportCancelToken.isCancelled) {
+        if (!successfulProtocolTerminal && !transportCancelToken.isCancelled) {
           transportCancelToken.cancel(error.error ?? 'run cancelled');
         }
       }),
     );
     controller.onCancel = () {
-      if (!cancelToken.isCancelled) cancelToken.cancel('listener cancelled');
+      if (!successfulProtocolTerminal && !cancelToken.isCancelled) {
+        cancelToken.cancel('listener cancelled');
+      }
     };
 
     unawaited(
@@ -282,6 +382,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
         var terminalSent = false;
         void emitDone() {
           if (!terminalSent && !controller.isClosed) {
+            successfulProtocolTerminal = true;
             terminalSent = true;
             controller.add(const DirectStreamDone());
           }
@@ -301,6 +402,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
           );
         }
 
+        var transportCompletedCleanly = false;
         try {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final budget = DirectStreamBudget(
@@ -340,9 +442,16 @@ final class OllamaAdapter implements DirectProviderAdapter {
               idleTimeout: streamIdleTimeout,
               maxDuration: streamMaxDuration,
               maxBytes: maxStreamBytes,
+              successfulProtocolTerminal: () => successfulProtocolTerminal,
+              successDrainTimeout: successDrainTimeout,
+              maxSuccessDrainBytes: maxSuccessDrainBytes,
             ),
           )) {
             if (controller.isClosed) break;
+            if (terminalSent) {
+              if (successfulProtocolTerminal) continue;
+              break;
+            }
             budget.addEvent();
             if (payload['error'] != null) {
               emitProtocolError(payload['error']);
@@ -392,7 +501,7 @@ final class OllamaAdapter implements DirectProviderAdapter {
               final usage = _ollamaUsage(event);
               if (usage.isNotEmpty) controller.add(DirectUsageUpdate(usage));
               emitDone();
-              break;
+              continue;
             }
           }
           if (!terminalSent && !cancelToken.isCancelled) {
@@ -400,8 +509,13 @@ final class OllamaAdapter implements DirectProviderAdapter {
               'The Ollama stream ended before its done marker.',
             );
           }
+          transportCompletedCleanly = successfulProtocolTerminal;
         } catch (error) {
-          if (!cancelToken.isCancelled && !controller.isClosed) {
+          final expectedDrainFailure =
+              error is DirectStreamDrainException && successfulProtocolTerminal;
+          if (!expectedDrainFailure &&
+              !cancelToken.isCancelled &&
+              !controller.isClosed) {
             final normalized = normalizeDirectProviderError(error);
             final safeMessage = sanitizeDirectProviderErrorMessage(
               normalized.message,
@@ -415,14 +529,14 @@ final class OllamaAdapter implements DirectProviderAdapter {
             );
           }
         } finally {
-          if (!transportCancelToken.isCancelled) {
-            transportCancelToken.cancel('completion settled');
+          if (!transportCompletedCleanly && !transportCancelToken.isCancelled) {
+            transportCancelToken.cancel('completion transport not reusable');
+            // Dio observes cancellation through a future callback. Let that
+            // callback abort the underlying request before `done` settles.
+            await Future<void>.delayed(Duration.zero);
           }
-          // Dio observes cancellation through a future callback. Let that
-          // callback abort the underlying request before `done` settles.
-          await Future<void>.delayed(Duration.zero);
           unawaited(controller.close());
-          if (closeClients) dio.close(force: true);
+          client.release();
           if (!settled.isCompleted) settled.complete();
         }
       }),

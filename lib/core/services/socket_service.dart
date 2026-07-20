@@ -37,10 +37,15 @@ class SocketService with WidgetsBindingObserver {
   io.Socket? _socket;
   String? _authToken;
   bool _isConnecting = false;
+  Completer<void>? _pendingForcedConnect;
+  bool _disposed = false;
   bool _isAppForeground = true;
   bool _wasBackgrounded = false;
   bool _resumeReconnectInFlight = false;
   bool _signalReconnectOnConnect = false;
+  bool _hasNetwork = true;
+  int _backgroundActivityLeases = 0;
+  final Set<String> _backgroundLeaseHandlerIds = <String>{};
   Timer? _heartbeatTimer;
   Timer? _resumeReconnectWatchdogTimer;
   bool _forcePollingFallback = false;
@@ -261,15 +266,26 @@ class SocketService with WidgetsBindingObserver {
       case AppLifecycleState.detached:
         _isAppForeground = false;
         _wasBackgrounded = true;
+        _applyTransportActivityPolicy();
         break;
       case AppLifecycleState.inactive:
         _isAppForeground = true;
         break;
       case AppLifecycleState.resumed:
         _isAppForeground = true;
-        if (_wasBackgrounded) {
+        final resumedFromBackground = _wasBackgrounded;
+        if (resumedFromBackground) {
           _wasBackgrounded = false;
-          unawaited(_reconnectAfterResume());
+          // Arm reconciliation even when reachability is currently false.
+          // The next successful foreground connection must still prompt
+          // consumers to refresh state missed while backgrounded.
+          _signalReconnectOnConnect = true;
+        }
+        _applyTransportActivityPolicy();
+        if (resumedFromBackground) {
+          if (_mayMaintainTransport) {
+            unawaited(_reconnectAfterResume());
+          }
         }
         break;
     }
@@ -284,10 +300,17 @@ class SocketService with WidgetsBindingObserver {
       state == AppLifecycleState.detached;
 
   Future<void> _reconnectAfterResume() async {
+    // A background activity lease can legitimately keep the existing
+    // transport connected while the app is paused. Resuming that transport
+    // still requires consumer reconciliation, but replacing it would add a
+    // needless handshake and could interrupt the leased stream.
+    if (isConnected) {
+      _publishPendingResumeReconciliation();
+      return;
+    }
     if (_resumeReconnectInFlight) return;
 
     _resumeReconnectInFlight = true;
-    _signalReconnectOnConnect = true;
     _resumeReconnectWatchdogTimer?.cancel();
     _resumeReconnectWatchdogTimer = Timer(
       _resumeReconnectWatchdogTimeout,
@@ -296,7 +319,10 @@ class SocketService with WidgetsBindingObserver {
     try {
       await connect(force: true);
     } catch (_) {
-      _clearPendingResumeReconnect();
+      // Keep the reconciliation intent. A later explicit/network-triggered
+      // connection can still succeed after a transient factory/transport
+      // failure and must notify consumers exactly once.
+      _releaseResumeReconnectAttempt();
     }
   }
 
@@ -306,9 +332,27 @@ class SocketService with WidgetsBindingObserver {
     _resumeReconnectInFlight = false;
   }
 
+  void _publishPendingResumeReconciliation() {
+    final shouldSignalReconnect = _signalReconnectOnConnect;
+    _releaseResumeReconnectAttempt();
+    if (!shouldSignalReconnect) return;
+
+    _signalReconnectOnConnect = false;
+    if (!_reconnectController.isClosed) {
+      _reconnectController.add(null);
+    }
+  }
+
   void _clearPendingResumeReconnect() {
     _releaseResumeReconnectAttempt();
     _signalReconnectOnConnect = false;
+  }
+
+  void _deferOrClearPendingResumeReconnect() {
+    _releaseResumeReconnectAttempt();
+    if (!_isAppForeground || _disposed) {
+      _signalReconnectOnConnect = false;
+    }
   }
 
   String? get sessionId => _socket?.id;
@@ -317,10 +361,149 @@ class SocketService with WidgetsBindingObserver {
 
   bool get isConnected => _socket?.connected == true;
   bool get isAppForeground => _isAppForeground;
+  int get backgroundActivityLeaseCount => _backgroundActivityLeases;
+
+  /// Keeps an already-owned Socket.IO transport alive while one admitted unit
+  /// of work still needs it in the background. Session-level listeners must
+  /// not hold this lease permanently; acquire it only for the active operation
+  /// and dispose it on every terminal path.
+  SocketBackgroundActivityLease acquireBackgroundActivityLease() {
+    if (_disposed) return SocketBackgroundActivityLease._(() {});
+    _acquireBackgroundActivityLease();
+    return SocketBackgroundActivityLease._(_releaseBackgroundActivityLease);
+  }
+
+  bool get _mayMaintainTransport =>
+      _hasNetwork && (_isAppForeground || _backgroundActivityLeases > 0);
+
+  /// Starts a connection that has no caller awaiting its result while still
+  /// observing every asynchronous failure. Lifecycle/provider kicks are
+  /// intentionally best-effort, but an ignored error Future would otherwise
+  /// escape to the root zone.
+  void connectBestEffort({bool force = false, required String reason}) {
+    _runBestEffort(() => connect(force: force), reason: reason);
+  }
+
+  void _runBestEffort(
+    Future<void> Function() operation, {
+    required String reason,
+  }) {
+    unawaited(
+      Future<void>.sync(operation).then<void>(
+        (_) {},
+        onError: (Object error, StackTrace _) {
+          DebugLogger.warning(
+            'Best-effort socket operation failed',
+            scope: 'socket/connect',
+            data: {'reason': reason, 'errorType': error.runtimeType.toString()},
+          );
+        },
+      ),
+    );
+  }
+
+  void _runPendingForcedConnectBestEffort({
+    bool forceEvenWithoutWaiter = false,
+    required String reason,
+  }) {
+    _runBestEffort(
+      () => _runPendingForcedConnect(
+        forceEvenWithoutWaiter: forceEvenWithoutWaiter,
+      ),
+      reason: reason,
+    );
+  }
+
+  /// Applies interface reachability to Socket.IO itself, preventing its
+  /// internal unlimited reconnect loop from waking the radio while the device
+  /// is known to be offline.
+  void updateNetworkAvailability(bool available) {
+    if (_hasNetwork == available) return;
+    _hasNetwork = available;
+    _applyTransportActivityPolicy();
+    if (_mayMaintainTransport && !isConnected) {
+      connectBestEffort(force: true, reason: 'network-available');
+    }
+  }
+
+  void _acquireBackgroundActivityLease() {
+    _backgroundActivityLeases++;
+    _applyTransportActivityPolicy();
+    // The manager owns initial transport creation. A handler lease may revive
+    // a transport that this service already owns, but registering a handler on
+    // a detached/test service must not start an unsolicited network request.
+    if (_mayMaintainTransport && _socket != null && !isConnected) {
+      connectBestEffort(reason: 'background-activity-lease');
+    }
+  }
+
+  void _releaseBackgroundActivityLease() {
+    if (_backgroundActivityLeases > 0) _backgroundActivityLeases--;
+    _applyTransportActivityPolicy();
+  }
+
+  void _applyTransportActivityPolicy() {
+    if (_mayMaintainTransport) {
+      _setAutomaticReconnection(true);
+      if (isConnected) _startHeartbeat();
+      return;
+    }
+    _stopHeartbeat();
+    _setAutomaticReconnection(false);
+    final interruptedConnect = _isConnecting;
+    if (interruptedConnect) {
+      // Socket.IO does not consistently emit `disconnect` when disconnecting
+      // an as-yet-unconnected socket. Retire our negotiation state explicitly
+      // so foreground/network recovery can create a fresh transport.
+      _isConnecting = false;
+      _deferOrClearPendingResumeReconnect();
+    }
+    final socket = _socket;
+    try {
+      socket?.disconnect();
+    } catch (_) {
+      // A late Socket.IO `connect` callback can arrive after the manager was
+      // already destroyed while negotiating. In that state Socket.disconnect
+      // may throw while trying to write its namespace DISCONNECT packet. Close
+      // the manager transport directly, then retire the public session state so
+      // no caller can observe the stale connection as usable.
+      try {
+        socket?.io.disconnect();
+      } catch (_) {}
+      socket?.connected = false;
+      socket?.id = null;
+    }
+    if (socket?.connected == true) {
+      // Defensive fallback for platform/client implementations whose
+      // disconnect call returns without synchronously retiring session state.
+      try {
+        socket?.io.disconnect();
+      } catch (_) {}
+      socket?.connected = false;
+      socket?.id = null;
+    }
+    if (interruptedConnect) {
+      _runPendingForcedConnectBestEffort(reason: 'transport-interrupted');
+    }
+  }
+
+  void _setAutomaticReconnection(bool enabled) {
+    try {
+      _socket?.io.reconnection = enabled;
+    } catch (_) {}
+  }
 
   Future<void> connect({bool force = false}) async {
+    if (_disposed) return;
+    if (!_mayMaintainTransport) return;
     if (_socket != null && _socket!.connected && !force) return;
-    if (_isConnecting && !force) return;
+    if (_isConnecting) {
+      if (!force) return;
+      // A forced lifecycle/network refresh must not dispose an attempt that is
+      // still negotiating. Coalesce all force requests and start exactly one
+      // fresh attempt after the current socket reports a terminal event.
+      return (_pendingForcedConnect ??= Completer<void>()).future;
+    }
 
     _isConnecting = true;
 
@@ -428,9 +611,38 @@ class SocketService with WidgetsBindingObserver {
       _socket = _socketFactory(base, builder, serverConfig);
       _bindCoreSocketHandlers();
       _bindDynamicSocketHandlers(_socket);
+      _setAutomaticReconnection(_mayMaintainTransport);
     } catch (_) {
       _isConnecting = false;
+      _runPendingForcedConnectBestEffort(reason: 'socket-factory-failure');
       rethrow;
+    }
+  }
+
+  Future<void> _runPendingForcedConnect({
+    bool forceEvenWithoutWaiter = false,
+  }) async {
+    final pending = _pendingForcedConnect;
+    if (pending == null && !forceEvenWithoutWaiter) return;
+    _pendingForcedConnect = null;
+
+    if (_disposed || !_mayMaintainTransport) {
+      if (pending != null && !pending.isCompleted) pending.complete();
+      return;
+    }
+
+    try {
+      await connect(force: true);
+      if (pending != null && !pending.isCompleted) pending.complete();
+    } catch (error, stackTrace) {
+      if (pending != null && !pending.isCompleted) {
+        pending.completeError(error, stackTrace);
+      } else {
+        // The best-effort wrapper observes this future. Without a waiter there
+        // is no completer to carry the failure, so swallowing here would make
+        // a failed forced fallback invisible even to structured diagnostics.
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
@@ -454,9 +666,12 @@ class SocketService with WidgetsBindingObserver {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
+    if (keepsAliveInBackground) _acquireBackgroundActivityLease();
     final id = _nextHandlerId();
+    if (keepsAliveInBackground) _backgroundLeaseHandlerIds.add(id);
     _chatEventHandlers[id] = _ChatEventRegistration(
       id: id,
       conversationId: conversationId,
@@ -497,10 +712,12 @@ class SocketService with WidgetsBindingObserver {
       }
     }
 
-    return SocketEventSubscription(
-      () => _chatEventHandlers.remove(id),
-      handlerId: id,
-    );
+    return SocketEventSubscription(() {
+      _chatEventHandlers.remove(id);
+      if (_backgroundLeaseHandlerIds.remove(id)) {
+        _releaseBackgroundActivityLease();
+      }
+    }, handlerId: id);
   }
 
   SocketEventSubscription addChannelEventHandler({
@@ -525,6 +742,12 @@ class SocketService with WidgetsBindingObserver {
 
   void clearChatEventHandlers() {
     _chatEventHandlers.clear();
+    if (_backgroundLeaseHandlerIds.isNotEmpty) {
+      _backgroundActivityLeases -= _backgroundLeaseHandlerIds.length;
+      if (_backgroundActivityLeases < 0) _backgroundActivityLeases = 0;
+      _backgroundLeaseHandlerIds.clear();
+      _applyTransportActivityPolicy();
+    }
   }
 
   void clearChannelEventHandlers() {
@@ -640,6 +863,8 @@ class SocketService with WidgetsBindingObserver {
   }
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _stopHeartbeat();
     _clearPendingResumeReconnect();
     try {
@@ -655,10 +880,20 @@ class SocketService with WidgetsBindingObserver {
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();
     _dynamicEventHandlers.clear();
+    _backgroundActivityLeases = 0;
+    _backgroundLeaseHandlerIds.clear();
     _reconnectController.close();
     _healthController.close();
     _connectionCompleter?.completeError(StateError('Service disposed'));
     _connectionCompleter = null;
+    final pendingForcedConnect = _pendingForcedConnect;
+    _pendingForcedConnect = null;
+    if (pendingForcedConnect != null && !pendingForcedConnect.isCompleted) {
+      // Forced reconnects are best-effort lifecycle work. Complete queued
+      // callers normally during teardown to avoid an unhandled async error.
+      pendingForcedConnect.complete();
+    }
+    _isConnecting = false;
   }
 
   /// Ensures there is an active connection and waits for it.
@@ -753,6 +988,30 @@ class SocketService with WidgetsBindingObserver {
     // WebSocket-only mode after conditions improve (fixes permanent fallback)
     _forcePollingFallback = false;
 
+    // The handshake can report success after a lifecycle or reachability gate
+    // retired it. Re-check policy before authenticating, completing waiters, or
+    // publishing the resume-reconnect signal; none of those consumers may
+    // observe a transport that is no longer allowed to remain active.
+    if (!_mayMaintainTransport) {
+      _applyTransportActivityPolicy();
+      _connectionCompleter?.complete();
+      _connectionCompleter = null;
+      _deferOrClearPendingResumeReconnect();
+      _emitHealthUpdate();
+      _runPendingForcedConnectBestEffort(reason: 'late-connect-policy-gate');
+      return;
+    }
+
+    // A force request queued during this handshake owns the next observable
+    // session. Replace the transient socket before authenticating it,
+    // completing waiters, or publishing reconciliation/health to consumers.
+    if (_pendingForcedConnect != null) {
+      _runPendingForcedConnectBestEffort(
+        reason: 'connect-superseded-before-publish',
+      );
+      return;
+    }
+
     DebugLogger.log(
       'Socket connected',
       scope: 'socket',
@@ -765,8 +1024,13 @@ class SocketService with WidgetsBindingObserver {
       });
     }
 
-    // Start heartbeat timer to keep connection alive
-    _startHeartbeat();
+    // Start the required OpenWebUI heartbeat only while this transport has a
+    // foreground or active-stream reason to stay alive.
+    if (_mayMaintainTransport) {
+      _startHeartbeat();
+    } else {
+      _applyTransportActivityPolicy();
+    }
 
     // Complete any pending connection waiters
     _connectionCompleter?.complete();
@@ -775,17 +1039,14 @@ class SocketService with WidgetsBindingObserver {
     // Emit health update
     _emitHealthUpdate();
 
-    final shouldSignalReconnect = _signalReconnectOnConnect;
-    _releaseResumeReconnectAttempt();
-    if (shouldSignalReconnect) {
-      _signalReconnectOnConnect = false;
-      if (!_reconnectController.isClosed) {
-        _reconnectController.add(null);
-      }
-    }
+    _publishPendingResumeReconciliation();
   }
 
   void _handleReconnectAttempt(dynamic attempt) {
+    if (!_mayMaintainTransport) {
+      _applyTransportActivityPolicy();
+      return;
+    }
     _isConnecting = true;
     DebugLogger.log(
       'Socket reconnection attempt',
@@ -812,13 +1073,33 @@ class SocketService with WidgetsBindingObserver {
       },
     );
 
+    // Socket.IO can report a successful reconnect after the app moved to the
+    // background or the network gate closed. Re-apply the current policy before
+    // joining/authenticating or publishing a reconnect that consumers could
+    // mistake for a usable transport.
+    if (!_mayMaintainTransport) {
+      _applyTransportActivityPolicy();
+      _connectionCompleter?.complete();
+      _connectionCompleter = null;
+      _deferOrClearPendingResumeReconnect();
+      _emitHealthUpdate();
+      _runPendingForcedConnectBestEffort(reason: 'late-reconnect-policy-gate');
+      return;
+    }
+
+    if (_pendingForcedConnect != null) {
+      _runPendingForcedConnectBestEffort(
+        reason: 'reconnect-superseded-before-publish',
+      );
+      return;
+    }
+
     if (_authToken != null && _authToken!.isNotEmpty) {
       _socket?.emit('user-join', {
         'auth': {'token': _authToken},
       });
     }
 
-    // Restart heartbeat after reconnection
     _startHeartbeat();
 
     // Complete any pending connection waiters
@@ -853,18 +1134,24 @@ class SocketService with WidgetsBindingObserver {
         scope: 'socket',
         data: {'reason': err?.toString()},
       );
-      unawaited(connect(force: true));
+      _runPendingForcedConnectBestEffort(
+        forceEvenWithoutWaiter: true,
+        reason: 'websocket-polling-fallback',
+      );
+      return;
     }
+    _runPendingForcedConnectBestEffort(reason: 'connect-error');
   }
 
   void _handleReconnectFailed(dynamic _) {
     _isConnecting = false;
-    _clearPendingResumeReconnect();
+    _deferOrClearPendingResumeReconnect();
     DebugLogger.error(
       'Socket reconnection failed after all attempts',
-      scope: 'socket',
+      scope: 'socket/reconnect',
       data: {'serverUrl': serverConfig.url},
     );
+    _runPendingForcedConnectBestEffort(reason: 'reconnect-failed');
   }
 
   void _handleDisconnect(dynamic reason) {
@@ -889,42 +1176,24 @@ class SocketService with WidgetsBindingObserver {
 
     // Emit health update
     _emitHealthUpdate();
+    _runPendingForcedConnectBestEffort(reason: 'disconnected');
   }
 
   /// Starts the heartbeat timer to keep the connection alive.
   /// Sends a heartbeat event every 30 seconds matching OpenWebUI's behavior.
-  /// Tracks round-trip latency for connection health monitoring.
   void _startHeartbeat() {
     _stopHeartbeat();
+    if (!_mayMaintainTransport || _socket?.connected != true) return;
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
-      if (_socket?.connected != true) return;
+      if (!_mayMaintainTransport || _socket?.connected != true) return;
 
-      final start = DateTime.now();
-
-      // Track pending heartbeat for latency measurement
-      _pendingHeartbeatStart = start;
-
-      // Emit heartbeat - OpenWebUI server may or may not acknowledge
+      // Upstream intentionally does not acknowledge this event. Keep latency
+      // unknown rather than reporting a local delayed callback as network RTT.
       _socket?.emit('heartbeat', <String, dynamic>{});
-
-      // Update latency based on successful emission (approximation)
-      // For true RTT, we'd need server to echo back, but most Socket.IO
-      // servers don't ack heartbeat events explicitly
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_pendingHeartbeatStart == start && _socket?.connected == true) {
-          // If still connected after 100ms, consider heartbeat successful
-          _lastHeartbeatLatencyMs = DateTime.now()
-              .difference(start)
-              .inMilliseconds;
-          _lastSuccessfulHeartbeat = DateTime.now();
-          _pendingHeartbeatStart = null;
-          _emitHealthUpdate();
-        }
-      });
+      _lastHeartbeatLatencyMs = -1;
+      _emitHealthUpdate();
     });
   }
-
-  DateTime? _pendingHeartbeatStart;
 
   /// Stops the heartbeat timer.
   void _stopHeartbeat() {
@@ -1269,6 +1538,20 @@ class SocketEventSubscription {
     if (_isDisposed) return;
     _isDisposed = true;
     _dispose();
+  }
+}
+
+class SocketBackgroundActivityLease {
+  SocketBackgroundActivityLease._(this._release);
+  SocketBackgroundActivityLease.forTesting(this._release);
+
+  final VoidCallback _release;
+  bool _isReleased = false;
+
+  void dispose() {
+    if (_isReleased) return;
+    _isReleased = true;
+    _release();
   }
 }
 

@@ -387,18 +387,69 @@ class ChatDatabaseRepository {
 
   /// Watches both narrow chat-list projections and emits one globally sorted
   /// list. No message body is selected by this path.
-  Stream<List<LocatedChatListEntry>> watchMergedChatList() {
-    final local = _directLocalDatabase.chatsDao.watchChatList();
+  Stream<List<LocatedChatListEntry>> watchMergedChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) {
     final server = _openWebUiDatabase;
     if (server == null) {
-      return local.map(
-        (entries) => List.unmodifiable(
-          _locatedList(ChatStorageKind.directLocal, entries),
-        ),
+      return watchDirectLocalChatList(
+        regularLimit: regularLimit,
+        archivedLimit: archivedLimit,
       );
     }
+    final local = _directLocalDatabase.chatsDao.watchChatList(
+      regularLimit: regularLimit,
+      archivedLimit: archivedLimit,
+    );
 
-    return _combineChatLists(server.chatsDao.watchChatList(), local);
+    return _combineChatLists(
+      server.chatsDao.watchChatList(
+        regularLimit: regularLimit,
+        archivedLimit: archivedLimit,
+      ),
+      local,
+    ).map(
+      (entries) => _applyMergedChatListLimits(
+        entries,
+        regularLimit: regularLimit,
+        archivedLimit: archivedLimit,
+      ),
+    );
+  }
+
+  /// Watches the exact archived-row total across both storage domains.
+  Stream<int> watchMergedArchivedChatCount() {
+    final server = _openWebUiDatabase;
+    if (server == null) {
+      return watchDirectLocalArchivedChatCount();
+    }
+    return _combineIntSums(
+      server.chatsDao.watchArchivedChatCount(),
+      _directLocalDatabase.chatsDao.watchArchivedChatCount(),
+    );
+  }
+
+  /// Watches only the app-owned direct-local chat list.
+  ///
+  /// Account isolation gates use this instead of subscribing to a closed or
+  /// uncertified Open WebUI database and filtering its emissions afterward.
+  Stream<List<LocatedChatListEntry>> watchDirectLocalChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) {
+    return _directLocalDatabase.chatsDao
+        .watchChatList(regularLimit: regularLimit, archivedLimit: archivedLimit)
+        .map(
+          (entries) => List.unmodifiable(
+            _locatedList(ChatStorageKind.directLocal, entries),
+          ),
+        );
+  }
+
+  /// Watches the exact archived-row total in app-owned direct-local storage.
+  Stream<int> watchDirectLocalArchivedChatCount() {
+    return _directLocalDatabase.chatsDao.watchArchivedChatCount();
   }
 
   /// Searches both stores, merges by FTS relevance, then applies one global
@@ -603,6 +654,12 @@ List<LocatedChatListEntry> _locatedList(
   ];
 }
 
+@visibleForTesting
+Stream<List<LocatedChatListEntry>> debugCombineChatLists(
+  Stream<List<ChatListEntry>> serverStream,
+  Stream<List<ChatListEntry>> localStream,
+) => _combineChatLists(serverStream, localStream);
+
 Stream<List<LocatedChatListEntry>> _combineChatLists(
   Stream<List<ChatListEntry>> serverStream,
   Stream<List<ChatListEntry>> localStream,
@@ -612,6 +669,21 @@ Stream<List<LocatedChatListEntry>> _combineChatLists(
   StreamSubscription<List<ChatListEntry>>? localSubscription;
   List<ChatListEntry>? serverEntries;
   List<ChatListEntry>? localEntries;
+  Timer? pendingEmission;
+  var hasEmitted = false;
+
+  void emitLatest() {
+    if (controller.isClosed) return;
+    final latestServer = serverEntries;
+    final latestLocal = localEntries;
+    if (latestServer == null || latestLocal == null) return;
+    final merged = <LocatedChatListEntry>[
+      ..._locatedList(ChatStorageKind.openWebUi, latestServer),
+      ..._locatedList(ChatStorageKind.directLocal, latestLocal),
+    ]..sort(_compareListEntries);
+    hasEmitted = true;
+    controller.add(List.unmodifiable(merged));
+  }
 
   void emitIfReady() {
     final currentServer = serverEntries;
@@ -619,11 +691,19 @@ Stream<List<LocatedChatListEntry>> _combineChatLists(
     if (currentServer == null || currentLocal == null || controller.isClosed) {
       return;
     }
-    final merged = <LocatedChatListEntry>[
-      ..._locatedList(ChatStorageKind.openWebUi, currentServer),
-      ..._locatedList(ChatStorageKind.directLocal, currentLocal),
-    ]..sort(_compareListEntries);
-    controller.add(List.unmodifiable(merged));
+    if (!hasEmitted) {
+      // The first complete pair is startup state, not a burst. Deliver it
+      // without adding a frame of latency to the drawer's initial contents.
+      emitLatest();
+      return;
+    }
+    // Fixed-window trailing coalescing: retain the latest pair, but never
+    // restart the timer. A conventional debounce can starve forever while a
+    // sync continuously updates one of the stores.
+    pendingEmission ??= Timer(const Duration(milliseconds: 16), () {
+      pendingEmission = null;
+      emitLatest();
+    });
   }
 
   controller = StreamController<List<LocatedChatListEntry>>(
@@ -638,8 +718,97 @@ Stream<List<LocatedChatListEntry>> _combineChatLists(
       }, onError: controller.addError);
     },
     onCancel: () async {
+      pendingEmission?.cancel();
       await serverSubscription?.cancel();
       await localSubscription?.cancel();
+    },
+  );
+  return controller.stream;
+}
+
+List<LocatedChatListEntry> _applyMergedChatListLimits(
+  List<LocatedChatListEntry> entries, {
+  required int? regularLimit,
+  required int? archivedLimit,
+}) {
+  if (regularLimit == null && archivedLimit == null) return entries;
+
+  final maxRegular = regularLimit == null ? null : max(0, regularLimit);
+  final maxArchived = archivedLimit == null ? null : max(0, archivedLimit);
+  var regularCount = 0;
+  var archivedCount = 0;
+  final limited = <LocatedChatListEntry>[];
+  for (final located in entries) {
+    final entry = located.entry;
+    if (entry.pinned) {
+      limited.add(located);
+      continue;
+    }
+    if (entry.archived) {
+      if (maxArchived == null || archivedCount < maxArchived) {
+        limited.add(located);
+        archivedCount++;
+      }
+      continue;
+    }
+    if (maxRegular == null || regularCount < maxRegular) {
+      limited.add(located);
+      regularCount++;
+    }
+  }
+  return List.unmodifiable(limited);
+}
+
+Stream<int> _combineIntSums(Stream<int> first, Stream<int> second) {
+  late StreamController<int> controller;
+  StreamSubscription<int>? firstSubscription;
+  StreamSubscription<int>? secondSubscription;
+  int? firstValue;
+  int? secondValue;
+  var firstDone = false;
+  var secondDone = false;
+
+  void emitIfReady() {
+    if (controller.isClosed || firstValue == null || secondValue == null) {
+      return;
+    }
+    controller.add(firstValue! + secondValue!);
+  }
+
+  void closeIfBothDone() {
+    if (!controller.isClosed && firstDone && secondDone) {
+      unawaited(controller.close());
+    }
+  }
+
+  controller = StreamController<int>(
+    onListen: () {
+      firstSubscription = first.listen(
+        (value) {
+          firstValue = value;
+          emitIfReady();
+        },
+        onError: controller.addError,
+        onDone: () {
+          firstDone = true;
+          closeIfBothDone();
+        },
+      );
+      secondSubscription = second.listen(
+        (value) {
+          secondValue = value;
+          emitIfReady();
+        },
+        onError: controller.addError,
+        onDone: () {
+          secondDone = true;
+          closeIfBothDone();
+        },
+      );
+    },
+    onCancel: () async {
+      await firstSubscription?.cancel();
+      await secondSubscription?.cancel();
     },
   );
   return controller.stream;

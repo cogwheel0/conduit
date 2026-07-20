@@ -473,6 +473,278 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('collapsed paginated chat sections do not consume hidden pages', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final pagination = _TestConversationPagination(remainingPages: 3);
+    final timestamp = DateTime(2026, 1, 1);
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [
+          Conversation(
+            id: 'recent-1',
+            title: 'Hidden recent',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+          Conversation(
+            id: 'archived-1',
+            title: 'Hidden archived',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            archived: true,
+          ),
+        ],
+        pagination: pagination,
+        showRecent: false,
+        showArchived: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(pagination.loadMoreCalls).equals(0);
+    expect(find.text('Hidden recent'), findsNothing);
+    expect(find.text('Hidden archived'), findsNothing);
+  });
+
+  testWidgets(
+    'load more reaches a regular chat after 200 collapsed folder rows',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      final pagination = _TestConversationPagination(remainingPages: 1);
+      final timestamp = DateTime(2026, 1, 1);
+      final firstPage = List<Conversation>.generate(
+        200,
+        (index) => Conversation(
+          id: 'foldered-$index',
+          title: 'Collapsed folder chat $index',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          folderId: 'collapsed-folder',
+        ),
+      );
+
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          conversations: firstPage,
+          pagination: pagination,
+          folders: const [
+            Folder(
+              id: 'collapsed-folder',
+              name: 'Collapsed Folder',
+              isExpanded: false,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      check(pagination.loadMoreCalls).equals(0);
+      expect(find.text('Collapsed folder chat 0'), findsNothing);
+
+      final context = tester.element(find.byType(SidebarPage));
+      final loadMoreLabel = AppLocalizations.of(context)!.workspaceLoadMore;
+      final loadMoreButton = find.byKey(
+        const ValueKey<String>('chats-load-more'),
+      );
+      expect(loadMoreButton, findsOneWidget);
+      final loadMoreSemantics = find.bySemanticsLabel(loadMoreLabel);
+      final hasEnabledLoadMoreButton =
+          Iterable<int>.generate(loadMoreSemantics.evaluate().length).any((
+            index,
+          ) {
+            final semantics = tester
+                .getSemantics(loadMoreSemantics.at(index))
+                .getSemanticsData();
+            return semantics.label == loadMoreLabel &&
+                semantics.flagsCollection.isButton &&
+                semantics.flagsCollection.isEnabled == Tristate.isTrue;
+          });
+      check(hasEnabledLoadMoreButton).isTrue();
+
+      await tester.tap(loadMoreButton);
+      await tester.pumpAndSettle();
+
+      check(pagination.loadMoreCalls).equals(1);
+      expect(find.text('Paged 1'), findsOneWidget);
+    },
+  );
+
+  testWidgets('visible end of expanded recent chats requests the next page', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final pagination = _TestConversationPagination(remainingPages: 1);
+    final timestamp = DateTime(2026, 1, 1);
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [
+          Conversation(
+            id: 'recent-1',
+            title: 'Visible recent',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+        ],
+        pagination: pagination,
+        showRecent: true,
+        showArchived: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(pagination.loadMoreCalls).equals(1);
+    expect(find.text('Visible recent'), findsOneWidget);
+    expect(find.text('Paged 1'), findsOneWidget);
+  });
+
+  testWidgets(
+    'pagination reload keeps previous rows visible instead of replacing the '
+    'drawer with a spinner',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      final reloadGate = Completer<void>();
+      final pagination = _TestConversationPagination(
+        remainingPages: 1,
+        reloadGate: reloadGate,
+      );
+      final timestamp = DateTime(2026, 1, 1);
+
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          conversations: [
+            Conversation(
+              id: 'recent-1',
+              title: 'Visible recent',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            ),
+          ],
+          pagination: pagination,
+          showRecent: true,
+          showArchived: false,
+        ),
+      );
+      // The visible end of the short list auto-requests the next page, which
+      // now parks the provider in a reload (loading-with-previous) state.
+      await tester.pump();
+      await tester.pump();
+      check(pagination.loadMoreCalls).equals(1);
+
+      // While the reload is in flight the previous rows must stay on screen;
+      // the drawer must not tear itself down into a centered spinner.
+      expect(find.text('Visible recent'), findsOneWidget);
+
+      reloadGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Visible recent'), findsOneWidget);
+      expect(find.text('Paged 1'), findsOneWidget);
+    },
+  );
+
+  testWidgets('pinned-only visibility does not consume regular pages', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final pagination = _TestConversationPagination(remainingPages: 1);
+    final timestamp = DateTime(2026, 1, 1);
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        conversations: [
+          Conversation(
+            id: 'pinned-1',
+            title: 'Visible pinned',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            pinned: true,
+          ),
+        ],
+        pagination: pagination,
+        showPinned: true,
+        showRecent: false,
+        showArchived: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    check(pagination.loadMoreCalls).equals(0);
+    expect(find.text('Visible pinned'), findsOneWidget);
+  });
+
+  testWidgets('archived section exposes exact count and pages independently', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+    final archivedPagination = _TestArchivedConversationPagination(
+      totalCount: 450,
+      pageSize: 2,
+    );
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        archivedPagination: archivedPagination,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Archived'), findsOneWidget);
+    expect(find.text('450'), findsOneWidget);
+    expect(find.text('Archived page 0'), findsNothing);
+    check(archivedPagination.loadedCount).equals(0);
+
+    await tester.tap(find.text('Archived'));
+    await tester.pumpAndSettle();
+
+    check(archivedPagination.loadedCount).equals(2);
+    expect(find.text('Archived page 0'), findsOneWidget);
+    final archivedLoadMore = find.byKey(
+      const ValueKey<String>('chats-archived-load-more'),
+    );
+    expect(archivedLoadMore, findsOneWidget);
+    final context = tester.element(find.byType(SidebarPage));
+    final l10n = AppLocalizations.of(context)!;
+    final archivedLoadMoreLabel = '${l10n.workspaceLoadMore}: ${l10n.archived}';
+    final archivedLoadMoreSemantics = find.bySemanticsLabel(
+      archivedLoadMoreLabel,
+    );
+    final hasEnabledArchivedLoadMore =
+        Iterable<int>.generate(archivedLoadMoreSemantics.evaluate().length).any(
+          (index) {
+            final semantics = tester
+                .getSemantics(archivedLoadMoreSemantics.at(index))
+                .getSemanticsData();
+            return semantics.label == archivedLoadMoreLabel &&
+                semantics.flagsCollection.isButton &&
+                semantics.flagsCollection.isEnabled == Tristate.isTrue;
+          },
+        );
+    check(hasEnabledArchivedLoadMore).isTrue();
+
+    await tester.tap(archivedLoadMore);
+    await tester.pumpAndSettle();
+
+    check(archivedPagination.loadMoreCalls).equals(1);
+    check(archivedPagination.loadedCount).equals(4);
+
+    await tester.tap(find.text('Archived'));
+    await tester.pumpAndSettle();
+
+    check(archivedPagination.loadedCount).equals(0);
+    expect(find.text('Archived page 0'), findsNothing);
+    expect(find.text('450'), findsOneWidget);
+  });
+
   testWidgets('empty notes tab shows a refresh action below the message', (
     tester,
   ) async {
@@ -1243,6 +1515,11 @@ Widget _buildSidebarHarness({
   required _SidebarHarnessControllers controllers,
   User? currentUser,
   List<Conversation> conversations = const [],
+  _TestConversationPagination? pagination,
+  _TestArchivedConversationPagination? archivedPagination,
+  bool showPinned = true,
+  bool showRecent = true,
+  bool showArchived = false,
   List<Folder> folders = const [],
   List<TerminalServerInfo>? terminalServers,
   Object? terminalServersError,
@@ -1307,6 +1584,8 @@ Widget _buildSidebarHarness({
         () => _TestConversations(
           conversations,
           onRefresh: controllers.recordChatRefresh,
+          pagination: pagination,
+          archivedPagination: archivedPagination,
         ),
       ),
       for (final entry in loadedConversations.entries)
@@ -1330,11 +1609,18 @@ Widget _buildSidebarHarness({
         _FakeOptimizedStorageService(),
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      showPinnedProvider.overrideWith(_TestShowPinnedNotifier.new),
+      showPinnedProvider.overrideWith(
+        () => _TestShowPinnedNotifier(showPinned),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       showFoldersProvider.overrideWith(_TestShowFoldersNotifier.new),
       // ignore: scoped_providers_should_specify_dependencies
-      showRecentProvider.overrideWith(_TestShowRecentNotifier.new),
+      showRecentProvider.overrideWith(
+        () => _TestShowRecentNotifier(showRecent),
+      ),
+      showArchivedProvider.overrideWith(
+        () => _TestShowArchivedNotifier(showArchived),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
       hermesOnlyModeProvider.overrideWithValue(hermesOnly),
@@ -1471,14 +1757,51 @@ class _TestSidebarActiveTab extends SidebarActiveTab {
   int get currentValue => state;
 }
 
+/// Dependency bumped by gated pagination, mirroring the production notifier's
+/// private page tick: bumping it re-runs [_TestConversations.build], which
+/// Riverpod reports as a loading-with-previous-value reload until it resolves.
+final _testConversationReloadTickProvider =
+    NotifierProvider<_TestConversationReloadTick, int>(
+      _TestConversationReloadTick.new,
+    );
+
+class _TestConversationReloadTick extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
 class _TestConversations extends Conversations {
-  _TestConversations(this.conversations, {this.onRefresh});
+  _TestConversations(
+    this.conversations, {
+    this.onRefresh,
+    this.pagination,
+    this.archivedPagination,
+  });
 
   final List<Conversation> conversations;
   final Future<void> Function()? onRefresh;
+  final _TestConversationPagination? pagination;
+  final _TestArchivedConversationPagination? archivedPagination;
+  final List<Conversation> _gateLoadedPages = <Conversation>[];
 
   @override
-  Future<List<Conversation>> build() async => conversations;
+  Future<List<Conversation>> build() async {
+    final reloadGate = pagination?.reloadGate;
+    if (reloadGate != null) {
+      final tick = ref.watch(_testConversationReloadTickProvider);
+      if (tick > 0) {
+        await reloadGate.future;
+        final nextConversation = pagination!.takeNextConversation();
+        if (nextConversation != null) {
+          _gateLoadedPages.add(nextConversation);
+        }
+      }
+      return [...conversations, ..._gateLoadedPages];
+    }
+    return conversations;
+  }
 
   @override
   Future<void> refresh({
@@ -1486,6 +1809,158 @@ class _TestConversations extends Conversations {
     bool forceFresh = false,
   }) async {
     await onRefresh?.call();
+  }
+
+  @override
+  bool hasMoreRegularChats() {
+    return pagination?.hasMore ?? super.hasMoreRegularChats();
+  }
+
+  @override
+  bool isLoadingMoreRegularChats() => false;
+
+  @override
+  Future<void> loadMore() async {
+    final pagination = this.pagination;
+    if (pagination == null) {
+      return super.loadMore();
+    }
+    pagination.loadMoreCalls++;
+    if (pagination.reloadGate != null) {
+      // Mirror the production notifier: pagination bumps a tick dependency,
+      // which re-runs build and reports a loading-with-previous-value reload
+      // until the widened window emits after the gate completes.
+      ref.read(_testConversationReloadTickProvider.notifier).bump();
+      await Future<void>.delayed(Duration.zero);
+      return;
+    }
+    final nextConversation = pagination.takeNextConversation();
+    if (nextConversation == null) return;
+    state = AsyncData<List<Conversation>>([
+      ...state.value ?? conversations,
+      nextConversation,
+    ]);
+  }
+
+  @override
+  int archivedChatCount() {
+    return archivedPagination?.totalCount ?? super.archivedChatCount();
+  }
+
+  @override
+  bool archivedChatsVisible() {
+    return archivedPagination?.visible ?? super.archivedChatsVisible();
+  }
+
+  @override
+  bool hasMoreArchivedChats() {
+    final pagination = archivedPagination;
+    return pagination == null
+        ? super.hasMoreArchivedChats()
+        : pagination.loadedCount < pagination.totalCount;
+  }
+
+  @override
+  bool isLoadingMoreArchivedChats() => false;
+
+  @override
+  Future<void> setArchivedChatsVisible(bool visible) async {
+    final pagination = archivedPagination;
+    if (pagination == null) {
+      return super.setArchivedChatsVisible(visible);
+    }
+    pagination.setVisible(visible);
+    _publishArchivedPage(pagination);
+  }
+
+  @override
+  Future<void> loadMoreArchived() async {
+    final pagination = archivedPagination;
+    if (pagination == null) {
+      return super.loadMoreArchived();
+    }
+    pagination.loadMore();
+    _publishArchivedPage(pagination);
+  }
+
+  void _publishArchivedPage(_TestArchivedConversationPagination pagination) {
+    final active = (state.asData?.value ?? conversations)
+        .where((conversation) => !conversation.archived)
+        .toList(growable: false);
+    state = AsyncData<List<Conversation>>([
+      ...active,
+      ...pagination.loadedConversations,
+    ]);
+  }
+}
+
+class _TestConversationPagination {
+  _TestConversationPagination({required this.remainingPages, this.reloadGate});
+
+  int remainingPages;
+  int loadMoreCalls = 0;
+  int pagesConsumed = 0;
+
+  /// When set, `loadMore` first publishes a reload (loading-with-previous)
+  /// state and holds it until the gate completes, exposing the intermediate
+  /// provider state the production tick-based pagination goes through.
+  final Completer<void>? reloadGate;
+
+  bool get hasMore => remainingPages > 0;
+
+  Conversation? takeNextConversation() {
+    if (!hasMore) return null;
+    remainingPages--;
+    pagesConsumed++;
+    final timestamp = DateTime(
+      2026,
+      1,
+      1,
+    ).add(Duration(minutes: pagesConsumed));
+    return Conversation(
+      id: 'paged-$pagesConsumed',
+      title: 'Paged $pagesConsumed',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+}
+
+class _TestArchivedConversationPagination {
+  _TestArchivedConversationPagination({
+    required this.totalCount,
+    required this.pageSize,
+  });
+
+  final int totalCount;
+  final int pageSize;
+  bool visible = false;
+  int loadedCount = 0;
+  int loadMoreCalls = 0;
+
+  void setVisible(bool value) {
+    visible = value;
+    loadedCount = value ? pageSize.clamp(0, totalCount).toInt() : 0;
+  }
+
+  void loadMore() {
+    if (!visible || loadedCount >= totalCount) return;
+    loadMoreCalls++;
+    loadedCount = (loadedCount + pageSize).clamp(0, totalCount).toInt();
+  }
+
+  List<Conversation> get loadedConversations {
+    final timestamp = DateTime(2026, 1, 1);
+    return List<Conversation>.generate(
+      loadedCount,
+      (index) => Conversation(
+        id: 'archived-page-$index',
+        title: 'Archived page $index',
+        createdAt: timestamp,
+        updatedAt: timestamp.add(Duration(minutes: index)),
+        archived: true,
+      ),
+    );
   }
 }
 
@@ -1529,8 +2004,12 @@ class _FakeOptimizedStorageService extends Fake
 }
 
 class _TestShowPinnedNotifier extends ShowPinnedNotifier {
+  _TestShowPinnedNotifier(this.initialValue);
+
+  final bool initialValue;
+
   @override
-  bool build() => true;
+  bool build() => initialValue;
 }
 
 class _TestShowFoldersNotifier extends ShowFoldersNotifier {
@@ -1539,6 +2018,19 @@ class _TestShowFoldersNotifier extends ShowFoldersNotifier {
 }
 
 class _TestShowRecentNotifier extends ShowRecentNotifier {
+  _TestShowRecentNotifier(this.initialValue);
+
+  final bool initialValue;
+
   @override
-  bool build() => true;
+  bool build() => initialValue;
+}
+
+class _TestShowArchivedNotifier extends ShowArchivedNotifier {
+  _TestShowArchivedNotifier(this.initialValue);
+
+  final bool initialValue;
+
+  @override
+  bool build() => initialValue;
 }

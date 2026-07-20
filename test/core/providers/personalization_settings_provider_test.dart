@@ -489,7 +489,9 @@ class _PinnedModelsApiService extends ApiService {
   final List<_PinnedModelsRequest> _requests = [];
   final List<void Function()> _requestWaiters = [];
 
+  @override
   void dispose() {
+    super.dispose();
     _workerManager.dispose();
   }
 

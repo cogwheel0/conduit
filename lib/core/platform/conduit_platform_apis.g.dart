@@ -592,17 +592,17 @@ class PlatformBackgroundTaskExtendedEvent {
 class PlatformAppIntentImagePayload {
   PlatformAppIntentImagePayload({
     required this.filename,
-    required this.bytes,
+    required this.filePath,
   });
 
   String filename;
 
-  Uint8List bytes;
+  String filePath;
 
   List<Object?> _toList() {
     return <Object?>[
       filename,
-      bytes,
+      filePath,
     ];
   }
 
@@ -613,7 +613,7 @@ class PlatformAppIntentImagePayload {
     result as List<Object?>;
     return PlatformAppIntentImagePayload(
       filename: result[0]! as String,
-      bytes: result[1]! as Uint8List,
+      filePath: result[1]! as String,
     );
   }
 
@@ -626,7 +626,7 @@ class PlatformAppIntentImagePayload {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(filename, other.filename) && _deepEquals(bytes, other.bytes);
+    return _deepEquals(filename, other.filename) && _deepEquals(filePath, other.filePath);
   }
 
   @override
@@ -635,7 +635,7 @@ class PlatformAppIntentImagePayload {
 
   @override
   String toString() {
-    return 'PlatformAppIntentImagePayload(filename: $filename, bytes: $bytes)';
+    return 'PlatformAppIntentImagePayload(filename: $filename, filePath: $filePath)';
   }
 }
 
@@ -644,6 +644,7 @@ class PlatformAppIntentResponse {
     required this.success,
     this.value,
     this.error,
+    this.ownedFilePath,
   });
 
   bool success;
@@ -652,11 +653,14 @@ class PlatformAppIntentResponse {
 
   String? error;
 
+  String? ownedFilePath;
+
   List<Object?> _toList() {
     return <Object?>[
       success,
       value,
       error,
+      ownedFilePath,
     ];
   }
 
@@ -669,6 +673,7 @@ class PlatformAppIntentResponse {
       success: result[0]! as bool,
       value: result[1] as String?,
       error: result[2] as String?,
+      ownedFilePath: result[3] as String?,
     );
   }
 
@@ -681,7 +686,7 @@ class PlatformAppIntentResponse {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(success, other.success) && _deepEquals(value, other.value) && _deepEquals(error, other.error);
+    return _deepEquals(success, other.success) && _deepEquals(value, other.value) && _deepEquals(error, other.error) && _deepEquals(ownedFilePath, other.ownedFilePath);
   }
 
   @override
@@ -690,24 +695,24 @@ class PlatformAppIntentResponse {
 
   @override
   String toString() {
-    return 'PlatformAppIntentResponse(success: $success, value: $value, error: $error)';
+    return 'PlatformAppIntentResponse(success: $success, value: $value, error: $error, ownedFilePath: $ownedFilePath)';
   }
 }
 
 class PlatformNativePasteImageItem {
   PlatformNativePasteImageItem({
     required this.mimeType,
-    required this.data,
+    required this.filePath,
   });
 
   String mimeType;
 
-  Uint8List data;
+  String filePath;
 
   List<Object?> _toList() {
     return <Object?>[
       mimeType,
-      data,
+      filePath,
     ];
   }
 
@@ -718,7 +723,7 @@ class PlatformNativePasteImageItem {
     result as List<Object?>;
     return PlatformNativePasteImageItem(
       mimeType: result[0]! as String,
-      data: result[1]! as Uint8List,
+      filePath: result[1]! as String,
     );
   }
 
@@ -731,7 +736,7 @@ class PlatformNativePasteImageItem {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(mimeType, other.mimeType) && _deepEquals(data, other.data);
+    return _deepEquals(mimeType, other.mimeType) && _deepEquals(filePath, other.filePath);
   }
 
   @override
@@ -740,7 +745,7 @@ class PlatformNativePasteImageItem {
 
   @override
   String toString() {
-    return 'PlatformNativePasteImageItem(mimeType: $mimeType, data: $data)';
+    return 'PlatformNativePasteImageItem(mimeType: $mimeType, filePath: $filePath)';
   }
 }
 
@@ -749,6 +754,7 @@ class PlatformNativePastePayload {
     required this.kind,
     this.text,
     this.items,
+    this.deliveryId,
   });
 
   PlatformNativePasteKind kind;
@@ -757,11 +763,14 @@ class PlatformNativePastePayload {
 
   List<PlatformNativePasteImageItem>? items;
 
+  String? deliveryId;
+
   List<Object?> _toList() {
     return <Object?>[
       kind,
       text,
       items,
+      deliveryId,
     ];
   }
 
@@ -774,6 +783,7 @@ class PlatformNativePastePayload {
       kind: result[0]! as PlatformNativePasteKind,
       text: result[1] as String?,
       items: (result[2] as List<Object?>?)?.cast<PlatformNativePasteImageItem>(),
+      deliveryId: result[3] as String?,
     );
   }
 
@@ -786,7 +796,7 @@ class PlatformNativePastePayload {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(kind, other.kind) && _deepEquals(text, other.text) && _deepEquals(items, other.items);
+    return _deepEquals(kind, other.kind) && _deepEquals(text, other.text) && _deepEquals(items, other.items) && _deepEquals(deliveryId, other.deliveryId);
   }
 
   @override
@@ -795,7 +805,7 @@ class PlatformNativePastePayload {
 
   @override
   String toString() {
-    return 'PlatformNativePastePayload(kind: $kind, text: $text, items: $items)';
+    return 'PlatformNativePastePayload(kind: $kind, text: $text, items: $items, deliveryId: $deliveryId)';
   }
 }
 
@@ -2076,6 +2086,7 @@ class PlatformNativeSheetModelOption {
 
 class PlatformNativeSheetModelSelectorRequest {
   PlatformNativeSheetModelSelectorRequest({
+    required this.presentationId,
     required this.title,
     this.selectedModelId,
     required this.models,
@@ -2084,6 +2095,8 @@ class PlatformNativeSheetModelSelectorRequest {
     this.pinTitle,
     this.unpinTitle,
   });
+
+  String presentationId;
 
   String title;
 
@@ -2101,6 +2114,7 @@ class PlatformNativeSheetModelSelectorRequest {
 
   List<Object?> _toList() {
     return <Object?>[
+      presentationId,
       title,
       selectedModelId,
       models,
@@ -2117,13 +2131,14 @@ class PlatformNativeSheetModelSelectorRequest {
   static PlatformNativeSheetModelSelectorRequest decode(Object result) {
     result as List<Object?>;
     return PlatformNativeSheetModelSelectorRequest(
-      title: result[0]! as String,
-      selectedModelId: result[1] as String?,
-      models: (result[2]! as List<Object?>).cast<PlatformNativeSheetModelOption>(),
-      pinnedModelIds: (result[3]! as List<Object?>).cast<String>(),
-      allowsPinning: result[4]! as bool,
-      pinTitle: result[5] as String?,
-      unpinTitle: result[6] as String?,
+      presentationId: result[0]! as String,
+      title: result[1]! as String,
+      selectedModelId: result[2] as String?,
+      models: (result[3]! as List<Object?>).cast<PlatformNativeSheetModelOption>(),
+      pinnedModelIds: (result[4]! as List<Object?>).cast<String>(),
+      allowsPinning: result[5]! as bool,
+      pinTitle: result[6] as String?,
+      unpinTitle: result[7] as String?,
     );
   }
 
@@ -2136,7 +2151,7 @@ class PlatformNativeSheetModelSelectorRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(title, other.title) && _deepEquals(selectedModelId, other.selectedModelId) && _deepEquals(models, other.models) && _deepEquals(pinnedModelIds, other.pinnedModelIds) && _deepEquals(allowsPinning, other.allowsPinning) && _deepEquals(pinTitle, other.pinTitle) && _deepEquals(unpinTitle, other.unpinTitle);
+    return _deepEquals(presentationId, other.presentationId) && _deepEquals(title, other.title) && _deepEquals(selectedModelId, other.selectedModelId) && _deepEquals(models, other.models) && _deepEquals(pinnedModelIds, other.pinnedModelIds) && _deepEquals(allowsPinning, other.allowsPinning) && _deepEquals(pinTitle, other.pinTitle) && _deepEquals(unpinTitle, other.unpinTitle);
   }
 
   @override
@@ -2145,7 +2160,7 @@ class PlatformNativeSheetModelSelectorRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetModelSelectorRequest(title: $title, selectedModelId: $selectedModelId, models: $models, pinnedModelIds: $pinnedModelIds, allowsPinning: $allowsPinning, pinTitle: $pinTitle, unpinTitle: $unpinTitle)';
+    return 'PlatformNativeSheetModelSelectorRequest(presentationId: $presentationId, title: $title, selectedModelId: $selectedModelId, models: $models, pinnedModelIds: $pinnedModelIds, allowsPinning: $allowsPinning, pinTitle: $pinTitle, unpinTitle: $unpinTitle)';
   }
 }
 
@@ -3336,15 +3351,15 @@ abstract class BackgroundStreamingFlutterApi {
 abstract class AppIntentFlutterApi {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
-  Future<PlatformAppIntentResponse> askChat(String? prompt);
+  Future<PlatformAppIntentResponse> askChat(String invocationId, String? prompt);
 
-  Future<PlatformAppIntentResponse> startVoiceCall();
+  Future<PlatformAppIntentResponse> startVoiceCall(String invocationId);
 
-  Future<PlatformAppIntentResponse> sendText(String text);
+  Future<PlatformAppIntentResponse> sendText(String invocationId, String text);
 
-  Future<PlatformAppIntentResponse> sendUrl(String url);
+  Future<PlatformAppIntentResponse> sendUrl(String invocationId, String url);
 
-  Future<PlatformAppIntentResponse> sendImage(PlatformAppIntentImagePayload payload);
+  Future<PlatformAppIntentResponse> sendImage(String invocationId, PlatformAppIntentImagePayload payload);
 
   static void setUp(AppIntentFlutterApi? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
@@ -3357,9 +3372,10 @@ abstract class AppIntentFlutterApi {
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           final List<Object?> args = message! as List<Object?>;
-          final String? arg_prompt = args[0] as String?;
+          final String arg_invocationId = args[0]! as String;
+          final String? arg_prompt = args[1] as String?;
           try {
-            final PlatformAppIntentResponse output = await api.askChat(arg_prompt);
+            final PlatformAppIntentResponse output = await api.askChat(arg_invocationId, arg_prompt);
             return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -3377,8 +3393,10 @@ abstract class AppIntentFlutterApi {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_invocationId = args[0]! as String;
           try {
-            final PlatformAppIntentResponse output = await api.startVoiceCall();
+            final PlatformAppIntentResponse output = await api.startVoiceCall(arg_invocationId);
             return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -3397,9 +3415,10 @@ abstract class AppIntentFlutterApi {
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           final List<Object?> args = message! as List<Object?>;
-          final String arg_text = args[0]! as String;
+          final String arg_invocationId = args[0]! as String;
+          final String arg_text = args[1]! as String;
           try {
-            final PlatformAppIntentResponse output = await api.sendText(arg_text);
+            final PlatformAppIntentResponse output = await api.sendText(arg_invocationId, arg_text);
             return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -3418,9 +3437,10 @@ abstract class AppIntentFlutterApi {
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           final List<Object?> args = message! as List<Object?>;
-          final String arg_url = args[0]! as String;
+          final String arg_invocationId = args[0]! as String;
+          final String arg_url = args[1]! as String;
           try {
-            final PlatformAppIntentResponse output = await api.sendUrl(arg_url);
+            final PlatformAppIntentResponse output = await api.sendUrl(arg_invocationId, arg_url);
             return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -3439,9 +3459,10 @@ abstract class AppIntentFlutterApi {
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
           final List<Object?> args = message! as List<Object?>;
-          final PlatformAppIntentImagePayload arg_payload = args[0]! as PlatformAppIntentImagePayload;
+          final String arg_invocationId = args[0]! as String;
+          final PlatformAppIntentImagePayload arg_payload = args[1]! as PlatformAppIntentImagePayload;
           try {
-            final PlatformAppIntentResponse output = await api.sendImage(arg_payload);
+            final PlatformAppIntentResponse output = await api.sendImage(arg_invocationId, arg_payload);
             return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
@@ -3451,6 +3472,38 @@ abstract class AppIntentFlutterApi {
         });
       }
     }
+  }
+}
+
+class AppIntentHostApi {
+  /// Constructor for [AppIntentHostApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  AppIntentHostApi({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
+      : pigeonVar_binaryMessenger = binaryMessenger,
+        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<void> setReady(bool ready) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.conduit.AppIntentHostApi.setReady$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[ready]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
   }
 }
 
@@ -3490,7 +3543,7 @@ class NativePasteHostApi {
 abstract class NativePasteFlutterApi {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
-  void onPaste(PlatformNativePastePayload payload);
+  Future<bool> onPaste(PlatformNativePastePayload payload);
 
   static void setUp(NativePasteFlutterApi? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
     messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
@@ -3505,8 +3558,8 @@ abstract class NativePasteFlutterApi {
           final List<Object?> args = message! as List<Object?>;
           final PlatformNativePastePayload arg_payload = args[0]! as PlatformNativePastePayload;
           try {
-            api.onPaste(arg_payload);
-            return wrapResponse(empty: true);
+            final bool output = await api.onPaste(arg_payload);
+            return wrapResponse(result: output);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
           }          catch (e) {
@@ -3742,6 +3795,24 @@ class NativeSheetHostApi {
     )
     ;
     return pigeonVar_replyValue as String?;
+  }
+
+  Future<void> updateModelSelectorModels(String presentationId, List<PlatformNativeSheetModelOption> models) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModels$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[presentationId, models]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
   }
 
   Future<String?> presentOptionsSelector(PlatformNativeSheetOptionsSelectorRequest request) async {

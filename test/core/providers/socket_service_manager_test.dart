@@ -356,6 +356,11 @@ final class _TestSocketService implements SocketService {
   }
 
   @override
+  void connectBestEffort({bool force = false, required String reason}) {
+    connectCalls += 1;
+  }
+
+  @override
   void dispose() {
     disposeCalls += 1;
   }

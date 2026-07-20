@@ -484,14 +484,17 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// attempt. attempts is reset to 0 so the user gets a fresh N=5 budget;
   /// lastError is cleared.
   Future<void> requeueParked(int seq, {required int nowEpochSeconds}) {
-    return (update(outboxOps)..where((t) => t.seq.equals(seq))).write(
-      OutboxOpsCompanion(
-        status: const Value(OutboxStatus.pending),
-        attempts: const Value(0),
-        nextAttemptAt: Value(nowEpochSeconds),
-        lastError: const Value(null),
-      ),
-    );
+    return (update(outboxOps)..where(
+          (t) => t.seq.equals(seq) & t.status.equals(OutboxStatus.failed),
+        ))
+        .write(
+          OutboxOpsCompanion(
+            status: const Value(OutboxStatus.pending),
+            attempts: const Value(0),
+            nextAttemptAt: Value(nowEpochSeconds),
+            lastError: const Value(null),
+          ),
+        );
   }
 
   /// Manual retry for an already-pending op whose backoff/offline marker is

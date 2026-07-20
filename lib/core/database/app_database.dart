@@ -25,9 +25,11 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Current schema version 6 includes sync metadata, chats, messages, folders,
+/// Current schema version 8 includes sync metadata, chats, messages, folders,
 /// outbox operations, notes, the shared chat/note FTS substrate, and (v6) the
-/// per-server app cache + attachment upload queue.
+/// per-server app cache + attachment upload queue. Version 7 adds the bounded
+/// chat-list window index used by active and archived drawer pagination.
+/// Version 8 adds crash-safe native-share dedupe receipts to attachment rows.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
 /// on server switch or removal) is owned by [DatabaseManager].
@@ -73,7 +75,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -128,6 +130,18 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(appCache);
         await m.createTable(attachmentQueue);
       }
+      if (from < 7) {
+        await _createChatListWindowIndex();
+      }
+      if (from < 8) {
+        // Upgrades from pre-v6 create the current attachment table above, so
+        // only an existing v6/v7 table needs the two additive columns.
+        if (from >= 6) {
+          await m.addColumn(attachmentQueue, attachmentQueue.durableKey);
+          await m.addColumn(attachmentQueue, attachmentQueue.receiptHeld);
+        }
+        await _createAttachmentReceiptIndex();
+      }
     },
     beforeOpen: (details) async {
       // Required for the messages -> chats cascade.
@@ -140,6 +154,15 @@ class AppDatabase extends _$AppDatabase {
   Future<void> _createIndexes() async {
     await _createCoreIndexes();
     await _createNoteIndexes();
+    await _createAttachmentReceiptIndex();
+  }
+
+  Future<void> _createAttachmentReceiptIndex() {
+    return customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS '
+      'attachment_queue_durable_key_unique '
+      'ON attachment_queue (durable_key);',
+    );
   }
 
   Future<void> _createCoreIndexes() async {
@@ -151,6 +174,7 @@ class AppDatabase extends _$AppDatabase {
       'CREATE INDEX IF NOT EXISTS idx_chats_updated_at '
       'ON chats (updated_at DESC);',
     );
+    await _createChatListWindowIndex();
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_chats_dirty ON chats (dirty) '
       'WHERE dirty;',
@@ -163,6 +187,15 @@ class AppDatabase extends _$AppDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_outbox_chat_seq '
       'ON outbox_ops (chat_id, seq);',
+    );
+  }
+
+  /// Partitions the drawer's three disjoint list branches and satisfies each
+  /// bounded active/archive ORDER BY directly from the index.
+  Future<void> _createChatListWindowIndex() {
+    return customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_chats_list_window '
+      'ON chats (deleted, pinned, archived, updated_at DESC, id ASC);',
     );
   }
 

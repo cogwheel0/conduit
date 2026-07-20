@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:checks/checks.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
@@ -8,6 +12,24 @@ class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
     : super(workerManager: WorkerManager());
 
   final List<List<String>> batchCalls = <List<String>>[];
+  final List<bool> synchronousBatchInputs = <bool>[];
+  final List<bool> widgetTestBatchInputs = <bool>[];
+  final List<String> preparedInputs = <String>[];
+  final List<bool> synchronousPreparationInputs = <bool>[];
+  final List<String> events = <String>[];
+
+  @override
+  Future<String> prepareContent(
+    String content, {
+    required bool streaming,
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    preparedInputs.add(content);
+    synchronousPreparationInputs.add(allowSynchronous);
+    events.add('prepare:$content');
+    return prepareMarkdownContent(content, streaming: streaming);
+  }
 
   @override
   Future<List<CompiledMarkdownDocument>> compilePreparedBatch(
@@ -17,7 +39,35 @@ class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
   }) async {
     final contents = preparedContents.toList(growable: false);
     batchCalls.add(contents);
+    synchronousBatchInputs.add(allowSynchronous);
+    widgetTestBatchInputs.add(widgetTest);
+    events.add('compile:${contents.join('|')}');
     return contents.map(compilePreparedSynchronously).toList(growable: false);
+  }
+}
+
+class _GatedBatchMarkdownCompileService
+    extends _RecordingBatchMarkdownCompileService {
+  final Completer<void> firstCompileStarted = Completer<void>();
+  final Completer<void> releaseFirstCompile = Completer<void>();
+  var compileCalls = 0;
+
+  @override
+  Future<List<CompiledMarkdownDocument>> compilePreparedBatch(
+    Iterable<String> preparedContents, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    compileCalls += 1;
+    if (compileCalls == 1) {
+      firstCompileStarted.complete();
+      await releaseFirstCompile.future;
+    }
+    return super.compilePreparedBatch(
+      preparedContents,
+      allowSynchronous: allowSynchronous,
+      widgetTest: widgetTest,
+    );
   }
 }
 
@@ -313,6 +363,78 @@ void main() {
   );
 
   test(
+    'prepareStreamingContent retains a prepared prefix in the isolate',
+    () async {
+      final patches = <MarkdownPreparationPatch>[];
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugOnPreparationPatch: patches.add,
+      );
+      addTearDown(service.dispose);
+      var prepared = const PreparedMarkdownText.empty();
+
+      final first = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 1,
+          expectedBaseRevision: 0,
+          content: 'First paragraph.\n\nSecond',
+          streaming: true,
+          collectMetrics: true,
+          verifyParity: true,
+        ),
+      );
+      prepared = prepared.applyPatch(first);
+      final second = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 2,
+          expectedBaseRevision: 1,
+          content: 'First paragraph.\n\nSecond grows 物語',
+          streaming: true,
+          collectMetrics: true,
+          verifyParity: true,
+        ),
+      );
+      prepared = prepared.applyPatch(second);
+
+      expect(first.mode, MarkdownPreparationMode.full);
+      expect(second.mode, MarkdownPreparationMode.incremental);
+      expect(
+        second.metrics.processedCharacters,
+        lessThan(second.metrics.inputCharacters),
+      );
+      expect(
+        second.metrics.inputUtf8Bytes,
+        greaterThan(second.metrics.inputCharacters),
+      );
+      expect(patches, hasLength(2));
+      expect(
+        prepared.materialize(),
+        prepareMarkdownContent(
+          'First paragraph.\n\nSecond grows 物語',
+          streaming: true,
+        ),
+      );
+
+      await service.releaseStreamingPreparationSession('message-1');
+      final reset = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 3,
+          expectedBaseRevision: 2,
+          content: 'First paragraph.\n\nAfter release',
+          streaming: true,
+          collectMetrics: false,
+          verifyParity: true,
+        ),
+      );
+      expect(reset.mode, MarkdownPreparationMode.resetFull);
+      expect(reset.fallbackReason, 'missingSession');
+    },
+  );
+
+  test(
     'prepareContent falls back to sync when the async prepare backend fails',
     () async {
       MarkdownPrepareExecutionPath? executionPath;
@@ -391,8 +513,132 @@ void main() {
 
     await Future<void>.delayed(Duration.zero);
 
-    expect(service.batchCalls, <List<String>>[
+    check(service.batchCalls).deepEquals(<List<String>>[
       <String>['first fresh entry', 'second fresh entry'],
     ]);
   });
+
+  test(
+    'prewarmContents prepares raw slices before batch compilation',
+    () async {
+      final service = _RecordingBatchMarkdownCompileService();
+      addTearDown(service.dispose);
+
+      const rawInputs = <String>['first **raw**\r\nentry', 'second raw\rentry'];
+      final preparedInputs = rawInputs
+          .map((value) => prepareMarkdownContent(value, streaming: false))
+          .toList(growable: false);
+      await service.prewarmContents(rawInputs, streaming: false);
+
+      check(service.preparedInputs).deepEquals(rawInputs);
+      check(service.synchronousPreparationInputs).deepEquals([false, false]);
+      check(service.batchCalls).deepEquals(<List<String>>[preparedInputs]);
+      check(service.events).deepEquals(<String>[
+        for (final input in rawInputs) 'prepare:$input',
+        'compile:${preparedInputs.join('|')}',
+      ]);
+    },
+  );
+
+  test('widget-test prewarming keeps batch compilation synchronous', () async {
+    final service = _RecordingBatchMarkdownCompileService();
+    addTearDown(service.dispose);
+
+    await service.prewarmContents(
+      const <String>['widget-test markdown'],
+      streaming: false,
+      widgetTest: true,
+    );
+
+    check(service.synchronousBatchInputs).deepEquals([true]);
+    check(service.widgetTestBatchInputs).deepEquals([true]);
+  });
+
+  test('prewarmContents bounds preparation batches', () async {
+    final service = _RecordingBatchMarkdownCompileService();
+    addTearDown(service.dispose);
+    final contents = List<String>.generate(
+      17,
+      (index) => 'bounded prewarm entry $index',
+    );
+
+    await service.prewarmContents(contents, streaming: false);
+    await Future<void>.delayed(Duration.zero);
+
+    check(service.preparedInputs).deepEquals(contents);
+    check(
+      service.batchCalls.map((batch) => batch.length),
+    ).deepEquals([8, 8, 1]);
+  });
+
+  test('prewarmContents yields before admitting the next raw batch', () async {
+    final firstPreparationStarted = Completer<void>();
+    final releaseFirstPreparation = Completer<void>();
+    var preparationCalls = 0;
+    var admittedInputs = 0;
+    final service = MarkdownCompileService(
+      workerManager: WorkerManager(),
+      debugPrepareContentOverride: (content, streaming) async {
+        preparationCalls++;
+        if (preparationCalls == 1) {
+          firstPreparationStarted.complete();
+          await releaseFirstPreparation.future;
+        }
+        return content;
+      },
+    );
+    addTearDown(service.dispose);
+    addTearDown(() {
+      if (!releaseFirstPreparation.isCompleted) {
+        releaseFirstPreparation.complete();
+      }
+    });
+
+    Iterable<String> lazyInputs() sync* {
+      for (var index = 0; index < 17; index++) {
+        admittedInputs++;
+        yield 'lazy prewarm entry $index';
+      }
+    }
+
+    final prewarm = service.prewarmContents(lazyInputs(), streaming: false);
+    await firstPreparationStarted.future;
+
+    check(admittedInputs).equals(8);
+    releaseFirstPreparation.complete();
+    await prewarm;
+    check(admittedInputs).equals(17);
+  });
+
+  test(
+    'prewarmContents waits for each compiled batch before admitting more',
+    () async {
+      final service = _GatedBatchMarkdownCompileService();
+      addTearDown(service.dispose);
+      addTearDown(() {
+        if (!service.releaseFirstCompile.isCompleted) {
+          service.releaseFirstCompile.complete();
+        }
+      });
+      var admittedInputs = 0;
+
+      Iterable<String> lazyInputs() sync* {
+        for (var index = 0; index < 17; index++) {
+          admittedInputs += 1;
+          yield 'compile-gated prewarm entry $index';
+        }
+      }
+
+      final prewarm = service.prewarmContents(lazyInputs(), streaming: false);
+      await service.firstCompileStarted.future;
+
+      check(admittedInputs).equals(8);
+      check(service.compileCalls).equals(1);
+      service.releaseFirstCompile.complete();
+      await prewarm;
+
+      check(admittedInputs).equals(17);
+      check(service.compileCalls).equals(3);
+    },
+  );
 }

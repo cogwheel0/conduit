@@ -73,7 +73,9 @@ Stream<List<int>> directResponseBytes(ResponseBody body) =>
 
 const Duration kDirectStreamIdleTimeout = Duration(minutes: 5);
 const Duration kDirectStreamMaxDuration = Duration(minutes: 30);
+const Duration kDirectSuccessDrainTimeout = Duration(milliseconds: 500);
 const int kMaxDirectStreamBytes = 64 * 1024 * 1024;
+const int kMaxDirectSuccessDrainBytes = 256 * 1024;
 const int kMaxDirectStreamCharacters = 8 * 1024 * 1024;
 const int kMaxDirectStreamEvents = 100000;
 const int kMaxDirectStreamWorkUnits = 1024 * 1024;
@@ -138,6 +140,9 @@ Stream<List<int>> directStreamingResponseBytes(
   Duration idleTimeout = kDirectStreamIdleTimeout,
   Duration maxDuration = kDirectStreamMaxDuration,
   int maxBytes = kMaxDirectStreamBytes,
+  bool Function()? successfulProtocolTerminal,
+  Duration successDrainTimeout = kDirectSuccessDrainTimeout,
+  int maxSuccessDrainBytes = kMaxDirectSuccessDrainBytes,
 }) async* {
   if (idleTimeout <= Duration.zero) {
     throw ArgumentError.value(idleTimeout, 'idleTimeout');
@@ -146,24 +151,51 @@ Stream<List<int>> directStreamingResponseBytes(
     throw ArgumentError.value(maxDuration, 'maxDuration');
   }
   if (maxBytes <= 0) throw RangeError.value(maxBytes, 'maxBytes');
+  if (successDrainTimeout <= Duration.zero) {
+    throw ArgumentError.value(successDrainTimeout, 'successDrainTimeout');
+  }
+  if (maxSuccessDrainBytes <= 0) {
+    throw RangeError.value(maxSuccessDrainBytes, 'maxSuccessDrainBytes');
+  }
 
   final elapsed = Stopwatch()..start();
+  Stopwatch? successDrainElapsed;
   final iterator = StreamIterator(directResponseBytes(body));
   var receivedBytes = 0;
+  var drainedBytes = 0;
+  var reachedEof = false;
   try {
     while (true) {
+      final drainingSuccess = successfulProtocolTerminal?.call() == true;
       final remaining = maxDuration - elapsed.elapsed;
       if (remaining <= Duration.zero) {
+        if (drainingSuccess) {
+          throw const DirectStreamDrainException();
+        }
         throw const DirectProviderException(
           'The provider stream exceeded Conduit\'s time limit.',
         );
       }
+      final drainRemaining = drainingSuccess
+          ? successDrainTimeout -
+                ((successDrainElapsed ??= Stopwatch()..start()).elapsed)
+          : null;
+      if (drainRemaining != null && drainRemaining <= Duration.zero) {
+        throw const DirectStreamDrainException();
+      }
       final enforcingAbsoluteLimit = remaining.compareTo(idleTimeout) <= 0;
-      final wait = enforcingAbsoluteLimit ? remaining : idleTimeout;
+      final normalWait = enforcingAbsoluteLimit ? remaining : idleTimeout;
+      final wait =
+          drainRemaining != null && drainRemaining.compareTo(normalWait) < 0
+          ? drainRemaining
+          : normalWait;
       bool hasNext;
       try {
         hasNext = await iterator.moveNext().timeout(wait);
       } on TimeoutException catch (error) {
+        if (drainingSuccess) {
+          throw DirectStreamDrainException(cause: error);
+        }
         if (enforcingAbsoluteLimit) {
           throw DirectProviderException(
             'The provider stream exceeded Conduit\'s time limit.',
@@ -174,21 +206,61 @@ Stream<List<int>> directStreamingResponseBytes(
           'The provider stream timed out while waiting for data.',
           cause: error,
         );
+      } catch (error, stackTrace) {
+        if (drainingSuccess) {
+          Error.throwWithStackTrace(
+            DirectStreamDrainException(cause: error),
+            stackTrace,
+          );
+        }
+        rethrow;
       }
-      if (!hasNext) break;
+      if (!hasNext) {
+        reachedEof = true;
+        break;
+      }
       final chunk = iterator.current;
       receivedBytes += chunk.length;
       if (receivedBytes > maxBytes) {
+        if (drainingSuccess) {
+          throw const DirectStreamDrainException();
+        }
         throw const DirectProviderException(
           'The provider stream exceeded Conduit\'s transfer limit.',
         );
+      }
+      if (drainingSuccess) {
+        drainedBytes += chunk.length;
+        if (drainedBytes > maxSuccessDrainBytes) {
+          throw const DirectStreamDrainException();
+        }
+        // Bytes received after the protocol terminal exist only to drain the
+        // HTTP body for keep-alive reuse. Feeding them back into the protocol
+        // parser could turn an already-successful completion into duplicate
+        // content or an error from hostile trailing frames.
+        continue;
       }
       yield chunk;
     }
   } finally {
     elapsed.stop();
-    _initiateDirectStreamCancellation(iterator);
+    successDrainElapsed?.stop();
+    if (!reachedEof) _initiateDirectStreamCancellation(iterator);
   }
+}
+
+/// The provider emitted a successful protocol terminal but did not finish its
+/// HTTP body within the small keep-alive drain budget.
+///
+/// Callers retain the already-emitted successful completion while cancelling
+/// this non-reusable transport instead of waiting for the normal stream limits.
+final class DirectStreamDrainException implements Exception {
+  const DirectStreamDrainException({this.cause});
+
+  final Object? cause;
+
+  @override
+  String toString() => 'The completed provider response could not be drained.';
 }
 
 /// Starts source teardown without letting a provider-controlled cancellation

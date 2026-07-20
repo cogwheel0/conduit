@@ -11,6 +11,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
+import '../../../shared/widgets/responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../providers/sidebar_providers.dart';
 import '../utils/sidebar_create_action.dart';
@@ -536,6 +537,9 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final conduitTheme = context.conduitTheme;
     final isSearchExpanded = ref.watch(sidebarHeaderSearchExpandedProvider);
     final useNativeIos26Chrome = PlatformInfo.isIOS26OrHigher();
+    final composeNativeIos26Chrome = DrawerChromeCompositionScope.shouldCompose(
+      context,
+    );
     final isTerminalTabActive =
         tabDefinitions[activeIndex].id == _SidebarTabId.terminal;
     final showTerminalPanelInAppBar = isTerminalTabActive && !isSearchExpanded;
@@ -619,6 +623,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               leading: adaptiveAppBarLeading,
               actions: appBarActions,
               minimizeBehavior: TabBarMinimizeBehavior.never,
+              showNativeView: composeNativeIos26Chrome,
               body: sidebarBodyWithBottomFade,
             );
           }

@@ -6,23 +6,21 @@ import 'structured_output.dart';
 /// A bounded-cost update for projecting cumulative Open WebUI `output`
 /// snapshots into the active assistant message.
 sealed class StructuredOutputStreamingProjection {
-  const StructuredOutputStreamingProjection({
-    required this.content,
-    required this.plainContent,
-  });
+  const StructuredOutputStreamingProjection({required this.content});
 
   final String content;
-  final String plainContent;
 }
 
-/// Appends a newly observed plain-text suffix without rebuilding the visible
-/// prefix.
+/// Appends newly observed rendered and plain-text suffixes without rebuilding
+/// either visible prefix.
 final class StructuredOutputStreamingAppend
     extends StructuredOutputStreamingProjection {
   const StructuredOutputStreamingAppend({
     required super.content,
-    required super.plainContent,
+    required this.plainContentDelta,
   });
+
+  final String plainContentDelta;
 }
 
 /// Replaces the visible snapshot when its semantic structure changed or an
@@ -31,8 +29,48 @@ final class StructuredOutputStreamingReplace
     extends StructuredOutputStreamingProjection {
   const StructuredOutputStreamingReplace({
     required super.content,
-    required super.plainContent,
+    required this.plainContent,
   });
+
+  final String plainContent;
+}
+
+enum StructuredOutputReplacementReason { initial, forced, immediate, geometric }
+
+class StructuredOutputStreamingMetrics {
+  const StructuredOutputStreamingMetrics({
+    required this.snapshotCount,
+    required this.appendProjectionCount,
+    required this.fullProjectionCount,
+    required this.deferredProjectionCount,
+    required this.observedWithoutProjectionCount,
+    required this.initialReplacementCount,
+    required this.forcedReplacementCount,
+    required this.immediateReplacementCount,
+    required this.geometricReplacementCount,
+    required this.fullProjectionCharacterCount,
+    required this.appendProjectionPlainCharacterCount,
+    required this.prefixValidationCount,
+    required this.prefixValidationCandidateCharacterCount,
+    required this.terminalRenderCount,
+    required this.terminalExactCacheHitCount,
+  });
+
+  final int snapshotCount;
+  final int appendProjectionCount;
+  final int fullProjectionCount;
+  final int deferredProjectionCount;
+  final int observedWithoutProjectionCount;
+  final int initialReplacementCount;
+  final int forcedReplacementCount;
+  final int immediateReplacementCount;
+  final int geometricReplacementCount;
+  final int fullProjectionCharacterCount;
+  final int appendProjectionPlainCharacterCount;
+  final int prefixValidationCount;
+  final int prefixValidationCandidateCharacterCount;
+  final int terminalRenderCount;
+  final int terminalExactCacheHitCount;
 }
 
 /// Projects cumulative structured-output snapshots with bounded rendering
@@ -51,23 +89,63 @@ final class StructuredOutputStreamingProjector {
   List<StructuredOutputBlock> _projectedBlocks = const [];
   String? _latestReplacementText;
   String? _projectedReplacementText;
+  StructuredOutputStreamingReplace? _latestExactProjection;
   bool _hasLatestSnapshot = false;
   bool _hasProjection = false;
   bool _appendIsPlain = true;
   bool _finished = false;
   int _nextFullProjectionLength = 1;
+  int _snapshotRevision = 0;
+  int _latestExactProjectionRevision = -1;
+  int _snapshotCount = 0;
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
+  int _deferredProjectionCount = 0;
+  int _observedWithoutProjectionCount = 0;
+  int _initialReplacementCount = 0;
+  int _forcedReplacementCount = 0;
+  int _immediateReplacementCount = 0;
+  int _geometricReplacementCount = 0;
   int _fullProjectionCharacterCount = 0;
+  int _appendProjectionPlainCharacterCount = 0;
+  int _prefixValidationCount = 0;
+  int _prefixValidationCandidateCharacterCount = 0;
+  int _terminalRenderCount = 0;
+  int _terminalExactCacheHitCount = 0;
 
   /// Counts streaming replacements, excluding the final authoritative render.
   int get fullProjectionCount => _fullProjectionCount;
 
   int get appendProjectionCount => _appendProjectionCount;
 
+  /// Total raw plain-text suffix characters carried by append projections.
+  int get appendProjectionPlainCharacterCount =>
+      _appendProjectionPlainCharacterCount;
+
   /// Total characters materialized by streaming replacements. This is a
   /// deterministic complexity guard that is more stable than wall-clock tests.
   int get fullProjectionCharacterCount => _fullProjectionCharacterCount;
+
+  StructuredOutputStreamingMetrics get metrics =>
+      StructuredOutputStreamingMetrics(
+        snapshotCount: _snapshotCount,
+        appendProjectionCount: _appendProjectionCount,
+        fullProjectionCount: _fullProjectionCount,
+        deferredProjectionCount: _deferredProjectionCount,
+        observedWithoutProjectionCount: _observedWithoutProjectionCount,
+        initialReplacementCount: _initialReplacementCount,
+        forcedReplacementCount: _forcedReplacementCount,
+        immediateReplacementCount: _immediateReplacementCount,
+        geometricReplacementCount: _geometricReplacementCount,
+        fullProjectionCharacterCount: _fullProjectionCharacterCount,
+        appendProjectionPlainCharacterCount:
+            _appendProjectionPlainCharacterCount,
+        prefixValidationCount: _prefixValidationCount,
+        prefixValidationCandidateCharacterCount:
+            _prefixValidationCandidateCharacterCount,
+        terminalRenderCount: _terminalRenderCount,
+        terminalExactCacheHitCount: _terminalExactCacheHitCount,
+      );
 
   StructuredOutputStreamingProjection? project(
     List<StructuredOutputBlock> blocks, {
@@ -77,15 +155,25 @@ final class StructuredOutputStreamingProjector {
   }) {
     if (_finished) return null;
 
-    final snapshot = List<StructuredOutputBlock>.unmodifiable(blocks);
-    _latestBlocks = snapshot;
-    _latestReplacementText = replacementText;
-    _hasLatestSnapshot = snapshot.isNotEmpty || replacementText != null;
+    final snapshot = _recordLatestSnapshot(blocks, replacementText);
     if (!_hasLatestSnapshot) return null;
 
     final logicalLength = _logicalLength(snapshot, replacementText);
     if (!_hasProjection) {
-      return _replace(snapshot, replacementText, logicalLength);
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.initial,
+      );
+    }
+    if (forceReplace) {
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.forced,
+      );
     }
 
     final appendDelta = _plainTailAppendDelta(
@@ -93,6 +181,7 @@ final class StructuredOutputStreamingProjector {
       snapshot,
       previousReplacementText: _projectedReplacementText,
       replacementText: replacementText,
+      onPrefixValidation: _recordPrefixValidation,
     );
     if (appendDelta != null &&
         appendDelta.isNotEmpty &&
@@ -108,24 +197,53 @@ final class StructuredOutputStreamingProjector {
       _projectedBlocks = snapshot;
       _projectedReplacementText = replacementText;
       _appendProjectionCount += 1;
+      _appendProjectionPlainCharacterCount += appendDelta.length;
       return StructuredOutputStreamingAppend(
         content: renderSemanticPlainTextFragment(appendDelta),
-        plainContent: _plainText(snapshot, replacementText),
+        plainContentDelta: appendDelta,
       );
     }
 
-    if (forceReplace ||
-        _requiresImmediateReplacement(
-          _projectedBlocks,
-          snapshot,
-          previousReplacementText: _projectedReplacementText,
-          replacementText: replacementText,
-        ) ||
-        logicalLength >= _nextFullProjectionLength) {
-      return _replace(snapshot, replacementText, logicalLength);
+    final requiresImmediateReplacement = _requiresImmediateReplacement(
+      _projectedBlocks,
+      snapshot,
+      previousReplacementText: _projectedReplacementText,
+      replacementText: replacementText,
+      onPrefixValidation: _recordPrefixValidation,
+    );
+    if (requiresImmediateReplacement) {
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.immediate,
+      );
+    }
+    if (logicalLength >= _nextFullProjectionLength) {
+      return _replace(
+        snapshot,
+        replacementText,
+        logicalLength,
+        reason: StructuredOutputReplacementReason.geometric,
+      );
     }
 
+    _deferredProjectionCount += 1;
     return null;
+  }
+
+  void observeLatest(
+    List<StructuredOutputBlock> blocks, {
+    String? replacementText,
+  }) {
+    if (_finished) return;
+    _recordLatestSnapshot(blocks, replacementText);
+    _projectedBlocks = const [];
+    _projectedReplacementText = null;
+    _hasProjection = false;
+    _appendIsPlain = true;
+    _nextFullProjectionLength = 1;
+    _observedWithoutProjectionCount += 1;
   }
 
   /// Produces the exact terminal representation once, regardless of which
@@ -133,17 +251,42 @@ final class StructuredOutputStreamingProjector {
   StructuredOutputStreamingReplace? finish() {
     if (_finished || !_hasLatestSnapshot) return null;
     _finished = true;
+    if (_latestExactProjectionRevision == _snapshotRevision &&
+        _latestExactProjection != null) {
+      _terminalExactCacheHitCount += 1;
+      return _latestExactProjection;
+    }
+    _terminalRenderCount += 1;
     return StructuredOutputStreamingReplace(
       content: _render(_latestBlocks, _latestReplacementText),
       plainContent: _plainText(_latestBlocks, _latestReplacementText),
     );
   }
 
+  List<StructuredOutputBlock> _recordLatestSnapshot(
+    List<StructuredOutputBlock> blocks,
+    String? replacementText,
+  ) {
+    final snapshot = List<StructuredOutputBlock>.unmodifiable(blocks);
+    _snapshotRevision += 1;
+    _snapshotCount += 1;
+    _latestBlocks = snapshot;
+    _latestReplacementText = replacementText;
+    _hasLatestSnapshot = snapshot.isNotEmpty || replacementText != null;
+    return snapshot;
+  }
+
+  void _recordPrefixValidation(int candidateCharacters) {
+    _prefixValidationCount += 1;
+    _prefixValidationCandidateCharacterCount += candidateCharacters;
+  }
+
   StructuredOutputStreamingReplace _replace(
     List<StructuredOutputBlock> blocks,
     String? replacementText,
-    int logicalLength,
-  ) {
+    int logicalLength, {
+    required StructuredOutputReplacementReason reason,
+  }) {
     final content = _render(blocks, replacementText);
     final plainContent = _plainText(blocks, replacementText);
     _projectedBlocks = blocks;
@@ -153,10 +296,23 @@ final class StructuredOutputStreamingProjector {
     _nextFullProjectionLength = logicalLength == 0 ? 1 : logicalLength * 2;
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
-    return StructuredOutputStreamingReplace(
+    switch (reason) {
+      case StructuredOutputReplacementReason.initial:
+        _initialReplacementCount += 1;
+      case StructuredOutputReplacementReason.forced:
+        _forcedReplacementCount += 1;
+      case StructuredOutputReplacementReason.immediate:
+        _immediateReplacementCount += 1;
+      case StructuredOutputReplacementReason.geometric:
+        _geometricReplacementCount += 1;
+    }
+    final projection = StructuredOutputStreamingReplace(
       content: content,
       plainContent: plainContent,
     );
+    _latestExactProjection = projection;
+    _latestExactProjectionRevision = _snapshotRevision;
+    return projection;
   }
 }
 
@@ -295,6 +451,7 @@ String? _plainTailAppendDelta(
   List<StructuredOutputBlock> current, {
   required String? previousReplacementText,
   required String? replacementText,
+  required void Function(int candidateCharacters) onPrefixValidation,
 }) {
   if (previousReplacementText != null ||
       replacementText != null ||
@@ -304,14 +461,24 @@ String? _plainTailAppendDelta(
   }
 
   for (var index = 0; index < previous.length - 1; index += 1) {
-    if (!_blocksEquivalent(previous[index], current[index])) return null;
+    if (!_blocksEquivalent(
+      previous[index],
+      current[index],
+      onPrefixValidation: onPrefixValidation,
+    )) {
+      return null;
+    }
   }
 
   final previousTail = previous.last;
   final currentTail = current.last;
   if (previousTail is! StructuredOutputTextBlock ||
       currentTail is! StructuredOutputTextBlock ||
-      !_hasStableCumulativePrefix(previousTail.text, currentTail.text)) {
+      !_hasStableCumulativePrefix(
+        previousTail.text,
+        currentTail.text,
+        onPrefixValidation: onPrefixValidation,
+      )) {
     return null;
   }
   return currentTail.text.substring(previousTail.text.length);
@@ -322,12 +489,17 @@ bool _requiresImmediateReplacement(
   List<StructuredOutputBlock> current, {
   required String? previousReplacementText,
   required String? replacementText,
+  required void Function(int candidateCharacters) onPrefixValidation,
 }) {
   if ((previousReplacementText == null) != (replacementText == null)) {
     return true;
   }
   if (previousReplacementText != null && replacementText != null) {
-    if (!_hasStableCumulativePrefix(previousReplacementText, replacementText)) {
+    if (!_hasStableCumulativePrefix(
+      previousReplacementText,
+      replacementText,
+      onPrefixValidation: onPrefixValidation,
+    )) {
       return true;
     }
   }
@@ -346,7 +518,13 @@ bool _requiresImmediateReplacement(
           if (beforeText != afterText) return true;
           continue;
         }
-        if (!_hasStableCumulativePrefix(beforeText, afterText)) return true;
+        if (!_hasStableCumulativePrefix(
+          beforeText,
+          afterText,
+          onPrefixValidation: onPrefixValidation,
+        )) {
+          return true;
+        }
       case (
         StructuredOutputReasoningBlock(
           text: final beforeText,
@@ -366,7 +544,13 @@ bool _requiresImmediateReplacement(
           if (beforeText != afterText) return true;
           continue;
         }
-        if (!_hasStableCumulativePrefix(beforeText, afterText)) return true;
+        if (!_hasStableCumulativePrefix(
+          beforeText,
+          afterText,
+          onPrefixValidation: onPrefixValidation,
+        )) {
+          return true;
+        }
       case (
         StructuredOutputToolCallBlock(
           id: final beforeId,
@@ -393,15 +577,22 @@ bool _requiresImmediateReplacement(
             _valueUpdateRequiresImmediateReplacement(
               beforeArguments,
               afterArguments,
+              onPrefixValidation: onPrefixValidation,
             ) ||
             _valueUpdateRequiresImmediateReplacement(
               beforeResult,
               afterResult,
+              onPrefixValidation: onPrefixValidation,
             ) ||
-            _valueUpdateRequiresImmediateReplacement(beforeFiles, afterFiles) ||
+            _valueUpdateRequiresImmediateReplacement(
+              beforeFiles,
+              afterFiles,
+              onPrefixValidation: onPrefixValidation,
+            ) ||
             _valueUpdateRequiresImmediateReplacement(
               beforeEmbeds,
               afterEmbeds,
+              onPrefixValidation: onPrefixValidation,
             )) {
           return true;
         }
@@ -427,6 +618,7 @@ bool _requiresImmediateReplacement(
             _valueUpdateRequiresImmediateReplacement(
               beforeOutput,
               afterOutput,
+              onPrefixValidation: onPrefixValidation,
             )) {
           return true;
         }
@@ -434,7 +626,13 @@ bool _requiresImmediateReplacement(
           if (beforeCode != afterCode) return true;
           continue;
         }
-        if (!_hasStableCumulativePrefix(beforeCode, afterCode)) return true;
+        if (!_hasStableCumulativePrefix(
+          beforeCode,
+          afterCode,
+          onPrefixValidation: onPrefixValidation,
+        )) {
+          return true;
+        }
       default:
         return true;
     }
@@ -442,16 +640,30 @@ bool _requiresImmediateReplacement(
   return false;
 }
 
-bool _valueUpdateRequiresImmediateReplacement(Object? before, Object? after) {
+bool _valueUpdateRequiresImmediateReplacement(
+  Object? before,
+  Object? after, {
+  required void Function(int candidateCharacters) onPrefixValidation,
+}) {
   if (_deepEquals(before, after)) return false;
   if (before is String && after is String) {
-    return !_hasStableCumulativePrefix(before, after);
+    return !_hasStableCumulativePrefix(
+      before,
+      after,
+      onPrefixValidation: onPrefixValidation,
+    );
   }
   return _valueLogicalLength(after) <= _valueLogicalLength(before);
 }
 
-bool _hasStableCumulativePrefix(String previous, String current) {
-  if (identical(previous, current)) return true;
+bool _hasStableCumulativePrefix(
+  String previous,
+  String current, {
+  void Function(int candidateCharacters)? onPrefixValidation,
+}) {
+  final isIdentical = identical(previous, current);
+  onPrefixValidation?.call(isIdentical ? 0 : previous.length);
+  if (isIdentical) return true;
   if (current.length < previous.length) return false;
   if (previous.isEmpty) return true;
   // Structured snapshots are normally cumulative, but the server remains
@@ -464,15 +676,16 @@ bool _hasStableCumulativePrefix(String previous, String current) {
 
 bool _blocksEquivalent(
   StructuredOutputBlock left,
-  StructuredOutputBlock right,
-) {
+  StructuredOutputBlock right, {
+  required void Function(int candidateCharacters) onPrefixValidation,
+}) {
   if (identical(left, right)) return true;
   return switch ((left, right)) {
     (
       StructuredOutputTextBlock(text: final a),
       StructuredOutputTextBlock(text: final b),
     ) =>
-      _boundedStringEquals(a, b),
+      _boundedStringEquals(a, b, onPrefixValidation: onPrefixValidation),
     (
       StructuredOutputReasoningBlock(
         text: final aText,
@@ -487,7 +700,11 @@ bool _blocksEquivalent(
     ) =>
       aDone == bDone &&
           aDuration == bDuration &&
-          _boundedStringEquals(aText, bText),
+          _boundedStringEquals(
+            aText,
+            bText,
+            onPrefixValidation: onPrefixValidation,
+          ),
     (
       StructuredOutputToolCallBlock(
         id: final aId,
@@ -534,14 +751,27 @@ bool _blocksEquivalent(
       aLanguage == bLanguage &&
           aDone == bDone &&
           aDuration == bDuration &&
-          _boundedStringEquals(aCode, bCode) &&
+          _boundedStringEquals(
+            aCode,
+            bCode,
+            onPrefixValidation: onPrefixValidation,
+          ) &&
           _deepEquals(aOutput, bOutput),
     _ => false,
   };
 }
 
-bool _boundedStringEquals(String left, String right) {
-  return left.length == right.length && _hasStableCumulativePrefix(left, right);
+bool _boundedStringEquals(
+  String left,
+  String right, {
+  required void Function(int candidateCharacters) onPrefixValidation,
+}) {
+  return left.length == right.length &&
+      _hasStableCumulativePrefix(
+        left,
+        right,
+        onPrefixValidation: onPrefixValidation,
+      );
 }
 
 bool _deepEquals(Object? left, Object? right) =>

@@ -1,11 +1,45 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/network/conduit_user_agent.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'captured proxy cookies replace stale names and normalize header casing',
+    () {
+      final merged = mergeCapturedProxyCookiesIntoHeaders(
+        headers: const {
+          'cookie': 'session=stale; theme=dark; token=old=payload',
+          'COOKIE': 'csrf=stale',
+          'X-Proxy': 'preserved',
+        },
+        capturedCookies: const {'session': 'fresh', 'csrf': 'fresh-csrf'},
+      );
+
+      check(merged['X-Proxy']).equals('preserved');
+      check(
+        merged.keys.where((key) => key.toLowerCase() == 'cookie').toList(),
+      ).deepEquals(['Cookie']);
+      check(
+        merged['Cookie'],
+      ).equals('session=fresh; theme=dark; token=old=payload; csrf=fresh-csrf');
+    },
+  );
+
+  test('scheme-less plaintext probe sends only the public user agent', () {
+    final options = buildSchemeLessPlaintextHealthProbeOptions(
+      'http://openwebui.example',
+    );
+
+    check(options.headers).deepEquals(<String, dynamic>{
+      ConduitUserAgent.headerName: ConduitUserAgent.value,
+    });
+    check(options.followRedirects).isFalse();
+  });
+
   test(
     'custom-header redaction survives a supplementary-character boundary',
     () {

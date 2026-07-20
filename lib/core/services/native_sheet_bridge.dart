@@ -91,6 +91,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   }
 
   Future<String?> presentModelSelector({
+    required String presentationId,
     required String title,
     required List<NativeSheetModelOption> models,
     String? selectedModelId,
@@ -100,7 +101,10 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     Future<void> Function(String modelId)? onTogglePinned,
     bool rethrowErrors = false,
   }) async {
-    if (!_isIOS || models.isEmpty) return null;
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || models.isEmpty || normalizedPresentationId.isEmpty) {
+      return null;
+    }
     final previousPinToggleHandler = _modelPinToggleHandler;
     final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
     final pinToggleHandlerOwner = Object();
@@ -110,6 +114,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     try {
       final result = await _api.presentModelSelector(
         PlatformNativeSheetModelSelectorRequest(
+          presentationId: normalizedPresentationId,
           title: title,
           selectedModelId: selectedModelId,
           models: models.map((model) => model.toPlatform()).toList(),
@@ -162,6 +167,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         _modelPinToggleHandler = null;
         _modelPinToggleHandlerOwner = null;
       }
+    }
+  }
+
+  Future<void> updateModelSelectorModels(
+    List<NativeSheetModelOption> models, {
+    required String presentationId,
+  }) async {
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || models.isEmpty || normalizedPresentationId.isEmpty) return;
+    try {
+      await _api.updateModelSelectorModels(
+        normalizedPresentationId,
+        models.map((model) => model.toPlatform()).toList(growable: false),
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'updateModelSelectorModels',
+        error,
+        stackTrace,
+        data: {'modelCount': models.length},
+      );
     }
   }
 

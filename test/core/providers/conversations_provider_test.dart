@@ -8,9 +8,12 @@
 /// archived/filtered split, and folder summaries.
 library;
 
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
+import 'package:conduit/core/database/daos/chats_dao.dart';
 import 'package:conduit/core/database/database_provider.dart';
 import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit/core/models/conversation.dart';
@@ -241,6 +244,73 @@ void main() {
       ).deepEquals(['chat-2', 'chat-1']);
     });
 
+    test('surfaces a cold replacement-watch failure', () async {
+      final repository = _ControlledChatListRepository(directDb);
+      addTearDown(repository.dispose);
+      final container = makeContainer(
+        extraOverrides: [
+          chatDatabaseRepositoryProvider.overrideWithValue(repository),
+        ],
+      );
+
+      final loading = container.read(conversationsProvider.future);
+      await waitFor(() => repository.listControllers.isNotEmpty);
+      repository.listControllers.single.addError(StateError('watch failed'));
+
+      await check(loading).throws<StateError>();
+    });
+
+    test(
+      'replacement-watch failure retains the last same-context page',
+      () async {
+        final repository = _ControlledChatListRepository(directDb);
+        addTearDown(repository.dispose);
+        final container = makeContainer(
+          extraOverrides: [
+            chatDatabaseRepositoryProvider.overrideWithValue(repository),
+          ],
+        );
+        final listener = container.listen(
+          conversationsProvider,
+          (previous, next) {},
+        );
+        addTearDown(listener.close);
+
+        final firstLoad = container.read(conversationsProvider.future);
+        await waitFor(() => repository.listControllers.isNotEmpty);
+        repository.listControllers.first.add([
+          for (var index = 0; index < 201; index++)
+            LocatedChatListEntry(
+              storage: ChatStorageKind.directLocal,
+              entry: ChatListEntry(
+                id: 'chat-$index',
+                title: 'Chat $index',
+                createdAt: index,
+                updatedAt: index,
+                pinned: false,
+                archived: false,
+              ),
+            ),
+        ]);
+        final firstPage = await firstLoad;
+        check(firstPage).length.equals(200);
+
+        final notifier = container.read(conversationsProvider.notifier);
+        check(notifier.hasMoreRegularChats()).isTrue();
+        final replacement = notifier.loadMore();
+        await waitFor(() => repository.listControllers.length == 2);
+        repository.listControllers.last.addError(
+          StateError('replacement watch failed'),
+        );
+        await replacement;
+        final retained = await container.read(conversationsProvider.future);
+
+        check(
+          retained.map((chat) => chat.id),
+        ).deepEquals(firstPage.map((chat) => chat.id));
+      },
+    );
+
     test(
       'colliding server and on-device ids retain distinct identity',
       () async {
@@ -332,6 +402,12 @@ void main() {
       await seedServerChat('chat-regular', updatedAt: 300);
       final container = makeContainer();
       await container.read(conversationsProvider.future);
+      final notifier = container.read(conversationsProvider.notifier);
+      await waitFor(() => notifier.archivedChatCount() == 1);
+      await notifier.setArchivedChatsVisible(true);
+      await waitFor(
+        () => container.read(archivedConversationsProvider).length == 1,
+      );
 
       final filtered = container.read(filteredConversationsProvider);
       final archived = container.read(archivedConversationsProvider);
@@ -660,22 +736,144 @@ void main() {
       ).deepEquals(['chat-2']);
     });
 
+    test('trustConversation and exhausted loadMore are no-ops', () async {
+      await seedServerChat('chat-1', updatedAt: 100);
+      final container = makeContainer();
+      final before = await container.read(conversationsProvider.future);
+
+      final notifier = container.read(conversationsProvider.notifier);
+      notifier.trustConversation('chat-1');
+      await notifier.loadMore();
+
+      check(
+        container.read(conversationsProvider).requireValue,
+      ).deepEquals(before);
+      check(notifier.hasMoreRegularChats()).isFalse();
+      check(notifier.isLoadingMoreRegularChats()).isFalse();
+    });
+
+    test('active and archived windows expand independently', () async {
+      await db.transaction(() async {
+        for (var i = 0; i < 205; i++) {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'chat-$i',
+            title: 'Chat $i',
+            createdAt: i,
+            updatedAt: i,
+          );
+        }
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'old-pinned',
+          title: 'Old pinned chat',
+          createdAt: -1,
+          updatedAt: -1,
+          pinned: true,
+        );
+        for (var i = 0; i < 2; i++) {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'archived-$i',
+            title: 'Archived $i',
+            createdAt: 1000 + i,
+            updatedAt: 1000 + i,
+            archived: true,
+          );
+        }
+      });
+      final container = makeContainer();
+
+      final firstWindow = await container.read(conversationsProvider.future);
+      final notifier = container.read(conversationsProvider.notifier);
+
+      await waitFor(() => notifier.archivedChatCount() == 2);
+      check(firstWindow.length).equals(201);
+      check(firstWindow.any((chat) => chat.id == 'old-pinned')).isTrue();
+      check(firstWindow.where((chat) => chat.archived)).isEmpty();
+      check(notifier.hasMoreRegularChats()).isTrue();
+      check(notifier.hasMoreArchivedChats()).isTrue();
+
+      await notifier.loadMore();
+      await waitFor(
+        () => container.read(conversationsProvider).asData?.value.length == 206,
+      );
+
+      final activeExpanded = container.read(conversationsProvider).requireValue;
+      check(activeExpanded.length).equals(206);
+      check(activeExpanded.where((chat) => chat.archived)).isEmpty();
+      check(notifier.hasMoreRegularChats()).isFalse();
+      check(notifier.isLoadingMoreRegularChats()).isFalse();
+
+      await notifier.setArchivedChatsVisible(true);
+      await waitFor(
+        () =>
+            container
+                .read(conversationsProvider)
+                .asData
+                ?.value
+                .where((chat) => chat.archived)
+                .length ==
+            2,
+      );
+      check(notifier.hasMoreArchivedChats()).isFalse();
+      check(notifier.isLoadingMoreArchivedChats()).isFalse();
+    });
+
     test(
-      'trustConversation is a no-op and loadMore reports no pagination',
+      'large archives stay unmapped until expanded and page in bounds',
       () async {
-        await seedServerChat('chat-1', updatedAt: 100);
+        await db.transaction(() async {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'active',
+            title: 'Active',
+            createdAt: 1000,
+            updatedAt: 1000,
+          );
+          for (var i = 0; i < 450; i++) {
+            await db.chatsDao.upsertEnvelopeStub(
+              id: 'archived-$i',
+              title: 'Archived $i',
+              createdAt: i,
+              updatedAt: i,
+              archived: true,
+            );
+          }
+        });
         final container = makeContainer();
-        final before = await container.read(conversationsProvider.future);
 
+        final collapsed = await container.read(conversationsProvider.future);
         final notifier = container.read(conversationsProvider.notifier);
-        notifier.trustConversation('chat-1');
-        await notifier.loadMore();
+        await waitFor(() => notifier.archivedChatCount() == 450);
 
-        check(
-          container.read(conversationsProvider).requireValue,
-        ).deepEquals(before);
+        check(collapsed.map((chat) => chat.id)).deepEquals(['active']);
+        check(container.read(archivedConversationsProvider)).isEmpty();
+        check(notifier.archivedChatsVisible()).isFalse();
+        check(notifier.hasMoreArchivedChats()).isTrue();
+
+        await notifier.setArchivedChatsVisible(true);
+        await waitFor(
+          () => container.read(archivedConversationsProvider).length == 200,
+        );
+        check(notifier.archivedChatsVisible()).isTrue();
+        check(notifier.hasMoreArchivedChats()).isTrue();
+
+        await notifier.loadMoreArchived();
+        await waitFor(
+          () => container.read(archivedConversationsProvider).length == 400,
+        );
+        check(notifier.hasMoreArchivedChats()).isTrue();
+
+        await notifier.loadMoreArchived();
+        await waitFor(
+          () => container.read(archivedConversationsProvider).length == 450,
+        );
+        check(notifier.hasMoreArchivedChats()).isFalse();
         check(notifier.hasMoreRegularChats()).isFalse();
-        check(notifier.isLoadingMoreRegularChats()).isFalse();
+
+        await notifier.setArchivedChatsVisible(false);
+        await waitFor(
+          () => container.read(archivedConversationsProvider).isEmpty,
+        );
+        check(notifier.archivedChatCount()).equals(450);
+        check(notifier.archivedChatsVisible()).isFalse();
       },
     );
 
@@ -780,6 +978,43 @@ Conversation _conversation(
     updatedAt: DateTime.fromMillisecondsSinceEpoch(updatedAtSeconds * 1000),
     lastReadAt: lastReadAt,
   );
+}
+
+final class _ControlledChatListRepository extends ChatDatabaseRepository {
+  _ControlledChatListRepository(AppDatabase directDatabase)
+    : super(openWebUiDatabase: null, directLocalDatabase: directDatabase);
+
+  final listControllers = <StreamController<List<LocatedChatListEntry>>>[];
+
+  Stream<List<LocatedChatListEntry>> _newListStream() {
+    final controller = StreamController<List<LocatedChatListEntry>>();
+    listControllers.add(controller);
+    return controller.stream;
+  }
+
+  @override
+  Stream<List<LocatedChatListEntry>> watchMergedChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) => _newListStream();
+
+  @override
+  Stream<List<LocatedChatListEntry>> watchDirectLocalChatList({
+    int? regularLimit,
+    int? archivedLimit,
+  }) => _newListStream();
+
+  @override
+  Stream<int> watchMergedArchivedChatCount() => Stream<int>.value(0);
+
+  @override
+  Stream<int> watchDirectLocalArchivedChatCount() => Stream<int>.value(0);
+
+  Future<void> dispose() async {
+    for (final controller in listControllers) {
+      await controller.close();
+    }
+  }
 }
 
 class _RecordingSocketService extends SocketService {

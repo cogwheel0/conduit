@@ -119,33 +119,51 @@ class PlatformBackgroundTaskExtendedEvent {
 }
 
 class PlatformAppIntentImagePayload {
-  PlatformAppIntentImagePayload({required this.filename, required this.bytes});
+  PlatformAppIntentImagePayload({
+    required this.filename,
+    required this.filePath,
+  });
 
   String filename;
-  Uint8List bytes;
+  String filePath;
 }
 
 class PlatformAppIntentResponse {
-  PlatformAppIntentResponse({required this.success, this.value, this.error});
+  PlatformAppIntentResponse({
+    required this.success,
+    this.value,
+    this.error,
+    this.ownedFilePath,
+  });
 
   bool success;
   String? value;
   String? error;
+  String? ownedFilePath;
 }
 
 class PlatformNativePasteImageItem {
-  PlatformNativePasteImageItem({required this.mimeType, required this.data});
+  PlatformNativePasteImageItem({
+    required this.mimeType,
+    required this.filePath,
+  });
 
   String mimeType;
-  Uint8List data;
+  String filePath;
 }
 
 class PlatformNativePastePayload {
-  PlatformNativePastePayload({required this.kind, this.text, this.items});
+  PlatformNativePastePayload({
+    required this.kind,
+    this.text,
+    this.items,
+    this.deliveryId,
+  });
 
   PlatformNativePasteKind kind;
   String? text;
   List<PlatformNativePasteImageItem>? items;
+  String? deliveryId;
 }
 
 class PlatformKeyboardAttachmentActionConfig {
@@ -486,6 +504,7 @@ class PlatformNativeSheetModelOption {
 
 class PlatformNativeSheetModelSelectorRequest {
   PlatformNativeSheetModelSelectorRequest({
+    required this.presentationId,
     required this.title,
     this.selectedModelId,
     required this.models,
@@ -495,6 +514,7 @@ class PlatformNativeSheetModelSelectorRequest {
     this.unpinTitle,
   });
 
+  String presentationId;
   String title;
   String? selectedModelId;
   List<PlatformNativeSheetModelOption> models;
@@ -659,29 +679,39 @@ abstract class BackgroundStreamingFlutterApi {
 @FlutterApi()
 abstract class AppIntentFlutterApi {
   @async
-  PlatformAppIntentResponse askChat(String? prompt);
+  PlatformAppIntentResponse askChat(String invocationId, String? prompt);
 
   @async
-  PlatformAppIntentResponse startVoiceCall();
+  PlatformAppIntentResponse startVoiceCall(String invocationId);
 
   @async
-  PlatformAppIntentResponse sendText(String text);
+  PlatformAppIntentResponse sendText(String invocationId, String text);
 
   @async
-  PlatformAppIntentResponse sendUrl(String url);
+  PlatformAppIntentResponse sendUrl(String invocationId, String url);
 
   @async
-  PlatformAppIntentResponse sendImage(PlatformAppIntentImagePayload payload);
+  PlatformAppIntentResponse sendImage(
+    String invocationId,
+    PlatformAppIntentImagePayload payload,
+  );
+}
+
+@HostApi()
+abstract class AppIntentHostApi {
+  void setReady(bool ready);
 }
 
 @HostApi()
 abstract class NativePasteHostApi {
+  @async
   bool requestPaste();
 }
 
 @FlutterApi()
 abstract class NativePasteFlutterApi {
-  void onPaste(PlatformNativePastePayload payload);
+  @async
+  bool onPaste(PlatformNativePastePayload payload);
 }
 
 @HostApi()
@@ -712,6 +742,11 @@ abstract class NativeSheetHostApi {
 
   @async
   String? presentModelSelector(PlatformNativeSheetModelSelectorRequest request);
+
+  void updateModelSelectorModels(
+    String presentationId,
+    List<PlatformNativeSheetModelOption> models,
+  );
 
   @async
   String? presentOptionsSelector(

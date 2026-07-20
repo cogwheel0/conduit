@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -364,10 +368,120 @@ void main() {
       expect(defaultTls, isNot(same(customTls)));
       expect(defaultTls.createHttpClient, isNull);
     });
+
+    test('HTTP pool reuses only the exact transport security signature', () {
+      final pool = DirectHttpClientPool();
+      addTearDown(pool.dispose);
+      final original = _profile(
+        apiKey: 'secret-one',
+        customHeaders: const {'X-Tenant': 'one'},
+      );
+
+      final first = pool.acquire(original);
+      final second = pool.acquire(original);
+      expect(second.dio, same(first.dio));
+
+      final edited = _profile(
+        apiKey: 'secret-two',
+        customHeaders: const {'X-Tenant': 'one'},
+      );
+      final replacement = pool.acquire(edited);
+      expect(replacement.dio, isNot(same(first.dio)));
+      expect(
+        replacement.dio.options.headers['Authorization'],
+        'Bearer secret-two',
+      );
+
+      // Retiring a profile never closes its transport out from under an
+      // already-authorized in-flight request; release is lease-driven.
+      expect(first.dio.httpClientAdapter, isNotNull);
+      first.release();
+      second.release();
+      replacement.release();
+    });
+
+    test('HTTP pool invalidation preserves leases and forces a new client', () {
+      final adapters = <_CloseRecordingAdapter>[];
+      final pool = DirectHttpClientPool(
+        dioFactory: (_) {
+          final adapter = _CloseRecordingAdapter();
+          adapters.add(adapter);
+          final dio = Dio();
+          dio.httpClientAdapter = adapter;
+          return dio;
+        },
+      );
+      addTearDown(pool.dispose);
+      final profile = _profile();
+
+      final inFlight = pool.acquire(profile);
+      final oldDio = inFlight.dio;
+      pool.invalidateProfile(profile.id);
+
+      expect(adapters.single.closed, isFalse);
+      final replacement = pool.acquire(profile);
+      expect(replacement.dio, isNot(same(oldDio)));
+      expect(adapters, hasLength(2));
+
+      inFlight.release();
+      expect(adapters.first.closed, isTrue);
+      expect(adapters.last.closed, isFalse);
+      replacement.release();
+    });
+
+    test('HTTP pool bounds idle clients by count and time', () async {
+      final adapters = <_CloseRecordingAdapter>[];
+      final pool = DirectHttpClientPool(
+        dioFactory: (_) {
+          final adapter = _CloseRecordingAdapter();
+          adapters.add(adapter);
+          final dio = Dio();
+          dio.httpClientAdapter = adapter;
+          return dio;
+        },
+        maxIdleEntries: 1,
+        idleTimeout: const Duration(milliseconds: 20),
+      );
+      addTearDown(pool.dispose);
+
+      pool.acquire(_profile(id: 'profile-one')).release();
+      pool.acquire(_profile(id: 'profile-two')).release();
+
+      expect(adapters, hasLength(2));
+      expect(adapters.first.closed, isTrue);
+      expect(adapters.last.closed, isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(adapters.last.closed, isTrue);
+    });
+
+    test('HTTP pool rejects invalid limits when assertions are disabled', () {
+      expect(
+        () =>
+            DirectHttpClientPool(idleTimeout: const Duration(microseconds: -1)),
+        throwsArgumentError,
+      );
+      expect(() => DirectHttpClientPool(maxIdleEntries: -1), throwsRangeError);
+    });
+
+    test('releasing a lease after pool disposal schedules no idle timer', () {
+      fakeAsync((async) {
+        final pool = DirectHttpClientPool(
+          idleTimeout: const Duration(hours: 1),
+        );
+        final lease = pool.acquire(_profile());
+
+        pool.dispose();
+        lease.release();
+
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
   });
 }
 
 DirectConnectionProfile _profile({
+  String id = 'profile-one',
   String baseUrl = 'https://example.test/v1',
   String? apiKey,
   Map<String, String> customHeaders = const {},
@@ -381,7 +495,7 @@ DirectConnectionProfile _profile({
   String? modelIdPrefix,
   List<String> tags = const [],
 }) => DirectConnectionProfile(
-  id: 'profile-one',
+  id: id,
   name: 'Example',
   adapterKey: kOpenAiCompatibleAdapterKey,
   baseUrl: baseUrl,
@@ -397,3 +511,19 @@ DirectConnectionProfile _profile({
   mtlsPrivateKeyPem: mtlsPrivateKeyPem,
   mtlsPrivateKeyPassword: mtlsPrivateKeyPassword,
 );
+
+final class _CloseRecordingAdapter implements HttpClientAdapter {
+  bool closed = false;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) => throw UnimplementedError();
+
+  @override
+  void close({bool force = false}) {
+    closed = true;
+  }
+}

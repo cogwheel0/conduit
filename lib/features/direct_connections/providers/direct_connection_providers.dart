@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/database/database_provider.dart';
 import '../../../core/models/model.dart' as model;
@@ -10,6 +12,7 @@ import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
+import '../../../core/services/socket_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../models/direct_connection_profile.dart';
@@ -17,6 +20,7 @@ import '../models/direct_remote_model.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
 import '../services/direct_connection_profile_store.dart';
+import '../services/direct_http_client.dart';
 import '../services/direct_model_registry.dart';
 import '../services/direct_provider_adapter.dart';
 import '../services/direct_run_registry.dart';
@@ -31,6 +35,8 @@ export '../services/openwebui_direct_connection_store.dart'
     show
         OpenWebUiDirectConnectionCommitUncertainException,
         OpenWebUiDirectConnectionConflictException;
+
+part 'direct_connection_providers.g.dart';
 
 enum DirectHistoryPolicy {
   /// Mirror direct chats to the active OpenWebUI server when one is available;
@@ -214,11 +220,26 @@ final directModelRegistryProvider = Provider<DirectModelRegistry>((ref) {
   return registry;
 });
 
+@Riverpod(keepAlive: true)
+DirectHttpClientPool directHttpClientPool(Ref ref) {
+  final pool = DirectHttpClientPool();
+  ref.onDispose(pool.dispose);
+  return pool;
+}
+
+typedef _DirectProfileMutationResources = ({
+  DirectConnectionProfileStore store,
+  DirectHttpClientPool clientPool,
+  DirectModelRegistry modelRegistry,
+  DirectRunRegistry runRegistry,
+});
+
 final directProviderAdapterRegistryProvider =
     Provider<DirectProviderAdapterRegistry>((ref) {
+      final pool = ref.watch(directHttpClientPoolProvider);
       return DirectProviderAdapterRegistry([
-        OpenAiCompatibleAdapter(),
-        OllamaAdapter(),
+        OpenAiCompatibleAdapter(clientPool: pool),
+        OllamaAdapter(clientPool: pool),
       ]);
     });
 
@@ -248,28 +269,32 @@ class DirectConnectionProfilesController
     DirectConnectionProfile profile, {
     DirectConnectionProfile? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
-  }) => _serializeMutation(
-    () => _upsert(
-      profile,
-      expectedPrevious: expectedPrevious,
-      secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
-    ),
-  );
+  }) {
+    final resources = _captureMutationResources();
+    return _serializeMutation(
+      () => _upsert(
+        profile,
+        resources: resources,
+        expectedPrevious: expectedPrevious,
+        secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
+      ),
+    );
+  }
 
   Future<void> _upsert(
     DirectConnectionProfile profile, {
+    required _DirectProfileMutationResources resources,
     DirectConnectionProfile? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
   }) async {
+    _ensureMounted();
     profile.validate();
-    final current = state.value ?? await _store.load();
+    final current = state.value ?? await resources.store.load();
     final index = current.indexWhere((item) => item.id == profile.id);
     final previous = index < 0 ? null : current[index];
-    final runRegistry = ref.read(directRunRegistryProvider);
-    final modelRegistry = ref.read(directModelRegistryProvider);
     late final List<DirectConnectionProfile> persisted;
     try {
-      persisted = await _store.upsert(
+      persisted = await resources.store.upsert(
         profile,
         expectedPrevious: expectedPrevious,
         secretsConfirmedForNewOrigin: secretsConfirmedForNewOrigin,
@@ -278,8 +303,7 @@ class DirectConnectionProfilesController
       _publishConflictWinner(
         previous: current,
         persisted: conflict.currentProfiles,
-        runRegistry: runRegistry,
-        modelRegistry: modelRegistry,
+        resources: resources,
       );
       rethrow;
     }
@@ -292,19 +316,22 @@ class DirectConnectionProfilesController
       // The secure-store write is authoritative. Invalidate old routing
       // authority before publishing the new state so no watcher can target the
       // previous endpoint while discovery catches up.
-      _removeProfileModelsBestEffort(modelRegistry, profile.id);
+      _invalidateDirectProfileTransportBestEffort(
+        resources.clientPool,
+        profile.id,
+      );
+      _removeProfileModelsBestEffort(resources.modelRegistry, profile.id);
     }
     if (ref.mounted) state = AsyncValue.data(persisted);
     if (transportChanged) {
-      _cancelProfileRunsBestEffort(runRegistry, profile.id);
+      _cancelProfileRunsBestEffort(resources.runRegistry, profile.id);
     }
   }
 
   void _publishConflictWinner({
     required List<DirectConnectionProfile> previous,
     required List<DirectConnectionProfile> persisted,
-    required DirectRunRegistry runRegistry,
-    required DirectModelRegistry modelRegistry,
+    required _DirectProfileMutationResources resources,
   }) {
     final persistedById = <String, DirectConnectionProfile>{
       for (final profile in persisted) profile.id: profile,
@@ -314,39 +341,51 @@ class DirectConnectionProfilesController
       final nextProfile = persistedById[oldProfile.id];
       if (nextProfile == null || _transportChanged(oldProfile, nextProfile)) {
         invalidatedProfileIds.add(oldProfile.id);
-        _removeProfileModelsBestEffort(modelRegistry, oldProfile.id);
+        _invalidateDirectProfileTransportBestEffort(
+          resources.clientPool,
+          oldProfile.id,
+        );
+        _removeProfileModelsBestEffort(resources.modelRegistry, oldProfile.id);
       }
     }
     if (ref.mounted) state = AsyncValue.data(persisted);
     for (final profileId in invalidatedProfileIds) {
-      _cancelProfileRunsBestEffort(runRegistry, profileId);
+      _cancelProfileRunsBestEffort(resources.runRegistry, profileId);
     }
   }
 
-  Future<void> remove(String profileId) => _serializeMutation(() async {
-    final current = state.value ?? await _store.load();
-    final updated = current
-        .where((profile) => profile.id != profileId)
-        .toList(growable: false);
-    if (updated.length == current.length) return;
-    final runRegistry = ref.read(directRunRegistryProvider);
-    final modelRegistry = ref.read(directModelRegistryProvider);
-    final persisted = await _store.save(updated);
-    _removeProfileModelsBestEffort(modelRegistry, profileId);
-    if (ref.mounted) state = AsyncValue.data(persisted);
-    _cancelProfileRunsBestEffort(runRegistry, profileId);
-  });
+  Future<void> remove(String profileId) {
+    final resources = _captureMutationResources();
+    return _serializeMutation(() async {
+      _ensureMounted();
+      final current = state.value ?? await resources.store.load();
+      final updated = current
+          .where((profile) => profile.id != profileId)
+          .toList(growable: false);
+      if (updated.length == current.length) return;
+      final persisted = await resources.store.save(updated);
+      _invalidateDirectProfileTransportBestEffort(
+        resources.clientPool,
+        profileId,
+      );
+      _removeProfileModelsBestEffort(resources.modelRegistry, profileId);
+      if (ref.mounted) state = AsyncValue.data(persisted);
+      _cancelProfileRunsBestEffort(resources.runRegistry, profileId);
+    });
+  }
 
-  Future<void> setEnabled(String profileId, bool enabled) => _serializeMutation(
-    () async {
-      final current = state.value ?? await _store.load();
+  Future<void> setEnabled(String profileId, bool enabled) {
+    final resources = _captureMutationResources();
+    return _serializeMutation(() async {
+      _ensureMounted();
+      final current = state.value ?? await resources.store.load();
       final profile = current.where((item) => item.id == profileId).firstOrNull;
       if (profile == null) {
         throw StateError('Direct connection profile not found.');
       }
-      await _upsert(profile.copyWith(enabled: enabled));
-    },
-  );
+      await _upsert(profile.copyWith(enabled: enabled), resources: resources);
+    });
+  }
 
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
     profile.validate();
@@ -371,21 +410,27 @@ class DirectConnectionProfilesController
     }
   }
 
-  Future<void> reload() => _serializeMutation(_reload);
+  Future<void> reload() {
+    final resources = _captureMutationResources();
+    return _serializeMutation(() => _reload(resources));
+  }
 
-  Future<void> _reload() async {
+  Future<void> _reload(_DirectProfileMutationResources resources) async {
+    _ensureMounted();
     final previous = state.value;
     state = const AsyncValue.loading();
-    final next = await AsyncValue.guard(_store.load);
+    final next = await AsyncValue.guard(resources.store.load);
     if (!ref.mounted) return;
     if (previous != null && next.hasError) {
-      final modelRegistry = ref.read(directModelRegistryProvider);
-      final runRegistry = ref.read(directRunRegistryProvider);
       for (final profile in previous) {
-        _removeProfileModelsBestEffort(modelRegistry, profile.id);
+        _invalidateDirectProfileTransportBestEffort(
+          resources.clientPool,
+          profile.id,
+        );
+        _removeProfileModelsBestEffort(resources.modelRegistry, profile.id);
       }
       for (final profile in previous) {
-        _cancelProfileRunsBestEffort(runRegistry, profile.id);
+        _cancelProfileRunsBestEffort(resources.runRegistry, profile.id);
       }
       // Preserve no alternate in-memory source on a secure-storage outage: the
       // error state makes the outage visible and prevents unsafe edits.
@@ -398,37 +443,64 @@ class DirectConnectionProfilesController
     };
     final invalidatedProfileIds = <String>{};
     if (previous != null) {
-      final modelRegistry = ref.read(directModelRegistryProvider);
       for (final oldProfile in previous) {
         final newProfile = nextById[oldProfile.id];
         if (newProfile == null || _transportChanged(oldProfile, newProfile)) {
           invalidatedProfileIds.add(oldProfile.id);
-          _removeProfileModelsBestEffort(modelRegistry, oldProfile.id);
+          _invalidateDirectProfileTransportBestEffort(
+            resources.clientPool,
+            oldProfile.id,
+          );
+          _removeProfileModelsBestEffort(
+            resources.modelRegistry,
+            oldProfile.id,
+          );
         }
       }
     }
     state = next;
     if (invalidatedProfileIds.isNotEmpty) {
-      final runRegistry = ref.read(directRunRegistryProvider);
       for (final profileId in invalidatedProfileIds) {
-        _cancelProfileRunsBestEffort(runRegistry, profileId);
+        _cancelProfileRunsBestEffort(resources.runRegistry, profileId);
       }
     }
   }
 
-  Future<void> clear() => _serializeMutation(() async {
-    final runRegistry = ref.read(directRunRegistryProvider);
-    final modelRegistry = ref.read(directModelRegistryProvider);
-    final current = state.value ?? await _store.load();
-    await _store.clear();
-    for (final profile in current) {
-      _removeProfileModelsBestEffort(modelRegistry, profile.id);
+  Future<void> clear() {
+    final resources = _captureMutationResources();
+    return _serializeMutation(() async {
+      _ensureMounted();
+      final current = state.value ?? await resources.store.load();
+      await resources.store.clear();
+      for (final profile in current) {
+        _invalidateDirectProfileTransportBestEffort(
+          resources.clientPool,
+          profile.id,
+        );
+        _removeProfileModelsBestEffort(resources.modelRegistry, profile.id);
+      }
+      if (ref.mounted) state = const AsyncValue.data([]);
+      for (final profile in current) {
+        _cancelProfileRunsBestEffort(resources.runRegistry, profile.id);
+      }
+    });
+  }
+
+  _DirectProfileMutationResources _captureMutationResources() {
+    _ensureMounted();
+    return (
+      store: _store,
+      clientPool: ref.read(directHttpClientPoolProvider),
+      modelRegistry: ref.read(directModelRegistryProvider),
+      runRegistry: ref.read(directRunRegistryProvider),
+    );
+  }
+
+  void _ensureMounted() {
+    if (!ref.mounted) {
+      throw StateError('Direct connection profile controller is disposed.');
     }
-    if (ref.mounted) state = const AsyncValue.data([]);
-    for (final profile in current) {
-      _cancelProfileRunsBestEffort(runRegistry, profile.id);
-    }
-  });
+  }
 
   void _cancelProfileRunsBestEffort(
     DirectRunRegistry registry,
@@ -523,6 +595,13 @@ final directConnectionProfilesProvider =
 typedef _OpenWebUiMutationSource = ({
   OpenWebUiDirectConnectionStore store,
   OpenWebUiDirectConnectionsSnapshot snapshot,
+  _DirectTransportCleanupResources cleanup,
+});
+
+typedef _DirectTransportCleanupResources = ({
+  DirectHttpClientPool clientPool,
+  DirectModelRegistry modelRegistry,
+  DirectRunRegistry runRegistry,
 });
 
 /// Owns the ephemeral direct connections loaded for the current Open WebUI
@@ -541,9 +620,15 @@ class OpenWebUiDirectConnectionsController
   @override
   Future<OpenWebUiDirectConnectionsSnapshot?> build() async {
     final generation = ++_loadGeneration;
+    final cleanup = _captureCleanupResources();
     final store = ref.watch(openWebUiDirectConnectionStoreProvider);
     if (!identical(store, _publishedStore)) {
-      _replacePublishedSnapshot(null, store: null, publishState: false);
+      _replacePublishedSnapshot(
+        null,
+        store: null,
+        cleanup: cleanup,
+        publishState: false,
+      );
     }
     if (store == null) return null;
 
@@ -551,18 +636,26 @@ class OpenWebUiDirectConnectionsController
     if (!_storeIsCurrent(store) || generation != _loadGeneration) {
       return _publishedSnapshot;
     }
-    _replacePublishedSnapshot(snapshot, store: store, publishState: false);
+    _replacePublishedSnapshot(
+      snapshot,
+      store: store,
+      cleanup: cleanup,
+      publishState: false,
+    );
     return snapshot;
   }
 
   Future<void> reload() {
+    if (!ref.mounted) return _unavailableMutation();
     final generation = ++_loadGeneration;
     final capturedStore = ref.read(openWebUiDirectConnectionStoreProvider);
+    final cleanup = _captureCleanupResources();
     return _serializeMutation(() async {
+      if (!ref.mounted) return;
       if (generation != _loadGeneration) return;
       if (capturedStore == null) {
         if (ref.read(openWebUiDirectConnectionStoreProvider) != null) return;
-        _replacePublishedSnapshot(null, store: null);
+        _replacePublishedSnapshot(null, store: null, cleanup: cleanup);
         return;
       }
       if (!_storeIsCurrent(capturedStore)) return;
@@ -572,12 +665,19 @@ class OpenWebUiDirectConnectionsController
         if (!_storeIsCurrent(capturedStore) || generation != _loadGeneration) {
           return;
         }
-        _replacePublishedSnapshot(snapshot, store: capturedStore);
+        _replacePublishedSnapshot(
+          snapshot,
+          store: capturedStore,
+          cleanup: cleanup,
+        );
       } catch (error, stackTrace) {
-        if (!_storeIsCurrent(capturedStore)) return;
+        if (!_storeIsCurrent(capturedStore) || generation != _loadGeneration) {
+          return;
+        }
         _replacePublishedSnapshot(
           null,
           store: capturedStore,
+          cleanup: cleanup,
           publishState: false,
         );
         state = AsyncError<OpenWebUiDirectConnectionsSnapshot?>(
@@ -604,6 +704,7 @@ class OpenWebUiDirectConnectionsController
       return _mutate(
         source.store,
         source.snapshot,
+        source.cleanup,
         (store, current) => store.add(
           profile,
           authType: authType,
@@ -624,6 +725,7 @@ class OpenWebUiDirectConnectionsController
       () => _mutate(
         source.store,
         source.snapshot,
+        source.cleanup,
         (store, _) => store.update(
           record,
           profile,
@@ -641,12 +743,14 @@ class OpenWebUiDirectConnectionsController
       () => _mutate(
         source.store,
         source.snapshot,
+        source.cleanup,
         (store, _) => store.delete(record, expectedRevision: record.revision),
       ),
     );
   }
 
   _OpenWebUiMutationSource? _captureMutationSource() {
+    if (!ref.mounted) return null;
     final store = ref.read(openWebUiDirectConnectionStoreProvider);
     final snapshot = _publishedSnapshot;
     if (store == null ||
@@ -654,7 +758,11 @@ class OpenWebUiDirectConnectionsController
         !identical(store, _publishedStore)) {
       return null;
     }
-    return (store: store, snapshot: snapshot);
+    return (
+      store: store,
+      snapshot: snapshot,
+      cleanup: _captureCleanupResources(),
+    );
   }
 
   Future<void> _unavailableMutation() => Future<void>.error(
@@ -664,6 +772,7 @@ class OpenWebUiDirectConnectionsController
   Future<void> _mutate(
     OpenWebUiDirectConnectionStore store,
     OpenWebUiDirectConnectionsSnapshot? capturedSnapshot,
+    _DirectTransportCleanupResources cleanup,
     Future<OpenWebUiDirectConnectionsSnapshot> Function(
       OpenWebUiDirectConnectionStore store,
       OpenWebUiDirectConnectionsSnapshot? current,
@@ -676,10 +785,14 @@ class OpenWebUiDirectConnectionsController
     try {
       final snapshot = await operation(store, capturedSnapshot);
       if (!_storeIsCurrent(store)) return;
-      _replacePublishedSnapshot(snapshot, store: store);
+      _replacePublishedSnapshot(snapshot, store: store, cleanup: cleanup);
     } on OpenWebUiDirectConnectionConflictException catch (conflict) {
       if (_storeIsCurrent(store)) {
-        _replacePublishedSnapshot(conflict.currentSnapshot, store: store);
+        _replacePublishedSnapshot(
+          conflict.currentSnapshot,
+          store: store,
+          cleanup: cleanup,
+        );
       }
       rethrow;
     } on OpenWebUiDirectConnectionCommitUncertainException catch (
@@ -689,7 +802,12 @@ class OpenWebUiDirectConnectionsController
       if (_storeIsCurrent(store)) {
         // The POST may have changed connection indexes or credentials. Revoke
         // the old snapshot and require a fresh GET before another mutation.
-        _replacePublishedSnapshot(null, store: store, publishState: false);
+        _replacePublishedSnapshot(
+          null,
+          store: store,
+          cleanup: cleanup,
+          publishState: false,
+        );
         state = AsyncError<OpenWebUiDirectConnectionsSnapshot?>(
           error,
           stackTrace,
@@ -706,6 +824,7 @@ class OpenWebUiDirectConnectionsController
   void _replacePublishedSnapshot(
     OpenWebUiDirectConnectionsSnapshot? next, {
     required OpenWebUiDirectConnectionStore? store,
+    required _DirectTransportCleanupResources cleanup,
     bool publishState = true,
   }) {
     final previous = _publishedSnapshot;
@@ -716,7 +835,6 @@ class OpenWebUiDirectConnectionsController
     };
     final invalidatedProfileIds = <String>{};
     if (previous != null) {
-      final modelRegistry = ref.read(directModelRegistryProvider);
       for (final oldRecord in previous.records) {
         if (!oldRecord.isCompatible) continue;
         final oldProfile = oldRecord.profile;
@@ -725,7 +843,14 @@ class OpenWebUiDirectConnectionsController
             newRecord.index != oldRecord.index ||
             _transportChanged(oldProfile, newRecord.profile)) {
           invalidatedProfileIds.add(oldProfile.id);
-          _removeDirectProfileModelsBestEffort(modelRegistry, oldProfile.id);
+          _invalidateDirectProfileTransportBestEffort(
+            cleanup.clientPool,
+            oldProfile.id,
+          );
+          _removeDirectProfileModelsBestEffort(
+            cleanup.modelRegistry,
+            oldProfile.id,
+          );
         }
       }
     }
@@ -735,11 +860,21 @@ class OpenWebUiDirectConnectionsController
     if (publishState && ref.mounted) state = AsyncData(next);
 
     if (invalidatedProfileIds.isNotEmpty) {
-      final runRegistry = ref.read(directRunRegistryProvider);
       for (final profileId in invalidatedProfileIds) {
-        _cancelDirectProfileRunsBestEffort(runRegistry, profileId);
+        _cancelDirectProfileRunsBestEffort(cleanup.runRegistry, profileId);
       }
     }
+  }
+
+  _DirectTransportCleanupResources _captureCleanupResources() {
+    if (!ref.mounted) {
+      throw StateError('Open WebUI direct connection controller is disposed.');
+    }
+    return (
+      clientPool: ref.read(directHttpClientPoolProvider),
+      modelRegistry: ref.read(directModelRegistryProvider),
+      runRegistry: ref.read(directRunRegistryProvider),
+    );
   }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {
@@ -769,11 +904,13 @@ typedef OpenWebUiDirectCompletionRelayFactory =
     });
 
 final openWebUiDirectCompletionRelayFactoryProvider =
-    Provider<OpenWebUiDirectCompletionRelayFactory>(
-      (ref) =>
-          ({required emitChannel}) =>
-              OpenWebUiDirectCompletionRelay(emitChannel: emitChannel),
-    );
+    Provider<OpenWebUiDirectCompletionRelayFactory>((ref) {
+      final pool = ref.watch(directHttpClientPoolProvider);
+      return ({required emitChannel}) => OpenWebUiDirectCompletionRelay(
+        emitChannel: emitChannel,
+        clientPool: pool,
+      );
+    });
 
 /// Global Socket.IO handler for Open WebUI's client-side direct-completion RPC.
 ///
@@ -800,6 +937,11 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
   ref.read(openWebUiDirectConnectionsProvider);
 
   final activeRuns = <String, OpenWebUiDirectCompletionRelayRun>{};
+  // Keep every lease by run identity, not only the latest channel owner. A
+  // defensive same-channel replacement can occur through a re-entrant relay
+  // factory before the first handler publishes [activeRuns]. Provider teardown
+  // must still release both leases if either terminal future never settles.
+  final activeRunLeases = <SocketBackgroundActivityLease>{};
   var ownerDisposed = false;
 
   OpenWebUiDirectConnectionsSnapshot? currentSnapshot() {
@@ -832,7 +974,6 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
 
   void cancelActiveRuns(String reason) {
     final runs = activeRuns.values.toList(growable: false);
-    activeRuns.clear();
     for (final run in runs) {
       unawaited(run.cancel(reason));
     }
@@ -857,6 +998,9 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
 
   final subscription = socket.addChatEventHandler(
     requireFocus: false,
+    // This session-level listener is idle almost all the time. An admitted run
+    // below acquires its own bounded background transport lease.
+    keepsAliveInBackground: false,
     handler: (event, acknowledge) {
       final envelope = event['data'];
       if (envelope is! Map || envelope['type'] != 'request:chat:completion') {
@@ -966,30 +1110,44 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
             return socket.emitForSession(currentSessionId, eventName, data);
           },
         );
-        run = relay.start(
-          profile: record.profile,
-          trustedRemoteModelId: binding.remoteModelId,
-          trustedUrlIndex: record.index,
-          expectedAccountId: snapshot.accountId,
-          expectedSessionId: currentSessionId,
-          payload: payload,
-          acknowledge: acknowledge,
-        );
-        activeRuns[channel] = run;
-        unawaited(
-          run.done.then<void>(
-            (_) {
-              if (identical(activeRuns[channel], run)) {
-                activeRuns.remove(channel);
-              }
-            },
-            onError: (Object _, StackTrace _) {
-              if (identical(activeRuns[channel], run)) {
-                activeRuns.remove(channel);
-              }
-            },
-          ),
-        );
+        try {
+          final backgroundLease = socket.acquireBackgroundActivityLease();
+          try {
+            run = relay.start(
+              profile: record.profile,
+              trustedRemoteModelId: binding.remoteModelId,
+              trustedUrlIndex: record.index,
+              expectedAccountId: snapshot.accountId,
+              expectedSessionId: currentSessionId,
+              payload: payload,
+              acknowledge: acknowledge,
+            );
+          } catch (_) {
+            backgroundLease.dispose();
+            rethrow;
+          }
+          activeRuns[channel] = run;
+          activeRunLeases.add(backgroundLease);
+
+          void settleRun() {
+            relay.dispose();
+            activeRunLeases.remove(backgroundLease);
+            backgroundLease.dispose();
+            if (identical(activeRuns[channel], run)) {
+              activeRuns.remove(channel);
+            }
+          }
+
+          unawaited(
+            run.done.then<void>(
+              (_) => settleRun(),
+              onError: (Object _, StackTrace _) => settleRun(),
+            ),
+          );
+        } catch (_) {
+          relay.dispose();
+          rethrow;
+        }
       } catch (_) {
         rejectRpc(acknowledge, 'The direct connection is unavailable.');
       }
@@ -1008,6 +1166,13 @@ final openWebUiDirectCompletionSocketRelayProvider = Provider<void>((ref) {
     unawaited(reconnectSubscription.cancel());
     unawaited(healthSubscription.cancel());
     cancelActiveRuns('Direct relay owner changed');
+    // Provider teardown can outlive a broken relay's terminal future. Socket
+    // ownership is changing anyway, so release every remaining bounded lease.
+    for (final lease in activeRunLeases) {
+      lease.dispose();
+    }
+    activeRunLeases.clear();
+    activeRuns.clear();
   });
 });
 
@@ -1119,6 +1284,12 @@ final class DirectModelDiscoveryState {
   final bool isRefreshing;
 }
 
+const int _maxConcurrentDirectProfileDiscoveries = 4;
+
+@Riverpod(keepAlive: true)
+_DirectDiscoveryGate _directDiscoveryGate(Ref ref) =>
+    _DirectDiscoveryGate(_maxConcurrentDirectProfileDiscoveries);
+
 class DirectModelDiscoveryController
     extends AsyncNotifier<DirectModelDiscoveryState> {
   final Map<String, List<DirectRemoteModel>> _cache = {};
@@ -1126,10 +1297,19 @@ class DirectModelDiscoveryController
   final Map<String, List<model.Model>> _mintedModels = {};
   final Map<String, DirectConnectionProfile> _mintedModelProfiles = {};
   int _discoveryGeneration = 0;
+  DirectDiscoveryCancellation? _activeDiscovery;
+  Future<void>? _refreshInFlight;
+  bool _refreshRequested = false;
 
   @override
   Future<DirectModelDiscoveryState> build() async {
-    final generation = ++_discoveryGeneration;
+    // One callback belongs to each provider build lifecycle. Refreshes rotate
+    // `_activeDiscovery` without registering additional callbacks; Riverpod
+    // clears this callback before a dependency-driven rebuild and the next
+    // build installs a fresh one.
+    ref.onDispose(() => _activeDiscovery?.cancel());
+    final cancellation = _beginDiscoveryGeneration();
+    final fallback = state.value ?? DirectModelDiscoveryState();
     // A build-scoped listener is no longer active after this build errors, so
     // keep the error boundary as a watched dependency. This rebuilds discovery
     // when profile storage recovers without duplicating the initial loading
@@ -1143,14 +1323,50 @@ class DirectModelDiscoveryController
         if (previous?.asData != null) ref.invalidateSelf();
       },
     );
-    final profiles = await ref.read(
-      effectiveDirectConnectionProfilesFutureProvider.future,
-    );
-    return _discover(profiles, generation: generation);
+    try {
+      final profiles = await ref.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      cancellation.throwIfCancelled();
+      return await _discover(profiles, cancellation: cancellation);
+    } on DirectDiscoveryCancelled {
+      return ref.mounted ? state.value ?? fallback : fallback;
+    }
   }
 
-  Future<void> refresh() async {
-    final generation = ++_discoveryGeneration;
+  Future<void> refresh() {
+    if (!ref.mounted) {
+      return Future<void>.error(
+        StateError('Direct model discovery controller is disposed.'),
+      );
+    }
+    _refreshRequested = true;
+    _activeDiscovery?.cancel();
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+
+    // Defer the first pass by one event turn so bursts of UI/system refresh
+    // requests collapse into one provider discovery. Requests arriving while
+    // that pass is active schedule at most one superseding pass.
+    final operation = Future<void>(() => _runRefreshLoop());
+    _refreshInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _runRefreshLoop() async {
+    try {
+      do {
+        _refreshRequested = false;
+        await _refreshOnce();
+      } while (_refreshRequested && ref.mounted);
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<void> _refreshOnce() async {
+    if (!ref.mounted) return;
+    final cancellation = _beginDiscoveryGeneration();
     final previous = state.value;
     if (previous != null) {
       state = AsyncValue.data(
@@ -1161,28 +1377,58 @@ class DirectModelDiscoveryController
         ),
       );
     }
-    final result = await AsyncValue.guard(() async {
+    try {
       if (ref.read(openWebUiDirectConnectionsAvailableProvider)) {
         try {
           await ref.read(openWebUiDirectConnectionsProvider.notifier).reload();
         } catch (_) {
+          cancellation.throwIfCancelled();
           // The synced source exposes its own retry/error state. Keep device
           // profiles usable when that optional refresh fails.
         }
       }
+      cancellation.throwIfCancelled();
       final profiles = await ref.read(
         effectiveDirectConnectionProfilesFutureProvider.future,
       );
-      return _discover(profiles, generation: generation);
-    });
-    if (ref.mounted && generation == _discoveryGeneration) state = result;
+      cancellation.throwIfCancelled();
+      final result = await _discover(profiles, cancellation: cancellation);
+      if (_isCurrentDiscovery(cancellation)) {
+        state = AsyncValue.data(result);
+      }
+    } on DirectDiscoveryCancelled {
+      // A newer build/refresh owns publication and error reporting.
+    } catch (error, stackTrace) {
+      if (_isCurrentDiscovery(cancellation)) {
+        state = AsyncValue.error(error, stackTrace);
+      }
+    }
+  }
+
+  DirectDiscoveryCancellation _beginDiscoveryGeneration() {
+    _activeDiscovery?.cancel();
+    final cancellation = DirectDiscoveryCancellation(++_discoveryGeneration);
+    _activeDiscovery = cancellation;
+    return cancellation;
+  }
+
+  bool _isCurrentDiscovery(DirectDiscoveryCancellation cancellation) =>
+      ref.mounted &&
+      !cancellation.isCancelled &&
+      identical(_activeDiscovery, cancellation);
+
+  void _ensureCurrentDiscovery(DirectDiscoveryCancellation cancellation) {
+    cancellation.throwIfCancelled();
+    if (!ref.mounted || !identical(_activeDiscovery, cancellation)) {
+      throw DirectDiscoveryCancelled(cancellation.generation);
+    }
   }
 
   Future<DirectModelDiscoveryState> _discover(
     List<DirectConnectionProfile> allProfiles, {
-    required int generation,
+    required DirectDiscoveryCancellation cancellation,
   }) async {
-    if (!ref.mounted) return DirectModelDiscoveryState();
+    _ensureCurrentDiscovery(cancellation);
     final profiles = allProfiles.where((profile) => profile.enabled).toList();
     final activeIds = profiles.map((profile) => profile.id).toSet();
     final localProfileIds =
@@ -1203,6 +1449,9 @@ class DirectModelDiscoveryController
         };
     final registry = ref.read(directModelRegistryProvider)
       ..retainProfiles(activeIds);
+    final adapterRegistry = ref.read(directProviderAdapterRegistryProvider);
+    final discoveryGate = ref.read(_directDiscoveryGateProvider);
+    _ensureCurrentDiscovery(cancellation);
 
     // Profile persistence invalidates route bindings before it publishes the
     // new profile list. Hide models whose exact binding is no longer current
@@ -1212,12 +1461,15 @@ class DirectModelDiscoveryController
 
     final outcomes = await Future.wait([
       for (final profile in profiles)
-        _discoverProfile(profile, signature: _profileSignature(profile)),
+        _discoverProfile(
+          profile,
+          signature: _profileSignature(profile),
+          cancellation: cancellation,
+          adapterRegistry: adapterRegistry,
+          discoveryGate: discoveryGate,
+        ),
     ]);
-    if (!ref.mounted) return DirectModelDiscoveryState();
-    if (generation != _discoveryGeneration) {
-      return state.value ?? DirectModelDiscoveryState();
-    }
+    _ensureCurrentDiscovery(cancellation);
 
     final models = <model.Model>[];
     final errors = <String, String>{};
@@ -1308,7 +1560,11 @@ class DirectModelDiscoveryController
   Future<_DiscoveryOutcome> _discoverProfile(
     DirectConnectionProfile profile, {
     required int signature,
+    required DirectDiscoveryCancellation cancellation,
+    required DirectProviderAdapterRegistry adapterRegistry,
+    required _DirectDiscoveryGate discoveryGate,
   }) async {
+    cancellation.throwIfCancelled();
     final canReuseCache = _profileSignatures[profile.id] == signature;
     final validation = profile.validateOrNull();
     if (validation != null) {
@@ -1325,9 +1581,7 @@ class DirectModelDiscoveryController
         models: directManualModels(profile),
       );
     }
-    final adapter = ref
-        .read(directProviderAdapterRegistryProvider)
-        .lookup(profile.adapterKey);
+    final adapter = adapterRegistry.lookup(profile.adapterKey);
     if (adapter == null) {
       return _DiscoveryOutcome(
         profile: profile,
@@ -1337,11 +1591,21 @@ class DirectModelDiscoveryController
       );
     }
     try {
+      final models = await discoveryGate.run(
+        cancellation,
+        () => adapter is CancellableDirectModelDiscovery
+            ? (adapter as CancellableDirectModelDiscovery)
+                  .listModelsCancellable(profile, cancellation: cancellation)
+            : adapter.listModels(profile),
+      );
+      cancellation.throwIfCancelled();
       return _DiscoveryOutcome(
         profile: profile,
         signature: signature,
-        models: await adapter.listModels(profile),
+        models: models,
       );
+    } on DirectDiscoveryCancelled {
+      rethrow;
     } catch (error) {
       final normalized = normalizeDirectProviderError(error);
       return _DiscoveryOutcome(
@@ -1371,6 +1635,104 @@ final class _DiscoveryOutcome {
   final int signature;
   final List<DirectRemoteModel>? models;
   final String? error;
+}
+
+/// Caps profile-level discovery across overlapping generations. A cancelled
+/// caller returns immediately, but its permit remains occupied until an
+/// adapter that ignores cancellation actually settles; this keeps the cap
+/// truthful even for runtime/third-party adapters.
+final class _DirectDiscoveryGate {
+  _DirectDiscoveryGate(this.maxConcurrent) {
+    if (maxConcurrent <= 0) {
+      throw RangeError.value(maxConcurrent, 'maxConcurrent');
+    }
+  }
+
+  final int maxConcurrent;
+  final Queue<_DirectDiscoveryGateWaiter> _waiters =
+      Queue<_DirectDiscoveryGateWaiter>();
+  int _active = 0;
+
+  Future<T> run<T>(
+    DirectDiscoveryCancellation cancellation,
+    Future<T> Function() operation,
+  ) async {
+    await _acquire(cancellation);
+    try {
+      cancellation.throwIfCancelled();
+    } catch (_) {
+      _release();
+      rethrow;
+    }
+
+    final operationFuture = Future<T>.sync(operation);
+    var released = false;
+    void releaseWhenSettled() {
+      if (released) return;
+      released = true;
+      _release();
+    }
+
+    unawaited(
+      operationFuture.then<void>(
+        (_) => releaseWhenSettled(),
+        onError: (Object _, StackTrace _) => releaseWhenSettled(),
+      ),
+    );
+    return Future.any<T>([
+      operationFuture,
+      cancellation.whenCancelled.then<T>(
+        (_) => throw DirectDiscoveryCancelled(cancellation.generation),
+      ),
+    ]);
+  }
+
+  Future<void> _acquire(DirectDiscoveryCancellation cancellation) {
+    cancellation.throwIfCancelled();
+    if (_active < maxConcurrent) {
+      _active++;
+      return Future<void>.value();
+    }
+
+    final waiter = _DirectDiscoveryGateWaiter(cancellation);
+    _waiters.addLast(waiter);
+    unawaited(
+      cancellation.whenCancelled.then<void>((_) {
+        if (_waiters.remove(waiter) && !waiter.completer.isCompleted) {
+          waiter.completer.completeError(
+            DirectDiscoveryCancelled(cancellation.generation),
+          );
+        }
+      }),
+    );
+    return waiter.completer.future;
+  }
+
+  void _release() {
+    assert(_active > 0);
+    _active--;
+    while (_waiters.isNotEmpty) {
+      final waiter = _waiters.removeFirst();
+      if (waiter.cancellation.isCancelled) {
+        if (!waiter.completer.isCompleted) {
+          waiter.completer.completeError(
+            DirectDiscoveryCancelled(waiter.cancellation.generation),
+          );
+        }
+        continue;
+      }
+      _active++;
+      waiter.completer.complete();
+      return;
+    }
+  }
+}
+
+final class _DirectDiscoveryGateWaiter {
+  _DirectDiscoveryGateWaiter(this.cancellation);
+
+  final DirectDiscoveryCancellation cancellation;
+  final Completer<void> completer = Completer<void>();
 }
 
 String _sanitizeRuntimeAdapterMessage(
@@ -1405,6 +1767,20 @@ bool _transportChanged(
     _profileSignature(previous) != _profileSignature(next) ||
     previous.enabled != next.enabled ||
     !listEquals(previous.manualModelIds, next.manualModelIds);
+
+void _invalidateDirectProfileTransportBestEffort(
+  DirectHttpClientPool pool,
+  String profileId,
+) {
+  try {
+    pool.invalidateProfile(profileId);
+  } catch (_) {
+    DebugLogger.error(
+      'Failed to retire direct HTTP transports',
+      scope: 'direct/profiles',
+    );
+  }
+}
 
 bool _sameModelIdentities(List<model.Model> left, List<model.Model> right) {
   if (left.length != right.length) return false;

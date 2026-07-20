@@ -16,6 +16,11 @@ final _presentModelSelectorChannel = BasicMessageChannel<Object?>(
   NativeSheetHostApi.pigeonChannelCodec,
 );
 
+final _updateModelSelectorChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModels',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -29,6 +34,10 @@ void main() {
     );
     messenger.setMockDecodedMessageHandler<Object?>(
       _presentModelSelectorChannel,
+      null,
+    );
+    messenger.setMockDecodedMessageHandler<Object?>(
+      _updateModelSelectorChannel,
       null,
     );
   });
@@ -140,6 +149,7 @@ void main() {
                 args.single as PlatformNativeSheetModelSelectorRequest;
             presentCalls += 1;
             if (presentCalls == 1) {
+              check(request.presentationId).equals('presentation-a');
               check(request.models.single.tags).deepEquals(['tag-a']);
               check(
                 request.models.single.avatarBytes!.toList(),
@@ -147,6 +157,7 @@ void main() {
               await firstPresentation.future;
               return wrapResponse(result: null);
             }
+            check(request.presentationId).equals('presentation-b');
             check(request.models.single.tags).deepEquals(['tag-b']);
             return wrapResponse(
               error: PlatformException(code: 'ALREADY_PRESENTING'),
@@ -155,6 +166,7 @@ void main() {
         );
 
         final firstFuture = NativeSheetBridge.instance.presentModelSelector(
+          presentationId: 'presentation-a',
           title: 'Models',
           models: [
             NativeSheetModelOption(
@@ -172,6 +184,7 @@ void main() {
 
         final secondResult = await NativeSheetBridge.instance
             .presentModelSelector(
+              presentationId: 'presentation-b',
               title: 'Models again',
               models: const [
                 NativeSheetModelOption(
@@ -198,5 +211,31 @@ void main() {
         await firstFuture;
       },
     );
+
+    test('hydration update carries its selector presentation ID', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _updateModelSelectorChannel,
+        (message) async {
+          final args = message! as List<Object?>;
+          check(args[0]).equals('presentation-current');
+          final models = args[1]! as List<Object?>;
+          final model = models.single as PlatformNativeSheetModelOption;
+          check(model.id).equals('model-a');
+          check(model.avatarBytes!.toList()).deepEquals([4, 5, 6]);
+          return wrapResponse(empty: true);
+        },
+      );
+
+      await NativeSheetBridge.instance.updateModelSelectorModels([
+        NativeSheetModelOption(
+          id: 'model-a',
+          name: 'A',
+          avatarBytes: Uint8List.fromList([4, 5, 6]),
+        ),
+      ], presentationId: 'presentation-current');
+    });
   });
 }

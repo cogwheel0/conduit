@@ -18,6 +18,8 @@ import '../services/navigation_service.dart';
 import '../services/app_intents_service.dart';
 import '../services/carplay_service.dart';
 import '../services/home_widget_service.dart';
+import '../services/image_attachment_cache_service.dart';
+import '../services/media_upload_controller.dart';
 import '../services/api_service.dart';
 import '../models/conversation.dart';
 import '../models/user.dart';
@@ -46,10 +48,29 @@ part 'app_startup_providers.g.dart';
 /// trips Riverpod's circular dependency guard.
 final userScopedProviderCleanupProvider = Provider<void>((ref) {
   ref.watch(openWebUiAccountStorageIsolationProvider);
+  var tokenlessCleanupScheduled = false;
+
+  void scheduleCleanup() {
+    if (tokenlessCleanupScheduled) return;
+    tokenlessCleanupScheduled = true;
+    // Capture the departing composer's exact state objects and upload
+    // generations synchronously. Authentication can complete again before the
+    // delayed cleanup fence settles; that new session must remain untouched.
+    final attachmentOwnership = ref
+        .read(mediaUploadControllerProvider)
+        .captureAttachmentOwnership();
+    unawaited(
+      _cleanupUserScopedProvidersAfterSignOut(ref, attachmentOwnership),
+    );
+  }
 
   ref.listen<String?>(authTokenProvider3, (previous, next) {
+    if (next != null) {
+      tokenlessCleanupScheduled = false;
+      return;
+    }
     if (previous != null && next == null) {
-      _cleanupUserScopedProvidersAfterSignOut(ref);
+      scheduleCleanup();
     }
   });
 
@@ -58,11 +79,12 @@ final userScopedProviderCleanupProvider = Provider<void>((ref) {
     next,
   ) {
     if (previous != AuthNavigationState.authenticated ||
-        next == AuthNavigationState.authenticated) {
+        next == AuthNavigationState.authenticated ||
+        ref.read(authTokenProvider3) != null) {
       return;
     }
 
-    _cleanupUserScopedProvidersAfterSignOut(ref);
+    scheduleCleanup();
   });
 });
 
@@ -636,8 +658,12 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   }
 }
 
-Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
+Future<void> _cleanupUserScopedProvidersAfterSignOut(
+  Ref ref,
+  MediaAttachmentOwnershipSnapshot attachmentOwnership,
+) async {
   const attempts = 40;
+  var shouldResetCurrentUserProviders = false;
   for (var attempt = 0; attempt < attempts; attempt++) {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     if (!ref.mounted) {
@@ -645,14 +671,12 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
     }
     if (ref.read(authNavigationStateProvider) ==
         AuthNavigationState.authenticated) {
-      return;
+      break;
     }
     if (ref.read(authTokenProvider3) == null &&
         !ref.read(isAuthLoadingProvider2)) {
+      shouldResetCurrentUserProviders = true;
       break;
-    }
-    if (attempt == attempts - 1) {
-      return;
     }
   }
 
@@ -660,6 +684,35 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(Ref ref) async {
     return;
   }
   try {
+    // Composer state is user-owned. Retire its queue/staging owners through
+    // the media controller before dropping the previous account's providers;
+    // the UI clears synchronously even if best-effort cleanup later fails.
+    try {
+      await ref
+          .read(mediaUploadControllerProvider)
+          .retireAttachmentOwnership(attachmentOwnership);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'signed-out-attachment-cleanup-failed',
+        scope: 'startup/auth-cleanup',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    // A rapid reauthentication now owns the visible providers. The departing
+    // attachment snapshot above was still retired, but broader invalidation
+    // must not erase the replacement session's freshly loaded state. Recheck
+    // after attachment cleanup because its filesystem barrier may have waited
+    // long enough for a replacement session to publish fresh provider state.
+    if (!shouldResetCurrentUserProviders ||
+        ref.read(authNavigationStateProvider) ==
+            AuthNavigationState.authenticated ||
+        ref.read(authTokenProvider3) != null ||
+        ref.read(isAuthLoadingProvider2)) {
+      return;
+    }
+
     final active = ref.read(activeConversationProvider);
     final preserveLocalConversation =
         active != null && !conversationUsesOpenWebUiStorage(active);
@@ -1411,16 +1464,11 @@ class AppStartupFlow extends _$AppStartupFlow {
   void _scheduleStartupProviderKeepAlives() {
     _scheduleDeferredKeepAlive(
       Duration.zero,
-      authApiIntegrationProvider,
-      label: 'auth-api-integration',
-    );
-    _scheduleDeferredKeepAlive(
-      const Duration(milliseconds: 16),
       apiTokenUpdaterProvider,
       label: 'api-token-updater',
     );
     _scheduleDeferredKeepAlive(
-      const Duration(milliseconds: 32),
+      const Duration(milliseconds: 16),
       silentLoginCoordinatorProvider,
       label: 'silent-login',
     );
@@ -1448,11 +1496,6 @@ class AppStartupFlow extends _$AppStartupFlow {
 
   void _scheduleStartupTasks() {
     _scheduleStartupProviderKeepAlives();
-    _scheduleAfterDelay(
-      const Duration(milliseconds: 120),
-      () => ref.read(backgroundModelLoadProvider),
-      label: 'background-model-load',
-    );
     _scheduleDeferredKeepAlive(
       const Duration(milliseconds: 48),
       foregroundRefreshProvider,
@@ -1609,9 +1652,11 @@ class AppStartupFlow extends _$AppStartupFlow {
   /// Warm the API client's connection pool as soon as we're authenticated, so
   /// the first chat completion doesn't race a cold TLS/HTTP handshake and
   /// transiently fail (which would otherwise queue a retry). Fire-and-forget on
-  /// the SAME Dio the completion uses; `checkHealth()` swallows its own errors.
+  /// the SAME Dio the completion uses; `warmConnectionPool()` swallows its own
+  /// errors. (`checkHealth()` now probes with a request-scoped client it
+  /// force-closes, which leaves the completion pool cold.)
   void _warmApiConnection(ApiService api) {
-    unawaited(api.checkHealth());
+    unawaited(api.warmConnectionPool());
   }
 
   void _requestPostAuthenticationStartup({
@@ -1694,6 +1739,7 @@ class AppStartupFlow extends _$AppStartupFlow {
 
   void _activate({Duration apiWaitTimeout = const Duration(seconds: 1)}) {
     ref.onDispose(_disposeStartupResources);
+    _keepAlive(imageAttachmentCacheLifecycleProvider);
     _scheduleStartupTasks();
 
     // If the session is already authenticated before startup flow attaches,

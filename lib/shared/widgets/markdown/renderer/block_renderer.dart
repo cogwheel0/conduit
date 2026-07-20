@@ -669,7 +669,10 @@ class BlockRenderer {
     inlineRenderer.advanceVisibleTextOffset(code.length);
     final blockKind = element.blockKind;
     final previewable = blockKind == CompiledMarkdownBlockKind.previewableCode;
-    final inlinePreview = previewable && element.inlinePreview;
+    final inlinePreview =
+        previewable &&
+        element.inlinePreview &&
+        heavyBlockPolicy == MarkdownHeavyBlockPolicy.eager;
 
     final conduitTheme = context.conduitTheme;
 

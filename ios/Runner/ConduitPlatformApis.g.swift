@@ -583,40 +583,40 @@ struct PlatformBackgroundTaskExtendedEvent: Hashable, CustomStringConvertible {
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformAppIntentImagePayload: Hashable, CustomStringConvertible {
   var filename: String
-  var bytes: FlutterStandardTypedData
+  var filePath: String
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> PlatformAppIntentImagePayload? {
     let filename = pigeonVar_list[0] as! String
-    let bytes = pigeonVar_list[1] as! FlutterStandardTypedData
+    let filePath = pigeonVar_list[1] as! String
 
     return PlatformAppIntentImagePayload(
       filename: filename,
-      bytes: bytes
+      filePath: filePath
     )
   }
   func toList() -> [Any?] {
     return [
       filename,
-      bytes,
+      filePath,
     ]
   }
   static func == (lhs: PlatformAppIntentImagePayload, rhs: PlatformAppIntentImagePayload) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.filename, rhs.filename) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.bytes, rhs.bytes)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.filename, rhs.filename) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filePath, rhs.filePath)
   }
 
   func hash(into hasher: inout Hasher) {
     hasher.combine("PlatformAppIntentImagePayload")
     ConduitPlatformApisPigeonInternal.deepHash(value: filename, hasher: &hasher)
-    ConduitPlatformApisPigeonInternal.deepHash(value: bytes, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: filePath, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformAppIntentImagePayload(filename: \(String(describing: filename)), bytes: \(String(describing: bytes)))"
+    return "PlatformAppIntentImagePayload(filename: \(String(describing: filename)), filePath: \(String(describing: filePath)))"
   }
 }
 
@@ -625,6 +625,7 @@ struct PlatformAppIntentResponse: Hashable, CustomStringConvertible {
   var success: Bool
   var value: String? = nil
   var error: String? = nil
+  var ownedFilePath: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -632,11 +633,13 @@ struct PlatformAppIntentResponse: Hashable, CustomStringConvertible {
     let success = pigeonVar_list[0] as! Bool
     let value: String? = nilOrValue(pigeonVar_list[1])
     let error: String? = nilOrValue(pigeonVar_list[2])
+    let ownedFilePath: String? = nilOrValue(pigeonVar_list[3])
 
     return PlatformAppIntentResponse(
       success: success,
       value: value,
-      error: error
+      error: error,
+      ownedFilePath: ownedFilePath
     )
   }
   func toList() -> [Any?] {
@@ -644,13 +647,14 @@ struct PlatformAppIntentResponse: Hashable, CustomStringConvertible {
       success,
       value,
       error,
+      ownedFilePath,
     ]
   }
   static func == (lhs: PlatformAppIntentResponse, rhs: PlatformAppIntentResponse) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.success, rhs.success) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.error, rhs.error)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.success, rhs.success) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.error, rhs.error) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.ownedFilePath, rhs.ownedFilePath)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -658,50 +662,51 @@ struct PlatformAppIntentResponse: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: success, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: value, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: error, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: ownedFilePath, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformAppIntentResponse(success: \(String(describing: success)), value: \(String(describing: value)), error: \(String(describing: error)))"
+    return "PlatformAppIntentResponse(success: \(String(describing: success)), value: \(String(describing: value)), error: \(String(describing: error)), ownedFilePath: \(String(describing: ownedFilePath)))"
   }
 }
 
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformNativePasteImageItem: Hashable, CustomStringConvertible {
   var mimeType: String
-  var data: FlutterStandardTypedData
+  var filePath: String
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> PlatformNativePasteImageItem? {
     let mimeType = pigeonVar_list[0] as! String
-    let data = pigeonVar_list[1] as! FlutterStandardTypedData
+    let filePath = pigeonVar_list[1] as! String
 
     return PlatformNativePasteImageItem(
       mimeType: mimeType,
-      data: data
+      filePath: filePath
     )
   }
   func toList() -> [Any?] {
     return [
       mimeType,
-      data,
+      filePath,
     ]
   }
   static func == (lhs: PlatformNativePasteImageItem, rhs: PlatformNativePasteImageItem) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.mimeType, rhs.mimeType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.data, rhs.data)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.mimeType, rhs.mimeType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filePath, rhs.filePath)
   }
 
   func hash(into hasher: inout Hasher) {
     hasher.combine("PlatformNativePasteImageItem")
     ConduitPlatformApisPigeonInternal.deepHash(value: mimeType, hasher: &hasher)
-    ConduitPlatformApisPigeonInternal.deepHash(value: data, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: filePath, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativePasteImageItem(mimeType: \(String(describing: mimeType)), data: \(String(describing: data)))"
+    return "PlatformNativePasteImageItem(mimeType: \(String(describing: mimeType)), filePath: \(String(describing: filePath)))"
   }
 }
 
@@ -710,6 +715,7 @@ struct PlatformNativePastePayload: Hashable, CustomStringConvertible {
   var kind: PlatformNativePasteKind
   var text: String? = nil
   var items: [PlatformNativePasteImageItem]? = nil
+  var deliveryId: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -717,11 +723,13 @@ struct PlatformNativePastePayload: Hashable, CustomStringConvertible {
     let kind = pigeonVar_list[0] as! PlatformNativePasteKind
     let text: String? = nilOrValue(pigeonVar_list[1])
     let items: [PlatformNativePasteImageItem]? = nilOrValue(pigeonVar_list[2])
+    let deliveryId: String? = nilOrValue(pigeonVar_list[3])
 
     return PlatformNativePastePayload(
       kind: kind,
       text: text,
-      items: items
+      items: items,
+      deliveryId: deliveryId
     )
   }
   func toList() -> [Any?] {
@@ -729,13 +737,14 @@ struct PlatformNativePastePayload: Hashable, CustomStringConvertible {
       kind,
       text,
       items,
+      deliveryId,
     ]
   }
   static func == (lhs: PlatformNativePastePayload, rhs: PlatformNativePastePayload) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.text, rhs.text) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.text, rhs.text) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.deliveryId, rhs.deliveryId)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -743,10 +752,11 @@ struct PlatformNativePastePayload: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: kind, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: text, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: items, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: deliveryId, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativePastePayload(kind: \(String(describing: kind)), text: \(String(describing: text)), items: \(String(describing: items)))"
+    return "PlatformNativePastePayload(kind: \(String(describing: kind)), text: \(String(describing: text)), items: \(String(describing: items)), deliveryId: \(String(describing: deliveryId)))"
   }
 }
 
@@ -1867,6 +1877,7 @@ struct PlatformNativeSheetModelOption: Hashable, CustomStringConvertible {
 
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformNativeSheetModelSelectorRequest: Hashable, CustomStringConvertible {
+  var presentationId: String
   var title: String
   var selectedModelId: String? = nil
   var models: [PlatformNativeSheetModelOption]
@@ -1878,15 +1889,17 @@ struct PlatformNativeSheetModelSelectorRequest: Hashable, CustomStringConvertibl
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> PlatformNativeSheetModelSelectorRequest? {
-    let title = pigeonVar_list[0] as! String
-    let selectedModelId: String? = nilOrValue(pigeonVar_list[1])
-    let models = pigeonVar_list[2] as! [PlatformNativeSheetModelOption]
-    let pinnedModelIds = pigeonVar_list[3] as! [String]
-    let allowsPinning = pigeonVar_list[4] as! Bool
-    let pinTitle: String? = nilOrValue(pigeonVar_list[5])
-    let unpinTitle: String? = nilOrValue(pigeonVar_list[6])
+    let presentationId = pigeonVar_list[0] as! String
+    let title = pigeonVar_list[1] as! String
+    let selectedModelId: String? = nilOrValue(pigeonVar_list[2])
+    let models = pigeonVar_list[3] as! [PlatformNativeSheetModelOption]
+    let pinnedModelIds = pigeonVar_list[4] as! [String]
+    let allowsPinning = pigeonVar_list[5] as! Bool
+    let pinTitle: String? = nilOrValue(pigeonVar_list[6])
+    let unpinTitle: String? = nilOrValue(pigeonVar_list[7])
 
     return PlatformNativeSheetModelSelectorRequest(
+      presentationId: presentationId,
       title: title,
       selectedModelId: selectedModelId,
       models: models,
@@ -1898,6 +1911,7 @@ struct PlatformNativeSheetModelSelectorRequest: Hashable, CustomStringConvertibl
   }
   func toList() -> [Any?] {
     return [
+      presentationId,
       title,
       selectedModelId,
       models,
@@ -1911,11 +1925,12 @@ struct PlatformNativeSheetModelSelectorRequest: Hashable, CustomStringConvertibl
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedModelId, rhs.selectedModelId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.models, rhs.models) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pinnedModelIds, rhs.pinnedModelIds) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.allowsPinning, rhs.allowsPinning) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pinTitle, rhs.pinTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.unpinTitle, rhs.unpinTitle)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.presentationId, rhs.presentationId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedModelId, rhs.selectedModelId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.models, rhs.models) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pinnedModelIds, rhs.pinnedModelIds) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.allowsPinning, rhs.allowsPinning) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pinTitle, rhs.pinTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.unpinTitle, rhs.unpinTitle)
   }
 
   func hash(into hasher: inout Hasher) {
     hasher.combine("PlatformNativeSheetModelSelectorRequest")
+    ConduitPlatformApisPigeonInternal.deepHash(value: presentationId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: selectedModelId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: models, hasher: &hasher)
@@ -1926,7 +1941,7 @@ struct PlatformNativeSheetModelSelectorRequest: Hashable, CustomStringConvertibl
   }
 
   public var description: String {
-    return "PlatformNativeSheetModelSelectorRequest(title: \(String(describing: title)), selectedModelId: \(String(describing: selectedModelId)), models: \(String(describing: models)), pinnedModelIds: \(String(describing: pinnedModelIds)), allowsPinning: \(String(describing: allowsPinning)), pinTitle: \(String(describing: pinTitle)), unpinTitle: \(String(describing: unpinTitle)))"
+    return "PlatformNativeSheetModelSelectorRequest(presentationId: \(String(describing: presentationId)), title: \(String(describing: title)), selectedModelId: \(String(describing: selectedModelId)), models: \(String(describing: models)), pinnedModelIds: \(String(describing: pinnedModelIds)), allowsPinning: \(String(describing: allowsPinning)), pinTitle: \(String(describing: pinTitle)), unpinTitle: \(String(describing: unpinTitle)))"
   }
 }
 
@@ -2988,11 +3003,11 @@ class BackgroundStreamingFlutterApi: BackgroundStreamingFlutterApiProtocol {
 
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol AppIntentFlutterApiProtocol {
-  func askChat(prompt promptArg: String?, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
-  func startVoiceCall(completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
-  func sendText(text textArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
-  func sendUrl(url urlArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
-  func sendImage(payload payloadArg: PlatformAppIntentImagePayload, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
+  func askChat(invocationId invocationIdArg: String, prompt promptArg: String?, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
+  func startVoiceCall(invocationId invocationIdArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
+  func sendText(invocationId invocationIdArg: String, text textArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
+  func sendUrl(invocationId invocationIdArg: String, url urlArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
+  func sendImage(invocationId invocationIdArg: String, payload payloadArg: PlatformAppIntentImagePayload, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void)
 }
 class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -3004,10 +3019,10 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
   var codec: ConduitPlatformApisPigeonCodec {
     return ConduitPlatformApisPigeonCodec.shared
   }
-  func askChat(prompt promptArg: String?, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
+  func askChat(invocationId invocationIdArg: String, prompt promptArg: String?, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.askChat\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([promptArg] as [Any?]) { response in
+    channel.sendMessage([invocationIdArg, promptArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -3025,10 +3040,10 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
       }
     }
   }
-  func startVoiceCall(completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
+  func startVoiceCall(invocationId invocationIdArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.startVoiceCall\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage(nil) { response in
+    channel.sendMessage([invocationIdArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -3046,10 +3061,10 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
       }
     }
   }
-  func sendText(text textArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
+  func sendText(invocationId invocationIdArg: String, text textArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendText\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([textArg] as [Any?]) { response in
+    channel.sendMessage([invocationIdArg, textArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -3067,10 +3082,10 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
       }
     }
   }
-  func sendUrl(url urlArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
+  func sendUrl(invocationId invocationIdArg: String, url urlArg: String, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendUrl\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([urlArg] as [Any?]) { response in
+    channel.sendMessage([invocationIdArg, urlArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -3088,10 +3103,10 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
       }
     }
   }
-  func sendImage(payload payloadArg: PlatformAppIntentImagePayload, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
+  func sendImage(invocationId invocationIdArg: String, payload payloadArg: PlatformAppIntentImagePayload, completion: @escaping (Result<PlatformAppIntentResponse, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendImage\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([payloadArg] as [Any?]) { response in
+    channel.sendMessage([invocationIdArg, payloadArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return
@@ -3111,8 +3126,36 @@ class AppIntentFlutterApi: AppIntentFlutterApiProtocol {
   }
 }
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol AppIntentHostApi {
+  func setReady(ready: Bool) throws
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class AppIntentHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `AppIntentHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: AppIntentHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    let setReadyChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.AppIntentHostApi.setReady\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setReadyChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let readyArg = args[0] as! Bool
+        do {
+          try api.setReady(ready: readyArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setReadyChannel.setMessageHandler(nil)
+    }
+  }
+}
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol NativePasteHostApi {
-  func requestPaste() throws -> Bool
+  func requestPaste(completion: @escaping (Result<Bool, Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -3124,11 +3167,13 @@ class NativePasteHostApiSetup {
     let requestPasteChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativePasteHostApi.requestPaste\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       requestPasteChannel.setMessageHandler { _, reply in
-        do {
-          let result = try api.requestPaste()
-          reply(wrapResult(result))
-        } catch {
-          reply(wrapError(error))
+        api.requestPaste { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
         }
       }
     } else {
@@ -3139,7 +3184,7 @@ class NativePasteHostApiSetup {
 
 /// Generated protocol from Pigeon that represents Flutter messages that can be called from Swift.
 protocol NativePasteFlutterApiProtocol {
-  func onPaste(payload payloadArg: PlatformNativePastePayload, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  func onPaste(payload payloadArg: PlatformNativePastePayload, completion: @escaping (Result<Bool, PigeonError>) -> Void)
 }
 class NativePasteFlutterApi: NativePasteFlutterApiProtocol {
   private let binaryMessenger: FlutterBinaryMessenger
@@ -3151,7 +3196,7 @@ class NativePasteFlutterApi: NativePasteFlutterApiProtocol {
   var codec: ConduitPlatformApisPigeonCodec {
     return ConduitPlatformApisPigeonCodec.shared
   }
-  func onPaste(payload payloadArg: PlatformNativePastePayload, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  func onPaste(payload payloadArg: PlatformNativePastePayload, completion: @escaping (Result<Bool, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.conduit.NativePasteFlutterApi.onPaste\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([payloadArg] as [Any?]) { response in
@@ -3164,8 +3209,11 @@ class NativePasteFlutterApi: NativePasteFlutterApiProtocol {
         let message: String? = nilOrValue(listResponse[1])
         let details: String? = nilOrValue(listResponse[2])
         completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else if listResponse[0] == nil {
+        completion(.failure(PigeonError(code: "null-error", message: "Flutter api returned null value for non-null return value.", details: "")))
       } else {
-        completion(.success(()))
+        let result = listResponse[0] as! Bool
+        completion(.success(result))
       }
     }
   }
@@ -3316,6 +3364,7 @@ protocol NativeSheetHostApi {
   func presentProfileMenu(config: PlatformNativeProfileSheetConfig, completion: @escaping (Result<Bool, Error>) -> Void)
   func dismiss() throws -> Bool
   func presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, completion: @escaping (Result<String?, Error>) -> Void)
+  func updateModelSelectorModels(presentationId: String, models: [PlatformNativeSheetModelOption]) throws
   func presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, completion: @escaping (Result<String?, Error>) -> Void)
   func presentDatePicker(request: PlatformNativeSheetDatePickerRequest, completion: @escaping (Result<String?, Error>) -> Void)
   func presentTextEditor(request: PlatformNativeSheetTextEditorRequest, completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void)
@@ -3375,6 +3424,22 @@ class NativeSheetHostApiSetup {
       }
     } else {
       presentModelSelectorChannel.setMessageHandler(nil)
+    }
+    let updateModelSelectorModelsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModels\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      updateModelSelectorModelsChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let presentationIdArg = args[0] as! String
+        let modelsArg = args[1] as! [PlatformNativeSheetModelOption]
+        do {
+          try api.updateModelSelectorModels(presentationId: presentationIdArg, models: modelsArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      updateModelSelectorModelsChannel.setMessageHandler(nil)
     }
     let presentOptionsSelectorChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeSheetHostApi.presentOptionsSelector\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

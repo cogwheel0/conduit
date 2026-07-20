@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
@@ -280,6 +281,47 @@ void main() {
       ),
     );
   });
+
+  test(
+    'successful protocol drain counts trailing bytes without yielding them',
+    () async {
+      var sourceCancelled = false;
+      late final StreamController<Uint8List> source;
+      source = StreamController<Uint8List>(
+        onListen: () {
+          source
+            ..add(Uint8List.fromList(utf8.encode('terminal')))
+            ..add(Uint8List.fromList(utf8.encode('trailing keep-alive bytes')));
+        },
+        onCancel: () {
+          sourceCancelled = true;
+        },
+      );
+      final body = ResponseBody(source.stream, 200);
+      var reachedTerminal = false;
+      final visible = <List<int>>[];
+
+      final outcome = () async {
+        await for (final chunk in directStreamingResponseBytes(
+          body,
+          maxBytes: utf8.encode('terminal').length + 1,
+          successfulProtocolTerminal: () => reachedTerminal,
+        )) {
+          visible.add(chunk);
+          reachedTerminal = true;
+        }
+      }().then<Object?>((_) => null, onError: (Object error) => error);
+
+      try {
+        final error = await outcome.timeout(const Duration(seconds: 1));
+        check(error).isA<DirectStreamDrainException>();
+        check(visible.map(utf8.decode)).deepEquals(['terminal']);
+        check(sourceCancelled).isTrue();
+      } finally {
+        if (!source.isClosed) await source.close();
+      }
+    },
+  );
 
   test('provider errors redact secrets, controls, and excessive text', () {
     const secret = 'provider-secret-value';

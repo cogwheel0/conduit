@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart'
     show RenderBox, RenderEditable, RenderProxyBoxWithHitTestBehavior;
 import 'package:flutter/services.dart';
 
+import '../../core/services/performance_profiler.dart';
 import '../../shared/theme/theme_extensions.dart';
 import 'drawer_slot.dart';
 
@@ -133,6 +134,27 @@ class DrawerOpenGesturePriority extends StatelessWidget {
   }
 }
 
+class DrawerChromeCompositionScope extends InheritedWidget {
+  const DrawerChromeCompositionScope({
+    super.key,
+    required this.composeNativeChrome,
+    required super.child,
+  });
+
+  final bool composeNativeChrome;
+
+  static bool shouldCompose(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<DrawerChromeCompositionScope>()
+            ?.composeNativeChrome ??
+        true;
+  }
+
+  @override
+  bool updateShouldNotify(DrawerChromeCompositionScope oldWidget) =>
+      composeNativeChrome != oldWidget.composeNativeChrome;
+}
+
 bool _usesNativeSidebarChrome(BuildContext context) =>
     Theme.of(context).platform == TargetPlatform.iOS;
 
@@ -242,11 +264,14 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   late final AnimationController _controller;
   late bool _isTabletDocked = widget.tabletInitiallyDocked;
+  late bool _composeTabletDrawerChrome =
+      !widget.tabletDismissible || widget.tabletInitiallyDocked;
 
   /// Cached tablet state to avoid accessing context when unmounted.
   bool _cachedIsTablet = false;
   _DrawerSettleEndpoint? _lastSettledEndpoint;
   _DrawerSettleEndpoint? _pendingSettledEndpoint;
+  bool _composeMobileDrawerChrome = false;
   bool _isDragging = false;
   _DrawerSettleEndpoint? _dragTerminalEndpoint;
   int? _edgePointer;
@@ -269,6 +294,33 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     final size = MediaQuery.of(context).size;
     _cachedIsTablet = size.shortestSide >= 600;
     return _cachedIsTablet;
+  }
+
+  void _setComposeMobileDrawerChrome(bool value) {
+    if (_composeMobileDrawerChrome == value || !mounted) return;
+    setState(() => _composeMobileDrawerChrome = value);
+    _recordChromeComposition(value);
+  }
+
+  void _setComposeTabletDrawerChrome(bool value) {
+    if (_composeTabletDrawerChrome == value || !mounted) return;
+    setState(() => _composeTabletDrawerChrome = value);
+    _recordChromeComposition(value);
+  }
+
+  void _recordChromeComposition(bool value) {
+    PerformanceProfiler.instance.instant(
+      'sidebar_chrome_composition',
+      scope: 'platform_views',
+      data: <String, Object?>{'composeNativeChrome': value},
+    );
+  }
+
+  Widget _scopeDrawer(Widget child, {required bool composeNativeChrome}) {
+    return DrawerChromeCompositionScope(
+      composeNativeChrome: composeNativeChrome,
+      child: child,
+    );
   }
 
   double get _panelWidth {
@@ -332,19 +384,42 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Update cached tablet state when MediaQuery changes
-    _isTablet(context);
+    final wasTablet = _cachedIsTablet;
+    final isTablet = _isTablet(context);
+    if (wasTablet == isTablet) return;
+
+    final shouldComposeTabletChrome =
+        !widget.tabletDismissible || _isTabletDocked;
+    if (_composeTabletDrawerChrome != shouldComposeTabletChrome) {
+      _composeTabletDrawerChrome = shouldComposeTabletChrome;
+      _recordChromeComposition(shouldComposeTabletChrome);
+    }
   }
 
   @override
   void didUpdateWidget(covariant ResponsiveDrawerLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.tabletDismissible && !_isTabletDocked) {
-      setState(() => _isTabletDocked = true);
+    if (!widget.tabletDismissible) {
+      final compositionChanged = !_composeTabletDrawerChrome;
+      if (!_isTabletDocked || compositionChanged) {
+        setState(() {
+          _isTabletDocked = true;
+          _composeTabletDrawerChrome = true;
+        });
+        if (compositionChanged) _recordChromeComposition(true);
+      }
     } else if (widget.tabletInitiallyDocked !=
             oldWidget.tabletInitiallyDocked &&
         _isTablet(context)) {
-      setState(() => _isTabletDocked = widget.tabletInitiallyDocked);
+      final compositionChanged =
+          _composeTabletDrawerChrome != widget.tabletInitiallyDocked;
+      setState(() {
+        _isTabletDocked = widget.tabletInitiallyDocked;
+        _composeTabletDrawerChrome = widget.tabletInitiallyDocked;
+      });
+      if (compositionChanged) {
+        _recordChromeComposition(widget.tabletInitiallyDocked);
+      }
     }
   }
 
@@ -402,6 +477,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       _dragTerminalEndpoint = endpoint;
       return;
     }
+    _setComposeMobileDrawerChrome(endpoint != _DrawerSettleEndpoint.closed);
     if (_pendingSettledEndpoint != endpoint) {
       return;
     }
@@ -412,8 +488,13 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   void open({double velocity = 0.0}) {
     if (_isTablet(context)) {
-      if (!_isTabletDocked) {
-        setState(() => _isTabletDocked = true);
+      final compositionChanged = !_composeTabletDrawerChrome;
+      if (!_isTabletDocked || compositionChanged) {
+        setState(() {
+          _isTabletDocked = true;
+          _composeTabletDrawerChrome = true;
+        });
+        if (compositionChanged) _recordChromeComposition(true);
       }
       return;
     }
@@ -421,6 +502,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _pendingSettledEndpoint = _lastSettledEndpoint == _DrawerSettleEndpoint.open
         ? null
         : _DrawerSettleEndpoint.open;
+    _setComposeMobileDrawerChrome(true);
 
     try {
       widget.onOpenStart?.call();
@@ -437,7 +519,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       }
       return;
     }
-    if (_controller.isDismissed) return;
+    if (_controller.isDismissed) {
+      _setComposeMobileDrawerChrome(false);
+      return;
+    }
     _pendingSettledEndpoint =
         _lastSettledEndpoint == _DrawerSettleEndpoint.closed
         ? null
@@ -449,7 +534,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   void toggle() {
     if (_isTablet(context)) {
       if (!widget.tabletDismissible) return;
-      setState(() => _isTabletDocked = !_isTabletDocked);
+      _isTabletDocked ? close() : open();
       return;
     }
 
@@ -482,6 +567,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   void _beginDrawerDrag() {
     _resetDragState();
     _isDragging = true;
+    _setComposeMobileDrawerChrome(true);
     if (_controller.value <= 0.001) {
       try {
         widget.onOpenStart?.call();
@@ -693,6 +779,9 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
     if (_isDragging) {
       _resetDragState();
+      if (_controller.isDismissed) {
+        _setComposeMobileDrawerChrome(false);
+      }
     }
     _resetEdgePointerState();
   }
@@ -717,6 +806,9 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   void _onDragCancel() {
     if (_isTablet(context)) return;
     _resetDragState();
+    if (_controller.isDismissed) {
+      _setComposeMobileDrawerChrome(false);
+    }
   }
 
   Widget _buildMobileContentGestureArena(Widget child) {
@@ -874,6 +966,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     }
   }
 
+  void _handleTabletDrawerAnimationEnd() {
+    _setComposeTabletDrawerChrome(!widget.tabletDismissible || _isTabletDocked);
+  }
+
   Widget _buildTabletLayout(ConduitThemeExtension theme) {
     final targetWidth = widget.tabletDismissible && !_isTabletDocked
         ? 0.0
@@ -884,17 +980,21 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
         AnimatedContainer(
           duration: _tabletDuration,
           curve: Curves.easeOutCubic,
+          onEnd: _handleTabletDrawerAnimationEnd,
           width: targetWidth,
           decoration: BoxDecoration(color: theme.surfaceBackground),
           child: ClipRect(
             child: IgnorePointer(
               ignoring: widget.tabletDismissible && !_isTabletDocked,
-              child: widget.drawer is DrawerSlot
-                  ? _buildTabletDrawerSlot(theme, widget.drawer as DrawerSlot)
-                  : ColoredBox(
-                      color: theme.surfaceBackground,
-                      child: widget.drawer,
-                    ),
+              child: _scopeDrawer(
+                widget.drawer is DrawerSlot
+                    ? _buildTabletDrawerSlot(theme, widget.drawer as DrawerSlot)
+                    : ColoredBox(
+                        color: theme.surfaceBackground,
+                        child: widget.drawer,
+                      ),
+                composeNativeChrome: _composeTabletDrawerChrome,
+              ),
             ),
           ),
         ),
@@ -985,14 +1085,17 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                     top: 0,
                     bottom: 0,
                     width: _panelWidth,
-                    child: widget.drawer is DrawerSlot
-                        ? RepaintBoundary(
-                            child: _buildMobileDrawerSlotPanel(
-                              theme,
-                              widget.drawer as DrawerSlot,
-                            ),
-                          )
-                        : _buildMobileDrawerPanel(theme),
+                    child: _scopeDrawer(
+                      widget.drawer is DrawerSlot
+                          ? RepaintBoundary(
+                              child: _buildMobileDrawerSlotPanel(
+                                theme,
+                                widget.drawer as DrawerSlot,
+                              ),
+                            )
+                          : _buildMobileDrawerPanel(theme),
+                      composeNativeChrome: _composeMobileDrawerChrome,
+                    ),
                   ),
                 ],
               ),

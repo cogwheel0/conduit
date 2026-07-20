@@ -21,6 +21,13 @@ final class PreferenceKeys {
       'chat_image_generation_enabled';
   static const String sendOnEnterKey = 'send_on_enter';
   static const String activeServerId = 'active_server_id';
+
+  /// Fail-closed marker set before logout touches any remote or local state.
+  /// It prevents bearer/credential restoration and proxy-cookie attachment
+  /// after a process death or incomplete secure-storage cleanup.
+  static const String incompleteLogoutFence = 'incomplete_logout_fence_v1';
+  static const String appIntentInvocationLedger =
+      'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';
   static const String themePalette = 'theme_palette_v1';
   static const String localeCode = 'locale_code_v1';

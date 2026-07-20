@@ -4,14 +4,12 @@ import 'package:flutter/foundation.dart';
 
 import 'compiled_markdown_document.dart';
 import 'markdown_compile_service.dart';
+import 'streaming_markdown_preparation.dart';
 
 typedef MarkdownDocumentControllerListener =
-    void Function(
-      String compiledPreparedContent,
-      CompiledMarkdownDocument? document,
-    );
+    void Function(CompiledMarkdownDocument? document);
 
-enum _MarkdownResolveMode { full, streamingIncremental }
+enum _MarkdownResolveMode { full, streamingIncremental, streamingPatch }
 
 final RegExp _streamingFenceStartPattern = RegExp(r'^\s*(`{3,}|~{3,})(.*)$');
 final RegExp _streamingHeadingPattern = RegExp(r'^\s{0,3}#{1,6}\s+\S');
@@ -34,6 +32,14 @@ final RegExp _streamingDetailsOpenPattern = RegExp(
 final RegExp _streamingDetailsClosePattern = RegExp(
   r'</details\s*>',
   caseSensitive: false,
+);
+final RegExp _streamingRawHtmlBlockPattern = RegExp(
+  r'^\s{0,3}(?:'
+  r'<(?:pre|script|style|textarea)(?:\s|>)|'
+  r'<!--|<\?|<![A-Z]|<!\[CDATA\[|'
+  r'<(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|/?>))',
+  caseSensitive: false,
+  multiLine: true,
 );
 final RegExp _streamingReferenceDefinitionPattern = RegExp(
   r'^\s{0,3}\[[^\]\n]+\]:',
@@ -61,6 +67,10 @@ class MarkdownDocumentController {
   String _requestedPreparedContent = '';
   _MarkdownResolveMode _requestedResolveMode = _MarkdownResolveMode.full;
   String _compiledPreparedContent = '';
+  String? _requestedStreamingSessionId;
+  int _requestedStreamingRevision = 0;
+  String? _compiledStreamingSessionId;
+  int _compiledStreamingRevision = 0;
   CompiledMarkdownDocument? _compiledDocument;
   bool _documentInFlight = false;
   _MarkdownResolveRequest? _queuedRequest;
@@ -69,12 +79,16 @@ class MarkdownDocumentController {
   _StreamingIncrementalState? _streamingIncrementalState;
 
   String get compiledPreparedContent => _compiledPreparedContent;
+  String? get compiledStreamingSessionId => _compiledStreamingSessionId;
+  int get compiledStreamingRevision => _compiledStreamingRevision;
 
   CompiledMarkdownDocument? get compiledDocument => _compiledDocument;
 
   void applyDirectDocument(CompiledMarkdownDocument document) {
     _requestedPreparedContent = document.normalizedContent;
     _requestedResolveMode = _MarkdownResolveMode.full;
+    _requestedStreamingSessionId = null;
+    _requestedStreamingRevision = 0;
     _streamingIncrementalState = null;
     _invalidatePendingAsyncDocument();
     _setState(document.normalizedContent, document);
@@ -89,6 +103,8 @@ class MarkdownDocumentController {
         _requestedResolveMode != _MarkdownResolveMode.full;
     _requestedPreparedContent = preparedContent;
     _requestedResolveMode = _MarkdownResolveMode.full;
+    _requestedStreamingSessionId = null;
+    _requestedStreamingRevision = 0;
     _streamingIncrementalState = null;
 
     if (preparedContent.trim().isEmpty) {
@@ -200,6 +216,82 @@ class MarkdownDocumentController {
     unawaited(_refreshCompiledDocument(request));
   }
 
+  void resolveStreamingPreparedPatch(
+    PreparedMarkdownText preparedContent,
+    MarkdownPreparationPatch patch, {
+    bool clearDocumentWhenAsync = false,
+  }) {
+    if (patch.isStale) return;
+    final preparedChanged =
+        _requestedResolveMode != _MarkdownResolveMode.streamingPatch ||
+        _requestedStreamingSessionId != patch.sessionId ||
+        _requestedStreamingRevision != patch.revision;
+    _requestedPreparedContent = '';
+    _requestedResolveMode = _MarkdownResolveMode.streamingPatch;
+    _requestedStreamingSessionId = patch.sessionId;
+    _requestedStreamingRevision = patch.revision;
+
+    if (preparedContent.isBlank) {
+      _streamingIncrementalState = null;
+      _invalidatePendingAsyncDocument();
+      _setStreamingState(
+        sessionId: patch.sessionId,
+        revision: patch.revision,
+        document: const CompiledMarkdownDocument.empty(),
+      );
+      return;
+    }
+
+    if (!preparedChanged &&
+        _compiledStreamingSessionId == patch.sessionId &&
+        _compiledStreamingRevision == patch.revision &&
+        _compiledDocument != null) {
+      return;
+    }
+
+    final compiler = _readCompiler();
+    final synchronousCandidate =
+        _isWidgetTest() ||
+            preparedContent.length <= markdownSynchronousCompileThreshold
+        ? preparedContent.materialize()
+        : null;
+    if (synchronousCandidate != null &&
+        compiler.shouldCompileSynchronously(
+          synchronousCandidate,
+          widgetTest: _isWidgetTest(),
+        )) {
+      _streamingIncrementalState = null;
+      _invalidatePendingAsyncDocument();
+      final document = compiler
+          .compilePreparedSynchronously(synchronousCandidate)
+          .withPreparedContent(preparedContent);
+      _setStreamingState(
+        sessionId: patch.sessionId,
+        revision: patch.revision,
+        document: document,
+      );
+      return;
+    }
+
+    if (clearDocumentWhenAsync && preparedChanged) {
+      _setStreamingState(
+        sessionId: _compiledStreamingSessionId,
+        revision: _compiledStreamingRevision,
+        document: null,
+      );
+    }
+
+    final request = _MarkdownResolveRequest.streamingPatch(
+      preparedContent: preparedContent,
+      patch: patch,
+    );
+    if (_documentInFlight) {
+      _queueLatestRequest(request);
+      return;
+    }
+    unawaited(_refreshCompiledDocument(request));
+  }
+
   void invalidatePending() {
     _invalidatePendingAsyncDocument();
   }
@@ -248,19 +340,47 @@ class MarkdownDocumentController {
     _documentInFlight = true;
     final generation = ++_documentGeneration;
     try {
-      final document = switch (request.mode) {
-        _MarkdownResolveMode.full => await _readCompiler().compilePrepared(
-          request.preparedContent,
-        ),
-        _MarkdownResolveMode.streamingIncremental =>
-          await _compileStreamingPreparedIncrementally(request.preparedContent),
-      };
+      late final CompiledMarkdownDocument document;
+      try {
+        document = switch (request.mode) {
+          _MarkdownResolveMode.full => await _readCompiler().compilePrepared(
+            request.preparedContent,
+          ),
+          _MarkdownResolveMode.streamingIncremental =>
+            await _compileStreamingPreparedIncrementally(
+              request.preparedContent,
+            ),
+          _MarkdownResolveMode.streamingPatch =>
+            await _compileStreamingPreparedPatch(
+              request.preparedText!,
+              request.patch!,
+            ),
+        };
+      } catch (error) {
+        if (request.mode != _MarkdownResolveMode.streamingPatch ||
+            (error is! ArgumentError && error is! StateError)) {
+          rethrow;
+        }
+        _streamingIncrementalState = null;
+        final prepared = request.preparedText!;
+        document = await _readCompiler()
+            .compilePrepared(prepared.materialize())
+            .then((value) => value.withPreparedContent(prepared));
+      }
       if (_disposed ||
           generation != _documentGeneration ||
           !_matchesRequestedRequest(request)) {
         return;
       }
-      _setState(request.preparedContent, document);
+      if (request.mode == _MarkdownResolveMode.streamingPatch) {
+        _setStreamingState(
+          sessionId: request.patch!.sessionId,
+          revision: request.patch!.revision,
+          document: document,
+        );
+      } else {
+        _setState(request.preparedContent, document);
+      }
     } finally {
       _documentInFlight = false;
       final queuedRequest = _queuedRequest;
@@ -305,6 +425,160 @@ class MarkdownDocumentController {
       _streamingIncrementalState = null;
       return compiler.compilePrepared(preparedContent);
     }
+  }
+
+  Future<CompiledMarkdownDocument> _compileStreamingPreparedPatch(
+    PreparedMarkdownText preparedContent,
+    MarkdownPreparationPatch patch,
+  ) async {
+    final previousState = _streamingIncrementalState;
+    final canReuse =
+        previousState != null &&
+        previousState.sessionId == patch.sessionId &&
+        previousState.revision < patch.revision &&
+        preparedContent.startsWith(previousState.frozenPreparedText);
+    if (!canReuse) {
+      return _compileStreamingPatchFromScratch(preparedContent, patch);
+    }
+
+    final suffix = preparedContent.substring(
+      previousState.frozenPreparedLength,
+    );
+    final split = _splitStreamingPreparedContent(suffix);
+    if (!split.canIncrementallyCompile) {
+      _streamingIncrementalState = null;
+      return _readCompiler()
+          .compilePrepared(preparedContent.materialize())
+          .then((document) => document.withPreparedContent(preparedContent));
+    }
+
+    final compiler = _readCompiler();
+    final newFrozenDelta = split.frozenPrefix;
+    final mutableTail = split.mutableTail;
+    final nextFrozenLength =
+        previousState.frozenPreparedLength + newFrozenDelta.length;
+    final nextFrozenText = preparedContent.slice(0, nextFrozenLength);
+    var updatedFrozenDocument = previousState.frozenDocument;
+
+    if (newFrozenDelta.isNotEmpty) {
+      if (mutableTail.isEmpty) {
+        final deltaDocument = await compiler.compilePrepared(newFrozenDelta);
+        updatedFrozenDocument = CompiledMarkdownDocument.composePrepared(
+          normalizedContent: nextFrozenText,
+          segments: <CompiledMarkdownDocument>[
+            if (!previousState.frozenDocument.isEmpty)
+              previousState.frozenDocument,
+            deltaDocument.rebaseRootIds(
+              rootNodeOffset: previousState.frozenDocument.rootNodeCount,
+            ),
+          ],
+        );
+      } else {
+        final documents = await compiler.compilePreparedBatch(<String>[
+          newFrozenDelta,
+          mutableTail,
+        ]);
+        updatedFrozenDocument = CompiledMarkdownDocument.composePrepared(
+          normalizedContent: nextFrozenText,
+          segments: <CompiledMarkdownDocument>[
+            if (!previousState.frozenDocument.isEmpty)
+              previousState.frozenDocument,
+            documents[0].rebaseRootIds(
+              rootNodeOffset: previousState.frozenDocument.rootNodeCount,
+            ),
+          ],
+        );
+        final tailDocument = documents[1].rebaseRootIds(
+          rootNodeOffset: updatedFrozenDocument.rootNodeCount,
+        );
+        final composed = CompiledMarkdownDocument.composePrepared(
+          normalizedContent: preparedContent,
+          segments: <CompiledMarkdownDocument>[
+            if (!updatedFrozenDocument.isEmpty) updatedFrozenDocument,
+            if (!tailDocument.isEmpty) tailDocument,
+          ],
+          mutableBlockStartIndex: tailDocument.isEmpty
+              ? -1
+              : updatedFrozenDocument.rootBlockCount,
+        );
+        _streamingIncrementalState = _StreamingIncrementalState.patch(
+          sessionId: patch.sessionId,
+          revision: patch.revision,
+          frozenPreparedText: nextFrozenText,
+          frozenDocument: updatedFrozenDocument,
+        );
+        return composed;
+      }
+    }
+
+    if (mutableTail.isEmpty) {
+      final composed = CompiledMarkdownDocument.composePrepared(
+        normalizedContent: preparedContent,
+        segments: <CompiledMarkdownDocument>[
+          if (!updatedFrozenDocument.isEmpty) updatedFrozenDocument,
+        ],
+      );
+      _streamingIncrementalState = _StreamingIncrementalState.patch(
+        sessionId: patch.sessionId,
+        revision: patch.revision,
+        frozenPreparedText: nextFrozenText,
+        frozenDocument: updatedFrozenDocument,
+      );
+      return composed;
+    }
+
+    final tailDocument = await compiler
+        .compilePrepared(mutableTail)
+        .then(
+          (document) => document.rebaseRootIds(
+            rootNodeOffset: updatedFrozenDocument.rootNodeCount,
+          ),
+        );
+    final composed = CompiledMarkdownDocument.composePrepared(
+      normalizedContent: preparedContent,
+      segments: <CompiledMarkdownDocument>[
+        if (!updatedFrozenDocument.isEmpty) updatedFrozenDocument,
+        if (!tailDocument.isEmpty) tailDocument,
+      ],
+      mutableBlockStartIndex: tailDocument.isEmpty
+          ? -1
+          : updatedFrozenDocument.rootBlockCount,
+    );
+    _streamingIncrementalState = _StreamingIncrementalState.patch(
+      sessionId: patch.sessionId,
+      revision: patch.revision,
+      frozenPreparedText: nextFrozenText,
+      frozenDocument: updatedFrozenDocument,
+    );
+    return composed;
+  }
+
+  Future<CompiledMarkdownDocument> _compileStreamingPatchFromScratch(
+    PreparedMarkdownText preparedContent,
+    MarkdownPreparationPatch patch,
+  ) async {
+    final materialized = preparedContent.materialize();
+    final split = _splitStreamingPreparedContent(materialized);
+    if (!split.canIncrementallyCompile) {
+      _streamingIncrementalState = null;
+      return _readCompiler()
+          .compilePrepared(materialized)
+          .then((document) => document.withPreparedContent(preparedContent));
+    }
+
+    final document = await _compileStreamingPreparedFromScratch(
+      materialized,
+      split,
+      _readCompiler(),
+    );
+    final state = _streamingIncrementalState!;
+    _streamingIncrementalState = _StreamingIncrementalState.patch(
+      sessionId: patch.sessionId,
+      revision: patch.revision,
+      frozenPreparedText: preparedContent.slice(0, split.frozenPrefix.length),
+      frozenDocument: state.frozenDocument,
+    );
+    return document.withPreparedContent(preparedContent);
   }
 
   bool _canReuseStreamingIncrementalState(
@@ -471,8 +745,12 @@ class MarkdownDocumentController {
   }
 
   bool _matchesRequestedRequest(_MarkdownResolveRequest request) {
-    return _requestedPreparedContent == request.preparedContent &&
-        _requestedResolveMode == request.mode;
+    if (_requestedResolveMode != request.mode) return false;
+    if (request.mode == _MarkdownResolveMode.streamingPatch) {
+      return _requestedStreamingSessionId == request.patch?.sessionId &&
+          _requestedStreamingRevision == request.patch?.revision;
+    }
+    return _requestedPreparedContent == request.preparedContent;
   }
 
   void _setState(
@@ -487,8 +765,27 @@ class MarkdownDocumentController {
     }
 
     _compiledPreparedContent = compiledPreparedContent;
+    _compiledStreamingSessionId = null;
+    _compiledStreamingRevision = 0;
     _compiledDocument = document;
-    _onStateChanged(compiledPreparedContent, document);
+    _onStateChanged(document);
+  }
+
+  void _setStreamingState({
+    required String? sessionId,
+    required int revision,
+    required CompiledMarkdownDocument? document,
+  }) {
+    final changed =
+        _compiledStreamingSessionId != sessionId ||
+        _compiledStreamingRevision != revision ||
+        _compiledDocument != document;
+    if (!changed) return;
+    _compiledPreparedContent = '';
+    _compiledStreamingSessionId = sessionId;
+    _compiledStreamingRevision = revision;
+    _compiledDocument = document;
+    _onStateChanged(document);
   }
 }
 
@@ -517,6 +814,17 @@ _StreamingPreparedSplit _splitStreamingPreparedContent(String preparedContent) {
       frozenPrefix: '',
       mutableTail: preparedContent,
       fallbackReason: 'referenceDefinitions',
+    );
+  }
+
+  // CommonMark raw HTML blocks have tag-specific termination rules. Until the
+  // splitter models those rules, parsing the document as one mutable segment
+  // is safer than freezing at a blank line inside the raw block.
+  if (_containsStreamingRawHtmlBlock(preparedContent)) {
+    return _StreamingPreparedSplit(
+      frozenPrefix: '',
+      mutableTail: preparedContent,
+      fallbackReason: 'rawHtmlBlock',
     );
   }
 
@@ -581,6 +889,64 @@ List<_StreamingPreparedLine> _splitStreamingPreparedLines(String content) {
     start = newlineIndex + 1;
   }
   return lines;
+}
+
+bool _containsStreamingRawHtmlBlock(String content) {
+  String? fenceCharacter;
+  var fenceLength = 0;
+
+  for (final line in _splitStreamingPreparedLines(content)) {
+    final candidate = _streamingBlockStarterCandidate(line.text);
+    if (candidate == null) {
+      continue;
+    }
+
+    if (fenceCharacter != null) {
+      if (_isStreamingFenceClose(candidate, fenceCharacter, fenceLength)) {
+        fenceCharacter = null;
+        fenceLength = 0;
+      }
+      continue;
+    }
+
+    final fenceMatch = _streamingFenceStartPattern.firstMatch(candidate);
+    if (fenceMatch != null) {
+      final fence = fenceMatch.group(1)!;
+      fenceCharacter = fence[0];
+      fenceLength = fence.length;
+      continue;
+    }
+
+    if (_streamingRawHtmlBlockPattern.hasMatch(candidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool _isStreamingFenceClose(
+  String candidate,
+  String fenceCharacter,
+  int minimumLength,
+) {
+  final fenceCodeUnit = fenceCharacter.codeUnitAt(0);
+  var index = 0;
+  while (index < candidate.length &&
+      candidate.codeUnitAt(index) == fenceCodeUnit) {
+    index += 1;
+  }
+  if (index < minimumLength) {
+    return false;
+  }
+  while (index < candidate.length) {
+    final codeUnit = candidate.codeUnitAt(index);
+    if (codeUnit != 0x20 && codeUnit != 0x09) {
+      return false;
+    }
+    index += 1;
+  }
+  return true;
 }
 
 _StreamingBlockScanResult? _scanStreamingPreparedBlock(
@@ -898,33 +1264,66 @@ class _MarkdownResolveRequest {
   const _MarkdownResolveRequest({
     required this.preparedContent,
     required this.mode,
-  });
+  }) : preparedText = null,
+       patch = null;
+
+  const _MarkdownResolveRequest.streamingPatch({
+    required PreparedMarkdownText preparedContent,
+    required MarkdownPreparationPatch this.patch,
+  }) : preparedContent = '',
+       preparedText = preparedContent,
+       mode = _MarkdownResolveMode.streamingPatch;
 
   final String preparedContent;
+  final PreparedMarkdownText? preparedText;
+  final MarkdownPreparationPatch? patch;
   final _MarkdownResolveMode mode;
 
   @override
   bool operator ==(Object other) {
-    return other is _MarkdownResolveRequest &&
-        other.preparedContent == preparedContent &&
-        other.mode == mode;
+    if (other is! _MarkdownResolveRequest || other.mode != mode) {
+      return false;
+    }
+    if (mode == _MarkdownResolveMode.streamingPatch) {
+      return other.patch?.sessionId == patch?.sessionId &&
+          other.patch?.revision == patch?.revision;
+    }
+    return other.preparedContent == preparedContent;
   }
 
   @override
-  int get hashCode => Object.hash(preparedContent, mode);
+  int get hashCode => mode == _MarkdownResolveMode.streamingPatch
+      ? Object.hash(mode, patch?.sessionId, patch?.revision)
+      : Object.hash(mode, preparedContent);
 }
 
 @immutable
 class _StreamingIncrementalState {
-  const _StreamingIncrementalState({
+  _StreamingIncrementalState({
     required this.preparedContent,
-    required this.frozenPreparedContent,
+    required String frozenPreparedContent,
     required this.frozenDocument,
-  });
+  }) : sessionId = null,
+       revision = 0,
+       frozenPreparedText = PreparedMarkdownText.fromString(
+         frozenPreparedContent,
+       );
+
+  const _StreamingIncrementalState.patch({
+    required this.sessionId,
+    required this.revision,
+    required this.frozenPreparedText,
+    required this.frozenDocument,
+  }) : preparedContent = '';
 
   final String preparedContent;
-  final String frozenPreparedContent;
+  final PreparedMarkdownText frozenPreparedText;
   final CompiledMarkdownDocument frozenDocument;
+  final String? sessionId;
+  final int revision;
+
+  String get frozenPreparedContent => frozenPreparedText.materialize();
+  int get frozenPreparedLength => frozenPreparedText.length;
 }
 
 @immutable

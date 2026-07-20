@@ -815,6 +815,24 @@ void main() {
       check(pending.single.lastError).isNull();
     });
 
+    test('requeueParked cannot overwrite a non-parked row', () async {
+      final seq = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
+      );
+      await dao.markOfflineDeferred(seq, nextAttemptAt: 42);
+      final before = (await db.select(db.outboxOps).get()).single;
+
+      await dao.requeueParked(seq, nowEpochSeconds: 999);
+
+      check((await db.select(db.outboxOps).get()).single).equals(before);
+    });
+
     test('resetBackoffForPending arms every pending op to now', () async {
       final a = await enqueue(kind: OutboxKind.updateChat, chatId: 'cA');
       final b = await enqueue(kind: OutboxKind.updateChat, chatId: 'cB');

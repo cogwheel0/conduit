@@ -224,25 +224,24 @@ class _FileAttachmentCard extends ConsumerWidget {
   }
 
   void _removeAttachment(WidgetRef ref) {
-    ref.read(attachedFilesProvider.notifier).removeFile(fileState.file.path);
-    if (!fileState.isRemote) {
-      // Controller cancels any in-flight upload AND performs the share-staging
-      // cleanup the legacy task_queue did on attachment removal.
-      unawaited(
-        ref
-            .read(mediaUploadControllerProvider)
-            .cancelUploadsForFile(fileState.file.path)
-            .catchError((Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'cancel-upload-failed',
-                scope: 'chat/attachment',
-                error: error,
-                stackTrace: stackTrace,
-                data: {'path': fileState.file.path},
-              );
-            }),
-      );
-    }
+    // Controller removes the UI state synchronously, then retires any local
+    // queue/staging owner behind its durable and same-path generation fences.
+    unawaited(
+      ref
+          .read(mediaUploadControllerProvider)
+          .removeAttachment(fileState.file.path)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'cancel-upload-failed',
+              scope: 'chat/attachment',
+              stackTrace: stackTrace,
+              data: {
+                'fileName': fileState.fileName,
+                'errorType': error.runtimeType.toString(),
+              },
+            );
+          }),
+    );
   }
 
   Widget _buildProgressBar(BuildContext context) {

@@ -858,6 +858,7 @@ void main() {
       final projector = StructuredOutputStreamingProjector();
       final source = StringBuffer();
       var visible = StringBuffer();
+      var plainVisible = StringBuffer();
 
       for (var index = 0; index < chunkCount; index++) {
         source.write('a');
@@ -865,10 +866,18 @@ void main() {
           StructuredOutputTextBlock(text: source.toString()),
         ]);
         switch (projection) {
-          case StructuredOutputStreamingAppend(:final content):
+          case StructuredOutputStreamingAppend(
+            :final content,
+            :final plainContentDelta,
+          ):
             visible.write(content);
-          case StructuredOutputStreamingReplace(:final content):
+            plainVisible.write(plainContentDelta);
+          case StructuredOutputStreamingReplace(
+            :final content,
+            :final plainContent,
+          ):
             visible = StringBuffer(content);
+            plainVisible = StringBuffer(plainContent);
           case null:
             break;
         }
@@ -877,7 +886,11 @@ void main() {
       check(projector.fullProjectionCount).isLessOrEqual(14);
       check(projector.appendProjectionCount).isGreaterThan(chunkCount - 20);
       check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 2);
+      check(
+        projector.appendProjectionPlainCharacterCount,
+      ).isLessOrEqual(chunkCount);
       check(visible.toString()).equals(source.toString());
+      check(plainVisible.toString()).equals(source.toString());
 
       final completed = projector.finish();
       check(completed).isNotNull();
@@ -886,6 +899,113 @@ void main() {
           StructuredOutputTextBlock(text: source.toString()),
         ]),
       );
+      check(completed.plainContent).equals(source.toString());
+    });
+
+    test('append projection carries only the raw plain suffix', () {
+      final projector = StructuredOutputStreamingProjector();
+      const prefix = 'abcdefgh';
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: prefix),
+      ]);
+      check(initial).isA<StructuredOutputStreamingReplace>();
+
+      final append = projector.project([
+        const StructuredOutputTextBlock(text: '$prefix<'),
+      ]);
+      check(append).isA<StructuredOutputStreamingAppend>();
+      final appendProjection = append as StructuredOutputStreamingAppend;
+      check(appendProjection.content).equals('&lt;');
+      check(appendProjection.plainContentDelta).equals('<');
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('$prefix&lt;');
+      check(completed.plainContent).equals('$prefix<');
+    });
+
+    test('records projection reasons and prefix validation work', () {
+      final projector = StructuredOutputStreamingProjector();
+
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]),
+      ).isA<StructuredOutputStreamingReplace>();
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefghi')]),
+      ).isA<StructuredOutputStreamingAppend>();
+      final prefixValidationsBeforeForce =
+          projector.metrics.prefixValidationCount;
+      check(
+        projector.project([
+          const StructuredOutputTextBlock(text: 'abcdefghij'),
+        ], forceReplace: true),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      final metrics = projector.metrics;
+      check(metrics.snapshotCount).equals(3);
+      check(metrics.initialReplacementCount).equals(1);
+      check(metrics.forcedReplacementCount).equals(1);
+      check(metrics.immediateReplacementCount).equals(0);
+      check(metrics.geometricReplacementCount).equals(0);
+      check(metrics.appendProjectionCount).equals(1);
+      check(metrics.prefixValidationCount).equals(prefixValidationsBeforeForce);
+      check(metrics.prefixValidationCount).isGreaterThan(0);
+      check(
+        metrics.prefixValidationCandidateCharacterCount,
+      ).isGreaterOrEqual(8);
+    });
+
+    test('reuses an exact full projection at terminal finish', () {
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: 'complete'),
+      ]);
+      check(initial).isA<StructuredOutputStreamingReplace>();
+
+      final completed = projector.finish();
+      check(identical(completed, initial)).isTrue();
+      check(projector.metrics.terminalExactCacheHitCount).equals(1);
+      check(projector.metrics.terminalRenderCount).equals(0);
+    });
+
+    test('invalidates the terminal exact cache after an append', () {
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]);
+      projector.project([const StructuredOutputTextBlock(text: 'abcdefghi')]);
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('abcdefghi');
+      check(projector.metrics.terminalExactCacheHitCount).equals(0);
+      check(projector.metrics.terminalRenderCount).equals(1);
+    });
+
+    test('observes cleanup snapshots without eagerly rendering them', () {
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([const StructuredOutputTextBlock(text: 'before')]);
+
+      projector.observeLatest([const StructuredOutputTextBlock(text: 'after')]);
+
+      check(projector.metrics.observedWithoutProjectionCount).equals(1);
+      check(projector.fullProjectionCount).equals(1);
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('after');
+      check(projector.metrics.terminalRenderCount).equals(1);
+    });
+
+    test('forceReplace overrides an otherwise appendable update', () {
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          const StructuredOutputTextBlock(text: 'abcdefgh!'),
+        ], forceReplace: true),
+      ).isA<StructuredOutputStreamingReplace>();
+      check(projector.appendProjectionCount).equals(0);
     });
 
     test('bounds cumulative reasoning replacements geometrically', () {

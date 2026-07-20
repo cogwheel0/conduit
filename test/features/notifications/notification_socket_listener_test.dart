@@ -44,6 +44,7 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     String? messageId,
     bool requireFocus = true,
+    bool keepsAliveInBackground = false,
     required SocketChatEventHandler handler,
   }) {
     final reg = _CapturedChat(requireFocus: requireFocus, handler: handler);
@@ -220,19 +221,22 @@ void main() {
     check(routed.single.kind).equals(NotificationKind.channelMessage);
   });
 
-  test('skips channel classification until the current user resolves', () async {
-    final socket = _MockSocketService();
-    addTearDown(socket.disposeController);
-    final container = makeContainer(socket);
-    container.read(notificationSocketListenerProvider);
+  test(
+    'skips channel classification until the current user resolves',
+    () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = makeContainer(socket);
+      container.read(notificationSocketListenerProvider);
 
-    // Do NOT await currentUserProvider: id is still unresolved, so a channel
-    // message must be skipped rather than risk self-notifying.
-    socket.channel.single.handler(_channelMessage(), null);
-    await Future<void>.delayed(Duration.zero);
+      // Do NOT await currentUserProvider: id is still unresolved, so a channel
+      // message must be skipped rather than risk self-notifying.
+      socket.channel.single.handler(_channelMessage(), null);
+      await Future<void>.delayed(Duration.zero);
 
-    check(routed).isEmpty();
-  });
+      check(routed).isEmpty();
+    },
+  );
 
   test('reconnect reconciles channel unread via refresh', () async {
     final socket = _MockSocketService();
@@ -240,8 +244,8 @@ void main() {
     final container = makeContainer(socket);
     container.read(notificationSocketListenerProvider);
 
-    final channels = container.read(channelsListProvider.notifier)
-        as _FakeChannelsList;
+    final channels =
+        container.read(channelsListProvider.notifier) as _FakeChannelsList;
     final before = channels.refreshCalls;
 
     socket.emitReconnect();

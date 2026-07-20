@@ -5,6 +5,7 @@ import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/foundation.dart';
@@ -31,8 +32,33 @@ class _ImmediateMarkdownCompileService extends MarkdownCompileService {
   }) => true;
 }
 
+mixin _PatchPreparing on MarkdownCompileService {
+  final StreamingMarkdownPreparationEngine _preparationEngine =
+      StreamingMarkdownPreparationEngine();
+
+  @override
+  Future<MarkdownPreparationPatch> prepareStreamingContent(
+    MarkdownPreparationRequest request, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) {
+    return prepareContent(
+      request.content,
+      streaming: request.streaming,
+      allowSynchronous: allowSynchronous,
+      widgetTest: widgetTest,
+    ).then((_) => _preparationEngine.prepare(request));
+  }
+
+  @override
+  Future<void> releaseStreamingPreparationSession(String sessionId) async {
+    _preparationEngine.release(sessionId);
+  }
+}
+
 class _RecordingPrepareMarkdownCompileService
-    extends _ImmediateMarkdownCompileService {
+    extends _ImmediateMarkdownCompileService
+    with _PatchPreparing {
   final List<String> preparedContents = <String>[];
 
   @override
@@ -49,7 +75,8 @@ class _RecordingPrepareMarkdownCompileService
 }
 
 class _SynchronousFuturePrepareMarkdownCompileService
-    extends _ImmediateMarkdownCompileService {
+    extends _ImmediateMarkdownCompileService
+    with _PatchPreparing {
   @override
   bool shouldPrepareSynchronously(String content, {bool widgetTest = false}) =>
       false;
@@ -66,7 +93,8 @@ class _SynchronousFuturePrepareMarkdownCompileService
 }
 
 class _BlockingPrepareMarkdownCompileService
-    extends _ImmediateMarkdownCompileService {
+    extends _ImmediateMarkdownCompileService
+    with _PatchPreparing {
   final List<String> preparedContents = <String>[];
   final Completer<void> _release = Completer<void>();
 
@@ -90,7 +118,8 @@ class _BlockingPrepareMarkdownCompileService
 }
 
 class _SequencedBlockingPrepareMarkdownCompileService
-    extends _ImmediateMarkdownCompileService {
+    extends _ImmediateMarkdownCompileService
+    with _PatchPreparing {
   final List<String> preparedContents = <String>[];
   final Queue<Completer<void>> _releases = Queue<Completer<void>>();
 
@@ -267,6 +296,37 @@ void main() {
       containsAll(<String>['Message 0', 'Message 32']),
     );
   });
+
+  testWidgets(
+    'conduit markdown switches from a direct document back to prior data',
+    (tester) async {
+      Widget build({String? data, CompiledMarkdownDocument? document}) {
+        return ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: ConduitMarkdownWidget(
+                data: data,
+                compiledDocument: document,
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(build(data: 'Data A marker'));
+      expect(find.textContaining('Data A marker'), findsOneWidget);
+
+      await tester.pumpWidget(
+        build(document: compilePreparedMarkdownSync('Direct B marker')),
+      );
+      expect(find.textContaining('Direct B marker'), findsOneWidget);
+      expect(find.textContaining('Data A marker'), findsNothing);
+
+      await tester.pumpWidget(build(data: 'Data A marker'));
+      expect(find.textContaining('Data A marker'), findsOneWidget);
+      expect(find.textContaining('Direct B marker'), findsNothing);
+    },
+  );
 
   testWidgets(
     'conduit markdown shows a skeleton while async compile is pending',

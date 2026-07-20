@@ -616,20 +616,20 @@ data class PlatformBackgroundTaskExtendedEvent (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformAppIntentImagePayload (
   val filename: String,
-  val bytes: ByteArray
+  val filePath: String
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PlatformAppIntentImagePayload {
       val filename = pigeonVar_list[0] as String
-      val bytes = pigeonVar_list[1] as ByteArray
-      return PlatformAppIntentImagePayload(filename, bytes)
+      val filePath = pigeonVar_list[1] as String
+      return PlatformAppIntentImagePayload(filename, filePath)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       filename,
-      bytes,
+      filePath,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -640,17 +640,17 @@ data class PlatformAppIntentImagePayload (
       return true
     }
     val other = other as PlatformAppIntentImagePayload
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.filename, other.filename) && ConduitPlatformApisPigeonUtils.deepEquals(this.bytes, other.bytes)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.filename, other.filename) && ConduitPlatformApisPigeonUtils.deepEquals(this.filePath, other.filePath)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.filename)
-    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.bytes)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.filePath)
     return result
   }
   override fun toString(): String {
-    return "PlatformAppIntentImagePayload(filename=$filename, bytes=${bytes.contentToString()})"
+    return "PlatformAppIntentImagePayload(filename=$filename, filePath=$filePath)"
   }
 }
 
@@ -658,7 +658,8 @@ data class PlatformAppIntentImagePayload (
 data class PlatformAppIntentResponse (
   val success: Boolean,
   val value: String? = null,
-  val error: String? = null
+  val error: String? = null,
+  val ownedFilePath: String? = null
 )
  {
   companion object {
@@ -666,7 +667,8 @@ data class PlatformAppIntentResponse (
       val success = pigeonVar_list[0] as Boolean
       val value = pigeonVar_list[1] as String?
       val error = pigeonVar_list[2] as String?
-      return PlatformAppIntentResponse(success, value, error)
+      val ownedFilePath = pigeonVar_list[3] as String?
+      return PlatformAppIntentResponse(success, value, error, ownedFilePath)
     }
   }
   fun toList(): List<Any?> {
@@ -674,6 +676,7 @@ data class PlatformAppIntentResponse (
       success,
       value,
       error,
+      ownedFilePath,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -684,7 +687,7 @@ data class PlatformAppIntentResponse (
       return true
     }
     val other = other as PlatformAppIntentResponse
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.success, other.success) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.error, other.error)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.success, other.success) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.error, other.error) && ConduitPlatformApisPigeonUtils.deepEquals(this.ownedFilePath, other.ownedFilePath)
   }
 
   override fun hashCode(): Int {
@@ -692,30 +695,31 @@ data class PlatformAppIntentResponse (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.success)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.value)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.error)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.ownedFilePath)
     return result
   }
   override fun toString(): String {
-    return "PlatformAppIntentResponse(success=$success, value=$value, error=$error)"
+    return "PlatformAppIntentResponse(success=$success, value=$value, error=$error, ownedFilePath=$ownedFilePath)"
   }
 }
 
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformNativePasteImageItem (
   val mimeType: String,
-  val data: ByteArray
+  val filePath: String
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PlatformNativePasteImageItem {
       val mimeType = pigeonVar_list[0] as String
-      val data = pigeonVar_list[1] as ByteArray
-      return PlatformNativePasteImageItem(mimeType, data)
+      val filePath = pigeonVar_list[1] as String
+      return PlatformNativePasteImageItem(mimeType, filePath)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       mimeType,
-      data,
+      filePath,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -726,17 +730,17 @@ data class PlatformNativePasteImageItem (
       return true
     }
     val other = other as PlatformNativePasteImageItem
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.mimeType, other.mimeType) && ConduitPlatformApisPigeonUtils.deepEquals(this.data, other.data)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.mimeType, other.mimeType) && ConduitPlatformApisPigeonUtils.deepEquals(this.filePath, other.filePath)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.mimeType)
-    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.data)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.filePath)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativePasteImageItem(mimeType=$mimeType, data=${data.contentToString()})"
+    return "PlatformNativePasteImageItem(mimeType=$mimeType, filePath=$filePath)"
   }
 }
 
@@ -744,7 +748,8 @@ data class PlatformNativePasteImageItem (
 data class PlatformNativePastePayload (
   val kind: PlatformNativePasteKind,
   val text: String? = null,
-  val items: List<PlatformNativePasteImageItem>? = null
+  val items: List<PlatformNativePasteImageItem>? = null,
+  val deliveryId: String? = null
 )
  {
   companion object {
@@ -752,7 +757,8 @@ data class PlatformNativePastePayload (
       val kind = pigeonVar_list[0] as PlatformNativePasteKind
       val text = pigeonVar_list[1] as String?
       val items = pigeonVar_list[2] as List<PlatformNativePasteImageItem>?
-      return PlatformNativePastePayload(kind, text, items)
+      val deliveryId = pigeonVar_list[3] as String?
+      return PlatformNativePastePayload(kind, text, items, deliveryId)
     }
   }
   fun toList(): List<Any?> {
@@ -760,6 +766,7 @@ data class PlatformNativePastePayload (
       kind,
       text,
       items,
+      deliveryId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -770,7 +777,7 @@ data class PlatformNativePastePayload (
       return true
     }
     val other = other as PlatformNativePastePayload
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.text, other.text) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.kind, other.kind) && ConduitPlatformApisPigeonUtils.deepEquals(this.text, other.text) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.deliveryId, other.deliveryId)
   }
 
   override fun hashCode(): Int {
@@ -778,10 +785,11 @@ data class PlatformNativePastePayload (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.kind)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.text)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.items)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.deliveryId)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativePastePayload(kind=$kind, text=$text, items=$items)"
+    return "PlatformNativePastePayload(kind=$kind, text=$text, items=$items, deliveryId=$deliveryId)"
   }
 }
 
@@ -1823,6 +1831,7 @@ data class PlatformNativeSheetModelOption (
 
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformNativeSheetModelSelectorRequest (
+  val presentationId: String,
   val title: String,
   val selectedModelId: String? = null,
   val models: List<PlatformNativeSheetModelOption>,
@@ -1834,18 +1843,20 @@ data class PlatformNativeSheetModelSelectorRequest (
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetModelSelectorRequest {
-      val title = pigeonVar_list[0] as String
-      val selectedModelId = pigeonVar_list[1] as String?
-      val models = pigeonVar_list[2] as List<PlatformNativeSheetModelOption>
-      val pinnedModelIds = pigeonVar_list[3] as List<String>
-      val allowsPinning = pigeonVar_list[4] as Boolean
-      val pinTitle = pigeonVar_list[5] as String?
-      val unpinTitle = pigeonVar_list[6] as String?
-      return PlatformNativeSheetModelSelectorRequest(title, selectedModelId, models, pinnedModelIds, allowsPinning, pinTitle, unpinTitle)
+      val presentationId = pigeonVar_list[0] as String
+      val title = pigeonVar_list[1] as String
+      val selectedModelId = pigeonVar_list[2] as String?
+      val models = pigeonVar_list[3] as List<PlatformNativeSheetModelOption>
+      val pinnedModelIds = pigeonVar_list[4] as List<String>
+      val allowsPinning = pigeonVar_list[5] as Boolean
+      val pinTitle = pigeonVar_list[6] as String?
+      val unpinTitle = pigeonVar_list[7] as String?
+      return PlatformNativeSheetModelSelectorRequest(presentationId, title, selectedModelId, models, pinnedModelIds, allowsPinning, pinTitle, unpinTitle)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
+      presentationId,
       title,
       selectedModelId,
       models,
@@ -1863,11 +1874,12 @@ data class PlatformNativeSheetModelSelectorRequest (
       return true
     }
     val other = other as PlatformNativeSheetModelSelectorRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedModelId, other.selectedModelId) && ConduitPlatformApisPigeonUtils.deepEquals(this.models, other.models) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinnedModelIds, other.pinnedModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsPinning, other.allowsPinning) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinTitle, other.pinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.unpinTitle, other.unpinTitle)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.presentationId, other.presentationId) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedModelId, other.selectedModelId) && ConduitPlatformApisPigeonUtils.deepEquals(this.models, other.models) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinnedModelIds, other.pinnedModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsPinning, other.allowsPinning) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinTitle, other.pinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.unpinTitle, other.unpinTitle)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.presentationId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.selectedModelId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.models)
@@ -1878,7 +1890,7 @@ data class PlatformNativeSheetModelSelectorRequest (
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetModelSelectorRequest(title=$title, selectedModelId=$selectedModelId, models=$models, pinnedModelIds=$pinnedModelIds, allowsPinning=$allowsPinning, pinTitle=$pinTitle, unpinTitle=$unpinTitle)"
+    return "PlatformNativeSheetModelSelectorRequest(presentationId=$presentationId, title=$title, selectedModelId=$selectedModelId, models=$models, pinnedModelIds=$pinnedModelIds, allowsPinning=$allowsPinning, pinTitle=$pinTitle, unpinTitle=$unpinTitle)"
   }
 }
 
@@ -3084,12 +3096,12 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
       ConduitPlatformApisPigeonCodec()
     }
   }
-  fun askChat(promptArg: String?, callback: (Result<PlatformAppIntentResponse>) -> Unit)
+  fun askChat(invocationIdArg: String, promptArg: String?, callback: (Result<PlatformAppIntentResponse>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.askChat$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(promptArg)) {
+    channel.send(listOf(invocationIdArg, promptArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -3104,12 +3116,12 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
       } 
     }
   }
-  fun startVoiceCall(callback: (Result<PlatformAppIntentResponse>) -> Unit)
+  fun startVoiceCall(invocationIdArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.startVoiceCall$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(null) {
+    channel.send(listOf(invocationIdArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -3124,12 +3136,12 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
       } 
     }
   }
-  fun sendText(textArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
+  fun sendText(invocationIdArg: String, textArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendText$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(textArg)) {
+    channel.send(listOf(invocationIdArg, textArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -3144,12 +3156,12 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
       } 
     }
   }
-  fun sendUrl(urlArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
+  fun sendUrl(invocationIdArg: String, urlArg: String, callback: (Result<PlatformAppIntentResponse>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendUrl$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(urlArg)) {
+    channel.send(listOf(invocationIdArg, urlArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -3164,12 +3176,12 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
       } 
     }
   }
-  fun sendImage(payloadArg: PlatformAppIntentImagePayload, callback: (Result<PlatformAppIntentResponse>) -> Unit)
+  fun sendImage(invocationIdArg: String, payloadArg: PlatformAppIntentImagePayload, callback: (Result<PlatformAppIntentResponse>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.AppIntentFlutterApi.sendImage$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(payloadArg)) {
+    channel.send(listOf(invocationIdArg, payloadArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -3186,8 +3198,42 @@ class AppIntentFlutterApi(private val binaryMessenger: BinaryMessenger, private 
   }
 }
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
+interface AppIntentHostApi {
+  fun setReady(ready: Boolean)
+
+  companion object {
+    /** The codec used by AppIntentHostApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      ConduitPlatformApisPigeonCodec()
+    }
+    /** Sets up an instance of `AppIntentHostApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: AppIntentHostApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.AppIntentHostApi.setReady$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val readyArg = args[0] as Boolean
+            val wrapped: List<Any?> = try {
+              api.setReady(readyArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativePasteHostApi {
-  fun requestPaste(): Boolean
+  fun requestPaste(callback: (Result<Boolean>) -> Unit)
 
   companion object {
     /** The codec used by NativePasteHostApi. */
@@ -3202,12 +3248,15 @@ interface NativePasteHostApi {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativePasteHostApi.requestPaste$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              listOf(api.requestPaste())
-            } catch (exception: Throwable) {
-              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            api.requestPaste{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
@@ -3224,7 +3273,7 @@ class NativePasteFlutterApi(private val binaryMessenger: BinaryMessenger, privat
       ConduitPlatformApisPigeonCodec()
     }
   }
-  fun onPaste(payloadArg: PlatformNativePastePayload, callback: (Result<Unit>) -> Unit)
+  fun onPaste(payloadArg: PlatformNativePastePayload, callback: (Result<Boolean>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.NativePasteFlutterApi.onPaste$separatedMessageChannelSuffix"
@@ -3233,8 +3282,11 @@ class NativePasteFlutterApi(private val binaryMessenger: BinaryMessenger, privat
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
+        } else if (it[0] == null) {
+          callback(Result.failure(FlutterError("null-error", "Flutter api returned null value for non-null return value.", "")))
         } else {
-          callback(Result.success(Unit))
+          val output = it[0] as Boolean
+          callback(Result.success(output))
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
@@ -3395,6 +3447,7 @@ interface NativeSheetHostApi {
   fun presentProfileMenu(config: PlatformNativeProfileSheetConfig, callback: (Result<Boolean>) -> Unit)
   fun dismiss(): Boolean
   fun presentModelSelector(request: PlatformNativeSheetModelSelectorRequest, callback: (Result<String?>) -> Unit)
+  fun updateModelSelectorModels(presentationId: String, models: List<PlatformNativeSheetModelOption>)
   fun presentOptionsSelector(request: PlatformNativeSheetOptionsSelectorRequest, callback: (Result<String?>) -> Unit)
   fun presentDatePicker(request: PlatformNativeSheetDatePickerRequest, callback: (Result<String?>) -> Unit)
   fun presentTextEditor(request: PlatformNativeSheetTextEditorRequest, callback: (Result<PlatformNativeSheetActionResult?>) -> Unit)
@@ -3460,6 +3513,25 @@ interface NativeSheetHostApi {
                 reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModels$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val presentationIdArg = args[0] as String
+            val modelsArg = args[1] as List<PlatformNativeSheetModelOption>
+            val wrapped: List<Any?> = try {
+              api.updateModelSelectorModels(presentationIdArg, modelsArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

@@ -59,6 +59,7 @@ class AvatarImage extends ConsumerWidget {
     // Credentials and the Conduit identity are scoped to the configured
     // server; profile-image fields may contain external URLs.
     final headers = buildImageHeadersForUrlFromWidgetRef(ref, url);
+    final cacheKey = buildImageCacheKeyForUrlFromWidgetRef(ref, url);
 
     final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
 
@@ -66,6 +67,7 @@ class AvatarImage extends ConsumerWidget {
       borderRadius: _radius,
       child: CachedNetworkImage(
         imageUrl: url,
+        cacheKey: cacheKey,
         width: size,
         height: size,
         fit: BoxFit.cover,
