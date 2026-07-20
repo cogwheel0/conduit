@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -94,6 +95,8 @@ Widget _buildHarness({
   Widget? drawer,
   double edgeFraction = 0.5,
   VoidCallback? onOpenStart,
+  bool tabletDismissible = true,
+  bool tabletInitiallyDocked = true,
 }) {
   return MaterialApp(
     home: MediaQuery(
@@ -102,6 +105,8 @@ Widget _buildHarness({
         key: layoutKey,
         edgeFraction: edgeFraction,
         onOpenStart: onOpenStart,
+        tabletDismissible: tabletDismissible,
+        tabletInitiallyDocked: tabletInitiallyDocked,
         drawer:
             drawer ??
             const ColoredBox(
@@ -119,6 +124,19 @@ Widget _buildHarness({
       ),
     ),
   );
+}
+
+class _DrawerCompositionProbe extends StatelessWidget {
+  const _DrawerCompositionProbe();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      DrawerChromeCompositionScope.shouldCompose(context)
+          ? 'drawer-chrome-active'
+          : 'drawer-chrome-inactive',
+    );
+  }
 }
 
 Widget _buildEagerGestureOwner() {
@@ -192,6 +210,152 @@ Future<void> _openDrawer(
 }
 
 void main() {
+  testWidgets('mobile drawer composes chrome only while visible', (
+    tester,
+  ) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _mobileSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+
+    layoutKey.currentState!.open();
+    await tester.pump();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    await tester.pumpAndSettle();
+
+    layoutKey.currentState!.close();
+    await tester.pump();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+  });
+
+  testWidgets('reversed opening releases chrome after closing', (tester) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _mobileSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+
+    layoutKey.currentState!.open();
+    await tester.pump();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+
+    layoutKey.currentState!.close();
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+  });
+
+  testWidgets('persistent tablet drawer always composes chrome', (
+    tester,
+  ) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+        tabletDismissible: false,
+      ),
+    );
+
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    layoutKey.currentState!.close();
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    layoutKey.currentState!.open();
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+  });
+
+  testWidgets('dismissed tablet drawer releases chrome after closing', (
+    tester,
+  ) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    layoutKey.currentState!.close();
+    await tester.pump(const Duration(milliseconds: 100));
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+
+    layoutKey.currentState!.open();
+    await tester.pump();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+  });
+
+  testWidgets('initially dismissed tablet drawer omits native chrome', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        drawer: const _DrawerCompositionProbe(),
+        tabletInitiallyDocked: false,
+      ),
+    );
+
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+  });
+
+  testWidgets('breakpoint change during tablet close releases chrome', (
+    tester,
+  ) async {
+    final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+    layoutKey.currentState!.close();
+    await tester.pump(const Duration(milliseconds: 100));
+    check(find.text('drawer-chrome-active').evaluate()).length.equals(1);
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _mobileSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        size: _tabletSize,
+        layoutKey: layoutKey,
+        drawer: const _DrawerCompositionProbe(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(find.text('drawer-chrome-inactive').evaluate()).length.equals(1);
+  });
+
   testWidgets('drag settle open emits no sidebar haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
