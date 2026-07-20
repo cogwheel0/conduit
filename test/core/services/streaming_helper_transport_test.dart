@@ -1423,6 +1423,73 @@ void main() {
     );
 
     test(
+      'chat:completion structured append clears injected tool details',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        void emitOutput(String text) {
+          registrar.emitChatEvent('chat:completion', {
+            'output': [
+              {
+                'type': 'message',
+                'content': [
+                  {'type': 'output_text', 'text': text},
+                ],
+              },
+            ],
+          }, messageId: 'msg-1');
+        }
+
+        final toolCallPayload = {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+        };
+
+        emitOutput('Hello structured');
+        await pumpMicrotasks();
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+
+        emitOutput('Hello structured world');
+        await pumpMicrotasks();
+        check(log.messages.last.content).equals('Hello structured world');
+        check(
+          log.messages.last.content,
+        ).not((it) => it.contains('Executing...'));
+
+        registrar.emitChatEvent(
+          'chat:completion',
+          toolCallPayload,
+          messageId: 'msg-1',
+        );
+        await pumpMicrotasks();
+        check(log.messages.last.content).contains('<summary>Executing...');
+      },
+    );
+
+    test(
       'chat:completion plain output clears stale pending tool details',
       () async {
         final log = _CallbackLog();

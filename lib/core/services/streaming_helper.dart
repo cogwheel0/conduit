@@ -819,6 +819,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   final structuredOutputProjector = StructuredOutputStreamingProjector();
   var structuredProjectionIsVisible = false;
   var structuredOutputIsLatest = false;
+  var hasInjectedSemanticDetails = false;
   final seenStreamingToolCallKeys = <String>{};
   var inReasoningBlock = false;
   var reasoningPrefix = '';
@@ -862,6 +863,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }) {
     resetStreamingReasoning();
     renderedStreamingContent.replace(content);
+    hasInjectedSemanticDetails = false;
     renderedFromStructuredOutput = fromStructuredOutput;
     structuredProjectionIsVisible = fromStructuredOutput;
     structuredOutputIsLatest = fromStructuredOutput;
@@ -898,10 +900,37 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return content.replaceAll(semanticDetailsPattern, '').trim();
   }
 
+  void appendVisibleAssistantStructuredOutput(
+    StructuredOutputStreamingAppend projection,
+  ) {
+    resetStreamingReasoning();
+    renderedStreamingContent.append(projection.content);
+    plainStreamingContent.append(projection.plainContentDelta);
+    renderedFromStructuredOutput = true;
+    structuredProjectionIsVisible = true;
+    structuredOutputIsLatest = true;
+    appendToLastMessage(projection.content);
+    updateImagesFromCurrentContent();
+  }
+
   void replaceVisibleAssistantStructuredOutput(
     List<StructuredOutputBlock> blocks,
   ) {
     if (blocks.isEmpty) return;
+
+    StructuredOutputStreamingProjection? projection;
+    var projectionComputed = false;
+    if (structuredProjectionIsVisible &&
+        renderedFromStructuredOutput &&
+        !hasInjectedSemanticDetails) {
+      projection = structuredOutputProjector.project(blocks, canAppend: true);
+      projectionComputed = true;
+      structuredOutputIsLatest = true;
+      if (projection is StructuredOutputStreamingAppend) {
+        appendVisibleAssistantStructuredOutput(projection);
+        return;
+      }
+    }
 
     final hasDetails = structuredOutputBlocksContainDetails(blocks);
     final snapshotPlainText = structuredOutputBlocksPlainText(blocks);
@@ -952,13 +981,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     final replacementText = hasDetails && !shouldRenderFullSnapshot
         ? replacementPlainText
         : null;
-    final projection = structuredOutputProjector.project(
-      blocks,
-      replacementText: replacementText,
-      canAppend: structuredProjectionIsVisible,
-      forceReplace: visibleHasStaleDetails,
-    );
-    structuredOutputIsLatest = true;
+    if (!projectionComputed) {
+      projection = structuredOutputProjector.project(
+        blocks,
+        replacementText: replacementText,
+        canAppend: structuredProjectionIsVisible,
+        forceReplace: visibleHasStaleDetails,
+      );
+      structuredOutputIsLatest = true;
+    }
 
     if (visibleHasStaleDetails && strippedVisibleContentMatchesSnapshot) {
       replaceVisibleAssistantContent(
@@ -972,15 +1003,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
 
     switch (projection) {
-      case StructuredOutputStreamingAppend(:final content, :final plainContent):
-        resetStreamingReasoning();
-        renderedStreamingContent.append(content);
-        renderedFromStructuredOutput = true;
-        structuredProjectionIsVisible = true;
-        structuredOutputIsLatest = true;
-        plainStreamingContent.replace(plainContent);
-        appendToLastMessage(content);
-        updateImagesFromCurrentContent();
+      case StructuredOutputStreamingAppend():
+        appendVisibleAssistantStructuredOutput(projection);
       case StructuredOutputStreamingReplace(
         :final content,
         :final plainContent,
@@ -1205,6 +1229,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         done: false,
       ),
     ]);
+    hasInjectedSemanticDetails = true;
     appendVisibleAssistantChunk(
       '\n$status\n',
       updateImages: false,

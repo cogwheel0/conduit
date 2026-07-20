@@ -6,23 +6,21 @@ import 'structured_output.dart';
 /// A bounded-cost update for projecting cumulative Open WebUI `output`
 /// snapshots into the active assistant message.
 sealed class StructuredOutputStreamingProjection {
-  const StructuredOutputStreamingProjection({
-    required this.content,
-    required this.plainContent,
-  });
+  const StructuredOutputStreamingProjection({required this.content});
 
   final String content;
-  final String plainContent;
 }
 
-/// Appends a newly observed plain-text suffix without rebuilding the visible
-/// prefix.
+/// Appends newly observed rendered and plain-text suffixes without rebuilding
+/// either visible prefix.
 final class StructuredOutputStreamingAppend
     extends StructuredOutputStreamingProjection {
   const StructuredOutputStreamingAppend({
     required super.content,
-    required super.plainContent,
+    required this.plainContentDelta,
   });
+
+  final String plainContentDelta;
 }
 
 /// Replaces the visible snapshot when its semantic structure changed or an
@@ -31,8 +29,10 @@ final class StructuredOutputStreamingReplace
     extends StructuredOutputStreamingProjection {
   const StructuredOutputStreamingReplace({
     required super.content,
-    required super.plainContent,
+    required this.plainContent,
   });
+
+  final String plainContent;
 }
 
 /// Projects cumulative structured-output snapshots with bounded rendering
@@ -59,11 +59,16 @@ final class StructuredOutputStreamingProjector {
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
   int _fullProjectionCharacterCount = 0;
+  int _appendProjectionPlainCharacterCount = 0;
 
   /// Counts streaming replacements, excluding the final authoritative render.
   int get fullProjectionCount => _fullProjectionCount;
 
   int get appendProjectionCount => _appendProjectionCount;
+
+  /// Total raw plain-text suffix characters carried by append projections.
+  int get appendProjectionPlainCharacterCount =>
+      _appendProjectionPlainCharacterCount;
 
   /// Total characters materialized by streaming replacements. This is a
   /// deterministic complexity guard that is more stable than wall-clock tests.
@@ -100,7 +105,8 @@ final class StructuredOutputStreamingProjector {
       _appendIsPlain = false;
     }
 
-    if (canAppend &&
+    if (!forceReplace &&
+        canAppend &&
         _appendIsPlain &&
         appendDelta != null &&
         appendDelta.isNotEmpty &&
@@ -108,9 +114,10 @@ final class StructuredOutputStreamingProjector {
       _projectedBlocks = snapshot;
       _projectedReplacementText = replacementText;
       _appendProjectionCount += 1;
+      _appendProjectionPlainCharacterCount += appendDelta.length;
       return StructuredOutputStreamingAppend(
         content: renderSemanticPlainTextFragment(appendDelta),
-        plainContent: _plainText(snapshot, replacementText),
+        plainContentDelta: appendDelta,
       );
     }
 
