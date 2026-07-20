@@ -322,6 +322,12 @@ Future<bool> dispatchChatTransport({
       if (!ownsConversation()) return;
       ref.read(chatMessagesProvider.notifier).bufferLastMessageContent(c);
     },
+    bufferProgressiveLastMessageContent: (c) {
+      if (!ownsConversation()) return;
+      ref
+          .read(chatMessagesProvider.notifier)
+          .bufferLastMessageContent(c, immediate: false);
+    },
     replaceLastMessageContent: (c) {
       if (!ownsConversation()) return;
       ref.read(chatMessagesProvider.notifier).replaceLastMessageContent(c);

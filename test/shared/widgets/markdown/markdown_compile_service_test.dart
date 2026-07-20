@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _RecordingBatchMarkdownCompileService extends MarkdownCompileService {
@@ -358,6 +359,78 @@ void main() {
         equals(prepareMarkdownContent(content, streaming: true)),
       );
       expect(executionPath, MarkdownPrepareExecutionPath.asyncBackend);
+    },
+  );
+
+  test(
+    'prepareStreamingContent retains a prepared prefix in the isolate',
+    () async {
+      final patches = <MarkdownPreparationPatch>[];
+      final service = MarkdownCompileService(
+        workerManager: WorkerManager(),
+        debugOnPreparationPatch: patches.add,
+      );
+      addTearDown(service.dispose);
+      var prepared = const PreparedMarkdownText.empty();
+
+      final first = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 1,
+          expectedBaseRevision: 0,
+          content: 'First paragraph.\n\nSecond',
+          streaming: true,
+          collectMetrics: true,
+          verifyParity: true,
+        ),
+      );
+      prepared = prepared.applyPatch(first);
+      final second = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 2,
+          expectedBaseRevision: 1,
+          content: 'First paragraph.\n\nSecond grows 物語',
+          streaming: true,
+          collectMetrics: true,
+          verifyParity: true,
+        ),
+      );
+      prepared = prepared.applyPatch(second);
+
+      expect(first.mode, MarkdownPreparationMode.full);
+      expect(second.mode, MarkdownPreparationMode.incremental);
+      expect(
+        second.metrics.processedCharacters,
+        lessThan(second.metrics.inputCharacters),
+      );
+      expect(
+        second.metrics.inputUtf8Bytes,
+        greaterThan(second.metrics.inputCharacters),
+      );
+      expect(patches, hasLength(2));
+      expect(
+        prepared.materialize(),
+        prepareMarkdownContent(
+          'First paragraph.\n\nSecond grows 物語',
+          streaming: true,
+        ),
+      );
+
+      await service.releaseStreamingPreparationSession('message-1');
+      final reset = await service.prepareStreamingContent(
+        const MarkdownPreparationRequest(
+          sessionId: 'message-1',
+          revision: 3,
+          expectedBaseRevision: 2,
+          content: 'First paragraph.\n\nAfter release',
+          streaming: true,
+          collectMetrics: false,
+          verifyParity: true,
+        ),
+      );
+      expect(reset.mode, MarkdownPreparationMode.resetFull);
+      expect(reset.fallbackReason, 'missingSession');
     },
   );
 

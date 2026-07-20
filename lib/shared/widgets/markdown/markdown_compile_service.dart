@@ -13,7 +13,7 @@ import '../../../core/services/worker_manager.dart';
 import '../../../core/utils/citation_parser.dart';
 import '../../../core/utils/embed_utils.dart';
 import 'compiled_markdown_document.dart';
-import 'markdown_preprocessor.dart';
+import 'streaming_markdown_preparation.dart';
 import 'renderer/details_block_syntax.dart';
 import 'renderer/latex_preprocessor.dart';
 import 'renderer/mention_inline_syntax.dart';
@@ -47,35 +47,11 @@ final markdownCompileServiceProvider = Provider<MarkdownCompileService>((ref) {
   return service;
 });
 
-String prepareMarkdownContent(String content, {required bool streaming}) {
-  final normalized = ConduitMarkdownPreprocessor.normalize(content);
-  final prepared = streaming
-      ? stripTrailingIncompleteToolCallDetails(normalized)
-      : normalized;
-  return prepared;
-}
+String prepareMarkdownContent(String content, {required bool streaming}) =>
+    prepareMarkdownContentCanonical(content, streaming: streaming);
 
-String stripTrailingIncompleteToolCallDetails(String input) {
-  if (input.isEmpty || !input.contains('<details')) {
-    return input;
-  }
-
-  final matches = RegExp(
-    r'<details\b[^>]*type="tool_calls"[^>]*>',
-    caseSensitive: false,
-  ).allMatches(input).toList(growable: false);
-  if (matches.isEmpty) {
-    return input;
-  }
-
-  final lastOpen = matches.last;
-  final trailing = input.substring(lastOpen.start).toLowerCase();
-  if (trailing.contains('</details>')) {
-    return input;
-  }
-
-  return input.substring(0, lastOpen.start).trimRight();
-}
+String stripTrailingIncompleteToolCallDetails(String input) =>
+    stripTrailingIncompleteToolCallDetailsCanonical(input);
 
 CompiledMarkdownDocument compilePreparedMarkdownSync(String preparedContent) {
   final cached = _compiledMarkdownCache.read(preparedContent);
@@ -91,6 +67,7 @@ class MarkdownCompileService {
     required WorkerManager workerManager,
     @visibleForTesting this.debugOnPrepareExecution,
     @visibleForTesting this.debugPrepareContentOverride,
+    @visibleForTesting this.debugOnPreparationPatch,
   }) : _workerManager = workerManager,
        _backend = _MarkdownCompilerBackend(),
        _prepareBackend = _MarkdownPrepareBackend();
@@ -98,6 +75,8 @@ class MarkdownCompileService {
   final WorkerManager _workerManager;
   final _MarkdownCompilerBackend _backend;
   final _MarkdownPrepareBackend _prepareBackend;
+  final StreamingMarkdownPreparationEngine _fallbackPrepareEngine =
+      StreamingMarkdownPreparationEngine();
   final Map<String, Future<CompiledMarkdownDocument>> _inFlight =
       <String, Future<CompiledMarkdownDocument>>{};
   @visibleForTesting
@@ -106,6 +85,8 @@ class MarkdownCompileService {
   @visibleForTesting
   final Future<String> Function(String content, bool streaming)?
   debugPrepareContentOverride;
+  @visibleForTesting
+  final void Function(MarkdownPreparationPatch patch)? debugOnPreparationPatch;
   bool _disposed = false;
 
   CompiledMarkdownDocument? peekPrepared(String preparedContent) =>
@@ -148,11 +129,17 @@ class MarkdownCompileService {
       return prepareMarkdownContent(content, streaming: streaming);
     }
 
+    final profileEnabled = PerformanceProfiler.isEnabled;
     final taskKey = PerformanceProfiler.instance.startTask(
       'markdown_prepare',
       scope: 'markdown',
       key: 'markdown_prepare:${content.hashCode}:${content.length}:$streaming',
-      data: {'length': content.length, 'streaming': streaming},
+      data: {
+        'mode': 'full',
+        'inputCharacters': content.length,
+        if (profileEnabled) 'inputUtf8Bytes': utf8.encode(content).length,
+        'streaming': streaming,
+      },
     );
 
     try {
@@ -164,8 +151,10 @@ class MarkdownCompileService {
         taskKey,
         data: {
           'status': 'ok',
+          'mode': 'full',
           'streaming': streaming,
-          'preparedLength': prepared.length,
+          'outputCharacters': prepared.length,
+          if (profileEnabled) 'outputUtf8Bytes': utf8.encode(prepared).length,
         },
       );
       return prepared;
@@ -176,13 +165,111 @@ class MarkdownCompileService {
         taskKey,
         data: {
           'status': 'fallback_sync',
+          'mode': 'fallback_sync',
           'streaming': streaming,
-          'preparedLength': fallback.length,
+          'outputCharacters': fallback.length,
+          if (profileEnabled) 'outputUtf8Bytes': utf8.encode(fallback).length,
           'error': error.toString(),
         },
       );
       return fallback;
     }
+  }
+
+  Future<MarkdownPreparationPatch> prepareStreamingContent(
+    MarkdownPreparationRequest request, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) async {
+    final shouldRunSynchronously =
+        allowSynchronous &&
+        shouldPrepareSynchronously(request.content, widgetTest: widgetTest);
+    if (shouldRunSynchronously || kIsWeb) {
+      final patch = _fallbackPrepareEngine.prepare(request);
+      debugOnPrepareExecution?.call(
+        kIsWeb
+            ? MarkdownPrepareExecutionPath.webSynchronous
+            : MarkdownPrepareExecutionPath.synchronous,
+      );
+      debugOnPreparationPatch?.call(patch);
+      return patch;
+    }
+
+    final taskKey = PerformanceProfiler.instance.startTask(
+      'markdown_prepare',
+      scope: 'markdown',
+      key: 'markdown_prepare:${request.sessionId}:${request.revision}',
+      data: {
+        'session': request.sessionId,
+        'revision': request.revision,
+        'baseRevision': request.expectedBaseRevision,
+        'inputCharacters': request.content.length,
+        if (request.collectMetrics)
+          'inputUtf8Bytes': utf8.encode(request.content).length,
+        'streaming': request.streaming,
+      },
+    );
+
+    try {
+      final patch = await _prepareBackend.prepareStreamingContent(request);
+      debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.asyncBackend);
+      debugOnPreparationPatch?.call(patch);
+      _finishPreparationTask(taskKey, patch, status: 'ok');
+      return patch;
+    } catch (error) {
+      final patch = _fallbackPrepareEngine.prepare(request);
+      debugOnPrepareExecution?.call(MarkdownPrepareExecutionPath.fallbackSync);
+      debugOnPreparationPatch?.call(patch);
+      _finishPreparationTask(
+        taskKey,
+        patch,
+        status: 'fallback_sync',
+        error: error,
+      );
+      return patch;
+    }
+  }
+
+  Future<void> releaseStreamingPreparationSession(String sessionId) async {
+    _fallbackPrepareEngine.release(sessionId);
+    if (kIsWeb) return;
+    try {
+      await _prepareBackend.releaseSession(sessionId);
+    } catch (_) {
+      // The isolate may already have exited; its session state is gone with it.
+    }
+  }
+
+  void _finishPreparationTask(
+    String taskKey,
+    MarkdownPreparationPatch patch, {
+    required String status,
+    Object? error,
+  }) {
+    final metrics = patch.metrics;
+    PerformanceProfiler.instance.finishTask(
+      taskKey,
+      data: {
+        'status': status,
+        'mode': patch.mode.name,
+        'revision': patch.revision,
+        'baseRevision': patch.baseRevision,
+        'callCount': metrics.callCount,
+        'inputCharacters': metrics.inputCharacters,
+        'inputUtf8Bytes': metrics.inputUtf8Bytes,
+        'processedCharacters': metrics.processedCharacters,
+        'processedUtf8Bytes': metrics.processedUtf8Bytes,
+        'retainedRawCharacters': metrics.retainedRawCharacters,
+        'retainedPreparedCharacters': metrics.retainedPreparedCharacters,
+        'replacementCharacters': metrics.replacementCharacters,
+        'replacementUtf8Bytes': metrics.replacementUtf8Bytes,
+        'outputCharacters': metrics.outputCharacters,
+        'outputUtf8Bytes': metrics.outputUtf8Bytes,
+        if (patch.fallbackReason != null)
+          'fallbackReason': patch.fallbackReason!,
+        if (error != null) 'error': error.toString(),
+      },
+    );
   }
 
   Future<CompiledMarkdownDocument> compilePrepared(
@@ -1531,6 +1618,9 @@ class _MarkdownPrepareBackend {
   Future<SendPort>? _startupFuture;
   final Map<int, Completer<String>> _pendingPrepared =
       <int, Completer<String>>{};
+  final Map<int, Completer<MarkdownPreparationPatch>> _pendingStreaming =
+      <int, Completer<MarkdownPreparationPatch>>{};
+  final Map<int, Completer<bool>> _pendingRelease = <int, Completer<bool>>{};
   int _requestCounter = 0;
   bool _disposed = false;
 
@@ -1547,9 +1637,46 @@ class _MarkdownPrepareBackend {
     final completer = Completer<String>();
     _pendingPrepared[requestId] = completer;
     sendPort.send(<String, Object?>{
+      'op': 'prepareFull',
       'id': requestId,
       'content': content,
       'streaming': streaming,
+    });
+    return completer.future;
+  }
+
+  Future<MarkdownPreparationPatch> prepareStreamingContent(
+    MarkdownPreparationRequest request,
+  ) async {
+    final sendPort = await _ensureStarted();
+    if (_disposed) {
+      throw StateError('Markdown prepare backend disposed');
+    }
+
+    final requestId = ++_requestCounter;
+    final completer = Completer<MarkdownPreparationPatch>();
+    _pendingStreaming[requestId] = completer;
+    sendPort.send(<String, Object?>{
+      'op': 'prepareStreaming',
+      'id': requestId,
+      'request': request.toMap(),
+    });
+    return completer.future;
+  }
+
+  Future<bool> releaseSession(String sessionId) async {
+    final sendPort = await _ensureStarted();
+    if (_disposed) {
+      throw StateError('Markdown prepare backend disposed');
+    }
+
+    final requestId = ++_requestCounter;
+    final completer = Completer<bool>();
+    _pendingRelease[requestId] = completer;
+    sendPort.send(<String, Object?>{
+      'op': 'release',
+      'id': requestId,
+      'sessionId': sessionId,
     });
     return completer.future;
   }
@@ -1655,6 +1782,20 @@ class _MarkdownPrepareBackend {
       }
       return;
     }
+    if (result is Map<Object?, Object?>) {
+      final completer = _pendingStreaming.remove(requestId);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(MarkdownPreparationPatch.fromMap(result));
+      }
+      return;
+    }
+    if (result is bool) {
+      final completer = _pendingRelease.remove(requestId);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(result);
+      }
+      return;
+    }
 
     final invalidResponseError = StateError(
       'Invalid markdown prepare response: $message',
@@ -1667,9 +1808,17 @@ class _MarkdownPrepareBackend {
     Object error,
     StackTrace stackTrace,
   ) {
-    final completer = _pendingPrepared.remove(requestId);
-    if (completer != null && !completer.isCompleted) {
-      completer.completeError(error, stackTrace);
+    final preparedCompleter = _pendingPrepared.remove(requestId);
+    if (preparedCompleter != null && !preparedCompleter.isCompleted) {
+      preparedCompleter.completeError(error, stackTrace);
+    }
+    final streamingCompleter = _pendingStreaming.remove(requestId);
+    if (streamingCompleter != null && !streamingCompleter.isCompleted) {
+      streamingCompleter.completeError(error, stackTrace);
+    }
+    final releaseCompleter = _pendingRelease.remove(requestId);
+    if (releaseCompleter != null && !releaseCompleter.isCompleted) {
+      releaseCompleter.completeError(error, stackTrace);
     }
   }
 
@@ -1688,8 +1837,18 @@ class _MarkdownPrepareBackend {
     final pendingPrepared = List<Completer<String>>.from(
       _pendingPrepared.values,
     );
+    final pendingStreaming = List<Completer<MarkdownPreparationPatch>>.from(
+      _pendingStreaming.values,
+    );
+    final pendingRelease = List<Completer<bool>>.from(_pendingRelease.values);
     _pendingPrepared.clear();
-    for (final completer in pendingPrepared) {
+    _pendingStreaming.clear();
+    _pendingRelease.clear();
+    for (final completer in <Completer<Object?>>[
+      ...pendingPrepared,
+      ...pendingStreaming,
+      ...pendingRelease,
+    ]) {
       if (!completer.isCompleted) {
         completer.completeError(error, stackTrace);
       }
@@ -1774,6 +1933,7 @@ void _markdownCompilerIsolateMain(SendPort mainSendPort) {
 @pragma('vm:entry-point')
 void _markdownPrepareIsolateMain(SendPort mainSendPort) {
   final receivePort = ReceivePort();
+  final streamingEngine = StreamingMarkdownPreparationEngine();
   mainSendPort.send(receivePort.sendPort);
 
   receivePort.listen((dynamic message) {
@@ -1786,10 +1946,37 @@ void _markdownPrepareIsolateMain(SendPort mainSendPort) {
       return;
     }
     try {
-      final content = (typed['content'] ?? '') as String;
-      final streaming = typed['streaming'] == true;
-      final result = prepareMarkdownContent(content, streaming: streaming);
-      mainSendPort.send(<String, Object?>{'id': requestId, 'result': result});
+      final operation = (typed['op'] ?? 'prepareFull').toString();
+      switch (operation) {
+        case 'prepareStreaming':
+          final rawRequest = typed['request'];
+          if (rawRequest is! Map<Object?, Object?>) {
+            throw StateError('Missing streaming preparation request');
+          }
+          final request = MarkdownPreparationRequest.fromMap(rawRequest);
+          final result = streamingEngine.prepare(request).toMap();
+          mainSendPort.send(<String, Object?>{
+            'id': requestId,
+            'result': result,
+          });
+        case 'release':
+          final sessionId = (typed['sessionId'] ?? '').toString();
+          final released = streamingEngine.release(sessionId);
+          mainSendPort.send(<String, Object?>{
+            'id': requestId,
+            'result': released,
+          });
+        case 'prepareFull':
+          final content = (typed['content'] ?? '') as String;
+          final streaming = typed['streaming'] == true;
+          final result = prepareMarkdownContent(content, streaming: streaming);
+          mainSendPort.send(<String, Object?>{
+            'id': requestId,
+            'result': result,
+          });
+        default:
+          throw StateError('Unknown markdown prepare operation: $operation');
+      }
     } catch (error, stackTrace) {
       mainSendPort.send(<String, Object?>{
         'id': requestId,

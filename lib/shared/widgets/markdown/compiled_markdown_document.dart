@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'renderer/latex_preprocessor.dart';
+import 'streaming_markdown_preparation.dart';
 
 enum MarkdownRenderTier { plainText, richText, blocks }
 
@@ -39,7 +40,7 @@ enum CompiledMarkdownNodeBlockKind {
 @immutable
 class CompiledMarkdownDocument {
   CompiledMarkdownDocument({
-    required this.normalizedContent,
+    required String normalizedContent,
     required this.renderTier,
     required this.containsCitations,
     required this.heavyBlockCount,
@@ -48,7 +49,28 @@ class CompiledMarkdownDocument {
     required Map<String, String> blockLatexExpressions,
     required Map<String, String> inlineLatexExpressions,
     this.mutableBlockStartIndex = -1,
-  }) : blocks = List<CompiledMarkdownBlock>.unmodifiable(blocks),
+  }) : _normalizedContent = PreparedMarkdownText.fromString(normalizedContent),
+       blocks = List<CompiledMarkdownBlock>.unmodifiable(blocks),
+       nodes = List<CompiledMarkdownNode>.unmodifiable(nodes),
+       blockLatexExpressions = Map<String, String>.unmodifiable(
+         blockLatexExpressions,
+       ),
+       inlineLatexExpressions = Map<String, String>.unmodifiable(
+         inlineLatexExpressions,
+       );
+
+  CompiledMarkdownDocument.prepared({
+    required PreparedMarkdownText normalizedContent,
+    required this.renderTier,
+    required this.containsCitations,
+    required this.heavyBlockCount,
+    required List<CompiledMarkdownBlock> blocks,
+    required List<CompiledMarkdownNode> nodes,
+    required Map<String, String> blockLatexExpressions,
+    required Map<String, String> inlineLatexExpressions,
+    this.mutableBlockStartIndex = -1,
+  }) : _normalizedContent = normalizedContent,
+       blocks = List<CompiledMarkdownBlock>.unmodifiable(blocks),
        nodes = List<CompiledMarkdownNode>.unmodifiable(nodes),
        blockLatexExpressions = Map<String, String>.unmodifiable(
          blockLatexExpressions,
@@ -58,7 +80,7 @@ class CompiledMarkdownDocument {
        );
 
   const CompiledMarkdownDocument.empty()
-    : normalizedContent = '',
+    : _normalizedContent = const PreparedMarkdownText.empty(),
       renderTier = MarkdownRenderTier.plainText,
       containsCitations = false,
       heavyBlockCount = 0,
@@ -68,7 +90,12 @@ class CompiledMarkdownDocument {
       inlineLatexExpressions = const <String, String>{},
       mutableBlockStartIndex = -1;
 
-  final String normalizedContent;
+  final PreparedMarkdownText _normalizedContent;
+
+  String get normalizedContent => _normalizedContent.materialize();
+  PreparedMarkdownText get preparedContent => _normalizedContent;
+  int get normalizedContentLength => _normalizedContent.length;
+
   final MarkdownRenderTier renderTier;
   final bool containsCitations;
   final int heavyBlockCount;
@@ -85,7 +112,7 @@ class CompiledMarkdownDocument {
   final int mutableBlockStartIndex;
 
   bool get isEmpty =>
-      normalizedContent.trim().isEmpty || (nodes.isEmpty && blocks.isEmpty);
+      _normalizedContent.isBlank || (nodes.isEmpty && blocks.isEmpty);
 
   bool get hasHeavyBlocks => heavyBlockCount > 0;
 
@@ -119,7 +146,7 @@ class CompiledMarkdownDocument {
           0,
           (sum, value) => sum + value.length,
         );
-    return normalizedContent.length + blockWeight + nodeWeight + latexWeight;
+    return normalizedContentLength + blockWeight + nodeWeight + latexWeight;
   }
 
   LatexPreprocessor buildLatexPreprocessor() =>
@@ -127,6 +154,20 @@ class CompiledMarkdownDocument {
         blockLatexExpressions,
         inlineLatexExpressions,
       );
+
+  CompiledMarkdownDocument withPreparedContent(
+    PreparedMarkdownText normalizedContent,
+  ) => CompiledMarkdownDocument.prepared(
+    normalizedContent: normalizedContent,
+    renderTier: renderTier,
+    containsCitations: containsCitations,
+    heavyBlockCount: heavyBlockCount,
+    blocks: blocks,
+    nodes: nodes,
+    blockLatexExpressions: blockLatexExpressions,
+    inlineLatexExpressions: inlineLatexExpressions,
+    mutableBlockStartIndex: mutableBlockStartIndex,
+  );
 
   CompiledMarkdownDocument rebaseRootIds({required int rootNodeOffset}) {
     if (rootNodeOffset == 0 || nodes.isEmpty) {
@@ -143,8 +184,8 @@ class CompiledMarkdownDocument {
       }
     }
 
-    return CompiledMarkdownDocument(
-      normalizedContent: normalizedContent,
+    return CompiledMarkdownDocument.prepared(
+      normalizedContent: _normalizedContent,
       renderTier: renderTier,
       containsCitations: containsCitations,
       heavyBlockCount: heavyBlockCount,
@@ -168,14 +209,24 @@ class CompiledMarkdownDocument {
     required String normalizedContent,
     required Iterable<CompiledMarkdownDocument> segments,
     int mutableBlockStartIndex = -1,
+  }) => composePrepared(
+    normalizedContent: PreparedMarkdownText.fromString(normalizedContent),
+    segments: segments,
+    mutableBlockStartIndex: mutableBlockStartIndex,
+  );
+
+  static CompiledMarkdownDocument composePrepared({
+    required PreparedMarkdownText normalizedContent,
+    required Iterable<CompiledMarkdownDocument> segments,
+    int mutableBlockStartIndex = -1,
   }) {
     final segmentList = segments
         .where((segment) => !segment.isEmpty)
         .toList(growable: false);
     if (segmentList.isEmpty) {
-      return normalizedContent.trim().isEmpty
+      return normalizedContent.isBlank
           ? const CompiledMarkdownDocument.empty()
-          : CompiledMarkdownDocument(
+          : CompiledMarkdownDocument.prepared(
               normalizedContent: normalizedContent,
               renderTier: MarkdownRenderTier.plainText,
               containsCitations: false,
@@ -189,11 +240,11 @@ class CompiledMarkdownDocument {
     }
     if (segmentList.length == 1) {
       final segment = segmentList.single;
-      if (segment.normalizedContent == normalizedContent &&
+      if (segment.preparedContent == normalizedContent &&
           segment.mutableBlockStartIndex == mutableBlockStartIndex) {
         return segment;
       }
-      return CompiledMarkdownDocument(
+      return CompiledMarkdownDocument.prepared(
         normalizedContent: normalizedContent,
         renderTier: segment.renderTier,
         containsCitations: segment.containsCitations,
@@ -251,7 +302,7 @@ class CompiledMarkdownDocument {
       );
     }
 
-    return CompiledMarkdownDocument(
+    return CompiledMarkdownDocument.prepared(
       normalizedContent: normalizedContent,
       renderTier: MarkdownRenderTier.blocks,
       containsCitations: containsCitations,

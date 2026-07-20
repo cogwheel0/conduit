@@ -18,6 +18,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/foundation.dart';
@@ -162,7 +163,32 @@ class _SelectiveDelayedMarkdownCompileService extends MarkdownCompileService {
   }) => preparedContent != delayedPreparedContent;
 }
 
-class _PrepareCountingMarkdownCompileService extends MarkdownCompileService {
+mixin _PatchPreparing on MarkdownCompileService {
+  final StreamingMarkdownPreparationEngine _preparationEngine =
+      StreamingMarkdownPreparationEngine();
+
+  @override
+  Future<MarkdownPreparationPatch> prepareStreamingContent(
+    MarkdownPreparationRequest request, {
+    bool allowSynchronous = false,
+    bool widgetTest = false,
+  }) {
+    return prepareContent(
+      request.content,
+      streaming: request.streaming,
+      allowSynchronous: allowSynchronous,
+      widgetTest: widgetTest,
+    ).then((_) => _preparationEngine.prepare(request));
+  }
+
+  @override
+  Future<void> releaseStreamingPreparationSession(String sessionId) async {
+    _preparationEngine.release(sessionId);
+  }
+}
+
+class _PrepareCountingMarkdownCompileService extends MarkdownCompileService
+    with _PatchPreparing {
   _PrepareCountingMarkdownCompileService()
     : super(workerManager: WorkerManager());
 
@@ -199,8 +225,8 @@ class _PrepareCountingMarkdownCompileService extends MarkdownCompileService {
   }
 }
 
-class _GatedSettledPrepareMarkdownCompileService
-    extends MarkdownCompileService {
+class _GatedSettledPrepareMarkdownCompileService extends MarkdownCompileService
+    with _PatchPreparing {
   _GatedSettledPrepareMarkdownCompileService()
     : super(workerManager: WorkerManager());
 
@@ -246,7 +272,8 @@ class _GatedSettledPrepareMarkdownCompileService
   }
 }
 
-class _GatedEquivalentSettledPrepareService extends MarkdownCompileService {
+class _GatedEquivalentSettledPrepareService extends MarkdownCompileService
+    with _PatchPreparing {
   _GatedEquivalentSettledPrepareService()
     : super(workerManager: WorkerManager());
 
@@ -284,7 +311,8 @@ class _GatedEquivalentSettledPrepareService extends MarkdownCompileService {
 // Forces the deferred streaming path (async prepare) AND delays the compile of
 // one target prepared content, so a streaming scope change exercises the
 // `_pendingClearStaleDocument` flag and the streaming async-clear branch.
-class _DeferredStreamingCompileService extends MarkdownCompileService {
+class _DeferredStreamingCompileService extends MarkdownCompileService
+    with _PatchPreparing {
   _DeferredStreamingCompileService({required this.delayedPreparedContent})
     : super(workerManager: WorkerManager());
 

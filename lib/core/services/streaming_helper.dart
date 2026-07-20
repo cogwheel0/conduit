@@ -456,6 +456,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Message update callbacks
   required void Function(String) appendToLastMessage,
   required void Function(String) bufferLastMessageContent,
+  void Function(String)? bufferProgressiveLastMessageContent,
   required void Function(String) replaceLastMessageContent,
   required void Function(ChatMessage Function(ChatMessage))
   updateLastMessageWith,
@@ -1156,7 +1157,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         _buildStreamingReasoningDetails(reasoningContent.value, done: false),
       ),
     );
-    bufferLastMessageContent(renderedStreamingContent.value);
+    (bufferProgressiveLastMessageContent ?? bufferLastMessageContent)(
+      renderedStreamingContent.value,
+    );
   }
 
   void handleStreamingChoiceDelta(Map<dynamic, dynamic> delta) {

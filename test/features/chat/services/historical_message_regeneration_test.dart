@@ -89,7 +89,7 @@ class _TestMessagesNotifier extends ChatMessagesNotifier {
   }
 
   @override
-  void bufferLastMessageContent(String content) {
+  void bufferLastMessageContent(String content, {bool immediate = true}) {
     replaceLastMessageContent(content);
   }
 

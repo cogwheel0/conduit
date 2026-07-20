@@ -161,15 +161,14 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final prepared =
-        widget.compiledDocument?.normalizedContent ?? _preparedData;
-    if (prepared.trim().isEmpty) {
+    final directDocument = widget.compiledDocument;
+    if (directDocument?.isEmpty ?? _preparedData.trim().isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final document = widget.compiledDocument ?? _compiledDocument;
+    final document = directDocument ?? _compiledDocument;
     if (document == null) {
-      return MarkdownLoadingSkeleton(contentLength: prepared.length);
+      return MarkdownLoadingSkeleton(contentLength: _preparedData.length);
     }
 
     return _CompiledMarkdownView(
@@ -197,11 +196,8 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
   void _primeDocument() {
     final directDocument = widget.compiledDocument;
     if (directDocument != null) {
-      final nextPrepared = directDocument.normalizedContent;
-      final changed =
-          nextPrepared != _preparedData || _compiledDocument != directDocument;
-      _preparedData = nextPrepared;
-      if (!changed) {
+      if (identical(_compiledDocument, directDocument) &&
+          identical(_documentController.compiledDocument, directDocument)) {
         return;
       }
       _documentController.applyDirectDocument(directDocument);
@@ -216,10 +212,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
     _documentController.resolvePrepared(prepared, clearDocumentWhenAsync: true);
   }
 
-  void _applyCompiledDocumentState(
-    String compiledPreparedContent,
-    CompiledMarkdownDocument? document,
-  ) {
+  void _applyCompiledDocumentState(CompiledMarkdownDocument? document) {
     if (!mounted) {
       _compiledDocument = document;
       return;
@@ -347,7 +340,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       'markdown_build',
       scope: 'markdown',
       data: {
-        'length': widget.document.normalizedContent.length,
+        'length': widget.document.normalizedContentLength,
         'tier': widget.document.renderTier,
         'heavyBlocks': widget.document.heavyBlockCount,
       },

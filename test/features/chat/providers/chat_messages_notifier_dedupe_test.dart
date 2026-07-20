@@ -155,6 +155,73 @@ void main() {
       },
     );
 
+    testWidgets('authoritative replacement bypasses the append cadence', (
+      tester,
+    ) async {
+      final container = buildContainer();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(content: 'Hello', isStreaming: true),
+      ]);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: _StreamingContentProbe()),
+        ),
+      );
+      notifier.appendToLastMessage(' world');
+      await tester.pump();
+      expect(find.text('Hello world'), findsOneWidget);
+
+      notifier.bufferLastMessageContent('Replacement body');
+      await tester.pump();
+      expect(find.text('Replacement body'), findsOneWidget);
+
+      notifier.clearMessages();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
+      container.dispose();
+      await tester.pump(const Duration(milliseconds: 1));
+    });
+
+    testWidgets('progressive replacement follows the append cadence', (
+      tester,
+    ) async {
+      final container = buildContainer();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      notifier.setMessages([
+        _assistantMessage(content: 'Hello', isStreaming: true),
+      ]);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: _StreamingContentProbe()),
+        ),
+      );
+      notifier.appendToLastMessage(' world');
+      await tester.pump();
+      expect(find.text('Hello world'), findsOneWidget);
+
+      notifier.bufferLastMessageContent(
+        'Progressive reasoning',
+        immediate: false,
+      );
+      await tester.pump();
+      expect(find.text('Hello world'), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(find.text('Progressive reasoning'), findsOneWidget);
+
+      notifier.clearMessages();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
+      container.dispose();
+      await tester.pump(const Duration(milliseconds: 1));
+    });
+
     test('stop generation preserves the visible partial response', () {
       final container = buildContainer();
       addTearDown(container.dispose);
@@ -422,6 +489,33 @@ void main() {
         expect(notifications, 0);
       },
     );
+
+    test('streaming cadence exposes stable size buckets', () {
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(999).bucket,
+        StreamingContentSizeBucket.under1k,
+      );
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(1000).bucket,
+        StreamingContentSizeBucket.from1k,
+      );
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(2000).bucket,
+        StreamingContentSizeBucket.from2k,
+      );
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(4000).bucket,
+        StreamingContentSizeBucket.from4k,
+      );
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(8000).bucket,
+        StreamingContentSizeBucket.from8k,
+      );
+      expect(
+        debugStreamingContentUpdatePolicyForBuffer(16000).bucket,
+        StreamingContentSizeBucket.from16k,
+      );
+    });
 
     test('streaming cadence grows with mobile response length', () {
       expect(
