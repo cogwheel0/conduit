@@ -304,6 +304,20 @@ lib/
 ## Acknowledgements
 
 - This project is tested with BrowserStack.
+- Code review for Conduit is provided by <a href="http://macroscope.com/?utm_source=open_source&utm_term=conduit">
+    <picture>
+      <source
+        media="(prefers-color-scheme: dark)"
+        srcset="https://macroscope.com/assets/Brand%20Kit/Macroscope%20Logos/svg/Macroscope%20Logotype%20-%20white.svg"
+      />
+      <img
+        src="https://macroscope.com/assets/Brand%20Kit/Macroscope%20Logos/svg/Macroscope%20Logotype%20-%20black.svg"
+        alt="Macroscope"
+        height="16"
+        align="middle"
+      />
+    </picture>
+  </a>.
 
 ## Contributing
 
