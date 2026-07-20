@@ -4,7 +4,7 @@ version: 3.4.3+136
 publish_to: 'none'
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: ">=3.9.2 <4.0.0"
 
 dependencies:
   flutter:
@@ -85,7 +85,7 @@ dependencies:
   home_widget: ^0.9.2
   flutter_highlight: ^0.7.0
   just_audio: ^0.10.5
-  adaptive_platform_ui: ^0.1.103
+  adaptive_platform_ui: ^0.1.110
   flutter_tex: ^5.2.6
   gaimon: ^1.4.2
   xterm: ^4.0.0

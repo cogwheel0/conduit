@@ -1377,6 +1377,7 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
         AdaptivePopupMenuItem<String>(
           value: 'leave',
           label: l10n?.channelLeave ?? 'Leave Channel',
+          isDestructive: true,
           icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'rectangle.portrait.and.arrow.right',
             materialIcon: Icons.logout_outlined,
@@ -1385,6 +1386,7 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
         AdaptivePopupMenuItem<String>(
           value: 'delete',
           label: l10n?.channelDelete ?? 'Delete Channel',
+          isDestructive: true,
           icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'trash',
             materialIcon: Icons.delete_outline,

@@ -2782,6 +2782,7 @@ class _NoteEditorToolbarPopupButton extends StatelessWidget {
         AdaptivePopupMenuItem<String>(
           value: 'delete',
           label: l10n.delete,
+          isDestructive: true,
           icon: conduitAdaptivePopupMenuIcon(
             iosSymbol: 'trash',
             materialIcon: Icons.delete_outline,
