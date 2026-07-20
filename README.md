@@ -301,6 +301,10 @@ lib/
   data through developer-operated backend infrastructure.
 - Additional details are documented in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
+## Acknowledgements
+
+- This project is tested with BrowserStack.
+
 ## Contributing
 
 Conduit is actively developed and feedback is welcome.
