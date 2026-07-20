@@ -1315,6 +1315,169 @@ void main() {
     );
 
     test(
+      'chat:completion same-payload output suppresses transient tool placeholder',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-1',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isFalse();
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
+      'chat:completion preserves a different same-name pending tool call',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-2',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isTrue();
+        check(
+          RegExp(
+            '<details type="tool_calls"',
+          ).allMatches(log.messages.last.content).length,
+        ).equals(2);
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'id': 'call-2',
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'call_id': 'call-1',
+              'name': 'search',
+              'arguments': {'query': 'updated docs'},
+            },
+            {
+              'type': 'function_call_output',
+              'call_id': 'call-1',
+              'output': 'updated result',
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        final updatedContent = log.messages.last.content;
+        check(
+          RegExp(
+            '<details type="tool_calls"',
+          ).allMatches(updatedContent).length,
+        ).equals(2);
+        check(updatedContent).contains('updated result');
+        check(updatedContent).contains('Executing...');
+      },
+    );
+
+    test(
+      'chat:completion same-payload tool name suppresses transient placeholder',
+      () async {
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          socketService: _MockSocketService(registrar),
+        );
+
+        await pumpMicrotasks();
+
+        registrar.emitChatEvent('chat:completion', {
+          'tool_calls': [
+            {
+              'function': {'name': 'search'},
+            },
+          ],
+          'output': [
+            {
+              'type': 'function_call',
+              'name': 'search',
+              'arguments': {'query': 'docs'},
+            },
+          ],
+        }, messageId: 'msg-1');
+        await pumpMicrotasks();
+
+        check(
+          log.appendedChunks.any((chunk) => chunk.contains('Executing...')),
+        ).isFalse();
+        check(log.messages.last.content).contains('<details type="tool_calls"');
+      },
+    );
+
+    test(
       'chat:completion output snapshot replaces pending tool placeholder',
       () async {
         final log = _CallbackLog();

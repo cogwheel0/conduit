@@ -22,6 +22,7 @@ import '../utils/debug_logger.dart';
 import '../utils/embed_utils.dart';
 import '../utils/openwebui_source_parser.dart';
 import 'openwebui_stream_parser.dart';
+import 'performance_profiler.dart';
 import 'semantic_message_builder.dart';
 import 'streaming_response_controller.dart';
 import 'api_service.dart';
@@ -821,6 +822,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   var structuredOutputIsLatest = false;
   var hasInjectedSemanticDetails = false;
   final seenStreamingToolCallKeys = <String>{};
+  var structuredOutputProfileFinished = false;
   var inReasoningBlock = false;
   var reasoningPrefix = '';
   final reasoningContent = _StreamingTextAccumulator();
@@ -829,6 +831,36 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     inReasoningBlock = false;
     reasoningPrefix = '';
     reasoningContent.replace('');
+  }
+
+  void finishStructuredOutputProfile({required bool abandoned}) {
+    if (structuredOutputProfileFinished) return;
+    structuredOutputProfileFinished = true;
+    final metrics = structuredOutputProjector.metrics;
+    if (metrics.snapshotCount == 0) return;
+    PerformanceProfiler.instance.instant(
+      'structured_output_summary',
+      scope: 'streaming/helper',
+      data: <String, Object?>{
+        'abandoned': abandoned,
+        'snapshots': metrics.snapshotCount,
+        'appends': metrics.appendProjectionCount,
+        'replacements': metrics.fullProjectionCount,
+        'deferred': metrics.deferredProjectionCount,
+        'observedOnly': metrics.observedWithoutProjectionCount,
+        'initialReplacements': metrics.initialReplacementCount,
+        'forcedReplacements': metrics.forcedReplacementCount,
+        'immediateReplacements': metrics.immediateReplacementCount,
+        'geometricReplacements': metrics.geometricReplacementCount,
+        'replacementCharacters': metrics.fullProjectionCharacterCount,
+        'appendCharacters': metrics.appendProjectionPlainCharacterCount,
+        'prefixValidations': metrics.prefixValidationCount,
+        'prefixCandidateCharacters':
+            metrics.prefixValidationCandidateCharacterCount,
+        'terminalRenders': metrics.terminalRenderCount,
+        'terminalCacheHits': metrics.terminalExactCacheHitCount,
+      },
+    );
   }
 
   void syncRenderedStreamingContentFromState() {
@@ -913,23 +945,70 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     updateImagesFromCurrentContent();
   }
 
+  Set<String> structuredToolCallAliases(List<StructuredOutputBlock> blocks) {
+    final aliases = <String>{};
+    for (final block in blocks.whereType<StructuredOutputToolCallBlock>()) {
+      final id = block.id.trim();
+      if (id.isNotEmpty) aliases.add('id:$id');
+      final name = block.name.trim();
+      if (name.isNotEmpty) aliases.add('name:$name');
+    }
+    return aliases;
+  }
+
+  Set<String> structuredToolCallSuppressionKeys(
+    List<StructuredOutputBlock> blocks,
+  ) {
+    final keys = <String>{};
+    for (final block in blocks.whereType<StructuredOutputToolCallBlock>()) {
+      final id = block.id.trim();
+      if (id.isNotEmpty) {
+        keys.add('id:$id');
+        continue;
+      }
+      final name = block.name.trim();
+      if (name.isNotEmpty) keys.add('name:$name');
+    }
+    return keys;
+  }
+
+  void syncSeenStructuredToolCalls(List<StructuredOutputBlock> blocks) {
+    final aliases = structuredToolCallAliases(blocks);
+    seenStreamingToolCallKeys
+      ..clear()
+      ..addAll(aliases);
+  }
+
   void replaceVisibleAssistantStructuredOutput(
     List<StructuredOutputBlock> blocks,
   ) {
     if (blocks.isEmpty) return;
 
-    StructuredOutputStreamingProjection? projection;
-    var projectionComputed = false;
     if (structuredProjectionIsVisible &&
         renderedFromStructuredOutput &&
         !hasInjectedSemanticDetails) {
-      projection = structuredOutputProjector.project(blocks, canAppend: true);
-      projectionComputed = true;
+      final projection = structuredOutputProjector.project(
+        blocks,
+        canAppend: true,
+      );
+      syncSeenStructuredToolCalls(blocks);
       structuredOutputIsLatest = true;
-      if (projection is StructuredOutputStreamingAppend) {
-        appendVisibleAssistantStructuredOutput(projection);
-        return;
+      switch (projection) {
+        case StructuredOutputStreamingAppend():
+          appendVisibleAssistantStructuredOutput(projection);
+        case StructuredOutputStreamingReplace(
+          :final content,
+          :final plainContent,
+        ):
+          replaceVisibleAssistantContent(
+            content,
+            fromStructuredOutput: true,
+            plainContent: plainContent,
+          );
+        case null:
+          break;
       }
+      return;
     }
 
     final hasDetails = structuredOutputBlocksContainDetails(blocks);
@@ -958,40 +1037,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         strippedVisibleContent.isNotEmpty &&
         (renderedSnapshot.trim().isEmpty ||
             strippedVisibleContent.contains(renderedSnapshot));
-    final renderedToolCallKeys = blocks
-        .whereType<StructuredOutputToolCallBlock>()
-        .map((block) {
-          final id = block.id.trim();
-          if (id.isNotEmpty) {
-            return 'id:$id';
-          }
-          final name = block.name.trim();
-          return name.isEmpty ? null : 'name:$name';
-        })
-        .nonNulls
-        .toSet();
-    if (renderedToolCallKeys.isEmpty) {
-      seenStreamingToolCallKeys.clear();
-    } else {
-      seenStreamingToolCallKeys
-        ..clear()
-        ..addAll(renderedToolCallKeys);
-    }
+    syncSeenStructuredToolCalls(blocks);
 
     final replacementText = hasDetails && !shouldRenderFullSnapshot
         ? replacementPlainText
         : null;
-    if (!projectionComputed) {
-      projection = structuredOutputProjector.project(
+    if (visibleHasStaleDetails && strippedVisibleContentMatchesSnapshot) {
+      structuredOutputProjector.observeLatest(
         blocks,
         replacementText: replacementText,
-        canAppend: structuredProjectionIsVisible,
-        forceReplace: visibleHasStaleDetails,
       );
-      structuredOutputIsLatest = true;
-    }
-
-    if (visibleHasStaleDetails && strippedVisibleContentMatchesSnapshot) {
       replaceVisibleAssistantContent(
         strippedVisibleContent,
         fromStructuredOutput: true,
@@ -1001,6 +1056,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       structuredOutputIsLatest = true;
       return;
     }
+
+    final projection = structuredOutputProjector.project(
+      blocks,
+      replacementText: replacementText,
+      canAppend: structuredProjectionIsVisible,
+      forceReplace: visibleHasStaleDetails,
+    );
+    structuredOutputIsLatest = true;
 
     switch (projection) {
       case StructuredOutputStreamingAppend():
@@ -1205,14 +1268,22 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return name == null || name.isEmpty ? null : name;
   }
 
-  String? toolCallKeyFromPayload(Map<dynamic, dynamic> call) {
+  Set<String> toolCallAliasesFromPayload(Map<dynamic, dynamic> call) {
+    final aliases = <String>{};
     final rawId = call['id'] ?? call['call_id'] ?? call['tool_call_id'];
     final id = rawId?.toString().trim();
-    if (id != null && id.isNotEmpty) {
-      return 'id:$id';
-    }
+    if (id != null && id.isNotEmpty) aliases.add('id:$id');
     final name = toolCallNameFromPayload(call);
-    return name == null ? null : 'name:$name';
+    if (name != null) aliases.add('name:$name');
+    return aliases;
+  }
+
+  String? toolCallKeyFromPayload(Map<dynamic, dynamic> call) {
+    final aliases = toolCallAliasesFromPayload(call);
+    for (final alias in aliases) {
+      if (alias.startsWith('id:')) return alias;
+    }
+    return aliases.isEmpty ? null : aliases.first;
   }
 
   void handleToolCallStatus(String name, {String? key}) {
@@ -1237,13 +1308,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
   }
 
-  void handleStreamingToolCallStatuses(dynamic rawToolCalls) {
+  void handleStreamingToolCallStatuses(
+    dynamic rawToolCalls, {
+    Set<String> suppressedKeys = const <String>{},
+  }) {
     if (rawToolCalls is! List) {
       return;
     }
 
     for (final call in rawToolCalls) {
       if (call is! Map) {
+        continue;
+      }
+      final key = toolCallKeyFromPayload(call);
+      if (key != null && suppressedKeys.contains(key)) {
         continue;
       }
       final name = toolCallNameFromPayload(call);
@@ -2328,6 +2406,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     localResourcesDisposed = true;
+    finishStructuredOutputProfile(abandoned: abandonStream);
 
     disposeSocketSubscriptions();
 
@@ -2915,6 +2994,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           final normalizedOutputItems = _normalizeJsonMapList(
             payload['output'],
           );
+          final outputBlocks = normalizedOutputItems.isEmpty
+              ? const <StructuredOutputBlock>[]
+              : parseOpenWebUIStructuredOutput(normalizedOutputItems);
+          final authoritativeToolSuppressionKeys =
+              structuredToolCallSuppressionKeys(outputBlocks);
+          final visibleToolCallKeysBeforeOutput = outputBlocks.isEmpty
+              ? const <String>{}
+              : Set<String>.of(seenStreamingToolCallKeys);
           final rawSources = payload['sources'] ?? payload['citations'];
           final normalizedSources = _normalizeSourcesPayload(rawSources);
           final parsedSources =
@@ -2951,10 +3038,20 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               ),
             );
           }
-          if (payload.containsKey('tool_calls')) {
-            if (completionTargetId != null) {
-              handleStreamingToolCallStatuses(payload['tool_calls']);
+          final deferredToolCallPayloads = <dynamic>[];
+          void handleOrDeferToolCallStatuses(dynamic rawToolCalls) {
+            if (outputBlocks.isEmpty) {
+              handleStreamingToolCallStatuses(
+                rawToolCalls,
+                suppressedKeys: authoritativeToolSuppressionKeys,
+              );
+              return;
             }
+            deferredToolCallPayloads.add(rawToolCalls);
+          }
+
+          if (payload.containsKey('tool_calls') && completionTargetId != null) {
+            handleOrDeferToolCallStatuses(payload['tool_calls']);
           }
           if (completionTargetId != null && payload.containsKey('choices')) {
             final choices = payload['choices'];
@@ -2969,7 +3066,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               }
               if (delta is Map) {
                 if (delta.containsKey('tool_calls')) {
-                  handleStreamingToolCallStatuses(delta['tool_calls']);
+                  handleOrDeferToolCallStatuses(delta['tool_calls']);
                 }
                 handleStreamingChoiceDelta(delta);
               }
@@ -2981,11 +3078,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               replaceVisibleAssistantContent(raw);
             }
           }
-          if (completionTargetId != null && normalizedOutputItems.isNotEmpty) {
-            final outputBlocks = parseOpenWebUIStructuredOutput(
-              normalizedOutputItems,
-            );
+          if (completionTargetId != null && outputBlocks.isNotEmpty) {
             replaceVisibleAssistantStructuredOutput(outputBlocks);
+            final deferredSuppressionKeys = <String>{
+              ...authoritativeToolSuppressionKeys,
+              if (hasInjectedSemanticDetails)
+                ...visibleToolCallKeysBeforeOutput,
+            };
+            for (final rawToolCalls in deferredToolCallPayloads) {
+              handleStreamingToolCallStatuses(
+                rawToolCalls,
+                suppressedKeys: deferredSuppressionKeys,
+              );
+            }
           }
           if (terminalFinishReason != null && !hasFinished) {
             flushStreamingBuffer();
