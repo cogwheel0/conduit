@@ -615,7 +615,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       sidebarBody,
       hasBottomNavigationBar: hasBottomNavigationBar,
     );
-    final syncStatus = ref.watch(syncEngineProvider);
     final sidebarBodyWithSyncProgress = Stack(
       fit: StackFit.expand,
       children: [
@@ -624,7 +623,10 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           top: Spacing.xs,
           left: Spacing.md,
           right: Spacing.md,
-          child: _SidebarSyncProgressBar(status: syncStatus),
+          child: Consumer(
+            builder: (context, ref, _) =>
+                _SidebarSyncProgressBar(status: ref.watch(syncEngineProvider)),
+          ),
         ),
       ],
     );
