@@ -11,9 +11,9 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../chat/providers/chat_providers.dart' as chat;
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -28,6 +28,7 @@ import 'create_folder_dialog.dart';
 import 'folder_tree_guides.dart';
 import 'drawer_section_notifiers.dart';
 import 'folder_icon.dart';
+import '../providers/conversation_selection_provider.dart';
 import '../providers/sidebar_providers.dart';
 
 /// Chevron / expand icon for section headers — matches folder row disclosure.
@@ -58,8 +59,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   final ScrollController _listController = ScrollController();
   Timer? _debounce;
   String _query = '';
-  bool _isLoadingConversation = false;
-  String? _pendingConversationId;
   bool _isLoadingMoreConversations = false;
   bool _isRefreshingEmptyState = false;
   bool _hasVisiblePaginatedRows = false;
@@ -1676,9 +1675,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     );
     final title = conversation.title.isEmpty ? 'Chat' : conversation.title;
-    final bool isLoadingSelected =
-        (_pendingConversationId == scopedId) &&
-        (ref.watch(chat.isLoadingConversationProvider) == true);
+    final isLoadingSelected = ref.watch(
+      conversationSelectionProvider.select(
+        (selection) =>
+            selection.isLoading && selection.pendingConversationId == scopedId,
+      ),
+    );
     final bool isPinned = conversation.pinned;
     final activeChatIds = ref.watch(activeChatIdsProvider);
     final bool isGenerating = _conversationIsActive(
@@ -1702,9 +1704,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       badge: isDirectLocalConversation(conversation)
           ? AppLocalizations.of(context)!.onDevice
           : null,
-      onTap: _isLoadingConversation
-          ? null
-          : () => _selectConversation(context, conversation),
+      onTap: () => _selectConversation(conversation),
     );
 
     final wrappedTile = showHierarchyBranch
@@ -1815,100 +1815,45 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  Future<void> _selectConversation(
-    BuildContext context,
-    Conversation conversation,
-  ) async {
-    if (_isLoadingConversation) return;
-    final scopedId = conversationScopedId(conversation);
-    setState(() => _isLoadingConversation = true);
-    // Keep a reference only if needed in the future; currently unused.
-    // Capture a provider container detached from this widget's lifecycle so
-    // we can continue to read/write providers after the drawer is closed.
-    final container = ProviderScope.containerOf(context, listen: false);
-    final usesOpenWebUiStorage = chat.conversationUsesOpenWebUiStorage(
-      conversation,
-    );
-    final openWebUiOwnership = usesOpenWebUiStorage
-        ? captureOpenWebUiConversationRead(container)
-        : null;
-    if (usesOpenWebUiStorage && openWebUiOwnership == null) {
-      if (mounted) setState(() => _isLoadingConversation = false);
-      return;
-    }
-
-    // Selecting a real conversation exits temporary mode
-    container.read(temporaryChatEnabledProvider.notifier).set(false);
-    final outgoing = container.read(activeConversationProvider);
-    if (!isSameStoredConversation(outgoing, conversation)) {
-      chat.clearSelectedFiltersForConversationBoundary(container);
-      if (outgoing != null) {
-        markConversationRead(container, conversationScopedId(outgoing));
-      }
-    }
-    final selectedReadAt = DateTime.now();
-    markConversationRead(container, scopedId, readAt: selectedReadAt);
-
-    // Overlay the just-selected read time when it is newer than the source's
-    // own lastReadAt, so the active conversation reflects the optimistic read.
-    Conversation withOptimisticReadAt(Conversation c) {
-      final readAt = c.lastReadAt;
-      return readAt == null || selectedReadAt.isAfter(readAt)
-          ? c.copyWith(lastReadAt: selectedReadAt)
-          : c;
-    }
-
-    try {
-      // Mark global loading to show skeletons in chat
-      container.read(chat.isLoadingConversationProvider.notifier).set(true);
-      _pendingConversationId = scopedId;
-
-      // Immediately clear current chat to show loading skeleton in the chat view
-      container.read(activeConversationProvider.notifier).clear();
-      container.read(chat.chatMessagesProvider.notifier).clearMessages();
-
-      // Clear any pending folder selection when selecting an existing conversation
-      container.read(pendingFolderIdProvider.notifier).clear();
-
-      // Navigate to chat route (needed when sidebar is open from
-      // a non-chat page like notes editor or channel page).
-      NavigationService.router.go(Routes.chat);
-
-      // Close the slide drawer for faster perceived performance
-      // (only on mobile; keep tablet drawer unless user toggles it)
-      if (mounted) {
+  Future<void> _selectConversation(Conversation conversation) async {
+    final originRoute = NavigationService.currentRoute;
+    final originRouteRevision = NavigationService.currentRouteRevision;
+    final result = await ref
+        .read(conversationSelectionProvider.notifier)
+        .select(conversation);
+    switch (result.disposition) {
+      case ConversationSelectionDisposition.committed:
+        if (!mounted ||
+            (NavigationService.currentRoute != originRoute ||
+                NavigationService.currentRouteRevision !=
+                    originRouteRevision)) {
+          return;
+        }
+        NavigationService.router.go(Routes.chat);
         final mediaQuery = MediaQuery.maybeOf(context);
         final isTablet =
             mediaQuery != null && mediaQuery.size.shortestSide >= 600;
         if (!isTablet) {
           ResponsiveDrawerLayout.of(context)?.close();
         }
-      }
-
-      // Resolve through the provenance-aware repository. This reads both the
-      // OpenWebUI cache and the independent on-device direct-chat database,
-      // while only scheduling a server pull for OpenWebUI-owned rows.
-      final full = await container.read(
-        loadConversationProvider(scopedId).future,
-      );
-      if (openWebUiOwnership != null &&
-          !openWebUiConversationReadIsCurrent(container, openWebUiOwnership)) {
-        container.read(chat.isLoadingConversationProvider.notifier).set(false);
-        _pendingConversationId = null;
         return;
-      }
-      container
-          .read(activeConversationProvider.notifier)
-          .set(withOptimisticReadAt(full));
-
-      // Clear loading after data is ready
-      container.read(chat.isLoadingConversationProvider.notifier).set(false);
-      _pendingConversationId = null;
-    } catch (_) {
-      container.read(chat.isLoadingConversationProvider.notifier).set(false);
-      _pendingConversationId = null;
-    } finally {
-      if (mounted) setState(() => _isLoadingConversation = false);
+      case ConversationSelectionDisposition.canceled:
+        return;
+      case ConversationSelectionDisposition.failed:
+        if (!mounted ||
+            result.error == null ||
+            (NavigationService.currentRoute != originRoute ||
+                NavigationService.currentRouteRevision !=
+                    originRouteRevision)) {
+          return;
+        }
+        UserFriendlyErrorHandler().showErrorSnackbar(
+          context,
+          result.error,
+          onRetry: () {
+            if (mounted) unawaited(_selectConversation(conversation));
+          },
+        );
     }
   }
 

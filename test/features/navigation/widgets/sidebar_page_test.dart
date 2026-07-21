@@ -20,6 +20,7 @@ import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_section_notifiers.dart';
@@ -1288,6 +1289,90 @@ void main() {
   });
 
   testWidgets(
+    'server chat tapped during bootstrap opens when storage becomes ready',
+    (tester) async {
+      final controllers = _SidebarHarnessControllers();
+      final timestamp = DateTime(2026, 1, 1);
+      final previous = withChatStorageProvenance(
+        Conversation(
+          id: 'previous-chat',
+          title: 'Previously committed chat',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        ChatStorageKind.directLocal,
+      );
+      final summary = withChatStorageProvenance(
+        Conversation(
+          id: 'server-bootstrap-chat',
+          title: 'Newly synchronized chat',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      final full = withChatStorageProvenance(
+        summary.copyWith(
+          messages: [
+            ChatMessage(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: 'Loaded after storage certification',
+              timestamp: timestamp,
+            ),
+          ],
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      final scopedId = conversationScopedId(summary);
+
+      await tester.pumpWidget(
+        _buildSidebarHarness(
+          controllers: controllers,
+          conversations: [summary],
+          isAuthenticated: true,
+          openWebUiServerId: 'test-server',
+          openWebUiStorageOpen: false,
+          activeConversation: previous,
+          loadedConversations: {scopedId: full},
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final row = find.byKey(ValueKey<String>('drawer-chat-$scopedId'));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SidebarPage)),
+        listen: false,
+      );
+      await tester.tap(row);
+      await tester.pump();
+
+      expect(container.read(activeConversationProvider)?.id, previous.id);
+      expect(container.read(conversationSelectionProvider).isLoading, isTrue);
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+
+      container.read(openWebUiDatabaseAccessProvider.notifier).open();
+      await tester.pumpAndSettle();
+
+      expect(container.read(activeConversationProvider)?.id, full.id);
+      expect(
+        container.read(activeConversationProvider)?.messages.single.content,
+        'Loaded after storage certification',
+      );
+      expect(container.read(conversationSelectionProvider).isLoading, isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
+    },
+  );
+
+  testWidgets(
     'account switch while a server chat loads cannot republish its body',
     (tester) async {
       final controllers = _SidebarHarnessControllers();
@@ -1311,12 +1396,24 @@ void main() {
           ),
         ],
       );
+      final previous = withChatStorageProvenance(
+        Conversation(
+          id: 'previous-chat',
+          title: 'Previously committed chat',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        ChatStorageKind.directLocal,
+      );
       final loadGate = Completer<Conversation>();
 
       await tester.pumpWidget(
         _buildSidebarHarness(
           controllers: controllers,
           conversations: [summary],
+          isAuthenticated: true,
+          openWebUiServerId: 'test-server',
+          activeConversation: previous,
           pendingLoadedConversations: {
             conversationScopedId(summary): loadGate.future,
           },
@@ -1335,11 +1432,11 @@ void main() {
       );
       await tester.pump();
 
-      container.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+      container.read(_sidebarAuthTokenProvider.notifier).set('account-b-token');
       loadGate.complete(full);
       await tester.pumpAndSettle();
 
-      expect(container.read(activeConversationProvider), isNull);
+      expect(container.read(activeConversationProvider)?.id, previous.id);
     },
   );
 
@@ -1371,6 +1468,8 @@ void main() {
       _buildSidebarHarness(
         controllers: controllers,
         conversations: [direct, server],
+        isAuthenticated: true,
+        openWebUiServerId: 'test-server',
         loadedConversations: {
           conversationScopedId(server): server,
           conversationScopedId(direct): direct,
@@ -1529,6 +1628,10 @@ Widget _buildSidebarHarness({
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
   Map<String, Future<Conversation>> pendingLoadedConversations = const {},
+  bool isAuthenticated = false,
+  String? openWebUiServerId,
+  bool openWebUiStorageOpen = true,
+  Conversation? activeConversation,
   ThemeData? theme,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
@@ -1561,7 +1664,7 @@ Widget _buildSidebarHarness({
 
   return ProviderScope(
     overrides: [
-      ...openWebUiStorageOpenOverrides(),
+      ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
       // The sidebar harness owns its in-memory OpenWebUI database explicitly;
       // unrelated auth bootstrap must not close that test seam underneath it.
       openWebUiAccountStorageIsolationProvider.overrideWith(
@@ -1576,9 +1679,24 @@ Widget _buildSidebarHarness({
       // ignore: scoped_providers_should_specify_dependencies
       openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
       // ignore: scoped_providers_should_specify_dependencies
+      isAuthenticatedProvider2.overrideWithValue(isAuthenticated),
+      if (isAuthenticated)
+        // ignore: scoped_providers_should_specify_dependencies
+        authTokenProvider3.overrideWith(
+          (ref) => ref.watch(_sidebarAuthTokenProvider),
+        ),
+      if (openWebUiServerId != null)
+        openWebUiCertifiedDatabaseServerProvider.overrideWith(
+          () => _SeededCertifiedDatabaseServer(openWebUiServerId),
+        ),
+      // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider2.overrideWithValue(currentUser),
       // ignore: scoped_providers_should_specify_dependencies
       currentUserProvider.overrideWith((ref) async => currentUser),
+      if (activeConversation != null)
+        activeConversationProvider.overrideWith(
+          () => _SeededActiveConversation(activeConversation),
+        ),
       // ignore: scoped_providers_should_specify_dependencies
       conversationsProvider.overrideWith(
         () => _TestConversations(
@@ -1657,6 +1775,36 @@ final class _NoopOpenWebUiAccountStorageIsolation
     extends OpenWebUiAccountStorageIsolation {
   @override
   void build() {}
+}
+
+final _sidebarAuthTokenProvider = NotifierProvider<_SidebarAuthToken, String?>(
+  _SidebarAuthToken.new,
+);
+
+final class _SidebarAuthToken extends Notifier<String?> {
+  @override
+  String? build() => 'test-token';
+
+  void set(String? token) => state = token;
+}
+
+final class _SeededCertifiedDatabaseServer
+    extends OpenWebUiCertifiedDatabaseServerNotifier {
+  _SeededCertifiedDatabaseServer(this.serverId);
+
+  final String serverId;
+
+  @override
+  String? build() => serverId;
+}
+
+final class _SeededActiveConversation extends ActiveConversationNotifier {
+  _SeededActiveConversation(this.conversation);
+
+  final Conversation conversation;
+
+  @override
+  Conversation? build() => conversation;
 }
 
 List<TerminalServerInfo> _defaultTerminalServers() {

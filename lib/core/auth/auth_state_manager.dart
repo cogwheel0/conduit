@@ -372,8 +372,8 @@ class AuthStateManager extends _$AuthStateManager {
             attemptRevision: attemptRevision,
             candidateToken: token,
             publish: () {
-              _updateApiServiceToken(token);
               _setIncompleteLogoutFenceInMemory(false);
+              _updateApiServiceToken(token);
               if (invalidateServerProviders) {
                 ref.invalidate(activeServerProvider);
                 ref.invalidate(apiServiceProvider);
@@ -2326,8 +2326,8 @@ class AuthStateManager extends _$AuthStateManager {
         attemptRevision: commitRevision,
         candidateToken: token,
         publish: () {
-          _updateApiServiceToken(token);
           _setIncompleteLogoutFenceInMemory(false);
+          _updateApiServiceToken(token);
           ref.invalidate(activeServerProvider);
           ref.invalidate(apiServiceProvider);
           if (_authAttemptSuperseded(commitRevision)) {
@@ -3084,6 +3084,7 @@ class AuthStateManager extends _$AuthStateManager {
   /// Preload the default model as soon as authentication succeeds.
   /// Update API service with current token
   void _updateApiServiceToken(String? token) {
+    ref.read(apiAuthTokenMirrorProvider.notifier).set(token);
     final api = ref.read(apiServiceProvider);
     api?.updateAuthToken(token);
   }

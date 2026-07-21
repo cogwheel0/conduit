@@ -30,6 +30,8 @@ class NavigationService {
       GlobalKey<NavigatorState>(debugLabel: 'rootNavigator');
 
   static GoRouter? _router;
+  static int _routeRevision = 0;
+  static String? _lastRoute;
 
   static GoRouter get router {
     final router = _router;
@@ -40,11 +42,25 @@ class NavigationService {
   }
 
   static void attachRouter(GoRouter router) {
+    _router?.routeInformationProvider.removeListener(_handleRouteChanged);
     _router = router;
+    _lastRoute = router.routeInformationProvider.value.uri.toString();
+    _routeRevision += 1;
+    router.routeInformationProvider.addListener(_handleRouteChanged);
+  }
+
+  static void _handleRouteChanged() {
+    final route = _router?.routeInformationProvider.value.uri.toString();
+    if (route == _lastRoute) return;
+    _lastRoute = route;
+    _routeRevision += 1;
   }
 
   static NavigatorState? get navigator => navigatorKey.currentState;
   static BuildContext? get context => navigatorKey.currentContext;
+
+  /// Changes whenever the attached router or its location changes.
+  static int get currentRouteRevision => _routeRevision;
 
   /// The current location reported by GoRouter.
   static String? get currentRoute {

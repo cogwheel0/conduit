@@ -371,6 +371,7 @@ _harness({
   OpenWebUiAccountOwnerMarker? ownerMarker,
   OpenWebUiAccountCacheClear? accountCacheClear,
   OpenWebUiDatabasePurge? databasePurge,
+  OpenWebUiPostCertificationSyncKickoff? postCertificationSyncKickoff,
   List<Override> additionalOverrides = const <Override>[],
 }) async {
   if (!PreferencesStore.isReady) {
@@ -431,6 +432,9 @@ _harness({
         accountCacheClear ?? () async {},
       ),
       openWebUiCertifiedUserPersistProvider.overrideWithValue((_) async {}),
+      openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
+        postCertificationSyncKickoff ?? () {},
+      ),
       openWebUiDatabasePurgeProvider.overrideWithValue(
         databasePurge ??
             (serverId) async {
@@ -1138,6 +1142,9 @@ void main() {
             markerStore,
           ),
           openWebUiAccountCacheClearProvider.overrideWithValue(() async {}),
+          openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
+            () {},
+          ),
           openWebUiDatabasePurgeProvider.overrideWithValue(manager.deleteFor),
         ],
       );
@@ -1306,6 +1313,9 @@ void main() {
             markerStore,
           ),
           openWebUiAccountCacheClearProvider.overrideWithValue(() async {}),
+          openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
+            () {},
+          ),
           openWebUiDatabasePurgeProvider.overrideWithValue((serverId) async {
             purgeCalls++;
             await manager.deleteFor(serverId);
@@ -1628,17 +1638,23 @@ void main() {
   );
 
   test('startup auth error with no token purges before manual login', () async {
+    var postCertificationSyncKickoffs = 0;
     final harness = await _harness(
       initialAuth: const AuthState(
         status: AuthStatus.error,
         error: 'secure storage failed',
       ),
       expectInitiallyOpen: false,
+      postCertificationSyncKickoff: () => postCertificationSyncKickoffs++,
     );
     final container = harness.container;
 
     harness.auth.publish(_authenticated('token-b', _userB));
     await Future<void>.delayed(Duration.zero);
+    await container
+        .read(openWebUiAccountStorageIsolationProvider.notifier)
+        .settled;
+    check(postCertificationSyncKickoffs).equals(1);
     check(
       container.read(openWebUiDatabaseAccessProvider),
     ).equals(OpenWebUiDatabaseAccessPhase.open);

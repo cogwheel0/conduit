@@ -194,6 +194,91 @@ void main() {
   });
 
   test(
+    'login keeps the replacement API authenticated when clearing logout fence',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      addTearDown(PreferencesStore.debugReset);
+
+      final storage = _Storage();
+      when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+      when(
+        () => storage.getSavedCredentialsStrict(),
+      ).thenAnswer((_) async => null);
+      when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+      when(
+        () =>
+            storage.saveLocalUserWithAvatar(user, avatarUrl: user.profileImage),
+      ).thenAnswer((_) async {});
+      when(
+        () => storage.captureServerSessionOwnership(
+          validatedConfig: any(named: 'validatedConfig'),
+          requireActive: true,
+        ),
+      ).thenAnswer(
+        (_) async =>
+            (revision: 1, serverConfig: previousConfig, requireActive: true),
+      );
+      when(
+        () => storage.commitExistingServerSession(
+          ownership: any(named: 'ownership'),
+          token: any(named: 'token'),
+          canCommit: any(named: 'canCommit'),
+          publish: any(named: 'publish'),
+          rememberedCredentials: any(named: 'rememberedCredentials'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        ),
+      ).thenAnswer((invocation) async {
+        final canCommit =
+            invocation.namedArguments[#canCommit] as bool Function();
+        final publish =
+            invocation.namedArguments[#publish] as FutureOr<void> Function();
+        if (!canCommit()) return false;
+        await publish();
+        return canCommit();
+      });
+
+      final createdApis = <_SuccessfulAuthApi>[];
+      final container = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          apiServiceProvider.overrideWith((ref) {
+            ref.watch(incompleteLogoutFenceProvider);
+            final api = _SuccessfulAuthApi();
+            createdApis.add(api);
+            ref.onDispose(api.dispose);
+            return api;
+          }),
+          defaultModelProvider.overrideWith((ref) async => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+
+      check(
+        await container
+            .read(incompleteLogoutFenceProvider.notifier)
+            .persist(true),
+      ).isTrue();
+      final preLoginApi = container.read(apiServiceProvider);
+      check(preLoginApi).isNotNull();
+
+      check(
+        await container
+            .read(authStateManagerProvider.notifier)
+            .login('user', 'password'),
+      ).isTrue();
+
+      final activeApi = container.read(apiServiceProvider);
+      check(activeApi).isNotNull();
+      check(activeApi!.authToken).equals(token);
+      check(identical(activeApi, preLoginApi)).isFalse();
+      check(createdApis.length >= 3).isTrue();
+    },
+  );
+
+  test(
     'prevalidated proxy persistence failure restores config and session',
     () async {
       final storage = _Storage();

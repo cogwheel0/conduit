@@ -12,8 +12,12 @@ import 'package:flutter_riverpod/misc.dart';
 /// coordinator should not use this helper; provider tests that deliberately
 /// replace [appDatabaseProvider] with an unmanaged database may use it to make
 /// their authenticated storage assumption explicit.
-List<Override> openWebUiStorageOpenOverrides({AppDatabase? database}) => [
-  openWebUiDatabaseAccessProvider.overrideWith(_OpenWebUiDatabaseAccess.new),
+List<Override> openWebUiStorageOpenOverrides({
+  AppDatabase? database,
+  bool open = true,
+}) => [
+  if (open)
+    openWebUiDatabaseAccessProvider.overrideWith(_OpenWebUiDatabaseAccess.new),
   if (database != null)
     appDatabaseProvider.overrideWithValue(database)
   else

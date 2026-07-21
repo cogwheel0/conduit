@@ -537,6 +537,26 @@ final class IncompleteLogoutFence extends _$IncompleteLogoutFence {
   }
 }
 
+/// In-memory bearer mirror used when [apiServiceProvider] is rebuilt.
+///
+/// The API client watches transport configuration such as the incomplete-logout
+/// Cookie fence and can therefore be replaced during authentication publication.
+/// Keeping the current bearer in an independent process-local provider prevents
+/// that replacement from reverting to an unauthenticated client. The token is
+/// never persisted or logged here; secure credential storage remains owned by
+/// [OptimizedStorageService].
+final apiAuthTokenMirrorProvider =
+    NotifierProvider<ApiAuthTokenMirror, String?>(ApiAuthTokenMirror.new);
+
+final class ApiAuthTokenMirror extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void set(String? token) {
+    if (state != token) state = token;
+  }
+}
+
 // API Service provider with unified auth integration
 final apiServiceProvider = Provider<ApiService?>((ref) {
   // If reviewer mode is enabled, skip creating ApiService
@@ -544,6 +564,7 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
   if (reviewerMode) {
     return null;
   }
+  final authToken = ref.watch(apiAuthTokenMirrorProvider);
   final activeServer = ref.watch(activeServerProvider);
   final workerManager = ref.watch(workerManagerProvider);
   final liveFence = ref.watch(incompleteLogoutFenceProvider);
@@ -558,7 +579,7 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
       final apiService = ApiService(
         serverConfig: server,
         workerManager: workerManager,
-        authToken: null, // Will be set by auth state manager
+        authToken: authToken,
         suppressCookieCustomHeader: suppressCookieHeader,
       );
 
@@ -740,6 +761,47 @@ final class OpenWebUiConversationReadSnapshot {
   final String? apiServerId;
 }
 
+/// Logical account/server owner for a user-initiated conversation selection.
+///
+/// Exact database and API identities belong to [OpenWebUiConversationReadSnapshot]
+/// and may legitimately change while the same account finishes opening. This
+/// owner survives that replacement while still canceling on logout, account
+/// changes, or server changes.
+@immutable
+final class OpenWebUiConversationSelectionOwner {
+  const OpenWebUiConversationSelectionOwner._({
+    required this.serverId,
+    required this.userId,
+    required this.authToken,
+    required this.authSessionEpoch,
+  });
+
+  final String serverId;
+  final String? userId;
+  final String authToken;
+  final Object authSessionEpoch;
+}
+
+enum OpenWebUiConversationOwnershipFailureReason {
+  unavailable,
+  changedWhileLoading,
+  changedWhileFetching,
+}
+
+final class OpenWebUiConversationOwnershipException extends StateError {
+  OpenWebUiConversationOwnershipException(this.reason)
+    : super(switch (reason) {
+        OpenWebUiConversationOwnershipFailureReason.unavailable =>
+          'OpenWebUI conversation ownership is unavailable',
+        OpenWebUiConversationOwnershipFailureReason.changedWhileLoading =>
+          'OpenWebUI conversation ownership changed while loading',
+        OpenWebUiConversationOwnershipFailureReason.changedWhileFetching =>
+          'OpenWebUI conversation ownership changed while fetching',
+      });
+
+  final OpenWebUiConversationOwnershipFailureReason reason;
+}
+
 typedef _OpenWebUiConversationReadContext = ({
   AppDatabase? database,
   ApiService? api,
@@ -859,6 +921,111 @@ _OpenWebUiConversationReadContext? _readOpenWebUiConversationContext(
   );
 }
 
+String? _readOpenWebUiLogicalServerId(dynamic ref) {
+  if (!_openWebUiConversationReaderIsMounted(ref)) return null;
+
+  late final OpenWebUiDatabaseAccessPhase accessPhase;
+  try {
+    accessPhase =
+        ref.read(openWebUiDatabaseAccessProvider)
+            as OpenWebUiDatabaseAccessPhase;
+  } catch (_) {
+    return null;
+  }
+
+  final primaryIds = <String>{};
+  try {
+    final activeServer = ref.read(activeServerProvider);
+    if (activeServer is AsyncData<ServerConfig?>) {
+      final id = activeServer.value?.id;
+      if (id != null && id.isNotEmpty) primaryIds.add(id);
+    }
+  } catch (_) {}
+  try {
+    if (PreferencesStore.isReady) {
+      final id = PreferencesStore.getString(PreferenceKeys.activeServerId);
+      if (id != null && id.isNotEmpty) primaryIds.add(id);
+    }
+  } catch (_) {}
+  try {
+    final api = ref.read(apiServiceProvider) as ApiService?;
+    final id = api?.serverConfig.id;
+    if (id != null && id.isNotEmpty) primaryIds.add(id);
+  } catch (_) {}
+  if (primaryIds.length > 1) return null;
+
+  final storageIds = <String>{};
+  try {
+    final certified =
+        ref.read(openWebUiCertifiedDatabaseServerProvider) as String?;
+    if (certified != null && certified.isNotEmpty) storageIds.add(certified);
+  } catch (_) {}
+  try {
+    final database = ref.read(appDatabaseProvider) as AppDatabase?;
+    if (database != null) {
+      final managed = ref
+          .read(databaseManagerProvider)
+          .serverIdForDatabase(database);
+      if (managed != null && managed.isNotEmpty) storageIds.add(managed);
+    }
+  } catch (_) {}
+  if (storageIds.length > 1) return null;
+
+  final primary = primaryIds.isEmpty ? null : primaryIds.first;
+  final storage = storageIds.isEmpty ? null : storageIds.first;
+  if (accessPhase == OpenWebUiDatabaseAccessPhase.open &&
+      primary != null &&
+      storage != null &&
+      primary != storage) {
+    return null;
+  }
+  return primary ?? storage;
+}
+
+OpenWebUiConversationSelectionOwner? captureOpenWebUiConversationSelectionOwner(
+  dynamic ref,
+) {
+  if (!_openWebUiConversationReaderIsMounted(ref)) return null;
+  try {
+    final authenticated = ref.read(isAuthenticatedProvider2) as bool;
+    final authToken = ref.read(authTokenProvider3) as String?;
+    final userId = (ref.read(currentUserProvider2) as User?)?.id.trim();
+    final serverId = _readOpenWebUiLogicalServerId(ref);
+    if (!authenticated ||
+        authToken == null ||
+        authToken.isEmpty ||
+        serverId == null) {
+      return null;
+    }
+    return OpenWebUiConversationSelectionOwner._(
+      serverId: serverId,
+      userId: userId == null || userId.isEmpty ? null : userId,
+      authToken: authToken,
+      authSessionEpoch: ref.read(openWebUiAuthSessionEpochProvider) as Object,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+bool openWebUiConversationSelectionOwnerIsCurrent(
+  dynamic ref,
+  OpenWebUiConversationSelectionOwner owner,
+) {
+  final current = captureOpenWebUiConversationSelectionOwner(ref);
+  if (current == null ||
+      current.serverId != owner.serverId ||
+      !identical(current.authSessionEpoch, owner.authSessionEpoch)) {
+    return false;
+  }
+  final ownerUserId = owner.userId;
+  final currentUserId = current.userId;
+  if (ownerUserId != null && currentUserId != null) {
+    return ownerUserId == currentUserId;
+  }
+  return owner.authToken == current.authToken;
+}
+
 /// Captures the single ownership token shared by all OpenWebUI conversation
 /// read and publication paths.
 ///
@@ -932,6 +1099,45 @@ bool openWebUiConversationReadIsCurrent(
       context.rawActiveServerId == snapshot.rawActiveServerId &&
       context.managedDatabaseServerId == snapshot.managedDatabaseServerId &&
       context.apiServerId == snapshot.apiServerId;
+}
+
+/// Whether account-scoped OpenWebUI storage is safe for active chat content.
+bool openWebUiAccountStorageIsCertified(dynamic ref) {
+  try {
+    if (ref.read(openWebUiDatabaseAccessProvider) !=
+        OpenWebUiDatabaseAccessPhase.open) {
+      return false;
+    }
+    final certifiedServerId = ref.read(
+      openWebUiCertifiedDatabaseServerProvider,
+    );
+    final activeServer = ref.read(activeServerProvider);
+    if (activeServer is AsyncData<ServerConfig?>) {
+      final activeServerId = activeServer.value?.id;
+      if (activeServerId != null) return activeServerId == certifiedServerId;
+    }
+
+    // Narrow tests override an unmanaged in-memory database without an active
+    // server. Production databases always have a manager owner and therefore
+    // require the certified logical server above.
+    final database = ref.read(appDatabaseProvider) as AppDatabase?;
+    if (database == null) return false;
+    final managedServerId = ref
+        .read(databaseManagerProvider)
+        .serverIdForDatabase(database);
+    return managedServerId == null;
+  } catch (_) {
+    return false;
+  }
+}
+
+bool openWebUiConversationReadIsCertifiedForPublication(
+  dynamic ref,
+  OpenWebUiConversationReadSnapshot snapshot,
+) {
+  return snapshot.databaseAccessPhase == OpenWebUiDatabaseAccessPhase.open &&
+      openWebUiConversationReadIsCurrent(ref, snapshot) &&
+      openWebUiAccountStorageIsCertified(ref);
 }
 
 typedef SocketServiceFactory =
@@ -3811,8 +4017,8 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
               openWebUiOwnership.database,
             ) ||
             !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership))) {
-      throw StateError(
-        'OpenWebUI conversation ownership changed while loading',
+      throw OpenWebUiConversationOwnershipException(
+        OpenWebUiConversationOwnershipFailureReason.changedWhileLoading,
       );
     }
     final local = withChatStorageProvenance(
@@ -3844,7 +4050,9 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
 
   if (openWebUiOwnership == null ||
       !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
-    throw StateError('OpenWebUI conversation ownership is unavailable');
+    throw OpenWebUiConversationOwnershipException(
+      OpenWebUiConversationOwnershipFailureReason.unavailable,
+    );
   }
   final api = openWebUiOwnership.api;
   if (api == null) {
@@ -3858,7 +4066,9 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   );
   final fullConversation = await api.getConversation(rawConversationId);
   if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
-    throw StateError('OpenWebUI conversation ownership changed while fetching');
+    throw OpenWebUiConversationOwnershipException(
+      OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
+    );
   }
   DebugLogger.log(
     'load-ok',
