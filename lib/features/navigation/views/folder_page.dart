@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/database/local_conversation_loader.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/folder.dart';
 import '../../../core/models/model.dart';
@@ -18,6 +17,7 @@ import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../core/services/navigation_service.dart';
+import '../../../core/services/user_friendly_error_handler.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/widgets/error_boundary.dart';
 import '../../../l10n/app_localizations.dart';
@@ -49,6 +49,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 import '../../chat/widgets/server_file_picker_sheet.dart';
 import '../../chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../tools/providers/tools_providers.dart';
+import '../providers/conversation_selection_provider.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
 
@@ -82,11 +83,9 @@ class FolderPage extends ConsumerStatefulWidget {
 }
 
 class _FolderPageState extends ConsumerState<FolderPage> {
-  bool _isLoadingConversation = false;
   bool _isSendingComposerMessage = false;
   double _inputHeight = 0;
   int _composerResetNonce = 0;
-  String? _pendingConversationId;
 
   @override
   void initState() {
@@ -457,7 +456,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _handleComposerSend(String text) async {
-    if (_isSendingComposerMessage || _isLoadingConversation) {
+    if (_isSendingComposerMessage ||
+        ref.read(conversationSelectionProvider).isLoading) {
       return;
     }
 
@@ -1154,110 +1154,39 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     context.goNamed(RouteNames.folder, pathParameters: {'id': folderId});
   }
 
-  Future<void> _selectConversation(String conversationId) async {
-    if (_isLoadingConversation) {
-      return;
-    }
-
-    setState(() => _isLoadingConversation = true);
-    final container = ProviderScope.containerOf(context, listen: false);
-    final ownership = captureOpenWebUiConversationRead(container);
-
-    try {
-      if (ownership == null) return;
-      final outgoing = container.read(activeConversationProvider);
-      if (outgoing == null ||
-          !conversationMatchesScopedId(outgoing, conversationId)) {
-        chat.clearSelectedFiltersForConversationBoundary(container);
-      }
-      container.read(temporaryChatEnabledProvider.notifier).set(false);
-      container.read(chat.isLoadingConversationProvider.notifier).set(true);
-      _pendingConversationId = conversationId;
-
-      container.read(activeConversationProvider.notifier).clear();
-      container.read(chat.chatMessagesProvider.notifier).clearMessages();
-      container.read(pendingFolderIdProvider.notifier).clear();
-
-      NavigationService.router.go(Routes.chat);
-
-      // DB-first open (CDT-RFC-001 Phase 1): a synced local row renders
-      // instantly — offline included — and a background pull freshens it.
-      final local = await loadLocalConversation(
-        container,
-        conversationId,
-        ownership: ownership,
-      );
-      if (!openWebUiConversationReadIsCurrent(container, ownership)) return;
-      if (local != null) {
-        container.read(activeConversationProvider.notifier).set(local);
-        schedulePullChatNow(container, conversationId, ownership: ownership);
-      } else {
-        Future<void> useCachedConversation() async {
-          if (!openWebUiConversationReadIsCurrent(container, ownership)) {
-            return;
-          }
-          final conversations = await container.read(
-            conversationsProvider.future,
-          );
-          if (!openWebUiConversationReadIsCurrent(container, ownership)) {
-            return;
-          }
-          Conversation? conversation;
-          for (final item in conversations) {
-            if (item.id == conversationId) {
-              conversation = item;
-              break;
-            }
-          }
-          if (conversation != null) {
-            container
-                .read(activeConversationProvider.notifier)
-                .set(conversation);
-          }
+  Future<void> _selectConversation(Conversation conversation) async {
+    final originRoute = NavigationService.currentRoute;
+    final originRouteRevision = NavigationService.currentRouteRevision;
+    final result = await ref
+        .read(conversationSelectionProvider.notifier)
+        .select(conversation);
+    switch (result.disposition) {
+      case ConversationSelectionDisposition.committed:
+        if (!mounted ||
+            (NavigationService.currentRoute != originRoute ||
+                NavigationService.currentRouteRevision !=
+                    originRouteRevision)) {
+          return;
         }
-
-        final api = ownership.api;
-        if (api != null) {
-          try {
-            final fullConversation = await api.getConversation(conversationId);
-            if (!openWebUiConversationReadIsCurrent(container, ownership)) {
-              return;
-            }
-            container
-                .read(activeConversationProvider.notifier)
-                .set(fullConversation);
-            // Materialize the local row so the next open is DB-first.
-            schedulePullChatNow(
-              container,
-              conversationId,
-              ownership: ownership,
-            );
-          } catch (error, stackTrace) {
-            if (!openWebUiConversationReadIsCurrent(container, ownership)) {
-              return;
-            }
-            DebugLogger.error(
-              'folder-conversation-fetch-failed',
-              scope: 'navigation/folder',
-              error: error,
-              stackTrace: stackTrace,
-              data: {'conversationId': conversationId},
-            );
-            await useCachedConversation();
-          }
-        } else {
-          await useCachedConversation();
+        NavigationService.router.go(Routes.chat);
+        return;
+      case ConversationSelectionDisposition.canceled:
+        return;
+      case ConversationSelectionDisposition.failed:
+        if (!mounted ||
+            result.error == null ||
+            (NavigationService.currentRoute != originRoute ||
+                NavigationService.currentRouteRevision !=
+                    originRouteRevision)) {
+          return;
         }
-      }
-    } catch (_) {
-      // The chat remains empty on failure. Shared loading state is reset in
-      // finally, including ownership changes that intentionally return early.
-    } finally {
-      container.read(chat.isLoadingConversationProvider.notifier).set(false);
-      _pendingConversationId = null;
-      if (mounted) {
-        setState(() => _isLoadingConversation = false);
-      }
+        UserFriendlyErrorHandler().showErrorSnackbar(
+          context,
+          result.error,
+          onRetry: () {
+            if (mounted) unawaited(_selectConversation(conversation));
+          },
+        );
     }
   }
 
@@ -1330,7 +1259,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   ),
                   onSendMessage: _handleComposerSend,
                   enabled:
-                      !_isLoadingConversation && !_isSendingComposerMessage,
+                      !ref.watch(conversationSelectionProvider).isLoading &&
+                      !_isSendingComposerMessage,
                   bottomPadding: 0,
                   onVoiceCall: _handleVoiceCall,
                   onFileAttachment: _handleFileAttachment,
@@ -1443,9 +1373,14 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate((context, index) {
               final conversation = sortedConversations[index];
-              final isLoadingSelected =
-                  (_pendingConversationId == conversation.id) &&
-                  ref.watch(chat.isLoadingConversationProvider);
+              final scopedId = conversationScopedId(conversation);
+              final isLoadingSelected = ref.watch(
+                conversationSelectionProvider.select(
+                  (selection) =>
+                      selection.isLoading &&
+                      selection.pendingConversationId == scopedId,
+                ),
+              );
 
               return ConduitContextMenu(
                 actions: buildConversationActionsWithFolders(
@@ -1463,9 +1398,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   pinned: conversation.pinned,
                   selected: false,
                   isLoading: isLoadingSelected,
-                  onTap: _isLoadingConversation
-                      ? null
-                      : () => _selectConversation(conversation.id),
+                  onTap: () => _selectConversation(conversation),
                 ),
               );
             }, childCount: sortedConversations.length),

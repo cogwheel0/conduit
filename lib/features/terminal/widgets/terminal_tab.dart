@@ -1664,6 +1664,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       AdaptivePopupMenuItem<String>(
         value: 'delete',
         label: l10n.delete,
+        isDestructive: true,
         icon: conduitAdaptivePopupMenuIcon(
           iosSymbol: 'trash',
           materialIcon: Icons.delete_outline,

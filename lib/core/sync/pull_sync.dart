@@ -133,12 +133,14 @@ class PullSync {
     IdRemapper? remapper,
     ConversationParseOffload? parseOffload,
     ChatRowsParseOffload? rowsParseOffload,
+    SyncItemProgressCallback? onProgress,
   }) : _client = client,
        _db = db,
        _locks = locks,
        _remapper = remapper,
        _parseOffload = parseOffload,
-       _rowsParseOffload = rowsParseOffload;
+       _rowsParseOffload = rowsParseOffload,
+       _onProgress = onProgress;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -146,6 +148,7 @@ class PullSync {
   final IdRemapper? _remapper;
   final ConversationParseOffload? _parseOffload;
   final ChatRowsParseOffload? _rowsParseOffload;
+  final SyncItemProgressCallback? _onProgress;
 
   /// Runs one pull cycle. The watermark advances only when every list page
   /// and every chat fetch succeeded (REQ 5); on any failure it stays frozen
@@ -292,10 +295,12 @@ class PullSync {
     // 5. Chat fetches: newest-first (list order already is), worker pool of
     // exactly kPullFetchConcurrency sharing one queue index.
     final toFetch = changed.values.toList(growable: false);
+    _onProgress?.call(0, toFetch.length);
     final hasPendingCreateHashes = _remapper == null
         ? false
         : await _db.outboxDao.hasPendingCreateContentHashes();
     var nextIndex = 0;
+    var completedFetches = 0;
     Future<void> worker() async {
       while (true) {
         if (nextIndex >= toFetch.length) return;
@@ -321,6 +326,9 @@ class PullSync {
             stackTrace: stackTrace,
             data: {'chatId': item.id},
           );
+        } finally {
+          completedFetches++;
+          _onProgress?.call(completedFetches, toFetch.length);
         }
       }
     }

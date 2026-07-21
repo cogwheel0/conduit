@@ -39,15 +39,29 @@ const Duration kSyncPullDebounce = Duration(milliseconds: 300);
 
 enum SyncPhase { idle, running }
 
+enum SyncStage { chats, notes, finalizing }
+
 /// Engine status surfaced to the UI.
 class SyncStatus {
   const SyncStatus({
     this.phase = SyncPhase.idle,
+    this.stage,
+    this.completedItems = 0,
+    this.totalItems,
     this.lastSuccessUpdatedAtWatermark,
     this.lastError,
   });
 
   final SyncPhase phase;
+  final SyncStage? stage;
+  final int completedItems;
+  final int? totalItems;
+
+  double? get progress {
+    final total = totalItems;
+    if (phase != SyncPhase.running || total == null || total <= 0) return null;
+    return (completedItems / total).clamp(0.0, 1.0);
+  }
 
   /// Server epoch seconds of the last successful cycle's watermark.
   final int? lastSuccessUpdatedAtWatermark;
@@ -526,7 +540,7 @@ class SyncEngine extends _$SyncEngine {
     return pull.pullChat(chatId);
   }
 
-  PullSync? _buildPullSync() {
+  PullSync? _buildPullSync({SyncItemProgressCallback? onProgress}) {
     final db = _boundDb;
     final client = _boundClient;
     final chatLocks = _boundChatLocks;
@@ -549,6 +563,7 @@ class SyncEngine extends _$SyncEngine {
         response,
         debugLabel: 'pull.normalizeChatRows',
       ),
+      onProgress: onProgress,
     );
   }
 
@@ -959,6 +974,7 @@ class SyncEngine extends _$SyncEngine {
       if (ref.mounted) {
         state = SyncStatus(
           phase: SyncPhase.running,
+          stage: SyncStage.chats,
           lastSuccessUpdatedAtWatermark: state.lastSuccessUpdatedAtWatermark,
           lastError: state.lastError,
         );
@@ -1016,7 +1032,14 @@ class SyncEngine extends _$SyncEngine {
   Future<PullResult?> _runOnce(int cycleEpoch) async {
     final db = _boundDb;
     final clock = _boundClock;
-    final pull = _buildPullSync();
+    final pull = _buildPullSync(
+      onProgress: (completed, total) => _publishProgress(
+        cycleEpoch,
+        stage: SyncStage.chats,
+        completed: completed,
+        total: total,
+      ),
+    );
     if (db == null ||
         clock == null ||
         pull == null ||
@@ -1035,6 +1058,13 @@ class SyncEngine extends _$SyncEngine {
     final result = await pull.run();
     if (!_cycleStillBound(cycleEpoch, 'after-chat-pull')) return null;
 
+    _publishProgress(
+      cycleEpoch,
+      stage: SyncStage.notes,
+      completed: 0,
+      total: null,
+    );
+
     // Phase 5 (D-11): pull NOTES through the generic adapter driver, on the
     // SEPARATE nanosecond `notes_pull_watermark` (R-09 — never compared to the
     // chat seconds watermark; runPullFor reads the adapter's OWN key). A note
@@ -1046,7 +1076,16 @@ class SyncEngine extends _$SyncEngine {
     if (noteAdapter != null) {
       try {
         previousNotesWatermark = await db.syncMetaDao.getNotesPullWatermark();
-        noteResult = await runPullFor(noteAdapter, db: db);
+        noteResult = await runPullFor(
+          noteAdapter,
+          db: db,
+          onProgress: (completed, total) => _publishProgress(
+            cycleEpoch,
+            stage: SyncStage.notes,
+            completed: completed,
+            total: total,
+          ),
+        );
         DebugLogger.log(
           'note-cycle-done',
           scope: 'sync/notes',
@@ -1067,6 +1106,13 @@ class SyncEngine extends _$SyncEngine {
       }
       if (!_cycleStillBound(cycleEpoch, 'after-note-pull')) return null;
     }
+
+    _publishProgress(
+      cycleEpoch,
+      stage: SyncStage.finalizing,
+      completed: 0,
+      total: null,
+    );
 
     // A watermark-0 pull is itself a COMPLETE enumeration of the server set,
     // and a watermark-0 DB starts empty (fresh install / post-§9.3 cold pull),
@@ -1175,6 +1221,40 @@ class SyncEngine extends _$SyncEngine {
       await _scheduleFtsBuildIfNeeded(db, cycleEpoch);
     }
     return result;
+  }
+
+  void _publishProgress(
+    int cycleEpoch, {
+    required SyncStage stage,
+    required int completed,
+    required int? total,
+  }) {
+    if (!ref.mounted || !_running || cycleEpoch != _sessionEpoch) return;
+    final current = state;
+    if (current.phase != SyncPhase.running) return;
+
+    if (current.stage == stage &&
+        current.totalItems == total &&
+        total != null &&
+        total > 100 &&
+        completed < total &&
+        (current.completedItems * 100 ~/ total) == (completed * 100 ~/ total)) {
+      return;
+    }
+    if (current.stage == stage &&
+        current.completedItems == completed &&
+        current.totalItems == total) {
+      return;
+    }
+
+    state = SyncStatus(
+      phase: SyncPhase.running,
+      stage: stage,
+      completedItems: completed,
+      totalItems: total,
+      lastSuccessUpdatedAtWatermark: current.lastSuccessUpdatedAtWatermark,
+      lastError: current.lastError,
+    );
   }
 
   void _clearCachedDrainerIfIdle() {

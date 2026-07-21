@@ -32,6 +32,7 @@ class SyncTriggers extends _$SyncTriggers {
   bool _isForeground = false;
   bool _startFired = false;
   bool _startCheckQueued = false;
+  bool _postCertificationPending = false;
   Object? _startDatabase;
   Object? _startClient;
 
@@ -43,7 +44,11 @@ class SyncTriggers extends _$SyncTriggers {
     // App start: fire once the first time (authenticated && db && client)
     // are all ready.
     ref.listen(isAuthenticatedProvider2, (previous, next) {
-      if (previous != true && next) {
+      if (!next) {
+        _postCertificationPending = false;
+        return;
+      }
+      if (previous != true) {
         _requestIfReady('auth');
       }
       _maybeFireStart();
@@ -116,22 +121,57 @@ class SyncTriggers extends _$SyncTriggers {
     _maybeFireStart();
   }
 
+  /// Requests the shared chat-and-note pull that follows account-storage
+  /// certification. The request remains pending until authentication, the
+  /// certified database, and its API client are all available.
+  void requestPostCertificationSync() {
+    final db = ref.read(appDatabaseProvider);
+    final client = ref.read(syncApiClientProvider);
+    if (_startFired &&
+        db != null &&
+        client != null &&
+        identical(db, _startDatabase) &&
+        identical(client, _startClient)) {
+      return;
+    }
+
+    _postCertificationPending = true;
+    _queueMaybeFireStart();
+  }
+
   void _maybeFireStart() {
     final db = ref.read(appDatabaseProvider);
     final client = ref.read(syncApiClientProvider);
     if (!ref.read(isAuthenticatedProvider2) || db == null || client == null) {
       return;
     }
-    if (_startFired &&
+
+    final currentPairAlreadyStarted =
+        _startFired &&
         identical(db, _startDatabase) &&
-        identical(client, _startClient)) {
+        identical(client, _startClient);
+    if (_postCertificationPending) {
+      if (currentPairAlreadyStarted) {
+        _postCertificationPending = false;
+        return;
+      }
+      if (_request('account-certified')) {
+        _postCertificationPending = false;
+        _recordStartedPair(db, client);
+      }
       return;
     }
+
+    if (currentPairAlreadyStarted) return;
     if (_request('start')) {
-      _startFired = true;
-      _startDatabase = db;
-      _startClient = client;
+      _recordStartedPair(db, client);
     }
+  }
+
+  void _recordStartedPair(Object database, Object client) {
+    _startFired = true;
+    _startDatabase = database;
+    _startClient = client;
   }
 
   void _queueMaybeFireStart() {

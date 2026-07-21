@@ -219,12 +219,12 @@ class WorkspaceScaffold extends ConsumerWidget {
       );
     }
 
-    // The adaptive iOS nav bar is a translucent overlay, so the body renders
-    // behind it. Mirror SettingsPageScaffold and inset the top by the status
-    // bar + nav bar height so the section switcher and content clear it;
-    // Android's Material app bar reserves its own space, so no extra inset is
-    // needed.
-    final topInset = Theme.of(context).platform == TargetPlatform.iOS
+    // iOS 26 native toolbars contribute their height to MediaQuery padding as
+    // of adaptive_platform_ui 0.1.110. Older Cupertino bars still need the
+    // explicit status-bar + navigation-bar offset used before that release.
+    final isIos = Theme.of(context).platform == TargetPlatform.iOS;
+    final usesNativeToolbarInset = isIos && PlatformInfo.isIOS26OrHigher();
+    final topInset = isIos && !usesNativeToolbarInset
         ? MediaQuery.paddingOf(context).top + kTextTabBarHeight
         : 0.0;
 
@@ -236,7 +236,8 @@ class WorkspaceScaffold extends ConsumerWidget {
             canCreate: _canCreateSection(ref, section),
           )
         : AdaptiveAppBar(
-            title: '${l10n.workspaceTitle} · ${_sectionLabel(l10n, section)}',
+            title: l10n.workspaceTitle,
+            subtitle: _sectionLabel(l10n, section),
             leading: _workspaceExitButton(context),
           );
 
@@ -248,7 +249,7 @@ class WorkspaceScaffold extends ConsumerWidget {
         child: Padding(
           padding: EdgeInsets.only(top: topInset),
           child: SafeArea(
-            top: false,
+            top: usesNativeToolbarInset,
             child: wide
                 ? _buildWide(context, permitted)
                 : _buildCompact(context, permitted),

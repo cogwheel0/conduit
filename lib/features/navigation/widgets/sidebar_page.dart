@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_providers.dart';
+import '../../../core/sync/sync_engine.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
@@ -104,6 +105,43 @@ class _SidebarTabStack extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _SidebarSyncProgressBar extends StatelessWidget {
+  const _SidebarSyncProgressBar({required this.status});
+
+  final SyncStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    if (status.phase != SyncPhase.running) return const SizedBox.shrink();
+
+    final localizations = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final label = switch (status.stage) {
+      SyncStage.notes => localizations.sidebarSyncingNotes,
+      SyncStage.finalizing => localizations.sidebarFinishingSync,
+      SyncStage.chats || null => localizations.sidebarSyncingChats,
+    };
+    final progress = status.progress;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final semanticsValue = progress == null
+        ? null
+        : '${(progress * 100).round()}%';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+      child: LinearProgressIndicator(
+        key: const ValueKey<String>('sidebar-sync-progress'),
+        minHeight: 3,
+        value: progress ?? (reduceMotion ? 0.08 : null),
+        semanticsLabel: label,
+        semanticsValue: semanticsValue,
+        color: theme.sidebarPrimary,
+        backgroundColor: theme.sidebarBorder.withValues(alpha: 0.45),
+      ),
     );
   }
 }
@@ -577,6 +615,21 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
       sidebarBody,
       hasBottomNavigationBar: hasBottomNavigationBar,
     );
+    final sidebarBodyWithSyncProgress = Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: sidebarBodyWithBottomFade),
+        Positioned(
+          top: Spacing.xs,
+          left: Spacing.md,
+          right: Spacing.md,
+          child: Consumer(
+            builder: (context, ref, _) =>
+                _SidebarSyncProgressBar(status: ref.watch(syncEngineProvider)),
+          ),
+        ),
+      ],
+    );
 
     return KeyedSubtree(
       key: const ValueKey<String>('sidebar-page-surface'),
@@ -624,7 +677,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               actions: appBarActions,
               minimizeBehavior: TabBarMinimizeBehavior.never,
               showNativeView: composeNativeIos26Chrome,
-              body: sidebarBodyWithBottomFade,
+              body: sidebarBodyWithSyncProgress,
             );
           }
 
@@ -643,7 +696,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
               ),
             ),
             bottomNavigationBar: bottomNavigationBar,
-            body: sidebarBodyWithBottomFade,
+            body: sidebarBodyWithSyncProgress,
           );
         },
       ),

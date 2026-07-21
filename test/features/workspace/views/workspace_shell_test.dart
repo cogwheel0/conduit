@@ -208,7 +208,11 @@ void main() {
 
     expect(find.byType(AdaptiveRouteShell), findsOneWidget);
     expect(find.byIcon(Icons.error_outline), findsOneWidget);
-    expect(find.text('Workspace · Models'), findsOneWidget);
+    final shell = tester.widget<AdaptiveRouteShell>(
+      find.byType(AdaptiveRouteShell),
+    );
+    expect(shell.appBar?.title, 'Workspace');
+    expect(shell.appBar?.subtitle, 'Models');
   });
 
   testWidgets('gate never builds protected content for a denied section', (

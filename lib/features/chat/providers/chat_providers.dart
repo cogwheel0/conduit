@@ -1459,7 +1459,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         );
 
         if (conversationUsesOpenWebUiStorage(next) &&
-            !_openWebUiAccountStorageIsCertified(ref)) {
+            !openWebUiAccountStorageIsCertified(ref)) {
           _modelRebindGeneration += 1;
           _cancelMessageStream();
           _stopRemoteTaskMonitor();
@@ -1580,7 +1580,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final activeConversation = ref.read(activeConversationProvider);
     _captureActiveOpenWebUiContext();
     if (conversationUsesOpenWebUiStorage(activeConversation) &&
-        !_openWebUiAccountStorageIsCertified(ref)) {
+        !openWebUiAccountStorageIsCertified(ref)) {
       _clearStaleOpenWebUiActiveConversation(activeConversation);
       return const <ChatMessage>[];
     }
@@ -1595,7 +1595,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   void _clearStaleOpenWebUiActiveConversation(Conversation? expected) {
     if (expected == null) return;
     Future.microtask(() {
-      if (_disposed || _openWebUiAccountStorageIsCertified(ref)) return;
+      if (_disposed || openWebUiAccountStorageIsCertified(ref)) return;
       final current = ref.read(activeConversationProvider);
       if (identical(current, expected) ||
           isSameStoredConversation(current, expected)) {
@@ -9163,35 +9163,6 @@ bool conversationUsesOpenWebUiStorage(Conversation? conversation) {
     return false;
   }
   return true;
-}
-
-bool _openWebUiAccountStorageIsCertified(dynamic ref) {
-  try {
-    if (ref.read(openWebUiDatabaseAccessProvider) !=
-        OpenWebUiDatabaseAccessPhase.open) {
-      return false;
-    }
-    final certifiedServerId = ref.read(
-      openWebUiCertifiedDatabaseServerProvider,
-    );
-    final activeServer = ref.read(activeServerProvider);
-    if (activeServer is AsyncData<ServerConfig?>) {
-      final activeServerId = activeServer.value?.id;
-      if (activeServerId != null) return activeServerId == certifiedServerId;
-    }
-
-    // Narrow tests override an unmanaged in-memory database without an active
-    // server. Preserve that seam; production databases always have a manager
-    // owner and therefore require the certified logical server above.
-    final database = _readAppDatabaseOrNull(ref);
-    if (database == null) return false;
-    final managedServerId =
-        (ref.read(databaseManagerProvider) as DatabaseManager)
-            .serverIdForDatabase(database);
-    return managedServerId == null;
-  } catch (_) {
-    return false;
-  }
 }
 
 /// Durable send (CDT-RFC-001 §7.2 write path; Group 1 of the task_queue

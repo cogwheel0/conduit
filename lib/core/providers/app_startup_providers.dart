@@ -91,6 +91,25 @@ final userScopedProviderCleanupProvider = Provider<void>((ref) {
 typedef _OpenWebUiAccountIdentity = ({String token, String? userId});
 typedef OpenWebUiAccountCacheClear = Future<void> Function();
 typedef OpenWebUiCertifiedUserPersist = Future<void> Function(User user);
+typedef OpenWebUiPostCertificationSyncKickoff = void Function();
+
+final openWebUiPostCertificationSyncKickoffProvider =
+    Provider<OpenWebUiPostCertificationSyncKickoff>((ref) {
+      return () {
+        try {
+          ref
+              .read(syncTriggersProvider.notifier)
+              .requestPostCertificationSync();
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'post-certification-sync-kickoff-failed',
+            scope: 'auth/storage-isolation',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      };
+    });
 
 final openWebUiAccountCacheClearProvider = Provider<OpenWebUiAccountCacheClear>(
   (ref) {
@@ -150,7 +169,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     );
   }
 
-  @visibleForTesting
+  /// Completes when the current account-storage isolation operation settles.
   Future<void> get settled => _settled;
 
   _OpenWebUiAccountIdentity? _identityFrom(AsyncValue<AuthState> value) {
@@ -595,6 +614,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     ref.invalidate(foldersProvider);
     ref.invalidate(modelsProvider);
     ref.invalidate(currentUserProvider);
+    ref.read(openWebUiPostCertificationSyncKickoffProvider)();
     ref.read(openWebUiCachedAccountOwnerMismatchProvider.notifier).set(false);
     final authenticated = ref.read(authStateManagerProvider).asData?.value;
     final certifiedUser = authenticated?.user;
@@ -642,7 +662,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     try {
       if (clearAccountChatState) {
         ref.invalidate(activeConversationInPlaceRemapProvider);
-        ref.invalidate(chatMessagesProvider);
+        // Keep the notifier instance alive across the auth boundary. Its
+        // active-conversation listener is installed once in build();
+        // invalidating a listened Notifier rebuilds the same instance and
+        // leaves that listener detached behind its initialization guard.
+        if (ref.exists(chatMessagesProvider)) {
+          ref.read(chatMessagesProvider.notifier).clearMessages();
+        }
       }
       ref.invalidate(conversationsProvider);
       ref.invalidate(foldersProvider);

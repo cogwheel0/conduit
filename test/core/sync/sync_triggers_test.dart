@@ -236,6 +236,48 @@ void main() {
         check(countOf('start')).equals(2);
       },
     );
+
+    test(
+      'post-certification pull waits for auth, database, and client readiness',
+      () async {
+        final container = makeContainer();
+        final triggers = container.read(syncTriggersProvider.notifier);
+
+        triggers.requestPostCertificationSync();
+        await flushMicrotasks();
+        check(pulls).isEmpty();
+
+        container.read(_authProvider.notifier).set(true);
+        await flushMicrotasks();
+        container.read(_clientProvider.notifier).set(client);
+        await flushMicrotasks();
+        check(pulls).isEmpty();
+
+        container.read(_dbProvider.notifier).set(db);
+        await flushMicrotasks();
+
+        check(pulls).deepEquals(<String>['account-certified']);
+        check(countOf('start')).equals(0);
+      },
+    );
+
+    test(
+      'post-certification request does not duplicate a start for the same pair',
+      () async {
+        final container = makeContainer();
+        container.read(_authProvider.notifier).set(true);
+        container.read(_dbProvider.notifier).set(db);
+        container.read(_clientProvider.notifier).set(client);
+        final triggers = container.read(syncTriggersProvider.notifier);
+        await flushMicrotasks();
+        check(pulls).deepEquals(<String>['start']);
+
+        triggers.requestPostCertificationSync();
+        await flushMicrotasks();
+
+        check(pulls).deepEquals(<String>['start']);
+      },
+    );
   });
 
   group('connectivity edge', () {
