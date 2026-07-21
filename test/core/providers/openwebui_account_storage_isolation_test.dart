@@ -1637,6 +1637,41 @@ void main() {
     },
   );
 
+  test(
+    'chat messages keep following selections after sign-out and sign-in',
+    () async {
+      final harness = await _harness();
+      final container = harness.container;
+      final subscription = container.listen<List<ChatMessage>>(
+        chatMessagesProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+
+      harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
+      await Future<void>.delayed(Duration.zero);
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      harness.auth.publish(_authenticated('token-a', _userA));
+      await Future<void>.delayed(Duration.zero);
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_openWebUiConversation('reopened-chat', 'visible after login'));
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        container.read(chatMessagesProvider).map((message) => message.content),
+      ).deepEquals(<String>['visible after login']);
+    },
+  );
+
   test('startup auth error with no token purges before manual login', () async {
     var postCertificationSyncKickoffs = 0;
     final harness = await _harness(

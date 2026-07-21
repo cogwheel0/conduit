@@ -662,7 +662,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     try {
       if (clearAccountChatState) {
         ref.invalidate(activeConversationInPlaceRemapProvider);
-        ref.invalidate(chatMessagesProvider);
+        // Keep the notifier instance alive across the auth boundary. Its
+        // active-conversation listener is installed once in build();
+        // invalidating a listened Notifier rebuilds the same instance and
+        // leaves that listener detached behind its initialization guard.
+        if (ref.exists(chatMessagesProvider)) {
+          ref.read(chatMessagesProvider.notifier).clearMessages();
+        }
       }
       ref.invalidate(conversationsProvider);
       ref.invalidate(foldersProvider);

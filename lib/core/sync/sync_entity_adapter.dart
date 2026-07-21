@@ -5,6 +5,9 @@ import '../database/app_database.dart';
 import '../database/daos/outbox_dao.dart';
 import '../utils/debug_logger.dart';
 
+/// Reports completed full-entity fetches once a pull has discovered its total.
+typedef SyncItemProgressCallback = void Function(int completed, int total);
+
 /// Decodes a JSON outbox-op `payload` string to a `Map<String, dynamic>`,
 /// returning an empty map when the payload is absent or not a JSON object.
 /// Shared by the sync-package adapters/drainer (CDT-RFC-001 Phase 5).
@@ -154,6 +157,7 @@ const int kAdapterPullFetchConcurrency = 4;
 Future<AdapterPullResult> runPullFor(
   SyncEntityAdapter adapter, {
   required AppDatabase db,
+  SyncItemProgressCallback? onProgress,
 }) async {
   final watermark = await _readWatermark(db, adapter.watermarkKey);
   final threshold = watermark - adapter.pullOverlap;
@@ -205,7 +209,9 @@ Future<AdapterPullResult> runPullFor(
   }
 
   final toFetch = changed.values.toList(growable: false);
+  onProgress?.call(0, toFetch.length);
   var nextIndex = 0;
+  var completedFetches = 0;
   var failedFetches = 0;
   Future<void> worker() async {
     while (true) {
@@ -226,6 +232,9 @@ Future<AdapterPullResult> runPullFor(
           stackTrace: stackTrace,
           data: {'id': item.id, 'watermarkKey': adapter.watermarkKey},
         );
+      } finally {
+        completedFetches++;
+        onProgress?.call(completedFetches, toFetch.length);
       }
     }
   }

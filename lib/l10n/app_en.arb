@@ -2335,6 +2335,18 @@
   "@sidebarNotesTab": {
     "description": "Label for the Notes tab in the sidebar"
   },
+  "sidebarSyncingChats": "Syncing chats",
+  "@sidebarSyncingChats": {
+    "description": "Accessibility label for sidebar progress while chats are syncing"
+  },
+  "sidebarSyncingNotes": "Syncing notes",
+  "@sidebarSyncingNotes": {
+    "description": "Accessibility label for sidebar progress while notes are syncing"
+  },
+  "sidebarFinishingSync": "Finishing sync",
+  "@sidebarFinishingSync": {
+    "description": "Accessibility label for sidebar progress while sync finalization runs"
+  },
   "sidebarChannelsTab": "Channels",
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"

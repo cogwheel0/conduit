@@ -17,6 +17,7 @@ import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/channels/providers/channel_providers.dart';
@@ -99,6 +100,54 @@ void main() {
       expect(terminalLayer.opacity, 0);
     },
   );
+
+  testWidgets('shows determinate sync progress above every sidebar tab', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        syncStatus: const SyncStatus(
+          phase: SyncPhase.running,
+          stage: SyncStage.chats,
+          completedItems: 3,
+          totalItems: 8,
+        ),
+      ),
+    );
+
+    final progress = tester.widget<LinearProgressIndicator>(
+      find.byKey(const ValueKey<String>('sidebar-sync-progress')),
+    );
+    check(progress.value).isNotNull().equals(3 / 8);
+    check(progress.semanticsLabel).equals('Syncing chats');
+    check(progress.semanticsValue).equals('38%');
+
+    await tester.tap(_sidebarBottomNavTabLabel('Notes'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-sync-progress')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('hides sidebar sync progress while idle', (tester) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(
+        controllers: controllers,
+        syncStatus: const SyncStatus(),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-sync-progress')),
+      findsNothing,
+    );
+  });
 
   testWidgets(
     'tapping terminal syncs provider state and activates the terminal layer',
@@ -1633,6 +1682,7 @@ Widget _buildSidebarHarness({
   bool openWebUiStorageOpen = true,
   Conversation? activeConversation,
   ThemeData? theme,
+  SyncStatus? syncStatus,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -1665,6 +1715,8 @@ Widget _buildSidebarHarness({
   return ProviderScope(
     overrides: [
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
+      if (syncStatus != null)
+        syncEngineProvider.overrideWith(() => _FixedSyncEngine(syncStatus)),
       // The sidebar harness owns its in-memory OpenWebUI database explicitly;
       // unrelated auth bootstrap must not close that test seam underneath it.
       openWebUiAccountStorageIsolationProvider.overrideWith(
@@ -1769,6 +1821,15 @@ Widget _buildSidebarHarness({
       routerConfig: router,
     ),
   );
+}
+
+final class _FixedSyncEngine extends SyncEngine {
+  _FixedSyncEngine(this.initial);
+
+  final SyncStatus initial;
+
+  @override
+  SyncStatus build() => initial;
 }
 
 final class _NoopOpenWebUiAccountStorageIsolation

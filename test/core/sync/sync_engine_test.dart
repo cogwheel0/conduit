@@ -337,6 +337,59 @@ void main() {
       check(container.read(syncEngineProvider).phase).equals(SyncPhase.idle);
     });
 
+    test('publishes determinate chat and note fetch progress', () async {
+      seedChat('chat-1', 100);
+      server.seedNote(
+        id: 'note-1',
+        title: 'Note 1',
+        data: const <String, dynamic>{
+          'content': <String, dynamic>{'md': 'hello'},
+        },
+        createdAt: 1000000000,
+        updatedAt: 1000000000,
+      );
+      final container = makeContainer();
+      final statuses = <SyncStatus>[];
+      final subscription = container.listen<SyncStatus>(
+        syncEngineProvider,
+        (_, next) => statuses.add(next),
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+
+      final result = await container
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'progress-test');
+
+      check(result).isNotNull();
+      check(
+        statuses.any(
+          (status) =>
+              status.stage == SyncStage.chats &&
+              status.completedItems == 0 &&
+              status.totalItems == 1,
+        ),
+      ).isTrue();
+      check(
+        statuses.any(
+          (status) =>
+              status.stage == SyncStage.chats &&
+              status.completedItems == 1 &&
+              status.totalItems == 1,
+        ),
+      ).isTrue();
+      check(
+        statuses.any(
+          (status) =>
+              status.stage == SyncStage.notes &&
+              status.completedItems == 1 &&
+              status.totalItems == 1,
+        ),
+      ).isTrue();
+      check(statuses.last.phase).equals(SyncPhase.idle);
+      check(statuses.last.stage).isNull();
+    });
+
     test(
       'requests during a running cycle coalesce into one queued rerun',
       () async {
