@@ -1,3 +1,9 @@
 [submodule "openwebui-src"]
 	path = openwebui-src
 	url = https://github.com/open-webui/open-webui
+[submodule "third_party/mermaid"]
+	path = third_party/mermaid
+	url = https://github.com/orestesgaolin/mermaid.git
+[submodule "third_party/katex"]
+	path = third_party/katex
+	url = https://github.com/orestesgaolin/katex.git

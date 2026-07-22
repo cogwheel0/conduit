@@ -1574,12 +1574,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 top: 0,
                 child: ConduitChromeGradientFade.top(
                   contentHeight:
-                      MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+                      MediaQuery.viewPaddingOf(context).top +
+                      conduitAdaptiveToolbarHeightOf(context),
                 ),
               ),
               if (!_isLoading && _note != null)
                 Positioned(
-                  top: MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                  top:
+                      MediaQuery.of(context).padding.top +
+                      conduitAdaptiveToolbarHeightOf(context),
                   left: 0,
                   right: 0,
                   child: Padding(
@@ -1654,6 +1657,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: 1,
@@ -1666,18 +1672,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final actions = _buildNoteEditorToolbarActionWidgets(context);
     final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
+    final scaledLeading = ConduitSystemTextScaling(
+      textScaler: textScaler,
+      child: leading,
+    );
+    final scaledActions = [
+      for (final action in actions)
+        ConduitSystemTextScaling(textScaler: textScaler, child: action),
+    ];
+
     return AdaptiveAppBar(
       useNativeToolbar: false,
       tintColor: tintColor,
-      cupertinoNavigationBar: CupertinoNavigationBar(
-        automaticallyImplyLeading: false,
-        border: null,
-        backgroundColor: Colors.transparent,
-        automaticBackgroundVisibility: false,
-        brightness: Theme.of(context).brightness,
-        enableBackgroundFilterBlur: false,
+      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: textScaler,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -1686,15 +1697,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        toolbarHeight: kTextTabBarHeight,
+        toolbarHeight: toolbarHeight,
         systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
           pillWidth: maxTitleWidth,
+          controlExtent: controlExtent,
         ),
-        leading: leading,
-        actions: actions,
+        leading: scaledLeading,
+        actions: scaledActions,
       ),
     );
   }
@@ -1754,6 +1766,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final conduitTheme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final titleTextStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final controlExtent = conduitScaledControlExtent(context);
     final titleLabel = _isGeneratingTitle
         ? l10n.generatingTitle
         : (_titleController.text.isEmpty
@@ -1775,12 +1788,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     return buildConduitAdaptiveToolbarPillSurface(
       width: targetWidth,
+      height: controlExtent,
       onPressed: _isGeneratingTitle
           ? null
           : () => _titleFocusNode.requestFocus(),
       semanticLabel: titleLabel,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: horizontalInset),
           child: Row(
@@ -2015,8 +2029,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Widget _buildEditor(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
-    // App bar height: kTextTabBarHeight + metadata bar (~40)
-    final appBarHeight = kTextTabBarHeight + 40;
+    // Adaptive app bar height + metadata bar (~40).
+    final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
 
     // Get attached files
     final files = _note?.data.files ?? [];

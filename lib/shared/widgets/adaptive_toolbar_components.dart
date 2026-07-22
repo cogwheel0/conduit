@@ -3,15 +3,194 @@ import 'dart:io' show Platform;
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/adaptive_glass.dart';
 import 'conduit_components.dart';
 import 'conduit_loading.dart';
 import 'middle_ellipsis_text.dart';
+import 'themed_sheets.dart';
 
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
+const double kConduitMaximumSystemControlScale = 1.5;
+
+/// Converts Dynamic Type into bounded control geometry.
+///
+/// Text remains free to use the full system scale. Chrome grows more slowly,
+/// matching the way sidebar rows expand around their scaled text without ever
+/// shrinking below the normal 44-point touch target.
+double resolveConduitSystemControlScale(TextScaler textScaler) {
+  final scaledBodySize = textScaler.scale(AppTypography.bodyLarge);
+  final scale = scaledBodySize / AppTypography.bodyLarge;
+  if (!scale.isFinite) return 1;
+  return scale.clamp(1, kConduitMaximumSystemControlScale).toDouble();
+}
+
+double conduitSystemControlScaleOf(BuildContext context) {
+  return resolveConduitSystemControlScale(MediaQuery.textScalerOf(context));
+}
+
+double conduitScaledControlExtent(
+  BuildContext context, {
+  double baseExtent = TouchTarget.minimum,
+}) {
+  return baseExtent * conduitSystemControlScaleOf(context);
+}
+
+double conduitScaledIconExtent(BuildContext context, double baseExtent) {
+  return baseExtent * conduitSystemControlScaleOf(context);
+}
+
+double conduitAdaptiveToolbarHeightOf(BuildContext context) {
+  return kTextTabBarHeight * conduitSystemControlScaleOf(context);
+}
+
+/// Icon glyph that follows the platform Bold Text accessibility setting.
+///
+/// Flutter applies [MediaQueryData.boldText] to [Text] and [EditableText]
+/// automatically, but fixed icon fonts do not gain the heavier strokes that
+/// native SF Symbols do. A small, hard-edged outline closes that gap without
+/// changing the glyph's measured size or touch target.
+class ConduitSystemAdaptiveIcon extends StatelessWidget {
+  const ConduitSystemAdaptiveIcon(
+    this.icon, {
+    super.key,
+    required this.size,
+    required this.color,
+  });
+
+  final IconData icon;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    const offset = 0.45;
+    final shadows = MediaQuery.boldTextOf(context)
+        ? <Shadow>[
+            Shadow(color: color, offset: const Offset(-offset, 0)),
+            Shadow(color: color, offset: const Offset(offset, 0)),
+            Shadow(color: color, offset: const Offset(0, -offset)),
+            Shadow(color: color, offset: const Offset(0, offset)),
+          ]
+        : null;
+
+    return Icon(icon, size: size, color: color, shadows: shadows);
+  }
+}
+
+/// Restores the route's system text scaler inside framework chrome that clamps
+/// or disables scaling, including Cupertino navigation bars.
+class ConduitSystemTextScaling extends StatelessWidget {
+  const ConduitSystemTextScaling({
+    super.key,
+    required this.textScaler,
+    required this.child,
+  });
+
+  final TextScaler textScaler;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+      child: child,
+    );
+  }
+}
+
+/// Transparent Cupertino toolbar that expands with Dynamic Type.
+///
+/// [CupertinoPageScaffold] deliberately disables text scaling for navigation
+/// bars. This shell restores the route scaler and advertises the matching
+/// preferred height so scaled controls are neither clipped nor overlaid on the
+/// page body.
+class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
+    implements ObstructingPreferredSizeWidget {
+  const ConduitAdaptiveCupertinoNavigationBar({
+    super.key,
+    required this.textScaler,
+    required this.leading,
+    this.middle,
+    this.trailing,
+    this.systemOverlayStyle,
+  });
+
+  final TextScaler textScaler;
+  final Widget leading;
+  final Widget? middle;
+  final Widget? trailing;
+  final SystemUiOverlayStyle? systemOverlayStyle;
+
+  double get _controlScale => resolveConduitSystemControlScale(textScaler);
+
+  @override
+  Size get preferredSize => Size.fromHeight(kTextTabBarHeight * _controlScale);
+
+  @override
+  bool shouldFullyObstruct(BuildContext context) => false;
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    Widget bar = SizedBox(
+      height: topPadding + preferredSize.height,
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: topPadding,
+          left: Spacing.inputPadding,
+          right: Spacing.inputPadding,
+        ),
+        child: ConduitSystemTextScaling(
+          textScaler: textScaler,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: leading,
+              ),
+              if (middle != null)
+                PositionedDirectional(
+                  start: (TouchTarget.minimum * _controlScale) + Spacing.sm,
+                  end: (TouchTarget.minimum * _controlScale) + Spacing.sm,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(child: middle),
+                ),
+              if (trailing != null)
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: trailing,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (systemOverlayStyle != null) {
+      bar = AnnotatedRegion<SystemUiOverlayStyle>(
+        value: systemOverlayStyle!,
+        child: bar,
+      );
+    }
+    return bar;
+  }
+}
+
+Widget _hideNativeToolbarChromeWhileSheetCovered({
+  required Size size,
+  required Widget child,
+}) {
+  return ThemedSheets.hideNativeChromeWhileCovered(
+    replacement: SizedBox.fromSize(size: size),
+    child: child,
+  );
+}
 
 /// Builds the shared adaptive toolbar shell used by chat-style pages.
 AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
@@ -137,8 +316,9 @@ Widget buildConduitAdaptiveToolbarPillSurface({
   required Widget child,
   VoidCallback? onPressed,
   String? semanticLabel,
+  double height = TouchTarget.minimum,
 }) {
-  final sizedChild = SizedBox(width: width, child: child);
+  final sizedChild = SizedBox(width: width, height: height, child: child);
 
   if (conduitUsesOpaqueGlassFallback()) {
     if (onPressed == null) {
@@ -155,23 +335,27 @@ Widget buildConduitAdaptiveToolbarPillSurface({
     );
   }
 
-  return AdaptiveButton.child(
-    onPressed: onPressed ?? () {},
-    style: AdaptiveButtonStyle.glass,
-    size: AdaptiveButtonSize.large,
-    padding: EdgeInsets.zero,
-    minSize: Size(width, 44),
-    useSmoothRectangleBorder: false,
-    child: sizedChild,
+  return _hideNativeToolbarChromeWhileSheetCovered(
+    size: Size(width, height),
+    child: AdaptiveButton.child(
+      onPressed: onPressed ?? () {},
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.large,
+      padding: EdgeInsets.zero,
+      minSize: Size(width, height),
+      useSmoothRectangleBorder: false,
+      child: sizedChild,
+    ),
   );
 }
 
 double resolveConduitAdaptiveToolbarLeadingWidth({
   required double pillWidth,
   double leadingGap = kConduitAdaptiveToolbarLeadingGap,
+  double controlExtent = TouchTarget.minimum,
 }) {
   return Spacing.inputPadding +
-      TouchTarget.minimum +
+      controlExtent +
       leadingGap +
       pillWidth +
       Spacing.md;
@@ -213,17 +397,18 @@ double resolveConduitAdaptiveLeadingPillWidth(
   double leadingGap = kConduitAdaptiveToolbarLeadingGap,
   double trailingActionSpacing = Spacing.sm,
 }) {
+  final controlExtent = conduitScaledControlExtent(context);
   final trailingSpacing = trailingActionCount > 1
       ? (trailingActionCount - 1) * trailingActionSpacing
       : 0.0;
   final trailingWidth = trailingActionCount > 0
-      ? (trailingActionCount * TouchTarget.minimum) +
+      ? (trailingActionCount * controlExtent) +
             trailingSpacing +
             Spacing.inputPadding
       : Spacing.inputPadding;
   final availableWidth =
       MediaQuery.sizeOf(context).width -
-      TouchTarget.minimum -
+      controlExtent -
       leadingGap -
       trailingWidth -
       (Spacing.inputPadding * 2);
@@ -292,23 +477,39 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
+    final controlExtent = conduitScaledControlExtent(context);
+    final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
 
     if (conduitUsesOpaqueGlassFallback()) {
-      return FloatingAppBarIconButton(
-        icon: icon,
-        onTap: onPressed,
-        iconColor: effectiveIconColor,
+      return SizedBox.square(
+        dimension: controlExtent,
+        child: FloatingAppBarButton(
+          onTap: onPressed,
+          isCircular: true,
+          child: ConduitSystemAdaptiveIcon(
+            icon,
+            size: iconExtent,
+            color: effectiveIconColor,
+          ),
+        ),
       );
     }
 
-    return AdaptiveButton.child(
-      onPressed: onPressed,
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.large,
-      padding: EdgeInsets.zero,
-      minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-      useSmoothRectangleBorder: false,
-      child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: Size.square(controlExtent),
+      child: AdaptiveButton.child(
+        onPressed: onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        padding: EdgeInsets.zero,
+        minSize: Size.square(controlExtent),
+        useSmoothRectangleBorder: false,
+        child: ConduitSystemAdaptiveIcon(
+          icon,
+          size: iconExtent,
+          color: effectiveIconColor,
+        ),
+      ),
     );
   }
 }
@@ -357,7 +558,11 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();
     }
-    final chevronSize = Platform.isIOS ? IconSize.small : IconSize.medium;
+    final controlExtent = conduitScaledControlExtent(context);
+    final chevronSize = conduitScaledIconExtent(
+      context,
+      Platform.isIOS ? IconSize.small : IconSize.medium,
+    );
     const leadingPadding = 10.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
@@ -374,7 +579,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     final child = SizedBox(
       width: targetWidth,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
           padding: EdgeInsets.only(left: leadingPadding, right: Spacing.xs),
           child: Center(
@@ -402,7 +607,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                       ),
                       if (showChevron) ...[
                         const SizedBox(width: Spacing.xs),
-                        Icon(
+                        ConduitSystemAdaptiveIcon(
                           Platform.isIOS
                               ? CupertinoIcons.chevron_down
                               : Icons.keyboard_arrow_down,
@@ -425,14 +630,17 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       );
     }
 
-    return AdaptiveButton.child(
-      onPressed: (isLoading || !showChevron) ? null : onPressed,
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.large,
-      padding: EdgeInsets.zero,
-      minSize: Size(targetWidth, 44),
-      useSmoothRectangleBorder: false,
-      child: child,
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: Size(targetWidth, controlExtent),
+      child: AdaptiveButton.child(
+        onPressed: (isLoading || !showChevron) ? null : onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        padding: EdgeInsets.zero,
+        minSize: Size(targetWidth, controlExtent),
+        useSmoothRectangleBorder: false,
+        child: child,
+      ),
     );
   }
 }
@@ -462,24 +670,36 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controlExtent = conduitScaledControlExtent(context);
+    final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
     if (conduitUsesOpaqueGlassFallback()) {
       return AdaptivePopupMenuButton.widget<T>(
         items: items,
         onSelected: _handleSelected,
-        child: FloatingAppBarIconButton(
-          icon: Platform.isIOS ? CupertinoIcons.ellipsis : materialIcon,
-          iconColor: tintColor,
+        child: SizedBox.square(
+          dimension: controlExtent,
+          child: FloatingAppBarButton(
+            isCircular: true,
+            child: ConduitSystemAdaptiveIcon(
+              Platform.isIOS ? CupertinoIcons.ellipsis : materialIcon,
+              size: iconExtent,
+              color: tintColor,
+            ),
+          ),
         ),
       );
     }
 
-    return AdaptivePopupMenuButton.icon<T>(
-      icon: Platform.isIOS ? iosIcon : materialIcon,
-      tint: tintColor,
-      size: TouchTarget.minimum,
-      buttonStyle: PopupButtonStyle.glass,
-      items: items,
-      onSelected: _handleSelected,
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: Size.square(controlExtent),
+      child: AdaptivePopupMenuButton.icon<T>(
+        icon: Platform.isIOS ? iosIcon : materialIcon,
+        tint: tintColor,
+        size: controlExtent,
+        buttonStyle: PopupButtonStyle.glass,
+        items: items,
+        onSelected: _handleSelected,
+      ),
     );
   }
 }

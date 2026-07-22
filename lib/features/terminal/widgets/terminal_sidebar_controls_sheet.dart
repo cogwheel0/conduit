@@ -8,6 +8,7 @@ import '../../../core/services/native_sheet_bridge.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 
@@ -42,20 +43,15 @@ Future<void> showTerminalSidebarControlsSheet(BuildContext context) async {
     return;
   }
 
-  final theme = context.conduitTheme;
   final viewSize = MediaQuery.sizeOf(context);
   final maxSheetHeight =
       viewSize.height * _kTerminalSidebarControlsSheetMaxHeightFraction;
 
-  await showModalBottomSheet<void>(
+  await ThemedSheets.showSurface<void>(
     context: context,
-    showDragHandle: true,
     isScrollControlled: true,
-    constraints: BoxConstraints(
-      maxWidth: viewSize.width,
-      maxHeight: maxSheetHeight,
-    ),
-    backgroundColor: theme.surfaceBackground,
+    constraints: BoxConstraints(maxHeight: maxSheetHeight),
+    padding: EdgeInsets.zero,
     builder: (_) => const TerminalSidebarControlsSheet(),
   );
 }

@@ -821,7 +821,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _cancelPendingInitialBottomSettle();
     final generation = ++_pinPositionGeneration;
     final topInset =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
     _pinToTopEndSpaceExtent = math.max(
       0,
       MediaQuery.sizeOf(context).height - topInset,
@@ -1988,7 +1990,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
 
       final topPadding =
-          MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+          MediaQuery.of(context).padding.top +
+          conduitAdaptiveToolbarHeightOf(context) +
+          Spacing.md;
       final ctx = _pinnedUserMessageKey.currentContext;
       if (ctx == null) {
         _jumpNearMessageIndex(messages, targetIndex);
@@ -2192,7 +2196,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // list owns it.
     // Add padding for the floating app bar and overlaid composer skeleton.
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
     final bottomPadding = _messageListBottomPadding();
     return CustomScrollView(
       key: const ValueKey('loading_messages'),
@@ -2293,7 +2299,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Add top padding for the floating app bar. The overlaid composer keeps a
     // matching synthetic footer inside the managed list below.
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
     final bottomPadding = _messageListBottomPadding();
     _trackManagedComposerSpacerExtent(bottomPadding);
 
@@ -2897,7 +2905,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Add top padding for the floating app bar and bottom padding for the
     // overlaid composer section.
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
     final bottomPadding = _messageListBottomPadding();
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3150,7 +3160,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               Positioned.fill(
                 child: ConduitRefreshIndicator(
                   edgeOffset:
-                      MediaQuery.of(context).padding.top + kTextTabBarHeight,
+                      MediaQuery.of(context).padding.top +
+                      conduitAdaptiveToolbarHeightOf(context),
                   onRefresh: _refreshActiveConversation,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -3171,7 +3182,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 top: 0,
                 child: ConduitChromeGradientFade.top(
                   contentHeight:
-                      MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+                      MediaQuery.viewPaddingOf(context).top +
+                      conduitAdaptiveToolbarHeightOf(context),
                 ),
               ),
               Positioned(
@@ -3201,26 +3213,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ),
                     );
                   },
-                  child: Consumer(
-                    builder: (context, scrollButtonRef, _) {
-                      final hasMessages = scrollButtonRef.watch(
-                        hasChatMessagesProvider,
-                      );
-                      return (_showScrollToBottom &&
-                              !keyboardVisible &&
-                              canScroll &&
-                              hasMessages)
-                          ? Center(
-                              key: const ValueKey('scroll_to_bottom_visible'),
-                              child: AdaptiveTooltip(
-                                message: l10n.scrollToBottom,
-                                child: _buildScrollToBottomButton(context),
-                              ),
-                            )
-                          : const SizedBox.shrink(
-                              key: ValueKey('scroll_to_bottom_hidden'),
-                            );
-                    },
+                  child: ThemedSheets.hideNativeChromeWhileCovered(
+                    child: Consumer(
+                      builder: (context, scrollButtonRef, _) {
+                        final hasMessages = scrollButtonRef.watch(
+                          hasChatMessagesProvider,
+                        );
+                        return (_showScrollToBottom &&
+                                !keyboardVisible &&
+                                canScroll &&
+                                hasMessages)
+                            ? Center(
+                                key: const ValueKey('scroll_to_bottom_visible'),
+                                child: AdaptiveTooltip(
+                                  message: l10n.scrollToBottom,
+                                  child: _buildScrollToBottomButton(context),
+                                ),
+                              )
+                            : const SizedBox.shrink(
+                                key: ValueKey('scroll_to_bottom_hidden'),
+                              );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -3294,6 +3308,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isLoadingConversation,
     required String modelLabel,
   }) {
+    final textScaler = MediaQuery.textScalerOf(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
@@ -3331,21 +3348,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
+      controlExtent: controlExtent,
     );
     final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
+    final scaledLeading = ConduitSystemTextScaling(
+      textScaler: textScaler,
+      child: leading,
+    );
+    final scaledActions = [
+      for (final action in actions)
+        ConduitSystemTextScaling(textScaler: textScaler, child: action),
+    ];
 
     return AdaptiveAppBar(
       useNativeToolbar: false,
       tintColor: tintColor,
-      cupertinoNavigationBar: CupertinoNavigationBar(
-        automaticallyImplyLeading: false,
-        border: null,
-        backgroundColor: Colors.transparent,
-        automaticBackgroundVisibility: false,
-        brightness: Theme.of(context).brightness,
-        enableBackgroundFilterBlur: false,
+      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: textScaler,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -3354,13 +3376,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        toolbarHeight: kTextTabBarHeight,
+        toolbarHeight: toolbarHeight,
         systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: leadingWidth,
-        leading: leading,
-        actions: actions,
+        leading: scaledLeading,
+        actions: scaledActions,
       ),
     );
   }

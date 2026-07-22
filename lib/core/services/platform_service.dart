@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../../shared/theme/theme_extensions.dart';
 import '../../shared/widgets/themed_dialogs.dart';
+import '../../shared/widgets/themed_sheets.dart';
 import 'haptic_service.dart';
 
 /// Service for platform-specific features and polish
@@ -93,8 +94,9 @@ class PlatformService {
         ),
       );
     } else {
-      return showModalBottomSheet<T>(
+      return ThemedSheets.showSurface<T>(
         context: context,
+        padding: EdgeInsets.zero,
         builder: (context) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [

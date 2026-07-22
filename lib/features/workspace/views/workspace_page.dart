@@ -24,6 +24,7 @@ import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 class WorkspacePage extends ConsumerWidget {
   const WorkspacePage({
@@ -225,7 +226,8 @@ class WorkspaceScaffold extends ConsumerWidget {
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     final usesNativeToolbarInset = isIos && PlatformInfo.isIOS26OrHigher();
     final topInset = isIos && !usesNativeToolbarInset
-        ? MediaQuery.paddingOf(context).top + kTextTabBarHeight
+        ? MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context)
         : 0.0;
 
     final appBar = !wide && mode == WorkspaceRouteMode.collection
@@ -319,6 +321,9 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
 }) {
   final theme = context.conduitTheme;
   final isIos = PlatformInfo.isIOS;
+  final textScaler = MediaQuery.textScalerOf(context);
+  final controlExtent = conduitScaledControlExtent(context);
+  final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
 
   Widget sectionMenu({required bool activePlatform}) => _WorkspaceSectionMenu(
     key: activePlatform ? const Key('workspace-section-tabs') : null,
@@ -338,15 +343,24 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
     ),
   );
 
+  final materialLeading = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: _workspaceExitButton(context),
+  );
+  final materialTitle = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: sectionMenu(activePlatform: !isIos),
+  );
+  final materialCreate = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: createButton(activePlatform: !isIos),
+  );
+
   return AdaptiveAppBar(
     useNativeToolbar: false,
     tintColor: theme.textPrimary,
-    cupertinoNavigationBar: CupertinoNavigationBar(
-      automaticallyImplyLeading: false,
-      border: null,
-      backgroundColor: Colors.transparent,
-      automaticBackgroundVisibility: false,
-      enableBackgroundFilterBlur: false,
+    cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+      textScaler: textScaler,
       leading: _workspaceExitButton(context),
       middle: sectionMenu(activePlatform: isIos),
       trailing: canCreate
@@ -360,14 +374,16 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
       shadowColor: Colors.transparent,
       elevation: Elevation.none,
       scrolledUnderElevation: Elevation.none,
+      toolbarHeight: toolbarHeight,
       centerTitle: true,
-      leading: _workspaceExitButton(context),
-      title: sectionMenu(activePlatform: !isIos),
+      leadingWidth: controlExtent + Spacing.md,
+      leading: materialLeading,
+      title: materialTitle,
       actions: canCreate
           ? [
               Padding(
                 padding: const EdgeInsets.only(right: Spacing.inputPadding),
-                child: createButton(activePlatform: !isIos),
+                child: materialCreate,
               ),
             ]
           : null,
@@ -394,6 +410,8 @@ class _WorkspaceSectionMenu extends StatelessWidget {
     }
 
     final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final controlScale = conduitSystemControlScaleOf(context);
+    final iconSize = conduitScaledIconExtent(context, IconSize.small);
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: label,
@@ -401,61 +419,64 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       maxWidth: 260,
       minWidth: 120,
       horizontalPadding: 20,
-      trailingWidth: IconSize.small + Spacing.sm,
+      trailingWidth: iconSize + Spacing.sm,
     );
 
-    return AdaptivePopupMenuButton.widget<WorkspaceSection>(
-      tint: context.conduitTheme.textPrimary,
-      buttonStyle: PopupButtonStyle.glass,
-      child: SizedBox(
-        width: targetWidth,
-        height: 32,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: textStyle,
+    final menuSize = Size(targetWidth, 32 * controlScale);
+    return ThemedSheets.hideNativeChromeWhileCovered(
+      replacement: SizedBox.fromSize(size: menuSize),
+      child: AdaptivePopupMenuButton.widget<WorkspaceSection>(
+        tint: context.conduitTheme.textPrimary,
+        buttonStyle: PopupButtonStyle.glass,
+        child: SizedBox.fromSize(
+          size: menuSize,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Icon(
-                PlatformInfo.isIOS
-                    ? CupertinoIcons.chevron_down
-                    : Icons.keyboard_arrow_down_rounded,
-                size: IconSize.small,
-                color: context.conduitTheme.iconSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
-      items: [
-        for (final item in permitted)
-          AdaptivePopupMenuItem<WorkspaceSection>(
-            value: item,
-            label: _sectionLabel(l10n, item),
-            icon: conduitAdaptivePopupMenuIcon(
-              iosSymbol: item == selected
-                  ? 'checkmark'
-                  : _sectionIosSymbol(item),
-              materialIcon: item == selected
-                  ? Icons.check_rounded
-                  : _sectionIcon(item),
+                const SizedBox(width: Spacing.sm),
+                ConduitSystemAdaptiveIcon(
+                  PlatformInfo.isIOS
+                      ? CupertinoIcons.chevron_down
+                      : Icons.keyboard_arrow_down_rounded,
+                  size: iconSize,
+                  color: context.conduitTheme.iconSecondary,
+                ),
+              ],
             ),
           ),
-      ],
-      onSelected: (_, entry) {
-        final next = entry.value;
-        if (next != null && next != selected) {
-          context.pushReplacement(next.path);
-        }
-      },
+        ),
+        items: [
+          for (final item in permitted)
+            AdaptivePopupMenuItem<WorkspaceSection>(
+              value: item,
+              label: _sectionLabel(l10n, item),
+              icon: conduitAdaptivePopupMenuIcon(
+                iosSymbol: item == selected
+                    ? 'checkmark'
+                    : _sectionIosSymbol(item),
+                materialIcon: item == selected
+                    ? Icons.check_rounded
+                    : _sectionIcon(item),
+              ),
+            ),
+        ],
+        onSelected: (_, entry) {
+          final next = entry.value;
+          if (next != null && next != selected) {
+            context.pushReplacement(next.path);
+          }
+        },
+      ),
     );
   }
 }
@@ -534,7 +555,10 @@ Widget _workspaceExitButton(BuildContext context) {
   return context.usesCupertinoChrome
       ? button
       : Center(
-          child: SizedBox.square(dimension: TouchTarget.minimum, child: button),
+          child: SizedBox.square(
+            dimension: conduitScaledControlExtent(context),
+            child: button,
+          ),
         );
 }
 
@@ -914,7 +938,9 @@ class _WorkspaceIosCollectionShellState
       ),
       body: Padding(
         padding: EdgeInsets.only(
-          top: MediaQuery.paddingOf(context).top + kTextTabBarHeight,
+          top:
+              MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context),
         ),
         child: Material(
           color: Colors.transparent,

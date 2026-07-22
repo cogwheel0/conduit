@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 Widget _buildHarness({
   required String source,
+  bool fillAvailableHeight = false,
   VoidCallback? onControllerReset,
 }) {
   return MaterialApp(
@@ -18,6 +19,7 @@ Widget _buildHarness({
         source: source,
         deferUntilExpanded: true,
         initiallyExpanded: false,
+        fillAvailableHeight: fillAvailableHeight,
         debugTreatAsSupported: true,
         debugSeedControllerForTesting: true,
         debugOnControllerReset: onControllerReset,
@@ -54,6 +56,25 @@ void main() {
     expect(document, isNot(contains('</script><script>steal()</script>')));
   });
 
+  test('full-height documents ignore sandbox resize messages', () {
+    final document = WebContentEmbed.debugWrapHtmlDocument(
+      '<div>chart</div>',
+      fillAvailableHeight: true,
+    );
+
+    expect(document, contains('height: 100vh'));
+    expect(document, contains('const fillAvailableHeight = true;'));
+    expect(document, contains('if (fillAvailableHeight) return;'));
+  });
+
+  test('intrinsic-height documents retain sandbox resize handling', () {
+    final document = WebContentEmbed.debugWrapHtmlDocument('<div>chart</div>');
+
+    expect(document, contains('height: 360.0px'));
+    expect(document, contains('const fillAvailableHeight = false;'));
+    expect(document, contains(r'frame.style.height = `${clamped}px`;'));
+  });
+
   testWidgets('collapsed source changes clear stale controllers', (
     tester,
   ) async {
@@ -72,6 +93,56 @@ void main() {
     await tester.pumpWidget(
       _buildHarness(
         source: '<div>second</div>',
+        onControllerReset: () => resetCount += 1,
+      ),
+    );
+    await tester.pump();
+
+    expect(resetCount, 1);
+  });
+
+  testWidgets('enabling full height clears the existing controller', (
+    tester,
+  ) async {
+    var resetCount = 0;
+
+    await tester.pumpWidget(
+      _buildHarness(
+        source: '<div>chart</div>',
+        onControllerReset: () => resetCount += 1,
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        source: '<div>chart</div>',
+        fillAvailableHeight: true,
+        onControllerReset: () => resetCount += 1,
+      ),
+    );
+    await tester.pump();
+
+    expect(resetCount, 1);
+  });
+
+  testWidgets('disabling full height clears the existing controller', (
+    tester,
+  ) async {
+    var resetCount = 0;
+
+    await tester.pumpWidget(
+      _buildHarness(
+        source: '<div>chart</div>',
+        fillAvailableHeight: true,
+        onControllerReset: () => resetCount += 1,
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      _buildHarness(
+        source: '<div>chart</div>',
         onControllerReset: () => resetCount += 1,
       ),
     );

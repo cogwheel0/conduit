@@ -47,8 +47,16 @@ class WebContentEmbed extends StatefulWidget {
   final VoidCallback? debugOnControllerReset;
 
   @visibleForTesting
-  static String debugWrapHtmlDocument(String source, {String argsText = ''}) {
-    return _WebContentEmbedState._wrapHtmlDocument(source, argsText: argsText);
+  static String debugWrapHtmlDocument(
+    String source, {
+    String argsText = '',
+    bool fillAvailableHeight = false,
+  }) {
+    return _WebContentEmbedState._wrapHtmlDocument(
+      source,
+      argsText: argsText,
+      fillAvailableHeight: fillAvailableHeight,
+    );
   }
 
   @override
@@ -139,7 +147,8 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     if (oldWidget.source != widget.source ||
         oldWidget.argsText != widget.argsText ||
         oldWidget.deferUntilExpanded != widget.deferUntilExpanded ||
-        oldWidget.initiallyExpanded != widget.initiallyExpanded) {
+        oldWidget.initiallyExpanded != widget.initiallyExpanded ||
+        oldWidget.fillAvailableHeight != widget.fillAvailableHeight) {
       _loadScheduled = false;
       _retryLoadScheduled = false;
       _isExpanded = widget.initiallyExpanded || !widget.deferUntilExpanded;
@@ -274,7 +283,11 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       } else {
         final baseUrl = WebUri('https://embed.conduit.local/');
         await controller.loadData(
-          data: _wrapHtmlDocument(widget.source, argsText: widget.argsText),
+          data: _wrapHtmlDocument(
+            widget.source,
+            argsText: widget.argsText,
+            fillAvailableHeight: widget.fillAvailableHeight,
+          ),
           baseUrl: baseUrl,
           historyUrl: baseUrl,
         );
@@ -468,7 +481,11 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     );
   }
 
-  static String _wrapHtmlDocument(String source, {String argsText = ''}) {
+  static String _wrapHtmlDocument(
+    String source, {
+    String argsText = '',
+    bool fillAvailableHeight = false,
+  }) {
     final sandboxedSource = _injectSandboxBootstrap(source, argsText: argsText);
     final encodedSource = _escapeHtmlAttribute(sandboxedSource);
     return '''
@@ -487,7 +504,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       #embed-frame {
         display: block;
         width: 100%;
-        height: ${_embedDefaultHeight}px;
+        height: ${fillAvailableHeight ? '100vh' : '${_embedDefaultHeight}px'};
         min-height: ${_embedMinHeight}px;
         border: 0;
         background: transparent;
@@ -497,6 +514,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       (() => {
         const minHeight = $_embedMinHeight;
         const maxHeight = $_embedMaxHeight;
+        const fillAvailableHeight = $fillAvailableHeight;
         window.addEventListener('message', (event) => {
           const data = event.data || {};
           if (data.type !== 'conduit-embed-height') return;
@@ -506,6 +524,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
           const frame = document.getElementById('embed-frame');
           if (!frame) return;
+          if (fillAvailableHeight) return;
 
           const clamped = Math.min(Math.max(height, minHeight), maxHeight);
           frame.style.height = `\${clamped}px`;

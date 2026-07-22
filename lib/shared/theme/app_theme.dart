@@ -118,7 +118,12 @@ class AppTheme {
         backgroundColor: surfaces.card,
         modalBackgroundColor: surfaces.card,
         surfaceTintColor: surfaces.card,
-        shape: RoundedRectangleBorder(borderRadius: shapes.extraLarge),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppBorderRadius.bottomSheet),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
         showDragHandle: false,
       ),
       cardTheme: CardThemeData(

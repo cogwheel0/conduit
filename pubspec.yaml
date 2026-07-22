@@ -40,6 +40,13 @@ dependencies:
   archive: ^4.0.9
   xml: ^7.0.1
   flutter_inappwebview: ^6.1.5
+  flutter_svg: ^2.3.0
+  # Native Mermaid renderer. These unpublished workspace packages are pinned
+  # as submodules under third_party/.
+  mermaid_core:
+    path: third_party/mermaid/packages/mermaid_core
+  mermaid_flutter:
+    path: third_party/mermaid/packages/mermaid_flutter
   socket_io_client: ^3.1.2
   yaml: ^3.1.2
   
@@ -107,6 +114,14 @@ dependencies:
   # Document model + markdown/HTML codecs backing the Fleather note editor.
   parchment: ^1.27.0
 
+# Required while mermaid_flutter declares mermaid_core from the hosted source:
+# Pub cannot combine that source with Conduit's unpublished path package, even
+# though both versions are 0.1.0. Remove once the upstream dependency is hosted
+# or points to the adjacent workspace package.
+dependency_overrides:
+  mermaid_core:
+    path: third_party/mermaid/packages/mermaid_core
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -138,7 +153,6 @@ flutter:
   assets:
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
-    - assets/mermaid.min.js
     - assets/chartjs.min.js
     - assets/flutter_tex.js
     - assets/flutter_tex.css

@@ -7,6 +7,7 @@ import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -279,6 +280,66 @@ void main() {
       expect(find.byType(ComposerOverflowSheet), findsNothing);
     },
   );
+
+  testWidgets('covered composer removes its light-only surface shadow', (
+    tester,
+  ) async {
+    Finder composerSurfaceShadow() => find.descendant(
+      of: find.byType(ModernChatInput),
+      matching: find.byWidgetPredicate((widget) {
+        if (widget case DecoratedBox(
+          decoration: final BoxDecoration decoration,
+        )) {
+          return decoration.boxShadow?.any(
+                (shadow) => shadow.color == const Color(0x18000000),
+              ) ??
+              false;
+        }
+        return false;
+      }),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(null)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Navigator(
+            onGenerateRoute: (_) => MaterialPageRoute<void>(
+              builder: (nestedContext) => Scaffold(
+                body: Column(
+                  children: [
+                    Expanded(child: ModernChatInput(onSendMessage: (_) {})),
+                    TextButton(
+                      onPressed: () => ThemedSheets.showRoundedPage<void>(
+                        context: nestedContext,
+                        builder: (_) => const SizedBox.expand(),
+                      ),
+                      child: const Text('Open sheet'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(composerSurfaceShadow(), findsOneWidget);
+
+    await tester.tap(find.text('Open sheet'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(composerSurfaceShadow(), findsNothing);
+
+    Navigator.of(tester.element(find.byType(BottomSheet))).pop();
+    await tester.pumpAndSettle();
+    expect(ThemedSheets.hasActiveSheet, isFalse);
+  });
 }
 
 final class _FixedDiscoveryController extends DirectModelDiscoveryController {

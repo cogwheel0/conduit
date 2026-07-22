@@ -141,6 +141,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final tintColor = context.conduitTheme.textPrimary;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final hasOverflowMenu = folder != null;
     const leadingGap = kConduitAdaptiveToolbarLeadingGap;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
@@ -159,21 +162,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     final leadingWidth = resolveConduitAdaptiveToolbarLeadingWidth(
       pillWidth: maxModelWidth,
       leadingGap: leadingGap,
+      controlExtent: controlExtent,
     );
     final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
+    final scaledLeading = ConduitSystemTextScaling(
+      textScaler: textScaler,
+      child: leading,
+    );
+    final scaledActions = [
+      for (final action in actions)
+        ConduitSystemTextScaling(textScaler: textScaler, child: action),
+    ];
 
     return AdaptiveAppBar(
       useNativeToolbar: false,
       tintColor: tintColor,
-      cupertinoNavigationBar: CupertinoNavigationBar(
-        automaticallyImplyLeading: false,
-        border: null,
-        backgroundColor: Colors.transparent,
-        automaticBackgroundVisibility: false,
-        brightness: Theme.of(context).brightness,
-        enableBackgroundFilterBlur: false,
+      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: textScaler,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -182,13 +190,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        toolbarHeight: kTextTabBarHeight,
+        toolbarHeight: toolbarHeight,
         systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: leadingWidth,
-        leading: leading,
-        actions: actions,
+        leading: scaledLeading,
+        actions: scaledActions,
       ),
     );
   }
@@ -1315,7 +1323,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         folderConversationsAsync.isLoading && sortedConversations.isEmpty;
 
     final topPadding =
-        MediaQuery.of(context).padding.top + kTextTabBarHeight + Spacing.md;
+        MediaQuery.of(context).padding.top +
+        conduitAdaptiveToolbarHeightOf(context) +
+        Spacing.md;
     final slivers = <Widget>[
       SliverToBoxAdapter(child: SizedBox(height: topPadding)),
       SliverPadding(
@@ -1430,7 +1440,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ];
 
     final scrollView = ConduitRefreshIndicator(
-      edgeOffset: MediaQuery.of(context).padding.top + kTextTabBarHeight,
+      edgeOffset:
+          MediaQuery.of(context).padding.top +
+          conduitAdaptiveToolbarHeightOf(context),
       onRefresh: _refreshFolderContents,
       child: CustomScrollView(
         key: ValueKey<String>('folder-page-${widget.folderId}'),
@@ -1457,7 +1469,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             top: 0,
             child: ConduitChromeGradientFade.top(
               contentHeight:
-                  MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+                  MediaQuery.viewPaddingOf(context).top +
+                  conduitAdaptiveToolbarHeightOf(context),
             ),
           ),
           Positioned(

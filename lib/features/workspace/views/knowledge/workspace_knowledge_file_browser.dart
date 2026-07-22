@@ -17,6 +17,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 /// File/directory browser embedded in the knowledge editor. Renders breadcrumbs,
 /// nested directories, files with ingestion status, and (when writable) the
@@ -259,10 +260,9 @@ class _Browser extends ConsumerWidget {
   Future<void> _attachExisting(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
     final notifier = _notifier(ref);
-    await showModalBottomSheet<void>(
+    await ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (_) => ServerFilePickerSheet(
         onSelected: (FileInfo file) async {
           await _guard(
@@ -995,8 +995,9 @@ class _MoveSheet {
       for (final dir in options)
         if (seen.add(dir.id)) dir,
     ];
-    return showModalBottomSheet<WorkspaceKnowledgeDirectory>(
+    return ThemedSheets.showSurface<WorkspaceKnowledgeDirectory>(
       context: context,
+      padding: EdgeInsets.zero,
       builder: (sheetContext) {
         final l10n = AppLocalizations.of(sheetContext)!;
         return SafeArea(

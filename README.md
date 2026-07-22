@@ -207,7 +207,10 @@ flutter run -d ios
 flutter run -d android
 ```
 
-The `--recursive` flag pulls the `openwebui-src` submodule — a vendored Open WebUI checkout used as an API reference during development; the app builds without it.
+The `--recursive` flag pulls the Mermaid and KaTeX renderer submodules required
+to build the app, plus `openwebui-src`, a vendored Open WebUI checkout used only
+as an API reference. For an existing clone, run
+`git submodule update --init --recursive` before `flutter pub get`.
 
 ### Developer checks
 

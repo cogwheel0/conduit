@@ -806,6 +806,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }) {
     final label = channel?.name ?? '';
     final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
     final leadingIcon = channel?.isPrivate == true
         ? Icons.lock_outlined
         : Icons.tag;
@@ -816,13 +818,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       maxWidth: maxWidth,
       minWidth: 96,
       horizontalPadding: 10 + Spacing.xs,
-      leadingWidth: IconSize.appBar + Spacing.xs,
+      leadingWidth: iconExtent + Spacing.xs,
     );
 
     return buildConduitAdaptiveToolbarPillSurface(
       width: targetWidth,
+      height: controlExtent,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
           padding: const EdgeInsets.only(left: 10, right: Spacing.xs),
           child: Center(
@@ -830,10 +833,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
+                ConduitSystemAdaptiveIcon(
                   leadingIcon,
-                  size: IconSize.appBar,
-                  color: textStyle.color,
+                  size: iconExtent,
+                  color: textStyle.color!,
                 ),
                 const SizedBox(width: Spacing.xs),
                 Flexible(
@@ -882,6 +885,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     Channel? channel,
     AppLocalizations? l10n,
   ) {
+    final textScaler = MediaQuery.textScalerOf(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: channel?.userCount != null ? 2 : 1,
@@ -908,18 +914,23 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     );
     final overlayStyle = Theme.of(context).appBarTheme.systemOverlayStyle;
 
+    final scaledLeading = ConduitSystemTextScaling(
+      textScaler: textScaler,
+      child: leading,
+    );
+    final scaledActions = [
+      for (final action in actions)
+        ConduitSystemTextScaling(textScaler: textScaler, child: action),
+    ];
+
     return AdaptiveAppBar(
       useNativeToolbar: false,
       tintColor: tintColor,
-      cupertinoNavigationBar: CupertinoNavigationBar(
-        automaticallyImplyLeading: false,
-        border: null,
-        backgroundColor: Colors.transparent,
-        automaticBackgroundVisibility: false,
-        brightness: Theme.of(context).brightness,
-        enableBackgroundFilterBlur: false,
+      cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: textScaler,
         leading: leading,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        systemOverlayStyle: overlayStyle,
       ),
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -928,16 +939,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         shadowColor: Colors.transparent,
         elevation: Elevation.none,
         scrolledUnderElevation: Elevation.none,
-        toolbarHeight: kTextTabBarHeight,
+        toolbarHeight: toolbarHeight,
         systemOverlayStyle: overlayStyle,
         centerTitle: false,
         titleSpacing: Spacing.sm,
         leadingWidth: resolveConduitAdaptiveToolbarLeadingWidth(
           pillWidth: maxTitleWidth,
           leadingGap: leadingGap,
+          controlExtent: controlExtent,
         ),
-        leading: leading,
-        actions: actions,
+        leading: scaledLeading,
+        actions: scaledActions,
       ),
     );
   }
@@ -1006,7 +1018,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                     padding: EdgeInsets.only(
                       top:
                           MediaQuery.of(context).padding.top +
-                          kTextTabBarHeight,
+                          conduitAdaptiveToolbarHeightOf(context),
                     ),
                     child: ThreadPanel(
                       channelId: widget.channelId,
@@ -1027,7 +1039,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
             top: 0,
             child: ConduitChromeGradientFade.top(
               contentHeight:
-                  MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight,
+                  MediaQuery.viewPaddingOf(context).top +
+                  conduitAdaptiveToolbarHeightOf(context),
             ),
           ),
         ],
