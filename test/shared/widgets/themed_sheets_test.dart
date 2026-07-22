@@ -6,6 +6,7 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -270,6 +271,52 @@ void main() {
     }
     expect(ThemedSheets.hasActiveSheet, isTrue);
   });
+
+  testWidgets(
+    'chat navigation chrome restores and follows enlarged system text scaling',
+    (tester) async {
+      const systemTextScaler = TextScaler.linear(3);
+      late double observedTextSize;
+
+      final navigationBar = ConduitAdaptiveCupertinoNavigationBar(
+        textScaler: systemTextScaler,
+        leading: Builder(
+          builder: (context) {
+            observedTextSize = MediaQuery.textScalerOf(context).scale(17);
+            return const ConduitAdaptiveAppBarIconButton(
+              key: ValueKey<String>('scaled-toolbar-button'),
+              icon: Icons.menu,
+              onPressed: null,
+            );
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: CupertinoPageScaffold(
+            navigationBar: navigationBar,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      );
+
+      expect(resolveConduitSystemControlScale(TextScaler.noScaling), 1);
+      expect(
+        resolveConduitSystemControlScale(systemTextScaler),
+        kConduitMaximumSystemControlScale,
+      );
+      expect(navigationBar.preferredSize.height, 72);
+      expect(observedTextSize, 51);
+      expect(
+        tester.getSize(
+          find.byKey(const ValueKey<String>('scaled-toolbar-button')),
+        ),
+        const Size.square(66),
+      );
+    },
+  );
 
   testWidgets(
     'root sheets remove persistent overlay chrome before presenting',

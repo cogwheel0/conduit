@@ -47,6 +47,7 @@ import '../../../shared/utils/ask_conduit_context_menu.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../core/utils/prompt_variable_parser.dart';
 import '../../prompts/widgets/prompt_variable_dialog.dart';
@@ -2623,7 +2624,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                           ),
                         )
                       : SizedBox(
-                          height: 36.0,
+                          height: conduitScaledControlExtent(
+                            context,
+                            baseExtent: 36,
+                          ),
                           child: Center(
                             child: _buildInlineMicAction(voiceAvailable),
                           ),
@@ -3012,7 +3016,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool dense = false,
     List<IosKeyboardAttachmentActionConfig> nativeActions = const [],
   }) {
-    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
+    final double buttonSize = conduitScaledControlExtent(
+      context,
+      baseExtent: dense ? 36 : TouchTarget.minimum,
+    );
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
 
     // Let the parent supply a completely custom overflow button.
     if (widget.overflowButtonBuilder != null) {
@@ -3050,12 +3058,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         isProminent: false,
         androidShowBackground: true,
         color: nativePanelVisible ? theme.surfaceContainerHighest : null,
-        child: Icon(overflowIcon, size: IconSize.large, color: iconColor),
+        child: Icon(overflowIcon, size: iconSize, color: iconColor),
       ),
     );
   }
 
   Widget _buildExpandButton(VoidCallback onTap) {
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -3063,16 +3072,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         padding: const EdgeInsets.all(Spacing.xs),
         child: Icon(
           Icons.open_in_full,
-          size: IconSize.large,
+          size: iconSize,
           color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
         ),
       ),
     );
   }
 
-  Widget _buildDictationStopButton({double size = TouchTarget.minimum}) {
+  Widget _buildDictationStopButton({double? size}) {
     final theme = context.conduitTheme;
-    final iconSize = size <= 36.0 ? IconSize.medium : IconSize.large;
+    final baseSize = size ?? TouchTarget.minimum;
+    final buttonSize = conduitScaledControlExtent(
+      context,
+      baseExtent: baseSize,
+    );
+    final iconSize = conduitScaledIconExtent(
+      context,
+      baseSize <= 36 ? IconSize.medium : IconSize.large,
+    );
     final background = theme.surfaceContainerHighest.withValues(alpha: 0.96);
     final border = theme.cardBorder.withValues(alpha: 0.75);
 
@@ -3087,8 +3104,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               }
             : null,
         child: Container(
-          width: size,
-          height: size,
+          width: buttonSize,
+          height: buttonSize,
           decoration: BoxDecoration(
             color: background,
             shape: BoxShape.circle,
@@ -3110,7 +3127,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool enabledMic = widget.enabled && (voiceAvailable || _isRecording);
     final theme = context.conduitTheme;
     final bool active = _isRecording;
-    final double buttonSize = size ?? 36.0;
+    final double buttonSize = conduitScaledControlExtent(
+      context,
+      baseExtent: size ?? 36,
+    );
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
     final IconData iconData = active
         ? (Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop_rounded)
         : (Platform.isIOS ? CupertinoIcons.mic : Icons.mic);
@@ -3142,7 +3163,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: Icon(
         iconData,
         key: ValueKey<IconData>(iconData),
-        size: IconSize.large,
+        size: iconSize,
         color: iconColor,
       ),
     );
@@ -3174,6 +3195,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget _buildCreateDraftNoteButton({required bool isLoading}) {
     final l10n = AppLocalizations.of(context)!;
     final bool enabled = widget.enabled && !isLoading && !_isRecording;
+    final buttonSize = conduitScaledControlExtent(context, baseExtent: 36);
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
     final iconColor = enabled
         ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
         : context.conduitTheme.textSecondary.withValues(alpha: Alpha.disabled);
@@ -3183,12 +3206,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: _buildComposerIconButton(
         key: const ValueKey('create-draft-note-button'),
         onPressed: enabled ? _createNoteFromDraft : null,
-        size: 36.0,
+        size: buttonSize,
         isProminent: false,
         child: isLoading
             ? SizedBox(
-                width: IconSize.large,
-                height: IconSize.large,
+                width: iconSize,
+                height: iconSize,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
                   color: context.conduitTheme.textSecondary,
@@ -3198,7 +3221,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 Platform.isIOS
                     ? CupertinoIcons.doc_text
                     : Icons.note_add_outlined,
-                size: IconSize.large,
+                size: iconSize,
                 color: iconColor,
               ),
       ),
@@ -3214,7 +3237,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool hasUploadsInProgress, {
     bool dense = false,
   }) {
-    final double buttonSize = dense ? 36.0 : TouchTarget.minimum;
+    final double buttonSize = conduitScaledControlExtent(
+      context,
+      baseExtent: dense ? 36 : TouchTarget.minimum,
+    );
+    final largeIconSize = conduitScaledIconExtent(context, IconSize.large);
+    final primaryIconSize = conduitScaledIconExtent(
+      context,
+      dense ? IconSize.large : IconSize.xl,
+    );
 
     // Don't allow sending until all uploads are complete
     final enabled =
@@ -3234,7 +3265,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           isProminent: true,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
-            size: dense ? IconSize.large : IconSize.xl,
+            size: primaryIconSize,
             color: context.conduitTheme.buttonPrimaryText,
           ),
         ),
@@ -3256,8 +3287,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : null;
       final sendChild = hasUploadsInProgress
           ? SizedBox(
-              width: IconSize.large,
-              height: IconSize.large,
+              width: largeIconSize,
+              height: largeIconSize,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
                 color: context.conduitTheme.textSecondary,
@@ -3265,7 +3296,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             )
           : Icon(
               CupertinoIcons.arrow_up,
-              size: IconSize.large,
+              size: largeIconSize,
               color: enabled
                   ? context.conduitTheme.buttonPrimaryText
                   : context.conduitTheme.textPrimary.withValues(
@@ -3304,7 +3335,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           isProminent: true,
           child: Icon(
             Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq,
-            size: dense ? IconSize.large : IconSize.xl,
+            size: primaryIconSize,
             color: enabledVoiceCall
                 ? context.conduitTheme.buttonPrimaryText
                 : context.conduitTheme.textPrimary.withValues(
@@ -3323,7 +3354,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isProminent: false,
       child: Icon(
         CupertinoIcons.arrow_up,
-        size: IconSize.large,
+        size: largeIconSize,
         color: context.conduitTheme.textPrimary.withValues(
           alpha: Alpha.disabled,
         ),
