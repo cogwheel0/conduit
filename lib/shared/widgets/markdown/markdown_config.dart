@@ -2083,20 +2083,29 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
   Object? _renderError;
 
   void _renderIfNeeded() {
-    if (_renderedCode == widget.code) {
-      return;
-    }
-    _renderedCode = widget.code;
-    try {
-      _lightRender = _render(
-        widget.code,
-        mermaid_core.MermaidTheme.defaultTheme,
-      );
-      _darkRender = _render(widget.code, mermaid_core.MermaidTheme.darkTheme);
-      _renderError = null;
-    } catch (error) {
+    if (_renderedCode != widget.code) {
+      _renderedCode = widget.code;
       _lightRender = null;
       _darkRender = null;
+      _renderError = null;
+    }
+
+    final needsActiveRender = widget.brightness == Brightness.dark
+        ? _darkRender == null
+        : _lightRender == null;
+    if (!needsActiveRender) return;
+
+    try {
+      if (widget.brightness == Brightness.dark) {
+        _darkRender = _render(widget.code, mermaid_core.MermaidTheme.darkTheme);
+      } else {
+        _lightRender = _render(
+          widget.code,
+          mermaid_core.MermaidTheme.defaultTheme,
+        );
+      }
+      _renderError = null;
+    } catch (error) {
       _renderError = error;
     }
   }
@@ -2114,19 +2123,37 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
 
   Future<void> _openFullscreen() async {
     final callback = widget.onRequestFullscreen;
-    final light = _lightRender;
-    final dark = _darkRender;
-    if (callback == null ||
-        light == null ||
-        dark == null ||
-        _presentingFullscreen) {
+    if (callback == null || _presentingFullscreen) {
       return;
     }
+    final code = widget.code;
     setState(() {
       _presentingFullscreen = true;
     });
     await WidgetsBinding.instance.endOfFrame;
     try {
+      if (!mounted || widget.code != code) return;
+
+      MermaidRenderResult light;
+      MermaidRenderResult dark;
+      try {
+        light =
+            _lightRender ??
+            _render(code, mermaid_core.MermaidTheme.defaultTheme);
+        dark =
+            _darkRender ?? _render(code, mermaid_core.MermaidTheme.darkTheme);
+        _lightRender = light;
+        _darkRender = dark;
+        _renderError = null;
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _renderError = error;
+          });
+        }
+        return;
+      }
+
       await callback(light, dark);
     } finally {
       if (mounted) {
@@ -2481,6 +2508,7 @@ class _MermaidCanvasControlButton extends StatelessWidget {
       child: Semantics(
         button: true,
         label: label,
+        onTap: onPressed,
         child: ExcludeSemantics(
           child: SizedBox.square(
             dimension: _MermaidSheetCanvasState._controlSize,

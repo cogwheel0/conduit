@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1174,6 +1175,13 @@ graph TD
     expect(find.bySemanticsLabel('Reset diagram position'), findsOneWidget);
     expect(find.bySemanticsLabel('Lock pan and zoom'), findsOneWidget);
     expect(find.byTooltip('Close Mermaid preview'), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('Zoom in'))
+          .getSemanticsData()
+          .hasAction(ui.SemanticsAction.tap),
+      isTrue,
+    );
 
     var viewer = tester.widget<InteractiveViewer>(
       find.byKey(const ValueKey<String>('mermaid-sheet-interactive-viewer')),

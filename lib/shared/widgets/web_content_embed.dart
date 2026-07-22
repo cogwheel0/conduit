@@ -47,8 +47,16 @@ class WebContentEmbed extends StatefulWidget {
   final VoidCallback? debugOnControllerReset;
 
   @visibleForTesting
-  static String debugWrapHtmlDocument(String source, {String argsText = ''}) {
-    return _WebContentEmbedState._wrapHtmlDocument(source, argsText: argsText);
+  static String debugWrapHtmlDocument(
+    String source, {
+    String argsText = '',
+    bool fillAvailableHeight = false,
+  }) {
+    return _WebContentEmbedState._wrapHtmlDocument(
+      source,
+      argsText: argsText,
+      fillAvailableHeight: fillAvailableHeight,
+    );
   }
 
   @override
@@ -139,7 +147,8 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     if (oldWidget.source != widget.source ||
         oldWidget.argsText != widget.argsText ||
         oldWidget.deferUntilExpanded != widget.deferUntilExpanded ||
-        oldWidget.initiallyExpanded != widget.initiallyExpanded) {
+        oldWidget.initiallyExpanded != widget.initiallyExpanded ||
+        oldWidget.fillAvailableHeight != widget.fillAvailableHeight) {
       _loadScheduled = false;
       _retryLoadScheduled = false;
       _isExpanded = widget.initiallyExpanded || !widget.deferUntilExpanded;
@@ -505,6 +514,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       (() => {
         const minHeight = $_embedMinHeight;
         const maxHeight = $_embedMaxHeight;
+        const fillAvailableHeight = $fillAvailableHeight;
         window.addEventListener('message', (event) => {
           const data = event.data || {};
           if (data.type !== 'conduit-embed-height') return;
@@ -514,6 +524,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
 
           const frame = document.getElementById('embed-frame');
           if (!frame) return;
+          if (fillAvailableHeight) return;
 
           const clamped = Math.min(Math.max(height, minHeight), maxHeight);
           frame.style.height = `\${clamped}px`;

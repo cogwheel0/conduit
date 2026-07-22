@@ -114,9 +114,11 @@ dependencies:
   # Document model + markdown/HTML codecs backing the Fleather note editor.
   parchment: ^1.27.0
 
+# Required while mermaid_flutter declares mermaid_core from the hosted source:
+# Pub cannot combine that source with Conduit's unpublished path package, even
+# though both versions are 0.1.0. Remove once the upstream dependency is hosted
+# or points to the adjacent workspace package.
 dependency_overrides:
-  # Resolve mermaid_flutter's hosted constraint to its adjacent unpublished
-  # workspace package.
   mermaid_core:
     path: third_party/mermaid/packages/mermaid_core
 

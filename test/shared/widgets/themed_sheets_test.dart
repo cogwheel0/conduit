@@ -1,7 +1,9 @@
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/utils/adaptive_glass.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:flutter/material.dart';
@@ -246,12 +248,26 @@ void main() {
       ),
     );
 
-    expect(find.byType(AdaptiveButton), findsNWidgets(2));
+    final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
+    if (usesOpaqueFallback) {
+      expect(find.byType(AdaptiveButton), findsNothing);
+      expect(find.byType(FloatingAppBarIconButton), findsOneWidget);
+      expect(find.byType(FloatingAppBarButton), findsNWidgets(2));
+    } else {
+      expect(find.byType(AdaptiveButton), findsNWidgets(2));
+      expect(find.byType(FloatingAppBarIconButton), findsNothing);
+      expect(find.byType(FloatingAppBarButton), findsNothing);
+    }
 
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(AdaptiveButton), findsNothing);
+    if (usesOpaqueFallback) {
+      expect(find.byType(FloatingAppBarIconButton), findsOneWidget);
+      expect(find.byType(FloatingAppBarButton), findsNWidgets(2));
+    } else {
+      expect(find.byType(AdaptiveButton), findsNothing);
+    }
     expect(ThemedSheets.hasActiveSheet, isTrue);
   });
 }

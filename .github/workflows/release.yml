@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Create Release with Notes
         uses: ncipollo/release-action@v1
@@ -39,6 +41,8 @@ jobs:
         #1 Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
         #2 Setup Java
       - name: Set Up Java
@@ -118,6 +122,8 @@ jobs:
         #1 Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
         #2 Setup Flutter
       - name: Set Up Flutter
