@@ -20,6 +20,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           submodules: recursive
 
       - name: Create Release with Notes
@@ -42,6 +43,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           submodules: recursive
 
         #2 Setup Java
@@ -123,6 +125,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           submodules: recursive
 
         #2 Setup Flutter
