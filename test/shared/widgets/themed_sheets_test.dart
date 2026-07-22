@@ -270,4 +270,51 @@ void main() {
     }
     expect(ThemedSheets.hasActiveSheet, isTrue);
   });
+
+  testWidgets(
+    'root sheets remove persistent overlay chrome before presenting',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Column(
+                children: [
+                  ThemedSheets.hideNativeChromeWhileCovered(
+                    child: const SizedBox(
+                      key: ValueKey<String>('persistent-native-overlay'),
+                      width: 40,
+                      height: 40,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => ThemedSheets.showRoundedPage<void>(
+                      context: context,
+                      builder: (_) => const SizedBox.expand(),
+                    ),
+                    child: const Text('Open'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey<String>('persistent-native-overlay')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('persistent-native-overlay')),
+        findsNothing,
+      );
+      expect(ThemedSheets.hasActiveSheet, isTrue);
+    },
+  );
 }

@@ -3201,26 +3201,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ),
                     );
                   },
-                  child: Consumer(
-                    builder: (context, scrollButtonRef, _) {
-                      final hasMessages = scrollButtonRef.watch(
-                        hasChatMessagesProvider,
-                      );
-                      return (_showScrollToBottom &&
-                              !keyboardVisible &&
-                              canScroll &&
-                              hasMessages)
-                          ? Center(
-                              key: const ValueKey('scroll_to_bottom_visible'),
-                              child: AdaptiveTooltip(
-                                message: l10n.scrollToBottom,
-                                child: _buildScrollToBottomButton(context),
-                              ),
-                            )
-                          : const SizedBox.shrink(
-                              key: ValueKey('scroll_to_bottom_hidden'),
-                            );
-                    },
+                  child: ThemedSheets.hideNativeChromeWhileCovered(
+                    child: Consumer(
+                      builder: (context, scrollButtonRef, _) {
+                        final hasMessages = scrollButtonRef.watch(
+                          hasChatMessagesProvider,
+                        );
+                        return (_showScrollToBottom &&
+                                !keyboardVisible &&
+                                canScroll &&
+                                hasMessages)
+                            ? Center(
+                                key: const ValueKey('scroll_to_bottom_visible'),
+                                child: AdaptiveTooltip(
+                                  message: l10n.scrollToBottom,
+                                  child: _buildScrollToBottomButton(context),
+                                ),
+                              )
+                            : const SizedBox.shrink(
+                                key: ValueKey('scroll_to_bottom_hidden'),
+                              );
+                      },
+                    ),
                   ),
                 ),
               ),

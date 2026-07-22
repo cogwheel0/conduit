@@ -38,6 +38,22 @@ class ThemedSheets {
 
   static Listenable get activeSheetListenable => _activeSheetCount;
 
+  /// Removes UIKit-backed chrome before a tracked root sheet is presented.
+  ///
+  /// Native glass controls use platform views whose compositor layer can sit
+  /// above Flutter modal routes. The tracked sheet presenter updates this
+  /// signal one frame before pushing the route so covered controls are gone
+  /// before the sheet starts animating.
+  static Widget hideNativeChromeWhileCovered({
+    required Widget child,
+    Widget replacement = const SizedBox.shrink(),
+  }) {
+    return ListenableBuilder(
+      listenable: activeSheetListenable,
+      builder: (context, _) => hasActiveSheet ? replacement : child,
+    );
+  }
+
   /// Prevents compact sheets from stretching across tablet and desktop widths.
   static const double maxSheetWidth = 640;
 

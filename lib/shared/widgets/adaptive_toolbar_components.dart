@@ -18,10 +18,9 @@ Widget _hideNativeToolbarChromeWhileSheetCovered({
   required Size size,
   required Widget child,
 }) {
-  return ListenableBuilder(
-    listenable: ThemedSheets.activeSheetListenable,
-    builder: (context, _) =>
-        ThemedSheets.hasActiveSheet ? SizedBox.fromSize(size: size) : child,
+  return ThemedSheets.hideNativeChromeWhileCovered(
+    replacement: SizedBox.fromSize(size: size),
+    child: child,
   );
 }
 
