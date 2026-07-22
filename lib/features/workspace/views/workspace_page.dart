@@ -24,6 +24,7 @@ import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 class WorkspacePage extends ConsumerWidget {
   const WorkspacePage({
@@ -421,58 +422,61 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       trailingWidth: iconSize + Spacing.sm,
     );
 
-    return AdaptivePopupMenuButton.widget<WorkspaceSection>(
-      tint: context.conduitTheme.textPrimary,
-      buttonStyle: PopupButtonStyle.glass,
-      child: SizedBox(
-        width: targetWidth,
-        height: 32 * controlScale,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: textStyle,
+    final menuSize = Size(targetWidth, 32 * controlScale);
+    return ThemedSheets.hideNativeChromeWhileCovered(
+      replacement: SizedBox.fromSize(size: menuSize),
+      child: AdaptivePopupMenuButton.widget<WorkspaceSection>(
+        tint: context.conduitTheme.textPrimary,
+        buttonStyle: PopupButtonStyle.glass,
+        child: SizedBox.fromSize(
+          size: menuSize,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              ConduitSystemAdaptiveIcon(
-                PlatformInfo.isIOS
-                    ? CupertinoIcons.chevron_down
-                    : Icons.keyboard_arrow_down_rounded,
-                size: iconSize,
-                color: context.conduitTheme.iconSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
-      items: [
-        for (final item in permitted)
-          AdaptivePopupMenuItem<WorkspaceSection>(
-            value: item,
-            label: _sectionLabel(l10n, item),
-            icon: conduitAdaptivePopupMenuIcon(
-              iosSymbol: item == selected
-                  ? 'checkmark'
-                  : _sectionIosSymbol(item),
-              materialIcon: item == selected
-                  ? Icons.check_rounded
-                  : _sectionIcon(item),
+                const SizedBox(width: Spacing.sm),
+                ConduitSystemAdaptiveIcon(
+                  PlatformInfo.isIOS
+                      ? CupertinoIcons.chevron_down
+                      : Icons.keyboard_arrow_down_rounded,
+                  size: iconSize,
+                  color: context.conduitTheme.iconSecondary,
+                ),
+              ],
             ),
           ),
-      ],
-      onSelected: (_, entry) {
-        final next = entry.value;
-        if (next != null && next != selected) {
-          context.pushReplacement(next.path);
-        }
-      },
+        ),
+        items: [
+          for (final item in permitted)
+            AdaptivePopupMenuItem<WorkspaceSection>(
+              value: item,
+              label: _sectionLabel(l10n, item),
+              icon: conduitAdaptivePopupMenuIcon(
+                iosSymbol: item == selected
+                    ? 'checkmark'
+                    : _sectionIosSymbol(item),
+                materialIcon: item == selected
+                    ? Icons.check_rounded
+                    : _sectionIcon(item),
+              ),
+            ),
+        ],
+        onSelected: (_, entry) {
+          final next = entry.value;
+          if (next != null && next != selected) {
+            context.pushReplacement(next.path);
+          }
+        },
+      ),
     );
   }
 }

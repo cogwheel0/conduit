@@ -2029,8 +2029,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Widget _buildEditor(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
-    // App bar height: kTextTabBarHeight + metadata bar (~40)
-    final appBarHeight = kTextTabBarHeight + 40;
+    // Adaptive app bar height + metadata bar (~40).
+    final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
 
     // Get attached files
     final files = _note?.data.files ?? [];

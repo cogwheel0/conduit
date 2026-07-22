@@ -6,6 +6,7 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -310,27 +311,25 @@ void main() {
         ),
       );
 
-      expect(resolveConduitSystemControlScale(TextScaler.noScaling), 1);
-      expect(
+      check(resolveConduitSystemControlScale(TextScaler.noScaling)).equals(1);
+      check(
         resolveConduitSystemControlScale(systemTextScaler),
-        kConduitMaximumSystemControlScale,
-      );
-      expect(navigationBar.preferredSize.height, 72);
-      expect(observedTextSize, 51);
-      expect(observedBoldText, isTrue);
-      expect(
+      ).equals(kConduitMaximumSystemControlScale);
+      check(navigationBar.preferredSize.height).equals(72);
+      check(observedTextSize).equals(51);
+      check(observedBoldText).isTrue();
+      check(
         tester.getSize(
           find.byKey(const ValueKey<String>('scaled-toolbar-button')),
         ),
-        const Size.square(66),
-      );
+      ).equals(const Size.square(66));
       final icon = tester.widget<Icon>(
         find.descendant(
           of: find.byKey(const ValueKey<String>('scaled-toolbar-button')),
           matching: find.byType(Icon),
         ),
       );
-      expect(icon.shadows, isNotEmpty);
+      check(icon.shadows).isNotNull().isNotEmpty();
     },
   );
 

@@ -18,6 +18,7 @@ import 'package:conduit/features/workspace/workspace_navigation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 void main() {
   testWidgets('compact shell shows app bar section menu and collection', (
@@ -43,6 +44,45 @@ void main() {
 
     expect(find.text('Models'), findsWidgets);
     expect(find.text('Tools'), findsOneWidget);
+  });
+
+  testWidgets('compact section menu stays below a presented sheet', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_workspaceHarness());
+    await tester.pumpAndSettle();
+
+    final activeSectionLabel = find.descendant(
+      of: find.byKey(const Key('workspace-section-tabs')),
+      matching: find.text('Workspace · Models'),
+    );
+    expect(activeSectionLabel, findsOneWidget);
+
+    final sheetFuture = ThemedSheets.showSurface<void>(
+      context: tester.element(find.byType(WorkspacePage)),
+      builder: (_) => const SizedBox(
+        key: ValueKey<String>('workspace-test-sheet'),
+        height: 200,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(activeSectionLabel, findsNothing);
+
+    Navigator.of(
+      tester.element(
+        find.byKey(const ValueKey<String>('workspace-test-sheet')),
+      ),
+    ).pop();
+    await tester.pumpAndSettle();
+    await sheetFuture;
+
+    expect(activeSectionLabel, findsOneWidget);
   });
 
   testWidgets('compact Android exit surface stays at toolbar action size', (
