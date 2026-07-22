@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,7 +62,7 @@ void main() {
       of: find.byKey(const Key('workspace-section-tabs')),
       matching: find.text('Workspace · Models'),
     );
-    expect(activeSectionLabel, findsOneWidget);
+    check(activeSectionLabel.evaluate()).length.equals(1);
 
     final sheetFuture = ThemedSheets.showSurface<void>(
       context: tester.element(find.byType(WorkspacePage)),
@@ -72,7 +73,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(activeSectionLabel, findsNothing);
+    check(activeSectionLabel.evaluate()).isEmpty();
 
     Navigator.of(
       tester.element(
@@ -82,7 +83,7 @@ void main() {
     await tester.pumpAndSettle();
     await sheetFuture;
 
-    expect(activeSectionLabel, findsOneWidget);
+    check(activeSectionLabel.evaluate()).length.equals(1);
   });
 
   testWidgets('compact Android exit surface stays at toolbar action size', (
