@@ -344,35 +344,6 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
   });
 
-  testWidgets('bottom navigation follows bounded system text scaling', (
-    tester,
-  ) async {
-    final controllers = _SidebarHarnessControllers();
-    await tester.pumpWidget(
-      _buildSidebarHarness(
-        controllers: controllers,
-        textScaler: const TextScaler.linear(3),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final navigationBar = find.byKey(
-      const ValueKey<String>('sidebar-scaled-bottom-navigation'),
-    );
-    expect(tester.getSize(navigationBar).height, 84);
-
-    final chatsLabel = find.descendant(
-      of: navigationBar,
-      matching: find.byWidgetPredicate(
-        (widget) => widget is RichText && widget.text.toPlainText() == 'Chats',
-      ),
-    );
-    final richText = tester.widget<RichText>(chatsLabel.first);
-    final scaledLabelSize = richText.textScaler.scale(12);
-    expect(scaledLabelSize, greaterThan(12));
-    expect(scaledLabelSize, lessThanOrEqualTo(18));
-  });
-
   testWidgets(
     'Hermes-only mode keeps its sole tab while enabled state is settling',
     (tester) async {
@@ -1712,7 +1683,6 @@ Widget _buildSidebarHarness({
   Conversation? activeConversation,
   ThemeData? theme,
   SyncStatus? syncStatus,
-  TextScaler? textScaler,
 }) {
   final availableTerminalServers = terminalServers ?? _defaultTerminalServers();
   final router = GoRouter(
@@ -1849,12 +1819,6 @@ Widget _buildSidebarHarness({
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
-      builder: textScaler == null
-          ? null
-          : (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-              child: child!,
-            ),
     ),
   );
 }

@@ -3,9 +3,6 @@ import 'package:adaptive_platform_ui/adaptive_platform_ui.dart';
 import 'package:adaptive_platform_ui/src/widgets/ios26/ios26_native_toolbar.dart';
 import 'package:flutter/cupertino.dart';
 
-import '../theme/theme_extensions.dart';
-import 'adaptive_toolbar_components.dart';
-
 /// iOS 26 sidebar scaffold workaround for `adaptive_platform_ui`.
 ///
 /// The sidebar owns tab body switching and keeps one body tree mounted. This
@@ -43,8 +40,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
         bottomNavigationBar!.items!.isNotEmpty &&
         bottomNavigationBar!.selectedIndex != null &&
         bottomNavigationBar!.onTap != null;
-    final usesScaledFlutterBottomNavigation =
-        hasBottomNavigation && conduitSystemControlScaleOf(context) > 1;
     final brightness = MediaQuery.platformBrightnessOf(context);
     final textColor = brightness == Brightness.dark
         ? CupertinoColors.white
@@ -79,25 +74,17 @@ class SidebarIos26Scaffold extends StatelessWidget {
             ),
           if (hasBottomNavigation)
             Positioned(
-              left: usesScaledFlutterBottomNavigation ? Spacing.md : 0,
-              right: usesScaledFlutterBottomNavigation ? Spacing.md : 0,
+              left: 0,
+              right: 0,
               bottom: 0,
-              child: usesScaledFlutterBottomNavigation
-                  ? SafeArea(
-                      top: false,
-                      minimum: const EdgeInsets.only(bottom: Spacing.sm),
-                      child:
-                          bottomNavigationBar!.bottomNavigationBar ??
-                          const SizedBox.shrink(),
-                    )
-                  : IOS26NativeTabBar(
-                      destinations: bottomNavigationBar!.items!,
-                      selectedIndex: bottomNavigationBar!.selectedIndex!,
-                      onTap: bottomNavigationBar!.onTap!,
-                      tint: CupertinoTheme.of(context).primaryColor,
-                      minimizeBehavior: minimizeBehavior,
-                      showNativeView: shouldShowNativeView,
-                    ),
+              child: IOS26NativeTabBar(
+                destinations: bottomNavigationBar!.items!,
+                selectedIndex: bottomNavigationBar!.selectedIndex!,
+                onTap: bottomNavigationBar!.onTap!,
+                tint: CupertinoTheme.of(context).primaryColor,
+                minimizeBehavior: minimizeBehavior,
+                showNativeView: shouldShowNativeView,
+              ),
             ),
         ],
       ),
