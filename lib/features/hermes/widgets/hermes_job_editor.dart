@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../models/hermes_job.dart';
 
 final RegExp _hermesDurationPattern = RegExp(
@@ -119,7 +120,9 @@ Future<({String name, String prompt, String schedule})?> showHermesJobEditor(
   String? initialPrompt,
   String? initialSchedule,
 }) {
-  return showDialog<({String name, String prompt, String schedule})>(
+  return ThemedDialogs.showCustom<
+    ({String name, String prompt, String schedule})
+  >(
     context: context,
     builder: (context) => _HermesJobEditorDialog(
       initialName: initialName,
@@ -188,9 +191,9 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
     final theme = context.conduitTheme;
     final isEditing = widget.initialPrompt != null;
 
-    return AlertDialog(
-      backgroundColor: theme.surfaceBackground,
-      title: Text(isEditing ? 'Edit job' : 'New scheduled job'),
+    return ThemedDialogs.buildBase(
+      context: context,
+      title: isEditing ? 'Edit job' : 'New scheduled job',
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

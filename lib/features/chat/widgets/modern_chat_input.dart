@@ -244,6 +244,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   int _contextSuggestionRequestId = 0;
   bool _isNativeAttachmentPanelVisible = false;
 
+  bool get _isRouteVisible =>
+      !ThemedSheets.hasActiveSheet &&
+      TickerMode.valuesOf(context).enabled &&
+      (ModalRoute.isCurrentOf(context) ?? true);
+
   /// Service for handling clipboard paste operations.
   final ClipboardAttachmentService _clipboardService =
       ClipboardAttachmentService();
@@ -251,6 +256,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   @override
   void initState() {
     super.initState();
+    ThemedSheets.activeSheetListenable.addListener(_handleActiveSheetChanged);
 
     // Apply any prefilled text on first frame (focus handled via inputFocusTrigger)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -335,6 +341,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Note: Avoid using ref in dispose as per Riverpod best practices
     // The focus state will be naturally cleared when the widget is disposed
     _controller.removeListener(_handleComposerChanged);
+    ThemedSheets.activeSheetListenable.removeListener(
+      _handleActiveSheetChanged,
+    );
     _controller.dispose();
     _focusNode.dispose();
     _pendingFocus = false;
@@ -352,6 +361,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     _voiceService?.stopListening();
     super.dispose();
+  }
+
+  void _handleActiveSheetChanged() {
+    if (mounted) setState(() {});
   }
 
   void _ensureFocusedIfEnabled() {
@@ -3421,6 +3434,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final effectiveColor = color ?? theme.buttonPrimary;
     final androidBackgroundColor =
         color ?? theme.surfaceContainerHighest.withValues(alpha: 0.95);
+
+    // iOS glass buttons are UIKit platform views. Remove them while another
+    // route covers the composer so their compositor layer cannot bleed
+    // through an opaque Flutter modal sheet.
+    if (conduitSupportsNativeGlass() && !_isRouteVisible) {
+      return SizedBox.square(dimension: size);
+    }
+
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final buttonStyle = usesOpaqueFallback
         ? (isProminent || androidShowBackground
@@ -3464,7 +3485,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       theme.surfaceContainerHighest,
     );
 
-    if (conduitSupportsNativeGlass()) {
+    if (conduitSupportsNativeGlass() && _isRouteVisible) {
       return Stack(
         key: key,
         fit: StackFit.passthrough,
@@ -3543,7 +3564,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ),
   }) {
     final isLight = Theme.of(context).brightness == Brightness.light;
-    if (!isLight) return child;
+    if (!isLight || !_isRouteVisible) return child;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: borderRadius,

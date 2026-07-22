@@ -21,6 +21,7 @@ import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1137,6 +1138,130 @@ graph TD
       expect(find.text('Open preview'), findsNothing);
     },
   );
+
+  testWidgets('opens a mermaid preview in the full-height Conduit sheet', (
+    tester,
+  ) async {
+    const content = '''
+```mermaid
+graph TD
+  A[Native Flutter] --> B[Rendered]
+```
+''';
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('Open Mermaid preview'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mermaid Preview'), findsOneWidget);
+    expect(find.byType(MermaidDiagram), findsOneWidget);
+    expect(find.byType(WebContentEmbed), findsNothing);
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(ConduitModalSheetHeader), findsOneWidget);
+    final sheet = tester.widget<BottomSheet>(find.byType(BottomSheet));
+    expect(
+      sheet.shape,
+      ThemedSheets.roundedShapeFor(
+        tester.element(find.byType(ConduitModalSheetHeader)),
+      ),
+    );
+    expect(sheet.clipBehavior, Clip.antiAlias);
+    expect(find.bySemanticsLabel('Pan up'), findsOneWidget);
+    expect(find.bySemanticsLabel('Zoom in'), findsOneWidget);
+    expect(find.bySemanticsLabel('Reset diagram position'), findsOneWidget);
+    expect(find.bySemanticsLabel('Lock pan and zoom'), findsOneWidget);
+    expect(find.byTooltip('Close Mermaid preview'), findsOneWidget);
+
+    var viewer = tester.widget<InteractiveViewer>(
+      find.byKey(const ValueKey<String>('mermaid-sheet-interactive-viewer')),
+    );
+    final controller = viewer.transformationController!;
+    final initialTransform = Matrix4.copy(controller.value);
+
+    await tester.tap(find.bySemanticsLabel('Zoom in'));
+    await tester.pump();
+    expect(
+      controller.value.getMaxScaleOnAxis(),
+      greaterThan(initialTransform.getMaxScaleOnAxis()),
+    );
+
+    await tester.tap(find.bySemanticsLabel('Reset diagram position'));
+    await tester.pump();
+    expect(controller.value.storage, orderedEquals(initialTransform.storage));
+
+    await tester.tap(find.bySemanticsLabel('Lock pan and zoom'));
+    await tester.pump();
+    expect(find.bySemanticsLabel('Enable pan and zoom'), findsOneWidget);
+    viewer = tester.widget<InteractiveViewer>(
+      find.byKey(const ValueKey<String>('mermaid-sheet-interactive-viewer')),
+    );
+    expect(viewer.panEnabled, isFalse);
+    expect(viewer.scaleEnabled, isFalse);
+  });
+
+  testWidgets('updates an open mermaid preview when the theme changes', (
+    tester,
+  ) async {
+    const content = '''
+```mermaid
+graph TD
+  A[Theme] --> B[Reactive]
+```
+''';
+    final themeMode = ValueNotifier(ThemeMode.light);
+    addTearDown(themeMode.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: ValueListenableBuilder<ThemeMode>(
+          valueListenable: themeMode,
+          builder: (context, mode, child) => MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            darkTheme: AppTheme.dark(TweakcnThemes.t3Chat),
+            themeMode: mode,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Open Mermaid preview'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('mermaid-sheet-light')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('mermaid-sheet-dark')),
+      findsNothing,
+    );
+
+    themeMode.value = ThemeMode.dark;
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mermaid Preview'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('mermaid-sheet-dark')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('mermaid-sheet-light')),
+      findsNothing,
+    );
+  });
 
   testWidgets(
     'automatically opens oversized heavy mermaid previews after streaming ends',
@@ -4052,6 +4177,15 @@ Tail keeps growing
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsOneWidget,
       );
+      expect(find.byType(ConduitModalSheetHeader), findsOneWidget);
+      final sheet = tester.widget<BottomSheet>(find.byType(BottomSheet));
+      expect(
+        sheet.shape,
+        ThemedSheets.roundedShapeFor(
+          tester.element(find.byType(ConduitModalSheetHeader)),
+        ),
+      );
+      expect(sheet.clipBehavior, Clip.antiAlias);
     },
   );
 
@@ -4146,8 +4280,55 @@ Reasoning body
         ),
         findsOneWidget,
       );
+      expect(
+        find.descendant(
+          of: find.byKey(
+            const ValueKey<String>('reasoning-details-sheet-body'),
+          ),
+          matching: find.byKey(
+            const ValueKey<String>('reasoning-details-sheet-header'),
+          ),
+        ),
+        findsNothing,
+      );
     },
   );
+
+  testWidgets('keeps the reasoning sheet header pinned while content scrolls', (
+    tester,
+  ) async {
+    final reasoningBody = List<String>.generate(
+      80,
+      (index) => 'Reasoning step $index with enough text to fill the sheet.',
+    ).join('\n\n');
+    final content =
+        '''
+<details type="reasoning" done="true" duration="5">
+<summary>Thinking…</summary>
+$reasoningBody
+</details>
+''';
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.tap(find.text('Thought for 5 seconds'));
+    await tester.pumpAndSettle();
+
+    final header = find.byKey(
+      const ValueKey<String>('reasoning-details-sheet-header'),
+    );
+    final body = find.byKey(
+      const ValueKey<String>('reasoning-details-sheet-body'),
+    );
+
+    await tester.drag(body, const Offset(0, -700));
+    await tester.pumpAndSettle();
+    final pinnedTop = tester.getTopLeft(header).dy;
+
+    await tester.drag(body, const Offset(0, -300));
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(header).dy, closeTo(pinnedTop, 0.5));
+  });
 
   testWidgets(
     'renders text that trails a closing details tag on the same line',

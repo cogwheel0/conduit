@@ -12,6 +12,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../models/hermes_job.dart';
 import '../providers/hermes_providers.dart';
 import '../utils/hermes_schedule_format.dart';
@@ -40,17 +41,14 @@ Future<void> showHermesJobsSheet(BuildContext context) async {
   }
 
   if (!context.mounted) return;
-  final theme = context.conduitTheme;
-  final action = await showModalBottomSheet<_HermesJobsSheetAction>(
+  final action = await ThemedSheets.showSurface<_HermesJobsSheetAction>(
     context: context,
-    showDragHandle: true,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: theme.surfaceBackground,
     constraints: BoxConstraints(
-      maxWidth: MediaQuery.sizeOf(context).width,
       maxHeight: MediaQuery.sizeOf(context).height * 0.78,
     ),
+    padding: EdgeInsets.zero,
     builder: (_) => const HermesJobsSheet(),
   );
   if (action == _HermesJobsSheetAction.manage && context.mounted) {

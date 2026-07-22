@@ -9,9 +9,21 @@ import '../utils/adaptive_glass.dart';
 import 'conduit_components.dart';
 import 'conduit_loading.dart';
 import 'middle_ellipsis_text.dart';
+import 'themed_sheets.dart';
 
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
+
+Widget _hideNativeToolbarChromeWhileSheetCovered({
+  required Size size,
+  required Widget child,
+}) {
+  return ListenableBuilder(
+    listenable: ThemedSheets.activeSheetListenable,
+    builder: (context, _) =>
+        ThemedSheets.hasActiveSheet ? SizedBox.fromSize(size: size) : child,
+  );
+}
 
 /// Builds the shared adaptive toolbar shell used by chat-style pages.
 AdaptiveAppBar buildConduitAdaptiveToolbarAppBar({
@@ -155,14 +167,17 @@ Widget buildConduitAdaptiveToolbarPillSurface({
     );
   }
 
-  return AdaptiveButton.child(
-    onPressed: onPressed ?? () {},
-    style: AdaptiveButtonStyle.glass,
-    size: AdaptiveButtonSize.large,
-    padding: EdgeInsets.zero,
-    minSize: Size(width, 44),
-    useSmoothRectangleBorder: false,
-    child: sizedChild,
+  return _hideNativeToolbarChromeWhileSheetCovered(
+    size: Size(width, 44),
+    child: AdaptiveButton.child(
+      onPressed: onPressed ?? () {},
+      style: AdaptiveButtonStyle.glass,
+      size: AdaptiveButtonSize.large,
+      padding: EdgeInsets.zero,
+      minSize: Size(width, 44),
+      useSmoothRectangleBorder: false,
+      child: sizedChild,
+    ),
   );
 }
 
@@ -301,14 +316,17 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       );
     }
 
-    return AdaptiveButton.child(
-      onPressed: onPressed,
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.large,
-      padding: EdgeInsets.zero,
-      minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-      useSmoothRectangleBorder: false,
-      child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: const Size.square(TouchTarget.minimum),
+      child: AdaptiveButton.child(
+        onPressed: onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        padding: EdgeInsets.zero,
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        useSmoothRectangleBorder: false,
+        child: Icon(icon, size: IconSize.appBar, color: effectiveIconColor),
+      ),
     );
   }
 }
@@ -425,14 +443,17 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       );
     }
 
-    return AdaptiveButton.child(
-      onPressed: (isLoading || !showChevron) ? null : onPressed,
-      style: AdaptiveButtonStyle.glass,
-      size: AdaptiveButtonSize.large,
-      padding: EdgeInsets.zero,
-      minSize: Size(targetWidth, 44),
-      useSmoothRectangleBorder: false,
-      child: child,
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: Size(targetWidth, 44),
+      child: AdaptiveButton.child(
+        onPressed: (isLoading || !showChevron) ? null : onPressed,
+        style: AdaptiveButtonStyle.glass,
+        size: AdaptiveButtonSize.large,
+        padding: EdgeInsets.zero,
+        minSize: Size(targetWidth, 44),
+        useSmoothRectangleBorder: false,
+        child: child,
+      ),
     );
   }
 }
@@ -473,13 +494,16 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
       );
     }
 
-    return AdaptivePopupMenuButton.icon<T>(
-      icon: Platform.isIOS ? iosIcon : materialIcon,
-      tint: tintColor,
-      size: TouchTarget.minimum,
-      buttonStyle: PopupButtonStyle.glass,
-      items: items,
-      onSelected: _handleSelected,
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: const Size.square(TouchTarget.minimum),
+      child: AdaptivePopupMenuButton.icon<T>(
+        icon: Platform.isIOS ? iosIcon : materialIcon,
+        tint: tintColor,
+        size: TouchTarget.minimum,
+        buttonStyle: PopupButtonStyle.glass,
+        items: items,
+        onSelected: _handleSelected,
+      ),
     );
   }
 }

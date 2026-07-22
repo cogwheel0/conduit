@@ -274,7 +274,11 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       } else {
         final baseUrl = WebUri('https://embed.conduit.local/');
         await controller.loadData(
-          data: _wrapHtmlDocument(widget.source, argsText: widget.argsText),
+          data: _wrapHtmlDocument(
+            widget.source,
+            argsText: widget.argsText,
+            fillAvailableHeight: widget.fillAvailableHeight,
+          ),
           baseUrl: baseUrl,
           historyUrl: baseUrl,
         );
@@ -468,7 +472,11 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     );
   }
 
-  static String _wrapHtmlDocument(String source, {String argsText = ''}) {
+  static String _wrapHtmlDocument(
+    String source, {
+    String argsText = '',
+    bool fillAvailableHeight = false,
+  }) {
     final sandboxedSource = _injectSandboxBootstrap(source, argsText: argsText);
     final encodedSource = _escapeHtmlAttribute(sandboxedSource);
     return '''
@@ -487,7 +495,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       #embed-frame {
         display: block;
         width: 100%;
-        height: ${_embedDefaultHeight}px;
+        height: ${fillAvailableHeight ? '100vh' : '${_embedDefaultHeight}px'};
         min-height: ${_embedMinHeight}px;
         border: 0;
         background: transparent;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
@@ -12,7 +13,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:highlight/highlight.dart' show Node, highlight;
+import 'package:mermaid_core/mermaid_core.dart' as mermaid_core;
+import 'package:mermaid_flutter/mermaid_flutter.dart' as mermaid_flutter;
 
 import 'package:conduit/l10n/app_localizations.dart';
 
@@ -548,69 +552,29 @@ class ConduitMarkdown {
       return;
     }
 
-    return ThemedSheets.showCustom<void>(
+    return ThemedSheets.showRoundedPage<void>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (sheetContext) {
         final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
-        return SizedBox(
-          height: MediaQuery.sizeOf(sheetContext).height,
+        return SizedBox.expand(
           child: ColoredBox(
             color: theme.surfaceBackground,
             child: Column(
               children: [
-                SafeArea(
-                  bottom: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: Spacing.sm),
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: theme.dividerColor.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          Spacing.lg,
-                          Spacing.sm,
-                          Spacing.lg,
-                          Spacing.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.visibility_outlined,
-                              size: 18,
-                              color: theme.textSecondary,
-                            ),
-                            const SizedBox(width: Spacing.sm),
-                            Expanded(
-                              child: Text(
-                                title,
-                                overflow: TextOverflow.ellipsis,
-                                style: markdownStyle.sheetTitle,
-                              ),
-                            ),
-                            SheetCloseButton(
-                              onPressed: () => Navigator.of(sheetContext).pop(),
-                              color: theme.textSecondary,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                ConduitModalSheetHeader(
+                  leading: Icon(
+                    Icons.visibility_outlined,
+                    size: 18,
+                    color: theme.textSecondary,
                   ),
-                ),
-                Divider(
-                  height: 1,
-                  color: theme.dividerColor.withValues(alpha: 0.3),
+                  title: title,
+                  titleStyle: markdownStyle.sheetTitle,
+                  onClose: () => Navigator.of(sheetContext).pop(),
+                  onVerticalDragEnd: (details) {
+                    if ((details.primaryVelocity ?? 0) > 500) {
+                      Navigator.of(sheetContext).pop();
+                    }
+                  },
                 ),
                 Expanded(
                   child: WebContentEmbed(
@@ -838,9 +802,63 @@ class ConduitMarkdown {
             brightness: materialTheme.brightness,
             colorScheme: materialTheme.colorScheme,
             tokens: tokens,
+            onRequestFullscreen: (light, dark) =>
+                showMermaidPreviewSheet(context, light: light, dark: dark),
           ),
         ),
       ),
+    );
+  }
+
+  static Future<void> showMermaidPreviewSheet(
+    BuildContext context, {
+    required MermaidRenderResult light,
+    required MermaidRenderResult dark,
+  }) async {
+    if (!context.mounted) {
+      return;
+    }
+
+    return ThemedSheets.showRoundedPage<void>(
+      context: context,
+      builder: (sheetContext) {
+        final conduitTheme = sheetContext.conduitTheme;
+        final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
+        final diagram = Theme.of(sheetContext).brightness == Brightness.dark
+            ? dark
+            : light;
+        return SizedBox.expand(
+          child: ColoredBox(
+            color: conduitTheme.surfaceBackground,
+            child: Column(
+              children: [
+                ConduitModalSheetHeader(
+                  leading: Icon(
+                    Icons.account_tree_outlined,
+                    size: 18,
+                    color: conduitTheme.textSecondary,
+                  ),
+                  title: 'Mermaid Preview',
+                  titleStyle: markdownStyle.sheetTitle,
+                  onClose: () => Navigator.of(sheetContext).pop(),
+                  closeTooltip: 'Close Mermaid preview',
+                  onVerticalDragEnd: (details) {
+                    if ((details.primaryVelocity ?? 0) > 500) {
+                      Navigator.of(sheetContext).pop();
+                    }
+                  },
+                ),
+                Expanded(
+                  child: _MermaidSheetCanvas(
+                    svg: diagram.svg,
+                    sceneSize: diagram.sceneSize,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2020,7 +2038,15 @@ $runtimeScript
   }
 }
 
-// Mermaid diagram WebView widget
+// Native Flutter Mermaid diagram widget.
+@immutable
+class MermaidRenderResult {
+  const MermaidRenderResult({required this.svg, required this.sceneSize});
+
+  final String svg;
+  final Size sceneSize;
+}
+
 class MermaidDiagram extends StatefulWidget {
   const MermaidDiagram({
     super.key,
@@ -2028,368 +2054,457 @@ class MermaidDiagram extends StatefulWidget {
     required this.brightness,
     required this.colorScheme,
     required this.tokens,
+    this.allowFullscreen = true,
+    this.onRequestFullscreen,
   });
 
   final String code;
   final Brightness brightness;
   final ColorScheme colorScheme;
   final AppColorTokens tokens;
+  final bool allowFullscreen;
+  final Future<void> Function(
+    MermaidRenderResult light,
+    MermaidRenderResult dark,
+  )?
+  onRequestFullscreen;
 
-  static bool get isSupported => !kIsWeb;
-
-  static Future<String> _loadScript() {
-    return _scriptFuture ??= rootBundle.loadString('assets/mermaid.min.js');
-  }
-
-  static Future<String>? _scriptFuture;
+  static bool get isSupported => true;
 
   @override
   State<MermaidDiagram> createState() => _MermaidDiagramState();
 }
 
 class _MermaidDiagramState extends State<MermaidDiagram> {
-  InAppWebViewController? _controller;
-  String? _script;
-  double _height = _mermaidPreviewMinHeight;
-  bool _isLoading = true;
-  int _loadRequestId = 0;
-  bool _loadScheduled = false;
-  bool _retryLoadScheduled = false;
-  final Set<Factory<OneSequenceGestureRecognizer>> _gestureRecognizers =
-      <Factory<OneSequenceGestureRecognizer>>{
-        Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
-      };
+  bool _presentingFullscreen = false;
+  String? _renderedCode;
+  MermaidRenderResult? _lightRender;
+  MermaidRenderResult? _darkRender;
+  Object? _renderError;
 
-  bool get _isRunningInTestEnvironment => _isRunningInWidgetTest();
-
-  @override
-  void dispose() {
-    _loadRequestId += 1;
-    _controller = null;
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(MermaidDiagram oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_controller == null || _script == null) {
+  void _renderIfNeeded() {
+    if (_renderedCode == widget.code) {
       return;
     }
-    final codeChanged = oldWidget.code != widget.code;
-    final themeChanged =
-        oldWidget.brightness != widget.brightness ||
-        oldWidget.colorScheme != widget.colorScheme ||
-        oldWidget.tokens != widget.tokens;
-    if (codeChanged || themeChanged) {
-      unawaited(_loadHtml());
+    _renderedCode = widget.code;
+    try {
+      _lightRender = _render(
+        widget.code,
+        mermaid_core.MermaidTheme.defaultTheme,
+      );
+      _darkRender = _render(widget.code, mermaid_core.MermaidTheme.darkTheme);
+      _renderError = null;
+    } catch (error) {
+      _lightRender = null;
+      _darkRender = null;
+      _renderError = error;
+    }
+  }
+
+  MermaidRenderResult _render(String code, mermaid_core.MermaidTheme theme) {
+    final scene = mermaid_core.Mermaid(
+      measurer: const mermaid_flutter.FlutterTextMeasurer(),
+      theme: theme,
+    ).render(code);
+    return MermaidRenderResult(
+      svg: mermaid_core.renderSceneToSvg(scene),
+      sceneSize: Size(scene.size.width, scene.size.height),
+    );
+  }
+
+  Future<void> _openFullscreen() async {
+    final callback = widget.onRequestFullscreen;
+    final light = _lightRender;
+    final dark = _darkRender;
+    if (callback == null ||
+        light == null ||
+        dark == null ||
+        _presentingFullscreen) {
+      return;
+    }
+    setState(() {
+      _presentingFullscreen = true;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    try {
+      await callback(light, dark);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _presentingFullscreen = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isRunningInTestEnvironment) {
-      return const SizedBox(
-        height: _mermaidPreviewMinHeight,
-        width: double.infinity,
-      );
-    }
+    _renderIfNeeded();
+    final render = widget.brightness == Brightness.dark
+        ? _darkRender
+        : _lightRender;
+    Widget view = render != null
+        ? Padding(
+            padding: const EdgeInsets.all(Spacing.md),
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: SvgPicture.string(
+                render.svg,
+                key: ValueKey(
+                  'mermaid-${widget.brightness.name}-${widget.code.hashCode}',
+                ),
+                width: render.sceneSize.width,
+                height: render.sceneSize.height,
+              ),
+            ),
+          )
+        : _buildError(
+            context,
+            _renderError ?? 'Unable to render Mermaid diagram.',
+          );
 
-    if (_script == null) {
-      _scheduleInitialization(context);
-      return const SizedBox(
-        height: _mermaidPreviewMinHeight,
-        child: Center(child: CircularProgressIndicator()),
+    if (widget.allowFullscreen && widget.onRequestFullscreen != null) {
+      view = Stack(
+        children: [
+          Positioned.fill(child: view),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Semantics(
+              button: true,
+              label: 'Open Mermaid preview',
+              child: Material(
+                color: Theme.of(context).colorScheme.surface,
+                elevation: 1,
+                shape: RoundedRectangleBorder(
+                  side: BorderSide(
+                    color: Theme.of(context).dividerColor,
+                    width: BorderWidth.thin,
+                  ),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: _openFullscreen,
+                  child: const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: Icon(Icons.open_in_full, size: 18),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
     return SizedBox(
-      height: _height,
+      height: _mermaidPreviewMinHeight,
       width: double.infinity,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: InAppWebView(
-              gestureRecognizers: _gestureRecognizers,
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                transparentBackground: true,
-              ),
-              onWebViewCreated: (controller) {
-                _controller = controller;
-                unawaited(_loadHtml());
-              },
-              onLoadStop: (controller, _) async {
-                if (!mounted || controller != _controller) {
-                  return;
-                }
-                await _scheduleHeightUpdates(_loadRequestId);
-              },
-              onReceivedError: (controller, request, error) {
-                if (!mounted ||
-                    controller != _controller ||
-                    !(request.isForMainFrame ?? false)) {
-                  return;
-                }
-                setState(() {
-                  _isLoading = false;
-                });
-              },
-            ),
-          ),
-          if (_isLoading)
-            const Positioned.fill(
-              child: ColoredBox(
-                color: Colors.transparent,
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            ),
-        ],
-      ),
+      child: view,
     );
   }
 
-  void _scheduleInitialization(BuildContext context) {
-    if (_isRunningInTestEnvironment ||
-        _loadScheduled ||
-        _script != null ||
-        !MermaidDiagram.isSupported) {
-      return;
-    }
+  Widget _buildError(BuildContext context, Object error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.md),
+        child: SelectableText(
+          '$error',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.error,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    if (Scrollable.recommendDeferredLoadingForContext(context)) {
-      if (_retryLoadScheduled) {
-        return;
-      }
-      _retryLoadScheduled = true;
-      Future<void>.delayed(const Duration(milliseconds: 250), () {
-        if (!mounted) {
-          return;
-        }
-        _retryLoadScheduled = false;
-        if (_script == null && !_loadScheduled) {
-          setState(() {});
-        }
-      });
-      return;
-    }
+class _MermaidSheetCanvas extends StatefulWidget {
+  const _MermaidSheetCanvas({required this.svg, required this.sceneSize});
 
-    _retryLoadScheduled = false;
-    _loadScheduled = true;
+  final String svg;
+  final Size sceneSize;
+
+  @override
+  State<_MermaidSheetCanvas> createState() => _MermaidSheetCanvasState();
+}
+
+class _MermaidSheetCanvasState extends State<_MermaidSheetCanvas> {
+  static const double _minScale = 0.2;
+  static const double _maxScale = 8;
+  static const double _controlSize = 32;
+  static const double _controlGap = 6;
+
+  final TransformationController _controller = TransformationController();
+  Size _viewportSize = Size.zero;
+  bool _interactive = true;
+  bool _resetScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant _MermaidSheetCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.svg != widget.svg ||
+        oldWidget.sceneSize != widget.sceneSize) {
+      _scheduleReset(_viewportSize);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scheduleReset(Size viewportSize) {
+    if (viewportSize.isEmpty || _resetScheduled) return;
+    _resetScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      unawaited(_initializeController());
+      _resetScheduled = false;
+      if (!mounted) return;
+      _reset(viewportSize);
     });
   }
 
-  Future<void> _initializeController() async {
-    if (_isRunningInTestEnvironment ||
-        !MermaidDiagram.isSupported ||
-        _script != null) {
-      _loadScheduled = false;
-      return;
-    }
+  void _reset([Size? viewportSize]) {
+    final viewport = viewportSize ?? _viewportSize;
+    if (viewport.isEmpty || widget.sceneSize.isEmpty) return;
 
-    try {
-      final value = await MermaidDiagram._loadScript();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _script = value;
-      });
-    } finally {
-      _loadScheduled = false;
-    }
+    final availableWidth = math.max(1.0, viewport.width - (Spacing.lg * 2));
+    final availableHeight = math.max(1.0, viewport.height - (Spacing.lg * 2));
+    final scale = math
+        .min(
+          availableWidth / widget.sceneSize.width,
+          availableHeight / widget.sceneSize.height,
+        )
+        .clamp(_minScale, 1.0)
+        .toDouble();
+    final dx = (viewport.width - (widget.sceneSize.width * scale)) / 2;
+    final dy = (viewport.height - (widget.sceneSize.height * scale)) / 2;
+
+    _controller.value = Matrix4.identity()
+      ..setEntry(0, 0, scale)
+      ..setEntry(1, 1, scale)
+      ..setTranslationRaw(dx, dy, 0);
   }
 
-  Future<void> _loadHtml() async {
-    final controller = _controller;
-    final script = _script;
-    if (controller == null || script == null) {
-      return;
-    }
-    final requestId = ++_loadRequestId;
-    if (mounted) {
-      setState(() {
-        _height = _mermaidPreviewMinHeight;
-        _isLoading = true;
-      });
-    }
-    final baseUrl = WebUri('https://mermaid-preview.conduit.local/');
-    try {
-      await controller.loadData(
-        data: _buildHtml(_sanitizeMermaidCode(widget.code), script),
-        baseUrl: baseUrl,
-        historyUrl: baseUrl,
-      );
-      if (!mounted ||
-          controller != _controller ||
-          requestId != _loadRequestId) {
-        return;
-      }
-      await _scheduleHeightUpdates(requestId);
-    } catch (_) {
-      if (!mounted || controller != _controller) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    }
+  void _pan(Offset delta) {
+    final next = Matrix4.copy(_controller.value);
+    final translation = next.getTranslation();
+    next.setTranslationRaw(
+      translation.x + delta.dx,
+      translation.y + delta.dy,
+      translation.z,
+    );
+    _controller.value = next;
   }
 
-  Future<void> _scheduleHeightUpdates(int requestId) async {
-    await _updateHeight(requestId);
-    for (final delay in <int>[60, 250, 600]) {
-      Future<void>.delayed(Duration(milliseconds: delay), () {
-        _updateHeight(requestId);
-      });
-    }
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted || requestId != _loadRequestId || !_isLoading) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    });
+  void _zoom(double factor) {
+    if (_viewportSize.isEmpty) return;
+    final current = _controller.value;
+    final currentScale = current.getMaxScaleOnAxis();
+    final targetScale = (currentScale * factor)
+        .clamp(_minScale, _maxScale)
+        .toDouble();
+    if (targetScale == currentScale) return;
+
+    final ratio = targetScale / currentScale;
+    final center = _viewportSize.center(Offset.zero);
+    final translation = current.getTranslation();
+    final dx = center.dx - ((center.dx - translation.x) * ratio);
+    final dy = center.dy - ((center.dy - translation.y) * ratio);
+
+    _controller.value = Matrix4.identity()
+      ..setEntry(0, 0, targetScale)
+      ..setEntry(1, 1, targetScale)
+      ..setTranslationRaw(dx, dy, 0);
   }
 
-  Future<void> _updateHeight(int requestId) async {
-    final controller = _controller;
-    if (controller == null) {
-      return;
-    }
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final safePadding = MediaQuery.viewPaddingOf(context);
+    final lockLabel = _interactive
+        ? 'Lock pan and zoom'
+        : 'Enable pan and zoom';
 
-    try {
-      final measuredHeight = await measureWebViewContentHeight(controller);
-      if (!mounted ||
-          requestId != _loadRequestId ||
-          measuredHeight == null ||
-          measuredHeight <= 0) {
-        return;
-      }
+    return ColoredBox(
+      color: colorScheme.surface,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewportSize = constraints.biggest;
+          if (_viewportSize != viewportSize) {
+            _viewportSize = viewportSize;
+            _scheduleReset(viewportSize);
+          }
 
-      final clampedHeight = measuredHeight
-          .clamp(_mermaidPreviewMinHeight, _embeddedPreviewMaxHeight)
-          .toDouble();
-      setState(() {
-        _height = clampedHeight;
-        _isLoading = false;
-      });
-    } catch (_) {}
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: Semantics(
+                  label: 'Interactive Mermaid diagram',
+                  child: InteractiveViewer(
+                    key: const ValueKey<String>(
+                      'mermaid-sheet-interactive-viewer',
+                    ),
+                    transformationController: _controller,
+                    constrained: false,
+                    alignment: Alignment.topLeft,
+                    boundaryMargin: const EdgeInsets.all(double.infinity),
+                    minScale: _minScale,
+                    maxScale: _maxScale,
+                    panEnabled: _interactive,
+                    scaleEnabled: _interactive,
+                    child: SizedBox(
+                      width: widget.sceneSize.width,
+                      height: widget.sceneSize.height,
+                      child: SvgPicture.string(
+                        widget.svg,
+                        key: ValueKey<String>(
+                          'mermaid-sheet-${Theme.of(context).brightness.name}',
+                        ),
+                        width: widget.sceneSize.width,
+                        height: widget.sceneSize.height,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: Spacing.md,
+                right: Spacing.lg,
+                child: _MermaidCanvasControlButton(
+                  label: lockLabel,
+                  icon: Icons.open_with_rounded,
+                  active: _interactive,
+                  onPressed: () {
+                    setState(() => _interactive = !_interactive);
+                  },
+                ),
+              ),
+              Positioned(
+                right: Spacing.lg + safePadding.right,
+                bottom: Spacing.lg + safePadding.bottom,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox.square(dimension: _controlSize),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Pan up',
+                          icon: Icons.arrow_upward_rounded,
+                          onPressed: () => _pan(const Offset(0, -64)),
+                        ),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Zoom in',
+                          icon: Icons.add_rounded,
+                          onPressed: () => _zoom(1.25),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: _controlGap),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _MermaidCanvasControlButton(
+                          label: 'Pan left',
+                          icon: Icons.arrow_back_rounded,
+                          onPressed: () => _pan(const Offset(-64, 0)),
+                        ),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Reset diagram position',
+                          icon: Icons.center_focus_strong_rounded,
+                          onPressed: _reset,
+                        ),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Pan right',
+                          icon: Icons.arrow_forward_rounded,
+                          onPressed: () => _pan(const Offset(64, 0)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: _controlGap),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox.square(dimension: _controlSize),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Pan down',
+                          icon: Icons.arrow_downward_rounded,
+                          onPressed: () => _pan(const Offset(0, 64)),
+                        ),
+                        const SizedBox(width: _controlGap),
+                        _MermaidCanvasControlButton(
+                          label: 'Zoom out',
+                          icon: Icons.remove_rounded,
+                          onPressed: () => _zoom(0.8),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
+}
 
-  String _sanitizeMermaidCode(String source) {
-    final lines = source.split('\n');
-    final normalized = <String>[];
-
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed == 'end' || trimmed.startsWith('end %%')) {
-        normalized.add(line);
-        continue;
-      }
-
-      var updated = line;
-      updated = updated.replaceFirstMapped(
-        RegExp(r'^(\s*classDef\s+)end(\b)'),
-        (match) => '${match[1]}endNode${match[2]}',
-      );
-      updated = updated.replaceFirstMapped(
-        RegExp(r'^(\s*class\s+[^;\n]+\s+)end(\s*;?\s*)$'),
-        (match) => '${match[1]}endNode${match[2]}',
-      );
-
-      normalized.add(updated);
-    }
-
-    return normalized.join('\n');
-  }
-
-  String _buildHtml(String code, String script) {
-    final theme = widget.brightness == Brightness.dark ? 'dark' : 'default';
-
-    return '''
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  html, body {
-    width: 100%;
-    margin: 0;
-    background-color: transparent;
-  }
-  body {
-    box-sizing: border-box;
-    overflow-x: hidden;
-  }
-  #container {
-    width: 100%;
-    background-color: transparent;
-  }
-  #mermaid-diagram {
-    width: 100%;
-  }
-  #mermaid-diagram,
-  #mermaid-diagram svg {
-    display: block;
-  }
-  #mermaid-diagram svg {
-    max-width: 100%;
-    height: auto;
-    margin: 0 auto;
-  }
-</style>
-</head>
-<body>
-<div id="container">
-  <div class="mermaid" id="mermaid-diagram"></div>
-</div>
-<script>$script</script>
-<script>
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: '$theme',
-    securityLevel: 'strict'
+class _MermaidCanvasControlButton extends StatelessWidget {
+  const _MermaidCanvasControlButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.active = false,
   });
 
-  var diagramCode = ${jsonEncode(code)};
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool active;
 
-  async function renderValidated(id, source) {
-    var parseResult = await mermaid.parse(source, { suppressErrors: false });
-    if (!parseResult) {
-      throw new Error('Mermaid parse failed');
-    }
-    var rendered = await mermaid.render(id, source);
-    if (
-      rendered &&
-      rendered.svg &&
-      rendered.svg.indexOf('Syntax error in text') !== -1
-    ) {
-      throw new Error('Mermaid render produced syntax error svg');
-    }
-    return rendered;
-  }
-
-  renderValidated('mermaid-svg', diagramCode).then(function(result) {
-    document.getElementById('mermaid-diagram').innerHTML = result.svg;
-  }).catch(function(err) {
-    var message = err.message || String(err);
-    var container = document.getElementById('mermaid-diagram');
-    container.textContent = '';
-    var pre = document.createElement('pre');
-    pre.style.color = 'red';
-    pre.style.padding = '16px';
-    pre.textContent = message;
-    container.appendChild(pre);
-  });
-</script>
-</body>
-</html>
-''';
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: ExcludeSemantics(
+          child: SizedBox.square(
+            dimension: _MermaidSheetCanvasState._controlSize,
+            child: Material(
+              color: active
+                  ? colorScheme.secondaryContainer
+                  : colorScheme.surfaceContainerHighest,
+              elevation: Elevation.low,
+              shape: RoundedRectangleBorder(
+                side: BorderSide(
+                  color: colorScheme.outlineVariant,
+                  width: BorderWidth.thin,
+                ),
+                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onPressed,
+                child: Icon(icon, size: 18, color: colorScheme.onSurface),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

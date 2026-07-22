@@ -269,39 +269,49 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                     return const SizedBox.shrink();
                   }
 
-                  return CustomScrollView(
-                    key: _isReasoning
-                        ? const ValueKey<String>('reasoning-details-sheet-body')
-                        : null,
-                    controller: controller,
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: KeyedSubtree(
-                          key: _isReasoning
-                              ? const ValueKey<String>(
-                                  'reasoning-details-sheet-header',
-                                )
-                              : null,
-                          child: _buildSheetHeader(
-                            sheetContext,
-                            theme: liveTheme,
-                            markdownStyle: markdownStyle,
-                            title: _modalTitle(sheetContext),
+                  return Column(
+                    children: [
+                      KeyedSubtree(
+                        key: _isReasoning
+                            ? const ValueKey<String>(
+                                'reasoning-details-sheet-header',
+                              )
+                            : null,
+                        child: ConduitModalSheetHeader(
+                          leading: _buildLeadingIcon(
+                            liveTheme,
+                            iconSize: IconSize.md,
+                            spinnerSize: IconSize.md,
                           ),
+                          title: _modalTitle(sheetContext),
+                          titleStyle: markdownStyle.sheetTitle,
+                          onClose: () => Navigator.of(sheetContext).pop(),
                         ),
                       ),
-                      SliverPadding(
-                        padding: EdgeInsets.fromLTRB(
-                          Spacing.lg,
-                          Spacing.sm,
-                          Spacing.lg,
-                          Spacing.lg + bottomSafePadding,
-                        ),
-                        sliver: SliverToBoxAdapter(
-                          child: KeyedSubtree(
-                            key: ValueKey<int>(value),
-                            child: liveBody,
-                          ),
+                      Expanded(
+                        child: CustomScrollView(
+                          key: _isReasoning
+                              ? const ValueKey<String>(
+                                  'reasoning-details-sheet-body',
+                                )
+                              : null,
+                          controller: controller,
+                          slivers: [
+                            SliverPadding(
+                              padding: EdgeInsets.fromLTRB(
+                                Spacing.lg,
+                                Spacing.sm,
+                                Spacing.lg,
+                                Spacing.lg + bottomSafePadding,
+                              ),
+                              sliver: SliverToBoxAdapter(
+                                child: KeyedSubtree(
+                                  key: ValueKey<int>(value),
+                                  child: liveBody,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -312,57 +322,6 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
           );
         },
       ),
-    );
-  }
-
-  Widget _buildSheetHeader(
-    BuildContext sheetContext, {
-    required ConduitThemeExtension theme,
-    required ConduitMarkdownStyle markdownStyle,
-    required String title,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: Spacing.sm),
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.dividerColor.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.lg,
-            vertical: Spacing.sm,
-          ),
-          child: Row(
-            children: [
-              _buildLeadingIcon(
-                theme,
-                iconSize: IconSize.md,
-                spinnerSize: IconSize.md,
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Text(
-                  title,
-                  overflow: TextOverflow.ellipsis,
-                  style: markdownStyle.sheetTitle,
-                ),
-              ),
-              SheetCloseButton(
-                onPressed: () => Navigator.of(sheetContext).pop(),
-                color: theme.textSecondary,
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
