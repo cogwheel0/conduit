@@ -170,14 +170,13 @@ const AssetImage kHermesTabIcon = AssetImage('assets/icons/hermes_agent.png');
 /// The bundled asset is black with transparency, so a raw [Image] would stay
 /// black in dark mode instead of inheriting the navigation icon color.
 class _HermesTabImage extends StatelessWidget {
-  const _HermesTabImage();
+  const _HermesTabImage({this.size = _kSidebarNavigationBarIconSize});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return const ImageIcon(
-      kHermesTabIcon,
-      size: _kSidebarNavigationBarIconSize,
-    );
+    return ImageIcon(kHermesTabIcon, size: size);
   }
 }
 
@@ -211,58 +210,89 @@ class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      child: NavigationBarTheme(
-        data: NavigationBarTheme.of(context).copyWith(
-          height: _kSidebarNavigationBarHeight,
-          backgroundColor: conduitTheme.surfaceBackground,
-          elevation: 0,
-          indicatorColor: conduitTheme.buttonPrimary.withValues(alpha: 0.12),
-          indicatorShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-          ),
-          iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>((states) {
-            final selected = states.contains(WidgetState.selected);
-            return IconThemeData(
-              color: selected
-                  ? conduitTheme.buttonPrimary
-                  : conduitTheme.textSecondary,
-              size: _kSidebarNavigationBarIconSize,
-            );
-          }),
-          labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((states) {
-            final selected = states.contains(WidgetState.selected);
-            return AppTypography.labelSmallStyle.copyWith(
-              color: selected
-                  ? conduitTheme.buttonPrimary
-                  : conduitTheme.textSecondary,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-            );
-          }),
+    final controlScale = conduitSystemControlScaleOf(context);
+    final navigationBarHeight = _kSidebarNavigationBarHeight * controlScale;
+    final iconSize = _kSidebarNavigationBarIconSize * controlScale;
+    final boundedTextScaler = TextScaler.linear(controlScale);
+
+    final borderRadius = BorderRadius.circular(AppBorderRadius.pill);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: conduitTheme.surfaceBackground.withValues(alpha: 0.96),
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: conduitTheme.cardBorder.withValues(alpha: 0.45),
         ),
-        child: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: onTap,
-          height: _kSidebarNavigationBarHeight,
-          backgroundColor: conduitTheme.surfaceBackground,
-          elevation: 0,
-          indicatorColor: conduitTheme.buttonPrimary.withValues(alpha: 0.12),
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: [
-            for (final item in navigationItems)
-              NavigationDestination(
-                icon: item.tabDefinition.id == _SidebarTabId.hermes
-                    ? const _HermesTabImage()
-                    : Icon(_materialTabIcon(item.tabDefinition.id)),
-                selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
-                    ? const _HermesTabImage()
-                    : Icon(
-                        _materialTabIcon(item.tabDefinition.id, selected: true),
-                      ),
-                label: item.label,
+        boxShadow: ConduitShadows.medium(context),
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: boundedTextScaler),
+          child: NavigationBarTheme(
+            data: NavigationBarTheme.of(context).copyWith(
+              height: navigationBarHeight,
+              backgroundColor: conduitTheme.surfaceBackground,
+              elevation: 0,
+              indicatorColor: conduitTheme.buttonPrimary.withValues(
+                alpha: 0.12,
               ),
-          ],
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+              ),
+              iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>((
+                states,
+              ) {
+                final selected = states.contains(WidgetState.selected);
+                return IconThemeData(
+                  color: selected
+                      ? conduitTheme.buttonPrimary
+                      : conduitTheme.textSecondary,
+                  size: iconSize,
+                );
+              }),
+              labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>((
+                states,
+              ) {
+                final selected = states.contains(WidgetState.selected);
+                return AppTypography.labelSmallStyle.copyWith(
+                  color: selected
+                      ? conduitTheme.buttonPrimary
+                      : conduitTheme.textSecondary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                );
+              }),
+            ),
+            child: NavigationBar(
+              key: const ValueKey<String>('sidebar-scaled-bottom-navigation'),
+              selectedIndex: selectedIndex,
+              onDestinationSelected: onTap,
+              height: navigationBarHeight,
+              backgroundColor: conduitTheme.surfaceBackground,
+              elevation: 0,
+              indicatorColor: conduitTheme.buttonPrimary.withValues(
+                alpha: 0.12,
+              ),
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              destinations: [
+                for (final item in navigationItems)
+                  NavigationDestination(
+                    icon: item.tabDefinition.id == _SidebarTabId.hermes
+                        ? _HermesTabImage(size: iconSize)
+                        : Icon(_materialTabIcon(item.tabDefinition.id)),
+                    selectedIcon: item.tabDefinition.id == _SidebarTabId.hermes
+                        ? _HermesTabImage(size: iconSize)
+                        : Icon(
+                            _materialTabIcon(
+                              item.tabDefinition.id,
+                              selected: true,
+                            ),
+                          ),
+                    label: item.label,
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -501,7 +531,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
           child: ConduitChromeGradientFade.bottom(
             contentHeight:
                 MediaQuery.viewPaddingOf(context).bottom +
-                _kSidebarNativeBottomBarContentHeight,
+                (_kSidebarNativeBottomBarContentHeight *
+                    conduitSystemControlScaleOf(context)),
           ),
         ),
       ],
