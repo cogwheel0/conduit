@@ -277,12 +277,14 @@ void main() {
     (tester) async {
       const systemTextScaler = TextScaler.linear(3);
       late double observedTextSize;
+      late bool observedBoldText;
 
       final navigationBar = ConduitAdaptiveCupertinoNavigationBar(
         textScaler: systemTextScaler,
         leading: Builder(
           builder: (context) {
             observedTextSize = MediaQuery.textScalerOf(context).scale(17);
+            observedBoldText = MediaQuery.boldTextOf(context);
             return const ConduitAdaptiveAppBarIconButton(
               key: ValueKey<String>('scaled-toolbar-button'),
               icon: Icons.menu,
@@ -293,11 +295,17 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          home: CupertinoPageScaffold(
-            navigationBar: navigationBar,
-            child: const SizedBox.expand(),
+        MediaQuery(
+          data: const MediaQueryData(
+            textScaler: systemTextScaler,
+            boldText: true,
+          ),
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            home: CupertinoPageScaffold(
+              navigationBar: navigationBar,
+              child: const SizedBox.expand(),
+            ),
           ),
         ),
       );
@@ -309,12 +317,20 @@ void main() {
       );
       expect(navigationBar.preferredSize.height, 72);
       expect(observedTextSize, 51);
+      expect(observedBoldText, isTrue);
       expect(
         tester.getSize(
           find.byKey(const ValueKey<String>('scaled-toolbar-button')),
         ),
         const Size.square(66),
       );
+      final icon = tester.widget<Icon>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scaled-toolbar-button')),
+          matching: find.byType(Icon),
+        ),
+      );
+      expect(icon.shadows, isNotEmpty);
     },
   );
 

@@ -225,7 +225,8 @@ class WorkspaceScaffold extends ConsumerWidget {
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     final usesNativeToolbarInset = isIos && PlatformInfo.isIOS26OrHigher();
     final topInset = isIos && !usesNativeToolbarInset
-        ? MediaQuery.paddingOf(context).top + kTextTabBarHeight
+        ? MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context)
         : 0.0;
 
     final appBar = !wide && mode == WorkspaceRouteMode.collection
@@ -319,6 +320,9 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
 }) {
   final theme = context.conduitTheme;
   final isIos = PlatformInfo.isIOS;
+  final textScaler = MediaQuery.textScalerOf(context);
+  final controlExtent = conduitScaledControlExtent(context);
+  final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
 
   Widget sectionMenu({required bool activePlatform}) => _WorkspaceSectionMenu(
     key: activePlatform ? const Key('workspace-section-tabs') : null,
@@ -338,15 +342,24 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
     ),
   );
 
+  final materialLeading = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: _workspaceExitButton(context),
+  );
+  final materialTitle = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: sectionMenu(activePlatform: !isIos),
+  );
+  final materialCreate = ConduitSystemTextScaling(
+    textScaler: textScaler,
+    child: createButton(activePlatform: !isIos),
+  );
+
   return AdaptiveAppBar(
     useNativeToolbar: false,
     tintColor: theme.textPrimary,
-    cupertinoNavigationBar: CupertinoNavigationBar(
-      automaticallyImplyLeading: false,
-      border: null,
-      backgroundColor: Colors.transparent,
-      automaticBackgroundVisibility: false,
-      enableBackgroundFilterBlur: false,
+    cupertinoNavigationBar: ConduitAdaptiveCupertinoNavigationBar(
+      textScaler: textScaler,
       leading: _workspaceExitButton(context),
       middle: sectionMenu(activePlatform: isIos),
       trailing: canCreate
@@ -360,14 +373,16 @@ AdaptiveAppBar _workspaceCompactCollectionAppBar(
       shadowColor: Colors.transparent,
       elevation: Elevation.none,
       scrolledUnderElevation: Elevation.none,
+      toolbarHeight: toolbarHeight,
       centerTitle: true,
-      leading: _workspaceExitButton(context),
-      title: sectionMenu(activePlatform: !isIos),
+      leadingWidth: controlExtent + Spacing.md,
+      leading: materialLeading,
+      title: materialTitle,
       actions: canCreate
           ? [
               Padding(
                 padding: const EdgeInsets.only(right: Spacing.inputPadding),
-                child: createButton(activePlatform: !isIos),
+                child: materialCreate,
               ),
             ]
           : null,
@@ -394,6 +409,8 @@ class _WorkspaceSectionMenu extends StatelessWidget {
     }
 
     final textStyle = conduitAdaptiveToolbarPillTextStyle(context);
+    final controlScale = conduitSystemControlScaleOf(context);
+    final iconSize = conduitScaledIconExtent(context, IconSize.small);
     final targetWidth = resolveConduitAdaptiveTextPillWidth(
       context: context,
       label: label,
@@ -401,7 +418,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       maxWidth: 260,
       minWidth: 120,
       horizontalPadding: 20,
-      trailingWidth: IconSize.small + Spacing.sm,
+      trailingWidth: iconSize + Spacing.sm,
     );
 
     return AdaptivePopupMenuButton.widget<WorkspaceSection>(
@@ -409,7 +426,7 @@ class _WorkspaceSectionMenu extends StatelessWidget {
       buttonStyle: PopupButtonStyle.glass,
       child: SizedBox(
         width: targetWidth,
-        height: 32,
+        height: 32 * controlScale,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Row(
@@ -424,11 +441,11 @@ class _WorkspaceSectionMenu extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: Spacing.sm),
-              Icon(
+              ConduitSystemAdaptiveIcon(
                 PlatformInfo.isIOS
                     ? CupertinoIcons.chevron_down
                     : Icons.keyboard_arrow_down_rounded,
-                size: IconSize.small,
+                size: iconSize,
                 color: context.conduitTheme.iconSecondary,
               ),
             ],
@@ -534,7 +551,10 @@ Widget _workspaceExitButton(BuildContext context) {
   return context.usesCupertinoChrome
       ? button
       : Center(
-          child: SizedBox.square(dimension: TouchTarget.minimum, child: button),
+          child: SizedBox.square(
+            dimension: conduitScaledControlExtent(context),
+            child: button,
+          ),
         );
 }
 
@@ -914,7 +934,9 @@ class _WorkspaceIosCollectionShellState
       ),
       body: Padding(
         padding: EdgeInsets.only(
-          top: MediaQuery.paddingOf(context).top + kTextTabBarHeight,
+          top:
+              MediaQuery.paddingOf(context).top +
+              conduitAdaptiveToolbarHeightOf(context),
         ),
         child: Material(
           color: Colors.transparent,

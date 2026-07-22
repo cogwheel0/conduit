@@ -47,6 +47,40 @@ double conduitAdaptiveToolbarHeightOf(BuildContext context) {
   return kTextTabBarHeight * conduitSystemControlScaleOf(context);
 }
 
+/// Icon glyph that follows the platform Bold Text accessibility setting.
+///
+/// Flutter applies [MediaQueryData.boldText] to [Text] and [EditableText]
+/// automatically, but fixed icon fonts do not gain the heavier strokes that
+/// native SF Symbols do. A small, hard-edged outline closes that gap without
+/// changing the glyph's measured size or touch target.
+class ConduitSystemAdaptiveIcon extends StatelessWidget {
+  const ConduitSystemAdaptiveIcon(
+    this.icon, {
+    super.key,
+    required this.size,
+    required this.color,
+  });
+
+  final IconData icon;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    const offset = 0.45;
+    final shadows = MediaQuery.boldTextOf(context)
+        ? <Shadow>[
+            Shadow(color: color, offset: const Offset(-offset, 0)),
+            Shadow(color: color, offset: const Offset(offset, 0)),
+            Shadow(color: color, offset: const Offset(0, -offset)),
+            Shadow(color: color, offset: const Offset(0, offset)),
+          ]
+        : null;
+
+    return Icon(icon, size: size, color: color, shadows: shadows);
+  }
+}
+
 /// Restores the route's system text scaler inside framework chrome that clamps
 /// or disables scaling, including Cupertino navigation bars.
 class ConduitSystemTextScaling extends StatelessWidget {
@@ -80,12 +114,14 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
     super.key,
     required this.textScaler,
     required this.leading,
+    this.middle,
     this.trailing,
     this.systemOverlayStyle,
   });
 
   final TextScaler textScaler;
   final Widget leading;
+  final Widget? middle;
   final Widget? trailing;
   final SystemUiOverlayStyle? systemOverlayStyle;
 
@@ -117,6 +153,14 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
                 alignment: AlignmentDirectional.centerStart,
                 child: leading,
               ),
+              if (middle != null)
+                PositionedDirectional(
+                  start: (TouchTarget.minimum * _controlScale) + Spacing.sm,
+                  end: (TouchTarget.minimum * _controlScale) + Spacing.sm,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(child: middle),
+                ),
               if (trailing != null)
                 Align(
                   alignment: AlignmentDirectional.centerEnd,
@@ -442,7 +486,11 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
         child: FloatingAppBarButton(
           onTap: onPressed,
           isCircular: true,
-          child: Icon(icon, size: iconExtent, color: effectiveIconColor),
+          child: ConduitSystemAdaptiveIcon(
+            icon,
+            size: iconExtent,
+            color: effectiveIconColor,
+          ),
         ),
       );
     }
@@ -456,7 +504,11 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
         padding: EdgeInsets.zero,
         minSize: Size.square(controlExtent),
         useSmoothRectangleBorder: false,
-        child: Icon(icon, size: iconExtent, color: effectiveIconColor),
+        child: ConduitSystemAdaptiveIcon(
+          icon,
+          size: iconExtent,
+          color: effectiveIconColor,
+        ),
       ),
     );
   }
@@ -555,7 +607,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                       ),
                       if (showChevron) ...[
                         const SizedBox(width: Spacing.xs),
-                        Icon(
+                        ConduitSystemAdaptiveIcon(
                           Platform.isIOS
                               ? CupertinoIcons.chevron_down
                               : Icons.keyboard_arrow_down,
@@ -628,7 +680,7 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
           dimension: controlExtent,
           child: FloatingAppBarButton(
             isCircular: true,
-            child: Icon(
+            child: ConduitSystemAdaptiveIcon(
               Platform.isIOS ? CupertinoIcons.ellipsis : materialIcon,
               size: iconExtent,
               color: tintColor,
