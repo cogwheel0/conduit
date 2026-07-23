@@ -49,6 +49,7 @@ final class DirectCompletionRequest {
     required this.remoteModelId,
     required Iterable<DirectChatMessage> messages,
     Map<String, dynamic> parameters = const {},
+    this.enableWebSearch = false,
   }) : messages = List.unmodifiable(messages),
        parameters = Map.unmodifiable(parameters) {
     if (remoteModelId.trim().isEmpty) {
@@ -58,12 +59,13 @@ final class DirectCompletionRequest {
 
   final String remoteModelId;
   final List<DirectChatMessage> messages;
+  final bool enableWebSearch;
 
   /// Provider-compatible optional sampling/output parameters.
   ///
-  /// Tool calling is intentionally rejected by the built-in adapters until
-  /// Conduit has a normalized, permission-aware execution pipeline; silently
-  /// forwarding tools would discard valid tool-call-only responses.
+  /// Caller-supplied tool definitions are intentionally rejected by the
+  /// built-in adapters. Ollama Cloud may expose Conduit's permission-aware,
+  /// compiled-in web tools through [enableWebSearch].
   /// Transport-owned keys (`model`, `messages`, `stream`) are overwritten by
   /// adapters and cannot redirect a request to another registered model.
   final Map<String, dynamic> parameters;
@@ -87,6 +89,34 @@ final class DirectUsageUpdate extends DirectStreamEvent {
   DirectUsageUpdate(Map<String, dynamic> usage)
     : usage = Map.unmodifiable(usage);
   final Map<String, dynamic> usage;
+}
+
+final class DirectToolCallStarted extends DirectStreamEvent {
+  DirectToolCallStarted({
+    required this.id,
+    required this.name,
+    required Map<String, dynamic> arguments,
+  }) : arguments = Map.unmodifiable(arguments);
+
+  final String id;
+  final String name;
+  final Map<String, dynamic> arguments;
+}
+
+final class DirectToolCallCompleted extends DirectStreamEvent {
+  DirectToolCallCompleted({
+    required this.id,
+    required this.name,
+    required Map<String, dynamic> arguments,
+    required this.result,
+    this.isError = false,
+  }) : arguments = Map.unmodifiable(arguments);
+
+  final String id;
+  final String name;
+  final Map<String, dynamic> arguments;
+  final Object? result;
+  final bool isError;
 }
 
 final class DirectStreamError extends DirectStreamEvent {

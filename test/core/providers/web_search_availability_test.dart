@@ -1,7 +1,12 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/models/backend_config.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/user.dart';
+import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +17,7 @@ ProviderContainer _container(
   BackendConfig? backendConfig,
   User? currentUser,
   Model? selectedModel,
+  DirectModelRegistry? directModelRegistry,
 }) {
   return ProviderContainer(
     overrides: [
@@ -29,6 +35,8 @@ ProviderContainer _container(
       if (currentUser != null)
         currentUserProvider.overrideWith((ref) async => currentUser),
       selectedModelProvider.overrideWithValue(selectedModel),
+      if (directModelRegistry != null)
+        directModelRegistryProvider.overrideWithValue(directModelRegistry),
     ],
   );
 }
@@ -202,6 +210,94 @@ void main() {
       await container.read(backendConfigProvider.future);
 
       expect(container.read(webSearchAvailableProvider), isFalse);
+    });
+
+    test(
+      'trusted Ollama Cloud model bypasses Open WebUI search permissions',
+      () async {
+        final registry = DirectModelRegistry();
+        final model = registry.replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'ollama-cloud',
+            name: 'Ollama Cloud',
+            adapterKey: kOllamaAdapterKey,
+            baseUrl: 'https://ollama.com',
+          ),
+          [
+            DirectRemoteModel(
+              id: 'gpt-oss:120b',
+              capabilities: const {'ollama_cloud': true, 'web_search': true},
+            ),
+          ],
+        ).single;
+        final container = _container(
+          const AsyncData<Map<String, dynamic>>({
+            'features': {'web_search': false},
+          }),
+          backendConfig: const BackendConfig(enableWebSearch: false),
+          selectedModel: model,
+          directModelRegistry: registry,
+        );
+        addTearDown(container.dispose);
+
+        await container.read(backendConfigProvider.future);
+
+        check(container.read(webSearchAvailableProvider)).isTrue();
+      },
+    );
+
+    test('direct web search requires every trusted Cloud capability', () async {
+      Future<bool> availability({
+        required String adapterKey,
+        required Map<String, dynamic> capabilities,
+      }) async {
+        final registry = DirectModelRegistry();
+        final model = registry.replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'direct-provider',
+            name: 'Direct provider',
+            adapterKey: adapterKey,
+            baseUrl: 'https://ollama.com',
+          ),
+          [DirectRemoteModel(id: 'model', capabilities: capabilities)],
+        ).single;
+        final container = _container(
+          const AsyncData<Map<String, dynamic>>({
+            'features': {'web_search': false},
+          }),
+          backendConfig: const BackendConfig(enableWebSearch: false),
+          selectedModel: model,
+          directModelRegistry: registry,
+        );
+        addTearDown(container.dispose);
+        await container.read(backendConfigProvider.future);
+        return container.read(webSearchAvailableProvider);
+      }
+
+      check(
+        await availability(
+          adapterKey: kOllamaAdapterKey,
+          capabilities: const {'web_search': true},
+        ),
+      ).isFalse();
+      check(
+        await availability(
+          adapterKey: kOllamaAdapterKey,
+          capabilities: const {'ollama_cloud': false, 'web_search': true},
+        ),
+      ).isFalse();
+      check(
+        await availability(
+          adapterKey: kOllamaAdapterKey,
+          capabilities: const {'ollama_cloud': true, 'web_search': false},
+        ),
+      ).isFalse();
+      check(
+        await availability(
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          capabilities: const {'ollama_cloud': true, 'web_search': true},
+        ),
+      ).isFalse();
     });
 
     test('admin bypasses explicit false permission', () async {

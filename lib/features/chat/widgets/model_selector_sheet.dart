@@ -8,7 +8,6 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/model.dart';
-import '../../hermes/models/hermes_model.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../core/utils/model_sort_utils.dart';
@@ -18,6 +17,11 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_list_tile.dart';
 import '../../../shared/widgets/sheet_handle.dart';
+import '../../direct_connections/models/direct_connection_profile.dart';
+import '../../direct_connections/providers/direct_connection_providers.dart';
+import '../../direct_connections/services/direct_model_registry.dart';
+import '../../direct_connections/views/ollama_model_actions.dart';
+import '../../hermes/models/hermes_model.dart';
 
 /// Bottom sheet for selecting a model from the available list.
 class ModelSelectorSheet extends ConsumerStatefulWidget {
@@ -100,6 +104,10 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       pinnedModelIds,
     );
     final api = ref.watch(apiServiceProvider);
+    final directRegistry = ref.watch(directModelRegistryProvider);
+    final directProfiles =
+        ref.watch(directConnectionProfilesProvider).value ??
+        const <DirectConnectionProfile>[];
     final l10n = AppLocalizations.of(context)!;
 
     return Stack(
@@ -188,6 +196,54 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                               api,
                                               model,
                                             );
+                                        final binding = directRegistry.resolve(
+                                          model,
+                                        );
+                                        final directProfile = binding == null
+                                            ? null
+                                            : directProfiles
+                                                  .where(
+                                                    (profile) =>
+                                                        profile.id ==
+                                                        binding.profileId,
+                                                  )
+                                                  .firstOrNull;
+                                        final managesOllamaLifecycle =
+                                            binding?.adapterKey ==
+                                                kOllamaAdapterKey &&
+                                            binding?.source ==
+                                                DirectModelSource.device &&
+                                            directProfile
+                                                    ?.supportsOllamaModelLifecycle ==
+                                                true;
+                                        final managesOllamaCloud =
+                                            binding?.adapterKey ==
+                                                kOllamaAdapterKey &&
+                                            binding?.source ==
+                                                DirectModelSource.device &&
+                                            directProfile?.isOllamaCloud ==
+                                                true;
+                                        final lifecycle = managesOllamaLifecycle
+                                            ? ref.watch(
+                                                ollamaModelLifecycleProvider(
+                                                  binding!.profileId,
+                                                ),
+                                              )
+                                            : null;
+                                        final lifecycleState = lifecycle?.value;
+                                        final remoteModelId =
+                                            binding?.remoteModelId ?? '';
+                                        final isLoaded =
+                                            lifecycleState?.isLoaded(
+                                              remoteModelId,
+                                            ) ??
+                                            false;
+                                        final isBusy =
+                                            lifecycle?.isLoading == true ||
+                                            (lifecycleState?.isBusy(
+                                                  remoteModelId,
+                                                ) ??
+                                                false);
 
                                         return ConduitContextMenu(
                                           actions: canTogglePinnedModels
@@ -217,7 +273,38 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                                             model: model,
                                             isSelected: isSelected,
                                             isPinned: isPinned,
+                                            isLoaded: isLoaded,
                                             iconUrl: iconUrl,
+                                            trailing:
+                                                (managesOllamaLifecycle ||
+                                                        managesOllamaCloud) &&
+                                                    directProfile != null
+                                                ? OllamaModelActionsButton(
+                                                    profileId:
+                                                        binding!.profileId,
+                                                    remoteModelId:
+                                                        remoteModelId,
+                                                    modelName: model.name,
+                                                    isLoaded: isLoaded,
+                                                    isStatusKnown:
+                                                        lifecycle?.hasValue ??
+                                                        false,
+                                                    isBusy: isBusy,
+                                                    currentKeepAlive:
+                                                        directProfile
+                                                            .ollamaKeepAliveFor(
+                                                              remoteModelId,
+                                                            ),
+                                                    supportsLifecycle:
+                                                        managesOllamaLifecycle,
+                                                    isCloud: managesOllamaCloud,
+                                                    currentThinking:
+                                                        directProfile
+                                                            .ollamaThinkingFor(
+                                                              remoteModelId,
+                                                            ),
+                                                  )
+                                                : null,
                                             onTap: () {
                                               ref
                                                   .read(

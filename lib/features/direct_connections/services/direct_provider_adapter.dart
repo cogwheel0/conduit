@@ -30,6 +30,23 @@ abstract interface class CancellableDirectModelDiscovery {
   });
 }
 
+/// Optional runtime lifecycle capability for providers that load models into
+/// memory independently from their installed model catalog.
+abstract interface class DirectModelLifecycleAdapter {
+  Future<Set<String>> listRunningModelIds(DirectConnectionProfile profile);
+
+  Future<void> loadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId, {
+    String? keepAlive,
+  });
+
+  Future<void> unloadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId,
+  );
+}
+
 /// Generation-scoped cancellation shared by discovery orchestration and an
 /// adapter's provider-specific enrichment work.
 final class DirectDiscoveryCancellation {

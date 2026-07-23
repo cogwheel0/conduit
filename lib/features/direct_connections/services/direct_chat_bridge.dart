@@ -366,6 +366,7 @@ final class DirectStreamingAccumulator {
 
   final StringBuffer _text = StringBuffer();
   final StringBuffer _reasoning = StringBuffer();
+  final List<_DirectToolExecution> _toolExecutions = [];
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
   DirectStreamError? _error;
@@ -387,6 +388,32 @@ final class DirectStreamingAccumulator {
   Map<String, dynamic>? get usage => _usage;
   DirectStreamError? get error => _error;
   bool get hasUsableOutput => _hasUsableOutput;
+  List<Map<String, dynamic>> get toolOutput {
+    final output = <Map<String, dynamic>>[];
+    for (final execution in _toolExecutions) {
+      output.add(
+        Map<String, dynamic>.unmodifiable({
+          'type': 'function_call',
+          'id': execution.id,
+          'call_id': execution.id,
+          'name': execution.name,
+          'arguments': execution.arguments,
+          'status': execution.done ? 'completed' : 'in_progress',
+        }),
+      );
+      if (execution.done) {
+        output.add(
+          Map<String, dynamic>.unmodifiable({
+            'type': 'function_call_output',
+            'call_id': execution.id,
+            'output': execution.result,
+            if (execution.isError) 'error': true,
+          }),
+        );
+      }
+    }
+    return List.unmodifiable(output);
+  }
 
   /// Exposed for focused performance regressions. These count projection work,
   /// not provider events or the one final authoritative render.
@@ -418,6 +445,35 @@ final class DirectStreamingAccumulator {
       case DirectUsageUpdate():
         _usage = Map<String, dynamic>.from(event.usage);
         return true;
+      case DirectToolCallStarted():
+        _toolExecutions.add(
+          _DirectToolExecution(
+            id: event.id,
+            name: event.name,
+            arguments: event.arguments,
+          ),
+        );
+        _hasUsableOutput = true;
+        return true;
+      case DirectToolCallCompleted():
+        final index = _toolExecutions.lastIndexWhere(
+          (execution) => execution.id == event.id,
+        );
+        final completed = _DirectToolExecution(
+          id: event.id,
+          name: event.name,
+          arguments: event.arguments,
+          result: event.result,
+          done: true,
+          isError: event.isError,
+        );
+        if (index < 0) {
+          _toolExecutions.add(completed);
+        } else {
+          _toolExecutions[index] = completed;
+        }
+        _hasUsableOutput = true;
+        return true;
       case DirectStreamError():
         _error = event;
         return true;
@@ -441,7 +497,8 @@ final class DirectStreamingAccumulator {
     required bool forceReplace,
     required bool canAppend,
   }) {
-    final logicalLength = _text.length + _reasoning.length;
+    final logicalLength =
+        _text.length + _reasoning.length + (_toolExecutions.length * 64);
     if (forceReplace && logicalLength > 0) {
       return _fullStreamingProjection(logicalLength);
     }
@@ -483,6 +540,8 @@ final class DirectStreamingAccumulator {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
+      case DirectToolCallStarted() || DirectToolCallCompleted():
+        return _fullStreamingProjection(logicalLength);
       case DirectUsageUpdate() || DirectStreamError() || DirectStreamDone():
         return null;
     }
@@ -515,6 +574,20 @@ final class DirectStreamingAccumulator {
         ]),
       );
     }
+    for (final execution in _toolExecutions) {
+      blocks.add(
+        renderSemanticMessageBlocks([
+          SemanticDetailsBlock.toolCall(
+            id: execution.id,
+            name: execution.name,
+            arguments: execution.arguments,
+            done: execution.done,
+            result: execution.result,
+            isError: execution.isError,
+          ),
+        ]),
+      );
+    }
     final answerText = _text.toString();
     if (answerText.isNotEmpty) {
       blocks.add(
@@ -525,4 +598,45 @@ final class DirectStreamingAccumulator {
     }
     return blocks.where((block) => block.isNotEmpty).join('\n');
   }
+}
+
+final class _DirectToolExecution {
+  _DirectToolExecution({
+    required this.id,
+    required this.name,
+    required Map<String, dynamic> arguments,
+    Object? result,
+    this.done = false,
+    this.isError = false,
+  }) : arguments = _freezeDirectToolMap(arguments),
+       result = _freezeDirectToolJson(result);
+
+  final String id;
+  final String name;
+  final Map<String, dynamic> arguments;
+  final Object? result;
+  final bool done;
+  final bool isError;
+}
+
+Map<String, dynamic> _freezeDirectToolMap(Map<String, dynamic> value) =>
+    Map<String, dynamic>.unmodifiable({
+      for (final entry in value.entries)
+        entry.key: _freezeDirectToolJson(entry.value),
+    });
+
+Object? _freezeDirectToolJson(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return _freezeDirectToolMap(value);
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.unmodifiable({
+      for (final entry in value.entries)
+        entry.key.toString(): _freezeDirectToolJson(entry.value),
+    });
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_freezeDirectToolJson));
+  }
+  return value;
 }

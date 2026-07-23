@@ -209,6 +209,31 @@ void main() {
     expect(find.text('WORK'), findsOneWidget);
   });
 
+  testWidgets('loaded model badge is visible without changing selection', (
+    tester,
+  ) async {
+    const model = Model(id: 'direct:home:model', name: 'Local model');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModelListTile(
+            model: model,
+            isSelected: false,
+            isLoaded: true,
+            onTap: _noop,
+          ),
+        ),
+      ),
+    );
+
+    check(find.byType(ModelLoadedChip).evaluate()).length.equals(1);
+    check(find.text('Loaded').evaluate()).length.equals(1);
+    check(find.byIcon(Icons.check).evaluate()).isEmpty();
+  });
+
   testWidgets('management content shows profiles and history policy', (
     tester,
   ) async {

@@ -163,6 +163,8 @@ bool sameDirectConnectionProfileValues(
     left.apiKey == right.apiKey &&
     mapEquals(left.customHeaders, right.customHeaders) &&
     listEquals(left.manualModelIds, right.manualModelIds) &&
+    mapEquals(left.ollamaKeepAliveByModel, right.ollamaKeepAliveByModel) &&
+    mapEquals(left.ollamaThinkingByModel, right.ollamaThinkingByModel) &&
     left.allowSelfSignedCertificates == right.allowSelfSignedCertificates &&
     left.mtlsCertificateChainPem == right.mtlsCertificateChainPem &&
     left.mtlsCertificateLabel == right.mtlsCertificateLabel &&

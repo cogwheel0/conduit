@@ -5711,6 +5711,17 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
 });
 
 final webSearchAvailableProvider = Provider<bool>((ref) {
+  final selectedModel = ref.watch(selectedModelProvider);
+  final directBinding = selectedModel == null
+      ? null
+      : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+  if (directBinding?.source == DirectModelSource.device &&
+      directBinding?.adapterKey == kOllamaAdapterKey &&
+      selectedModel?.capabilities?['ollama_cloud'] == true &&
+      selectedModel?.capabilities?['web_search'] == true) {
+    return true;
+  }
+
   final backendConfig = ref
       .watch(backendConfigProvider)
       .maybeWhen(data: (config) => config, orElse: () => null);
@@ -5718,7 +5729,6 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     return false;
   }
 
-  final selectedModel = ref.watch(selectedModelProvider);
   if (!_modelSupportsFeature(selectedModel, 'web_search')) {
     return false;
   }

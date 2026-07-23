@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_manager.dart';
@@ -2955,6 +2956,47 @@ void main() {
       );
     },
   );
+
+  test('tool-only direct response persists a safe replay sentinel', () async {
+    final harness = await _createGatedDirectHarness('tool-only');
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Use the native tool',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run.add(
+      DirectToolCallStarted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+      ),
+    );
+    run.add(
+      DirectToolCallCompleted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+        result: const {'results': <Object>[]},
+      ),
+    );
+    run.add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    check(completed.error).isNull();
+    check(
+      parseConduitDirectReplayOutput(
+        completed.output!,
+      )?.isIncompleteAnswerSentinel,
+    ).equals(true);
+    check(
+      outboundProviderReplayText(completed),
+    ).equals(kConduitDirectIncompleteAnswerReplayText);
+  });
 
   test('whitespace-only direct response preserves bytes but fails', () async {
     final harness = await _createGatedDirectHarness('whitespace-only');

@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -96,6 +99,18 @@ void main() {
   final ollamaSkipReason = enabled && ollamaBaseUrl.isNotEmpty
       ? false
       : 'Set DIRECT_LIVE_TESTS=1 and OLLAMA_URL to run live Ollama tests.';
+  final ollamaLifecycleSkipReason =
+      enabled &&
+          ollamaBaseUrl.isNotEmpty &&
+          !isOllamaCloudApiBaseUrl(ollamaBaseUrl)
+      ? false
+      : 'A self-hosted OLLAMA_URL is required for live residency tests.';
+  final ollamaCloudSkipReason =
+      enabled &&
+          ollamaBaseUrl.isNotEmpty &&
+          isOllamaCloudApiBaseUrl(ollamaBaseUrl)
+      ? false
+      : 'The official Ollama Cloud URL is required for live Cloud tool tests.';
 
   test(
     'Ollama live endpoint streams a typed native completion',
@@ -165,6 +180,97 @@ void main() {
     },
     skip: ollamaSkipReason,
     timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'Ollama live endpoint reports and manages model residency',
+    () async {
+      final adapter = OllamaAdapter();
+      addTearDown(adapter.dispose);
+      final profile = DirectConnectionProfile(
+        id: 'live-ollama-lifecycle',
+        name: 'Live Ollama lifecycle endpoint',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: ollamaBaseUrl,
+        apiKey: ollamaApiKey.isEmpty ? null : ollamaApiKey,
+      );
+      final models = await adapter.listModels(profile);
+      final chatModels =
+          models
+              .where((candidate) => !_looksNonChatModel(candidate.id))
+              .toList()
+            ..sort((left, right) {
+              final sizeOrder = _ollamaSmokeModelScore(
+                left.id,
+              ).compareTo(_ollamaSmokeModelScore(right.id));
+              return sizeOrder != 0 ? sizeOrder : left.id.compareTo(right.id);
+            });
+      expect(chatModels, isNotEmpty);
+
+      final initiallyLoaded = await adapter.listRunningModelIds(profile);
+      final model = switch (ollamaModelOverride) {
+        final configured when configured.isNotEmpty => chatModels.firstWhere(
+          (candidate) => candidate.id == configured,
+          orElse: () => throw StateError(
+            'OLLAMA_MODEL is not present in the endpoint model catalog.',
+          ),
+        ),
+        _ => chatModels.firstWhere(
+          (candidate) => !initiallyLoaded.contains(candidate.id),
+          orElse: () => chatModels.first,
+        ),
+      };
+      final ownsResidency = !initiallyLoaded.contains(model.id);
+      if (ownsResidency) {
+        addTearDown(() async {
+          await adapter.unloadModel(profile, model.id);
+        });
+      }
+
+      await adapter.loadModel(profile, model.id, keepAlive: '30s');
+      expect(await adapter.listRunningModelIds(profile), contains(model.id));
+
+      if (ownsResidency) {
+        await adapter.unloadModel(profile, model.id);
+        expect(
+          await adapter.listRunningModelIds(profile),
+          isNot(contains(model.id)),
+        );
+      }
+    },
+    skip: ollamaLifecycleSkipReason,
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'Ollama Cloud live endpoint performs an authenticated web search',
+    () async {
+      final profile = DirectConnectionProfile(
+        id: 'live-ollama-cloud-tools',
+        name: 'Live Ollama Cloud tools',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: ollamaBaseUrl,
+        apiKey: ollamaApiKey.isEmpty ? null : ollamaApiKey,
+      );
+      final dio = const DirectHttpClientFactory().create(profile);
+      addTearDown(() => dio.close(force: true));
+
+      final result = await executeOllamaCloudTool(
+        dio: dio,
+        name: 'web_search',
+        arguments: const {
+          'query': 'Ollama Cloud documentation',
+          'max_results': 1,
+        },
+        cancelToken: CancelToken(),
+      );
+
+      expect(result.isError, isFalse);
+      final value = result.value as Map<String, dynamic>;
+      expect(value['results'], isNotEmpty);
+    },
+    skip: ollamaCloudSkipReason,
+    timeout: const Timeout(Duration(minutes: 1)),
   );
 }
 

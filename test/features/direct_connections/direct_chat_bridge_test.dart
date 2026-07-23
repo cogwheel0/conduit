@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
@@ -281,39 +282,52 @@ void main() {
         rawContent: raw,
       );
 
-      expect(output, isNotNull);
+      check(output).isNotNull();
       final item = output!.single;
-      expect(
+      check(
         item['id'],
-        '$kConduitDirectReplayOutputIdPrefix${'assistant_one'}',
-      );
-      expect(item['type'], 'message');
-      expect(item['role'], 'assistant');
-      expect(item['status'], 'completed');
-      expect(item['content'], [
+      ).equals('$kConduitDirectReplayOutputIdPrefix${'assistant_one'}');
+      check(item['type']).equals('message');
+      check(item['role']).equals('assistant');
+      check(item['status']).equals('completed');
+      check(item['content']).isA<List<dynamic>>().deepEquals([
         {'type': 'output_text', 'text': raw},
       ]);
-      expect(parseConduitDirectReplayOutput(output)?.text, raw);
-      expect(
+      check(parseConduitDirectReplayOutput(output)?.text).equals(raw);
+      final withToolOutput = <Map<String, dynamic>>[
+        {
+          'type': 'function_call',
+          'id': 'ollama-0-0',
+          'call_id': 'ollama-0-0',
+          'name': 'web_search',
+          'arguments': {'query': 'Ollama Cloud'},
+          'status': 'completed',
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'ollama-0-0',
+          'output': {'results': <Map<String, dynamic>>[]},
+        },
+        ...output,
+      ];
+      check(parseConduitDirectReplayOutput(withToolOutput)?.text).equals(raw);
+      check(
         directProviderReplayOutput(
           assistantMessageId: 'assistant-empty',
           rawContent: '   ',
         ),
-        isNull,
-      );
+      ).isNull();
       final incomplete = directProviderReplayOutput(
         assistantMessageId: 'assistant-incomplete',
         rawContent: '',
         useIncompleteAnswerSentinel: true,
       )!;
-      expect(
+      check(
         incomplete.single['id'],
-        startsWith(kConduitDirectNoFinalReplayOutputIdPrefix),
-      );
-      expect(
+      ).isA<String>().startsWith(kConduitDirectNoFinalReplayOutputIdPrefix);
+      check(
         parseConduitDirectReplayOutput(incomplete)?.isIncompleteAnswerSentinel,
-        isTrue,
-      );
+      ).equals(true);
     });
 
     test('reasoning-only replay uses safe provider context', () {
@@ -833,6 +847,97 @@ void main() {
       expect(accumulator.apply(const DirectReasoningDelta('')), isFalse);
       expect(accumulator.text, isEmpty);
       expect(accumulator.reasoning, isEmpty);
+    });
+
+    test('projects and persists native direct tool activity', () {
+      final accumulator = DirectStreamingAccumulator();
+      final started = DirectToolCallStarted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+      );
+
+      expect(accumulator.apply(started), isTrue);
+      final pending = accumulator.projectStreamingEvent(
+        started,
+        forceReplace: false,
+        canAppend: true,
+      );
+      expect(pending, isA<DirectStreamingReplace>());
+      expect(accumulator.render(done: false), contains('Executing...'));
+
+      final completed = DirectToolCallCompleted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+        result: const {
+          'results': [
+            {'title': 'Ollama Cloud', 'url': 'https://docs.ollama.com/cloud'},
+          ],
+        },
+      );
+      expect(accumulator.apply(completed), isTrue);
+      expect(accumulator.render(done: false), contains('Tool Executed'));
+      expect(accumulator.toolOutput, hasLength(2));
+      expect(accumulator.toolOutput.first['type'], 'function_call');
+      expect(accumulator.toolOutput.last['type'], 'function_call_output');
+      expect(accumulator.toolOutput.last['call_id'], 'ollama-0-0');
+
+      final failed = DirectToolCallCompleted(
+        id: 'ollama-0-1',
+        name: 'web_fetch',
+        arguments: const {'url': 'https://example.com'},
+        result: const {'error': 'Fetch failed.'},
+        isError: true,
+      );
+      expect(accumulator.apply(failed), isTrue);
+      expect(accumulator.render(done: false), contains('Tool Failed'));
+      expect(accumulator.toolOutput.last['error'], isTrue);
+    });
+
+    test('deeply detaches persisted direct tool activity', () {
+      final arguments = <String, dynamic>{
+        'filters': <String, dynamic>{
+          'domains': <String>['ollama.com'],
+        },
+      };
+      final result = <String, dynamic>{
+        'results': <Map<String, dynamic>>[
+          {'title': 'Original'},
+        ],
+      };
+      final accumulator = DirectStreamingAccumulator();
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-0-0',
+          name: 'web_search',
+          arguments: arguments,
+          result: result,
+        ),
+      );
+      final output = accumulator.toolOutput;
+
+      ((arguments['filters'] as Map<String, dynamic>)['domains'] as List)[0] =
+          'changed.example';
+      (result['results'] as List<Map<String, dynamic>>).single['title'] =
+          'Changed';
+
+      final persistedArguments =
+          output.first['arguments'] as Map<String, dynamic>;
+      final persistedFilters =
+          persistedArguments['filters'] as Map<String, dynamic>;
+      check(
+        persistedFilters['domains'],
+      ).isA<List<dynamic>>().deepEquals(['ollama.com']);
+      final persistedResult = output.last['output'] as Map<String, dynamic>;
+      check(persistedResult['results']).isA<List<dynamic>>().deepEquals([
+        {'title': 'Original'},
+      ]);
+      check(
+        () => (persistedFilters['domains'] as List).add('another.example'),
+      ).throws<UnsupportedError>();
+      check(() => output.first['name'] = 'changed').throws<UnsupportedError>();
     });
 
     test('provider text cannot spoof semantic reasoning markup', () {

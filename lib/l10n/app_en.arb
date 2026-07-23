@@ -4634,6 +4634,128 @@
   "@ollama": {
     "description": "Label for an Ollama native API connection."
   },
+  "ollamaCloudDefaultName": "Ollama Cloud",
+  "@ollamaCloudDefaultName": {
+    "description": "Default connection name and field hint for Ollama Cloud."
+  },
+  "ollamaCloudBaseUrlHint": "https://ollama.com",
+  "@ollamaCloudBaseUrlHint": {
+    "description": "Base URL field hint for the official Ollama Cloud API."
+  },
+  "ollamaCloudBaseUrlDescription": "Use https://ollama.com with an API key for Ollama Cloud.",
+  "@ollamaCloudBaseUrlDescription": {
+    "description": "Help text for configuring the official Ollama Cloud API."
+  },
+  "ollamaModelLoaded": "Loaded",
+  "@ollamaModelLoaded": {
+    "description": "Badge shown when an Ollama model is currently loaded in memory."
+  },
+  "ollamaModelActions": "Model memory",
+  "@ollamaModelActions": {
+    "description": "Tooltip and sheet title for Ollama model memory actions."
+  },
+  "ollamaModelActionsDescription": "Manage this model in Ollama's RAM or VRAM.",
+  "@ollamaModelActionsDescription": {
+    "description": "Description shown above Ollama model memory actions."
+  },
+  "ollamaLoadModel": "Load model",
+  "@ollamaLoadModel": {
+    "description": "Action that warms an Ollama model in memory."
+  },
+  "ollamaLoadModelDescription": "Warm it now to make the first response faster.",
+  "@ollamaLoadModelDescription": {
+    "description": "Description of the Ollama model load action."
+  },
+  "ollamaUnloadModel": "Unload model",
+  "@ollamaUnloadModel": {
+    "description": "Action that removes an Ollama model from memory."
+  },
+  "ollamaUnloadModelDescription": "Free its RAM or VRAM. It loads automatically on the next message.",
+  "@ollamaUnloadModelDescription": {
+    "description": "Description of the Ollama model unload action."
+  },
+  "ollamaUnloadModelConfirmTitle": "Unload {name}?",
+  "@ollamaUnloadModelConfirmTitle": {
+    "description": "Confirmation title shown before unloading an Ollama model.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "llama3.2"
+      }
+    }
+  },
+  "ollamaUnloadModelConfirmMessage": "This frees the model's RAM or VRAM. Ollama will load it again automatically when you send a message.",
+  "@ollamaUnloadModelConfirmMessage": {
+    "description": "Confirmation message shown before unloading an Ollama model."
+  },
+  "ollamaKeepAlive": "Keep alive",
+  "@ollamaKeepAlive": {
+    "description": "Setting that controls how long an Ollama model remains loaded."
+  },
+  "ollamaKeepAliveDescription": "Applied to this model after each chat request.",
+  "@ollamaKeepAliveDescription": {
+    "description": "Description of the per-model Ollama keep-alive setting."
+  },
+  "ollamaKeepAliveServerDefault": "Server default",
+  "@ollamaKeepAliveServerDefault": {
+    "description": "Option that lets the Ollama server choose its keep-alive duration."
+  },
+  "ollamaKeepAliveFiveMinutes": "5 minutes",
+  "@ollamaKeepAliveFiveMinutes": {
+    "description": "Ollama keep-alive duration option."
+  },
+  "ollamaKeepAliveThirtyMinutes": "30 minutes",
+  "@ollamaKeepAliveThirtyMinutes": {
+    "description": "Ollama keep-alive duration option."
+  },
+  "ollamaKeepAliveOneHour": "1 hour",
+  "@ollamaKeepAliveOneHour": {
+    "description": "Ollama keep-alive duration option."
+  },
+  "ollamaKeepAliveAlways": "Always loaded",
+  "@ollamaKeepAliveAlways": {
+    "description": "Ollama keep-alive option that keeps a model loaded indefinitely."
+  },
+  "ollamaKeepAliveImmediate": "Unload after every response",
+  "@ollamaKeepAliveImmediate": {
+    "description": "Ollama keep-alive option that unloads a model after each response."
+  },
+  "ollamaKeepAliveCustom": "Custom",
+  "@ollamaKeepAliveCustom": {
+    "description": "Option for entering a custom Ollama keep-alive value."
+  },
+  "ollamaKeepAliveCustomHint": "Examples: 10m, 24h, 3600, -1, or 0",
+  "@ollamaKeepAliveCustomHint": {
+    "description": "Hint for the custom Ollama keep-alive input."
+  },
+  "ollamaKeepAliveInvalid": "Use seconds or a duration such as 10m or 24h.",
+  "@ollamaKeepAliveInvalid": {
+    "description": "Validation error for an invalid Ollama keep-alive value."
+  },
+  "ollamaModelLoadedMessage": "{name} is loaded.",
+  "@ollamaModelLoadedMessage": {
+    "description": "Success message after warming an Ollama model.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "llama3.2"
+      }
+    }
+  },
+  "ollamaModelUnloadedMessage": "{name} was unloaded.",
+  "@ollamaModelUnloadedMessage": {
+    "description": "Success message after unloading an Ollama model.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "llama3.2"
+      }
+    }
+  },
+  "ollamaModelActionFailed": "Could not update this model's memory state.",
+  "@ollamaModelActionFailed": {
+    "description": "Error shown when an Ollama model lifecycle request fails."
+  },
   "directApiBaseUrl": "Base URL",
   "@directApiBaseUrl": {
     "description": "Label for the direct provider base URL."
@@ -4951,5 +5073,41 @@
   "hermesScheduledAgentsTitle": "Scheduled agents",
   "@hermesScheduledAgentsTitle": {
     "description": "Title of the Hermes schedules launcher."
+  },
+  "ollamaThinking": "Thinking",
+  "@ollamaThinking": {
+    "description": "Title for an Ollama Cloud model thinking-level setting."
+  },
+  "ollamaCloudModelActionsDescription": "Configure how this Ollama Cloud model responds.",
+  "@ollamaCloudModelActionsDescription": {
+    "description": "Description of the action sheet for an Ollama Cloud model."
+  },
+  "ollamaThinkingDescription": "Choose how much reasoning the model should use. Available levels depend on the model.",
+  "@ollamaThinkingDescription": {
+    "description": "Description of the Ollama Cloud thinking-level selector."
+  },
+  "ollamaThinkingAutomatic": "Automatic",
+  "@ollamaThinkingAutomatic": {
+    "description": "Ollama thinking option that lets the model or service choose."
+  },
+  "ollamaThinkingDisabled": "Off",
+  "@ollamaThinkingDisabled": {
+    "description": "Ollama thinking option that disables reasoning when supported."
+  },
+  "ollamaThinkingLow": "Low",
+  "@ollamaThinkingLow": {
+    "description": "Low Ollama thinking level."
+  },
+  "ollamaThinkingMedium": "Medium",
+  "@ollamaThinkingMedium": {
+    "description": "Medium Ollama thinking level."
+  },
+  "ollamaThinkingHigh": "High",
+  "@ollamaThinkingHigh": {
+    "description": "High Ollama thinking level."
+  },
+  "ollamaThinkingMaximum": "Maximum",
+  "@ollamaThinkingMaximum": {
+    "description": "Maximum Ollama thinking level."
   }
 }

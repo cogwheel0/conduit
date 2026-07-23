@@ -71,15 +71,31 @@ List<Map<String, dynamic>>? buildConduitDirectReplayOutput({
 
 /// Recognizes only the exact versioned shape emitted above.
 ///
-/// Requiring a single item and exact standard fields prevents an ordinary
-/// Open WebUI Responses message from being mistaken for Conduit's replay
-/// channel. The caller must additionally verify terminal direct-message
-/// provenance before trusting the returned text.
+/// Requiring exact standard fields prevents an ordinary Open WebUI Responses
+/// message from being mistaken for Conduit's replay channel. A direct Ollama
+/// Cloud turn may also contain Conduit-owned function-call pairs; every
+/// sibling item is validated before the mirror is trusted.
 ConduitDirectReplayOutputMirror? parseConduitDirectReplayOutput(
   List<Map<String, dynamic>> output,
 ) {
-  if (output.length != 1) return null;
-  final item = output.single;
+  if (output.isEmpty) return null;
+  final candidates = output
+      .where((item) {
+        final id = item['id'];
+        return id is String &&
+            (id.startsWith(kConduitDirectReplayOutputIdPrefix) ||
+                id.startsWith(kConduitDirectNoFinalReplayOutputIdPrefix));
+      })
+      .toList(growable: false);
+  if (candidates.length != 1 ||
+      output.any(
+        (item) =>
+            !identical(item, candidates.single) &&
+            !_isConduitDirectToolOutputItem(item),
+      )) {
+    return null;
+  }
+  final item = candidates.single;
   if (!_hasExactKeys(item, const <String>{
         'type',
         'id',
@@ -127,6 +143,40 @@ ConduitDirectReplayOutputMirror? parseConduitDirectReplayOutput(
     isIncompleteAnswerSentinel:
         isIncompleteId && text == kConduitDirectIncompleteAnswerReplayText,
   );
+}
+
+bool _isConduitDirectToolOutputItem(Map<String, dynamic> item) {
+  final type = item['type'];
+  if (type == 'function_call') {
+    final id = item['id'];
+    final callId = item['call_id'];
+    return _hasExactKeys(item, const {
+          'type',
+          'id',
+          'call_id',
+          'name',
+          'arguments',
+          'status',
+        }) &&
+        id is String &&
+        id.startsWith('ollama-') &&
+        callId == id &&
+        item['name'] is String &&
+        item['arguments'] is Map &&
+        (item['status'] == 'in_progress' || item['status'] == 'completed');
+  }
+  if (type == 'function_call_output') {
+    final keys = item.keys.toSet();
+    final hasAllowedKeys =
+        keys.containsAll(const {'type', 'call_id', 'output'}) &&
+        keys.difference(const {'type', 'call_id', 'output', 'error'}).isEmpty;
+    final callId = item['call_id'];
+    return hasAllowedKeys &&
+        callId is String &&
+        callId.startsWith('ollama-') &&
+        (item['error'] == null || item['error'] is bool);
+  }
+  return false;
 }
 
 bool _hasExactKeys(Map<String, dynamic> value, Set<String> expected) {

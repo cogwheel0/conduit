@@ -7278,6 +7278,9 @@ Future<void> _regenerateDirectMessage(
       ),
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
+      enableWebSearch:
+          ref.read(webSearchEnabledProvider) &&
+          ref.read(webSearchAvailableProvider),
     );
   } on _DirectOpenWebUiAuthSessionChanged {
     registry.discardFinalizedOutput(reservation);
@@ -13760,6 +13763,7 @@ Future<void> _dispatchDirectRunFromChat(
   required _DirectConversationOwner owner,
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
+  required bool enableWebSearch,
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
@@ -13821,6 +13825,7 @@ Future<void> _dispatchDirectRunFromChat(
       owner: owner,
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
+      enableWebSearch: enableWebSearch,
     );
   } finally {
     stopIndex.untrack(indexedRunKey);
@@ -13853,6 +13858,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required _DirectConversationOwner owner,
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
+  required bool enableWebSearch,
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -13924,6 +13930,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       DirectCompletionRequest(
         remoteModelId: route.binding.remoteModelId,
         messages: directMessages,
+        enableWebSearch: enableWebSearch,
       ),
     );
   } catch (error) {
@@ -14108,6 +14115,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           case DirectReasoningDelta():
             normalizedBudget.add(event.content);
             break;
+          case DirectToolCallStarted():
+            normalizedBudget
+              ..add(event.name)
+              ..add(jsonEncode(event.arguments));
+            break;
+          case DirectToolCallCompleted():
+            normalizedBudget
+              ..add(event.name)
+              ..add(jsonEncode(event.arguments))
+              ..add(jsonEncode(event.result));
+            break;
           case DirectStreamError():
             normalizedBudget.add(event.message);
             normalizedEvent = DirectStreamError(
@@ -14164,6 +14182,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               (current) => current.copyWith(
                 error: ChatMessageError(content: projectedEvent.message),
               ),
+            );
+          } else if (projectedEvent is DirectToolCallStarted ||
+              projectedEvent is DirectToolCallCompleted) {
+            notifier.updateMessageById(
+              assistantMessageId,
+              (current) => current.copyWith(output: accumulator.toolOutput),
             );
           }
 
@@ -14252,13 +14276,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     final base = visible ?? assistantSeed;
     final completed = base.copyWith(
       content: completedContent,
-      output: directProviderReplayOutput(
-        assistantMessageId: assistantMessageId,
-        rawContent: accumulator.text,
-        useIncompleteAnswerSentinel:
-            accumulator.text.trim().isEmpty &&
-            accumulator.reasoning.trim().isNotEmpty,
-      ),
+      output: <Map<String, dynamic>>[
+        ...accumulator.toolOutput,
+        ...?directProviderReplayOutput(
+          assistantMessageId: assistantMessageId,
+          rawContent: accumulator.text,
+          useIncompleteAnswerSentinel:
+              accumulator.text.trim().isEmpty &&
+              (accumulator.reasoning.trim().isNotEmpty ||
+                  accumulator.toolOutput.isNotEmpty),
+        ),
+      ],
       metadata: <String, dynamic>{
         ...?base.metadata,
         kDirectRawAssistantContentMetadataKey: accumulator.text,
@@ -14896,6 +14924,9 @@ Future<void> _sendMessageInternal(
         owner: runOwner,
         reservation: reservation,
         preflightCancelToken: preflightCancelToken,
+        enableWebSearch:
+            ref.read(webSearchEnabledProvider) &&
+            ref.read(webSearchAvailableProvider),
         sendHandle: sendHandle,
       );
       if (_isDirectConversationOwnerActive(ref, runOwner) &&

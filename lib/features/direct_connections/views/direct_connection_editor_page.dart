@@ -412,6 +412,10 @@ class _DirectConnectionEditorPageState
       apiKey: apiKey,
       customHeaders: headers,
       manualModelIds: parseDirectManualModelIds(_modelsController.text),
+      ollamaKeepAliveByModel:
+          saved?.ollamaKeepAliveByModel ?? const <String, String>{},
+      ollamaThinkingByModel:
+          saved?.ollamaThinkingByModel ?? const <String, String>{},
       allowSelfSignedCertificates: saved?.allowSelfSignedCertificates ?? false,
       mtlsCertificateChainPem: saved?.mtlsCertificateChainPem,
       mtlsCertificateLabel: saved?.mtlsCertificateLabel,
@@ -1080,11 +1084,15 @@ class _DirectConnectionEditorPageState
               _testMessage = null;
               if (widget.isNew) {
                 _baseUrlController.text = value == kOllamaAdapterKey
-                    ? ''
+                    ? 'https://ollama.com'
                     : 'https://api.openai.com/v1';
-                _authentication = value == kOllamaAdapterKey
-                    ? DirectAuthenticationMode.none
-                    : DirectAuthenticationMode.bearer;
+                _authentication = DirectAuthenticationMode.bearer;
+                if (_nameController.text == 'My provider' ||
+                    _nameController.text == l10n.ollamaCloudDefaultName) {
+                  _nameController.text = value == kOllamaAdapterKey
+                      ? l10n.ollamaCloudDefaultName
+                      : 'My provider';
+                }
               }
             });
           },
@@ -1110,7 +1118,7 @@ class _DirectConnectionEditorPageState
         AccessibleFormField(
           key: const ValueKey<String>('direct-connection-name-field'),
           label: l10n.directConnectionName,
-          hint: isOllama ? 'Home Ollama' : 'My provider',
+          hint: isOllama ? l10n.ollamaCloudDefaultName : 'My provider',
           controller: _nameController,
           errorText: _nameError,
           isRequired: true,
@@ -1123,7 +1131,7 @@ class _DirectConnectionEditorPageState
         key: const ValueKey<String>('direct-base-url-field'),
         label: l10n.directApiBaseUrl,
         hint: isOllama
-            ? 'http://192.168.1.10:11434'
+            ? l10n.ollamaCloudBaseUrlHint
             : 'https://api.openai.com/v1',
         controller: _baseUrlController,
         keyboardType: TextInputType.url,
@@ -1136,7 +1144,7 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.sm),
       Text(
         isOllama
-            ? 'Use the Ollama server root. Conduit calls its native /api endpoints.'
+            ? l10n.ollamaCloudBaseUrlDescription
             : 'Include the API prefix expected by the provider, usually /v1.',
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
