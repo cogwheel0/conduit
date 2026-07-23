@@ -56,6 +56,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       StreamController<NativeSheetEvent>.broadcast();
   Future<void> Function(String modelId)? _modelPinToggleHandler;
   Object? _modelPinToggleHandlerOwner;
+  Future<void> Function(String value)? _reasoningEffortChangedHandler;
+  Object? _reasoningEffortChangedHandlerOwner;
 
   @visibleForTesting
   bool? debugIsIOSOverride;
@@ -96,9 +98,24 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     required List<NativeSheetModelOption> models,
     String? selectedModelId,
     List<String> pinnedModelIds = const <String>[],
+    List<String> featuredModelIds = const <String>[],
     String? pinTitle,
     String? unpinTitle,
+    String moreModelsTitle = 'More models',
+    String searchModelsTitle = 'Search models',
+    String reasoningEffortTitle = 'Effort',
+    String reasoningEffortValue = 'medium',
+    List<String> reasoningEffortOptions = const <String>[
+      'low',
+      'medium',
+      'high',
+    ],
+    Map<String, String> reasoningEffortLabels = const <String, String>{},
+    bool allowsCustomReasoningEffort = true,
+    String customReasoningEffortTitle = 'Custom effort',
+    String customReasoningEffortHint = 'Enter effort',
     Future<void> Function(String modelId)? onTogglePinned,
+    Future<void> Function(String value)? onReasoningEffortChanged,
     bool rethrowErrors = false,
   }) async {
     final normalizedPresentationId = presentationId.trim();
@@ -107,10 +124,14 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
     final previousPinToggleHandler = _modelPinToggleHandler;
     final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
+    final previousEffortHandler = _reasoningEffortChangedHandler;
+    final previousEffortHandlerOwner = _reasoningEffortChangedHandlerOwner;
     final pinToggleHandlerOwner = Object();
     var shouldClearPinToggleHandler = false;
     _modelPinToggleHandler = onTogglePinned;
     _modelPinToggleHandlerOwner = pinToggleHandlerOwner;
+    _reasoningEffortChangedHandler = onReasoningEffortChanged;
+    _reasoningEffortChangedHandlerOwner = pinToggleHandlerOwner;
     try {
       final result = await _api.presentModelSelector(
         PlatformNativeSheetModelSelectorRequest(
@@ -119,9 +140,19 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           selectedModelId: selectedModelId,
           models: models.map((model) => model.toPlatform()).toList(),
           pinnedModelIds: pinnedModelIds,
+          featuredModelIds: featuredModelIds,
           allowsPinning: onTogglePinned != null,
           pinTitle: pinTitle,
           unpinTitle: unpinTitle,
+          moreModelsTitle: moreModelsTitle,
+          searchModelsTitle: searchModelsTitle,
+          reasoningEffortTitle: reasoningEffortTitle,
+          reasoningEffortValue: reasoningEffortValue,
+          reasoningEffortOptions: reasoningEffortOptions,
+          reasoningEffortLabels: reasoningEffortLabels,
+          allowsCustomReasoningEffort: allowsCustomReasoningEffort,
+          customReasoningEffortTitle: customReasoningEffortTitle,
+          customReasoningEffortHint: customReasoningEffortHint,
         ),
       );
       shouldClearPinToggleHandler = true;
@@ -135,6 +166,11 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           owner: pinToggleHandlerOwner,
           previousHandler: previousPinToggleHandler,
           previousOwner: previousPinToggleHandlerOwner,
+        );
+        _restorePreviousReasoningEffortHandler(
+          owner: pinToggleHandlerOwner,
+          previousHandler: previousEffortHandler,
+          previousOwner: previousEffortHandlerOwner,
         );
       }
       _logNativeSheetBridgeError(
@@ -152,6 +188,11 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           previousHandler: previousPinToggleHandler,
           previousOwner: previousPinToggleHandlerOwner,
         );
+        _restorePreviousReasoningEffortHandler(
+          owner: pinToggleHandlerOwner,
+          previousHandler: previousEffortHandler,
+          previousOwner: previousEffortHandlerOwner,
+        );
       }
       _logNativeSheetBridgeError(
         'presentModelSelector',
@@ -166,6 +207,13 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           identical(_modelPinToggleHandlerOwner, pinToggleHandlerOwner)) {
         _modelPinToggleHandler = null;
         _modelPinToggleHandlerOwner = null;
+        if (identical(
+          _reasoningEffortChangedHandlerOwner,
+          pinToggleHandlerOwner,
+        )) {
+          _reasoningEffortChangedHandler = previousEffortHandler;
+          _reasoningEffortChangedHandlerOwner = previousEffortHandlerOwner;
+        }
       }
     }
   }
@@ -201,6 +249,16 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     }
     _modelPinToggleHandler = previousHandler;
     _modelPinToggleHandlerOwner = previousOwner;
+  }
+
+  void _restorePreviousReasoningEffortHandler({
+    required Object owner,
+    required Future<void> Function(String value)? previousHandler,
+    required Object? previousOwner,
+  }) {
+    if (!identical(_reasoningEffortChangedHandlerOwner, owner)) return;
+    _reasoningEffortChangedHandler = previousHandler;
+    _reasoningEffortChangedHandlerOwner = previousOwner;
   }
 
   Future<String?> presentOptionsSelector({
@@ -415,6 +473,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   void onModelPinToggled(PlatformNativeSheetModelPinToggledEvent event) {
     if (event.modelId.isEmpty) return;
     unawaited(_handleModelPinToggled(event.modelId));
+  }
+
+  @override
+  void onReasoningEffortChanged(
+    PlatformNativeSheetReasoningEffortChangedEvent event,
+  ) {
+    if (event.value.isEmpty) return;
+    unawaited(_handleReasoningEffortChanged(event.value));
+  }
+
+  Future<void> _handleReasoningEffortChanged(String value) async {
+    try {
+      await _reasoningEffortChangedHandler?.call(value);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'onReasoningEffortChanged',
+        error,
+        stackTrace,
+        data: {'value': value},
+      );
+    }
   }
 
   Future<void> _handleModelPinToggled(String modelId) async {

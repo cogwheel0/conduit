@@ -172,7 +172,7 @@ void main() {
       final sheet = tester.widget<ComposerOverflowSheet>(
         find.byType(ComposerOverflowSheet),
       );
-      expect(sheet.onFileAttachment, isNull);
+      expect(sheet.onFileAttachment, isNotNull);
       expect(sheet.onServerFileAttachment, isNull);
       expect(sheet.onWebAttachment, isNull);
       expect(sheet.onImageAttachment, isNotNull);
@@ -181,7 +181,7 @@ void main() {
   );
 
   testWidgets(
-    'text-only direct models hide overflow and image content insertion',
+    'text-only direct models keep file attachment overflow available',
     (tester) async {
       final registry = DirectModelRegistry();
       final directModel = registry.replaceProfileModels(
@@ -230,12 +230,13 @@ void main() {
           isHermesComposer: false,
           isDirectComposer: true,
           directSupportsImages: false,
+          directHasLocalAttachmentActions: true,
         ),
-        isFalse,
+        isTrue,
       );
       final textField = tester.widget<TextField>(find.byType(TextField));
       expect(textField.contentInsertionConfiguration, isNull);
-      expect(find.byIcon(Icons.add), findsNothing);
+      expect(find.byIcon(Icons.add), findsOneWidget);
       expect(find.byType(ComposerOverflowSheet), findsNothing);
     },
   );

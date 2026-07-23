@@ -109,6 +109,7 @@ void main() {
     }
 
     expect(actionIds(hermesMode: false, directMode: true), [
+      ComposerOverflowActionIds.file,
       ComposerOverflowActionIds.photo,
       ComposerOverflowActionIds.camera,
     ]);

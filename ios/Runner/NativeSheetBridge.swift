@@ -401,9 +401,19 @@ private struct NativeModelSelectorConfiguration {
     let selectedModelId: String?
     let models: [NativeModelSelectorOption]
     let pinnedModelIds: [String]
+    let featuredModelIds: [String]
     let allowsPinning: Bool
     let pinTitle: String
     let unpinTitle: String
+    let moreModelsTitle: String
+    let searchModelsTitle: String
+    let reasoningEffortTitle: String
+    let reasoningEffortValue: String
+    let reasoningEffortOptions: [String]
+    let reasoningEffortLabels: [String: String]
+    let allowsCustomReasoningEffort: Bool
+    let customReasoningEffortTitle: String
+    let customReasoningEffortHint: String
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -430,9 +440,22 @@ private struct NativeModelSelectorConfiguration {
             }
             return trimmed
         }
+        featuredModelIds = payload["featuredModelIds"] as? [String] ?? []
         allowsPinning = payload["allowsPinning"] as? Bool ?? false
         pinTitle = (payload["pinTitle"] as? String) ?? nativeLocalized("native.pin", "Pin")
         unpinTitle = (payload["unpinTitle"] as? String) ?? nativeLocalized("native.unpin", "Unpin")
+        moreModelsTitle = (payload["moreModelsTitle"] as? String) ?? "More models"
+        searchModelsTitle = (payload["searchModelsTitle"] as? String) ?? "Search models"
+        reasoningEffortTitle = (payload["reasoningEffortTitle"] as? String) ?? "Effort"
+        reasoningEffortValue = (payload["reasoningEffortValue"] as? String) ?? "medium"
+        reasoningEffortOptions = payload["reasoningEffortOptions"] as? [String]
+            ?? ["low", "medium", "high"]
+        reasoningEffortLabels = payload["reasoningEffortLabels"] as? [String: String] ?? [:]
+        allowsCustomReasoningEffort = payload["allowsCustomReasoningEffort"] as? Bool ?? true
+        customReasoningEffortTitle = (payload["customReasoningEffortTitle"] as? String)
+            ?? "Custom effort"
+        customReasoningEffortHint = (payload["customReasoningEffortHint"] as? String)
+            ?? "Enter effort"
         if models.isEmpty {
             return nil
         }
@@ -968,7 +991,17 @@ private extension PlatformNativeSheetModelSelectorRequest {
             "title": title,
             "models": models.map { $0.asPayload() },
             "pinnedModelIds": pinnedModelIds,
+            "featuredModelIds": featuredModelIds,
             "allowsPinning": allowsPinning,
+            "moreModelsTitle": moreModelsTitle,
+            "searchModelsTitle": searchModelsTitle,
+            "reasoningEffortTitle": reasoningEffortTitle,
+            "reasoningEffortValue": reasoningEffortValue,
+            "reasoningEffortOptions": reasoningEffortOptions,
+            "reasoningEffortLabels": reasoningEffortLabels,
+            "allowsCustomReasoningEffort": allowsCustomReasoningEffort,
+            "customReasoningEffortTitle": customReasoningEffortTitle,
+            "customReasoningEffortHint": customReasoningEffortHint,
         ]
         payload["selectedModelId"] = selectedModelId
         payload["pinTitle"] = pinTitle
@@ -1703,6 +1736,11 @@ final class NativeSheetBridge: NativeSheetHostApi {
                 guard let self else { return }
                 self.flutterApi?.onModelPinToggled(
                     event: PlatformNativeSheetModelPinToggledEvent(modelId: modelId)
+                ) { _ in }
+            },
+            onEffortChanged: { [weak self] value in
+                self?.flutterApi?.onReasoningEffortChanged(
+                    event: PlatformNativeSheetReasoningEffortChangedEvent(value: value)
                 ) { _ in }
             },
             onClose: { [weak self] in
@@ -4406,31 +4444,34 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     private let configuration: NativeModelSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onTogglePin: (String) -> Void
+    private let onEffortChanged: (String) -> Void
     private let onClose: () -> Void
-    private var filteredModels: [NativeModelSelectorOption]
     private var pinnedModelIds: [String]
     private var pinnedModelIdSet: Set<String>
-    private var currentSearchQuery = ""
     private var models: [NativeModelSelectorOption]
+    private var featuredModels: [NativeModelSelectorOption] = []
+    private var moreModels: [NativeModelSelectorOption] = []
+    private var reasoningEffortValue: String
+    private weak var moreModelsController: NativeMoreModelsTableViewController?
 
     init(
         configuration: NativeModelSelectorConfiguration,
         onSelect: @escaping (String) -> Void,
         onTogglePin: @escaping (String) -> Void,
+        onEffortChanged: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.onSelect = onSelect
         self.onTogglePin = onTogglePin
+        self.onEffortChanged = onEffortChanged
         self.onClose = onClose
         pinnedModelIds = configuration.pinnedModelIds
         pinnedModelIdSet = Set(configuration.pinnedModelIds)
         models = configuration.models
-        filteredModels = Self.sortedModels(
-            configuration.models,
-            pinnedModelIds: configuration.pinnedModelIds
-        )
+        reasoningEffortValue = configuration.reasoningEffortValue
         super.init(style: .insetGrouped)
+        refreshModelPartitions()
     }
 
     required init?(coder: NSCoder) {
@@ -4446,39 +4487,83 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             forCellReuseIdentifier: "modelCell"
         )
         NativeSheetSettingsStyle.apply(to: tableView)
-
-        let searchController = UISearchController(searchResultsController: nil)
-        searchController.searchResultsUpdater = self
-        searchController.obscuresBackgroundDuringPresentation = false
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
     }
 
+    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
+
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        filteredModels.count
+        switch section {
+        case 0: featuredModels.count
+        case 1: 1
+        case 2: moreModels.isEmpty ? 0 : 1
+        default: 0
+        }
     }
 
     override func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        let model = filteredModels[indexPath.row]
-        let cell = tableView.dequeueReusableCell(
-            withIdentifier: "modelCell",
-            for: indexPath
-        ) as! NativeModelSelectorTableViewCell
-        cell.configure(
-            model: model,
-            isSelected: model.id == configuration.selectedModelId,
-            isPinned: pinnedModelIdSet.contains(model.id),
-            avatarCacheIdentifier: "\(configuration.presentationId):\(model.id)"
-        )
+        if indexPath.section == 0 {
+            let model = featuredModels[indexPath.row]
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: "modelCell",
+                for: indexPath
+            ) as! NativeModelSelectorTableViewCell
+            cell.configure(
+                model: model,
+                isSelected: model.id == configuration.selectedModelId,
+                isPinned: pinnedModelIdSet.contains(model.id),
+                avatarCacheIdentifier: "\(configuration.presentationId):\(model.id)"
+            )
+            return cell
+        }
+
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var content = cell.defaultContentConfiguration()
+        if indexPath.section == 1 {
+            content.image = UIImage(systemName: "clock")
+            content.text = configuration.reasoningEffortTitle
+            content.secondaryText = effortLabel(reasoningEffortValue)
+        } else {
+            content.image = UIImage(systemName: "ellipsis")
+            content.text = configuration.moreModelsTitle
+        }
+        content.imageProperties.tintColor = .label
+        cell.contentConfiguration = content
+        cell.accessoryType = .disclosureIndicator
         return cell
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        onSelect(filteredModels[indexPath.row].id)
+        switch indexPath.section {
+        case 0:
+            onSelect(featuredModels[indexPath.row].id)
+        case 1:
+            presentEffortSelector(sourceView: tableView.cellForRow(at: indexPath))
+        case 2:
+            let controller = NativeMoreModelsTableViewController(
+                title: configuration.moreModelsTitle,
+                searchPlaceholder: configuration.searchModelsTitle,
+                presentationId: configuration.presentationId,
+                models: moreModels,
+                selectedModelId: configuration.selectedModelId,
+                pinnedModelIds: pinnedModelIdSet,
+                allowsPinning: configuration.allowsPinning,
+                pinTitle: configuration.pinTitle,
+                unpinTitle: configuration.unpinTitle,
+                onSelect: onSelect,
+                onTogglePin: { [weak self] modelId in
+                    self?.togglePinnedModel(modelId)
+                    self?.onTogglePin(modelId)
+                }
+            )
+            moreModelsController = controller
+            navigationController?.pushViewController(controller, animated: true)
+        default:
+            break
+        }
     }
 
     override func tableView(
@@ -4487,7 +4572,8 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
         guard configuration.allowsPinning else { return nil }
-        let model = filteredModels[indexPath.row]
+        guard indexPath.section == 0 else { return nil }
+        let model = featuredModels[indexPath.row]
         let isPinned = pinnedModelIdSet.contains(model.id)
         let title = isPinned ? configuration.unpinTitle : configuration.pinTitle
         let image = UIImage(systemName: isPinned ? "pin.slash" : "pin")
@@ -4518,7 +4604,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             pinnedModelIdSet.insert(modelId)
             pinnedModelIds.append(modelId)
         }
-        applyFilterAndSort(query: currentSearchQuery)
+        refreshModelPartitions()
+        moreModelsController?.updateModels(moreModels)
+        tableView.reloadData()
     }
 
     func updateModels(_ updatedModels: [NativeModelSelectorOption]) {
@@ -4526,84 +4614,209 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         var updatesById: [String: NativeModelSelectorOption] = [:]
         updatedModels.forEach { updatesById[$0.id] = $0 }
         models = models.map { updatesById[$0.id] ?? $0 }
-        let previousIds = filteredModels.map(\.id)
-        let nextModels = filteredAndSortedModels(query: currentSearchQuery)
-        filteredModels = nextModels
-        guard isViewLoaded else { return }
-
-        let nextIds = nextModels.map(\.id)
-        guard previousIds == nextIds else {
-            tableView.reloadData()
-            return
-        }
-        let updatedIds = Set(updatesById.keys)
-        let changedRows = nextModels.enumerated().compactMap { index, model in
-            updatedIds.contains(model.id)
-                ? IndexPath(row: index, section: 0)
-                : nil
-        }
-        if !changedRows.isEmpty {
-            tableView.reloadRows(at: changedRows, with: .none)
-        }
+        refreshModelPartitions()
+        moreModelsController?.updateModels(moreModels)
+        if isViewLoaded { tableView.reloadData() }
     }
 
-    private func applyFilterAndSort(query: String) {
-        currentSearchQuery = query
-        filteredModels = filteredAndSortedModels(query: query)
-        tableView.reloadData()
-    }
-
-    private func filteredAndSortedModels(
-        query: String
-    ) -> [NativeModelSelectorOption] {
-        let searchedModels = query.isEmpty
-            ? models
-            : models.filter { model in
-                model.name.lowercased().contains(query)
-                    || model.id.lowercased().contains(query)
-                    || model.tags.contains { $0.lowercased().contains(query) }
-            }
-        return Self.sortedModels(
-            searchedModels,
-            pinnedModelIds: pinnedModelIds
+    private func refreshModelPartitions() {
+        let ids = pinnedModelIds.isEmpty
+            ? configuration.featuredModelIds
+            : pinnedModelIds
+        let byId = Dictionary(
+            models.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
+        featuredModels = ids.compactMap { byId[$0] }
+        let featuredIds = Set(featuredModels.map(\.id))
+        moreModels = models.filter { !featuredIds.contains($0.id) }
     }
 
-    private static func sortedModels(
-        _ models: [NativeModelSelectorOption],
-        pinnedModelIds: [String]
-    ) -> [NativeModelSelectorOption] {
-        guard !models.isEmpty, !pinnedModelIds.isEmpty else {
-            return models
-        }
-        let pinnedOrder = Dictionary(
-            uniqueKeysWithValues: pinnedModelIds.enumerated().map { index, modelId in
-                (modelId, index)
-            }
+    private func effortLabel(_ value: String) -> String {
+        configuration.reasoningEffortLabels[value] ?? value.capitalized
+    }
+
+    private func presentEffortSelector(sourceView: UIView?) {
+        let alert = UIAlertController(
+            title: configuration.reasoningEffortTitle,
+            message: nil,
+            preferredStyle: .actionSheet
         )
-        return models.enumerated().sorted { lhs, rhs in
-            let leftOrder = pinnedOrder[lhs.element.id]
-            let rightOrder = pinnedOrder[rhs.element.id]
-            switch (leftOrder, rightOrder) {
-            case let (left?, right?):
-                return left == right ? lhs.offset < rhs.offset : left < right
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            case (nil, nil):
-                return lhs.offset < rhs.offset
+        for option in configuration.reasoningEffortOptions {
+            let label = option == reasoningEffortValue
+                ? "✓ \(effortLabel(option))"
+                : effortLabel(option)
+            let action = UIAlertAction(title: label, style: .default) {
+                [weak self] _ in self?.commitEffort(option)
             }
-        }.map(\.element)
+            alert.addAction(action)
+        }
+        if configuration.allowsCustomReasoningEffort {
+            alert.addAction(UIAlertAction(
+                title: configuration.customReasoningEffortTitle,
+                style: .default
+            ) { [weak self] _ in self?.presentCustomEffort() })
+        }
+        alert.addAction(UIAlertAction(title: nativeLocalized("native.cancel", "Cancel"), style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = sourceView ?? view
+            popover.sourceRect = sourceView?.bounds ?? view.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    private func presentCustomEffort() {
+        let alert = UIAlertController(
+            title: configuration.customReasoningEffortTitle,
+            message: nil,
+            preferredStyle: .alert
+        )
+        alert.addTextField { [weak self] field in
+            guard let self else { return }
+            field.placeholder = configuration.customReasoningEffortHint
+            if !configuration.reasoningEffortOptions.contains(reasoningEffortValue) {
+                field.text = reasoningEffortValue
+            }
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: nativeLocalized("native.cancel", "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: nativeLocalized("native.save", "Save"), style: .default) {
+            [weak self, weak alert] _ in
+            guard let value = alert?.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return }
+            self?.commitEffort(value.lowercased())
+        })
+        present(alert, animated: true)
+    }
+
+    private func commitEffort(_ value: String) {
+        reasoningEffortValue = value
+        tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        onEffortChanged(value)
     }
 }
 
-extension NativeModelSelectorTableViewController: UISearchResultsUpdating {
+private final class NativeMoreModelsTableViewController: UITableViewController, UISearchResultsUpdating {
+    private let searchPlaceholder: String
+    private let presentationId: String
+    private let selectedModelId: String?
+    private var pinnedModelIds: Set<String>
+    private let allowsPinning: Bool
+    private let pinTitle: String
+    private let unpinTitle: String
+    private let onSelect: (String) -> Void
+    private let onTogglePin: (String) -> Void
+    private var models: [NativeModelSelectorOption]
+    private var filteredModels: [NativeModelSelectorOption]
+    private var query = ""
+
+    init(
+        title: String,
+        searchPlaceholder: String,
+        presentationId: String,
+        models: [NativeModelSelectorOption],
+        selectedModelId: String?,
+        pinnedModelIds: Set<String>,
+        allowsPinning: Bool,
+        pinTitle: String,
+        unpinTitle: String,
+        onSelect: @escaping (String) -> Void,
+        onTogglePin: @escaping (String) -> Void
+    ) {
+        self.searchPlaceholder = searchPlaceholder
+        self.presentationId = presentationId
+        self.models = models
+        filteredModels = models
+        self.selectedModelId = selectedModelId
+        self.pinnedModelIds = pinnedModelIds
+        self.allowsPinning = allowsPinning
+        self.pinTitle = pinTitle
+        self.unpinTitle = unpinTitle
+        self.onSelect = onSelect
+        self.onTogglePin = onTogglePin
+        super.init(style: .insetGrouped)
+        self.title = title
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.register(NativeModelSelectorTableViewCell.self, forCellReuseIdentifier: "modelCell")
+        NativeSheetSettingsStyle.apply(to: tableView)
+        let search = UISearchController(searchResultsController: nil)
+        search.searchResultsUpdater = self
+        search.searchBar.placeholder = searchPlaceholder
+        search.obscuresBackgroundDuringPresentation = false
+        navigationItem.searchController = search
+        navigationItem.hidesSearchBarWhenScrolling = false
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        filteredModels.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let model = filteredModels[indexPath.row]
+        let cell = tableView.dequeueReusableCell(withIdentifier: "modelCell", for: indexPath)
+            as! NativeModelSelectorTableViewCell
+        cell.configure(
+            model: model,
+            isSelected: model.id == selectedModelId,
+            isPinned: pinnedModelIds.contains(model.id),
+            avatarCacheIdentifier: "\(presentationId):\(model.id)"
+        )
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        onSelect(filteredModels[indexPath.row].id)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard allowsPinning else { return nil }
+        let model = filteredModels[indexPath.row]
+        let pinned = pinnedModelIds.contains(model.id)
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            let action = UIAction(
+                title: pinned ? self?.unpinTitle ?? "Unpin" : self?.pinTitle ?? "Pin",
+                image: UIImage(systemName: pinned ? "pin.slash" : "pin")
+            ) { [weak self] _ in
+                if pinned { self?.pinnedModelIds.remove(model.id) }
+                else { self?.pinnedModelIds.insert(model.id) }
+                self?.tableView.reloadRows(at: [indexPath], with: .none)
+                self?.onTogglePin(model.id)
+            }
+            return UIMenu(children: [action])
+        }
+    }
+
+    func updateModels(_ updated: [NativeModelSelectorOption]) {
+        models = updated
+        applyFilter()
+    }
+
     func updateSearchResults(for searchController: UISearchController) {
-        let query = searchController.searchBar.text?
+        query = searchController.searchBar.text?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        applyFilterAndSort(query: query)
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        filteredModels = query.isEmpty ? models : models.filter { model in
+            model.name.lowercased().contains(query)
+                || model.id.lowercased().contains(query)
+                || model.tags.contains { $0.lowercased().contains(query) }
+        }
+        if isViewLoaded { tableView.reloadData() }
     }
 }
 

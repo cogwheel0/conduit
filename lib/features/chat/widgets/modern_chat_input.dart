@@ -73,10 +73,13 @@ bool shouldShowComposerOverflowButton({
   required bool isHermesComposer,
   required bool isDirectComposer,
   required bool directSupportsImages,
+  bool directHasLocalAttachmentActions = false,
   bool hermesHasLocalAttachmentActions = false,
 }) {
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
-  return !isDirectComposer || directSupportsImages;
+  return !isDirectComposer ||
+      directSupportsImages ||
+      directHasLocalAttachmentActions;
 }
 
 /// Builds the actions rendered by the iOS keyboard attachment panel.
@@ -122,6 +125,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
                   item.id == ComposerOverflowActionIds.camera);
         }
         return !directMode ||
+            item.id == ComposerOverflowActionIds.file ||
             item.id == ComposerOverflowActionIds.photo ||
             item.id == ComposerOverflowActionIds.camera;
       })
@@ -1980,7 +1984,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ref.read(directModelRegistryProvider),
     );
     return ComposerOverflowAttachmentAvailability(
-      file: !directMode && widget.onFileAttachment != null,
+      file: widget.onFileAttachment != null,
       serverFile: !directMode && widget.onServerFileAttachment != null,
       photo: imageInputAvailable && widget.onImageAttachment != null,
       camera: imageInputAvailable && widget.onCameraCapture != null,
@@ -2275,6 +2279,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isHermesComposer: isHermesComposer,
       isDirectComposer: isDirectComposer,
       directSupportsImages: directSupportsImages,
+      directHasLocalAttachmentActions: attachmentAvailability.file,
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||

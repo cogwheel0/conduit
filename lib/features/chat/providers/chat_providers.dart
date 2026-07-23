@@ -62,6 +62,7 @@ import '../../hermes/services/hermes_session_provenance.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../models/chat_context_attachment.dart';
 import '../providers/context_attachments_provider.dart';
+import '../providers/reasoning_effort_provider.dart';
 import '../../tools/providers/tools_providers.dart';
 import '../services/chat_transport_dispatch.dart';
 import '../services/file_attachment_service.dart';
@@ -11700,6 +11701,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       sessionId: sessionId,
       previousResponseId: responsePreviousResponseId,
       conversationHistory: responseStartsNewChain ? responseHistory : null,
+      reasoningEffort: ref.read(configuredReasoningEffortProvider),
       cancelToken: cancelToken,
       onSessionEstablished: (establishedSessionId) async {
         if (establishedSessionId == null || cancelled()) return;
@@ -11813,6 +11815,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     input: input,
     sessionId: sessionId,
     conversationHistory: conversationHistory,
+    reasoningEffort: ref.read(configuredReasoningEffortProvider),
     cancelToken: cancelToken,
     appendContent: appendProjectedContent,
     replaceContent: replaceProjectedContent,
@@ -13931,6 +13934,13 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         remoteModelId: route.binding.remoteModelId,
         messages: directMessages,
         enableWebSearch: enableWebSearch,
+        parameters:
+            route.profile.adapterKey == kOllamaAdapterKey ||
+                ref.read(configuredReasoningEffortProvider) == null
+            ? const <String, dynamic>{}
+            : <String, dynamic>{
+                'reasoning_effort': ref.read(configuredReasoningEffortProvider),
+              },
       ),
     );
   } catch (error) {

@@ -1184,6 +1184,53 @@ class HermesApiService {
     String? previousResponseId,
     List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
+  }) => _createRunRequest(
+    input: input,
+    sessionId: sessionId,
+    instructions: instructions,
+    previousResponseId: previousResponseId,
+    conversationHistory: conversationHistory,
+    cancelToken: cancelToken,
+  );
+
+  Future<String> createRunWithReasoning({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
+  }) async {
+    if (reasoningEffort == null) {
+      return createRun(
+        input: input,
+        sessionId: sessionId,
+        instructions: instructions,
+        previousResponseId: previousResponseId,
+        conversationHistory: conversationHistory,
+        cancelToken: cancelToken,
+      );
+    }
+    return _createRunRequest(
+      input: input,
+      sessionId: sessionId,
+      instructions: instructions,
+      previousResponseId: previousResponseId,
+      conversationHistory: conversationHistory,
+      reasoningEffort: reasoningEffort,
+      cancelToken: cancelToken,
+    );
+  }
+
+  Future<String> _createRunRequest({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
   }) async {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
     final data = await _postBoundedCreateObject(
@@ -1193,6 +1240,7 @@ class HermesApiService {
         'input': input,
         'session_id': ?validatedSessionId,
         'instructions': ?instructions,
+        'reasoning_effort': ?reasoningEffort,
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory
         else
@@ -1382,6 +1430,58 @@ class HermesApiService {
     String? previousResponseId,
     List<Map<String, dynamic>>? conversationHistory,
     CancelToken? cancelToken,
+  }) => _streamResponseRequest(
+    input,
+    instructions: instructions,
+    sessionId: sessionId,
+    conversation: conversation,
+    previousResponseId: previousResponseId,
+    conversationHistory: conversationHistory,
+    cancelToken: cancelToken,
+  );
+
+  Future<HermesResponseStream> streamResponseWithReasoning(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
+  }) async {
+    if (reasoningEffort == null) {
+      return streamResponse(
+        input,
+        instructions: instructions,
+        sessionId: sessionId,
+        conversation: conversation,
+        previousResponseId: previousResponseId,
+        conversationHistory: conversationHistory,
+        cancelToken: cancelToken,
+      );
+    }
+    return _streamResponseRequest(
+      input,
+      instructions: instructions,
+      sessionId: sessionId,
+      conversation: conversation,
+      previousResponseId: previousResponseId,
+      conversationHistory: conversationHistory,
+      reasoningEffort: reasoningEffort,
+      cancelToken: cancelToken,
+    );
+  }
+
+  Future<HermesResponseStream> _streamResponseRequest(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
   }) async {
     if ((conversation?.isNotEmpty ?? false) &&
         (previousResponseId?.isNotEmpty ?? false)) {
@@ -1407,6 +1507,8 @@ class HermesApiService {
         'conversation': ?conversation,
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory,
+        if (reasoningEffort != null)
+          'reasoning': <String, dynamic>{'effort': reasoningEffort},
       },
       options: Options(
         responseType: ResponseType.stream,

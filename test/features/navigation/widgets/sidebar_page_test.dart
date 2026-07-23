@@ -15,6 +15,7 @@ import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/models/note.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
 import 'package:conduit/core/services/settings_service.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
@@ -48,6 +49,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../support/openwebui_storage_test_overrides.dart';
 
@@ -63,13 +65,13 @@ void main() {
     ).equals('Self-hosted agent');
   });
 
-  test('accountless direct native fallback targets direct connections', () {
+  test('accountless native fallback targets generic settings', () {
     expect(
       sidebarProfileFallbackRouteName(
         directPrimary: true,
         hasOpenWebUiUser: false,
       ),
-      RouteNames.directConnections,
+      RouteNames.profile,
     );
     expect(
       sidebarProfileFallbackRouteName(
@@ -909,7 +911,7 @@ void main() {
     expect(find.byType(UserAvatar), findsOneWidget);
   });
 
-  testWidgets('accountless direct profile click opens direct connections', (
+  testWidgets('accountless direct profile click opens generic settings', (
     tester,
   ) async {
     var nativePresentationCalls = 0;
@@ -922,9 +924,9 @@ void main() {
               const Scaffold(body: SidebarProfileAppBarLeading()),
         ),
         GoRoute(
-          path: Routes.directConnections,
-          name: RouteNames.directConnections,
-          builder: (_, _) => const Scaffold(body: Text('Direct destination')),
+          path: Routes.profile,
+          name: RouteNames.profile,
+          builder: (_, _) => const Scaffold(body: Text('Settings destination')),
         ),
       ],
     );
@@ -959,7 +961,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Direct destination'), findsOneWidget);
+    expect(find.text('Settings destination'), findsOneWidget);
     expect(nativePresentationCalls, 1);
   });
 
@@ -1725,7 +1727,7 @@ Widget _buildSidebarHarness({
       // ignore: scoped_providers_should_specify_dependencies
       appSettingsProvider.overrideWithValue(settings),
       // ignore: scoped_providers_should_specify_dependencies
-      apiServiceProvider.overrideWithValue(null),
+      apiServiceProvider.overrideWithValue(_SidebarApiService()),
       // The production auth provider is deliberately incomplete in this
       // narrow harness; keep its account-generation boundary deterministic.
       // ignore: scoped_providers_should_specify_dependencies
@@ -1796,6 +1798,7 @@ Widget _buildSidebarHarness({
       hermesOnlyModeProvider.overrideWithValue(hermesOnly),
       hermesEnabledProvider.overrideWithValue(hermesEnabled),
       hermesApiServiceProvider.overrideWithValue(null),
+      terminalServiceProvider.overrideWithValue(null),
       hermesJobsProvider.overrideWith(
         () => _TestHermesJobsController(hermesJobs),
       ),
@@ -1822,6 +1825,8 @@ Widget _buildSidebarHarness({
     ),
   );
 }
+
+final class _SidebarApiService extends Mock implements ApiService {}
 
 final class _FixedSyncEngine extends SyncEngine {
   _FixedSyncEngine(this.initial);

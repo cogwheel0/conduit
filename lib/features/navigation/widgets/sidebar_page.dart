@@ -513,14 +513,18 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final localizations = AppLocalizations.of(context)!;
     // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    final hasOpenWebUi = ref.watch(apiServiceProvider) != null;
     final hermesEnabled = ref.watch(hermesEnabledProvider);
-    final notesEnabled = !hermesOnly && ref.watch(notesFeatureEnabledProvider);
+    final notesEnabled =
+        hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider);
     final channelsEnabled =
-        !hermesOnly && ref.watch(channelsFeatureEnabledProvider);
+        hasOpenWebUi &&
+        !hermesOnly &&
+        ref.watch(channelsFeatureEnabledProvider);
     // Live when the server list resolves; cached last-known value when offline
     // (so a terminal-disabled server doesn't surface the tab offline).
     final showTerminalTab =
-        !hermesOnly && ref.watch(terminalTabVisibleProvider);
+        hasOpenWebUi && !hermesOnly && ref.watch(terminalTabVisibleProvider);
     final visibleTabIds = <_SidebarTabId>[
       if (!hermesOnly) _SidebarTabId.chats,
       if (hermesOnly || hermesEnabled) _SidebarTabId.hermes,

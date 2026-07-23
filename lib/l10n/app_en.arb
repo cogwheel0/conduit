@@ -194,6 +194,38 @@
   "@searchModels": {
     "description": "Hint text for model search input."
   },
+  "moreModels": "More models",
+  "@moreModels": {
+    "description": "Action that opens the complete model list."
+  },
+  "reasoningEffort": "Effort",
+  "@reasoningEffort": {
+    "description": "Label for the model reasoning effort setting."
+  },
+  "reasoningEffortLow": "Low",
+  "@reasoningEffortLow": {
+    "description": "Low model reasoning effort option."
+  },
+  "reasoningEffortMedium": "Medium",
+  "@reasoningEffortMedium": {
+    "description": "Medium model reasoning effort option."
+  },
+  "reasoningEffortHigh": "High",
+  "@reasoningEffortHigh": {
+    "description": "High model reasoning effort option."
+  },
+  "reasoningEffortMaximum": "Maximum",
+  "@reasoningEffortMaximum": {
+    "description": "Maximum model reasoning effort option."
+  },
+  "customReasoningEffort": "Custom effort",
+  "@customReasoningEffort": {
+    "description": "Action for entering a provider-specific reasoning effort."
+  },
+  "customReasoningEffortHint": "Enter a provider-supported effort",
+  "@customReasoningEffortHint": {
+    "description": "Hint for a provider-specific reasoning effort value."
+  },
   "searchFiles": "Search files...",
   "@searchFiles": {
     "description": "Hint text for searching files already stored on the server."

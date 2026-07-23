@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/text_to_speech_provider.dart';
+import '../../features/chat/models/model_selector_layout.dart';
+import '../../features/chat/providers/reasoning_effort_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../models/model.dart';
@@ -107,6 +109,23 @@ class NativeSheetHydrationService {
           : List<Model>.of(pickerModels, growable: false);
       final canTogglePinnedModels =
           allowsPinning && _ref.read(canTogglePinnedModelsProvider);
+      final defaultModelId =
+          _ref
+              .read(personalizationSettingsProvider)
+              .asData
+              ?.value
+              .defaultModelId ??
+          _ref.read(appSettingsProvider).defaultModel;
+      final layout = buildModelSelectorLayout(
+        models: orderedModels,
+        pinnedModelIds: pinnedModelIds,
+        defaultModelId: defaultModelId,
+      );
+      final allowsCustomEffort = _ref.read(reasoningEffortAllowsCustomProvider);
+      final effortOptions = <String>[
+        ...kStandardReasoningEfforts,
+        if (!allowsCustomEffort) 'max',
+      ];
 
       final modelOptions = [
         ...leadingOptions,
@@ -142,13 +161,31 @@ class NativeSheetHydrationService {
         title: title,
         selectedModelId: selectedModelId,
         pinnedModelIds: pinnedModelIds,
+        featuredModelIds: layout.featured.map((model) => model.id).toList(),
         pinTitle: allowsPinning ? l10n?.pin : null,
         unpinTitle: allowsPinning ? l10n?.unpin : null,
+        moreModelsTitle: l10n?.moreModels ?? 'More models',
+        searchModelsTitle: l10n?.searchModels ?? 'Search models',
+        reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
+        reasoningEffortValue: _ref.read(reasoningEffortProvider),
+        reasoningEffortOptions: effortOptions,
+        reasoningEffortLabels: <String, String>{
+          'low': l10n?.reasoningEffortLow ?? 'Low',
+          'medium': l10n?.reasoningEffortMedium ?? 'Medium',
+          'high': l10n?.reasoningEffortHigh ?? 'High',
+          'max': l10n?.reasoningEffortMaximum ?? 'Maximum',
+        },
+        allowsCustomReasoningEffort: allowsCustomEffort,
+        customReasoningEffortTitle:
+            l10n?.customReasoningEffort ?? 'Custom effort',
+        customReasoningEffortHint:
+            l10n?.customReasoningEffortHint ?? 'Enter effort',
         onTogglePinned: canTogglePinnedModels
             ? (modelId) => _ref
                   .read(personalizationSettingsProvider.notifier)
                   .togglePinnedModel(modelId)
             : null,
+        onReasoningEffortChanged: (value) => setReasoningEffort(_ref, value),
         models: nativePresentationOptions,
         rethrowErrors: rethrowErrors,
       );

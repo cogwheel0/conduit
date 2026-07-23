@@ -64,6 +64,7 @@ Future<bool> dispatchHermesResponse({
   String? previousResponseId,
   List<Map<String, dynamic>>? conversationHistory,
   String? instructions,
+  String? reasoningEffort,
   CancelToken? cancelToken,
   int maxRecoveryPolls = 120,
   Duration recoveryPollInterval = const Duration(seconds: 1),
@@ -109,13 +110,14 @@ Future<bool> dispatchHermesResponse({
 
   HermesResponseStream responseStream;
   try {
-    responseStream = await service.streamResponse(
+    responseStream = await service.streamResponseWithReasoning(
       input,
       sessionId: sessionId,
       conversation: conversation,
       previousResponseId: previousResponseId,
       conversationHistory: conversationHistory,
       instructions: instructions,
+      reasoningEffort: reasoningEffort,
       cancelToken: responseCancelToken,
     );
   } catch (error) {
@@ -384,6 +386,7 @@ Future<void> dispatchHermesRun({
   String? sessionId,
   String? previousResponseId,
   List<Map<String, dynamic>>? conversationHistory,
+  String? reasoningEffort,
   CancelToken? cancelToken,
   Duration remoteStopTimeout = const Duration(seconds: 5),
   int maxRecoveryPolls = 120,
@@ -442,11 +445,12 @@ Future<void> dispatchHermesRun({
 
   String runId;
   try {
-    final announcedRunId = await service.createRun(
+    final announcedRunId = await service.createRunWithReasoning(
       input: input,
       sessionId: sessionId,
       previousResponseId: previousResponseId,
       conversationHistory: conversationHistory,
+      reasoningEffort: reasoningEffort,
       cancelToken: runCancelToken,
     );
     runId =

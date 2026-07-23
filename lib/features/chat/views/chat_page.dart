@@ -2865,16 +2865,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
     greetingName ??= _cachedGreetingName;
-    final hasGreeting = greetingName != null && greetingName.isNotEmpty;
-    if (hasGreeting && !_greetingReady) {
+    final hasGreetingName = greetingName != null && greetingName.isNotEmpty;
+    if (!_greetingReady) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() {
           _greetingReady = true;
         });
       });
-    } else if (!hasGreeting && _greetingReady) {
-      _greetingReady = false;
     }
     final baseGreetingStyle = AppTypography.usesAppleRamp
         ? theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle
@@ -2887,10 +2885,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final greetingHeight =
         textScaler.scale(greetingStyle.fontSize ?? 24) *
         (greetingStyle.height ?? 1.1);
-    final String? resolvedGreetingName = hasGreeting ? greetingName : null;
+    final String? resolvedGreetingName = hasGreetingName ? greetingName : null;
     final greetingText = resolvedGreetingName != null
         ? l10n.greetingTitle(resolvedGreetingName)
-        : null;
+        : l10n.finishDirectSetup;
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
 
     // Check if there's a pending folder for the new chat
@@ -2911,7 +2909,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final bottomPadding = _messageListBottomPadding();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final greetingDisplay = greetingText ?? '';
+        final greetingDisplay = greetingText;
         final temporaryChatNotice = Column(
           mainAxisSize: MainAxisSize.min,
           children: [

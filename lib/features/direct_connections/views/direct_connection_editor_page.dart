@@ -14,6 +14,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
@@ -1204,49 +1205,46 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.lg),
       SettingsSectionHeader(title: l10n.directAuthentication),
       const SizedBox(height: Spacing.sm),
-      AdaptiveSegmentedSelector<DirectAuthenticationMode>(
-        value: _authentication,
-        showIcons: false,
-        onChanged: (value) => setState(() {
-          _authentication = value;
-          _apiKeyDirty = true;
-          _originSecretsConfirmed = false;
-          _apiKeyError = null;
-          _testSucceeded = null;
-          _testMessage = null;
-        }),
-        options: [
-          (
+      DropdownButtonFormField<DirectAuthenticationMode>(
+        key: ValueKey<String>('direct-authentication-selector-$_adapterKey'),
+        initialValue: _authentication,
+        isExpanded: true,
+        decoration: context.conduitInputStyles.standard(),
+        dropdownColor: context.conduitTheme.surfaceBackground,
+        items: [
+          DropdownMenuItem(
             value: DirectAuthenticationMode.bearer,
-            label: l10n.bearerToken,
-            cupertinoIcon: CupertinoIcons.lock,
-            materialIcon: Icons.key_outlined,
-            enabled: true,
+            child: Text(l10n.bearerToken),
           ),
           if (!widget.isOpenWebUi)
-            (
+            DropdownMenuItem(
               value: DirectAuthenticationMode.apiKeyHeader,
-              label: l10n.directApiKeyHeader,
-              cupertinoIcon: CupertinoIcons.lock_shield,
-              materialIcon: Icons.vpn_key_outlined,
-              enabled: true,
+              child: Text(l10n.directApiKeyHeader),
             ),
-          (
+          DropdownMenuItem(
             value: DirectAuthenticationMode.none,
-            label: l10n.noAuthentication,
-            cupertinoIcon: CupertinoIcons.lock_open,
-            materialIcon: Icons.lock_open_outlined,
-            enabled: true,
+            child: Text(l10n.noAuthentication),
           ),
           if (_authentication == DirectAuthenticationMode.unsupported)
-            (
+            DropdownMenuItem(
               value: DirectAuthenticationMode.unsupported,
-              label: l10n.directConnectionUnavailableLabel,
-              cupertinoIcon: CupertinoIcons.exclamationmark_triangle,
-              materialIcon: Icons.warning_amber_rounded,
               enabled: false,
+              child: Text(l10n.directConnectionUnavailableLabel),
             ),
         ],
+        onChanged: (value) {
+          if (value == null || value == DirectAuthenticationMode.unsupported) {
+            return;
+          }
+          setState(() {
+            _authentication = value;
+            _apiKeyDirty = true;
+            _originSecretsConfirmed = false;
+            _apiKeyError = null;
+            _testSucceeded = null;
+            _testMessage = null;
+          });
+        },
       ),
       if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
         const SizedBox(height: Spacing.sm),

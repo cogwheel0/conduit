@@ -256,6 +256,7 @@ void main() {
             profiles: profiles,
             syncWithOpenWebUi: syncEnabled,
             isOnboarding: false,
+            showHistorySync: true,
             onSyncChanged: (value) => syncEnabled = value,
             onAdd: () {},
             onEdit: (_) {},
@@ -338,6 +339,30 @@ void main() {
     await tester.tap(find.text('Device provider'));
     expect(editedServer, snapshot.records.single.profile.id);
     expect(editedLocal, local.id);
+  });
+
+  testWidgets('management hides Open WebUI history without a server', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: const [],
+            syncWithOpenWebUi: true,
+            isOnboarding: false,
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open WebUI history'), findsNothing);
   });
 
   testWidgets('separate connection groups fit a 320px-wide layout', (
@@ -1515,13 +1540,12 @@ void main() {
     );
 
     final authenticationSelector = tester
-        .widget<AdaptiveSegmentedSelector<DirectAuthenticationMode>>(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is AdaptiveSegmentedSelector<DirectAuthenticationMode>,
+        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+          find.byKey(
+            const Key('direct-authentication-selector-openai-compatible'),
           ),
         );
-    authenticationSelector.onChanged(DirectAuthenticationMode.bearer);
+    authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
     await tester.pump();
 
     final save = tester.widget<ConduitButton>(

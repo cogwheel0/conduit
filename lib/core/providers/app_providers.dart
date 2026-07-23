@@ -5182,6 +5182,27 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     return updated;
   }
 
+  Future<ServerUserSettings> setReasoningEffort(String? effort) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final serverId = api.serverConfig.id;
+    final updated = await api.updateUserReasoningEffort(effort);
+    if (!ref.mounted) return updated;
+    if (!_isCurrentServer(serverId)) {
+      return _currentSettingsForActiveServerOrDefault();
+    }
+
+    _settingsServerId = serverId;
+    _settingsSnapshot = updated;
+    state = AsyncData(updated);
+    ref.invalidate(rawUserSettingsProvider);
+    ref.invalidate(userSettingsProvider);
+    return updated;
+  }
+
   Future<ServerUserSettings> setPinnedModels(List<String> modelIds) async {
     final sanitized = SettingsService.sanitizePinnedModels(modelIds);
     final api = ref.read(apiServiceProvider);

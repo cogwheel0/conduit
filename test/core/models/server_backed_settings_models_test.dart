@@ -73,6 +73,15 @@ void main() {
       check(settings.notificationSound).isNull();
       check(settings.notificationSoundAlways).isNull();
     });
+
+    test('reads reasoning effort from OpenWebUI params', () {
+      final settings = ServerUserSettings.fromJson({
+        'params': {'reasoning_effort': ' high '},
+      });
+
+      check(settings.reasoningEffort).equals('high');
+      check(settings.copyWith(reasoningEffort: null).reasoningEffort).isNull();
+    });
   });
 
   group('AccountMetadata.fromJson', () {

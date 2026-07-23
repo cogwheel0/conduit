@@ -89,25 +89,26 @@ dynamic resolveSidebarUser(WidgetRef ref) {
 String sidebarProfileFallbackRouteName({
   required bool directPrimary,
   required bool hasOpenWebUiUser,
-}) => directPrimary && !hasOpenWebUiUser
-    ? RouteNames.directConnections
-    : RouteNames.profile;
+}) => RouteNames.profile;
 
 /// Localized search hint for the active sidebar tab.
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   // Hermes-only: the Hermes tab is the only tab.
   if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
+  final hasOpenWebUi = ref.watch(apiServiceProvider) != null;
   final tabIndex = ref.watch(sidebarActiveTabProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
-  final notesOn = ref.watch(notesFeatureEnabledProvider);
-  final terminalOn = ref
-      .watch(terminalAvailableServersProvider)
-      .maybeWhen(
-        data: (servers) => servers.isNotEmpty,
-        error: (_, _) => true,
-        orElse: () => true,
-      );
-  final channelsOn = ref.watch(channelsFeatureEnabledProvider);
+  final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);
+  final terminalOn =
+      hasOpenWebUi &&
+      ref
+          .watch(terminalAvailableServersProvider)
+          .maybeWhen(
+            data: (servers) => servers.isNotEmpty,
+            error: (_, _) => true,
+            orElse: () => true,
+          );
+  final channelsOn = hasOpenWebUi && ref.watch(channelsFeatureEnabledProvider);
 
   var i = 0;
   if (tabIndex == i) return l10n.searchConversations;

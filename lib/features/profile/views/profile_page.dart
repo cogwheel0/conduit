@@ -92,12 +92,14 @@ class ProfilePage extends ConsumerWidget {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    final hasOpenWebUiAccount = userData != null && api != null;
     final items = _buildSettingsItems(
       context,
       ref,
       userData: userData,
       api: api,
       hermesOnly: hermesOnly,
+      hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
     return ListView(
       physics: const BouncingScrollPhysics(
@@ -116,8 +118,8 @@ class ProfilePage extends ConsumerWidget {
         ],
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
-        if (!hermesOnly) const SizedBox(height: Spacing.xl),
-        if (!hermesOnly) _buildSignOutOption(context, ref),
+        if (hasOpenWebUiAccount) const SizedBox(height: Spacing.xl),
+        if (hasOpenWebUiAccount) _buildSignOutOption(context, ref),
       ],
     );
   }
@@ -344,12 +346,13 @@ class ProfilePage extends ConsumerWidget {
     required dynamic userData,
     required ApiService? api,
     required bool hermesOnly,
+    required bool hasOpenWebUiAccount,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
 
     return [
-      if (!hermesOnly) _buildProfileHeader(context, userData, api),
+      if (hasOpenWebUiAccount) _buildProfileHeader(context, userData, api),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(
@@ -380,7 +383,7 @@ class ProfilePage extends ConsumerWidget {
         subtitle: l10n.audioSettingsSubtitle,
         onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
-      if (!hermesOnly)
+      if (hasOpenWebUiAccount)
         _buildAccountOption(
           context,
           icon: UiUtils.platformIcon(
@@ -391,7 +394,7 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.notificationsSubtitle,
           onTap: () => context.pushNamed(RouteNames.notificationSettings),
         ),
-      if (!hermesOnly)
+      if (hasOpenWebUiAccount)
         _buildAccountOption(
           context,
           icon: UiUtils.platformIcon(
@@ -421,7 +424,7 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.workspaceSubtitle,
           onTap: () => context.pushNamed(RouteNames.workspace),
         ),
-      if (!hermesOnly)
+      if (hasOpenWebUiAccount)
         _buildAccountOption(
           context,
           key: const Key('data-connection-entry'),
@@ -443,7 +446,7 @@ class ProfilePage extends ConsumerWidget {
         subtitle: l10n.directConnectionsSubtitle,
         onTap: () => context.pushNamed(RouteNames.directConnections),
       ),
-      if (hermesOnly)
+      if (!hasOpenWebUiAccount)
         _buildAccountOption(
           context,
           icon: UiUtils.platformIcon(
