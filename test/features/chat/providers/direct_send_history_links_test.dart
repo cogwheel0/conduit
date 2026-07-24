@@ -3121,7 +3121,15 @@ void main() {
         id: 'ollama-0-0',
         name: 'web_search',
         arguments: const {'query': 'Ollama Cloud'},
-        result: const {'results': <Object>[]},
+        result: const {
+          'results': [
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud',
+              'content': 'Cloud-hosted Ollama models.',
+            },
+          ],
+        },
       ),
     );
     run.add(const DirectStreamDone());
@@ -3137,6 +3145,30 @@ void main() {
     check(
       outboundProviderReplayText(completed),
     ).equals(kConduitDirectIncompleteAnswerReplayText);
+    check(completed.sources).deepEquals([
+      const ChatSourceReference(
+        title: 'Ollama Cloud',
+        url: 'https://docs.ollama.com/cloud',
+        snippet: 'Cloud-hosted Ollama models.',
+        type: 'web',
+      ),
+    ]);
+
+    final reloaded = await harness.container
+        .read(chatDatabaseRepositoryProvider)
+        .loadConversation(
+          harness.chat.id,
+          preferred: ChatStorageKind.directLocal,
+        );
+    final reloadedAssistant = reloaded!.conversation.messages.singleWhere(
+      (message) => message.id == completed.id,
+    );
+    check(reloadedAssistant.sources).length.equals(1);
+    final reloadedSource = reloadedAssistant.sources.single;
+    check(reloadedSource.title).equals('Ollama Cloud');
+    check(reloadedSource.url).equals('https://docs.ollama.com/cloud');
+    check(reloadedSource.snippet).equals('Cloud-hosted Ollama models.');
+    check(reloadedSource.type).equals('web');
   });
 
   test('whitespace-only direct response preserves bytes but fails', () async {

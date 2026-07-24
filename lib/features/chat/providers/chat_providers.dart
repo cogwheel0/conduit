@@ -14300,7 +14300,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               projectedEvent is DirectToolCallCompleted) {
             notifier.updateMessageById(
               assistantMessageId,
-              (current) => current.copyWith(output: accumulator.toolOutput),
+              (current) => current.copyWith(
+                output: accumulator.toolOutput,
+                sources: accumulator.sources,
+              ),
             );
           }
 
@@ -14400,6 +14403,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
                   accumulator.toolOutput.isNotEmpty),
         ),
       ],
+      sources: accumulator.sources,
       metadata: <String, dynamic>{
         ...?base.metadata,
         kDirectRawAssistantContentMetadataKey: accumulator.text,

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/debug_logger.dart';
 import 'direct_adapter_helpers.dart';
@@ -223,7 +222,6 @@ Future<Map<String, dynamic>> _webFetch(
   return {'title': title, 'content': content, 'links': links};
 }
 
-@visibleForTesting
 String normalizeOllamaCloudPublicWebUrl(String value) {
   final uri = Uri.tryParse(value);
   if (uri == null) {

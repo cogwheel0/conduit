@@ -237,6 +237,25 @@ void main() {
         check(result.first.snippet).equals('This is the snippet text.');
       });
 
+      test('canonical top-level snippet survives persistence parsing', () {
+        final result = parseOpenWebUISourceList([
+          {
+            'id': null,
+            'title': 'Ollama Cloud',
+            'url': 'https://docs.ollama.com/cloud',
+            'snippet': 'Cloud-hosted Ollama models.',
+            'type': 'web',
+            'metadata': null,
+          },
+        ]);
+
+        check(result).length.equals(1);
+        check(result.first.title).equals('Ollama Cloud');
+        check(result.first.url).equals('https://docs.ollama.com/cloud');
+        check(result.first.snippet).equals('Cloud-hosted Ollama models.');
+        check(result.first.type).equals('web');
+      });
+
       test('empty document list yields null snippet', () {
         final result = parseOpenWebUISourceList([
           {

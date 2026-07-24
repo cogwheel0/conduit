@@ -4,12 +4,16 @@ import '../../../core/services/semantic_message_builder.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/direct_completion.dart';
 import 'direct_local_document_service.dart';
+import 'ollama_cloud_tools.dart';
 
 const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
+const int _kDirectMaxWebSources = kOllamaCloudMaxSearchResults;
+const int _kDirectMaxWebSourceTitleCharacters = 2048;
+const int _kDirectMaxWebSourceSnippetCharacters = 2048;
 
 final RegExp _directOpenWebUiFileReferencePattern = RegExp(
   r'/api/v1/files/([^/]+)(?:/content)?/?$',
@@ -399,6 +403,8 @@ final class DirectStreamingAccumulator {
   final StringBuffer _text = StringBuffer();
   final StringBuffer _reasoning = StringBuffer();
   final List<_DirectToolExecution> _toolExecutions = [];
+  final List<ChatSourceReference> _sources = [];
+  final Map<String, int> _sourceIndexByUrl = {};
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
   DirectStreamError? _error;
@@ -420,6 +426,7 @@ final class DirectStreamingAccumulator {
   Map<String, dynamic>? get usage => _usage;
   DirectStreamError? get error => _error;
   bool get hasUsableOutput => _hasUsableOutput;
+  List<ChatSourceReference> get sources => List.unmodifiable(_sources);
   List<Map<String, dynamic>> get toolOutput {
     final output = <Map<String, dynamic>>[];
     for (final execution in _toolExecutions) {
@@ -503,6 +510,9 @@ final class DirectStreamingAccumulator {
           _toolExecutions.add(completed);
         } else {
           _toolExecutions[index] = completed;
+        }
+        if (!event.isError) {
+          _applyWebToolSources(event);
         }
         _hasUsableOutput = true;
         return true;
@@ -630,6 +640,111 @@ final class DirectStreamingAccumulator {
     }
     return blocks.where((block) => block.isNotEmpty).join('\n');
   }
+
+  void _applyWebToolSources(DirectToolCallCompleted event) {
+    switch (event.name.trim()) {
+      case 'web_search':
+        _applyWebSearchSources(event.result);
+      case 'web_fetch':
+        _applyWebFetchSource(event.arguments, event.result);
+    }
+  }
+
+  void _applyWebSearchSources(Object? value) {
+    final result = _directStringKeyedMap(value);
+    final rawResults = result?['results'];
+    if (rawResults is! List) return;
+
+    for (final rawResult in rawResults) {
+      if (_sources.length >= _kDirectMaxWebSources) break;
+      final result = _directStringKeyedMap(rawResult);
+      if (result == null) continue;
+      final url = _normalizeDirectWebSourceUrl(result['url']);
+      if (url == null) continue;
+
+      final existingIndex = _sourceIndexByUrl[url];
+      final title = _boundedDirectSourceText(
+        result['title'],
+        _kDirectMaxWebSourceTitleCharacters,
+      );
+      final snippet = _boundedDirectSourceText(
+        result['content'],
+        _kDirectMaxWebSourceSnippetCharacters,
+      );
+      if (existingIndex != null) {
+        final existing = _sources[existingIndex];
+        _sources[existingIndex] = existing.copyWith(
+          title: _preferExistingDirectSourceText(existing.title, title),
+          snippet: _preferExistingDirectSourceText(existing.snippet, snippet),
+        );
+        continue;
+      }
+
+      _sourceIndexByUrl[url] = _sources.length;
+      _sources.add(
+        ChatSourceReference(
+          title: title,
+          url: url,
+          snippet: snippet,
+          type: 'web',
+        ),
+      );
+    }
+  }
+
+  void _applyWebFetchSource(Map<String, dynamic> arguments, Object? value) {
+    final url = _normalizeDirectWebSourceUrl(arguments['url']);
+    final sourceIndex = url == null ? null : _sourceIndexByUrl[url];
+    final result = _directStringKeyedMap(value);
+    if (sourceIndex == null || result == null) return;
+
+    final title = _boundedDirectSourceText(
+      result['title'],
+      _kDirectMaxWebSourceTitleCharacters,
+    );
+    final snippet = _boundedDirectSourceText(
+      result['content'],
+      _kDirectMaxWebSourceSnippetCharacters,
+    );
+    final existing = _sources[sourceIndex];
+    _sources[sourceIndex] = existing.copyWith(
+      title: title ?? existing.title,
+      snippet: snippet ?? existing.snippet,
+    );
+  }
+}
+
+Map<String, dynamic>? _directStringKeyedMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is! Map) return null;
+  return <String, dynamic>{
+    for (final entry in value.entries) entry.key.toString(): entry.value,
+  };
+}
+
+String? _normalizeDirectWebSourceUrl(Object? value) {
+  if (value is! String || value.trim().isEmpty) return null;
+  try {
+    return normalizeOllamaCloudPublicWebUrl(value.trim());
+  } on FormatException {
+    return null;
+  }
+}
+
+String? _boundedDirectSourceText(Object? value, int maxCharacters) {
+  if (value is! String) return null;
+  final normalized = value.trim();
+  if (normalized.isEmpty) return null;
+  return normalized.length <= maxCharacters
+      ? normalized
+      : normalized.substring(0, maxCharacters);
+}
+
+String? _preferExistingDirectSourceText(String? existing, String? candidate) {
+  final normalizedExisting = existing?.trim();
+  return normalizedExisting == null || normalizedExisting.isEmpty
+      ? candidate
+      : existing;
 }
 
 final class _DirectToolExecution {

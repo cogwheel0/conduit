@@ -981,7 +981,11 @@ void main() {
         arguments: const {'query': 'Ollama Cloud'},
         result: const {
           'results': [
-            {'title': 'Ollama Cloud', 'url': 'https://docs.ollama.com/cloud'},
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud#models',
+              'content': 'Run models without managing local hardware.',
+            },
           ],
         },
       );
@@ -991,6 +995,14 @@ void main() {
       expect(accumulator.toolOutput.first['type'], 'function_call');
       expect(accumulator.toolOutput.last['type'], 'function_call_output');
       expect(accumulator.toolOutput.last['call_id'], 'ollama-0-0');
+      expect(accumulator.sources, [
+        const ChatSourceReference(
+          title: 'Ollama Cloud',
+          url: 'https://docs.ollama.com/cloud',
+          snippet: 'Run models without managing local hardware.',
+          type: 'web',
+        ),
+      ]);
 
       final failed = DirectToolCallCompleted(
         id: 'ollama-0-1',
@@ -1002,6 +1014,86 @@ void main() {
       expect(accumulator.apply(failed), isTrue);
       expect(accumulator.render(done: false), contains('Tool Failed'));
       expect(accumulator.toolOutput.last['error'], isTrue);
+    });
+
+    test('deduplicates search sources and enriches them with web fetch', () {
+      final accumulator = DirectStreamingAccumulator();
+      final longFetchedContent = List.filled(2100, 'x').join();
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-search',
+          name: 'web_search',
+          arguments: const {'query': 'current docs'},
+          result: const {
+            'results': [
+              {
+                'title': 'First result',
+                'url': 'https://example.com/docs#overview',
+                'content': 'Search snippet',
+              },
+              {
+                'title': 'Duplicate title',
+                'url': 'https://example.com/docs',
+                'content': 'Duplicate snippet',
+              },
+              {
+                'title': 'Unsafe result',
+                'url': 'http://localhost/admin',
+                'content': 'Must not be exposed',
+              },
+              {
+                'title': 'Second result',
+                'url': 'https://ollama.com/search',
+                'content': 'Second snippet',
+              },
+            ],
+          },
+        ),
+      );
+
+      expect(accumulator.sources, hasLength(2));
+      expect(accumulator.sources.first.title, 'First result');
+      expect(accumulator.sources.first.url, 'https://example.com/docs');
+      expect(accumulator.sources.first.snippet, 'Search snippet');
+      expect(accumulator.sources.last.title, 'Second result');
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-fetch',
+          name: 'web_fetch',
+          arguments: const {'url': 'https://example.com/docs#details'},
+          result: {
+            'title': 'Fetched title',
+            'content': longFetchedContent,
+            'links': const ['https://unrelated.example/not-a-source'],
+          },
+        ),
+      );
+
+      expect(accumulator.sources, hasLength(2));
+      expect(accumulator.sources.first.title, 'Fetched title');
+      expect(accumulator.sources.first.snippet, hasLength(2048));
+      expect(
+        accumulator.sources.any(
+          (source) => source.url == 'https://unrelated.example/not-a-source',
+        ),
+        isFalse,
+      );
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'unrelated-tool',
+          name: 'lookup',
+          arguments: const {},
+          result: const {
+            'results': [
+              {'url': 'https://not-a-web-search.example'},
+            ],
+          },
+        ),
+      );
+      expect(accumulator.sources, hasLength(2));
     });
 
     test('deeply detaches persisted direct tool activity', () {

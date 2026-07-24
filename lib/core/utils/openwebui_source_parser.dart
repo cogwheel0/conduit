@@ -122,6 +122,13 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
         }
       }
 
+      if (isFirstOccurrence) {
+        final topLevelSnippet = _extractSnippet(entryMap['snippet']);
+        if (topLevelSnippet != null && topLevelSnippet.isNotEmpty) {
+          accumulator.documents.add(topLevelSnippet);
+        }
+      }
+
       final snippet = _extractSnippet(document);
       if (snippet != null && snippet.isNotEmpty) {
         accumulator.documents.add(snippet);
