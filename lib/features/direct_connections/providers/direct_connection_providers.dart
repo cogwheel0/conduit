@@ -554,8 +554,9 @@ class DirectConnectionProfilesController
     _appDataClearBlocked = true;
     await _mutationQueue;
     if (!ref.mounted) return;
-    _profilesBeforeAppDataClear ??=
-        state.value ?? const <DirectConnectionProfile>[];
+    final profiles = state.value ?? await _store.load();
+    if (!ref.mounted) return;
+    _profilesBeforeAppDataClear ??= profiles;
   }
 
   /// Restores mutation admission when a newer authenticated session wins the

@@ -1263,6 +1263,48 @@ void main() {
   );
 
   test(
+    'clear abort preserves profiles while initial load is pending',
+    () async {
+      final original = _profile();
+      final storage = _InitialReadGateSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final initialLoad = container.read(
+        directConnectionProfilesProvider.future,
+      );
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await storage.readStarted.future;
+      final blocked = controller.blockMutationsForAppDataClear();
+      storage.allowRead.complete();
+      await Future.wait([initialLoad, blocked]);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      final restored = container
+          .read(directConnectionProfilesProvider)
+          .requireValue
+          .single;
+      expect(restored.id, original.id);
+      expect(restored.name, original.name);
+      expect(restored.baseUrl, original.baseUrl);
+    },
+  );
+
+  test(
     'incomplete logout fence suppresses Direct profiles on restart',
     () async {
       await PreferencesStore.putChecked(
@@ -1820,6 +1862,35 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
     writeStarted.complete();
     await allowWrite.future;
     _profileDocument = value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
+  _InitialReadGateSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final Completer<void> readStarted = Completer<void>();
+  final Completer<void> allowRead = Completer<void>();
+  final String _profileDocument;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    if (!readStarted.isCompleted) readStarted.complete();
+    await allowRead.future;
+    return _profileDocument;
   }
 
   @override
