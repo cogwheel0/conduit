@@ -309,9 +309,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   }
 
   Future<void> _handleNativeSheetLogoutRequested() async {
-    final keepServerDetails = await showSignOutOptionsDialog(context);
-    if (!mounted || keepServerDetails == null) return;
     try {
+      final navigatorContext = NavigationService.context;
+      if (navigatorContext == null) {
+        throw StateError('Native sign-out navigator is unavailable.');
+      }
+      final keepServerDetails = await showSignOutOptionsDialog(
+        navigatorContext,
+      );
+      if (!mounted || keepServerDetails == null) return;
       await ref
           .read(signOutCoordinatorProvider)
           .signOut(keepServerDetails: keepServerDetails);

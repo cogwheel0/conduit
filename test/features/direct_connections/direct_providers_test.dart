@@ -1221,6 +1221,48 @@ void main() {
   });
 
   test(
+    'clear abort restores the result of an admitted profile write',
+    () async {
+      final original = _profile();
+      final storage = _WriteGateSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final rename = controller.upsert(original.copyWith(name: 'Renamed'));
+      await storage.writeStarted.future;
+      final blocked = controller.blockMutationsForAppDataClear();
+      storage.allowWrite.complete();
+      await Future.wait([rename, blocked]);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      expect(
+        container
+            .read(directConnectionProfilesProvider)
+            .requireValue
+            .single
+            .name,
+        'Renamed',
+      );
+    },
+  );
+
+  test(
     'incomplete logout fence suppresses Direct profiles on restart',
     () async {
       await PreferencesStore.putChecked(
@@ -1734,6 +1776,50 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _WriteGateSecureStorage implements FlutterSecureStorage {
+  _WriteGateSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final Completer<void> writeStarted = Completer<void>();
+  final Completer<void> allowWrite = Completer<void>();
+  String? _profileDocument;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key == _profilesKey) return _profileDocument;
+    return null;
+  }
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return;
+    writeStarted.complete();
+    await allowWrite.future;
+    _profileDocument = value;
   }
 
   @override

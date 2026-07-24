@@ -549,12 +549,13 @@ class DirectConnectionProfilesController
 
   /// Rejects new profile mutations and waits for already-queued writes to
   /// settle before a full app-data wipe.
-  Future<void> blockMutationsForAppDataClear() {
+  Future<void> blockMutationsForAppDataClear() async {
     _ensureMounted();
+    _appDataClearBlocked = true;
+    await _mutationQueue;
+    if (!ref.mounted) return;
     _profilesBeforeAppDataClear ??=
         state.value ?? const <DirectConnectionProfile>[];
-    _appDataClearBlocked = true;
-    return _mutationQueue;
   }
 
   /// Restores mutation admission when a newer authenticated session wins the
