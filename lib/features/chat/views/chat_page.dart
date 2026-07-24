@@ -32,7 +32,6 @@ import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_local_document_service.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
@@ -151,9 +150,7 @@ bool shouldShowChatModelDropdown({
 
 @visibleForTesting
 List<String>? chatLocalFilePickerExtensions(Model? selectedModel) =>
-    selectedModel != null && isHermesModel(selectedModel)
-    ? kHermesLocalDocumentPickerExtensions
-    : null;
+    localFilePickerExtensionsForModel(selectedModel);
 
 @visibleForTesting
 Future<void> handleChatBackNavigation({

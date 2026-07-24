@@ -27,6 +27,7 @@ import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
@@ -69,6 +70,24 @@ bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
   return registry.resolve(model) != null && model.isMultimodal == true;
 }
 
+/// Restricts local file picking to what the selected transport can consume.
+///
+/// OpenWebUI performs server-backed document ingestion, Hermes performs local
+/// bounded document extraction, and direct transports accept image payloads.
+List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
+  if (selectedModel == null) return null;
+  if (isHermesModel(selectedModel)) {
+    return kHermesLocalDocumentPickerExtensions;
+  }
+  if (hasReservedDirectIdentity(selectedModel)) {
+    return allSupportedImageFormats
+        .map((extension) => extension.substring(1))
+        .toList(growable: false)
+      ..sort();
+  }
+  return null;
+}
+
 /// Computes the height of the panel that replaces the visible IME.
 ///
 /// The chat's outer safe area becomes active when Android hides the IME. The
@@ -102,13 +121,11 @@ bool shouldShowComposerOverflowButton({
   required bool isHermesComposer,
   required bool isDirectComposer,
   required bool directSupportsImages,
-  bool directHasLocalAttachmentActions = false,
+  bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
 }) {
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
-  return !isDirectComposer ||
-      directSupportsImages ||
-      directHasLocalAttachmentActions;
+  return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
 
 /// Builds the actions rendered by the iOS keyboard attachment panel.
@@ -2035,17 +2052,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   bool get _selectedModelAcceptsImageInput {
     final model = ref.read(selectedModelProvider);
-    if (model != null && isHermesModel(model)) {
+    if (model == null) return false;
+    if (isHermesModel(model)) {
       // Hermes image input is opt-in. Older servers and capabilities still in
       // flight must remain text-only rather than accepting an attachment the
       // transport cannot faithfully deliver.
       return ref.read(hermesCapabilitiesProvider).asData?.value.inputImages ==
           true;
     }
-    return directModelAcceptsImageInput(
-      model,
-      ref.read(directModelRegistryProvider),
-    );
+    return ref.read(visionCapableModelsProvider).contains(model.id);
   }
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
@@ -2067,21 +2082,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final directMode = model != null && hasReservedDirectIdentity(model);
-    final imageInputAvailable = directModelAcceptsImageInput(
-      model,
-      ref.read(directModelRegistryProvider),
-    );
+    final imageInputAvailable =
+        model != null &&
+        ref.read(visionCapableModelsProvider).contains(model.id);
+    final fileInputAvailable =
+        model != null &&
+        ref.read(fileUploadCapableModelsProvider).contains(model.id);
     return ComposerOverflowAttachmentAvailability(
-      file: widget.onFileAttachment != null,
-      serverFile: !directMode && widget.onServerFileAttachment != null,
-      // Keep explicit media pickers available for direct connections even
-      // when discovery could not infer vision support. The direct send guard
-      // remains authoritative and will reject unsupported image sends.
-      photo:
-          (directMode || imageInputAvailable) &&
-          widget.onImageAttachment != null,
-      camera:
-          (directMode || imageInputAvailable) && widget.onCameraCapture != null,
+      file: fileInputAvailable && widget.onFileAttachment != null,
+      serverFile:
+          !directMode &&
+          fileInputAvailable &&
+          widget.onServerFileAttachment != null,
+      photo: imageInputAvailable && widget.onImageAttachment != null,
+      camera: imageInputAvailable && widget.onCameraCapture != null,
       web: !directMode && widget.onWebAttachment != null,
     );
   }
@@ -2480,6 +2494,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.watch(hermesCapabilitiesProvider);
     final selectedComposerModel = ref.watch(selectedModelProvider);
     final visionCapableModelIds = ref.watch(visionCapableModelsProvider);
+    ref.watch(fileUploadCapableModelsProvider);
     final attachmentAvailability = _overflowAttachmentAvailability;
     final bool isDirectComposer =
         selectedComposerModel != null &&
@@ -2492,7 +2507,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isHermesComposer: isHermesComposer,
       isDirectComposer: isDirectComposer,
       directSupportsImages: directSupportsImages,
-      directHasLocalAttachmentActions: attachmentAvailability.file,
+      directHasOverflowActions:
+          attachmentAvailability.file || webSearchAvailable,
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||

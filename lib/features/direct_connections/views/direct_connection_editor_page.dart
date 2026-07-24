@@ -1205,46 +1205,50 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.lg),
       SettingsSectionHeader(title: l10n.directAuthentication),
       const SizedBox(height: Spacing.sm),
-      DropdownButtonFormField<DirectAuthenticationMode>(
-        key: ValueKey<String>('direct-authentication-selector-$_adapterKey'),
-        initialValue: _authentication,
-        isExpanded: true,
-        decoration: context.conduitInputStyles.standard(),
-        dropdownColor: context.conduitTheme.surfaceBackground,
-        items: [
-          DropdownMenuItem(
-            value: DirectAuthenticationMode.bearer,
-            child: Text(l10n.bearerToken),
-          ),
-          if (!widget.isOpenWebUi)
+      Material(
+        type: MaterialType.transparency,
+        child: DropdownButtonFormField<DirectAuthenticationMode>(
+          key: ValueKey<String>('direct-authentication-selector-$_adapterKey'),
+          initialValue: _authentication,
+          isExpanded: true,
+          decoration: context.conduitInputStyles.standard(),
+          dropdownColor: context.conduitTheme.surfaceBackground,
+          items: [
             DropdownMenuItem(
-              value: DirectAuthenticationMode.apiKeyHeader,
-              child: Text(l10n.directApiKeyHeader),
+              value: DirectAuthenticationMode.bearer,
+              child: Text(l10n.bearerToken),
             ),
-          DropdownMenuItem(
-            value: DirectAuthenticationMode.none,
-            child: Text(l10n.noAuthentication),
-          ),
-          if (_authentication == DirectAuthenticationMode.unsupported)
+            if (!widget.isOpenWebUi)
+              DropdownMenuItem(
+                value: DirectAuthenticationMode.apiKeyHeader,
+                child: Text(l10n.directApiKeyHeader),
+              ),
             DropdownMenuItem(
-              value: DirectAuthenticationMode.unsupported,
-              enabled: false,
-              child: Text(l10n.directConnectionUnavailableLabel),
+              value: DirectAuthenticationMode.none,
+              child: Text(l10n.noAuthentication),
             ),
-        ],
-        onChanged: (value) {
-          if (value == null || value == DirectAuthenticationMode.unsupported) {
-            return;
-          }
-          setState(() {
-            _authentication = value;
-            _apiKeyDirty = true;
-            _originSecretsConfirmed = false;
-            _apiKeyError = null;
-            _testSucceeded = null;
-            _testMessage = null;
-          });
-        },
+            if (_authentication == DirectAuthenticationMode.unsupported)
+              DropdownMenuItem(
+                value: DirectAuthenticationMode.unsupported,
+                enabled: false,
+                child: Text(l10n.directConnectionUnavailableLabel),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null ||
+                value == DirectAuthenticationMode.unsupported) {
+              return;
+            }
+            setState(() {
+              _authentication = value;
+              _apiKeyDirty = true;
+              _originSecretsConfirmed = false;
+              _apiKeyError = null;
+              _testSucceeded = null;
+              _testMessage = null;
+            });
+          },
+        ),
       ),
       if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
         const SizedBox(height: Spacing.sm),

@@ -3,6 +3,7 @@ import 'package:conduit/core/models/server_config.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/direct_connections/direct_connections.dart';
@@ -13,6 +14,44 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('OpenWebUI explicit attachment capability denials fail closed', () {
+    final model = Model.fromJson({
+      'id': 'text-only',
+      'name': 'Text only',
+      'info': {
+        'meta': {
+          'capabilities': {'vision': false, 'file_upload': false},
+        },
+      },
+    });
+    final container = ProviderContainer(
+      overrides: [selectedModelProvider.overrideWithValue(model)],
+    );
+    addTearDown(container.dispose);
+
+    expect(container.read(visionCapableModelsProvider), isEmpty);
+    expect(container.read(fileUploadCapableModelsProvider), isEmpty);
+  });
+
+  test('direct file picking exposes only transport-supported images', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'cloud',
+        name: 'Ollama Cloud',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'https://ollama.com',
+      ),
+      [DirectRemoteModel(id: 'gemma3', isMultimodal: true)],
+    ).single;
+
+    final extensions = localFilePickerExtensionsForModel(directModel)!;
+    expect(extensions, contains('png'));
+    expect(extensions, contains('heic'));
+    expect(extensions, isNot(contains('pdf')));
+    expect(extensions, isNot(contains('txt')));
+  });
+
   test('attachment panel matches the full IME footprint', () {
     expect(
       fallbackAttachmentPanelHeight(
@@ -375,7 +414,7 @@ void main() {
     },
   );
 
-  testWidgets('direct models keep local media attachment actions available', (
+  testWidgets('text-only direct models hide unsupported attachment actions', (
     tester,
   ) async {
     final registry = DirectModelRegistry();
@@ -425,22 +464,14 @@ void main() {
         isHermesComposer: false,
         isDirectComposer: true,
         directSupportsImages: false,
-        directHasLocalAttachmentActions: true,
+        directHasOverflowActions: false,
       ),
-      isTrue,
+      isFalse,
     );
     final textField = tester.widget<TextField>(find.byType(TextField));
     expect(textField.contentInsertionConfiguration, isNull);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byIcon(Icons.add), findsNothing);
     expect(find.byType(ComposerAttachmentKeyboard), findsNothing);
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-
-    expect(find.text('File'), findsOneWidget);
-    expect(find.text('Photo'), findsOneWidget);
-    expect(find.text('Camera'), findsOneWidget);
-    expect(find.byType(BottomSheet), findsNothing);
   });
 
   testWidgets(
@@ -501,9 +532,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
-      expect(find.text('File'), findsOneWidget);
-      expect(find.text('Photo'), findsOneWidget);
-      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('File'), findsNothing);
+      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
       expect(

@@ -600,6 +600,43 @@ void main() {
     );
   });
 
+  testWidgets('local editor builds its authentication dropdown on iOS', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => _StaticDirectProfiles(const []),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.iOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'new'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(
+      find.byType(Scrollable).first,
+      const Offset(0, -1000),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'direct-authentication-selector-openai-compatible',
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a new server draft is revoked when the account changes', (
     tester,
   ) async {

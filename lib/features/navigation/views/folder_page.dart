@@ -566,7 +566,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
 
     try {
-      final attachments = await fileService.pickFiles();
+      final attachments = await fileService.pickFiles(
+        allowedExtensions: localFilePickerExtensionsForModel(
+          ref.read(selectedModelProvider),
+        ),
+      );
       if (attachments.isEmpty) {
         return;
       }
