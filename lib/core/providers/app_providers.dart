@@ -5280,6 +5280,7 @@ class ReviewerMode extends _$ReviewerMode {
   }
 
   Future<void> setEnabled(bool enabled) async {
+    _loadGeneration++;
     state = enabled;
     await _storage.setReviewerMode(enabled);
   }

@@ -67,4 +67,26 @@ void main() {
 
     check(container.read(reviewerModeProvider)).isFalse();
   });
+
+  test('stale reviewer-mode load cannot overwrite a user toggle', () async {
+    final storage = _MockOptimizedStorageService();
+    final staleLoad = Completer<bool>();
+    when(storage.getReviewerMode).thenAnswer((_) => staleLoad.future);
+    when(() => storage.setReviewerMode(true)).thenAnswer((_) async {});
+
+    final container = ProviderContainer(
+      overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    check(container.read(reviewerModeProvider)).isFalse();
+    await Future<void>.delayed(Duration.zero);
+
+    await container.read(reviewerModeProvider.notifier).setEnabled(true);
+    staleLoad.complete(false);
+    await pumpEventQueue();
+
+    check(container.read(reviewerModeProvider)).isTrue();
+    verify(() => storage.setReviewerMode(true)).called(1);
+  });
 }
