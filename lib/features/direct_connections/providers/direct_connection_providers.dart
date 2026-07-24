@@ -449,6 +449,12 @@ class DirectConnectionProfilesController
   }
 
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    _ensureMounted();
+    if (_mutationsBlocked) {
+      throw StateError(
+        'Direct connection probes are blocked while app data is being cleared.',
+      );
+    }
     profile.validate();
     final adapter = ref
         .read(directProviderAdapterRegistryProvider)

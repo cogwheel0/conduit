@@ -1185,6 +1185,7 @@ void main() {
 
       await controller.blockMutationsForAppDataClear();
       await expectLater(controller.upsert(_profile()), throwsStateError);
+      await expectLater(controller.probe(_profile()), throwsStateError);
 
       controller.resumeMutationsAfterAppDataClearAbort();
       await controller.upsert(_profile());
