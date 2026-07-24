@@ -311,9 +311,18 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   Future<void> _handleNativeSheetLogoutRequested() async {
     final keepServerDetails = await showSignOutOptionsDialog(context);
     if (!mounted || keepServerDetails == null) return;
-    await ref
-        .read(signOutCoordinatorProvider)
-        .signOut(keepServerDetails: keepServerDetails);
+    try {
+      await ref
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: keepServerDetails);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-sign-out-failed',
+        scope: 'native/sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<void> _handleNativeEditProfileCommitted(

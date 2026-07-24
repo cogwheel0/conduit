@@ -40,7 +40,7 @@ void main() {
     expect(checkbox.value, isFalse);
     expect(find.text('Keep server details'), findsOneWidget);
     expect(
-      find.textContaining("Data on your server won't be affected"),
+      find.textContaining("data on your server aren't affected"),
       findsOneWidget,
     );
 

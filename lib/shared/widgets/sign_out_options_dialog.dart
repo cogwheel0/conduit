@@ -80,6 +80,7 @@ class _SignOutOptionsDialogState extends State<_SignOutOptionsDialog> {
           isDestructive: true,
         ),
       ],
+      scrollable: true,
     );
   }
 }

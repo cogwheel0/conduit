@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -1173,46 +1173,80 @@ void main() {
     },
   );
 
-  test('app-data clear barrier rejects and can resume profile writes', () async {
+  test(
+    'app-data clear barrier rejects and can resume profile writes',
+    () async {
+      final container = _container(_QueuedAdapter());
+      addTearDown(container.dispose);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await container.read(directConnectionProfilesProvider.future);
+
+      await controller.blockMutationsForAppDataClear();
+      await expectLater(controller.upsert(_profile()), throwsStateError);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      await controller.upsert(_profile());
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+    },
+  );
+
+  test('provider rebuild cannot lower an in-memory clear barrier', () async {
     final container = _container(_QueuedAdapter());
     addTearDown(container.dispose);
-    final controller = container.read(directConnectionProfilesProvider.notifier);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
     await container.read(directConnectionProfilesProvider.future);
+    await controller.upsert(_profile());
 
     await controller.blockMutationsForAppDataClear();
-    expect(() => controller.upsert(_profile()), throwsStateError);
+    final fence = container.read(incompleteLogoutFenceProvider.notifier);
+    fence.setSuppressed(true);
+    await container.read(directConnectionProfilesProvider.future);
+    fence.setSuppressed(false);
+    await container.read(directConnectionProfilesProvider.future);
 
-    controller.resumeMutationsAfterAppDataClearAbort();
-    await controller.upsert(_profile());
     expect(
       container.read(directConnectionProfilesProvider).requireValue,
       hasLength(1),
     );
+    await expectLater(controller.upsert(_profile()), throwsStateError);
+    controller.resumeMutationsAfterAppDataClearAbort();
+    await controller.setEnabled('profile-one', false);
   });
 
-  test('incomplete logout fence suppresses Direct profiles on restart', () async {
-    await PreferencesStore.putChecked(
-      PreferenceKeys.incompleteLogoutFence,
-      true,
-    );
-    FlutterSecureStorage.setMockInitialValues({
-      'direct_connection_profiles_v1':
-          DirectConnectionProfilesDocument([_profile()]).encode(),
-    });
-    final container = _container(_QueuedAdapter());
-    addTearDown(container.dispose);
+  test(
+    'incomplete logout fence suppresses Direct profiles on restart',
+    () async {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.incompleteLogoutFence,
+        true,
+      );
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          _profile(),
+        ]).encode(),
+      });
+      final container = _container(_QueuedAdapter());
+      addTearDown(container.dispose);
 
-    expect(
-      await container.read(directConnectionProfilesProvider.future),
-      isEmpty,
-    );
-    expect(
-      () => container
-          .read(directConnectionProfilesProvider.notifier)
-          .upsert(_profile()),
-      throwsStateError,
-    );
-  });
+      expect(
+        await container.read(directConnectionProfilesProvider.future),
+        isEmpty,
+      );
+      await expectLater(
+        container
+            .read(directConnectionProfilesProvider.notifier)
+            .upsert(_profile()),
+        throwsStateError,
+      );
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>

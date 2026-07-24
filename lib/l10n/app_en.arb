@@ -154,7 +154,7 @@
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },
-  "signOutOptionsDescription": "Choose what to keep on this device. Everything else in Conduit will be deleted. Data on your server won't be affected.",
+  "signOutOptionsDescription": "Signing out clears app preferences and Direct and Hermes connections from this device. Saved conversations and data on your server aren't affected.",
   "@signOutOptionsDescription": {
     "description": "Explains the scope of the local data wipe shown before signing out."
   },
@@ -162,7 +162,7 @@
   "@keepServerDetails": {
     "description": "Checkbox label for retaining Open WebUI connection settings during sign-out."
   },
-  "keepServerDetailsDescription": "Server address and connection settings",
+  "keepServerDetailsDescription": "Server address and non-sensitive connection settings; tokens and Cookie headers are deleted",
   "@keepServerDetailsDescription": {
     "description": "Description of the data retained by the keep-server-details option."
   },

@@ -588,8 +588,13 @@ class ProfilePage extends ConsumerWidget {
     final keepServerDetails = await showSignOutOptionsDialog(context);
 
     if (!context.mounted || keepServerDetails == null) return;
-    await ref
-        .read(signOutCoordinatorProvider)
-        .signOut(keepServerDetails: keepServerDetails);
+    try {
+      await ref
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: keepServerDetails);
+    } catch (_) {
+      if (!context.mounted) return;
+      UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
+    }
   }
 }

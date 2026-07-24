@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -1201,9 +1201,40 @@ void main() {
     );
 
     controller.resumeMutationsAfterAppDataClearAbort();
+    await _waitForHermesSecrets(container);
+    check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
+    check(
+      container.read(hermesConfigProvider).sessionKey,
+    ).equals('memory-for-one');
     await controller.saveConnection(baseUrl: 'https://two.example/v1');
-    check(container.read(hermesConfigProvider).baseUrl)
-        .equals('https://two.example/v1');
+    check(
+      container.read(hermesConfigProvider).baseUrl,
+    ).equals('https://two.example/v1');
+  });
+
+  test('provider rebuild cannot lower an in-memory clear barrier', () async {
+    const storage = FlutterSecureStorage();
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+
+    await controller.blockMutationsForAppDataClear();
+    final fence = container.read(incompleteLogoutFenceProvider.notifier);
+    fence.setSuppressed(true);
+    container.read(hermesConfigProvider);
+    fence.setSuppressed(false);
+    container.read(hermesConfigProvider);
+
+    check(
+      container.read(hermesConfigProvider).baseUrl,
+    ).equals('https://one.example/v1');
+    await expectLater(
+      controller.saveConnection(baseUrl: 'https://two.example/v1'),
+      throwsStateError,
+    );
+    controller.resumeMutationsAfterAppDataClearAbort();
+    await _waitForHermesSecrets(container);
+    await controller.saveConnection(baseUrl: 'https://two.example/v1');
   });
 
   test('queued Hermes mutation cannot lower app-data clear barrier', () async {

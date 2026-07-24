@@ -2023,11 +2023,6 @@ final class NativeSheetBridge: NativeSheetHostApi {
         guard let presenter = activeNavigationController?.visibleViewController else {
             switch activeSheetMode {
             case .profileMenu:
-                if item.id == "sign-out" {
-                    dismissActive()
-                    flutterApi?.onLogoutRequested { _ in }
-                    return
-                }
                 sendControlChanged(id: item.id, value: true)
             case .resultSheet:
                 resolvePendingResultSheetAfterDismiss(

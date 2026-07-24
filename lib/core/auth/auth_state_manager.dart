@@ -2813,6 +2813,7 @@ class AuthStateManager extends _$AuthStateManager {
     var fullAppDataClearPrepared = false;
     var fullAppDataClearAttempted = false;
     var completeLocalCleanup = false;
+    var finalizationYieldedOwnership = false;
     Object? terminalFailure;
 
     Future<bool> clearAuthDataForCurrentOwnership() async {
@@ -2970,9 +2971,7 @@ class AuthStateManager extends _$AuthStateManager {
       );
     } catch (e) {
       _logAuthenticationFailure('logout-failed', e);
-      if (clearAllAppData &&
-          keepServerDetails &&
-          fullAppDataClearAttempted) {
+      if (clearAllAppData && keepServerDetails && fullAppDataClearAttempted) {
         // The broad wipe continues past individual storage failures. Repeating
         // it after a preservation failure would snapshot the already-cleared
         // server store and could falsely report that requested details survived.
@@ -3022,6 +3021,7 @@ class AuthStateManager extends _$AuthStateManager {
         remotelyRevokedToken: remoteLogoutAttempted ? logoutToken : null,
       );
       if (newerCommitted) {
+        finalizationYieldedOwnership = true;
         DebugLogger.auth('Logout finalization yielded to a newer auth attempt');
       } else if (superseded) {
         // A newer attempt failed after the old logout was durably fenced. Do
@@ -3065,6 +3065,9 @@ class AuthStateManager extends _$AuthStateManager {
               : 'Sign out did not finish. Please try again.',
         );
       }
+    }
+    if (finalizationYieldedOwnership) {
+      return FullAppDataClearOutcome.ownershipYielded;
     }
     return completeLocalCleanup
         ? FullAppDataClearOutcome.cleared

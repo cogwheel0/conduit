@@ -107,8 +107,13 @@ class PreferencesStore {
   /// the key. Lists are coerced to `List<String>` (the only list type
   /// shared_preferences supports).
   static Future<void> put(String key, Object? value) async {
-    final succeeded = await _writeValue(key, value);
-    if (!succeeded && _appDataClearBlocked) {
+    var blockedByBarrier = false;
+    final succeeded = await _writeValue(
+      key,
+      value,
+      onBarrierBlock: () => blockedByBarrier = true,
+    );
+    if (!succeeded && blockedByBarrier) {
       throw StateError('Preference changes are unavailable while signing out.');
     }
   }
@@ -180,25 +185,35 @@ class PreferencesStore {
     String key,
     Object? value, {
     bool Function()? beforeWrite,
+    void Function()? onBarrierBlock,
     bool bypassAppDataClearBarrier = false,
   }) async {
     final prefs = _prefs;
     // Ordinary preference writes are best-effort before bootstrap: true means
     // the write was intentionally skipped, not that anything reached disk.
     if (prefs == null) return true;
-    if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+    if (_appDataClearBlocked && !bypassAppDataClearBarrier) {
+      onBarrierBlock?.call();
+      return false;
+    }
     _activeWrites++;
     try {
       final interceptor = _debugWriteInterceptor;
       if (interceptor != null) {
         final intercepted = await interceptor(prefs, key, value);
         if (intercepted != null) {
-          if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+          if (_appDataClearBlocked && !bypassAppDataClearBarrier) {
+            onBarrierBlock?.call();
+            return false;
+          }
           if (beforeWrite != null && !beforeWrite()) return true;
           return intercepted;
         }
       }
-      if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+      if (_appDataClearBlocked && !bypassAppDataClearBarrier) {
+        onBarrierBlock?.call();
+        return false;
+      }
       if (beforeWrite != null && !beforeWrite()) return true;
       if (value == null) {
         return prefs.remove(key);
@@ -266,11 +281,7 @@ class PreferencesStore {
       throw StateError('Preference clear failed.');
     }
     for (final entry in saved.entries) {
-      await putChecked(
-        entry.key,
-        entry.value,
-        bypassAppDataClearBarrier: true,
-      );
+      await putChecked(entry.key, entry.value, bypassAppDataClearBarrier: true);
     }
   }
 }

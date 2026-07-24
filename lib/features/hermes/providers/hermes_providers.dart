@@ -50,18 +50,29 @@ class HermesConfigController extends Notifier<HermesConfig> {
   _HermesSessionKeyRequest? _sessionKeyRequest;
   bool _runAdmissionBlocked = false;
   bool _appDataClearBlocked = false;
+  bool _durableLogoutFenceBlocked = false;
+  HermesConfig? _configBeforeAppDataClear;
   int _connectionMutationEpoch = 0;
   int _secretLoadEpoch = 0;
+
+  bool get _mutationsBlocked =>
+      _appDataClearBlocked || _durableLogoutFenceBlocked;
 
   @override
   HermesConfig build() {
     final epoch = ++_secretLoadEpoch;
-    _appDataClearBlocked = ref.watch(incompleteLogoutFenceProvider);
-    _runAdmissionBlocked = _appDataClearBlocked;
-    if (_appDataClearBlocked) {
+    _durableLogoutFenceBlocked = ref.watch(incompleteLogoutFenceProvider);
+    if (_durableLogoutFenceBlocked) {
+      _runAdmissionBlocked = true;
       _secretsHydration = Future<void>.value();
       return const HermesConfig();
     }
+    if (_appDataClearBlocked) {
+      _runAdmissionBlocked = true;
+      _secretsHydration = Future<void>.value();
+      return _configBeforeAppDataClear ?? const HermesConfig();
+    }
+    _runAdmissionBlocked = false;
     final enabled =
         PreferencesStore.getBool(PreferenceKeys.hermesEnabled) ?? false;
     final baseUrl =
@@ -80,9 +91,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     try {
       final apiKey = await _secure.getHermesApiKey();
       final sessionKey = await _secure.getHermesSessionKey();
-      if (epoch != _secretLoadEpoch ||
-          _appDataClearBlocked ||
-          !ref.mounted) {
+      if (epoch != _secretLoadEpoch || _mutationsBlocked || !ref.mounted) {
         return;
       }
       ref.read(hermesSecretsErrorProvider.notifier).clear();
@@ -93,9 +102,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         sessionKey: sessionKey,
       );
     } catch (error) {
-      if (epoch != _secretLoadEpoch ||
-          _appDataClearBlocked ||
-          !ref.mounted) {
+      if (epoch != _secretLoadEpoch || _mutationsBlocked || !ref.mounted) {
         return;
       }
       // Missing secrets are represented by successful null reads. A thrown
@@ -386,7 +393,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {
-    if (_appDataClearBlocked) {
+    if (_mutationsBlocked) {
       return Future<void>.error(
         StateError('Hermes changes are unavailable while signing out.'),
       );
@@ -411,6 +418,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// Rejects new config writes, drains already-queued writes, and revokes
   /// runtime work before a full app-data wipe.
   Future<void> blockMutationsForAppDataClear() async {
+    _configBeforeAppDataClear ??= state;
     _appDataClearBlocked = true;
     _runAdmissionBlocked = true;
     _secretLoadEpoch++;
@@ -426,6 +434,19 @@ class HermesConfigController extends Notifier<HermesConfig> {
   void resumeMutationsAfterAppDataClearAbort() {
     if (!ref.mounted) return;
     _appDataClearBlocked = false;
+    if (_durableLogoutFenceBlocked) {
+      _runAdmissionBlocked = true;
+      return;
+    }
+    final previous = _configBeforeAppDataClear;
+    if (previous != null) {
+      state = previous;
+      _configBeforeAppDataClear = null;
+    }
+    final epoch = ++_secretLoadEpoch;
+    final hydration = _loadSecrets(epoch);
+    _secretsHydration = hydration;
+    unawaited(hydration);
     _runAdmissionBlocked = false;
   }
 
@@ -433,6 +454,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// incomplete-logout fence keeps config and run admission blocked.
   void revokeRuntimeAfterIncompleteAppDataClear() {
     if (!ref.mounted) return;
+    // The durable fence owns the persistent block after an incomplete wipe.
+    _appDataClearBlocked = false;
+    _configBeforeAppDataClear = null;
     state = const HermesConfig();
     ref.read(hermesActiveSessionProvider.notifier).set(null);
     final activeConversation = ref.read(activeConversationProvider);
@@ -572,7 +596,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     try {
       return await operation();
     } finally {
-      if (!_appDataClearBlocked) {
+      if (!_mutationsBlocked) {
         _runAdmissionBlocked = false;
       }
     }
@@ -581,7 +605,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// Captures permission for a non-run session action (open/fork/delete).
   /// A null result means a connection mutation is already in progress.
   int? captureSessionActionAdmission() =>
-      _runAdmissionBlocked || _appDataClearBlocked
+      _runAdmissionBlocked || _mutationsBlocked
       ? null
       : _connectionMutationEpoch;
 
@@ -589,7 +613,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// cannot apply stale results to the replacement account.
   bool sessionActionAdmissionIsCurrent(int admission) =>
       !_runAdmissionBlocked &&
-      !_appDataClearBlocked &&
+      !_mutationsBlocked &&
       admission == _connectionMutationEpoch;
 
   Future<void> _cancelActiveRuns() async {
