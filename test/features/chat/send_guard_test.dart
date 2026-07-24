@@ -293,6 +293,9 @@ void main() {
       addTearDown(container.dispose);
 
       check(container.read(visionCapableModelsProvider)).isEmpty();
+      check(
+        container.read(fileUploadCapableModelsProvider),
+      ).deepEquals([textModel.id]);
     });
 
     test('direct-like server model keeps OpenWebUI vision behavior', () {

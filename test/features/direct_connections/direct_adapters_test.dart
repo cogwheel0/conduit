@@ -6,9 +6,11 @@ import 'dart:typed_data';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -1092,6 +1094,34 @@ void main() {
     );
   });
 
+  test('manual Ollama Cloud probe uses documented api/tags endpoint', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'models': [
+          {'name': 'gpt-oss:120b-cloud'},
+        ],
+      }),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final result = await adapter.probe(
+      _ollamaProfile(
+        baseUrl: 'https://ollama.com',
+        apiKey: 'cloud-key',
+        manualModelIds: const ['gpt-oss:120b-cloud'],
+      ),
+    );
+
+    expect(result.reachable, isTrue);
+    expect(result.modelCount, 1);
+    expect(http.requests, hasLength(1));
+    expect(http.requests.single.method, 'GET');
+    expect(http.requests.single.uri.toString(), 'https://ollama.com/api/tags');
+  });
+
   test(
     'manual Ollama probe cannot succeed on an unreachable provider',
     () async {
@@ -1639,6 +1669,165 @@ void main() {
     expect(requestBody['options'], {'temperature': 0.25});
     expect(requestBody['provider_extension'], 'kept');
     expect(message['images'], ['aW1hZ2U=']);
+  });
+
+  test('Ollama adapter reports models currently loaded by api/ps', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'models': [
+          {'name': 'llama3.2:latest', 'model': 'llama3.2:latest'},
+          {'name': 'vision:latest'},
+        ],
+      }),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final loaded = await adapter.listRunningModelIds(_ollamaProfile());
+
+    expect(loaded, {'llama3.2:latest', 'vision:latest'});
+    expect(http.requests.single.method, 'GET');
+    expect(
+      http.requests.single.uri.toString(),
+      'http://localhost:11434/api/ps',
+    );
+  });
+
+  test('Ollama adapter warms and unloads models with empty chats', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({'done': true, 'done_reason': 'load'}),
+      _Reply.json({'done': true, 'done_reason': 'unload'}),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final profile = _ollamaProfile();
+
+    await adapter.loadModel(profile, 'llama3.2:latest', keepAlive: '30m');
+    await adapter.unloadModel(profile, 'llama3.2:latest');
+
+    expect(http.requests, hasLength(2));
+    final loadBody = http.requests.first.data as Map;
+    expect(loadBody['model'], 'llama3.2:latest');
+    expect(loadBody['messages'], isEmpty);
+    expect(loadBody['stream'], isFalse);
+    expect(loadBody['keep_alive'], '30m');
+    final unloadBody = http.requests.last.data as Map;
+    expect(unloadBody['model'], 'llama3.2:latest');
+    expect(unloadBody['messages'], isEmpty);
+    expect(unloadBody['stream'], isFalse);
+    expect(unloadBody['keep_alive'], 0);
+  });
+
+  test(
+    'Ollama Cloud rejects local lifecycle calls before network I/O',
+    () async {
+      final http = _QueuedAdapter(<_Reply>[]);
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final profile = _ollamaProfile(baseUrl: 'https://ollama.com');
+
+      await expectLater(
+        adapter.listRunningModelIds(profile),
+        throwsA(
+          isA<DirectProviderException>().having(
+            (error) => error.message,
+            'message',
+            contains('unavailable for Ollama Cloud'),
+          ),
+        ),
+      );
+      await expectLater(
+        adapter.loadModel(profile, 'gpt-oss:120b-cloud'),
+        throwsA(isA<DirectProviderException>()),
+      );
+      await expectLater(
+        adapter.unloadModel(profile, 'gpt-oss:120b-cloud'),
+        throwsA(isA<DirectProviderException>()),
+      );
+      expect(http.requests, isEmpty);
+    },
+  );
+
+  test('Ollama completion applies its per-model keep-alive override', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '{"message":{"content":"ok"},"done":true,"eval_count":1}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final profile = _ollamaProfile(
+      ollamaKeepAliveByModel: const {'llama3.2:latest': '-1'},
+    );
+
+    final events = await adapter
+        .startCompletion(
+          profile,
+          DirectCompletionRequest(
+            remoteModelId: 'llama3.2:latest',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    expect((http.requests.single.data as Map)['keep_alive'], -1);
+  });
+
+  test('Ollama Cloud completion omits local keep-alive controls', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '{"message":{"content":"ok"},"done":true,"eval_count":1}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final profile = _ollamaProfile(
+      baseUrl: 'https://ollama.com',
+      ollamaKeepAliveByModel: const {'llama3.2:latest': '-1'},
+    );
+
+    final events = await adapter
+        .startCompletion(
+          profile,
+          DirectCompletionRequest(
+            remoteModelId: 'llama3.2:latest',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    expect((http.requests.single.data as Map), isNot(contains('keep_alive')));
+    expect(profile.supportsOllamaModelLifecycle, isFalse);
+  });
+
+  test('Ollama keep-alive accepts documented values and rejects junk', () {
+    expect(normalizeOllamaKeepAlive(' 10M '), '10m');
+    expect(normalizeOllamaKeepAlive('1h30m'), '1h30m');
+    expect(ollamaKeepAliveApiValue('3600'), 3600);
+    expect(ollamaKeepAliveApiValue('-1'), -1);
+    expect(
+      () => normalizeOllamaKeepAlive('${List<String>.filled(60, '9').join()}h'),
+      throwsFormatException,
+    );
+    expect(() => normalizeOllamaKeepAlive('tomorrow'), throwsFormatException);
   });
 
   test(
@@ -3003,6 +3192,208 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
 
+  test('Ollama Cloud runs a bounded native web-search agent loop', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'gpt-oss:120b',
+            'message': {
+              'role': 'assistant',
+              'thinking': 'I should search.',
+              'content': '',
+              'tool_calls': [
+                {
+                  'function': {
+                    'name': 'web_search',
+                    'arguments': {'query': 'Ollama Cloud documentation', 'max_results': 2},
+                  },
+                },
+              ],
+            },
+            'done': true,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+      _Reply.json({
+        'results': [
+          {
+            'title': 'Ollama Cloud',
+            'url': 'https://docs.ollama.com/cloud',
+            'content': 'Cloud models run remotely.',
+          },
+        ],
+      }),
+      _Reply.stream([
+        utf8.encode(
+          '${jsonEncode({
+            'model': 'gpt-oss:120b',
+            'message': {'role': 'assistant', 'content': 'Cloud models run remotely.'},
+            'done': true,
+            'prompt_eval_count': 12,
+            'eval_count': 5,
+          })}\n',
+        ),
+      ], contentType: 'application/x-ndjson'),
+    ]);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _ollamaProfile(
+        baseUrl: 'https://ollama.com',
+        ollamaThinkingByModel: const {'gpt-oss:120b': 'medium'},
+      ),
+      DirectCompletionRequest(
+        remoteModelId: 'gpt-oss:120b',
+        messages: [DirectChatMessage.text(role: 'user', text: 'Research this')],
+        enableWebSearch: true,
+      ),
+    );
+
+    final events = await run.events.toList();
+    await run.done;
+
+    expect(http.requests.map((request) => request.path), [
+      'api/chat',
+      'api/web_search',
+      'api/chat',
+    ]);
+    final firstChat = http.requests.first.data as Map<String, dynamic>;
+    expect(firstChat['think'], 'medium');
+    expect(firstChat['tools'], isA<List>());
+    final secondChat = http.requests.last.data as Map<String, dynamic>;
+    final replayMessages = secondChat['messages'] as List;
+    expect(
+      replayMessages.whereType<Map>().map((message) => message['role']),
+      containsAllInOrder(['user', 'assistant', 'tool']),
+    );
+    expect(events.whereType<DirectToolCallStarted>(), hasLength(1));
+    final completed = events.whereType<DirectToolCallCompleted>().single;
+    expect(completed.name, 'web_search');
+    expect(completed.isError, isFalse);
+    expect(
+      events.whereType<DirectContentDelta>().last.content,
+      'Cloud models run remotely.',
+    );
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test(
+    'Ollama Cloud fetches only exact URLs returned by its current search',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'results': [
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud#models',
+              'content': 'Cloud models run remotely.',
+            },
+            {
+              'title': 'Private service',
+              'url': 'http://127.0.0.1/private',
+              'content': 'Must not become fetchable.',
+            },
+          ],
+        }),
+        _Reply.json({
+          'title': 'Ollama Cloud',
+          'content': 'Full documentation.',
+          'links': <String>[],
+        }),
+      ]);
+      final dio = _dio(http);
+      final session = OllamaCloudToolSession();
+      final cancelToken = CancelToken();
+
+      expect(
+        normalizeOllamaCloudPublicWebUrl(
+          'https://docs.ollama.com/cloud#models',
+        ),
+        'https://docs.ollama.com/cloud',
+      );
+      for (final privateUrl in const [
+        'http://localhost./private',
+        'http://service.localhost./private',
+        'http://127.0.0.1./private',
+        'http://[::1]/private',
+      ]) {
+        expect(
+          () => normalizeOllamaCloudPublicWebUrl(privateUrl),
+          throwsFormatException,
+        );
+      }
+      final search = await session.execute(
+        dio: dio,
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud documentation'},
+        cancelToken: cancelToken,
+      );
+      final tamperedFetch = await session.execute(
+        dio: dio,
+        name: 'web_fetch',
+        arguments: const {
+          'url': 'https://docs.ollama.com/cloud?chat_secret=leak',
+        },
+        cancelToken: cancelToken,
+      );
+      final allowedFetch = await session.execute(
+        dio: dio,
+        name: 'web_fetch',
+        arguments: const {'url': 'https://docs.ollama.com/cloud'},
+        cancelToken: cancelToken,
+      );
+
+      expect(search.isError, isFalse);
+      expect(
+        ((search.value as Map<String, dynamic>)['results'] as List),
+        hasLength(1),
+      );
+      expect(tamperedFetch.isError, isTrue);
+      expect(
+        tamperedFetch.toolMessageContent,
+        contains('exact URL returned by the current web search'),
+      );
+      expect(allowedFetch.isError, isFalse);
+      expect(http.requests.map((request) => request.path), [
+        'api/web_search',
+        'api/web_fetch',
+      ]);
+      expect(
+        (http.requests.last.data as Map<String, dynamic>)['url'],
+        'https://docs.ollama.com/cloud',
+      );
+    },
+  );
+
+  test('self-hosted Ollama rejects the Cloud web-search capability', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OllamaAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final run = adapter.startCompletion(
+      _ollamaProfile(),
+      DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+        enableWebSearch: true,
+      ),
+    );
+
+    final events = await run.events.toList();
+
+    expect(http.requests, isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Ollama web search requires an Ollama Cloud connection.',
+    );
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
+
   test('OpenAI adapter keeps malformed Responses events strict', () async {
     final http = _QueuedAdapter([
       _Reply.stream([
@@ -3053,17 +3444,22 @@ DirectConnectionProfile _openAiProfile({
 );
 
 DirectConnectionProfile _ollamaProfile({
+  String baseUrl = 'http://localhost:11434',
   List<String> manualModelIds = const [],
   String? apiKey,
   Map<String, String> customHeaders = const {},
+  Map<String, String> ollamaKeepAliveByModel = const {},
+  Map<String, String> ollamaThinkingByModel = const {},
 }) => DirectConnectionProfile(
   id: 'ollama-one',
   name: 'Ollama',
   adapterKey: kOllamaAdapterKey,
-  baseUrl: 'http://localhost:11434',
+  baseUrl: baseUrl,
   apiKey: apiKey,
   customHeaders: customHeaders,
   manualModelIds: manualModelIds,
+  ollamaKeepAliveByModel: ollamaKeepAliveByModel,
+  ollamaThinkingByModel: ollamaThinkingByModel,
 );
 
 Dio _dio(HttpClientAdapter adapter) {

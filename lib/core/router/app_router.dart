@@ -63,6 +63,7 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
+      location == Routes.personalization ||
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
@@ -388,7 +389,12 @@ class RouterNotifier extends ChangeNotifier {
 
   String? _accountlessOrAuthRedirect(String location) {
     if (_isAuthLocation(location)) return null;
-    return _isAccountlessBackendLocation(location) ? null : Routes.chat;
+    final prefersDirect =
+        ref.read(preferredBackendProvider) == PreferredBackend.direct;
+    final isAllowed = prefersDirect
+        ? isDirectOnlyAppLocation(location)
+        : isHermesOnlyAppLocation(location);
+    return isAllowed ? null : Routes.chat;
   }
 
   @override

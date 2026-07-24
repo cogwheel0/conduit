@@ -109,8 +109,10 @@ void main() {
     }
 
     expect(actionIds(hermesMode: false, directMode: true), [
+      ComposerOverflowActionIds.file,
       ComposerOverflowActionIds.photo,
       ComposerOverflowActionIds.camera,
+      ComposerOverflowActionIds.webSearch,
     ]);
     expect(actionIds(hermesMode: true, directMode: false), [
       ComposerOverflowActionIds.file,

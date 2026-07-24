@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/database/app_database.dart';
 import 'package:conduit/core/database/chat_database_repository.dart';
 import 'package:conduit/core/database/database_manager.dart';
@@ -21,12 +22,14 @@ import 'package:conduit/core/sync/id_remapper.dart';
 import 'package:conduit/core/sync/sync_engine.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
@@ -38,9 +41,53 @@ import 'package:path/path.dart' as p;
 
 import '../../../support/gated_close_database.dart';
 
+const _directDocumentTestKey = <int>[
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+];
+
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
+}
+
+final class _SeededDirectAttachments extends AttachedFilesNotifier {
+  _SeededDirectAttachments(this.attachments);
+
+  final List<FileUploadState> attachments;
+
+  @override
+  List<FileUploadState> build() => List<FileUploadState>.of(attachments);
 }
 
 final class _DatabaseState extends Notifier<AppDatabase?> {
@@ -1084,6 +1131,101 @@ void main() {
       expect(reloadedAssistant.isStreaming, isFalse);
       expect(reloadedAssistant.content, contains('done="true"'));
       expect(reloadedAssistant.content, isNot(contains('done="false"')));
+    },
+  );
+
+  test(
+    'direct document text stays out of the bubble and reaches the adapter',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_direct_send_document_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/notes.txt');
+      await document.writeAsString('private direct reference');
+      const attachmentId = '${kDirectLocalDocumentAttachmentPrefix}composer';
+      final attachment = FileUploadState(
+        file: document,
+        fileName: 'notes.txt',
+        fileSize: await document.length(),
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: attachmentId,
+        isImage: false,
+      );
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'document-profile',
+        name: 'Document provider',
+        adapterKey: 'recording-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'text-model', isMultimodal: false),
+      ]).single;
+      final adapter = _RequestRecordingAdapter();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:document-send',
+        modelId: model.id,
+        suffix: 'document-send',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          directDeviceTrustKeyProvider.overrideWith(
+            (ref) async => _directDocumentTestKey,
+          ),
+          attachedFilesProvider.overrideWith(
+            () => _SeededDirectAttachments([attachment]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      await sendMessageWithContainer(container, 'Summarize this', const [
+        attachmentId,
+      ]);
+
+      final request = adapter.request;
+      expect(request, isNotNull);
+      final sentText = request!.messages.last.parts
+          .whereType<DirectTextPart>()
+          .single
+          .text;
+      expect(sentText, startsWith('Summarize this\n\n'));
+      expect(sentText, contains('private direct reference'));
+      expect(sentText, contains('BEGIN_DIRECT_UNTRUSTED_REFERENCE'));
+
+      final user = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'user');
+      expect(user.content, 'Summarize this');
+      expect(user.content, isNot(contains('private direct reference')));
+      expect(user.files, hasLength(1));
+      expect(user.files!.single['source'], 'direct_local');
+      expect(
+        user.files!.single['direct_extracted_text'],
+        'private direct reference',
+      );
     },
   );
 
@@ -2955,6 +3097,79 @@ void main() {
       );
     },
   );
+
+  test('tool-only direct response persists a safe replay sentinel', () async {
+    final harness = await _createGatedDirectHarness('tool-only');
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Use the native tool',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run.add(
+      DirectToolCallStarted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+      ),
+    );
+    run.add(
+      DirectToolCallCompleted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+        result: const {
+          'results': [
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud',
+              'content': 'Cloud-hosted Ollama models.',
+            },
+          ],
+        },
+      ),
+    );
+    run.add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    check(completed.error).isNull();
+    check(
+      parseConduitDirectReplayOutput(
+        completed.output!,
+      )?.isIncompleteAnswerSentinel,
+    ).equals(true);
+    check(
+      outboundProviderReplayText(completed),
+    ).equals(kConduitDirectIncompleteAnswerReplayText);
+    check(completed.sources).deepEquals([
+      const ChatSourceReference(
+        title: 'Ollama Cloud',
+        url: 'https://docs.ollama.com/cloud',
+        snippet: 'Cloud-hosted Ollama models.',
+        type: 'web',
+      ),
+    ]);
+
+    final reloaded = await harness.container
+        .read(chatDatabaseRepositoryProvider)
+        .loadConversation(
+          harness.chat.id,
+          preferred: ChatStorageKind.directLocal,
+        );
+    final reloadedAssistant = reloaded!.conversation.messages.singleWhere(
+      (message) => message.id == completed.id,
+    );
+    check(reloadedAssistant.sources).length.equals(1);
+    final reloadedSource = reloadedAssistant.sources.single;
+    check(reloadedSource.title).equals('Ollama Cloud');
+    check(reloadedSource.url).equals('https://docs.ollama.com/cloud');
+    check(reloadedSource.snippet).equals('Cloud-hosted Ollama models.');
+    check(reloadedSource.type).equals('web');
+  });
 
   test('whitespace-only direct response preserves bytes but fails', () async {
     final harness = await _createGatedDirectHarness('whitespace-only');

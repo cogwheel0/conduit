@@ -135,6 +135,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         profiles: items,
         openWebUiConnections: openWebUiConnections,
         showOpenWebUi: showOpenWebUi,
+        showHistorySync: showOpenWebUi,
         syncWithOpenWebUi:
             historyPolicy == DirectHistoryPolicy.syncWithOpenWebUI,
         isOnboarding: widget.isOnboarding,
@@ -188,6 +189,7 @@ class DirectConnectionsContent extends StatelessWidget {
     required this.profiles,
     this.openWebUiConnections = const AsyncValue.data(null),
     this.showOpenWebUi = false,
+    this.showHistorySync = false,
     required this.syncWithOpenWebUi,
     required this.isOnboarding,
     required this.onSyncChanged,
@@ -202,6 +204,7 @@ class DirectConnectionsContent extends StatelessWidget {
   final List<DirectConnectionProfile> profiles;
   final AsyncValue<OpenWebUiDirectConnectionsSnapshot?> openWebUiConnections;
   final bool showOpenWebUi;
+  final bool showHistorySync;
   final bool syncWithOpenWebUi;
   final bool isOnboarding;
   final ValueChanged<bool> onSyncChanged;
@@ -222,40 +225,45 @@ class DirectConnectionsContent extends StatelessWidget {
         style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
       ),
       const SizedBox(height: Spacing.lg),
-      ConduitCard(
-        onTap: () => onSyncChanged(!syncWithOpenWebUi),
-        padding: const EdgeInsets.all(Spacing.lg),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.syncDirectHistory,
-                    style: theme.bodyMedium?.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
+      if (showHistorySync) ...[
+        ConduitCard(
+          onTap: () => onSyncChanged(!syncWithOpenWebUi),
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.syncDirectHistory,
+                      style: theme.bodyMedium?.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: Spacing.xxs),
-                  Text(
-                    syncWithOpenWebUi
-                        ? l10n.syncDirectHistorySubtitle
-                        : l10n.directHistoryLocalOnlySubtitle,
-                    style: theme.bodySmall?.copyWith(
-                      color: theme.textSecondary,
+                    const SizedBox(height: Spacing.xxs),
+                    Text(
+                      syncWithOpenWebUi
+                          ? l10n.syncDirectHistorySubtitle
+                          : l10n.directHistoryLocalOnlySubtitle,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: Spacing.md),
-            AdaptiveSwitch(value: syncWithOpenWebUi, onChanged: onSyncChanged),
-          ],
+              const SizedBox(width: Spacing.md),
+              AdaptiveSwitch(
+                value: syncWithOpenWebUi,
+                onChanged: onSyncChanged,
+              ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: Spacing.lg),
+        const SizedBox(height: Spacing.lg),
+      ],
       if (showOpenWebUi) ...[
         _OpenWebUiDirectConnectionSection(
           connections: openWebUiConnections,

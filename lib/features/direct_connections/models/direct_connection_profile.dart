@@ -2,6 +2,9 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'ollama_keep_alive.dart';
+import 'ollama_thinking.dart';
+
 /// Built-in adapter key for OpenAI-compatible APIs.
 const String kOpenAiCompatibleAdapterKey = 'openai-compatible';
 
@@ -76,6 +79,8 @@ final class DirectConnectionProfile {
     this.apiKey,
     Map<String, String> customHeaders = const {},
     List<String> manualModelIds = const [],
+    Map<String, String> ollamaKeepAliveByModel = const {},
+    Map<String, String> ollamaThinkingByModel = const {},
     this.allowSelfSignedCertificates = false,
     this.mtlsCertificateChainPem,
     this.mtlsCertificateLabel,
@@ -86,7 +91,13 @@ final class DirectConnectionProfile {
        modelIdPrefix = _trimmedOrNull(modelIdPrefix),
        customHeaders = UnmodifiableMapView(Map.of(customHeaders)),
        tags = List.unmodifiable(_deduplicateNonEmpty(tags)),
-       manualModelIds = List.unmodifiable(_deduplicateNonEmpty(manualModelIds));
+       manualModelIds = List.unmodifiable(_deduplicateNonEmpty(manualModelIds)),
+       ollamaKeepAliveByModel = UnmodifiableMapView(
+         normalizeOllamaKeepAliveByModel(ollamaKeepAliveByModel),
+       ),
+       ollamaThinkingByModel = UnmodifiableMapView(
+         normalizeOllamaThinkingByModel(ollamaThinkingByModel),
+       );
 
   static const int currentSchemaVersion = 1;
 
@@ -114,6 +125,31 @@ final class DirectConnectionProfile {
   /// Explicit model ids for servers that do not implement model discovery.
   /// When non-empty, discovery must not make a network request.
   final List<String> manualModelIds;
+
+  /// Per-model native Ollama `keep_alive` overrides.
+  ///
+  /// Missing entries intentionally defer to the Ollama server default.
+  final Map<String, String> ollamaKeepAliveByModel;
+  final Map<String, String> ollamaThinkingByModel;
+
+  String? ollamaKeepAliveFor(String modelId) =>
+      ollamaKeepAliveByModel[modelId.trim()];
+
+  OllamaThinkingSetting? ollamaThinkingFor(String modelId) {
+    final value = ollamaThinkingByModel[modelId.trim()];
+    return value == null ? null : OllamaThinkingSetting.fromStorage(value);
+  }
+
+  bool get isOllamaCloud =>
+      adapterKey == kOllamaAdapterKey && isOllamaCloudApiBaseUrl(baseUrl);
+
+  bool get supportsOllamaCloudWebSearch => isOllamaCloud;
+
+  /// Ollama Cloud executes models remotely and does not expose the local
+  /// `/api/ps` RAM/VRAM lifecycle used by self-hosted Ollama servers.
+  bool get supportsOllamaModelLifecycle =>
+      adapterKey == kOllamaAdapterKey && !isOllamaCloudApiBaseUrl(baseUrl);
+
   final bool allowSelfSignedCertificates;
   final String? mtlsCertificateChainPem;
   final String? mtlsCertificateLabel;
@@ -222,6 +258,8 @@ final class DirectConnectionProfile {
         tags: tags,
         enabled: enabled,
         manualModelIds: manualModelIds,
+        ollamaKeepAliveByModel: ollamaKeepAliveByModel,
+        ollamaThinkingByModel: ollamaThinkingByModel,
       );
 
   /// Retains bearer/custom-header edits but clears TLS trust and client-key
@@ -242,6 +280,8 @@ final class DirectConnectionProfile {
     apiKey: apiKey,
     customHeaders: customHeaders,
     manualModelIds: manualModelIds,
+    ollamaKeepAliveByModel: ollamaKeepAliveByModel,
+    ollamaThinkingByModel: ollamaThinkingByModel,
   );
 
   /// Applies an edit while preventing credentials from silently moving to a
@@ -272,6 +312,8 @@ final class DirectConnectionProfile {
     Object? apiKey = _keep,
     Map<String, String>? customHeaders,
     List<String>? manualModelIds,
+    Map<String, String>? ollamaKeepAliveByModel,
+    Map<String, String>? ollamaThinkingByModel,
     bool? allowSelfSignedCertificates,
     Object? mtlsCertificateChainPem = _keep,
     Object? mtlsCertificateLabel = _keep,
@@ -297,6 +339,9 @@ final class DirectConnectionProfile {
     apiKey: identical(apiKey, _keep) ? this.apiKey : apiKey as String?,
     customHeaders: customHeaders ?? this.customHeaders,
     manualModelIds: manualModelIds ?? this.manualModelIds,
+    ollamaKeepAliveByModel:
+        ollamaKeepAliveByModel ?? this.ollamaKeepAliveByModel,
+    ollamaThinkingByModel: ollamaThinkingByModel ?? this.ollamaThinkingByModel,
     allowSelfSignedCertificates:
         allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
     mtlsCertificateChainPem: identical(mtlsCertificateChainPem, _keep)
@@ -331,6 +376,8 @@ final class DirectConnectionProfile {
     'apiKey': apiKey,
     'customHeaders': customHeaders,
     'manualModelIds': manualModelIds,
+    'ollamaKeepAliveByModel': ollamaKeepAliveByModel,
+    'ollamaThinkingByModel': ollamaThinkingByModel,
     'allowSelfSignedCertificates': allowSelfSignedCertificates,
     'mtlsCertificateChainPem': mtlsCertificateChainPem,
     'mtlsCertificateLabel': mtlsCertificateLabel,
@@ -361,6 +408,14 @@ final class DirectConnectionProfile {
       apiKey: _optionalString(json['apiKey']),
       customHeaders: _stringMap(json['customHeaders']),
       manualModelIds: _stringList(json['manualModelIds']),
+      ollamaKeepAliveByModel: _stringMap(
+        json['ollamaKeepAliveByModel'],
+        errorMessage: 'Ollama keep-alive settings are invalid.',
+      ),
+      ollamaThinkingByModel: _stringMap(
+        json['ollamaThinkingByModel'],
+        errorMessage: 'Ollama thinking settings are invalid.',
+      ),
       allowSelfSignedCertificates: json['allowSelfSignedCertificates'] == true,
       mtlsCertificateChainPem: _optionalString(json['mtlsCertificateChainPem']),
       mtlsCertificateLabel: _optionalString(json['mtlsCertificateLabel']),
@@ -419,6 +474,20 @@ final class DirectConnectionProfile {
   }
 
   static const Object _keep = Object();
+}
+
+bool isOllamaCloudApiBaseUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      uri.host.toLowerCase() != 'ollama.com' ||
+      (uri.hasPort && uri.port != 443) ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment) {
+    return false;
+  }
+  return uri.path.isEmpty || uri.path == '/';
 }
 
 /// Versioned envelope used for the single secure-storage profile document.
@@ -505,9 +574,12 @@ int? _int(Object? value) => switch (value) {
   _ => null,
 };
 
-Map<String, String> _stringMap(Object? value) {
+Map<String, String> _stringMap(
+  Object? value, {
+  String errorMessage = 'Custom headers are invalid.',
+}) {
   if (value == null) return const {};
-  if (value is! Map) throw const FormatException('Custom headers are invalid.');
+  if (value is! Map) throw FormatException(errorMessage);
   return value.map((key, item) => MapEntry(key.toString(), item.toString()));
 }
 

@@ -619,6 +619,13 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
   );
 });
 
+/// Whether server-backed Open WebUI settings are usable in the current
+/// session. A retained server or API object after sign-out is not sufficient.
+final openWebUiAccountAvailableProvider = Provider<bool>((ref) {
+  return ref.watch(apiServiceProvider) != null &&
+      ref.watch(isAuthenticatedProvider2);
+});
+
 // Socket.IO service provider
 /// Monotonic identity for one OpenWebUI authentication session.
 ///
@@ -1877,6 +1884,10 @@ class Models extends _$Models {
         models: models,
         current: currentSelected,
         preferredBackend: ref.read(preferredBackendProvider),
+        preferredModelId:
+            currentSelected != null && ref.read(isManualModelSelectionProvider)
+            ? null
+            : ref.read(appSettingsProvider).defaultModel,
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -2156,6 +2167,7 @@ typedef _OwnedModels = ({
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
   bool _authenticatedDefaultRestoreScheduled = false;
+  bool _accountlessBackendReconciliationPending = false;
 
   @override
   Model? build() {
@@ -2169,10 +2181,12 @@ class SelectedModel extends _$SelectedModel {
       if (next.authenticated) {
         _scheduleAuthenticatedDefaultRestore();
       } else {
-        _schedulePrimaryAccountlessRestore();
+        _restorePrimaryAccountlessSelection();
       }
     });
     ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
+      _accountlessBackendReconciliationPending =
+          next == PreferredBackend.direct || next == PreferredBackend.hermes;
       _schedulePrimaryAccountlessRestore();
     });
     ref.listen<bool>(
@@ -2200,7 +2214,7 @@ class SelectedModel extends _$SelectedModel {
       // manual-selection bit. Once selection is rebuilt automatically, that
       // bit must not later suppress an authenticated OpenWebUI default.
       unawaited(
-        Future<void>(() {
+        Future<void>.microtask(() {
           if (ref.mounted) {
             ref.read(isManualModelSelectionProvider.notifier).set(false);
           }
@@ -2260,45 +2274,74 @@ class SelectedModel extends _$SelectedModel {
         models: trustedModels,
         current: current,
         preferredBackend: preferredBackend,
+        preferredModelId:
+            current != null && ref.read(isManualModelSelectionProvider)
+            ? null
+            : ref.read(appSettingsProvider).defaultModel,
       ),
     );
   }
 
   void _schedulePrimaryAccountlessRestore() {
     unawaited(
-      Future<void>(() {
+      Future<void>.microtask(() {
         if (!ref.mounted) return;
-        final current = state;
-        final decision = _primaryAccountlessDecision(current: current);
-        if (!decision.shouldReconcile) return;
-        final replacement = decision.model;
-        final currentBindingIsValid =
-            current != null &&
-            isLocallyMintedDirectModel(current) &&
-            ref.read(directModelRegistryProvider).resolve(current) != null;
-        if (current == null && replacement == null) return;
-        if (current != null &&
-            replacement != null &&
-            current.id == replacement.id &&
-            (!isLocallyMintedDirectModel(replacement) ||
-                currentBindingIsValid)) {
-          return;
-        }
-
-        if (current?.id != replacement?.id) {
-          ref.read(isManualModelSelectionProvider.notifier).set(false);
-        }
-        state = replacement;
-        DebugLogger.warning(
-          'primary-accountless-selection-restored',
-          scope: 'models/default',
-          data: {
-            'previousBackend': _modelBackendForDiagnostics(current),
-            'replacementBackend': _modelBackendForDiagnostics(replacement),
-            'source': 'reconciliation',
-          },
-        );
+        _restorePrimaryAccountlessSelection();
       }),
+    );
+  }
+
+  void _restorePrimaryAccountlessSelection() {
+    if (!ref.mounted) return;
+    final current = state;
+    if (current != null && ref.read(isManualModelSelectionProvider)) {
+      final preferredBackend = ref.read(preferredBackendProvider);
+      final manualSelectionIsUsable =
+          ref.read(reviewerModeProvider) ||
+          switch (preferredBackend) {
+            PreferredBackend.direct =>
+              isLocallyMintedDirectModel(current) &&
+                  ref.read(directModelRegistryProvider).resolve(current) != null,
+            PreferredBackend.hermes =>
+              isHermesModel(current) && ref.read(hermesConfigProvider).isUsable,
+            _ => false,
+          };
+      if (manualSelectionIsUsable &&
+          (!_accountlessBackendReconciliationPending ||
+              _matchesPreferredBackend(current, preferredBackend))) {
+        _accountlessBackendReconciliationPending = false;
+        return;
+      }
+    }
+    final decision = _primaryAccountlessDecision(current: current);
+    if (!decision.shouldReconcile) return;
+    final replacement = decision.model;
+    final currentBindingIsValid =
+        current != null &&
+        isLocallyMintedDirectModel(current) &&
+        ref.read(directModelRegistryProvider).resolve(current) != null;
+    if (current == null && replacement == null) return;
+    if (current != null &&
+        replacement != null &&
+        current.id == replacement.id &&
+        (!isLocallyMintedDirectModel(replacement) || currentBindingIsValid)) {
+      _accountlessBackendReconciliationPending = false;
+      return;
+    }
+
+    if (current?.id != replacement?.id) {
+      ref.read(isManualModelSelectionProvider.notifier).set(false);
+    }
+    state = replacement;
+    _accountlessBackendReconciliationPending = false;
+    DebugLogger.warning(
+      'primary-accountless-selection-restored',
+      scope: 'models/default',
+      data: {
+        'previousBackend': _modelBackendForDiagnostics(current),
+        'replacementBackend': _modelBackendForDiagnostics(replacement),
+        'source': 'reconciliation',
+      },
     );
   }
 
@@ -2306,7 +2349,7 @@ class SelectedModel extends _$SelectedModel {
     if (_authenticatedDefaultRestoreScheduled) return;
     _authenticatedDefaultRestoreScheduled = true;
     unawaited(
-      Future<void>(() {
+      Future<void>.microtask(() {
         _authenticatedDefaultRestoreScheduled = false;
         if (!ref.mounted) return;
         final current = state;
@@ -4252,6 +4295,10 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     }
 
     final currentSelected = ref.read(selectedModelProvider);
+    final configuredDefaultId =
+        currentSelected != null && ref.read(isManualModelSelectionProvider)
+        ? null
+        : ref.read(appSettingsProvider).defaultModel;
     final Model? standalone;
     if (preferredBackend == PreferredBackend.hermes) {
       standalone = hermesConfig.isUsable
@@ -4271,6 +4318,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         ),
         current: currentSelected,
         preferredBackend: preferredBackend,
+        preferredModelId: configuredDefaultId,
       );
     } else {
       final models = await ref.read(modelsProvider.future);
@@ -4281,6 +4329,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         models: models,
         current: currentSelected,
         preferredBackend: preferredBackend,
+        preferredModelId: configuredDefaultId,
       );
     }
     // Provider initialization may not synchronously mutate another provider.
@@ -4363,6 +4412,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     final manuallySelected = ref.read(selectedModelProvider);
     if (ref.read(isManualModelSelectionProvider) &&
         manuallySelected != null &&
+        _matchesPreferredBackend(manuallySelected, preferredBackend) &&
         (isHermesModel(manuallySelected) ||
             ref.read(directModelRegistryProvider).resolve(manuallySelected) !=
                 null)) {
@@ -4682,20 +4732,26 @@ Model? _accountlessSelection({
   required Iterable<Model> models,
   required Model? current,
   required PreferredBackend preferredBackend,
+  String? preferredModelId,
 }) {
   final available = models.toList(growable: false);
+
+  final preferredMatch = preferredModelId == null || preferredModelId.isEmpty
+      ? null
+      : available
+            .where(
+              (model) =>
+                  model.id == preferredModelId &&
+                  _matchesPreferredBackend(model, preferredBackend),
+            )
+            .firstOrNull;
+  if (preferredMatch != null) return preferredMatch;
+
   final currentMatch = current == null
       ? null
       : available.where((model) => model.id == current.id).firstOrNull;
-
-  bool matchesPreferred(Model model) => switch (preferredBackend) {
-    PreferredBackend.direct => isLocallyMintedDirectModel(model),
-    PreferredBackend.hermes => isHermesModel(model),
-    PreferredBackend.owui || PreferredBackend.unset =>
-      isLocallyMintedDirectModel(model) || isHermesModel(model),
-  };
-
-  if (currentMatch != null && matchesPreferred(currentMatch)) {
+  if (currentMatch != null &&
+      _matchesPreferredBackend(currentMatch, preferredBackend)) {
     return currentMatch;
   }
   return _modelForPreferredBackend(available, preferredBackend) ??
@@ -4705,6 +4761,14 @@ Model? _accountlessSelection({
         PreferredBackend.direct || PreferredBackend.hermes => null,
       };
 }
+
+bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>
+    switch (preferredBackend) {
+      PreferredBackend.direct => isLocallyMintedDirectModel(model),
+      PreferredBackend.hermes => isHermesModel(model),
+      PreferredBackend.owui || PreferredBackend.unset =>
+        isLocallyMintedDirectModel(model) || isHermesModel(model),
+    };
 
 bool _shouldUseAccountlessModelSelection({
   required bool isAuthenticated,
@@ -5170,6 +5234,27 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     if (!ref.mounted) {
       return updated;
     }
+    if (!_isCurrentServer(serverId)) {
+      return _currentSettingsForActiveServerOrDefault();
+    }
+
+    _settingsServerId = serverId;
+    _settingsSnapshot = updated;
+    state = AsyncData(updated);
+    ref.invalidate(rawUserSettingsProvider);
+    ref.invalidate(userSettingsProvider);
+    return updated;
+  }
+
+  Future<ServerUserSettings> setReasoningEffort(String? effort) async {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      throw StateError('No API service available');
+    }
+
+    final serverId = api.serverConfig.id;
+    final updated = await api.updateUserReasoningEffort(effort);
+    if (!ref.mounted) return updated;
     if (!_isCurrentServer(serverId)) {
       return _currentSettingsForActiveServerOrDefault();
     }
@@ -5711,6 +5796,20 @@ final imageGenerationAvailableProvider = Provider<bool>((ref) {
 });
 
 final webSearchAvailableProvider = Provider<bool>((ref) {
+  final selectedModel = ref.watch(selectedModelProvider);
+  final directBinding = selectedModel == null
+      ? null
+      : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+  if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
+    // Device-owned direct models must never fall through to OpenWebUI
+    // permissions. Ollama Cloud is currently the only direct transport with
+    // a native, permission-aware web-search execution path.
+    return directBinding?.source == DirectModelSource.device &&
+        directBinding?.adapterKey == kOllamaAdapterKey &&
+        selectedModel.capabilities?['ollama_cloud'] == true &&
+        selectedModel.capabilities?['web_search'] == true;
+  }
+
   final backendConfig = ref
       .watch(backendConfigProvider)
       .maybeWhen(data: (config) => config, orElse: () => null);
@@ -5718,7 +5817,6 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
     return false;
   }
 
-  final selectedModel = ref.watch(selectedModelProvider);
   if (!_modelSupportsFeature(selectedModel, 'web_search')) {
     return false;
   }

@@ -64,12 +64,15 @@ final class SemanticDetailsBlock extends SemanticMessageBlock {
     required Object? arguments,
     required bool done,
     Object? result,
+    bool isError = false,
     Object? files,
     Object? embeds,
   }) {
     return SemanticDetailsBlock._(
       type: 'tool_calls',
-      summary: done ? 'Tool Executed' : 'Executing...',
+      summary: done
+          ? (isError ? 'Tool Failed' : 'Tool Executed')
+          : 'Executing...',
       done: done,
       id: id,
       name: name,

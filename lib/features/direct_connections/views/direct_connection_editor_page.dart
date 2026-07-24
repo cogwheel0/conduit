@@ -14,6 +14,7 @@ import '../../../core/services/navigation_service.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../auth/widgets/adaptive_auth_scaffold.dart';
@@ -412,6 +413,10 @@ class _DirectConnectionEditorPageState
       apiKey: apiKey,
       customHeaders: headers,
       manualModelIds: parseDirectManualModelIds(_modelsController.text),
+      ollamaKeepAliveByModel:
+          saved?.ollamaKeepAliveByModel ?? const <String, String>{},
+      ollamaThinkingByModel:
+          saved?.ollamaThinkingByModel ?? const <String, String>{},
       allowSelfSignedCertificates: saved?.allowSelfSignedCertificates ?? false,
       mtlsCertificateChainPem: saved?.mtlsCertificateChainPem,
       mtlsCertificateLabel: saved?.mtlsCertificateLabel,
@@ -1080,11 +1085,15 @@ class _DirectConnectionEditorPageState
               _testMessage = null;
               if (widget.isNew) {
                 _baseUrlController.text = value == kOllamaAdapterKey
-                    ? ''
+                    ? 'https://ollama.com'
                     : 'https://api.openai.com/v1';
-                _authentication = value == kOllamaAdapterKey
-                    ? DirectAuthenticationMode.none
-                    : DirectAuthenticationMode.bearer;
+                _authentication = DirectAuthenticationMode.bearer;
+                if (_nameController.text == 'My provider' ||
+                    _nameController.text == l10n.ollamaCloudDefaultName) {
+                  _nameController.text = value == kOllamaAdapterKey
+                      ? l10n.ollamaCloudDefaultName
+                      : 'My provider';
+                }
               }
             });
           },
@@ -1110,7 +1119,7 @@ class _DirectConnectionEditorPageState
         AccessibleFormField(
           key: const ValueKey<String>('direct-connection-name-field'),
           label: l10n.directConnectionName,
-          hint: isOllama ? 'Home Ollama' : 'My provider',
+          hint: isOllama ? l10n.ollamaCloudDefaultName : 'My provider',
           controller: _nameController,
           errorText: _nameError,
           isRequired: true,
@@ -1123,7 +1132,7 @@ class _DirectConnectionEditorPageState
         key: const ValueKey<String>('direct-base-url-field'),
         label: l10n.directApiBaseUrl,
         hint: isOllama
-            ? 'http://192.168.1.10:11434'
+            ? l10n.ollamaCloudBaseUrlHint
             : 'https://api.openai.com/v1',
         controller: _baseUrlController,
         keyboardType: TextInputType.url,
@@ -1136,7 +1145,7 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.sm),
       Text(
         isOllama
-            ? 'Use the Ollama server root. Conduit calls its native /api endpoints.'
+            ? l10n.ollamaCloudBaseUrlDescription
             : 'Include the API prefix expected by the provider, usually /v1.',
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
@@ -1196,49 +1205,50 @@ class _DirectConnectionEditorPageState
       const SizedBox(height: Spacing.lg),
       SettingsSectionHeader(title: l10n.directAuthentication),
       const SizedBox(height: Spacing.sm),
-      AdaptiveSegmentedSelector<DirectAuthenticationMode>(
-        value: _authentication,
-        showIcons: false,
-        onChanged: (value) => setState(() {
-          _authentication = value;
-          _apiKeyDirty = true;
-          _originSecretsConfirmed = false;
-          _apiKeyError = null;
-          _testSucceeded = null;
-          _testMessage = null;
-        }),
-        options: [
-          (
-            value: DirectAuthenticationMode.bearer,
-            label: l10n.bearerToken,
-            cupertinoIcon: CupertinoIcons.lock,
-            materialIcon: Icons.key_outlined,
-            enabled: true,
-          ),
-          if (!widget.isOpenWebUi)
-            (
-              value: DirectAuthenticationMode.apiKeyHeader,
-              label: l10n.directApiKeyHeader,
-              cupertinoIcon: CupertinoIcons.lock_shield,
-              materialIcon: Icons.vpn_key_outlined,
-              enabled: true,
+      Material(
+        type: MaterialType.transparency,
+        child: DropdownButtonFormField<DirectAuthenticationMode>(
+          key: ValueKey<String>('direct-authentication-selector-$_adapterKey'),
+          initialValue: _authentication,
+          isExpanded: true,
+          decoration: context.conduitInputStyles.standard(),
+          dropdownColor: context.conduitTheme.surfaceBackground,
+          items: [
+            DropdownMenuItem(
+              value: DirectAuthenticationMode.bearer,
+              child: Text(l10n.bearerToken),
             ),
-          (
-            value: DirectAuthenticationMode.none,
-            label: l10n.noAuthentication,
-            cupertinoIcon: CupertinoIcons.lock_open,
-            materialIcon: Icons.lock_open_outlined,
-            enabled: true,
-          ),
-          if (_authentication == DirectAuthenticationMode.unsupported)
-            (
-              value: DirectAuthenticationMode.unsupported,
-              label: l10n.directConnectionUnavailableLabel,
-              cupertinoIcon: CupertinoIcons.exclamationmark_triangle,
-              materialIcon: Icons.warning_amber_rounded,
-              enabled: false,
+            if (!widget.isOpenWebUi)
+              DropdownMenuItem(
+                value: DirectAuthenticationMode.apiKeyHeader,
+                child: Text(l10n.directApiKeyHeader),
+              ),
+            DropdownMenuItem(
+              value: DirectAuthenticationMode.none,
+              child: Text(l10n.noAuthentication),
             ),
-        ],
+            if (_authentication == DirectAuthenticationMode.unsupported)
+              DropdownMenuItem(
+                value: DirectAuthenticationMode.unsupported,
+                enabled: false,
+                child: Text(l10n.directConnectionUnavailableLabel),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null ||
+                value == DirectAuthenticationMode.unsupported) {
+              return;
+            }
+            setState(() {
+              _authentication = value;
+              _apiKeyDirty = true;
+              _originSecretsConfirmed = false;
+              _apiKeyError = null;
+              _testSucceeded = null;
+              _testMessage = null;
+            });
+          },
+        ),
       ),
       if (_authentication == DirectAuthenticationMode.apiKeyHeader) ...[
         const SizedBox(height: Spacing.sm),

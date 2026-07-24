@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:ollama_dart/ollama_dart.dart' as ollama;
@@ -8,13 +9,18 @@ import '../../../core/utils/debug_logger.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import '../models/ollama_keep_alive.dart';
 import 'direct_adapter_helpers.dart';
 import 'direct_http_client.dart';
 import 'direct_provider_adapter.dart';
+import 'ollama_cloud_tools.dart';
 import 'ollama_stream_parser.dart';
 
 final class OllamaAdapter
-    implements DirectProviderAdapter, CancellableDirectModelDiscovery {
+    implements
+        DirectProviderAdapter,
+        CancellableDirectModelDiscovery,
+        DirectModelLifecycleAdapter {
   static const int _maxShowConcurrency = 4;
 
   OllamaAdapter({
@@ -99,7 +105,19 @@ final class OllamaAdapter
   }) async {
     cancellation?.throwIfCancelled();
     final manualModels = directManualModels(profile);
-    if (manualModels != null) return manualModels;
+    if (manualModels != null) {
+      if (!profile.isOllamaCloud) return manualModels;
+      return [
+        for (final model in manualModels)
+          DirectRemoteModel(
+            id: model.id,
+            name: model.name,
+            description: model.description,
+            isMultimodal: model.isMultimodal,
+            capabilities: const {'ollama_cloud': true, 'web_search': true},
+          ),
+      ];
+    }
 
     final client = _client(profile);
     final dio = client.dio;
@@ -180,6 +198,122 @@ final class OllamaAdapter
     }
   }
 
+  @override
+  Future<Set<String>> listRunningModelIds(
+    DirectConnectionProfile profile,
+  ) async {
+    _requireModelLifecycle(profile);
+    final client = _client(profile);
+    try {
+      final response = await client.dio.get<ResponseBody>(
+        'api/ps',
+        options: Options(responseType: ResponseType.stream),
+      );
+      final responseBody = response.data;
+      if (responseBody == null) {
+        throw const FormatException('Ollama running model response is empty.');
+      }
+      final body = await decodeDirectJsonBody(responseBody);
+      final running = ollama.PsResponse.fromJson(body).models;
+      if (running == null) {
+        throw const FormatException('Ollama running model list is missing.');
+      }
+      return Set.unmodifiable({
+        for (final model in running)
+          if ((model.model ?? model.name)?.trim() case final id?
+              when id.isNotEmpty)
+            id,
+      });
+    } catch (error) {
+      final normalized = normalizeDirectProviderError(error);
+      throw DirectProviderException(
+        sanitizeDirectProviderErrorMessage(
+          normalized.message,
+          sensitiveValues: directProfileSensitiveValues(profile),
+        ),
+        statusCode: normalized.statusCode,
+      );
+    } finally {
+      client.release();
+    }
+  }
+
+  @override
+  Future<void> loadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId, {
+    String? keepAlive,
+  }) => _setModelLoaded(profile, remoteModelId, keepAlive: keepAlive);
+
+  @override
+  Future<void> unloadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId,
+  ) => _setModelLoaded(profile, remoteModelId, keepAlive: '0');
+
+  Future<void> _setModelLoaded(
+    DirectConnectionProfile profile,
+    String remoteModelId, {
+    String? keepAlive,
+  }) async {
+    _requireModelLifecycle(profile);
+    final modelId = remoteModelId.trim();
+    if (modelId.isEmpty) {
+      throw const DirectProviderException('Ollama model id is missing.');
+    }
+    final normalizedKeepAlive = keepAlive == null
+        ? null
+        : normalizeOllamaKeepAlive(keepAlive);
+    final client = _client(profile);
+    try {
+      final request = ollama.ChatRequest(
+        model: modelId,
+        messages: const [],
+        stream: false,
+        keepAlive: normalizedKeepAlive == null
+            ? null
+            : ollama.KeepAlive.fromJson(
+                ollamaKeepAliveApiValue(normalizedKeepAlive),
+              ),
+      );
+      final response = await client.dio.post<ResponseBody>(
+        'api/chat',
+        data: request.toJson(),
+        options: Options(responseType: ResponseType.stream),
+      );
+      final responseBody = response.data;
+      if (responseBody == null) {
+        throw const FormatException('Ollama lifecycle response is empty.');
+      }
+      final body = await decodeDirectJsonBody(responseBody);
+      if (body['error'] != null) {
+        throw DirectProviderException(directErrorMessage(body['error']));
+      }
+      if (body['done'] != true) {
+        throw const FormatException('Ollama lifecycle response is invalid.');
+      }
+    } catch (error) {
+      final normalized = normalizeDirectProviderError(error);
+      throw DirectProviderException(
+        sanitizeDirectProviderErrorMessage(
+          normalized.message,
+          sensitiveValues: directProfileSensitiveValues(profile),
+        ),
+        statusCode: normalized.statusCode,
+      );
+    } finally {
+      client.release();
+    }
+  }
+
+  void _requireModelLifecycle(DirectConnectionProfile profile) {
+    if (!profile.supportsOllamaModelLifecycle) {
+      throw const DirectProviderException(
+        'Model memory controls are unavailable for Ollama Cloud.',
+      );
+    }
+  }
+
   Future<List<DirectRemoteModel>> _enrichModels(
     Dio dio,
     DirectConnectionProfile profile,
@@ -250,6 +384,12 @@ final class OllamaAdapter
           effectiveCapabilities.contains('vision') ||
           (shown?.advertisesVision ?? false),
       capabilities: {
+        if (profile.isOllamaCloud) ...{
+          'ollama_cloud': true,
+          'web_search': true,
+        },
+        if (effectiveCapabilities.contains('tools')) 'tool_calling': true,
+        if (effectiveCapabilities.contains('thinking')) 'thinking': true,
         if (candidate.details != null) 'details': candidate.details!,
         if (effectiveCapabilities.isNotEmpty)
           'capabilities': effectiveCapabilities,
@@ -321,20 +461,26 @@ final class OllamaAdapter
     final client = _client(profile);
     final dio = client.dio;
     try {
-      // Ollama exposes this non-generative endpoint independently of model
-      // discovery, making it suitable for profiles with manual model IDs.
+      // Ollama Cloud documents `/api/tags` as its non-generative liveness
+      // endpoint. Self-hosted servers retain the cheaper `/api/version` probe.
       final response = await dio.get<ResponseBody>(
-        'api/version',
+        profile.isOllamaCloud ? 'api/tags' : 'api/version',
         options: Options(responseType: ResponseType.stream),
       );
       final responseBody = response.data;
       if (responseBody == null) {
-        throw const FormatException('Ollama version response is empty.');
+        throw const FormatException('Ollama probe response is empty.');
       }
       final body = await decodeDirectJsonBody(responseBody);
-      final version = ollama.VersionResponse.fromJson(body).version?.trim();
-      if (version == null || version.isEmpty) {
-        throw const FormatException('Ollama version response is invalid.');
+      if (profile.isOllamaCloud) {
+        if (body['models'] is! List) {
+          throw const FormatException('Ollama model list is missing.');
+        }
+      } else {
+        final version = ollama.VersionResponse.fromJson(body).version?.trim();
+        if (version == null || version.isEmpty) {
+          throw const FormatException('Ollama version response is invalid.');
+        }
       }
       return DirectConnectionProbe(
         reachable: true,
@@ -411,97 +557,206 @@ final class OllamaAdapter
           );
           var hasCompletion = false;
           final messages = requireSerializableDirectMessages(request.messages);
-          final sdkRequest = ollama.ChatRequest(
-            model: request.remoteModelId,
-            messages: [for (final message in messages) _ollamaMessage(message)],
-            stream: true,
-          );
-          final response = await dio.post<ResponseBody>(
-            'api/chat',
-            cancelToken: transportCancelToken,
-            data: {
-              ...request.parameters,
-              // The SDK owns native request serialization. Its routing keys
-              // are merged last so provider parameters cannot switch models,
-              // replace the conversation, or disable streaming.
-              ...sdkRequest.toJson(),
-            },
-            options: Options(
-              responseType: ResponseType.stream,
-              receiveTimeout: streamIdleTimeout,
-              headers: const {'Accept': 'application/x-ndjson'},
-            ),
-          );
-          final body = response.data;
-          if (body == null) {
-            throw const FormatException('Ollama returned an empty body.');
+          final webToolsEnabled =
+              request.enableWebSearch && profile.supportsOllamaCloudWebSearch;
+          if (request.enableWebSearch && !webToolsEnabled) {
+            throw const DirectProviderException(
+              'Ollama web search requires an Ollama Cloud connection.',
+            );
           }
-          await for (final payload in parseOllamaNdjson(
-            directStreamingResponseBytes(
-              body,
-              idleTimeout: streamIdleTimeout,
-              maxDuration: streamMaxDuration,
-              maxBytes: maxStreamBytes,
-              successfulProtocolTerminal: () => successfulProtocolTerminal,
-              successDrainTimeout: successDrainTimeout,
-              maxSuccessDrainBytes: maxSuccessDrainBytes,
-            ),
-          )) {
-            if (controller.isClosed) break;
-            if (terminalSent) {
-              if (successfulProtocolTerminal) continue;
-              break;
+          final keepAlive = profile.supportsOllamaModelLifecycle
+              ? profile.ollamaKeepAliveFor(request.remoteModelId)
+              : null;
+          final thinking = profile.ollamaThinkingFor(request.remoteModelId);
+          final conversation = <Map<String, dynamic>>[
+            for (final message in messages) _ollamaMessage(message).toJson(),
+          ];
+          final webToolSession = OllamaCloudToolSession();
+          var totalToolCalls = 0;
+
+          for (var round = 0; round < kOllamaCloudMaxAgentRounds; round++) {
+            final roundContent = StringBuffer();
+            final roundThinking = StringBuffer();
+            final roundToolCalls = <_OllamaToolCall>[];
+            ollama.ChatStreamEvent? terminalEvent;
+            final sdkRequest = ollama.ChatRequest(
+              model: request.remoteModelId,
+              messages: const [],
+              stream: true,
+              keepAlive: keepAlive == null
+                  ? null
+                  : ollama.KeepAlive.fromJson(
+                      ollamaKeepAliveApiValue(keepAlive),
+                    ),
+            );
+            final response = await dio.post<ResponseBody>(
+              'api/chat',
+              cancelToken: transportCancelToken,
+              data: {
+                ...request.parameters,
+                ...sdkRequest.toJson(),
+                'messages': conversation,
+                if (thinking != null) 'think': thinking.apiValue,
+                if (webToolsEnabled) 'tools': kOllamaCloudWebToolDefinitions,
+              },
+              options: Options(
+                responseType: ResponseType.stream,
+                receiveTimeout: streamIdleTimeout,
+                headers: const {'Accept': 'application/x-ndjson'},
+              ),
+            );
+            final body = response.data;
+            if (body == null) {
+              throw const FormatException('Ollama returned an empty body.');
             }
-            budget.addEvent();
-            if (payload['error'] != null) {
-              emitProtocolError(payload['error']);
-              break;
-            }
-            final event = _decodeChatStreamEvent(payload);
-            final message = event.message;
-            if (message != null) {
-              // `thinking` is Ollama's native field. Retain the older
-              // `reasoning_content` alias for compatible proxies that emit it
-              // while the SDK remains the authority for native decoding.
+            await for (final payload in parseOllamaNdjson(
+              directStreamingResponseBytes(
+                body,
+                idleTimeout: streamIdleTimeout,
+                maxDuration: streamMaxDuration,
+                maxBytes: maxStreamBytes,
+                successfulProtocolTerminal: () => successfulProtocolTerminal,
+                successDrainTimeout: successDrainTimeout,
+                maxSuccessDrainBytes: maxSuccessDrainBytes,
+              ),
+            )) {
+              if (controller.isClosed) break;
+              if (terminalSent) {
+                if (successfulProtocolTerminal) continue;
+                break;
+              }
+              budget.addEvent();
+              if (payload['error'] != null) {
+                emitProtocolError(payload['error']);
+                break;
+              }
               final rawMessage = payload['message'];
               if (rawMessage is Map) {
-                final toolCalls = rawMessage['tool_calls'];
-                if ((toolCalls is Iterable && toolCalls.isNotEmpty) ||
-                    (toolCalls is Map && toolCalls.isNotEmpty)) {
+                final unsolicitedToolCalls = rawMessage['tool_calls'];
+                if (!webToolsEnabled &&
+                    ((unsolicitedToolCalls is Iterable &&
+                            unsolicitedToolCalls.isNotEmpty) ||
+                        (unsolicitedToolCalls is Map &&
+                            unsolicitedToolCalls.isNotEmpty))) {
                   throw const DirectProviderException(
                     kDirectToolCallingUnsupportedMessage,
                   );
                 }
               }
-              final reasoning =
-                  message.thinking ??
-                  (rawMessage is Map
-                      ? rawMessage['reasoning_content']?.toString()
-                      : null);
-              if (reasoning != null && reasoning.isNotEmpty) {
-                final value = reasoning;
-                budget.add(value);
-                hasCompletion = hasCompletion || value.trim().isNotEmpty;
-                controller.add(DirectReasoningDelta(value));
+              final event = _decodeChatStreamEvent(payload);
+              final message = event.message;
+              if (message != null) {
+                // `thinking` is Ollama's native field. Retain the older
+                // `reasoning_content` alias for compatible proxies.
+                final reasoning =
+                    message.thinking ??
+                    (rawMessage is Map
+                        ? rawMessage['reasoning_content']?.toString()
+                        : null);
+                if (reasoning != null && reasoning.isNotEmpty) {
+                  budget.add(reasoning);
+                  roundThinking.write(reasoning);
+                  hasCompletion = hasCompletion || reasoning.trim().isNotEmpty;
+                  controller.add(DirectReasoningDelta(reasoning));
+                }
+                final content = message.content;
+                if (content != null && content.isNotEmpty) {
+                  budget.add(content);
+                  roundContent.write(content);
+                  hasCompletion = hasCompletion || content.trim().isNotEmpty;
+                  controller.add(DirectContentDelta(content));
+                }
+                if (rawMessage is Map) {
+                  roundToolCalls.addAll(
+                    _decodeOllamaToolCalls(
+                      rawMessage['tool_calls'],
+                      round: round,
+                      startingIndex: roundToolCalls.length,
+                    ),
+                  );
+                }
               }
-              final content = message.content;
-              if (content != null && content.isNotEmpty) {
-                final value = content;
-                budget.add(value);
-                hasCompletion = hasCompletion || value.trim().isNotEmpty;
-                controller.add(DirectContentDelta(value));
-              }
+              if (event.done == true) terminalEvent = event;
             }
-            if (event.done == true) {
+            if (terminalSent || controller.isClosed) break;
+            if (terminalEvent == null) {
+              throw const DirectProviderException(
+                'The Ollama stream ended before its done marker.',
+              );
+            }
+            if (roundToolCalls.isEmpty) {
               if (!hasCompletion) {
                 throw const DirectProviderException(
                   'The Ollama stream has no usable completion content.',
                 );
               }
-              final usage = _ollamaUsage(event);
+              final usage = _ollamaUsage(terminalEvent);
               if (usage.isNotEmpty) controller.add(DirectUsageUpdate(usage));
               emitDone();
-              continue;
+              transportCompletedCleanly = true;
+              break;
+            }
+            if (!webToolsEnabled) {
+              throw const DirectProviderException(
+                kDirectToolCallingUnsupportedMessage,
+              );
+            }
+            totalToolCalls += roundToolCalls.length;
+            if (totalToolCalls > kOllamaCloudMaxToolCalls) {
+              throw const DirectProviderException(
+                'The Ollama agent exceeded Conduit\'s tool-call limit.',
+              );
+            }
+            if (round + 1 >= kOllamaCloudMaxAgentRounds) {
+              throw const DirectProviderException(
+                'The Ollama agent exceeded Conduit\'s round limit.',
+              );
+            }
+
+            conversation.add({
+              'role': 'assistant',
+              'content': roundContent.toString(),
+              if (roundThinking.isNotEmpty)
+                'thinking': roundThinking.toString(),
+              'tool_calls': [for (final call in roundToolCalls) call.toJson()],
+            });
+            for (final call in roundToolCalls) {
+              controller.add(
+                DirectToolCallStarted(
+                  id: call.id,
+                  name: call.name,
+                  arguments: call.arguments,
+                ),
+              );
+            }
+            final results = await Future.wait([
+              for (final call in roundToolCalls)
+                webToolSession.execute(
+                  dio: dio,
+                  name: call.name,
+                  arguments: call.arguments,
+                  cancelToken: transportCancelToken,
+                ),
+            ]);
+            for (var index = 0; index < roundToolCalls.length; index++) {
+              final call = roundToolCalls[index];
+              final result = results[index];
+              final serialized = result.toolMessageContent;
+              budget.add(serialized);
+              controller.add(
+                DirectToolCallCompleted(
+                  id: call.id,
+                  name: call.name,
+                  arguments: call.arguments,
+                  result: result.value,
+                  isError: result.isError,
+                ),
+              );
+              conversation.add({
+                'role': 'tool',
+                'tool_name': call.name,
+                'content': serialized,
+              });
             }
           }
           if (!terminalSent && !cancelToken.isCancelled) {
@@ -509,7 +764,8 @@ final class OllamaAdapter
               'The Ollama stream ended before its done marker.',
             );
           }
-          transportCompletedCleanly = successfulProtocolTerminal;
+          transportCompletedCleanly =
+              transportCompletedCleanly || successfulProtocolTerminal;
         } catch (error) {
           final expectedDrainFailure =
               error is DirectStreamDrainException && successfulProtocolTerminal;
@@ -697,4 +953,70 @@ Map<String, dynamic> _ollamaUsage(ollama.ChatStreamEvent event) {
     if (event.totalDuration != null) 'total_duration': event.totalDuration,
     if (event.loadDuration != null) 'load_duration': event.loadDuration,
   };
+}
+
+final class _OllamaToolCall {
+  const _OllamaToolCall({
+    required this.id,
+    required this.name,
+    required this.arguments,
+  });
+
+  final String id;
+  final String name;
+  final Map<String, dynamic> arguments;
+
+  Map<String, dynamic> toJson() => {
+    'type': 'function',
+    'function': {'name': name, 'arguments': arguments},
+  };
+}
+
+List<_OllamaToolCall> _decodeOllamaToolCalls(
+  Object? value, {
+  required int round,
+  required int startingIndex,
+}) {
+  if (value == null) return const [];
+  if (value is! Iterable) {
+    throw const FormatException('Invalid Ollama tool-call payload.');
+  }
+  final calls = <_OllamaToolCall>[];
+  for (final rawCall in value) {
+    if (rawCall is! Map) {
+      throw const FormatException('Invalid Ollama tool call.');
+    }
+    final function = rawCall['function'];
+    if (function is! Map) {
+      throw const FormatException('Invalid Ollama tool function.');
+    }
+    final name = function['name']?.toString().trim() ?? '';
+    if (name.isEmpty || name.length > 128) {
+      throw const FormatException('Invalid Ollama tool name.');
+    }
+    final rawArguments = function['arguments'];
+    Object? decodedArguments = rawArguments;
+    if (rawArguments is String) {
+      try {
+        decodedArguments = jsonDecode(rawArguments);
+      } catch (error) {
+        throw FormatException('Invalid Ollama tool arguments.', error);
+      }
+    }
+    if (decodedArguments is! Map) {
+      throw const FormatException('Invalid Ollama tool arguments.');
+    }
+    final arguments = <String, dynamic>{
+      for (final entry in decodedArguments.entries)
+        entry.key.toString(): entry.value,
+    };
+    calls.add(
+      _OllamaToolCall(
+        id: 'ollama-$round-${startingIndex + calls.length}',
+        name: name,
+        arguments: arguments,
+      ),
+    );
+  }
+  return calls;
 }

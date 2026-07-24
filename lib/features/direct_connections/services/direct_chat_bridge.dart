@@ -3,12 +3,17 @@ import '../../../core/services/direct_replay_output.dart';
 import '../../../core/services/semantic_message_builder.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/direct_completion.dart';
+import 'direct_local_document_service.dart';
+import 'ollama_cloud_tools.dart';
 
 const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
+const int _kDirectMaxWebSources = kOllamaCloudMaxSearchResults;
+const int _kDirectMaxWebSourceTitleCharacters = 2048;
+const int _kDirectMaxWebSourceSnippetCharacters = 2048;
 
 final RegExp _directOpenWebUiFileReferencePattern = RegExp(
   r'/api/v1/files/([^/]+)(?:/content)?/?$',
@@ -110,12 +115,15 @@ List<Map<String, dynamic>>? directProviderReplayOutput({
 Future<List<DirectChatMessage>> buildDirectChatMessages({
   required Iterable<ChatMessage> messages,
   DirectImageResolver? resolveImage,
+  List<int>? directDocumentVerificationKey,
   int maxImages = kDirectMaxImages,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
   final result = <DirectChatMessage>[];
   var imageCount = 0;
   var decodedImageBytes = 0;
+  var documentCount = 0;
+  var documentCharacters = 0;
 
   Future<void> addImage(
     List<DirectContentPart> parts,
@@ -187,7 +195,38 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     final parts = <DirectContentPart>[];
     final seenImages = <String>{};
     final seenImageReferences = <String>{};
-    final text = outboundProviderReplayText(message);
+    var text = outboundProviderReplayText(message);
+    if (role == 'user' && directDocumentVerificationKey != null) {
+      final documents = <DirectPreparedDocument>[];
+      for (final file in message.files ?? const <Map<String, dynamic>>[]) {
+        final document = trustedDirectDocumentFromDescriptor(
+          file,
+          verificationKey: directDocumentVerificationKey,
+        );
+        if (document != null) documents.add(document);
+      }
+      documentCount += documents.length;
+      if (documentCount > kDirectMaxLocalDocuments) {
+        throw const DirectChatInputException(
+          'Direct chats support up to 4 local documents per request.',
+        );
+      }
+      documentCharacters += documents.fold<int>(
+        0,
+        (total, document) => total + document.extractedText.runes.length,
+      );
+      if (documentCharacters > kDirectMaxLocalDocumentCharacters) {
+        throw const DirectChatInputException(
+          'The local document text exceeds the Direct prompt limit.',
+        );
+      }
+      if (documents.isNotEmpty) {
+        final references = documents
+            .map((document) => document.renderForPrompt())
+            .join('\n\n');
+        text = text.trim().isEmpty ? references : '$text\n\n$references';
+      }
+    }
     if (text.trim().isNotEmpty) parts.add(DirectTextPart(text));
 
     // Provider image inputs belong to user prompt messages. Persisted
@@ -366,6 +405,9 @@ final class DirectStreamingAccumulator {
 
   final StringBuffer _text = StringBuffer();
   final StringBuffer _reasoning = StringBuffer();
+  final List<_DirectToolExecution> _toolExecutions = [];
+  final List<ChatSourceReference> _sources = [];
+  final Map<String, int> _sourceIndexByUrl = {};
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
   DirectStreamError? _error;
@@ -387,6 +429,33 @@ final class DirectStreamingAccumulator {
   Map<String, dynamic>? get usage => _usage;
   DirectStreamError? get error => _error;
   bool get hasUsableOutput => _hasUsableOutput;
+  List<ChatSourceReference> get sources => List.unmodifiable(_sources);
+  List<Map<String, dynamic>> get toolOutput {
+    final output = <Map<String, dynamic>>[];
+    for (final execution in _toolExecutions) {
+      output.add(
+        Map<String, dynamic>.unmodifiable({
+          'type': 'function_call',
+          'id': execution.id,
+          'call_id': execution.id,
+          'name': execution.name,
+          'arguments': execution.arguments,
+          'status': execution.done ? 'completed' : 'in_progress',
+        }),
+      );
+      if (execution.done) {
+        output.add(
+          Map<String, dynamic>.unmodifiable({
+            'type': 'function_call_output',
+            'call_id': execution.id,
+            'output': execution.result,
+            if (execution.isError) 'error': true,
+          }),
+        );
+      }
+    }
+    return List.unmodifiable(output);
+  }
 
   /// Exposed for focused performance regressions. These count projection work,
   /// not provider events or the one final authoritative render.
@@ -418,6 +487,38 @@ final class DirectStreamingAccumulator {
       case DirectUsageUpdate():
         _usage = Map<String, dynamic>.from(event.usage);
         return true;
+      case DirectToolCallStarted():
+        _toolExecutions.add(
+          _DirectToolExecution(
+            id: event.id,
+            name: event.name,
+            arguments: event.arguments,
+          ),
+        );
+        _hasUsableOutput = true;
+        return true;
+      case DirectToolCallCompleted():
+        final index = _toolExecutions.lastIndexWhere(
+          (execution) => execution.id == event.id,
+        );
+        final completed = _DirectToolExecution(
+          id: event.id,
+          name: event.name,
+          arguments: event.arguments,
+          result: event.result,
+          done: true,
+          isError: event.isError,
+        );
+        if (index < 0) {
+          _toolExecutions.add(completed);
+        } else {
+          _toolExecutions[index] = completed;
+        }
+        if (!event.isError) {
+          _applyWebToolSources(event);
+        }
+        _hasUsableOutput = true;
+        return true;
       case DirectStreamError():
         _error = event;
         return true;
@@ -441,7 +542,8 @@ final class DirectStreamingAccumulator {
     required bool forceReplace,
     required bool canAppend,
   }) {
-    final logicalLength = _text.length + _reasoning.length;
+    final logicalLength =
+        _text.length + _reasoning.length + (_toolExecutions.length * 64);
     if (forceReplace && logicalLength > 0) {
       return _fullStreamingProjection(logicalLength);
     }
@@ -483,6 +585,8 @@ final class DirectStreamingAccumulator {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
+      case DirectToolCallStarted() || DirectToolCallCompleted():
+        return _fullStreamingProjection(logicalLength);
       case DirectUsageUpdate() || DirectStreamError() || DirectStreamDone():
         return null;
     }
@@ -515,6 +619,20 @@ final class DirectStreamingAccumulator {
         ]),
       );
     }
+    for (final execution in _toolExecutions) {
+      blocks.add(
+        renderSemanticMessageBlocks([
+          SemanticDetailsBlock.toolCall(
+            id: execution.id,
+            name: execution.name,
+            arguments: execution.arguments,
+            done: execution.done,
+            result: execution.result,
+            isError: execution.isError,
+          ),
+        ]),
+      );
+    }
     final answerText = _text.toString();
     if (answerText.isNotEmpty) {
       blocks.add(
@@ -525,4 +643,150 @@ final class DirectStreamingAccumulator {
     }
     return blocks.where((block) => block.isNotEmpty).join('\n');
   }
+
+  void _applyWebToolSources(DirectToolCallCompleted event) {
+    switch (event.name.trim()) {
+      case 'web_search':
+        _applyWebSearchSources(event.result);
+      case 'web_fetch':
+        _applyWebFetchSource(event.arguments, event.result);
+    }
+  }
+
+  void _applyWebSearchSources(Object? value) {
+    final result = _directStringKeyedMap(value);
+    final rawResults = result?['results'];
+    if (rawResults is! List) return;
+
+    for (final rawResult in rawResults) {
+      if (_sources.length >= _kDirectMaxWebSources) break;
+      final result = _directStringKeyedMap(rawResult);
+      if (result == null) continue;
+      final url = _normalizeDirectWebSourceUrl(result['url']);
+      if (url == null) continue;
+
+      final existingIndex = _sourceIndexByUrl[url];
+      final title = _boundedDirectSourceText(
+        result['title'],
+        _kDirectMaxWebSourceTitleCharacters,
+      );
+      final snippet = _boundedDirectSourceText(
+        result['content'],
+        _kDirectMaxWebSourceSnippetCharacters,
+      );
+      if (existingIndex != null) {
+        final existing = _sources[existingIndex];
+        _sources[existingIndex] = existing.copyWith(
+          title: _preferExistingDirectSourceText(existing.title, title),
+          snippet: _preferExistingDirectSourceText(existing.snippet, snippet),
+        );
+        continue;
+      }
+
+      _sourceIndexByUrl[url] = _sources.length;
+      _sources.add(
+        ChatSourceReference(
+          title: title,
+          url: url,
+          snippet: snippet,
+          type: 'web',
+        ),
+      );
+    }
+  }
+
+  void _applyWebFetchSource(Map<String, dynamic> arguments, Object? value) {
+    final url = _normalizeDirectWebSourceUrl(arguments['url']);
+    final sourceIndex = url == null ? null : _sourceIndexByUrl[url];
+    final result = _directStringKeyedMap(value);
+    if (sourceIndex == null || result == null) return;
+
+    final title = _boundedDirectSourceText(
+      result['title'],
+      _kDirectMaxWebSourceTitleCharacters,
+    );
+    final snippet = _boundedDirectSourceText(
+      result['content'],
+      _kDirectMaxWebSourceSnippetCharacters,
+    );
+    final existing = _sources[sourceIndex];
+    _sources[sourceIndex] = existing.copyWith(
+      title: title ?? existing.title,
+      snippet: snippet ?? existing.snippet,
+    );
+  }
+}
+
+Map<String, dynamic>? _directStringKeyedMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is! Map) return null;
+  return <String, dynamic>{
+    for (final entry in value.entries) entry.key.toString(): entry.value,
+  };
+}
+
+String? _normalizeDirectWebSourceUrl(Object? value) {
+  if (value is! String || value.trim().isEmpty) return null;
+  try {
+    return normalizeOllamaCloudPublicWebUrl(value.trim());
+  } on FormatException {
+    return null;
+  }
+}
+
+String? _boundedDirectSourceText(Object? value, int maxCharacters) {
+  if (value is! String) return null;
+  final normalized = value.trim();
+  if (normalized.isEmpty) return null;
+  return normalized.length <= maxCharacters
+      ? normalized
+      : normalized.substring(0, maxCharacters);
+}
+
+String? _preferExistingDirectSourceText(String? existing, String? candidate) {
+  final normalizedExisting = existing?.trim();
+  return normalizedExisting == null || normalizedExisting.isEmpty
+      ? candidate
+      : existing;
+}
+
+final class _DirectToolExecution {
+  _DirectToolExecution({
+    required this.id,
+    required this.name,
+    required Map<String, dynamic> arguments,
+    Object? result,
+    this.done = false,
+    this.isError = false,
+  }) : arguments = _freezeDirectToolMap(arguments),
+       result = _freezeDirectToolJson(result);
+
+  final String id;
+  final String name;
+  final Map<String, dynamic> arguments;
+  final Object? result;
+  final bool done;
+  final bool isError;
+}
+
+Map<String, dynamic> _freezeDirectToolMap(Map<String, dynamic> value) =>
+    Map<String, dynamic>.unmodifiable({
+      for (final entry in value.entries)
+        entry.key: _freezeDirectToolJson(entry.value),
+    });
+
+Object? _freezeDirectToolJson(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return _freezeDirectToolMap(value);
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.unmodifiable({
+      for (final entry in value.entries)
+        entry.key.toString(): _freezeDirectToolJson(entry.value),
+    });
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_freezeDirectToolJson));
+  }
+  return value;
 }

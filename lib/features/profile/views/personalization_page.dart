@@ -39,18 +39,19 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.invalidate(personalizationSettingsProvider);
-      ref.invalidate(userMemoriesProvider);
+      if (ref.read(openWebUiAccountAvailableProvider)) {
+        ref.invalidate(personalizationSettingsProvider);
+        ref.invalidate(userMemoriesProvider);
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final settingsAsync = ref.watch(personalizationSettingsProvider);
     final appSettings = ref.watch(appSettingsProvider);
-    final memoriesAsync = ref.watch(userMemoriesProvider);
     final modelsAsync = ref.watch(modelsProvider);
+    final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
 
     return SettingsPageScaffold(
       title: l10n.personalization,
@@ -60,13 +61,25 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
           ref,
           currentDefaultModelId: appSettings.defaultModel,
           modelsAsync: modelsAsync,
+          hasOpenWebUiAccount: hasOpenWebUiAccount,
         ),
-        settingsSectionGap,
-        _buildSystemPromptSection(context, ref, settingsAsync),
-        settingsSectionGap,
-        _buildMemorySection(context, ref, settingsAsync, memoriesAsync),
-        settingsSectionGap,
-        _buildAdvancedPromptTile(context),
+        if (hasOpenWebUiAccount) ...[
+          settingsSectionGap,
+          _buildSystemPromptSection(
+            context,
+            ref,
+            ref.watch(personalizationSettingsProvider),
+          ),
+          settingsSectionGap,
+          _buildMemorySection(
+            context,
+            ref,
+            ref.watch(personalizationSettingsProvider),
+            ref.watch(userMemoriesProvider),
+          ),
+          settingsSectionGap,
+          _buildAdvancedPromptTile(context),
+        ],
       ],
     );
   }
@@ -76,6 +89,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     WidgetRef ref, {
     required String? currentDefaultModelId,
     required AsyncValue<List<Model>> modelsAsync,
+    required bool hasOpenWebUiAccount,
   }) {
     final l10n = AppLocalizations.of(context)!;
 
@@ -99,7 +113,11 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
                 color: context.conduitTheme.buttonPrimary,
               ),
               title: l10n.defaultModel,
-              subtitle: resolvedName ?? l10n.autoSelectDescription,
+              subtitle:
+                  resolvedName ??
+                  (hasOpenWebUiAccount
+                      ? l10n.autoSelectDescription
+                      : l10n.autoSelect),
               onTap: () => _showDefaultModelPicker(
                 context,
                 ref,

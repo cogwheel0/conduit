@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
+import 'dart:math' as math;
 import '../providers/chat_providers.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
@@ -26,6 +27,7 @@ import '../../tools/providers/tools_providers.dart';
 import '../../prompts/providers/prompts_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
+import '../../hermes/services/hermes_local_document_service.dart';
 import '../../direct_connections/direct_connections.dart';
 import '../../../core/models/tool.dart';
 import '../../../core/models/model.dart';
@@ -68,15 +70,66 @@ bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
   return registry.resolve(model) != null && model.isMultimodal == true;
 }
 
+/// Restricts local file picking to what the selected transport can consume.
+///
+/// OpenWebUI performs server-backed document ingestion, while Hermes and
+/// Direct perform bounded local extraction. Direct also accepts image payloads
+/// when the selected model advertises multimodal input.
+List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
+  if (selectedModel == null) return null;
+  if (isHermesModel(selectedModel)) {
+    return kHermesLocalDocumentPickerExtensions;
+  }
+  if (hasReservedDirectIdentity(selectedModel)) {
+    final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
+    if (selectedModel.isMultimodal == true) {
+      extensions.addAll(
+        allSupportedImageFormats.map((extension) => extension.substring(1)),
+      );
+    }
+    return extensions.toList(growable: false)..sort();
+  }
+  return null;
+}
+
+/// Computes the height of the panel that replaces the visible IME.
+///
+/// The chat's outer safe area becomes active when Android hides the IME. The
+/// panel excludes that newly reserved region while retaining the small overlap
+/// needed to keep the composer on the same physical baseline.
+double fallbackAttachmentPanelHeight({
+  required double keyboardHeight,
+  required double bottomSafeInset,
+  required double retainedSafeAreaOverlap,
+  required double availableHeight,
+}) {
+  final effectiveSafeInset = (bottomSafeInset - retainedSafeAreaOverlap)
+      .clamp(0.0, double.infinity)
+      .toDouble();
+  if (keyboardHeight > 0) {
+    return (keyboardHeight - effectiveSafeInset)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+  }
+
+  final preferredHeight = (availableHeight * 0.38)
+      .clamp(260.0, 320.0)
+      .toDouble();
+  return (preferredHeight - effectiveSafeInset)
+      .clamp(0.0, double.infinity)
+      .toDouble();
+}
+
 /// Shared visibility rule used by both compact and expanded '+' branches.
 bool shouldShowComposerOverflowButton({
   required bool isHermesComposer,
   required bool isDirectComposer,
   required bool directSupportsImages,
+  bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
 }) {
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
-  return !isDirectComposer || directSupportsImages;
+  return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
 
 /// Builds the actions rendered by the iOS keyboard attachment panel.
@@ -101,7 +154,9 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   final items = buildComposerOverflowItems(
     l10n: l10n,
     attachmentAvailability: attachmentAvailability,
-    webSearchAvailable: !restrictedMode && webSearchAvailable,
+    // Web search is also a native Ollama Cloud capability. The availability
+    // provider has already resolved whether the active direct model can use it.
+    webSearchAvailable: !hermesMode && webSearchAvailable,
     webSearchEnabled: webSearchEnabled,
     imageGenerationAvailable: !restrictedMode && imageGenerationAvailable,
     imageGenerationEnabled: imageGenerationEnabled,
@@ -122,8 +177,10 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
                   item.id == ComposerOverflowActionIds.camera);
         }
         return !directMode ||
+            item.id == ComposerOverflowActionIds.file ||
             item.id == ComposerOverflowActionIds.photo ||
-            item.id == ComposerOverflowActionIds.camera;
+            item.id == ComposerOverflowActionIds.camera ||
+            item.id == ComposerOverflowActionIds.webSearch;
       })
       .map(
         (item) => IosKeyboardAttachmentActionConfig(
@@ -145,13 +202,19 @@ class ModernChatInput extends ConsumerStatefulWidget {
   final bool enabled;
   final double? bottomPadding;
 
+  /// Keeps the Android IME and attachment keyboard in one fixed bottom region.
+  ///
+  /// The containing scaffold must set [Scaffold.resizeToAvoidBottomInset] to
+  /// false when this is enabled.
+  final bool managesSystemKeyboardInset;
+
   /// Optional placeholder text shown when the input is empty.
   /// Falls back to the localised default ("Ask anything...").
   final String? placeholder;
 
   /// Builder that replaces the default overflow (+) button entirely.
   /// Receives the button size so the replacement can match layout.
-  /// When provided, the default [ComposerOverflowSheet] is not used.
+  /// When provided, the default [ComposerAttachmentKeyboard] is not used.
   final Widget Function(double size)? overflowButtonBuilder;
 
   final Function()? onVoiceInput;
@@ -177,6 +240,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     required this.onSendMessage,
     this.enabled = true,
     this.bottomPadding,
+    this.managesSystemKeyboardInset = false,
     this.placeholder,
     this.overflowButtonBuilder,
     this.onVoiceInput,
@@ -244,6 +308,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       const <_ComposerContextSuggestion>[];
   int _contextSuggestionRequestId = 0;
   bool _isNativeAttachmentPanelVisible = false;
+  bool _isFallbackAttachmentPanelVisible = false;
+  bool _fallbackPanelReplacedKeyboard = false;
+  double _fallbackAttachmentPanelHeight = 300;
+  bool _fallbackPanelWaitingForKeyboard = false;
 
   bool get _isRouteVisible =>
       !ThemedSheets.hasActiveSheet &&
@@ -295,7 +363,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         final hasFocus = _focusNode.hasFocus;
         // Publish composer focus state
         try {
-          ref.read(composerHasFocusProvider.notifier).set(hasFocus);
+          ref
+              .read(composerHasFocusProvider.notifier)
+              .set(hasFocus || _isFallbackAttachmentPanelVisible);
         } catch (_) {}
 
         // Dismissing the keyboard by tapping outside does not go through our
@@ -317,6 +387,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         if (!hasFocus &&
             widget.enabled &&
             !_expandModalOpen &&
+            !_isFallbackAttachmentPanelVisible &&
             _controller.text.isNotEmpty &&
             DateTime.now().difference(_lastEditTime).inMilliseconds < 500) {
           final autofocusEnabled = ref.read(composerAutofocusEnabledProvider);
@@ -364,8 +435,37 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_fallbackPanelWaitingForKeyboard ||
+        !_isFallbackAttachmentPanelVisible) {
+      return;
+    }
+
+    final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    final expectedKeyboardHeight = _fallbackAttachmentPanelHeight - Spacing.sm;
+    if (keyboardHeight + 1 < expectedKeyboardHeight) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_fallbackPanelWaitingForKeyboard ||
+          !_isFallbackAttachmentPanelVisible) {
+        return;
+      }
+      _dismissFallbackAttachmentPanel();
+    });
+  }
+
   void _handleActiveSheetChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (ThemedSheets.hasActiveSheet && _isFallbackAttachmentPanelVisible) {
+      _dismissFallbackAttachmentPanel();
+      return;
+    }
+    setState(() {});
   }
 
   void _ensureFocusedIfEnabled() {
@@ -416,6 +516,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!widget.enabled && oldWidget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
+        if (_isFallbackAttachmentPanelVisible) {
+          _dismissFallbackAttachmentPanel();
+        }
         if (_focusNode.hasFocus) {
           _focusNode.unfocus();
         }
@@ -435,9 +538,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
-    if (!kIsWeb && Platform.isIOS) {
-      unawaited(_hideNativeKeyboardAttachmentPanel());
-    }
+    unawaited(_hideAttachmentPanels());
     try {
       SystemChannels.textInput.invokeMethod('TextInput.hide');
     } catch (_) {
@@ -1605,82 +1706,89 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       ),
                       boxShadow: ConduitShadows.modal(innerContext),
                     ),
-                    child: SizedBox(
-                      height: MediaQuery.of(innerContext).size.height * 0.6,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            flex: 1,
-                            child: ListView.builder(
-                              itemCount: bases.length,
-                              itemBuilder: (context, index) {
-                                final base = bases[index];
-                                final isSelected = selectedBaseId == base.id;
-                                return AdaptiveListTile(
-                                  selected: isSelected,
-                                  title: Text(base.name),
-                                  onTap: () => loadFiles(base),
-                                );
-                              },
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(AppBorderRadius.modal),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: SizedBox(
+                        height: MediaQuery.of(innerContext).size.height * 0.6,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 1,
+                              child: ListView.builder(
+                                itemCount: bases.length,
+                                itemBuilder: (context, index) {
+                                  final base = bases[index];
+                                  final isSelected = selectedBaseId == base.id;
+                                  return AdaptiveListTile(
+                                    selected: isSelected,
+                                    title: Text(base.name),
+                                    onTap: () => loadFiles(base),
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                          const VerticalDivider(width: 1),
-                          Expanded(
-                            flex: 2,
-                            child: loading
-                                ? const Center(
-                                    child: CircularProgressIndicator(),
-                                  )
-                                : ListView.builder(
-                                    itemCount: files.length,
-                                    itemBuilder: (context, index) {
-                                      final file = files[index];
-                                      final KnowledgeBase? selectedBase =
-                                          bases.isEmpty
-                                          ? null
-                                          : bases.firstWhere(
-                                              (b) => b.id == selectedBaseId,
-                                              orElse: () => bases.first,
-                                            );
-                                      return AdaptiveListTile(
-                                        title: Text(
-                                          file.meta?['name']?.toString() ??
-                                              file.filename,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        subtitle: Text(
-                                          file.meta?['source']?.toString() ??
-                                              file.filename,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        onTap: () {
-                                          innerRef
-                                              .read(
-                                                contextAttachmentsProvider
-                                                    .notifier,
-                                              )
-                                              .addKnowledge(
-                                                displayName:
-                                                    file.meta?['name']
-                                                        ?.toString() ??
-                                                    file.filename,
-                                                fileId: file.id,
-                                                collectionName:
-                                                    selectedBase?.name ??
-                                                    'Unknown',
-                                                url: file.meta?['source']
-                                                    ?.toString(),
+                            const VerticalDivider(width: 1),
+                            Expanded(
+                              flex: 2,
+                              child: loading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: files.length,
+                                      itemBuilder: (context, index) {
+                                        final file = files[index];
+                                        final KnowledgeBase? selectedBase =
+                                            bases.isEmpty
+                                            ? null
+                                            : bases.firstWhere(
+                                                (b) => b.id == selectedBaseId,
+                                                orElse: () => bases.first,
                                               );
-                                          if (modalContext.mounted) {
-                                            Navigator.of(modalContext).pop();
-                                          }
-                                        },
-                                      );
-                                    },
-                                  ),
-                          ),
-                        ],
+                                        return AdaptiveListTile(
+                                          title: Text(
+                                            file.meta?['name']?.toString() ??
+                                                file.filename,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: Text(
+                                            file.meta?['source']?.toString() ??
+                                                file.filename,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          onTap: () {
+                                            innerRef
+                                                .read(
+                                                  contextAttachmentsProvider
+                                                      .notifier,
+                                                )
+                                                .addKnowledge(
+                                                  displayName:
+                                                      file.meta?['name']
+                                                          ?.toString() ??
+                                                      file.filename,
+                                                  fileId: file.id,
+                                                  collectionName:
+                                                      selectedBase?.name ??
+                                                      'Unknown',
+                                                  url: file.meta?['source']
+                                                      ?.toString(),
+                                                );
+                                            if (modalContext.mounted) {
+                                              Navigator.of(modalContext).pop();
+                                            }
+                                          },
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -1918,7 +2026,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
         ],
       ),
-      child: child,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        clipBehavior: Clip.antiAlias,
+        child: child,
+      ),
     );
   }
 
@@ -1943,17 +2056,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   bool get _selectedModelAcceptsImageInput {
     final model = ref.read(selectedModelProvider);
-    if (model != null && isHermesModel(model)) {
+    if (model == null) return false;
+    if (isHermesModel(model)) {
       // Hermes image input is opt-in. Older servers and capabilities still in
       // flight must remain text-only rather than accepting an attachment the
       // transport cannot faithfully deliver.
       return ref.read(hermesCapabilitiesProvider).asData?.value.inputImages ==
           true;
     }
-    return directModelAcceptsImageInput(
-      model,
-      ref.read(directModelRegistryProvider),
-    );
+    return ref.read(visionCapableModelsProvider).contains(model.id);
   }
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
@@ -1975,13 +2086,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final directMode = model != null && hasReservedDirectIdentity(model);
-    final imageInputAvailable = directModelAcceptsImageInput(
-      model,
-      ref.read(directModelRegistryProvider),
-    );
+    final imageInputAvailable =
+        model != null &&
+        ref.read(visionCapableModelsProvider).contains(model.id);
+    final fileInputAvailable =
+        model != null &&
+        ref.read(fileUploadCapableModelsProvider).contains(model.id);
     return ComposerOverflowAttachmentAvailability(
-      file: !directMode && widget.onFileAttachment != null,
-      serverFile: !directMode && widget.onServerFileAttachment != null,
+      file: fileInputAvailable && widget.onFileAttachment != null,
+      serverFile:
+          !directMode &&
+          fileInputAvailable &&
+          widget.onServerFileAttachment != null,
       photo: imageInputAvailable && widget.onImageAttachment != null,
       camera: imageInputAvailable && widget.onCameraCapture != null,
       web: !directMode && widget.onWebAttachment != null,
@@ -2091,8 +2207,101 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     if (mounted && !_isDeactivated) {
-      _showOverflowSheet();
+      _toggleFallbackAttachmentPanel();
     }
+  }
+
+  void _toggleFallbackAttachmentPanel() {
+    if (!widget.enabled || _isRecording) return;
+
+    if (_isFallbackAttachmentPanelVisible) {
+      final restoreKeyboard = _fallbackPanelReplacedKeyboard;
+      if (restoreKeyboard) {
+        if (widget.managesSystemKeyboardInset) {
+          setState(() {
+            _fallbackPanelWaitingForKeyboard = true;
+          });
+        }
+        _restoreSystemKeyboard(preferImmediate: true);
+      }
+      if (!restoreKeyboard || !widget.managesSystemKeyboardInset) {
+        _dismissFallbackAttachmentPanel();
+      }
+      return;
+    }
+
+    final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    final platformView = View.of(context);
+    final bottomSafeInset =
+        platformView.viewPadding.bottom / platformView.devicePixelRatio;
+    final availableHeight = MediaQuery.sizeOf(context).height;
+    final preferredHeight = fallbackAttachmentPanelHeight(
+      keyboardHeight: keyboardHeight,
+      bottomSafeInset: bottomSafeInset,
+      retainedSafeAreaOverlap: Spacing.xxs,
+      availableHeight: availableHeight,
+    );
+
+    setState(() {
+      _fallbackPanelReplacedKeyboard = _focusNode.hasFocus;
+      _fallbackAttachmentPanelHeight = widget.managesSystemKeyboardInset
+          ? (keyboardHeight > 0 ? keyboardHeight + Spacing.sm : preferredHeight)
+          : preferredHeight;
+      _isFallbackAttachmentPanelVisible = true;
+      _fallbackPanelWaitingForKeyboard = false;
+    });
+    try {
+      ref.read(composerHasFocusProvider.notifier).set(true);
+    } catch (_) {}
+    // Preserve the EditableText input connection while replacing the IME
+    // region. This mirrors iOS input-view swapping and avoids a visible
+    // focus loss when the attachment keyboard opens.
+    if (_fallbackPanelReplacedKeyboard) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_isFallbackAttachmentPanelVisible) return;
+        try {
+          unawaited(
+            SystemChannels.textInput.invokeMethod<void>('TextInput.hide'),
+          );
+        } catch (_) {}
+      });
+    }
+  }
+
+  void _dismissFallbackAttachmentPanel() {
+    if (!_isFallbackAttachmentPanelVisible) return;
+    setState(() {
+      _isFallbackAttachmentPanelVisible = false;
+      _fallbackPanelReplacedKeyboard = false;
+      _fallbackPanelWaitingForKeyboard = false;
+    });
+    try {
+      ref.read(composerHasFocusProvider.notifier).set(_focusNode.hasFocus);
+    } catch (_) {}
+  }
+
+  void _restoreSystemKeyboard({bool preferImmediate = false}) {
+    if (!mounted || _isDeactivated || !widget.enabled) return;
+    try {
+      ref.read(composerAutofocusEnabledProvider.notifier).set(true);
+    } catch (_) {}
+    _ensureFocusedIfEnabled();
+    if (preferImmediate && _focusNode.hasFocus) {
+      try {
+        unawaited(
+          SystemChannels.textInput.invokeMethod<void>('TextInput.show'),
+        );
+      } catch (_) {}
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDeactivated || !widget.enabled) return;
+      try {
+        unawaited(
+          SystemChannels.textInput.invokeMethod<void>('TextInput.show'),
+        );
+      } catch (_) {}
+    });
   }
 
   Future<bool> _toggleNativeKeyboardAttachmentPanel(
@@ -2123,13 +2332,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     await IosKeyboardAttachmentBridge.instance.hide();
   }
 
+  Future<void> _hideAttachmentPanels({
+    bool restoreFallbackKeyboard = false,
+  }) async {
+    final shouldRestoreFallbackKeyboard =
+        restoreFallbackKeyboard && _isFallbackAttachmentPanelVisible;
+    if (shouldRestoreFallbackKeyboard) {
+      if (widget.managesSystemKeyboardInset && _fallbackPanelReplacedKeyboard) {
+        setState(() {
+          _fallbackPanelWaitingForKeyboard = true;
+        });
+      }
+      _restoreSystemKeyboard(preferImmediate: true);
+    }
+    if (_isFallbackAttachmentPanelVisible &&
+        (!_fallbackPanelWaitingForKeyboard ||
+            !widget.managesSystemKeyboardInset)) {
+      _dismissFallbackAttachmentPanel();
+    }
+    await _hideNativeKeyboardAttachmentPanel();
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<bool>(composerAutofocusEnabledProvider, (previous, next) {
-      if ((previous ?? true) && !next && _focusNode.hasFocus) {
+      if ((previous ?? true) && !next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || _isDeactivated) return;
-          _focusNode.unfocus();
+          if (_focusNode.hasFocus) {
+            _focusNode.unfocus();
+          }
+          if (_isFallbackAttachmentPanelVisible) {
+            _dismissFallbackAttachmentPanel();
+          }
         });
       }
     });
@@ -2263,6 +2498,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.watch(hermesCapabilitiesProvider);
     final selectedComposerModel = ref.watch(selectedModelProvider);
     final visionCapableModelIds = ref.watch(visionCapableModelsProvider);
+    ref.watch(fileUploadCapableModelsProvider);
     final attachmentAvailability = _overflowAttachmentAvailability;
     final bool isDirectComposer =
         selectedComposerModel != null &&
@@ -2275,11 +2511,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isHermesComposer: isHermesComposer,
       isDirectComposer: isDirectComposer,
       directSupportsImages: directSupportsImages,
+      directHasOverflowActions:
+          attachmentAvailability.file || webSearchAvailable,
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||
           attachmentAvailability.camera,
     );
+    if (_isFallbackAttachmentPanelVisible && !showOverflowButton) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_isDeactivated) {
+          _dismissFallbackAttachmentPanel();
+        }
+      });
+    }
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -2672,7 +2917,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       );
 
       final bottomPadding = _composerBottomPadding(context);
-      return Padding(
+      final composer = Padding(
         padding: EdgeInsets.fromLTRB(
           Spacing.screenPadding,
           0,
@@ -2714,6 +2959,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ],
         ),
       );
+      return _wrapWithFallbackAttachmentPanel(
+        composer: composer,
+        localAttachmentsOnly: isHermesComposer,
+        attachmentAvailability: attachmentAvailability,
+      );
     }
 
     // For expanded mode with quick pills, use the full shell.
@@ -2746,7 +2996,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Wrap with padding for floating effect, accounting for safe area
     final bottomPadding = _composerBottomPadding(context);
-    return Padding(
+    final composer = Padding(
       padding: EdgeInsets.fromLTRB(
         Spacing.screenPadding,
         0,
@@ -2754,6 +3004,92 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         bottomPadding,
       ),
       child: shell,
+    );
+    return _wrapWithFallbackAttachmentPanel(
+      composer: composer,
+      localAttachmentsOnly: isHermesComposer,
+      attachmentAvailability: attachmentAvailability,
+    );
+  }
+
+  Widget _wrapWithFallbackAttachmentPanel({
+    required Widget composer,
+    required bool localAttachmentsOnly,
+    required ComposerOverflowAttachmentAvailability attachmentAvailability,
+  }) {
+    final fallbackPanel = ComposerAttachmentKeyboard(
+      height: _fallbackAttachmentPanelHeight,
+      localAttachmentsOnly: localAttachmentsOnly,
+      onDismiss: _dismissFallbackAttachmentPanel,
+      onFileAttachment: attachmentAvailability.file
+          ? widget.onFileAttachment
+          : null,
+      onServerFileAttachment: attachmentAvailability.serverFile
+          ? widget.onServerFileAttachment
+          : null,
+      onImageAttachment: attachmentAvailability.photo
+          ? widget.onImageAttachment
+          : null,
+      onCameraCapture: attachmentAvailability.camera
+          ? widget.onCameraCapture
+          : null,
+      onWebAttachment: attachmentAvailability.web
+          ? widget.onWebAttachment
+          : null,
+    );
+
+    return PopScope(
+      canPop: !_isFallbackAttachmentPanelVisible,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isFallbackAttachmentPanelVisible) {
+          if (_fallbackPanelReplacedKeyboard) {
+            if (widget.managesSystemKeyboardInset) {
+              setState(() {
+                _fallbackPanelWaitingForKeyboard = true;
+              });
+            }
+            _restoreSystemKeyboard(preferImmediate: true);
+          }
+          if (!_fallbackPanelReplacedKeyboard ||
+              !widget.managesSystemKeyboardInset) {
+            _dismissFallbackAttachmentPanel();
+          }
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          composer,
+          if (widget.managesSystemKeyboardInset)
+            SizedBox(
+              height: _isFallbackAttachmentPanelVisible
+                  ? _fallbackAttachmentPanelHeight
+                  : MediaQuery.viewInsetsOf(context).bottom > 0
+                  ? MediaQuery.viewInsetsOf(context).bottom + Spacing.sm
+                  : math.max(
+                      View.of(context).viewPadding.bottom /
+                          View.of(context).devicePixelRatio,
+                      Spacing.sm,
+                    ),
+              child: _isFallbackAttachmentPanelVisible
+                  ? fallbackPanel
+                  : const SizedBox.shrink(),
+            )
+          else
+            ClipRect(
+              child: AnimatedSize(
+                duration: context.motionDuration(
+                  const Duration(milliseconds: 220),
+                ),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: _isFallbackAttachmentPanelVisible
+                    ? fallbackPanel
+                    : const SizedBox.shrink(),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -2792,7 +3128,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       excludeFromSemantics: true,
       onTap: () {
         if (!widget.enabled) return;
-        unawaited(_hideNativeKeyboardAttachmentPanel());
+        unawaited(_hideAttachmentPanels(restoreFallbackKeyboard: true));
         // Explicit user intent to focus: re-enable autofocus and focus
         try {
           ref.read(composerAutofocusEnabledProvider.notifier).set(true);
@@ -2944,7 +3280,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   onSubmitted: (_) {},
                   onTap: () {
                     if (!widget.enabled) return;
-                    unawaited(_hideNativeKeyboardAttachmentPanel());
+                    unawaited(
+                      _hideAttachmentPanels(restoreFallbackKeyboard: true),
+                    );
                     _ensureFocusedIfEnabled();
                   },
                 );
@@ -3000,7 +3338,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 onSubmitted: (_) {},
                 onTap: () {
                   if (!widget.enabled) return;
-                  unawaited(_hideNativeKeyboardAttachmentPanel());
+                  unawaited(
+                    _hideAttachmentPanels(restoreFallbackKeyboard: true),
+                  );
                   _ensureFocusedIfEnabled();
                 },
               );
@@ -3029,39 +3369,44 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     final bool enabled = widget.enabled && !_isRecording;
 
-    final bool nativePanelVisible =
-        !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
+    final bool attachmentPanelVisible =
+        (!kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible) ||
+        _isFallbackAttachmentPanelVisible;
     final theme = context.conduitTheme;
 
     final Color iconColor = !enabled
         ? theme.textPrimary.withValues(alpha: Alpha.disabled)
-        : nativePanelVisible
+        : attachmentPanelVisible
         ? theme.textPrimary.withValues(alpha: Alpha.strong)
         : theme.textPrimary.withValues(alpha: Alpha.strong);
 
     final IconData overflowIcon;
-    if (nativePanelVisible) {
-      overflowIcon = CupertinoIcons.xmark;
+    if (attachmentPanelVisible) {
+      overflowIcon = Platform.isIOS ? CupertinoIcons.xmark : Icons.close;
     } else {
       overflowIcon = Platform.isIOS ? CupertinoIcons.add : Icons.add;
     }
 
-    return AdaptiveTooltip(
-      message: tooltip,
-      child: _buildComposerIconButton(
-        onPressed: enabled
-            ? () {
-                unawaited(_handleOverflowButtonPressed(nativeActions));
-              }
-            : null,
-        size: buttonSize,
-        isProminent: false,
-        androidShowBackground: true,
-        color: nativePanelVisible ? theme.surfaceContainerHighest : null,
-        child: ConduitSystemAdaptiveIcon(
-          overflowIcon,
-          size: iconSize,
-          color: iconColor,
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      descendantsAreFocusable: false,
+      child: AdaptiveTooltip(
+        message: tooltip,
+        child: _buildComposerIconButton(
+          onPressed: enabled
+              ? () {
+                  unawaited(_handleOverflowButtonPressed(nativeActions));
+                }
+              : null,
+          size: buttonSize,
+          isProminent: false,
+          androidShowBackground: true,
+          child: ConduitSystemAdaptiveIcon(
+            overflowIcon,
+            size: iconSize,
+            color: iconColor,
+          ),
         ),
       ),
     );
@@ -3620,54 +3965,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ),
       child: child,
     );
-  }
-
-  void _showOverflowSheet() {
-    ConduitHaptics.selectionClick();
-    final attachmentAvailability = _overflowAttachmentAvailability;
-    final selectedModel = ref.read(selectedModelProvider);
-    final localAttachmentsOnly =
-        selectedModel != null && isHermesModel(selectedModel);
-    final prevCanRequest = _focusNode.canRequestFocus;
-    final wasFocused = _focusNode.hasFocus;
-    _focusNode.canRequestFocus = false;
-    try {
-      FocusScope.of(context).unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {}
-
-    ThemedSheets.showCustom<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => ComposerOverflowSheet(
-        localAttachmentsOnly: localAttachmentsOnly,
-        onFileAttachment: attachmentAvailability.file
-            ? widget.onFileAttachment
-            : null,
-        onServerFileAttachment: attachmentAvailability.serverFile
-            ? widget.onServerFileAttachment
-            : null,
-        onImageAttachment: attachmentAvailability.photo
-            ? widget.onImageAttachment
-            : null,
-        onCameraCapture: attachmentAvailability.camera
-            ? widget.onCameraCapture
-            : null,
-        onWebAttachment: attachmentAvailability.web
-            ? widget.onWebAttachment
-            : null,
-      ),
-    ).whenComplete(() {
-      if (mounted) {
-        _focusNode.canRequestFocus = prevCanRequest;
-        if (wasFocused && widget.enabled) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _ensureFocusedIfEnabled();
-          });
-        }
-      }
-    });
   }
 
   void _showExpandTextModal() async {

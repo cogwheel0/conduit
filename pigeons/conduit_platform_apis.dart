@@ -509,9 +509,19 @@ class PlatformNativeSheetModelSelectorRequest {
     this.selectedModelId,
     required this.models,
     required this.pinnedModelIds,
+    required this.featuredModelIds,
     required this.allowsPinning,
     this.pinTitle,
     this.unpinTitle,
+    required this.moreModelsTitle,
+    required this.searchModelsTitle,
+    required this.reasoningEffortTitle,
+    required this.reasoningEffortValue,
+    required this.reasoningEffortOptions,
+    required this.reasoningEffortLabels,
+    required this.allowsCustomReasoningEffort,
+    required this.customReasoningEffortTitle,
+    required this.customReasoningEffortHint,
   });
 
   String presentationId;
@@ -519,9 +529,19 @@ class PlatformNativeSheetModelSelectorRequest {
   String? selectedModelId;
   List<PlatformNativeSheetModelOption> models;
   List<String> pinnedModelIds;
+  List<String> featuredModelIds;
   bool allowsPinning;
   String? pinTitle;
   String? unpinTitle;
+  String moreModelsTitle;
+  String searchModelsTitle;
+  String reasoningEffortTitle;
+  String reasoningEffortValue;
+  List<String> reasoningEffortOptions;
+  Map<String, String> reasoningEffortLabels;
+  bool allowsCustomReasoningEffort;
+  String customReasoningEffortTitle;
+  String customReasoningEffortHint;
 }
 
 class PlatformNativeSheetOptionsSelectorRequest {
@@ -621,6 +641,12 @@ class PlatformNativeSheetModelPinToggledEvent {
   PlatformNativeSheetModelPinToggledEvent({required this.modelId});
 
   String modelId;
+}
+
+class PlatformNativeSheetReasoningEffortChangedEvent {
+  PlatformNativeSheetReasoningEffortChangedEvent({required this.value});
+
+  String value;
 }
 
 class PlatformNativeEditProfileCommittedEvent {
@@ -776,5 +802,8 @@ abstract class NativeSheetFlutterApi {
   void onControlChanged(PlatformNativeSheetControlChangedEvent event);
   void onDetailAppeared(PlatformNativeSheetDetailAppearedEvent event);
   void onModelPinToggled(PlatformNativeSheetModelPinToggledEvent event);
+  void onReasoningEffortChanged(
+    PlatformNativeSheetReasoningEffortChangedEvent event,
+  );
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
 }

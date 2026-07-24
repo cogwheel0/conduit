@@ -8,6 +8,7 @@ class ServerUserSettings {
     this.memoryEnabled = false,
     this.defaultModelIds = const <String>[],
     this.pinnedModelIds = const <String>[],
+    this.reasoningEffort,
     this.notificationEnabled,
     this.notificationSound,
     this.notificationSoundAlways,
@@ -17,6 +18,7 @@ class ServerUserSettings {
   final bool memoryEnabled;
   final List<String> defaultModelIds;
   final List<String> pinnedModelIds;
+  final String? reasoningEffort;
 
   /// Open WebUI notification preferences. Stored at the top level of the user
   /// settings object (not nested under `ui`). Null means the server has no
@@ -33,12 +35,14 @@ class ServerUserSettings {
     final ui = _coerceJsonMap(json['ui']);
     final uiSystem = _normalizeString(ui?['system']);
     final rootSystem = _normalizeString(json['system']);
+    final params = _coerceJsonMap(json['params']);
 
     return ServerUserSettings(
       systemPrompt: uiSystem ?? rootSystem,
       memoryEnabled: _coerceBool(ui?['memory']) ?? false,
       defaultModelIds: _coerceStringList(ui?['models']),
       pinnedModelIds: _coerceUniqueStringList(ui?['pinnedModels']),
+      reasoningEffort: _normalizeString(params?['reasoning_effort']),
       notificationEnabled: _coerceBool(json['notificationEnabled']),
       notificationSound: _coerceBool(json['notificationSound']),
       notificationSoundAlways: _coerceBool(json['notificationSoundAlways']),
@@ -50,6 +54,7 @@ class ServerUserSettings {
     bool? memoryEnabled,
     List<String>? defaultModelIds,
     List<String>? pinnedModelIds,
+    Object? reasoningEffort = _serverUserSettingsUnset,
     bool? notificationEnabled,
     bool? notificationSound,
     bool? notificationSoundAlways,
@@ -61,6 +66,9 @@ class ServerUserSettings {
       memoryEnabled: memoryEnabled ?? this.memoryEnabled,
       defaultModelIds: defaultModelIds ?? this.defaultModelIds,
       pinnedModelIds: pinnedModelIds ?? this.pinnedModelIds,
+      reasoningEffort: reasoningEffort == _serverUserSettingsUnset
+          ? this.reasoningEffort
+          : reasoningEffort as String?,
       notificationEnabled: notificationEnabled ?? this.notificationEnabled,
       notificationSound: notificationSound ?? this.notificationSound,
       notificationSoundAlways:

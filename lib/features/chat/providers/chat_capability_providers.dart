@@ -64,6 +64,24 @@ class ImageGenerationEnabledNotifier extends Notifier<bool> {
   }
 }
 
+bool? _explicitModelCapability(Model model, String capability) {
+  bool? readCapability(Object? rawCapabilities) {
+    if (rawCapabilities is! Map) return null;
+    final value = rawCapabilities[capability];
+    return value is bool ? value : null;
+  }
+
+  final metadata = model.metadata;
+  final info = metadata?['info'];
+  final infoMeta = info is Map ? info['meta'] : null;
+  final meta = metadata?['meta'];
+
+  return readCapability(infoMeta is Map ? infoMeta['capabilities'] : null) ??
+      readCapability(meta is Map ? meta['capabilities'] : null) ??
+      readCapability(metadata?['capabilities']) ??
+      readCapability(model.capabilities);
+}
+
 class VisionCapableModelsNotifier extends Notifier<List<String>> {
   @override
   List<String> build() {
@@ -90,11 +108,11 @@ class VisionCapableModelsNotifier extends Notifier<List<String>> {
       return [selectedModel.id];
     }
 
-    if (selectedModel.isMultimodal == true) {
-      return [selectedModel.id];
+    // Match OpenWebUI: omitted capability metadata is permissive for
+    // compatibility, but an explicit false must disable image input.
+    if (_explicitModelCapability(selectedModel, 'vision') == false) {
+      return [];
     }
-
-    // For now, assume all models support vision unless explicitly marked
     return [selectedModel.id];
   }
 }
@@ -107,7 +125,28 @@ class FileUploadCapableModelsNotifier extends Notifier<List<String>> {
       return [];
     }
 
-    // For now, assume all models support file upload
+    if (isHermesModel(selectedModel)) {
+      return [selectedModel.id];
+    }
+
+    final directIdentity =
+        isLocallyMintedDirectModel(selectedModel) ||
+        hasReservedDirectIdentity(selectedModel);
+    if (directIdentity) {
+      ref.watch(directModelDiscoveryProvider);
+      final directBinding = ref
+          .read(directModelRegistryProvider)
+          .resolve(selectedModel);
+      // Direct documents are extracted locally into bounded text and do not
+      // depend on the remote model's image-input capability.
+      return directBinding == null ? [] : [selectedModel.id];
+    }
+
+    // Match OpenWebUI's missing-is-allowed policy while honoring an explicit
+    // per-model file-upload denial.
+    if (_explicitModelCapability(selectedModel, 'file_upload') == false) {
+      return [];
+    }
     return [selectedModel.id];
   }
 }

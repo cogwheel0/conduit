@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit/core/models/user.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/core/services/api_service.dart';
 import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
@@ -20,6 +21,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_route_shell.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:mocktail/mocktail.dart';
 
 void main() {
   testWidgets('compact shell shows app bar section menu and collection', (
@@ -291,7 +293,7 @@ void main() {
           isAuthLoadingProvider2.overrideWithValue(false),
           currentUserProvider2.overrideWithValue(_user),
           currentUserProvider.overrideWith((ref) async => _user),
-          apiServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(_WorkspaceApiService()),
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => _capabilities,
           ),
@@ -345,7 +347,7 @@ void main() {
           isAuthLoadingProvider2.overrideWithValue(false),
           currentUserProvider2.overrideWithValue(_user),
           currentUserProvider.overrideWith((ref) async => _user),
-          apiServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(_WorkspaceApiService()),
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => const WorkspaceCapabilities(),
           ),
@@ -370,6 +372,8 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
   });
 }
+
+final class _WorkspaceApiService extends Mock implements ApiService {}
 
 Widget _workspaceHarness({
   WorkspaceCapabilities capabilities = _capabilities,

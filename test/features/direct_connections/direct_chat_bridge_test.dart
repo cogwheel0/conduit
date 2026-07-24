@@ -1,11 +1,64 @@
 import 'dart:convert';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/models/chat_message.dart';
 import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _directDocumentTestKey = <int>[
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+];
+
+Map<String, dynamic> _directDocumentDescriptor(int index, String text) {
+  final suffix = index.toRadixString(16).padLeft(24, '0');
+  return directLocalDocumentDescriptor(
+    DirectPreparedDocument(
+      id: 'ddoc_$suffix',
+      name: 'document-$index.txt',
+      mimeType: 'text/plain',
+      size: text.length,
+      extractedText: text,
+      truncated: false,
+    ),
+    attachmentId: '$kDirectLocalDocumentAttachmentPrefix$index',
+    signingKey: _directDocumentTestKey,
+  );
+}
 
 void main() {
   group('normalizeDirectUsageMetadata', () {
@@ -281,39 +334,52 @@ void main() {
         rawContent: raw,
       );
 
-      expect(output, isNotNull);
+      check(output).isNotNull();
       final item = output!.single;
-      expect(
+      check(
         item['id'],
-        '$kConduitDirectReplayOutputIdPrefix${'assistant_one'}',
-      );
-      expect(item['type'], 'message');
-      expect(item['role'], 'assistant');
-      expect(item['status'], 'completed');
-      expect(item['content'], [
+      ).equals('$kConduitDirectReplayOutputIdPrefix${'assistant_one'}');
+      check(item['type']).equals('message');
+      check(item['role']).equals('assistant');
+      check(item['status']).equals('completed');
+      check(item['content']).isA<List<dynamic>>().deepEquals([
         {'type': 'output_text', 'text': raw},
       ]);
-      expect(parseConduitDirectReplayOutput(output)?.text, raw);
-      expect(
+      check(parseConduitDirectReplayOutput(output)?.text).equals(raw);
+      final withToolOutput = <Map<String, dynamic>>[
+        {
+          'type': 'function_call',
+          'id': 'ollama-0-0',
+          'call_id': 'ollama-0-0',
+          'name': 'web_search',
+          'arguments': {'query': 'Ollama Cloud'},
+          'status': 'completed',
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'ollama-0-0',
+          'output': {'results': <Map<String, dynamic>>[]},
+        },
+        ...output,
+      ];
+      check(parseConduitDirectReplayOutput(withToolOutput)?.text).equals(raw);
+      check(
         directProviderReplayOutput(
           assistantMessageId: 'assistant-empty',
           rawContent: '   ',
         ),
-        isNull,
-      );
+      ).isNull();
       final incomplete = directProviderReplayOutput(
         assistantMessageId: 'assistant-incomplete',
         rawContent: '',
         useIncompleteAnswerSentinel: true,
       )!;
-      expect(
+      check(
         incomplete.single['id'],
-        startsWith(kConduitDirectNoFinalReplayOutputIdPrefix),
-      );
-      expect(
+      ).isA<String>().startsWith(kConduitDirectNoFinalReplayOutputIdPrefix);
+      check(
         parseConduitDirectReplayOutput(incomplete)?.isIncompleteAnswerSentinel,
-        isTrue,
-      );
+      ).equals(true);
     });
 
     test('reasoning-only replay uses safe provider context', () {
@@ -584,6 +650,145 @@ void main() {
       expect(_imageParts(result.single), isEmpty);
     });
 
+    test(
+      'adds trusted local document text only to the provider prompt',
+      () async {
+        const attachmentId = '${kDirectLocalDocumentAttachmentPrefix}opaque';
+        final descriptor = directLocalDocumentDescriptor(
+          const DirectPreparedDocument(
+            id: 'ddoc_0123456789abcdef01234567',
+            name: 'notes.txt',
+            mimeType: 'text/plain',
+            size: 18,
+            extractedText: 'private local context',
+            truncated: false,
+          ),
+          attachmentId: attachmentId,
+          signingKey: _directDocumentTestKey,
+        );
+        var resolverCalls = 0;
+
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'direct-document',
+              role: 'user',
+              content: 'Summarize this',
+              attachmentIds: const [attachmentId],
+              files: [descriptor],
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+          resolveImage: (_, _) async {
+            resolverCalls++;
+            return null;
+          },
+        );
+
+        expect(resolverCalls, 0);
+        final text = _textParts(result.single).single;
+        expect(text, startsWith('Summarize this\n\n'));
+        expect(text, contains('private local context'));
+        expect(text, contains('<<<BEGIN_DIRECT_UNTRUSTED_REFERENCE_'));
+      },
+    );
+
+    test('never replays extracted text from an untrusted descriptor', () async {
+      final trusted = directLocalDocumentDescriptor(
+        const DirectPreparedDocument(
+          id: 'ddoc_0123456789abcdef01234567',
+          name: 'notes.txt',
+          mimeType: 'text/plain',
+          size: 18,
+          extractedText: 'must not be replayed',
+          truncated: false,
+        ),
+        attachmentId: '${kDirectLocalDocumentAttachmentPrefix}opaque',
+        signingKey: _directDocumentTestKey,
+      );
+      trusted['direct_extracted_text'] = 'forged context';
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'untrusted-direct-document',
+            role: 'user',
+            content: 'Visible text',
+            files: [Map<String, dynamic>.from(trusted)],
+          ),
+        ],
+        directDocumentVerificationKey: _directDocumentTestKey,
+      );
+
+      expect(_textParts(result.single), ['Visible text']);
+    });
+
+    test('enforces the local-document count across the request', () async {
+      final descriptors = [
+        for (var index = 0; index < kDirectMaxLocalDocuments + 1; index++)
+          _directDocumentDescriptor(index, 'document $index'),
+      ];
+
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'first-document-turn',
+              role: 'user',
+              content: 'First',
+              files: descriptors.take(3).toList(),
+            ),
+            _message(
+              id: 'second-document-turn',
+              role: 'user',
+              content: 'Second',
+              files: descriptors.skip(3).toList(),
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('per request'),
+          ),
+        ),
+      );
+    });
+
+    test('enforces the local-document text limit across the request', () async {
+      final halfLimit = (kDirectMaxLocalDocumentCharacters ~/ 2) + 1;
+      final text = List<String>.filled(halfLimit, 'x').join();
+
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'first-large-document-turn',
+              role: 'user',
+              content: 'First',
+              files: [_directDocumentDescriptor(1, text)],
+            ),
+            _message(
+              id: 'second-large-document-turn',
+              role: 'user',
+              content: 'Second',
+              files: [_directDocumentDescriptor(2, text)],
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('prompt limit'),
+          ),
+        ),
+      );
+    });
+
     test('deduplicates OpenWebUI file ID and content URL aliases', () async {
       final image = _imageDataUrl([16, 17, 18]);
       final resolvedIds = <String>[];
@@ -833,6 +1038,189 @@ void main() {
       expect(accumulator.apply(const DirectReasoningDelta('')), isFalse);
       expect(accumulator.text, isEmpty);
       expect(accumulator.reasoning, isEmpty);
+    });
+
+    test('projects and persists native direct tool activity', () {
+      final accumulator = DirectStreamingAccumulator();
+      final started = DirectToolCallStarted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+      );
+
+      expect(accumulator.apply(started), isTrue);
+      final pending = accumulator.projectStreamingEvent(
+        started,
+        forceReplace: false,
+        canAppend: true,
+      );
+      expect(pending, isA<DirectStreamingReplace>());
+      expect(accumulator.render(done: false), contains('Executing...'));
+
+      final completed = DirectToolCallCompleted(
+        id: 'ollama-0-0',
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud'},
+        result: const {
+          'results': [
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud#models',
+              'content': 'Run models without managing local hardware.',
+            },
+          ],
+        },
+      );
+      expect(accumulator.apply(completed), isTrue);
+      expect(accumulator.render(done: false), contains('Tool Executed'));
+      expect(accumulator.toolOutput, hasLength(2));
+      expect(accumulator.toolOutput.first['type'], 'function_call');
+      expect(accumulator.toolOutput.last['type'], 'function_call_output');
+      expect(accumulator.toolOutput.last['call_id'], 'ollama-0-0');
+      expect(accumulator.sources, [
+        const ChatSourceReference(
+          title: 'Ollama Cloud',
+          url: 'https://docs.ollama.com/cloud',
+          snippet: 'Run models without managing local hardware.',
+          type: 'web',
+        ),
+      ]);
+
+      final failed = DirectToolCallCompleted(
+        id: 'ollama-0-1',
+        name: 'web_fetch',
+        arguments: const {'url': 'https://example.com'},
+        result: const {'error': 'Fetch failed.'},
+        isError: true,
+      );
+      expect(accumulator.apply(failed), isTrue);
+      expect(accumulator.render(done: false), contains('Tool Failed'));
+      expect(accumulator.toolOutput.last['error'], isTrue);
+    });
+
+    test('deduplicates search sources and enriches them with web fetch', () {
+      final accumulator = DirectStreamingAccumulator();
+      final longFetchedContent = List.filled(2100, 'x').join();
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-search',
+          name: 'web_search',
+          arguments: const {'query': 'current docs'},
+          result: const {
+            'results': [
+              {
+                'title': 'First result',
+                'url': 'https://example.com/docs#overview',
+                'content': 'Search snippet',
+              },
+              {
+                'title': 'Duplicate title',
+                'url': 'https://example.com/docs',
+                'content': 'Duplicate snippet',
+              },
+              {
+                'title': 'Unsafe result',
+                'url': 'http://localhost/admin',
+                'content': 'Must not be exposed',
+              },
+              {
+                'title': 'Second result',
+                'url': 'https://ollama.com/search',
+                'content': 'Second snippet',
+              },
+            ],
+          },
+        ),
+      );
+
+      expect(accumulator.sources, hasLength(2));
+      expect(accumulator.sources.first.title, 'First result');
+      expect(accumulator.sources.first.url, 'https://example.com/docs');
+      expect(accumulator.sources.first.snippet, 'Search snippet');
+      expect(accumulator.sources.last.title, 'Second result');
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-fetch',
+          name: 'web_fetch',
+          arguments: const {'url': 'https://example.com/docs#details'},
+          result: {
+            'title': 'Fetched title',
+            'content': longFetchedContent,
+            'links': const ['https://unrelated.example/not-a-source'],
+          },
+        ),
+      );
+
+      expect(accumulator.sources, hasLength(2));
+      expect(accumulator.sources.first.title, 'Fetched title');
+      expect(accumulator.sources.first.snippet, hasLength(2048));
+      expect(
+        accumulator.sources.any(
+          (source) => source.url == 'https://unrelated.example/not-a-source',
+        ),
+        isFalse,
+      );
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'unrelated-tool',
+          name: 'lookup',
+          arguments: const {},
+          result: const {
+            'results': [
+              {'url': 'https://not-a-web-search.example'},
+            ],
+          },
+        ),
+      );
+      expect(accumulator.sources, hasLength(2));
+    });
+
+    test('deeply detaches persisted direct tool activity', () {
+      final arguments = <String, dynamic>{
+        'filters': <String, dynamic>{
+          'domains': <String>['ollama.com'],
+        },
+      };
+      final result = <String, dynamic>{
+        'results': <Map<String, dynamic>>[
+          {'title': 'Original'},
+        ],
+      };
+      final accumulator = DirectStreamingAccumulator();
+
+      accumulator.apply(
+        DirectToolCallCompleted(
+          id: 'ollama-0-0',
+          name: 'web_search',
+          arguments: arguments,
+          result: result,
+        ),
+      );
+      final output = accumulator.toolOutput;
+
+      ((arguments['filters'] as Map<String, dynamic>)['domains'] as List)[0] =
+          'changed.example';
+      (result['results'] as List<Map<String, dynamic>>).single['title'] =
+          'Changed';
+
+      final persistedArguments =
+          output.first['arguments'] as Map<String, dynamic>;
+      final persistedFilters =
+          persistedArguments['filters'] as Map<String, dynamic>;
+      check(
+        persistedFilters['domains'],
+      ).isA<List<dynamic>>().deepEquals(['ollama.com']);
+      final persistedResult = output.last['output'] as Map<String, dynamic>;
+      check(persistedResult['results']).isA<List<dynamic>>().deepEquals([
+        {'title': 'Original'},
+      ]);
+      check(
+        () => (persistedFilters['domains'] as List).add('another.example'),
+      ).throws<UnsupportedError>();
+      check(() => output.first['name'] = 'changed').throws<UnsupportedError>();
     });
 
     test('provider text cannot spoof semantic reasoning markup', () {

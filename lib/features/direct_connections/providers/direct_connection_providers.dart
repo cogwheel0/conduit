@@ -17,6 +17,8 @@ import '../../../core/utils/debug_logger.dart';
 import '../../auth/providers/unified_auth_providers.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import '../models/ollama_keep_alive.dart';
+import '../models/ollama_thinking.dart';
 import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
 import '../services/direct_connection_profile_store.dart';
@@ -105,17 +107,20 @@ final directConnectionProfileStoreProvider =
       );
     });
 
-/// Durable device secret used only to derive opaque server-record identities.
+/// Durable device secret used to authenticate app-owned Direct identities.
 ///
 /// The HMAC key is persisted only in platform secure storage and is held in
-/// memory while deriving identities. Open WebUI persists its provider-facing
-/// model id for server-backed chats, so this device-local key does not affect
-/// cross-device history/model rebinding.
-final openWebUiDirectIdentityKeyProvider = FutureProvider<List<int>>(
+/// memory while deriving domain-separated identities. Open WebUI persists its
+/// provider-facing model id for server-backed chats, so this device-local key
+/// does not affect cross-device history/model rebinding.
+final directDeviceTrustKeyProvider = FutureProvider<List<int>>(
   (ref) => SecureCredentialStorage(
     instance: ref.watch(secureStorageProvider),
   ).getOrCreateOpenWebUiDirectIdentityKey(),
 );
+
+/// Compatibility name retained for the Open WebUI record-identity callers.
+final openWebUiDirectIdentityKeyProvider = directDeviceTrustKeyProvider;
 
 /// Ephemeral Open WebUI profile source for the exact authenticated account.
 ///
@@ -387,6 +392,44 @@ class DirectConnectionProfilesController
     });
   }
 
+  Future<void> setOllamaThinking(
+    String profileId,
+    String remoteModelId,
+    OllamaThinkingSetting? setting,
+  ) {
+    final resources = _captureMutationResources();
+    return _serializeMutation(() async {
+      _ensureMounted();
+      final modelId = remoteModelId.trim();
+      if (modelId.isEmpty) {
+        throw const FormatException('Ollama model id is missing.');
+      }
+      final current = state.value ?? await resources.store.load();
+      final profile = current
+          .where(
+            (item) =>
+                item.id == profileId &&
+                item.enabled &&
+                item.adapterKey == kOllamaAdapterKey,
+          )
+          .firstOrNull;
+      if (profile == null) {
+        throw StateError('Ollama connection is unavailable.');
+      }
+      final settings = Map<String, String>.of(profile.ollamaThinkingByModel);
+      if (setting == null) {
+        settings.remove(modelId);
+      } else {
+        settings[modelId] = setting.storageValue;
+      }
+      await _upsert(
+        profile.copyWith(ollamaThinkingByModel: settings),
+        resources: resources,
+        expectedPrevious: profile,
+      );
+    });
+  }
+
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
     profile.validate();
     final adapter = ref
@@ -591,6 +634,192 @@ final directConnectionProfilesProvider =
       DirectConnectionProfilesController,
       List<DirectConnectionProfile>
     >(DirectConnectionProfilesController.new);
+
+final class OllamaModelLifecycleState {
+  OllamaModelLifecycleState({
+    Iterable<String> loadedModelIds = const [],
+    Iterable<String> busyModelIds = const [],
+  }) : loadedModelIds = Set.unmodifiable(loadedModelIds),
+       busyModelIds = Set.unmodifiable(busyModelIds);
+
+  final Set<String> loadedModelIds;
+  final Set<String> busyModelIds;
+
+  bool isLoaded(String remoteModelId) => loadedModelIds.contains(remoteModelId);
+
+  bool isBusy(String remoteModelId) => busyModelIds.contains(remoteModelId);
+
+  OllamaModelLifecycleState copyWith({
+    Iterable<String>? loadedModelIds,
+    Iterable<String>? busyModelIds,
+  }) => OllamaModelLifecycleState(
+    loadedModelIds: loadedModelIds ?? this.loadedModelIds,
+    busyModelIds: busyModelIds ?? this.busyModelIds,
+  );
+}
+
+/// Runtime status and lifecycle actions for one device-owned Ollama profile.
+///
+/// The family auto-disposes when no model selector is visible, so `/api/ps`
+/// does not become a background polling request.
+@riverpod
+class OllamaModelLifecycle extends _$OllamaModelLifecycle {
+  int _operationGeneration = 0;
+
+  @override
+  Future<OllamaModelLifecycleState> build(String profileId) async {
+    final profile = await _watchProfile();
+    final adapter = _requireLifecycleAdapter(profile);
+    final loaded = await adapter.listRunningModelIds(profile);
+    return OllamaModelLifecycleState(loadedModelIds: loaded);
+  }
+
+  Future<void> refresh() async {
+    final generation = ++_operationGeneration;
+    final previous = state.value ?? OllamaModelLifecycleState();
+    try {
+      final profile = await _readProfile();
+      final loaded = await _requireLifecycleAdapter(
+        profile,
+      ).listRunningModelIds(profile);
+      if (ref.mounted && generation == _operationGeneration) {
+        final latest = state.value ?? previous;
+        state = AsyncData(latest.copyWith(loadedModelIds: loaded));
+      }
+    } catch (_) {
+      if (ref.mounted) {
+        state = AsyncData(state.value ?? previous);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> loadModel(String remoteModelId) => _mutateModel(remoteModelId, (
+    adapter,
+    profile,
+    modelId,
+  ) {
+    final configured = profile.ollamaKeepAliveFor(modelId);
+    // `0` means unload after the request, which conflicts with an explicit
+    // warm action. Warm for the server default instead; ordinary chats still
+    // honor the saved zero override.
+    final warmKeepAlive = configured == '0' ? null : configured;
+    return adapter.loadModel(profile, modelId, keepAlive: warmKeepAlive);
+  });
+
+  Future<void> unloadModel(String remoteModelId) => _mutateModel(
+    remoteModelId,
+    (adapter, profile, modelId) => adapter.unloadModel(profile, modelId),
+  );
+
+  Future<void> setKeepAlive(String remoteModelId, String? keepAlive) async {
+    final modelId = remoteModelId.trim();
+    if (modelId.isEmpty) {
+      throw const FormatException('Ollama model id is missing.');
+    }
+    final normalized = keepAlive == null
+        ? null
+        : normalizeOllamaKeepAlive(keepAlive);
+    final profile = await _readProfile();
+    final updated = Map<String, String>.of(profile.ollamaKeepAliveByModel);
+    if (normalized == null) {
+      updated.remove(modelId);
+    } else {
+      updated[modelId] = normalized;
+    }
+    await ref
+        .read(directConnectionProfilesProvider.notifier)
+        .upsert(
+          profile.copyWith(ollamaKeepAliveByModel: updated),
+          expectedPrevious: profile,
+        );
+  }
+
+  Future<void> _mutateModel(
+    String remoteModelId,
+    Future<void> Function(
+      DirectModelLifecycleAdapter adapter,
+      DirectConnectionProfile profile,
+      String modelId,
+    )
+    operation,
+  ) async {
+    final modelId = remoteModelId.trim();
+    if (modelId.isEmpty) {
+      throw const FormatException('Ollama model id is missing.');
+    }
+    ++_operationGeneration;
+    final previous = state.value ?? OllamaModelLifecycleState();
+    state = AsyncData(
+      previous.copyWith(busyModelIds: {...previous.busyModelIds, modelId}),
+    );
+    try {
+      final profile = await _readProfile();
+      final adapter = _requireLifecycleAdapter(profile);
+      await operation(adapter, profile, modelId);
+      final loaded = await adapter.listRunningModelIds(profile);
+      if (ref.mounted) {
+        final latest = state.value ?? previous;
+        state = AsyncData(
+          latest.copyWith(
+            // Each mutation finishes with a new `/api/ps` read. Even if a
+            // later-started operation completed first, this response is the
+            // newest authoritative snapshot to arrive.
+            loadedModelIds: loaded,
+            busyModelIds: latest.busyModelIds.difference({modelId}),
+          ),
+        );
+      }
+    } catch (_) {
+      if (ref.mounted) {
+        final latest = state.value ?? previous;
+        state = AsyncData(
+          latest.copyWith(
+            busyModelIds: latest.busyModelIds.difference({modelId}),
+          ),
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<DirectConnectionProfile> _watchProfile() async {
+    final profiles = await ref.watch(directConnectionProfilesProvider.future);
+    return _findProfile(profiles);
+  }
+
+  Future<DirectConnectionProfile> _readProfile() async {
+    final profiles = await ref.read(directConnectionProfilesProvider.future);
+    return _findProfile(profiles);
+  }
+
+  DirectConnectionProfile _findProfile(List<DirectConnectionProfile> profiles) {
+    final profile = profiles
+        .where(
+          (item) =>
+              item.id == profileId &&
+              item.enabled &&
+              item.supportsOllamaModelLifecycle,
+        )
+        .firstOrNull;
+    if (profile == null) {
+      throw StateError('Ollama direct connection is unavailable.');
+    }
+    return profile;
+  }
+
+  DirectModelLifecycleAdapter _requireLifecycleAdapter(
+    DirectConnectionProfile profile,
+  ) {
+    final adapter = ref
+        .read(directProviderAdapterRegistryProvider)
+        .require(profile.adapterKey);
+    if (adapter is! DirectModelLifecycleAdapter) {
+      throw StateError('Ollama model lifecycle is unavailable.');
+    }
+    return adapter as DirectModelLifecycleAdapter;
+  }
+}
 
 typedef _OpenWebUiMutationSource = ({
   OpenWebUiDirectConnectionStore store,

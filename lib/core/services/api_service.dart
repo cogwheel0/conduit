@@ -3606,6 +3606,36 @@ class ApiService {
     });
   }
 
+  Future<ServerUserSettings> updateUserReasoningEffort(String? effort) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = _deepCloneJsonMap(
+        await getUserSettings(authSnapshot: authSnapshot),
+      );
+      final params = _coerceJsonMap(settings['params']) ?? <String, dynamic>{};
+      final trimmed = _normalizeNullableString(effort);
+
+      if (trimmed == null) {
+        params.remove('reasoning_effort');
+      } else {
+        params['reasoning_effort'] = trimmed;
+      }
+
+      if (params.isEmpty) {
+        settings.remove('params');
+      } else {
+        settings['params'] = params;
+      }
+      _traceApi('Updating user reasoning effort');
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      final data = _coerceResponseMap(response.data) ?? settings;
+      return ServerUserSettings.fromJson(data);
+    });
+  }
+
   Future<ServerUserSettings> updateUserMemoryEnabled(bool enabled) {
     final authSnapshot = captureAuthSnapshot();
     return serializeUserSettingsMutation(() async {

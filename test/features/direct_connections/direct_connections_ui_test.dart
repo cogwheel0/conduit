@@ -209,6 +209,51 @@ void main() {
     expect(find.text('WORK'), findsOneWidget);
   });
 
+  testWidgets('loaded model badge is visible without changing selection', (
+    tester,
+  ) async {
+    const model = Model(id: 'direct:home:model', name: 'Local model');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModelListTile(
+            model: model,
+            isSelected: false,
+            isLoaded: true,
+            onTap: _noop,
+          ),
+        ),
+      ),
+    );
+
+    check(find.byType(ModelLoadedChip).evaluate()).length.equals(1);
+    check(find.text('Loaded').evaluate()).length.equals(1);
+    check(find.byIcon(Icons.check).evaluate()).isEmpty();
+  });
+
+  testWidgets('model selector uses a readable primary label size', (
+    tester,
+  ) async {
+    const model = Model(id: 'direct:home:model', name: 'Local model');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModelListTile(model: model, isSelected: false, onTap: _noop),
+        ),
+      ),
+    );
+
+    final label = tester.widget<Text>(find.text('Local model'));
+    check(label.style?.fontSize).equals(16);
+    check(label.style?.height).equals(1.35);
+  });
+
   testWidgets('management content shows profiles and history policy', (
     tester,
   ) async {
@@ -231,6 +276,7 @@ void main() {
             profiles: profiles,
             syncWithOpenWebUi: syncEnabled,
             isOnboarding: false,
+            showHistorySync: true,
             onSyncChanged: (value) => syncEnabled = value,
             onAdd: () {},
             onEdit: (_) {},
@@ -313,6 +359,30 @@ void main() {
     await tester.tap(find.text('Device provider'));
     expect(editedServer, snapshot.records.single.profile.id);
     expect(editedLocal, local.id);
+  });
+
+  testWidgets('management hides Open WebUI history without a server', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DirectConnectionsContent(
+            profiles: const [],
+            syncWithOpenWebUi: true,
+            isOnboarding: false,
+            onSyncChanged: (_) {},
+            onAdd: () {},
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open WebUI history'), findsNothing);
   });
 
   testWidgets('separate connection groups fit a 320px-wide layout', (
@@ -526,6 +596,43 @@ void main() {
     expect(find.text('Ollama'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('direct-base-url-field')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('local editor builds its authentication dropdown on iOS', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => _StaticDirectProfiles(const []),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.iOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'new'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(
+      find.byType(Scrollable).first,
+      const Offset(0, -1000),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'direct-authentication-selector-openai-compatible',
+        ),
+      ),
       findsOneWidget,
     );
   });
@@ -1490,13 +1597,12 @@ void main() {
     );
 
     final authenticationSelector = tester
-        .widget<AdaptiveSegmentedSelector<DirectAuthenticationMode>>(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is AdaptiveSegmentedSelector<DirectAuthenticationMode>,
+        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+          find.byKey(
+            const Key('direct-authentication-selector-openai-compatible'),
           ),
         );
-    authenticationSelector.onChanged(DirectAuthenticationMode.bearer);
+    authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
     await tester.pump();
 
     final save = tester.widget<ConduitButton>(

@@ -77,6 +77,7 @@ final class PreferenceKeys {
   static const String directConnectionsConfigured =
       'direct_connections_configured_v1';
   static const String directHistoryPolicy = 'direct_history_policy_v1';
+  static const String reasoningEffortByModel = 'reasoning_effort_by_model_v1';
 
   /// Prefix for the per-server account owner marker that guards reopening an
   /// OpenWebUI database after process restart.

@@ -32,7 +32,6 @@ import '../../direct_connections/services/direct_model_registry.dart';
 import '../providers/chat_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_local_document_service.dart';
 import '../../hermes/services/hermes_session_provenance.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../../core/utils/message_tree_utils.dart' as message_tree;
@@ -151,9 +150,7 @@ bool shouldShowChatModelDropdown({
 
 @visibleForTesting
 List<String>? chatLocalFilePickerExtensions(Model? selectedModel) =>
-    selectedModel != null && isHermesModel(selectedModel)
-    ? kHermesLocalDocumentPickerExtensions
-    : null;
+    localFilePickerExtensionsForModel(selectedModel);
 
 @visibleForTesting
 Future<void> handleChatBackNavigation({
@@ -2865,16 +2862,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
     greetingName ??= _cachedGreetingName;
-    final hasGreeting = greetingName != null && greetingName.isNotEmpty;
-    if (hasGreeting && !_greetingReady) {
+    final hasGreetingName = greetingName != null && greetingName.isNotEmpty;
+    if (!_greetingReady) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() {
           _greetingReady = true;
         });
       });
-    } else if (!hasGreeting && _greetingReady) {
-      _greetingReady = false;
     }
     final baseGreetingStyle = AppTypography.usesAppleRamp
         ? theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle
@@ -2887,10 +2882,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final greetingHeight =
         textScaler.scale(greetingStyle.fontSize ?? 24) *
         (greetingStyle.height ?? 1.1);
-    final String? resolvedGreetingName = hasGreeting ? greetingName : null;
+    final String? resolvedGreetingName = hasGreetingName ? greetingName : null;
     final greetingText = resolvedGreetingName != null
         ? l10n.greetingTitle(resolvedGreetingName)
-        : null;
+        : l10n.finishDirectSetup;
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
 
     // Check if there's a pending folder for the new chat
@@ -2911,7 +2906,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final bottomPadding = _messageListBottomPadding();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final greetingDisplay = greetingText ?? '';
+        final greetingDisplay = greetingText;
         final temporaryChatNotice = Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -3042,7 +3037,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           top: false,
           left: false,
           right: false,
-          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+          bottom: !Platform.isAndroid,
+          minimum: Platform.isAndroid
+              ? EdgeInsets.zero
+              : const EdgeInsets.only(bottom: Spacing.sm),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3059,6 +3057,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     onSendMessage: _handleMessageSend,
                     enabled: !isLoadingConversation,
                     bottomPadding: 0,
+                    managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
                     onVoiceInput: null,
@@ -3143,6 +3142,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       },
       child: AdaptiveScaffold(
+        resizeToAvoidBottomInset: Platform.isAndroid ? false : null,
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
         drawerEnableOpenDragGesture: false,
         extendBodyBehindAppBar: true,
