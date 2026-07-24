@@ -80,6 +80,9 @@
     "description": "Button/title for signing out of the app."
   },
   "endYourSession": "セッションを終了",
+  "signOutOptionsDescription": "サインアウトすると、このデバイスのアプリ設定と Direct／Hermes 接続が消去されます。保存済みの会話とサーバー上のデータには影響しません。",
+  "keepServerDetails": "サーバー情報を保持",
+  "keepServerDetailsDescription": "サーバーアドレスと機密性のない接続設定（トークンと Cookie ヘッダーは削除されます）",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },

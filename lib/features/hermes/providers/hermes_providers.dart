@@ -9,7 +9,11 @@ import '../../../core/models/prompt.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart'
-    show activeConversationProvider, activeServerProvider, reviewerModeProvider;
+    show
+        activeConversationProvider,
+        activeServerProvider,
+        incompleteLogoutFenceProvider,
+        reviewerModeProvider;
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/providers/storage_providers.dart';
 import '../../../core/services/secure_credential_storage.dart';
@@ -45,17 +49,35 @@ class HermesConfigController extends Notifier<HermesConfig> {
   Future<void>? _secretsHydration;
   _HermesSessionKeyRequest? _sessionKeyRequest;
   bool _runAdmissionBlocked = false;
+  bool _appDataClearBlocked = false;
+  bool _durableLogoutFenceBlocked = false;
+  HermesConfig? _configBeforeAppDataClear;
   int _connectionMutationEpoch = 0;
   int _secretLoadEpoch = 0;
 
+  bool get _mutationsBlocked =>
+      _appDataClearBlocked || _durableLogoutFenceBlocked;
+
   @override
   HermesConfig build() {
+    final epoch = ++_secretLoadEpoch;
+    _durableLogoutFenceBlocked = ref.watch(incompleteLogoutFenceProvider);
+    if (_durableLogoutFenceBlocked) {
+      _runAdmissionBlocked = true;
+      _secretsHydration = Future<void>.value();
+      return const HermesConfig();
+    }
+    if (_appDataClearBlocked) {
+      _runAdmissionBlocked = true;
+      _secretsHydration = Future<void>.value();
+      return _configBeforeAppDataClear ?? const HermesConfig();
+    }
+    _runAdmissionBlocked = false;
     final enabled =
         PreferencesStore.getBool(PreferenceKeys.hermesEnabled) ?? false;
     final baseUrl =
         PreferencesStore.getString(PreferenceKeys.hermesBaseUrl) ?? '';
     // Secrets load asynchronously and patch the state in once available.
-    final epoch = ++_secretLoadEpoch;
     final hydration = _loadSecrets(epoch);
     _secretsHydration = hydration;
     unawaited(hydration);
@@ -69,7 +91,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     try {
       final apiKey = await _secure.getHermesApiKey();
       final sessionKey = await _secure.getHermesSessionKey();
-      if (epoch != _secretLoadEpoch || !ref.mounted) return;
+      if (epoch != _secretLoadEpoch || _mutationsBlocked || !ref.mounted) {
+        return;
+      }
       ref.read(hermesSecretsErrorProvider.notifier).clear();
       state = HermesConfig(
         enabled: state.enabled,
@@ -78,7 +102,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
         sessionKey: sessionKey,
       );
     } catch (error) {
-      if (epoch != _secretLoadEpoch || !ref.mounted) return;
+      if (epoch != _secretLoadEpoch || _mutationsBlocked || !ref.mounted) {
+        return;
+      }
       // Missing secrets are represented by successful null reads. A thrown
       // keychain/keystore failure is materially different: preserve it so the
       // UI can explain the outage and offer a retry instead of pretending the
@@ -367,6 +393,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {
+    if (_mutationsBlocked) {
+      return Future<void>.error(
+        StateError('Hermes changes are unavailable while signing out.'),
+      );
+    }
     // Keep the caller-visible result separate from the internal queue tail. The
     // result must preserve this operation's error, while the tail must always
     // settle successfully so one failed secure-storage/preferences write cannot
@@ -382,6 +413,56 @@ class HermesConfigController extends Notifier<HermesConfig> {
       onError: (Object _, StackTrace _) {},
     );
     return result;
+  }
+
+  /// Rejects new config writes, drains already-queued writes, and revokes
+  /// runtime work before a full app-data wipe.
+  Future<void> blockMutationsForAppDataClear() async {
+    _configBeforeAppDataClear ??= state;
+    _appDataClearBlocked = true;
+    _runAdmissionBlocked = true;
+    _secretLoadEpoch++;
+    _secretsHydration = Future<void>.value();
+    _connectionMutationEpoch++;
+    await _mutationQueue;
+    _runAdmissionBlocked = true;
+    await _cancelActiveRuns();
+  }
+
+  /// Restores mutation and run admission if the app-data wipe loses ownership
+  /// to a newer authenticated session.
+  void resumeMutationsAfterAppDataClearAbort() {
+    if (!ref.mounted) return;
+    _appDataClearBlocked = false;
+    if (_durableLogoutFenceBlocked) {
+      _runAdmissionBlocked = true;
+      return;
+    }
+    final previous = _configBeforeAppDataClear;
+    if (previous != null) {
+      state = previous;
+      _configBeforeAppDataClear = null;
+    }
+    final epoch = ++_secretLoadEpoch;
+    final hydration = _loadSecrets(epoch);
+    _secretsHydration = hydration;
+    unawaited(hydration);
+    _runAdmissionBlocked = false;
+  }
+
+  /// Removes live connection authority after a partial wipe while the durable
+  /// incomplete-logout fence keeps config and run admission blocked.
+  void revokeRuntimeAfterIncompleteAppDataClear() {
+    if (!ref.mounted) return;
+    // The durable fence owns the persistent block after an incomplete wipe.
+    _appDataClearBlocked = false;
+    _configBeforeAppDataClear = null;
+    state = const HermesConfig();
+    ref.read(hermesActiveSessionProvider.notifier).set(null);
+    final activeConversation = ref.read(activeConversationProvider);
+    if (isNativeHermesConversation(activeConversation)) {
+      ref.read(activeConversationProvider.notifier).clear();
+    }
   }
 
   Future<void> _persistSecretsAtomically({
@@ -515,19 +596,25 @@ class HermesConfigController extends Notifier<HermesConfig> {
     try {
       return await operation();
     } finally {
-      _runAdmissionBlocked = false;
+      if (!_mutationsBlocked) {
+        _runAdmissionBlocked = false;
+      }
     }
   }
 
   /// Captures permission for a non-run session action (open/fork/delete).
   /// A null result means a connection mutation is already in progress.
   int? captureSessionActionAdmission() =>
-      _runAdmissionBlocked ? null : _connectionMutationEpoch;
+      _runAdmissionBlocked || _mutationsBlocked
+      ? null
+      : _connectionMutationEpoch;
 
   /// Revalidates an action after an await so an endpoint/principal mutation
   /// cannot apply stale results to the replacement account.
   bool sessionActionAdmissionIsCurrent(int admission) =>
-      !_runAdmissionBlocked && admission == _connectionMutationEpoch;
+      !_runAdmissionBlocked &&
+      !_mutationsBlocked &&
+      admission == _connectionMutationEpoch;
 
   Future<void> _cancelActiveRuns() async {
     final stopFutures = ref.read(hermesRunRegistryProvider).cancelAll();

@@ -30,7 +30,6 @@ import 'core/services/settings_service.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
-import 'features/auth/providers/unified_auth_providers.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -43,6 +42,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'shared/widgets/sign_out_options_dialog.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -291,10 +291,19 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   void _handleNativeSheetEvent(NativeSheetEvent event) {
     switch (event) {
       case NativeSheetLogoutRequested():
-        unawaited(ref.read(authActionsProvider).logout());
+        unawaited(_handleNativeSheetLogoutRequested());
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
         break;
+      case NativeSheetControlChanged(
+        id: 'sign-out',
+        value: final bool keepServerDetails,
+      ):
+        unawaited(
+          _handleNativeSheetLogoutRequested(
+            keepServerDetails: keepServerDetails,
+          ),
+        );
       case NativeSheetControlChanged():
         _nativeSheetControlQueue = _nativeSheetControlQueue.then(
           (_) => _handleNativeSheetControlChanged(event),
@@ -305,6 +314,34 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         );
       case NativeEditProfileCommitted():
         unawaited(_handleNativeEditProfileCommitted(event));
+    }
+  }
+
+  Future<void> _handleNativeSheetLogoutRequested({
+    bool? keepServerDetails,
+  }) async {
+    try {
+      var resolvedKeepServerDetails = keepServerDetails;
+      if (resolvedKeepServerDetails == null) {
+        final navigatorContext = NavigationService.context;
+        if (navigatorContext == null) {
+          throw StateError('Native sign-out navigator is unavailable.');
+        }
+        resolvedKeepServerDetails = await showSignOutOptionsDialog(
+          navigatorContext,
+        );
+      }
+      if (!mounted || resolvedKeepServerDetails == null) return;
+      await ref
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: resolvedKeepServerDetails);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'native-sign-out-failed',
+        scope: 'native/sheet',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

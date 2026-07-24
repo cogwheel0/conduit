@@ -25,6 +25,7 @@ class ThemedDialogs {
     required String title,
     Widget? content,
     List<Widget>? actions,
+    bool scrollable = false,
   }) {
     final theme = context.conduitTheme;
     return AlertDialog(
@@ -48,6 +49,7 @@ class ThemedDialogs {
             )
           : null,
       actions: actions,
+      scrollable: scrollable,
     );
   }
 

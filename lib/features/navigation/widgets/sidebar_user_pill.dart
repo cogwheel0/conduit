@@ -420,6 +420,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             id: 'sign-out',
             title: l10n.signOut,
             subtitle: l10n.endYourSession,
+            placeholder: l10n.signOutOptionsDescription,
+            options: [
+              NativeSheetOptionConfig(
+                id: 'keep-server-details',
+                label: l10n.keepServerDetails,
+                subtitle: l10n.keepServerDetailsDescription,
+              ),
+            ],
             sfSymbol: 'rectangle.portrait.and.arrow.right',
             destructive: true,
           ),

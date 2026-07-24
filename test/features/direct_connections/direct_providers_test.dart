@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/storage_providers.dart';
+import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
@@ -1172,6 +1172,166 @@ void main() {
       expect(recovered.models.map((item) => item.name), ['recovered-model']);
     },
   );
+
+  test(
+    'app-data clear barrier rejects and can resume profile writes',
+    () async {
+      final container = _container(_QueuedAdapter());
+      addTearDown(container.dispose);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await container.read(directConnectionProfilesProvider.future);
+
+      await controller.blockMutationsForAppDataClear();
+      await expectLater(controller.upsert(_profile()), throwsStateError);
+      await expectLater(controller.probe(_profile()), throwsStateError);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      await controller.upsert(_profile());
+      expect(
+        container.read(directConnectionProfilesProvider).requireValue,
+        hasLength(1),
+      );
+    },
+  );
+
+  test('provider rebuild cannot lower an in-memory clear barrier', () async {
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    final controller = container.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    await container.read(directConnectionProfilesProvider.future);
+    await controller.upsert(_profile());
+
+    await controller.blockMutationsForAppDataClear();
+    final fence = container.read(incompleteLogoutFenceProvider.notifier);
+    fence.setSuppressed(true);
+    await container.read(directConnectionProfilesProvider.future);
+    fence.setSuppressed(false);
+    await container.read(directConnectionProfilesProvider.future);
+
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue,
+      hasLength(1),
+    );
+    await expectLater(controller.upsert(_profile()), throwsStateError);
+    controller.resumeMutationsAfterAppDataClearAbort();
+    await controller.setEnabled('profile-one', false);
+  });
+
+  test(
+    'clear abort restores the result of an admitted profile write',
+    () async {
+      final original = _profile();
+      final storage = _WriteGateSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(directConnectionProfilesProvider.future);
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+
+      final rename = controller.upsert(original.copyWith(name: 'Renamed'));
+      await storage.writeStarted.future;
+      final blocked = controller.blockMutationsForAppDataClear();
+      storage.allowWrite.complete();
+      await Future.wait([rename, blocked]);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      expect(
+        container
+            .read(directConnectionProfilesProvider)
+            .requireValue
+            .single
+            .name,
+        'Renamed',
+      );
+    },
+  );
+
+  test(
+    'clear abort preserves profiles while initial load is pending',
+    () async {
+      final original = _profile();
+      final storage = _InitialReadGateSecureStorage(
+        DirectConnectionProfilesDocument([original]).encode(),
+      );
+      final store = DirectConnectionProfileStore(
+        SecureCredentialStorage(instance: storage),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          directConnectionProfileStoreProvider.overrideWithValue(store),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([_QueuedAdapter()]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final initialLoad = container.read(
+        directConnectionProfilesProvider.future,
+      );
+      final controller = container.read(
+        directConnectionProfilesProvider.notifier,
+      );
+      await storage.readStarted.future;
+      final blocked = controller.blockMutationsForAppDataClear();
+      storage.allowRead.complete();
+      await Future.wait([initialLoad, blocked]);
+
+      controller.resumeMutationsAfterAppDataClearAbort();
+      final restored = container
+          .read(directConnectionProfilesProvider)
+          .requireValue
+          .single;
+      expect(restored.id, original.id);
+      expect(restored.name, original.name);
+      expect(restored.baseUrl, original.baseUrl);
+    },
+  );
+
+  test(
+    'incomplete logout fence suppresses Direct profiles on restart',
+    () async {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.incompleteLogoutFence,
+        true,
+      );
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          _profile(),
+        ]).encode(),
+      });
+      final container = _container(_QueuedAdapter());
+      addTearDown(container.dispose);
+
+      expect(
+        await container.read(directConnectionProfilesProvider.future),
+        isEmpty,
+      );
+      await expectLater(
+        container
+            .read(directConnectionProfilesProvider.notifier)
+            .upsert(_profile()),
+        throwsStateError,
+      );
+    },
+  );
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>
@@ -1659,6 +1819,79 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (key == _profilesKey) _profileDocument = null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _WriteGateSecureStorage implements FlutterSecureStorage {
+  _WriteGateSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final Completer<void> writeStarted = Completer<void>();
+  final Completer<void> allowWrite = Completer<void>();
+  String? _profileDocument;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key == _profilesKey) return _profileDocument;
+    return null;
+  }
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return;
+    writeStarted.complete();
+    await allowWrite.future;
+    _profileDocument = value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
+  _InitialReadGateSecureStorage(this._profileDocument);
+
+  static const _profilesKey = 'direct_connection_profiles_v1';
+
+  final Completer<void> readStarted = Completer<void>();
+  final Completer<void> allowRead = Completer<void>();
+  final String _profileDocument;
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (key != _profilesKey) return null;
+    if (!readStarted.isCompleted) readStarted.complete();
+    await allowRead.future;
+    return _profileDocument;
   }
 
   @override

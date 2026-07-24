@@ -251,12 +251,30 @@ final directProviderAdapterRegistryProvider =
 class DirectConnectionProfilesController
     extends AsyncNotifier<List<DirectConnectionProfile>> {
   Future<void> _mutationQueue = Future<void>.value();
+  bool _appDataClearBlocked = false;
+  bool _durableLogoutFenceBlocked = false;
+  List<DirectConnectionProfile>? _profilesBeforeAppDataClear;
+
+  bool get _mutationsBlocked =>
+      _appDataClearBlocked || _durableLogoutFenceBlocked;
 
   DirectConnectionProfileStore get _store =>
       ref.read(directConnectionProfileStoreProvider);
 
   @override
   Future<List<DirectConnectionProfile>> build() {
+    _durableLogoutFenceBlocked = ref.watch(incompleteLogoutFenceProvider);
+    if (_durableLogoutFenceBlocked) {
+      ref.read(directRunRegistryProvider).blockAdmissionForAppDataClear();
+      return Future.value(const []);
+    }
+    if (_appDataClearBlocked) {
+      ref.read(directRunRegistryProvider).blockAdmissionForAppDataClear();
+      return Future.value(
+        _profilesBeforeAppDataClear ?? const <DirectConnectionProfile>[],
+      );
+    }
+    ref.read(directRunRegistryProvider).resumeAdmissionAfterAppDataClearAbort();
     // Some pure Riverpod tests intentionally do not initialize a Flutter
     // binding. The secure-storage plugin cannot be invoked in that state; keep
     // those provider graphs empty and override-friendly without masking any
@@ -274,9 +292,9 @@ class DirectConnectionProfilesController
     DirectConnectionProfile profile, {
     DirectConnectionProfile? expectedPrevious,
     bool secretsConfirmedForNewOrigin = false,
-  }) {
+  }) async {
     final resources = _captureMutationResources();
-    return _serializeMutation(
+    await _serializeMutation(
       () => _upsert(
         profile,
         resources: resources,
@@ -359,9 +377,9 @@ class DirectConnectionProfilesController
     }
   }
 
-  Future<void> remove(String profileId) {
+  Future<void> remove(String profileId) async {
     final resources = _captureMutationResources();
-    return _serializeMutation(() async {
+    await _serializeMutation(() async {
       _ensureMounted();
       final current = state.value ?? await resources.store.load();
       final updated = current
@@ -379,9 +397,9 @@ class DirectConnectionProfilesController
     });
   }
 
-  Future<void> setEnabled(String profileId, bool enabled) {
+  Future<void> setEnabled(String profileId, bool enabled) async {
     final resources = _captureMutationResources();
-    return _serializeMutation(() async {
+    await _serializeMutation(() async {
       _ensureMounted();
       final current = state.value ?? await resources.store.load();
       final profile = current.where((item) => item.id == profileId).firstOrNull;
@@ -396,9 +414,9 @@ class DirectConnectionProfilesController
     String profileId,
     String remoteModelId,
     OllamaThinkingSetting? setting,
-  ) {
+  ) async {
     final resources = _captureMutationResources();
-    return _serializeMutation(() async {
+    await _serializeMutation(() async {
       _ensureMounted();
       final modelId = remoteModelId.trim();
       if (modelId.isEmpty) {
@@ -431,6 +449,12 @@ class DirectConnectionProfilesController
   }
 
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
+    _ensureMounted();
+    if (_mutationsBlocked) {
+      throw StateError(
+        'Direct connection probes are blocked while app data is being cleared.',
+      );
+    }
     profile.validate();
     final adapter = ref
         .read(directProviderAdapterRegistryProvider)
@@ -453,9 +477,9 @@ class DirectConnectionProfilesController
     }
   }
 
-  Future<void> reload() {
+  Future<void> reload() async {
     final resources = _captureMutationResources();
-    return _serializeMutation(() => _reload(resources));
+    await _serializeMutation(() => _reload(resources));
   }
 
   Future<void> _reload(_DirectProfileMutationResources resources) async {
@@ -509,9 +533,9 @@ class DirectConnectionProfilesController
     }
   }
 
-  Future<void> clear() {
+  Future<void> clear() async {
     final resources = _captureMutationResources();
-    return _serializeMutation(() async {
+    await _serializeMutation(() async {
       _ensureMounted();
       final current = state.value ?? await resources.store.load();
       await resources.store.clear();
@@ -529,8 +553,65 @@ class DirectConnectionProfilesController
     });
   }
 
+  /// Rejects new profile mutations and waits for already-queued writes to
+  /// settle before a full app-data wipe.
+  Future<void> blockMutationsForAppDataClear() async {
+    _ensureMounted();
+    _appDataClearBlocked = true;
+    await _mutationQueue;
+    if (!ref.mounted) return;
+    final profiles = state.value ?? await _store.load();
+    if (!ref.mounted) return;
+    _profilesBeforeAppDataClear ??= profiles;
+  }
+
+  /// Restores mutation admission when a newer authenticated session wins the
+  /// ownership race and the app-data wipe is abandoned.
+  void resumeMutationsAfterAppDataClearAbort() {
+    if (ref.mounted) {
+      _appDataClearBlocked = false;
+      final runRegistry = ref.read(directRunRegistryProvider);
+      if (_durableLogoutFenceBlocked) {
+        runRegistry.blockAdmissionForAppDataClear();
+      } else {
+        runRegistry.resumeAdmissionAfterAppDataClearAbort();
+      }
+      final previous = _profilesBeforeAppDataClear;
+      if (previous != null) {
+        state = AsyncValue.data(previous);
+        _profilesBeforeAppDataClear = null;
+      }
+    }
+  }
+
+  /// Drops every in-memory transport authority after a partial wipe while the
+  /// durable incomplete-logout fence keeps the controller blocked.
+  void revokeRuntimeAfterIncompleteAppDataClear() {
+    if (!ref.mounted) return;
+    // The durable logout fence now owns the long-lived block. Releasing the
+    // transient preparation flag lets a later successful login resume this
+    // controller when that durable fence is cleared.
+    _appDataClearBlocked = false;
+    _profilesBeforeAppDataClear = null;
+    final current = state.value ?? const <DirectConnectionProfile>[];
+    final clientPool = ref.read(directHttpClientPoolProvider);
+    final modelRegistry = ref.read(directModelRegistryProvider);
+    final runRegistry = ref.read(directRunRegistryProvider);
+    for (final profile in current) {
+      _invalidateDirectProfileTransportBestEffort(clientPool, profile.id);
+      _removeProfileModelsBestEffort(modelRegistry, profile.id);
+      _cancelProfileRunsBestEffort(runRegistry, profile.id);
+    }
+    state = const AsyncValue.data([]);
+  }
+
   _DirectProfileMutationResources _captureMutationResources() {
     _ensureMounted();
+    if (_mutationsBlocked) {
+      throw StateError(
+        'Direct connection changes are unavailable while signing out.',
+      );
+    }
     return (
       store: _store,
       clientPool: ref.read(directHttpClientPoolProvider),

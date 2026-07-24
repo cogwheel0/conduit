@@ -2276,6 +2276,110 @@ void main() {
   );
 
   test(
+    'conditional full wipe preserves only sanitized server details when requested',
+    () async {
+      final config = _serverConfig('server-a').copyWith(
+        apiKey: 'legacy-session-token',
+        customHeaders: const {
+          'Cookie': 'proxy_session=remove-me',
+          'X-Tenant': 'keep-me',
+        },
+        allowSelfSignedCertificates: true,
+        mtlsCertificateChainPem: 'certificate',
+        mtlsPrivateKeyPem: 'private-key',
+        mtlsPrivateKeyPassword: 'passphrase',
+        isActive: true,
+      );
+      await storage.saveServerConfigs([config]);
+      await storage.setActiveServerId(config.id);
+      await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
+      await PreferencesStore.putChecked(PreferenceKeys.hermesEnabled, true);
+      await PreferencesStore.putChecked(
+        PreferenceKeys.incompleteLogoutFence,
+        true,
+      );
+      secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
+      secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
+
+      final cleared = await storage.clearAllIf(
+        canClear: () => true,
+        preserveServerDetails: true,
+      );
+
+      expect(cleared, isTrue);
+      final retained = (await storage.getServerConfigs()).single;
+      expect(retained.id, config.id);
+      expect(retained.apiKey, isNull);
+      expect(
+        retained.customHeaders.keys.any(
+          (name) => name.toLowerCase() == 'cookie',
+        ),
+        isFalse,
+      );
+      expect(retained.customHeaders['X-Tenant'], 'keep-me');
+      expect(retained.allowSelfSignedCertificates, isTrue);
+      expect(retained.mtlsCertificateChainPem, 'certificate');
+      expect(retained.mtlsPrivateKeyPem, 'private-key');
+      expect(retained.mtlsPrivateKeyPassword, 'passphrase');
+      expect(await storage.getActiveServerId(), config.id);
+
+      expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);
+      expect(PreferencesStore.getBool(PreferenceKeys.hermesEnabled), isNull);
+      expect(
+        PreferencesStore.getBool(PreferenceKeys.incompleteLogoutFence),
+        isTrue,
+      );
+      expect(secureStorageValues.containsKey('hermes_api_key_v1'), isFalse);
+      expect(
+        secureStorageValues.containsKey('direct_connection_profiles_v1'),
+        isFalse,
+      );
+    },
+  );
+
+  test('conditional full wipe removes server details by default', () async {
+    await saveServerConfigs(['server-a']);
+    await storage.setActiveServerId('server-a');
+
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: false,
+    );
+
+    expect(cleared, isTrue);
+    expect(await storage.getServerConfigs(), isEmpty);
+    expect(await storage.getActiveServerId(), isNull);
+  });
+
+  test(
+    'server snapshot failure still clears preferences and connection secrets',
+    () async {
+      await saveServerConfigs(['server-a']);
+      await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
+      secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
+      secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
+      secureStorageReadErrors['server_configs_v2'] = PlatformException(
+        code: 'snapshot-read-failed',
+      );
+
+      await expectLater(
+        storage.clearAllIf(
+          canClear: () => true,
+          preserveServerDetails: true,
+        ),
+        throwsA(isA<PlatformException>()),
+      );
+
+      expect(PreferencesStore.getString(PreferenceKeys.themeMode), isNull);
+      expect(secureStorageValues.containsKey('hermes_api_key_v1'), isFalse);
+      expect(
+        secureStorageValues.containsKey('direct_connection_profiles_v1'),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'clearAll attempts every auth leg and rethrows the first failure',
     () async {
       final config = _serverConfig('server-a').copyWith(

@@ -80,6 +80,9 @@
     "description": "Button/title for signing out of the app."
   },
   "endYourSession": "Ukončiť reláciu",
+  "signOutOptionsDescription": "Odhlásením sa z tohto zariadenia odstránia nastavenia aplikácie a pripojenia Direct a Hermes. Uložené konverzácie a údaje na serveri zostanú bez zmeny.",
+  "keepServerDetails": "Ponechať údaje servera",
+  "keepServerDetailsDescription": "Adresa servera a necitlivé nastavenia pripojenia; tokeny a hlavičky Cookie sa odstránia",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },

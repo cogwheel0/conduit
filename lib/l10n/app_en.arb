@@ -154,6 +154,18 @@
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },
+  "signOutOptionsDescription": "Signing out clears app preferences and Direct and Hermes connections from this device. Saved conversations and data on your server aren't affected.",
+  "@signOutOptionsDescription": {
+    "description": "Explains the scope of the local data wipe shown before signing out."
+  },
+  "keepServerDetails": "Keep server details",
+  "@keepServerDetails": {
+    "description": "Checkbox label for retaining Open WebUI connection settings during sign-out."
+  },
+  "keepServerDetailsDescription": "Server address and non-sensitive connection settings; tokens and Cookie headers are deleted",
+  "@keepServerDetailsDescription": {
+    "description": "Description of the data retained by the keep-server-details option."
+  },
   "defaultModel": "Default Model",
   "@defaultModel": {
     "description": "Label for choosing a default AI model."

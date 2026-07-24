@@ -46,6 +46,7 @@ final class DirectRunRegistry {
   final LinkedHashMap<_DirectPersistenceKey, DirectFinalizedOutput>
   _retainedFinalizedOutputs = LinkedHashMap();
   int _retainedFinalizedOutputBytes = 0;
+  bool _admissionBlocked = false;
 
   DirectCompletionRun? runFor(DirectRunKey key) => _runs[key];
 
@@ -61,6 +62,9 @@ final class DirectRunRegistry {
   /// preflight begins. A stop or profile edit can then cancel the intent before
   /// an HTTP request exists.
   DirectRunReservation reserve(DirectRunKey key, String profileId) {
+    if (_admissionBlocked) {
+      throw StateError('Direct runs are unavailable while signing out.');
+    }
     // The run key already contains the stable server/store owner. A new
     // generation for this exact assistant supersedes every uncommitted final
     // output in that same store before any retry can claim and persist it.
@@ -84,6 +88,14 @@ final class DirectRunRegistry {
     _pending[key] = reservation;
     _latest[key] = reservation;
     return reservation;
+  }
+
+  void blockAdmissionForAppDataClear() {
+    _admissionBlocked = true;
+  }
+
+  void resumeAdmissionAfterAppDataClearAbort() {
+    _admissionBlocked = false;
   }
 
   /// Moves [reservation] when a new chat receives its durable id or an
