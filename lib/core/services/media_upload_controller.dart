@@ -41,6 +41,15 @@ typedef OwnedStagingConversionReplacer =
 
 const int kUploadImagePrecacheMaxBytes = 4 * 1024 * 1024;
 
+String _localDocumentOpaqueId(File file, FileStat stat) => sha256
+    .convert(
+      utf8.encode(
+        '${file.path}\u0000${stat.size}\u0000'
+        '${stat.modified.microsecondsSinceEpoch}',
+      ),
+    )
+    .toString();
+
 /// Stable native-import identity used to derive a per-server Drift receipt.
 final class NativeShareUploadIdentity {
   const NativeShareUploadIdentity({
@@ -1550,14 +1559,7 @@ class MediaUploadController {
           'This document exceeds the Direct local-document size limit.',
         );
       }
-      final opaqueId = sha256
-          .convert(
-            utf8.encode(
-              '$filePath\u0000${stat.size}\u0000'
-              '${stat.modified.microsecondsSinceEpoch}',
-            ),
-          )
-          .toString();
+      final opaqueId = _localDocumentOpaqueId(file, stat);
       _updatePreparedDirectState(
         filePath: filePath,
         fileName: fileName,
@@ -1707,14 +1709,7 @@ class MediaUploadController {
           'This document exceeds the Hermes local-document size limit.',
         );
       }
-      final opaqueId = sha256
-          .convert(
-            utf8.encode(
-              '$filePath\u0000${stat.size}\u0000'
-              '${stat.modified.microsecondsSinceEpoch}',
-            ),
-          )
-          .toString();
+      final opaqueId = _localDocumentOpaqueId(file, stat);
       _updatePreparedHermesState(
         filePath: filePath,
         fileName: fileName,

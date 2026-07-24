@@ -35,6 +35,7 @@ final class DirectPreparedDocument {
     required this.size,
     required this.extractedText,
     required this.truncated,
+    this.sourceId,
   });
 
   factory DirectPreparedDocument.fromExtracted(
@@ -46,6 +47,7 @@ final class DirectPreparedDocument {
     size: document.size,
     extractedText: document.extractedText,
     truncated: document.truncated,
+    sourceId: document.sourceId,
   );
 
   final String id;
@@ -54,17 +56,18 @@ final class DirectPreparedDocument {
   final int size;
   final String extractedText;
   final bool truncated;
+  final String? sourceId;
 
   String renderForPrompt() {
     final marker = 'DIRECT_UNTRUSTED_REFERENCE_${id.toUpperCase()}';
-    final safeText = extractedText.replaceAll(
-      marker,
-      'DIRECT_UNTRUSTED_REFERENCE_[MARKER_REMOVED]',
-    );
+    const replacement = 'DIRECT_UNTRUSTED_REFERENCE_[MARKER_REMOVED]';
+    String sanitizeMarker(String value) =>
+        value.replaceAll(marker, replacement);
+    final safeText = sanitizeMarker(extractedText);
     final metadata = jsonEncode(<String, Object>{
       'id': id,
-      'name': name,
-      'mime_type': mimeType,
+      'name': sanitizeMarker(name),
+      'mime_type': sanitizeMarker(mimeType),
       'source_bytes': size,
       'truncated': truncated,
     });

@@ -211,8 +211,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           _reasoningEffortChangedHandlerOwner,
           pinToggleHandlerOwner,
         )) {
-          _reasoningEffortChangedHandler = previousEffortHandler;
-          _reasoningEffortChangedHandlerOwner = previousEffortHandlerOwner;
+          _reasoningEffortChangedHandler = null;
+          _reasoningEffortChangedHandlerOwner = null;
         }
       }
     }

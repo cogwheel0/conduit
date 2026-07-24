@@ -139,6 +139,7 @@ final class LocalDocumentSource {
   LocalDocumentSource._({
     required this.name,
     required this.mimeType,
+    required this.sourceId,
     required this.declaredSize,
     required Future<Uint8List> Function(int maxBytes) readBytes,
   }) : _readBytes = readBytes;
@@ -149,11 +150,13 @@ final class LocalDocumentSource {
     required String name,
     required List<int> bytes,
     String? mimeType,
+    String? sourceId,
   }) {
     final ownedBytes = Uint8List.fromList(bytes);
     return LocalDocumentSource._(
       name: name,
       mimeType: mimeType,
+      sourceId: sourceId,
       declaredSize: ownedBytes.length,
       readBytes: (_) async => ownedBytes,
     );
@@ -165,6 +168,7 @@ final class LocalDocumentSource {
     File file, {
     String? displayName,
     String? mimeType,
+    String? sourceId,
   }) async {
     final requestedName = displayName == null || displayName.trim().isEmpty
         ? _portableBasename(file.path)
@@ -183,6 +187,7 @@ final class LocalDocumentSource {
     return LocalDocumentSource._(
       name: name,
       mimeType: mimeType,
+      sourceId: sourceId,
       declaredSize: declaredSize,
       readBytes: (maxBytes) async {
         final output = BytesBuilder(copy: false);
@@ -196,6 +201,7 @@ final class LocalDocumentSource {
 
   final String name;
   final String? mimeType;
+  final String? sourceId;
   final int declaredSize;
   final Future<Uint8List> Function(int maxBytes) _readBytes;
 }
@@ -262,6 +268,7 @@ final class ExtractedLocalDocument {
     required this.size,
     required this.extractedText,
     required this.truncated,
+    this.sourceId,
   });
 
   /// Stable, opaque identifier derived from the sanitized name and contents.
@@ -271,6 +278,7 @@ final class ExtractedLocalDocument {
   final int size;
   final String extractedText;
   final bool truncated;
+  final String? sourceId;
 
   int get characterCount => extractedText.runes.length;
 }
@@ -424,6 +432,7 @@ final class LocalDocumentExtractionService {
           size: bytes.length,
           extractedText: boundedText,
           truncated: truncated,
+          sourceId: source.sourceId,
         ),
       );
     }

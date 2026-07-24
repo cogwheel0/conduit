@@ -116,7 +116,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       effort = trimmed;
     }
     try {
-      await setReasoningEffort(ref, normalizeReasoningEffort(effort));
+      await setReasoningEffort(ref.read, normalizeReasoningEffort(effort));
     } on FormatException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(

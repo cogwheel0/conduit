@@ -1841,7 +1841,40 @@ Widget _buildSidebarHarness({
   );
 }
 
-final class _SidebarApiService extends Mock implements ApiService {}
+final class _SidebarApiService extends Mock implements ApiService {
+  @override
+  Future<List<Conversation>> searchConversations(String query) async =>
+      const <Conversation>[];
+
+  @override
+  Future<List<Conversation>> searchChats({
+    String? query,
+    String? userId,
+    String? model,
+    String? tag,
+    String? folderId,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? pinned,
+    bool? archived,
+    int? limit,
+    int? offset,
+    String? sortBy,
+    String? sortOrder,
+  }) async => const <Conversation>[];
+
+  @override
+  Future<List<Map<String, dynamic>>> searchMessages({
+    required String query,
+    String? chatId,
+    String? userId,
+    String? role,
+    DateTime? fromDate,
+    DateTime? toDate,
+    int? limit,
+    int? offset,
+  }) async => const <Map<String, dynamic>>[];
+}
 
 final class _FixedSyncEngine extends SyncEngine {
   _FixedSyncEngine(this.initial);

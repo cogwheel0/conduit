@@ -6435,11 +6435,12 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
     for (final state in attachedStates)
       if (state.fileId != null) state.fileId!: state,
   };
-  final references = <String>[];
+  final references = <String>{};
   final sources = <DirectLocalDocumentSource>[];
 
   for (final attachmentId in attachmentIds ?? const <String>[]) {
     if (attachmentId.startsWith('data:image/')) continue;
+    if (!references.add(attachmentId)) continue;
     final state = stateById[attachmentId];
     if (state == null || state.isImage == true) {
       if (attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
@@ -6447,6 +6448,7 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
           'This local document is no longer available. Attach it again.',
         );
       }
+      references.remove(attachmentId);
       continue;
     }
     if (!attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
@@ -6459,6 +6461,7 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       await DirectLocalDocumentSource.fromFile(
         state.file,
         displayName: state.fileName,
+        sourceId: attachmentId,
       ),
     );
   }
@@ -6470,16 +6473,28 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
     return const _PreparedDirectDocuments(files: [], attachmentIds: {});
   }
   final signingKey = await ref.read(directDeviceTrustKeyProvider.future);
+  final files = <Map<String, dynamic>>[];
+  final preparedAttachmentIds = <String>{};
+  for (final document in documents.documents) {
+    final attachmentId = document.sourceId;
+    if (attachmentId == null ||
+        !references.contains(attachmentId) ||
+        !preparedAttachmentIds.add(attachmentId)) {
+      throw StateError(
+        'Direct document extraction returned invalid source metadata.',
+      );
+    }
+    files.add(
+      directLocalDocumentDescriptor(
+        document,
+        attachmentId: attachmentId,
+        signingKey: signingKey,
+      ),
+    );
+  }
   return _PreparedDirectDocuments(
-    files: List<Map<String, dynamic>>.unmodifiable(<Map<String, dynamic>>[
-      for (var index = 0; index < documents.documents.length; index++)
-        directLocalDocumentDescriptor(
-          documents.documents[index],
-          attachmentId: references[index],
-          signingKey: signingKey,
-        ),
-    ]),
-    attachmentIds: Set<String>.unmodifiable(references),
+    files: List<Map<String, dynamic>>.unmodifiable(files),
+    attachmentIds: Set<String>.unmodifiable(preparedAttachmentIds),
   );
 }
 

@@ -1205,6 +1205,45 @@ void main() {
       check(container.read(isManualModelSelectionProvider)).isTrue();
     });
 
+    test('Direct discovery refresh replaces a remote manual model', () async {
+      final direct = _directModelFixture();
+      final discovery = _ControllableDirectDiscovery(
+        Future.value(DirectModelDiscoveryState(models: [direct.model])),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          authStateManagerProvider.overrideWith(
+            () => _FakeAuthStateManager(AuthStatus.unauthenticated),
+          ),
+          preferredBackendProvider.overrideWith(
+            () => _FakePreferredBackendController(PreferredBackend.direct),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FakeHermesConfigController(_disabledHermes),
+          ),
+          directModelRegistryProvider.overrideWithValue(direct.registry),
+          directModelDiscoveryProvider.overrideWith(() => discovery),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directModelDiscoveryProvider.future);
+      container.read(selectedModelProvider);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(_CachedOpenWebUiStorage.staleModel);
+      container.read(isManualModelSelectionProvider.notifier).set(true);
+
+      discovery.publish([direct.model]);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(selectedModelProvider)).identicalTo(direct.model);
+      check(container.read(isManualModelSelectionProvider)).isFalse();
+    });
+
     test(
       'backend switch replaces a usable manual model from another backend',
       () async {

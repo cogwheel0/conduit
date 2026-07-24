@@ -129,7 +129,7 @@ class NativeSheetHydrationService {
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
       final allowsCustomEffort = reasoningEffortAllowsCustomForModel(
-        _ref,
+        _ref.read,
         effortModel,
       );
       final effortOptions = <String>[...kReasoningEffortOptions];
@@ -177,7 +177,7 @@ class NativeSheetHydrationService {
         moreModelsTitle: l10n?.moreModels ?? 'More models',
         searchModelsTitle: l10n?.searchModels ?? 'Search models',
         reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
-        reasoningEffortValue: reasoningEffortForModel(_ref, effortModel),
+        reasoningEffortValue: reasoningEffortForModel(_ref.read, effortModel),
         reasoningEffortOptions: effortOptions,
         reasoningEffortLabels: <String, String>{
           kAutomaticReasoningEffort:
@@ -199,7 +199,8 @@ class NativeSheetHydrationService {
             : null,
         onReasoningEffortChanged: effortModel == null
             ? null
-            : (value) => setReasoningEffortForModel(_ref, effortModel, value),
+            : (value) =>
+                  setReasoningEffortForModel(_ref.read, effortModel, value),
         models: nativePresentationOptions,
         rethrowErrors: rethrowErrors,
       );
@@ -460,6 +461,7 @@ class NativeSheetHydrationService {
       final models = await modelsFuture;
       if (!context.mounted) return;
 
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
       final appSettings = _ref.read(appSettingsProvider);
       final defaultModelSubtitle =
           resolveNativeSheetModelName(models, appSettings.defaultModel) ??
@@ -491,14 +493,15 @@ class NativeSheetHydrationService {
                   : l10n.memoryDisabledDescription,
               sfSymbol: 'bookmark',
             ),
-            NativeSheetItemConfig(
-              id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
-              subtitle: models.isEmpty
-                  ? l10n.noAccessibleModelsFound
-                  : l10n.accessibleModelsCount(models.length),
-              sfSymbol: 'cube.box.fill',
-            ),
+            if (hasOpenWebUiAccount)
+              NativeSheetItemConfig(
+                id: 'advanced-prompt-overrides',
+                title: l10n.advancedPromptOverrides,
+                subtitle: models.isEmpty
+                    ? l10n.noAccessibleModelsFound
+                    : l10n.accessibleModelsCount(models.length),
+                sfSymbol: 'cube.box.fill',
+              ),
           ],
         ),
         detailSheets: [
@@ -522,12 +525,13 @@ class NativeSheetHydrationService {
                 ? l10n.memoryEnabledDescription
                 : l10n.memoryDisabledDescription,
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'advanced-prompt-overrides',
-            title: l10n.advancedPromptOverrides,
-            subtitle: l10n.advancedPromptOverridesDescription,
-          ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: l10n.advancedPromptOverridesDescription,
+            ),
         ],
       );
     } catch (error, stackTrace) {
@@ -555,6 +559,7 @@ class NativeSheetHydrationService {
       final models = await modelsFuture;
       if (!context.mounted) return;
 
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.aiMemory,
@@ -575,14 +580,15 @@ class NativeSheetHydrationService {
                   : l10n.memoryDisabledDescription,
               sfSymbol: 'bookmark',
             ),
-            NativeSheetItemConfig(
-              id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
-              subtitle: models.isEmpty
-                  ? l10n.noAccessibleModelsFound
-                  : l10n.accessibleModelsCount(models.length),
-              sfSymbol: 'cube.box.fill',
-            ),
+            if (hasOpenWebUiAccount)
+              NativeSheetItemConfig(
+                id: 'advanced-prompt-overrides',
+                title: l10n.advancedPromptOverrides,
+                subtitle: models.isEmpty
+                    ? l10n.noAccessibleModelsFound
+                    : l10n.accessibleModelsCount(models.length),
+                sfSymbol: 'cube.box.fill',
+              ),
           ],
         ),
         detailSheets: [
@@ -600,12 +606,13 @@ class NativeSheetHydrationService {
                 ? l10n.memoryEnabledDescription
                 : l10n.memoryDisabledDescription,
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'advanced-prompt-overrides',
-            title: l10n.advancedPromptOverrides,
-            subtitle: l10n.advancedPromptOverridesDescription,
-          ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: l10n.advancedPromptOverridesDescription,
+            ),
         ],
       );
     } catch (error, stackTrace) {

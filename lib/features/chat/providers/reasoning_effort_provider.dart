@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/models/model.dart';
 import '../../../core/persistence/persistence_keys.dart';
@@ -10,6 +11,8 @@ import '../../direct_connections/models/direct_connection_profile.dart';
 import '../../direct_connections/models/ollama_thinking.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../hermes/models/hermes_model.dart';
+
+part 'reasoning_effort_provider.g.dart';
 
 const String kAutomaticReasoningEffort = 'automatic';
 const List<String> kStandardReasoningEfforts = <String>[
@@ -35,7 +38,8 @@ String normalizeReasoningEffort(String value) {
   return normalized;
 }
 
-class LocalReasoningEffortsController extends Notifier<Map<String, String>> {
+@Riverpod(keepAlive: true)
+class LocalReasoningEfforts extends _$LocalReasoningEfforts {
   @override
   Map<String, String> build() {
     final raw = PreferencesStore.getString(
@@ -45,13 +49,17 @@ class LocalReasoningEffortsController extends Notifier<Map<String, String>> {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return const <String, String>{};
-      return Map<String, String>.unmodifiable({
-        for (final entry in decoded.entries)
-          if (entry.key.toString().trim().isNotEmpty && entry.value is String)
-            entry.key.toString(): normalizeReasoningEffort(
-              entry.value as String,
-            ),
-      });
+      final result = <String, String>{};
+      for (final entry in decoded.entries) {
+        final key = entry.key.toString().trim();
+        if (key.isEmpty || entry.value is! String) continue;
+        try {
+          result[key] = normalizeReasoningEffort(entry.value as String);
+        } catch (_) {
+          // Preserve other per-model preferences when one entry is corrupt.
+        }
+      }
+      return Map<String, String>.unmodifiable(result);
     } catch (_) {
       return const <String, String>{};
     }
@@ -73,11 +81,6 @@ class LocalReasoningEffortsController extends Notifier<Map<String, String>> {
     );
   }
 }
-
-final localReasoningEffortsProvider =
-    NotifierProvider<LocalReasoningEffortsController, Map<String, String>>(
-      LocalReasoningEffortsController.new,
-    );
 
 String? _localEffortKey(Ref ref) {
   final model = ref.watch(selectedModelProvider);
@@ -140,51 +143,57 @@ final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
   return profile?.adapterKey != kOllamaAdapterKey;
 });
 
-String reasoningEffortForModel(dynamic ref, Model? model) {
+typedef ReasoningEffortReader = T Function<T>(ProviderListenable<T> provider);
+
+String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
   if (model == null) return kAutomaticReasoningEffort;
-  final binding = ref.read(directModelRegistryProvider).resolve(model);
+  final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profile = _readDirectProfile(ref, binding.profileId);
+    final profile = _readDirectProfile(read, binding.profileId);
     if (profile?.adapterKey == kOllamaAdapterKey) {
       return profile?.ollamaThinkingFor(binding.remoteModelId)?.storageValue ??
           kAutomaticReasoningEffort;
     }
-    return ref.read(
+    return read(
           localReasoningEffortsProvider,
         )['direct:${binding.profileId}:${binding.remoteModelId}'] ??
         kAutomaticReasoningEffort;
   }
   if (isHermesModel(model)) {
-    return ref.read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
+    return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
-  if (ref.read(apiServiceProvider) != null) {
-    return ref
-            .read(personalizationSettingsProvider)
-            .asData
-            ?.value
-            .reasoningEffort ??
+  if (read(apiServiceProvider) != null) {
+    return read(
+          personalizationSettingsProvider,
+        ).asData?.value.reasoningEffort ??
         kAutomaticReasoningEffort;
   }
   return kAutomaticReasoningEffort;
 }
 
-bool reasoningEffortAllowsCustomForModel(dynamic ref, Model? model) {
+bool reasoningEffortAllowsCustomForModel(
+  ReasoningEffortReader read,
+  Model? model,
+) {
   if (model == null) return true;
-  final binding = ref.read(directModelRegistryProvider).resolve(model);
+  final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) return true;
-  final profile = _readDirectProfile(ref, binding.profileId);
+  final profile = _readDirectProfile(read, binding.profileId);
   return profile?.adapterKey != kOllamaAdapterKey;
 }
 
-Future<void> setReasoningEffort(dynamic ref, String effort) async {
-  final model = ref.read(selectedModelProvider);
+Future<void> setReasoningEffort(
+  ReasoningEffortReader read,
+  String effort,
+) async {
+  final model = read(selectedModelProvider);
   if (model == null) return;
-  await setReasoningEffortForModel(ref, model, effort);
+  await setReasoningEffortForModel(read, model, effort);
 }
 
 Future<void> setReasoningEffortForModel(
-  dynamic ref,
+  ReasoningEffortReader read,
   Model model,
   String effort,
 ) async {
@@ -192,47 +201,43 @@ Future<void> setReasoningEffortForModel(
   final configured = normalized == kAutomaticReasoningEffort
       ? null
       : normalized;
-  final binding = ref.read(directModelRegistryProvider).resolve(model);
+  final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profile = _readDirectProfile(ref, binding.profileId);
+    final profile = _readDirectProfile(read, binding.profileId);
     if (profile?.adapterKey == kOllamaAdapterKey) {
-      await ref
-          .read(directConnectionProfilesProvider.notifier)
-          .setOllamaThinking(
-            binding.profileId,
-            binding.remoteModelId,
-            configured == null
-                ? null
-                : OllamaThinkingSetting.fromStorage(configured),
-          );
+      await read(directConnectionProfilesProvider.notifier).setOllamaThinking(
+        binding.profileId,
+        binding.remoteModelId,
+        configured == null
+            ? null
+            : OllamaThinkingSetting.fromStorage(configured),
+      );
       return;
     }
-    await ref
-        .read(localReasoningEffortsProvider.notifier)
-        .set(
-          'direct:${binding.profileId}:${binding.remoteModelId}',
-          configured,
-        );
+    await read(
+      localReasoningEffortsProvider.notifier,
+    ).set('direct:${binding.profileId}:${binding.remoteModelId}', configured);
     return;
   }
   if (isHermesModel(model)) {
-    await ref
-        .read(localReasoningEffortsProvider.notifier)
-        .set('hermes:${model.id}', configured);
+    await read(
+      localReasoningEffortsProvider.notifier,
+    ).set('hermes:${model.id}', configured);
     return;
   }
-  if (ref.read(apiServiceProvider) != null) {
-    await ref
-        .read(personalizationSettingsProvider.notifier)
-        .setReasoningEffort(configured);
+  if (read(apiServiceProvider) != null) {
+    await read(
+      personalizationSettingsProvider.notifier,
+    ).setReasoningEffort(configured);
   }
 }
 
-DirectConnectionProfile? _readDirectProfile(dynamic ref, String profileId) {
+DirectConnectionProfile? _readDirectProfile(
+  ReasoningEffortReader read,
+  String profileId,
+) {
   final profiles =
-      (ref.read(directConnectionProfilesProvider)
-              as AsyncValue<List<DirectConnectionProfile>>)
-          .value ??
+      read(directConnectionProfilesProvider).value ??
       const <DirectConnectionProfile>[];
   for (final profile in profiles) {
     if (profile.id == profileId) return profile;

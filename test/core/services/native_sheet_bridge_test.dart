@@ -212,6 +212,59 @@ void main() {
       },
     );
 
+    test(
+      'successful selector clears a previously active effort handler',
+      () async {
+        NativeSheetBridge.instance.debugIsIOSOverride = true;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final firstPresentation = Completer<dynamic>();
+        var presentCalls = 0;
+        final firstEfforts = <String>[];
+        final secondEfforts = <String>[];
+
+        messenger.setMockDecodedMessageHandler<Object?>(
+          _presentModelSelectorChannel,
+          (message) async {
+            presentCalls += 1;
+            if (presentCalls == 1) {
+              await firstPresentation.future;
+            }
+            return wrapResponse(result: null);
+          },
+        );
+
+        final firstFuture = NativeSheetBridge.instance.presentModelSelector(
+          presentationId: 'presentation-a',
+          title: 'Models',
+          models: const [NativeSheetModelOption(id: 'model-a', name: 'A')],
+          onReasoningEffortChanged: (value) async {
+            firstEfforts.add(value);
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await NativeSheetBridge.instance.presentModelSelector(
+          presentationId: 'presentation-b',
+          title: 'Models again',
+          models: const [NativeSheetModelOption(id: 'model-b', name: 'B')],
+          onReasoningEffortChanged: (value) async {
+            secondEfforts.add(value);
+          },
+        );
+        NativeSheetBridge.instance.onReasoningEffortChanged(
+          PlatformNativeSheetReasoningEffortChangedEvent(value: 'high'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        check(firstEfforts).isEmpty();
+        check(secondEfforts).isEmpty();
+
+        firstPresentation.complete(null);
+        await firstFuture;
+      },
+    );
+
     test('hydration update carries its selector presentation ID', () async {
       NativeSheetBridge.instance.debugIsIOSOverride = true;
       final messenger =

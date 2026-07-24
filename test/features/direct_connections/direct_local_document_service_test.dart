@@ -46,12 +46,14 @@ void main() {
         DirectLocalDocumentSource.fromBytes(
           name: 'notes.txt',
           bytes: utf8.encode('Local Direct context'),
+          sourceId: 'direct-local:notes',
         ),
       ]);
 
       check(batch.documents).length.equals(1);
       final document = batch.documents.single;
       check(document.id).startsWith('ddoc_');
+      check(document.sourceId).equals('direct-local:notes');
       check(document.extractedText).equals('Local Direct context');
       check(
         document.renderForPrompt(),
@@ -110,6 +112,23 @@ void main() {
           'DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567',
         ).allMatches(rendered),
       ).length.equals(2);
+    });
+
+    test('neutralizes document markers in metadata fields', () {
+      const id = 'ddoc_0123456789abcdef01234567';
+      const marker = 'DIRECT_UNTRUSTED_REFERENCE_DDOC_0123456789ABCDEF01234567';
+      const document = DirectPreparedDocument(
+        id: id,
+        name: 'before $marker after.txt',
+        mimeType: 'text/$marker',
+        size: 10,
+        extractedText: 'safe content',
+        truncated: false,
+      );
+
+      final rendered = document.renderForPrompt();
+      check(rendered).contains('DIRECT_UNTRUSTED_REFERENCE_[MARKER_REMOVED]');
+      check(RegExp(marker).allMatches(rendered)).length.equals(2);
     });
   });
 }

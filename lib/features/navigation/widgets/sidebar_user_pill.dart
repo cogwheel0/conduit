@@ -95,7 +95,7 @@ String sidebarProfileFallbackRouteName({
 String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
   // Hermes-only: the Hermes tab is the only tab.
   if (ref.watch(hermesOnlyModeProvider)) return l10n.searchConversations;
-  final hasOpenWebUi = ref.watch(apiServiceProvider) != null;
+  final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
   final tabIndex = ref.watch(sidebarActiveTabProvider);
   final hermesOn = ref.watch(hermesEnabledProvider);
   final notesOn = hasOpenWebUi && ref.watch(notesFeatureEnabledProvider);

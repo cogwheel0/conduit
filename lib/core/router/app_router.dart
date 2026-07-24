@@ -63,6 +63,7 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
+      location == Routes.personalization ||
       isDirectConnectionsLocation(location) ||
       location == Routes.hermesSettings ||
       location == Routes.hermesJobs ||
@@ -78,8 +79,7 @@ bool isDirectConnectionsLocation(String location) {
 /// App-local surfaces available when direct APIs are the primary backend.
 @visibleForTesting
 bool isDirectOnlyAppLocation(String location) =>
-    _isAccountlessBackendLocation(location) ||
-    location == Routes.personalization;
+    _isAccountlessBackendLocation(location);
 
 @visibleForTesting
 String incompleteHermesDestination({

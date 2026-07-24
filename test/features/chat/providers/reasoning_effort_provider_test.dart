@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
@@ -38,10 +41,29 @@ void main() {
     addTearDown(container.dispose);
     container.read(selectedModelProvider.notifier).set(models.first);
 
-    await setReasoningEffortForModel(container, models.last, 'high');
+    await setReasoningEffortForModel(container.read, models.last, 'high');
 
-    expect(reasoningEffortForModel(container, models.first), 'automatic');
-    expect(reasoningEffortForModel(container, models.last), 'high');
+    expect(reasoningEffortForModel(container.read, models.first), 'automatic');
+    expect(reasoningEffortForModel(container.read, models.last), 'high');
     expect(container.read(selectedModelProvider), same(models.first));
   });
+
+  test(
+    'malformed saved effort does not discard valid model settings',
+    () async {
+      await PreferencesStore.put(
+        PreferenceKeys.reasoningEffortByModel,
+        jsonEncode(<String, Object>{
+          'hermes:valid': 'high',
+          'hermes:invalid': 'not valid!',
+        }),
+      );
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      expect(container.read(localReasoningEffortsProvider), <String, String>{
+        'hermes:valid': 'high',
+      });
+    },
+  );
 }

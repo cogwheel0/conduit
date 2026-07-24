@@ -2295,15 +2295,20 @@ class SelectedModel extends _$SelectedModel {
     if (!ref.mounted) return;
     final current = state;
     if (current != null && ref.read(isManualModelSelectionProvider)) {
-      final manualSelectionIsUsable = isLocallyMintedDirectModel(current)
-          ? ref.read(directModelRegistryProvider).resolve(current) != null
-          : !isHermesModel(current) || ref.read(hermesConfigProvider).isUsable;
+      final preferredBackend = ref.read(preferredBackendProvider);
+      final manualSelectionIsUsable =
+          ref.read(reviewerModeProvider) ||
+          switch (preferredBackend) {
+            PreferredBackend.direct =>
+              isLocallyMintedDirectModel(current) &&
+                  ref.read(directModelRegistryProvider).resolve(current) != null,
+            PreferredBackend.hermes =>
+              isHermesModel(current) && ref.read(hermesConfigProvider).isUsable,
+            _ => false,
+          };
       if (manualSelectionIsUsable &&
           (!_accountlessBackendReconciliationPending ||
-              _matchesPreferredBackend(
-                current,
-                ref.read(preferredBackendProvider),
-              ))) {
+              _matchesPreferredBackend(current, preferredBackend))) {
         _accountlessBackendReconciliationPending = false;
         return;
       }
