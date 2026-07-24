@@ -209,16 +209,15 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                 const SizedBox(height: Spacing.md),
               ],
               Expanded(
-                child: ListView(
-                  controller: scrollController,
-                  children: _showMore
-                      ? [
-                          _ModelGroup(
-                            models: moreModels,
-                            onTogglePinnedModel: _togglePinnedModel,
-                          ),
-                        ]
-                      : [
+                child: _showMore
+                    ? _ModelGroup(
+                        models: moreModels,
+                        onTogglePinnedModel: _togglePinnedModel,
+                        scrollController: scrollController,
+                      )
+                    : ListView(
+                        controller: scrollController,
+                        children: [
                           _ModelGroup(
                             models: layout.featured,
                             onTogglePinnedModel: _togglePinnedModel,
@@ -246,7 +245,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                             ),
                           ],
                         ],
-                ),
+                      ),
               ),
             ],
           ),
@@ -313,10 +312,15 @@ class _SelectorHeader extends StatelessWidget {
 }
 
 class _ModelGroup extends ConsumerWidget {
-  const _ModelGroup({required this.models, required this.onTogglePinnedModel});
+  const _ModelGroup({
+    required this.models,
+    required this.onTogglePinnedModel,
+    this.scrollController,
+  });
 
   final List<Model> models;
   final Future<void> Function(String modelId) onTogglePinnedModel;
+  final ScrollController? scrollController;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -343,26 +347,34 @@ class _ModelGroup extends ConsumerWidget {
         const <DirectConnectionProfile>[];
     final l10n = AppLocalizations.of(context)!;
 
+    Widget buildRow(int index) => _buildModelRow(
+      context: context,
+      ref: ref,
+      model: models[index],
+      isLast: index == models.length - 1,
+      selectedModelId: selectedModelId,
+      pinnedModelIds: pinnedModelIds,
+      canToggle: canToggle,
+      api: api,
+      directRegistry: directRegistry,
+      profiles: profiles,
+      l10n: l10n,
+    );
+
     return ConduitCard(
       padding: const EdgeInsets.all(Spacing.xs),
-      child: Column(
-        children: [
-          for (var index = 0; index < models.length; index++)
-            _buildModelRow(
-              context: context,
-              ref: ref,
-              model: models[index],
-              isLast: index == models.length - 1,
-              selectedModelId: selectedModelId,
-              pinnedModelIds: pinnedModelIds,
-              canToggle: canToggle,
-              api: api,
-              directRegistry: directRegistry,
-              profiles: profiles,
-              l10n: l10n,
+      child: scrollController == null
+          ? Column(
+              children: [
+                for (var index = 0; index < models.length; index++)
+                  buildRow(index),
+              ],
+            )
+          : ListView.builder(
+              controller: scrollController,
+              itemCount: models.length,
+              itemBuilder: (context, index) => buildRow(index),
             ),
-        ],
-      ),
     );
   }
 

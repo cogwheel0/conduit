@@ -4525,13 +4525,19 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             content.image = UIImage(systemName: "clock")
             content.text = configuration.reasoningEffortTitle
             content.secondaryText = effortLabel(reasoningEffortValue)
+            cell.isUserInteractionEnabled = effortSelectionEnabled
+            cell.accessoryType = effortSelectionEnabled ? .disclosureIndicator : .none
+            if !effortSelectionEnabled {
+                content.textProperties.color = .secondaryLabel
+                content.secondaryTextProperties.color = .tertiaryLabel
+            }
         } else {
             content.image = UIImage(systemName: "ellipsis")
             content.text = configuration.moreModelsTitle
+            cell.accessoryType = .disclosureIndicator
         }
         content.imageProperties.tintColor = .label
         cell.contentConfiguration = content
-        cell.accessoryType = .disclosureIndicator
         return cell
     }
 
@@ -4541,6 +4547,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         case 0:
             onSelect(featuredModels[indexPath.row].id)
         case 1:
+            guard effortSelectionEnabled else { return }
             presentEffortSelector(sourceView: tableView.cellForRow(at: indexPath))
         case 2:
             let controller = NativeMoreModelsTableViewController(
@@ -4634,6 +4641,11 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     private func effortLabel(_ value: String) -> String {
         configuration.reasoningEffortLabels[value] ?? value.capitalized
+    }
+
+    private var effortSelectionEnabled: Bool {
+        !configuration.reasoningEffortOptions.isEmpty ||
+            configuration.allowsCustomReasoningEffort
     }
 
     private func presentEffortSelector(sourceView: UIView?) {

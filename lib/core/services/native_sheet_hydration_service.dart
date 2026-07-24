@@ -128,11 +128,12 @@ class NativeSheetHydrationService {
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
-      final allowsCustomEffort = reasoningEffortAllowsCustomForModel(
-        _ref.read,
-        effortModel,
-      );
-      final effortOptions = <String>[...kReasoningEffortOptions];
+      final allowsCustomEffort =
+          effortModel != null &&
+          reasoningEffortAllowsCustomForModel(_ref.read, effortModel);
+      final effortOptions = effortModel == null
+          ? const <String>[]
+          : <String>[...kReasoningEffortOptions];
 
       final modelOptions = [
         ...leadingOptions,
@@ -177,7 +178,9 @@ class NativeSheetHydrationService {
         moreModelsTitle: l10n?.moreModels ?? 'More models',
         searchModelsTitle: l10n?.searchModels ?? 'Search models',
         reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
-        reasoningEffortValue: reasoningEffortForModel(_ref.read, effortModel),
+        reasoningEffortValue: effortModel == null
+            ? kAutomaticReasoningEffort
+            : reasoningEffortForModel(_ref.read, effortModel),
         reasoningEffortOptions: effortOptions,
         reasoningEffortLabels: <String, String>{
           kAutomaticReasoningEffort:

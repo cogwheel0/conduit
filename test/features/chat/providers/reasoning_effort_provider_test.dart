@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -7,11 +8,35 @@ import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+final class _PendingProfiles extends DirectConnectionProfilesController {
+  _PendingProfiles(this.pending);
+
+  final Completer<List<DirectConnectionProfile>> pending;
+  final List<({String profileId, String modelId, String? setting})> writes = [];
+
+  @override
+  Future<List<DirectConnectionProfile>> build() => pending.future;
+
+  @override
+  Future<void> setOllamaThinking(
+    String profileId,
+    String remoteModelId,
+    OllamaThinkingSetting? setting,
+  ) async {
+    writes.add((
+      profileId: profileId,
+      modelId: remoteModelId,
+      setting: setting?.storageValue,
+    ));
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -69,4 +94,41 @@ void main() {
       ).deepEquals({'hermes:valid': 'high'});
     },
   );
+
+  test('Ollama effort waits for profile hydration', () async {
+    final profile = DirectConnectionProfile(
+      id: 'ollama-profile',
+      name: 'Ollama',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'https://ollama.com',
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model-a'),
+    ]).single;
+    final pending = Completer<List<DirectConnectionProfile>>();
+    final profiles = _PendingProfiles(pending);
+    final container = ProviderContainer(
+      overrides: [
+        directModelRegistryProvider.overrideWithValue(registry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+
+    check(container.read(configuredReasoningEffortProvider)).isNull();
+    check(container.read(reasoningEffortAllowsCustomProvider)).isFalse();
+    final write = setReasoningEffortForModel(container.read, model, 'high');
+    await Future<void>.delayed(Duration.zero);
+
+    check(container.read(localReasoningEffortsProvider)).isEmpty();
+    check(profiles.writes).isEmpty();
+
+    pending.complete([profile]);
+    await write;
+    check(profiles.writes).deepEquals([
+      (profileId: 'ollama-profile', modelId: 'model-a', setting: 'high'),
+    ]);
+  });
 }

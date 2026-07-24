@@ -98,13 +98,12 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
   if (model == null) return null;
   final binding = ref.watch(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profiles =
-        ref.watch(directConnectionProfilesProvider).value ??
-        const <DirectConnectionProfile>[];
-    final profile = profiles
-        .where((candidate) => candidate.id == binding.profileId)
-        .firstOrNull;
-    if (profile?.adapterKey == kOllamaAdapterKey) {
+    if (binding.adapterKey == kOllamaAdapterKey) {
+      final profiles = ref.watch(directConnectionProfilesProvider);
+      if (!profiles.hasValue) return null;
+      final profile = profiles.requireValue
+          .where((candidate) => candidate.id == binding.profileId)
+          .firstOrNull;
       return profile?.ollamaThinkingFor(binding.remoteModelId)?.storageValue;
     }
   }
@@ -134,13 +133,7 @@ final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
   if (model == null) return true;
   final binding = ref.watch(directModelRegistryProvider).resolve(model);
   if (binding == null) return true;
-  final profiles =
-      ref.watch(directConnectionProfilesProvider).value ??
-      const <DirectConnectionProfile>[];
-  final profile = profiles
-      .where((candidate) => candidate.id == binding.profileId)
-      .firstOrNull;
-  return profile?.adapterKey != kOllamaAdapterKey;
+  return binding.adapterKey != kOllamaAdapterKey;
 });
 
 typedef ReasoningEffortReader = T Function<T>(ProviderListenable<T> provider);
@@ -149,8 +142,8 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
   if (model == null) return kAutomaticReasoningEffort;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profile = _readDirectProfile(read, binding.profileId);
-    if (profile?.adapterKey == kOllamaAdapterKey) {
+    if (binding.adapterKey == kOllamaAdapterKey) {
+      final profile = _readDirectProfile(read, binding.profileId);
       return profile?.ollamaThinkingFor(binding.remoteModelId)?.storageValue ??
           kAutomaticReasoningEffort;
     }
@@ -179,8 +172,7 @@ bool reasoningEffortAllowsCustomForModel(
   if (model == null) return true;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) return true;
-  final profile = _readDirectProfile(read, binding.profileId);
-  return profile?.adapterKey != kOllamaAdapterKey;
+  return binding.adapterKey != kOllamaAdapterKey;
 }
 
 Future<void> setReasoningEffort(
@@ -203,8 +195,22 @@ Future<void> setReasoningEffortForModel(
       : normalized;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profile = _readDirectProfile(read, binding.profileId);
-    if (profile?.adapterKey == kOllamaAdapterKey) {
+    if (binding.adapterKey == kOllamaAdapterKey) {
+      late final List<DirectConnectionProfile> profiles;
+      try {
+        profiles = await read(directConnectionProfilesProvider.future);
+      } catch (_) {
+        return;
+      }
+      final profile = profiles
+          .where(
+            (candidate) =>
+                candidate.id == binding.profileId &&
+                candidate.enabled &&
+                candidate.adapterKey == kOllamaAdapterKey,
+          )
+          .firstOrNull;
+      if (profile == null) return;
       await read(directConnectionProfilesProvider.notifier).setOllamaThinking(
         binding.profileId,
         binding.remoteModelId,
