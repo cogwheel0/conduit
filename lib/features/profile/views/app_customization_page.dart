@@ -50,6 +50,7 @@ class AppCustomizationPage extends ConsumerWidget {
     }());
 
     final settings = ref.watch(appSettingsProvider);
+    final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
     final themeMode = ref.watch(appThemeModeProvider);
     final platformBrightness = MediaQuery.platformBrightnessOf(context);
     final l10n = AppLocalizations.of(context)!;
@@ -83,14 +84,17 @@ class AppCustomizationPage extends ConsumerWidget {
           themeDescription,
           activeTheme,
           settings,
+          showQuickPills: hasOpenWebUiAccount,
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
       ],
       AppCustomizationSection.chat => <Widget>[
         _buildChatSection(context, ref, settings),
-        _sectionGap,
-        _buildSystemPromptsSection(context, ref),
+        if (hasOpenWebUiAccount) ...[
+          _sectionGap,
+          _buildSystemPromptsSection(context, ref),
+        ],
       ],
       AppCustomizationSection.dataConnection => <Widget>[
         _buildDataConnectionSection(context, ref, settings),
@@ -108,8 +112,9 @@ class AppCustomizationPage extends ConsumerWidget {
     ThemeMode themeMode,
     String themeDescription,
     TweakcnThemeDefinition activeTheme,
-    AppSettings settings,
-  ) {
+    AppSettings settings, {
+    required bool showQuickPills,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -136,8 +141,10 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         const SizedBox(height: Spacing.md),
         _buildPaletteSelector(context, ref, activeTheme),
-        const SizedBox(height: Spacing.md),
-        _buildQuickPillsSection(context, ref, settings),
+        if (showQuickPills) ...[
+          const SizedBox(height: Spacing.md),
+          _buildQuickPillsSection(context, ref, settings),
+        ],
       ],
     );
   }
@@ -303,47 +310,53 @@ class AppCustomizationPage extends ConsumerWidget {
         children: [
           ConduitCard(
             padding: EdgeInsets.zero,
-            child: Theme(
-              data: Theme.of(context).copyWith(
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Column(
-                children: [
-                  for (var i = 0; i < options.length; i++) ...[
-                    AdaptiveListTile(
-                      leading: Icon(options[i].icon, size: IconSize.small),
-                      title: Text(
-                        options[i].label,
-                        style: context.conduitTheme.bodyMedium?.copyWith(
-                          color: context.conduitTheme.sidebarForeground,
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              clipBehavior: Clip.antiAlias,
+              child: Theme(
+                data: Theme.of(context).copyWith(
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < options.length; i++) ...[
+                      AdaptiveListTile(
+                        leading: Icon(options[i].icon, size: IconSize.small),
+                        title: Text(
+                          options[i].label,
+                          style: context.conduitTheme.bodyMedium?.copyWith(
+                            color: context.conduitTheme.sidebarForeground,
+                          ),
                         ),
-                      ),
-                      trailing: Checkbox.adaptive(
-                        value: selected.contains(options[i].id),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        onChanged:
+                        trailing: Checkbox.adaptive(
+                          value: selected.contains(options[i].id),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          onChanged:
+                              (selectedCount < maxPills ||
+                                  selected.contains(options[i].id))
+                              ? (_) => toggle(options[i].id)
+                              : null,
+                        ),
+                        onTap:
                             (selectedCount < maxPills ||
                                 selected.contains(options[i].id))
-                            ? (_) => toggle(options[i].id)
+                            ? () => toggle(options[i].id)
                             : null,
                       ),
-                      onTap:
-                          (selectedCount < maxPills ||
-                              selected.contains(options[i].id))
-                          ? () => toggle(options[i].id)
-                          : null,
-                    ),
-                    if (i != options.length - 1)
-                      Divider(
-                        height: 1,
-                        color: Theme.of(
-                          context,
-                        ).dividerColor.withValues(alpha: 0.2),
-                      ),
+                      if (i != options.length - 1)
+                        Divider(
+                          height: 1,
+                          color: Theme.of(
+                            context,
+                          ).dividerColor.withValues(alpha: 0.2),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

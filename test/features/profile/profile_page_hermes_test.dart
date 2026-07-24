@@ -1,4 +1,5 @@
 import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/providers/backend_mode_providers.dart';
 import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
@@ -77,4 +78,50 @@ void main() {
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
+
+  testWidgets('direct-only profile exposes Personalization for defaults', (
+    tester,
+  ) async {
+    final originalErrorWidgetBuilder = ErrorWidget.builder;
+    final originalFlutterErrorOnError = FlutterError.onError;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(
+            () => _DirectPreferredBackendController(),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ProfilePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('Personalization'), 300);
+    expect(find.text('Personalization'), findsOneWidget);
+    expect(find.text('Notifications'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    ErrorWidget.builder = originalErrorWidgetBuilder;
+    FlutterError.onError = originalFlutterErrorOnError;
+  });
+}
+
+class _DirectPreferredBackendController extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
 }

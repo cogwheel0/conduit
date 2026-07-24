@@ -3040,7 +3040,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           top: false,
           left: false,
           right: false,
-          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+          bottom: !Platform.isAndroid,
+          minimum: Platform.isAndroid
+              ? EdgeInsets.zero
+              : const EdgeInsets.only(bottom: Spacing.sm),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3057,6 +3060,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     onSendMessage: _handleMessageSend,
                     enabled: !isLoadingConversation,
                     bottomPadding: 0,
+                    managesSystemKeyboardInset: Platform.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
                     onVoiceInput: null,
@@ -3141,6 +3145,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       },
       child: AdaptiveScaffold(
+        resizeToAvoidBottomInset: Platform.isAndroid ? false : null,
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
         drawerEnableOpenDragGesture: false,
         extendBodyBehindAppBar: true,

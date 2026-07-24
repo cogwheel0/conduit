@@ -619,6 +619,13 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
   );
 });
 
+/// Whether server-backed Open WebUI settings are usable in the current
+/// session. A retained server or API object after sign-out is not sufficient.
+final openWebUiAccountAvailableProvider = Provider<bool>((ref) {
+  return ref.watch(apiServiceProvider) != null &&
+      ref.watch(isAuthenticatedProvider2);
+});
+
 // Socket.IO service provider
 /// Monotonic identity for one OpenWebUI authentication session.
 ///
@@ -1877,6 +1884,7 @@ class Models extends _$Models {
         models: models,
         current: currentSelected,
         preferredBackend: ref.read(preferredBackendProvider),
+        preferredModelId: ref.read(appSettingsProvider).defaultModel,
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -2260,6 +2268,7 @@ class SelectedModel extends _$SelectedModel {
         models: trustedModels,
         current: current,
         preferredBackend: preferredBackend,
+        preferredModelId: ref.read(appSettingsProvider).defaultModel,
       ),
     );
   }
@@ -4252,6 +4261,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     }
 
     final currentSelected = ref.read(selectedModelProvider);
+    final configuredDefaultId = ref.read(appSettingsProvider).defaultModel;
     final Model? standalone;
     if (preferredBackend == PreferredBackend.hermes) {
       standalone = hermesConfig.isUsable
@@ -4271,6 +4281,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         ),
         current: currentSelected,
         preferredBackend: preferredBackend,
+        preferredModelId: configuredDefaultId,
       );
     } else {
       final models = await ref.read(modelsProvider.future);
@@ -4281,6 +4292,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         models: models,
         current: currentSelected,
         preferredBackend: preferredBackend,
+        preferredModelId: configuredDefaultId,
       );
     }
     // Provider initialization may not synchronously mutate another provider.
@@ -4682,11 +4694,9 @@ Model? _accountlessSelection({
   required Iterable<Model> models,
   required Model? current,
   required PreferredBackend preferredBackend,
+  String? preferredModelId,
 }) {
   final available = models.toList(growable: false);
-  final currentMatch = current == null
-      ? null
-      : available.where((model) => model.id == current.id).firstOrNull;
 
   bool matchesPreferred(Model model) => switch (preferredBackend) {
     PreferredBackend.direct => isLocallyMintedDirectModel(model),
@@ -4695,6 +4705,19 @@ Model? _accountlessSelection({
       isLocallyMintedDirectModel(model) || isHermesModel(model),
   };
 
+  final preferredMatch = preferredModelId == null || preferredModelId.isEmpty
+      ? null
+      : available
+            .where(
+              (model) =>
+                  model.id == preferredModelId && matchesPreferred(model),
+            )
+            .firstOrNull;
+  if (preferredMatch != null) return preferredMatch;
+
+  final currentMatch = current == null
+      ? null
+      : available.where((model) => model.id == current.id).firstOrNull;
   if (currentMatch != null && matchesPreferred(currentMatch)) {
     return currentMatch;
   }
@@ -5736,11 +5759,13 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
   final directBinding = selectedModel == null
       ? null
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
-  if (directBinding?.source == DirectModelSource.device &&
-      directBinding?.adapterKey == kOllamaAdapterKey &&
-      selectedModel?.capabilities?['ollama_cloud'] == true &&
-      selectedModel?.capabilities?['web_search'] == true) {
-    return true;
+  if (directBinding?.source == DirectModelSource.device) {
+    // Device-owned direct models must never fall through to OpenWebUI
+    // permissions. Ollama Cloud is currently the only direct transport with
+    // a native, permission-aware web-search execution path.
+    return directBinding?.adapterKey == kOllamaAdapterKey &&
+        selectedModel?.capabilities?['ollama_cloud'] == true &&
+        selectedModel?.capabilities?['web_search'] == true;
   }
 
   final backendConfig = ref

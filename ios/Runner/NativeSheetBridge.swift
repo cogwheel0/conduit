@@ -4839,7 +4839,7 @@ private final class NativeModelTagButton: UIButton {
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
             incoming in
             var outgoing = incoming
-            outgoing.font = .preferredFont(forTextStyle: .caption2)
+            outgoing.font = .preferredFont(forTextStyle: .caption1)
             return outgoing
         }
         self.configuration = configuration
@@ -5003,7 +5003,7 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
 
         let subtitle = model.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         subtitleLabel.text = subtitle
-        subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 2

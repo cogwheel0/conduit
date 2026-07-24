@@ -272,7 +272,15 @@ class _SelectorHeader extends StatelessWidget {
     child: Stack(
       alignment: Alignment.center,
       children: [
-        Text(title, style: context.conduitTheme.headingSmall),
+        Text(
+          title,
+          style: AppTypography.titleLargeStyle.copyWith(
+            fontSize: 18,
+            height: 1.22,
+            fontWeight: FontWeight.w600,
+            color: context.conduitTheme.textPrimary,
+          ),
+        ),
         Align(
           alignment: Alignment.centerLeft,
           child: IconButton(
@@ -369,10 +377,6 @@ class _ModelGroup extends ConsumerWidget {
         binding?.adapterKey == kOllamaAdapterKey &&
         binding?.source == DirectModelSource.device &&
         profile?.supportsOllamaModelLifecycle == true;
-    final cloudOllama =
-        binding?.adapterKey == kOllamaAdapterKey &&
-        binding?.source == DirectModelSource.device &&
-        profile?.isOllamaCloud == true;
     final lifecycle = lifecycleEnabled
         ? ref.watch(ollamaModelLifecycleProvider(binding!.profileId))
         : null;
@@ -406,7 +410,7 @@ class _ModelGroup extends ConsumerWidget {
             isPinned: isPinned,
             isLoaded: isLoaded,
             iconUrl: resolveModelIconUrlForModel(api, model),
-            trailing: (lifecycleEnabled || cloudOllama) && profile != null
+            trailing: lifecycleEnabled && profile != null
                 ? OllamaModelActionsButton(
                     profileId: binding!.profileId,
                     remoteModelId: remoteModelId,
@@ -416,7 +420,7 @@ class _ModelGroup extends ConsumerWidget {
                     isBusy: isBusy,
                     currentKeepAlive: profile.ollamaKeepAliveFor(remoteModelId),
                     supportsLifecycle: lifecycleEnabled,
-                    isCloud: cloudOllama,
+                    isCloud: false,
                     currentThinking: profile.ollamaThinkingFor(remoteModelId),
                   )
                 : null,
@@ -471,11 +475,21 @@ class _ActionCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: context.conduitTheme.bodyLarge),
+              Text(
+                title,
+                style: AppTypography.bodyLargeStyle.copyWith(
+                  fontSize: 16,
+                  height: 1.35,
+                  fontWeight: FontWeight.w500,
+                  color: context.conduitTheme.textPrimary,
+                ),
+              ),
               if (subtitle != null)
                 Text(
                   subtitle!,
-                  style: context.conduitTheme.bodyMedium?.copyWith(
+                  style: AppTypography.bodyMediumStyle.copyWith(
+                    fontSize: 14,
+                    height: 1.35,
                     color: context.conduitTheme.buttonPrimary,
                   ),
                 ),

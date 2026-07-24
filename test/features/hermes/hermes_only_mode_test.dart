@@ -817,6 +817,108 @@ void main() {
     }
 
     test(
+      'direct-only defaultModel honors the configured direct model',
+      () async {
+        final profile = DirectConnectionProfile(
+          id: 'direct-profile',
+          name: 'Direct provider',
+          adapterKey: 'ollama',
+          baseUrl: 'http://localhost:11434',
+        );
+        final registry = DirectModelRegistry();
+        final directModels = registry.replaceProfileModels(profile, [
+          DirectRemoteModel(id: 'first-model'),
+          DirectRemoteModel(id: 'preferred-model'),
+        ]);
+        final preferredModel = directModels.last;
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            authStateManagerProvider.overrideWith(
+              () => _FakeAuthStateManager(AuthStatus.unauthenticated),
+            ),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.direct),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            appSettingsProvider.overrideWithValue(
+              AppSettings(defaultModel: preferredModel.id),
+            ),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _CachedOpenWebUiStorage(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_disabledHermes),
+            ),
+            directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              () => _FixedDirectDiscovery(directModels),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(authStateManagerProvider.future);
+        await container.read(directModelDiscoveryProvider.future);
+        container.read(selectedModelProvider.notifier).set(directModels.first);
+        container.read(isManualModelSelectionProvider.notifier).set(false);
+
+        final selected = await container.read(defaultModelProvider.future);
+
+        check(selected).identicalTo(preferredModel);
+        check(
+          container.read(selectedModelProvider),
+        ).identicalTo(preferredModel);
+      },
+    );
+
+    test(
+      'direct-only cold selection starts on the configured direct model',
+      () async {
+        final profile = DirectConnectionProfile(
+          id: 'direct-profile',
+          name: 'Direct provider',
+          adapterKey: 'ollama',
+          baseUrl: 'http://localhost:11434',
+        );
+        final registry = DirectModelRegistry();
+        final directModels = registry.replaceProfileModels(profile, [
+          DirectRemoteModel(id: 'first-model'),
+          DirectRemoteModel(id: 'preferred-model'),
+        ]);
+        final preferredModel = directModels.last;
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            authStateManagerProvider.overrideWith(
+              () => _FakeAuthStateManager(AuthStatus.unauthenticated),
+            ),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.direct),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            appSettingsProvider.overrideWithValue(
+              AppSettings(defaultModel: preferredModel.id),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_disabledHermes),
+            ),
+            directModelRegistryProvider.overrideWithValue(registry),
+            directModelDiscoveryProvider.overrideWith(
+              () => _FixedDirectDiscovery(directModels),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(authStateManagerProvider.future);
+        await container.read(directModelDiscoveryProvider.future);
+
+        check(
+          container.read(selectedModelProvider),
+        ).identicalTo(preferredModel);
+      },
+    );
+
+    test(
       'auth refresh preserves OWUI selection until terminal local fallback',
       () async {
         final workerManager = WorkerManager();

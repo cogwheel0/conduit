@@ -11,6 +11,7 @@ import '../../features/chat/providers/reasoning_effort_provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 import '../models/model.dart';
+import '../models/tool.dart';
 import '../network/image_header_utils.dart';
 import '../providers/app_providers.dart';
 import '../../features/hermes/models/hermes_model.dart';
@@ -728,10 +729,12 @@ class NativeSheetHydrationService {
   ) async {
     try {
       final platformBrightness = MediaQuery.platformBrightnessOf(context);
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
       final modelsFuture = _ref.read(modelsProvider.future);
-      final toolsFuture = _ref.read(toolsListProvider.future);
       final models = await modelsFuture;
-      final tools = await toolsFuture;
+      final tools = hasOpenWebUiAccount
+          ? await _ref.read(toolsListProvider.future)
+          : const <Tool>[];
       if (!context.mounted) return;
 
       final appSettings = _ref.read(appSettingsProvider);
@@ -843,12 +846,13 @@ class NativeSheetHydrationService {
               subtitle: defaultModelSubtitle,
               sfSymbol: 'wand.and.stars',
             ),
-            NativeSheetItemConfig(
-              id: 'quick-pills',
-              title: quickActionsTitle,
-              subtitle: quickPillsSubtitle,
-              sfSymbol: 'bolt.fill',
-            ),
+            if (hasOpenWebUiAccount)
+              NativeSheetItemConfig(
+                id: 'quick-pills',
+                title: quickActionsTitle,
+                subtitle: quickPillsSubtitle,
+                sfSymbol: 'bolt.fill',
+              ),
             NativeSheetItemConfig(
               id: 'send-on-enter',
               title: l10n.sendOnEnter,
@@ -865,12 +869,13 @@ class NativeSheetHydrationService {
               kind: NativeSheetItemKind.toggle,
               value: appSettings.temporaryChatByDefault,
             ),
-            NativeSheetItemConfig(
-              id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
-              subtitle: advancedPromptSubtitle,
-              sfSymbol: 'cube.box.fill',
-            ),
+            if (hasOpenWebUiAccount)
+              NativeSheetItemConfig(
+                id: 'advanced-prompt-overrides',
+                title: l10n.advancedPromptOverrides,
+                subtitle: advancedPromptSubtitle,
+                sfSymbol: 'cube.box.fill',
+              ),
           ],
         ),
         detailSheets: [
@@ -880,18 +885,20 @@ class NativeSheetHydrationService {
             title: l10n.defaultModel,
             subtitle: l10n.autoSelectDescription,
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'quick-pills',
-            title: quickActionsTitle,
-            subtitle: quickPillsSubtitle,
-          ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'advanced-prompt-overrides',
-            title: l10n.advancedPromptOverrides,
-            subtitle: l10n.advancedPromptOverridesDescription,
-          ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'quick-pills',
+              title: quickActionsTitle,
+              subtitle: quickPillsSubtitle,
+            ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: l10n.advancedPromptOverridesDescription,
+            ),
         ],
       );
 
@@ -990,10 +997,12 @@ class NativeSheetHydrationService {
   ) async {
     try {
       final platformBrightness = MediaQuery.platformBrightnessOf(context);
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
       final modelsFuture = _ref.read(modelsProvider.future);
-      final toolsFuture = _ref.read(toolsListProvider.future);
       final models = await modelsFuture;
-      final tools = await toolsFuture;
+      final tools = hasOpenWebUiAccount
+          ? await _ref.read(toolsListProvider.future)
+          : const <Tool>[];
       if (!context.mounted) return;
       final appSettings = _ref.read(appSettingsProvider);
       final themeMode = _ref.read(appThemeModeProvider);
@@ -1065,12 +1074,13 @@ class NativeSheetHydrationService {
               subtitle: transportNavLabel,
               sfSymbol: 'bubble.left.and.bubble.right.fill',
             ),
-            NativeSheetItemConfig(
-              id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
-              subtitle: advancedPromptSubtitle,
-              sfSymbol: 'cube.box.fill',
-            ),
+            if (hasOpenWebUiAccount)
+              NativeSheetItemConfig(
+                id: 'advanced-prompt-overrides',
+                title: l10n.advancedPromptOverrides,
+                subtitle: advancedPromptSubtitle,
+                sfSymbol: 'cube.box.fill',
+              ),
             if (socketService != null)
               NativeSheetItemConfig(
                 id: 'socket-health',
@@ -1117,12 +1127,13 @@ class NativeSheetHydrationService {
                     ),
                 ],
               ),
-              NativeSheetItemConfig(
-                id: 'quick-pills',
-                title: quickActionsTitle,
-                subtitle: quickPillsSubtitle,
-                sfSymbol: 'bolt.fill',
-              ),
+              if (hasOpenWebUiAccount)
+                NativeSheetItemConfig(
+                  id: 'quick-pills',
+                  title: quickActionsTitle,
+                  subtitle: quickPillsSubtitle,
+                  sfSymbol: 'bolt.fill',
+                ),
             ],
           ),
           NativeSheetDetailConfig(
@@ -1141,12 +1152,13 @@ class NativeSheetHydrationService {
               ),
             ],
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'quick-pills',
-            title: quickActionsTitle,
-            subtitle: quickPillsSubtitle,
-          ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'quick-pills',
+              title: quickActionsTitle,
+              subtitle: quickPillsSubtitle,
+            ),
           NativeSheetDetailConfig(
             id: 'app-chat-settings',
             title: l10n.chatSettings,
@@ -1206,12 +1218,13 @@ class NativeSheetHydrationService {
               ),
             ],
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'advanced-prompt-overrides',
-            title: l10n.advancedPromptOverrides,
-            subtitle: l10n.advancedPromptOverridesDescription,
-          ),
+          if (hasOpenWebUiAccount)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'advanced-prompt-overrides',
+              title: l10n.advancedPromptOverrides,
+              subtitle: l10n.advancedPromptOverridesDescription,
+            ),
           if (socketService != null)
             NativeSheetDetailConfig(
               id: 'socket-health',

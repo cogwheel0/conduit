@@ -234,6 +234,26 @@ void main() {
     check(find.byIcon(Icons.check).evaluate()).isEmpty();
   });
 
+  testWidgets('model selector uses a readable primary label size', (
+    tester,
+  ) async {
+    const model = Model(id: 'direct:home:model', name: 'Local model');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModelListTile(model: model, isSelected: false, onTap: _noop),
+        ),
+      ),
+    );
+
+    final label = tester.widget<Text>(find.text('Local model'));
+    check(label.style?.fontSize).equals(16);
+    check(label.style?.height).equals(1.35);
+  });
+
   testWidgets('management content shows profiles and history policy', (
     tester,
   ) async {

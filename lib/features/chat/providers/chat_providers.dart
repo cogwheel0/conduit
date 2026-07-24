@@ -6106,8 +6106,15 @@ resolveChatFeatureDefaultsForTest({
 
 final _chatFeatureDefaultsProvider = Provider<_ChatFeatureDefaults>((ref) {
   final appSettings = ref.watch(appSettingsProvider);
-  final userSettings = ref.watch(rawUserSettingsProvider).asData?.value;
   final selectedModel = ref.watch(selectedModelProvider);
+  final directBinding = selectedModel == null
+      ? null
+      : ref.watch(directModelRegistryProvider).resolve(selectedModel);
+  // Device-owned direct models have no OpenWebUI user settings. Their
+  // feature defaults come only from local app preferences and model metadata.
+  final userSettings = directBinding?.source == DirectModelSource.device
+      ? null
+      : ref.watch(rawUserSettingsProvider).asData?.value;
   return _resolveChatFeatureDefaults(
     appSettings: appSettings,
     userSettings: userSettings,

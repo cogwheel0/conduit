@@ -14,6 +14,7 @@ import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
 import '../../hermes/providers/hermes_providers.dart';
 import '../../auth/providers/unified_auth_providers.dart';
@@ -92,6 +93,8 @@ class ProfilePage extends ConsumerWidget {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = _topContentPadding(context);
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
+    final directPrimary =
+        ref.watch(preferredBackendProvider) == PreferredBackend.direct;
     final hasOpenWebUiAccount = userData != null && api != null;
     final items = _buildSettingsItems(
       context,
@@ -99,6 +102,7 @@ class ProfilePage extends ConsumerWidget {
       userData: userData,
       api: api,
       hermesOnly: hermesOnly,
+      directPrimary: directPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
     return ListView(
@@ -346,6 +350,7 @@ class ProfilePage extends ConsumerWidget {
     required dynamic userData,
     required ApiService? api,
     required bool hermesOnly,
+    required bool directPrimary,
     required bool hasOpenWebUiAccount,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -394,7 +399,7 @@ class ProfilePage extends ConsumerWidget {
           subtitle: l10n.notificationsSubtitle,
           onTap: () => context.pushNamed(RouteNames.notificationSettings),
         ),
-      if (hasOpenWebUiAccount)
+      if (hasOpenWebUiAccount || directPrimary)
         _buildAccountOption(
           context,
           icon: UiUtils.platformIcon(

@@ -78,7 +78,8 @@ bool isDirectConnectionsLocation(String location) {
 /// App-local surfaces available when direct APIs are the primary backend.
 @visibleForTesting
 bool isDirectOnlyAppLocation(String location) =>
-    _isAccountlessBackendLocation(location);
+    _isAccountlessBackendLocation(location) ||
+    location == Routes.personalization;
 
 @visibleForTesting
 String incompleteHermesDestination({
@@ -388,7 +389,12 @@ class RouterNotifier extends ChangeNotifier {
 
   String? _accountlessOrAuthRedirect(String location) {
     if (_isAuthLocation(location)) return null;
-    return _isAccountlessBackendLocation(location) ? null : Routes.chat;
+    final prefersDirect =
+        ref.read(preferredBackendProvider) == PreferredBackend.direct;
+    final isAllowed = prefersDirect
+        ? isDirectOnlyAppLocation(location)
+        : isHermesOnlyAppLocation(location);
+    return isAllowed ? null : Routes.chat;
   }
 
   @override

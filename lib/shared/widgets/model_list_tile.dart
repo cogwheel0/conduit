@@ -258,7 +258,9 @@ class ModelListTile extends StatelessWidget {
                   children: [
                     Text(
                       isAutoSelect ? l10n.autoSelect : model.name,
-                      style: AppTypography.bodyMediumStyle.copyWith(
+                      style: AppTypography.bodyLargeStyle.copyWith(
+                        fontSize: 16,
+                        height: 1.35,
                         color: isSelected
                             ? theme.textPrimary
                             : theme.textSecondary,

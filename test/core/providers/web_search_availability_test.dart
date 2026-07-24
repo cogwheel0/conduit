@@ -300,6 +300,32 @@ void main() {
       ).isFalse();
     });
 
+    test('local direct models never inherit Open WebUI web search', () async {
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'local-ollama',
+          name: 'Local Ollama',
+          adapterKey: kOllamaAdapterKey,
+          baseUrl: 'http://localhost:11434',
+        ),
+        [DirectRemoteModel(id: 'llama3')],
+      ).single;
+      final container = _container(
+        const AsyncData<Map<String, dynamic>>({
+          'features': {'web_search': true},
+        }),
+        backendConfig: const BackendConfig(enableWebSearch: true),
+        selectedModel: model,
+        directModelRegistry: registry,
+      );
+      addTearDown(container.dispose);
+
+      await container.read(backendConfigProvider.future);
+
+      check(container.read(webSearchAvailableProvider)).isFalse();
+    });
+
     test('admin bypasses explicit false permission', () async {
       final container = _container(
         const AsyncData<Map<String, dynamic>>({
