@@ -295,6 +295,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
         break;
+      case NativeSheetControlChanged(
+        id: 'sign-out',
+        value: final bool keepServerDetails,
+      ):
+        unawaited(
+          _handleNativeSheetLogoutRequested(
+            keepServerDetails: keepServerDetails,
+          ),
+        );
       case NativeSheetControlChanged():
         _nativeSheetControlQueue = _nativeSheetControlQueue.then(
           (_) => _handleNativeSheetControlChanged(event),
@@ -308,19 +317,24 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     }
   }
 
-  Future<void> _handleNativeSheetLogoutRequested() async {
+  Future<void> _handleNativeSheetLogoutRequested({
+    bool? keepServerDetails,
+  }) async {
     try {
-      final navigatorContext = NavigationService.context;
-      if (navigatorContext == null) {
-        throw StateError('Native sign-out navigator is unavailable.');
+      var resolvedKeepServerDetails = keepServerDetails;
+      if (resolvedKeepServerDetails == null) {
+        final navigatorContext = NavigationService.context;
+        if (navigatorContext == null) {
+          throw StateError('Native sign-out navigator is unavailable.');
+        }
+        resolvedKeepServerDetails = await showSignOutOptionsDialog(
+          navigatorContext,
+        );
       }
-      final keepServerDetails = await showSignOutOptionsDialog(
-        navigatorContext,
-      );
-      if (!mounted || keepServerDetails == null) return;
+      if (!mounted || resolvedKeepServerDetails == null) return;
       await ref
           .read(signOutCoordinatorProvider)
-          .signOut(keepServerDetails: keepServerDetails);
+          .signOut(keepServerDetails: resolvedKeepServerDetails);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'native-sign-out-failed',

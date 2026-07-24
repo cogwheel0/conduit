@@ -79,6 +79,55 @@ void main() {
     check(item.toMap()['iconAsset']).equals('assets/icons/hermes_agent.png');
   });
 
+  test('sign-out item serializes native checkbox copy', () {
+    const item = NativeSheetItemConfig(
+      id: 'sign-out',
+      title: 'Sign Out',
+      subtitle: 'End your session',
+      placeholder: 'Clears preferences and connections.',
+      destructive: true,
+      options: [
+        NativeSheetOptionConfig(
+          id: 'keep-server-details',
+          label: 'Keep server details',
+          subtitle: 'Tokens are deleted',
+        ),
+      ],
+    );
+
+    final payload = item.toMap();
+    check(payload['placeholder']).equals('Clears preferences and connections.');
+    check(payload['destructive']).equals(true);
+    check(payload['options'] as List<Object?>).deepEquals([
+      {
+        'id': 'keep-server-details',
+        'label': 'Keep server details',
+        'subtitle': 'Tokens are deleted',
+        'sfSymbol': null,
+        'enabled': true,
+        'destructive': false,
+        'ancestorHasMoreSiblings': <bool>[],
+        'showBranch': false,
+        'hasMoreSiblings': false,
+      },
+    ]);
+  });
+
+  test('native sign-out publishes the selected retention value', () async {
+    final event = NativeSheetBridge.instance.events
+        .where((event) => event is NativeSheetControlChanged)
+        .cast<NativeSheetControlChanged>()
+        .first;
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(id: 'sign-out', value: false),
+    );
+
+    final signOut = await event;
+    check(signOut.id).equals('sign-out');
+    check(signOut.value).equals(false);
+  });
+
   test('profile menu propagates item metadata to platform', () async {
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     final messenger =

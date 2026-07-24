@@ -1968,9 +1968,7 @@ final class NativeSheetBridge: NativeSheetHostApi {
         }
 
         if item.id == "sign-out" {
-            dismissActive { [weak self] in
-                self?.flutterApi?.onLogoutRequested { _ in }
-            }
+            presentSignOutOptions(for: item)
             return
         }
 
@@ -2019,6 +2017,41 @@ final class NativeSheetBridge: NativeSheetHostApi {
         sendControlChanged(id: item.id, value: item.value ?? true)
     }
 
+    private func presentSignOutOptions(for item: NativeSheetItem) {
+        guard let presenter = activeNavigationController?.visibleViewController else {
+            return
+        }
+        let option = item.options.first
+        let controller = NativeSignOutOptionsViewController(
+            title: item.title,
+            message: item.placeholder ?? item.subtitle,
+            optionTitle: option?.label
+                ?? nativeLocalized("native.keepServerDetails", "Keep server details"),
+            optionSubtitle: option?.subtitle,
+            cancelTitle: configuration?.editProfileSheet.cancelLabel
+                ?? nativeLocalized("native.cancel", "Cancel"),
+            confirmTitle: item.title,
+            onConfirm: { [weak self] keepServerDetails in
+                self?.dismissActive { [weak self] in
+                    self?.sendControlChanged(
+                        id: item.id,
+                        value: keepServerDetails
+                    )
+                }
+            }
+        )
+        let navigation = NativeSheetNavigationController(
+            rootViewController: controller
+        )
+        navigation.modalPresentationStyle = .pageSheet
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.medium()]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+        }
+        presenter.present(navigation, animated: true)
+    }
+
     private func presentDestructiveConfirm(for item: NativeSheetItem) {
         guard let presenter = activeNavigationController?.visibleViewController else {
             switch activeSheetMode {
@@ -2043,11 +2076,6 @@ final class NativeSheetBridge: NativeSheetHostApi {
             guard let self else { return }
             switch self.activeSheetMode {
             case .profileMenu:
-                if item.id == "sign-out" {
-                    self.dismissActive()
-                    self.flutterApi?.onLogoutRequested { _ in }
-                    return
-                }
                 self.sendControlChanged(id: item.id, value: true)
             case .resultSheet:
                 self.resolvePendingResultSheetAfterDismiss(
@@ -2892,6 +2920,157 @@ private final class NativeSheetNavigationController: UINavigationController {
         super.viewDidLoad()
         modalPresentationStyle = .pageSheet
         navigationBar.prefersLargeTitles = false
+    }
+}
+
+private final class NativeSignOutOptionsViewController: UITableViewController {
+    private let message: String?
+    private let optionTitle: String
+    private let optionSubtitle: String?
+    private let cancelTitle: String
+    private let confirmTitle: String
+    private let onConfirm: (Bool) -> Void
+    private var keepServerDetails = false
+
+    init(
+        title: String,
+        message: String?,
+        optionTitle: String,
+        optionSubtitle: String?,
+        cancelTitle: String,
+        confirmTitle: String,
+        onConfirm: @escaping (Bool) -> Void
+    ) {
+        self.message = message
+        self.optionTitle = optionTitle
+        self.optionSubtitle = optionSubtitle
+        self.cancelTitle = cancelTitle
+        self.confirmTitle = confirmTitle
+        self.onConfirm = onConfirm
+        super.init(style: .insetGrouped)
+        self.title = title
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 72
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: cancelTitle,
+            primaryAction: UIAction { [weak self] _ in
+                self?.dismiss(animated: true)
+            }
+        )
+        let confirmButton = UIBarButtonItem(
+            title: confirmTitle,
+            primaryAction: UIAction { [weak self] _ in
+                self?.confirm()
+            }
+        )
+        confirmButton.tintColor = .systemRed
+        confirmButton.accessibilityIdentifier = "sign-out-confirm"
+        navigationItem.rightBarButtonItem = confirmButton
+        configureHeader()
+    }
+
+    private func configureHeader() {
+        guard let message, !message.isEmpty else { return }
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        label.text = message
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = UIView()
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(
+                equalTo: container.layoutMarginsGuide.leadingAnchor
+            ),
+            label.trailingAnchor.constraint(
+                equalTo: container.layoutMarginsGuide.trailingAnchor
+            ),
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        ])
+        tableView.tableHeaderView = container
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let header = tableView.tableHeaderView else { return }
+        let target = CGSize(
+            width: tableView.bounds.width,
+            height: UIView.layoutFittingCompressedSize.height
+        )
+        let height = header.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        if abs(header.frame.height - height) > 0.5 {
+            header.frame.size.height = height
+            tableView.tableHeaderView = header
+        }
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        1
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        numberOfRowsInSection section: Int
+    ) -> Int {
+        1
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        cellForRowAt indexPath: IndexPath
+    ) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        var content = cell.defaultContentConfiguration()
+        content.text = optionTitle
+        content.secondaryText = optionSubtitle
+        content.secondaryTextProperties.numberOfLines = 0
+        content.image = UIImage(
+            systemName: keepServerDetails
+                ? "checkmark.square.fill"
+                : "square"
+        )
+        content.imageProperties.tintColor = keepServerDetails
+            ? view.tintColor
+            : .secondaryLabel
+        cell.contentConfiguration = content
+        cell.selectionStyle = .default
+        cell.accessibilityIdentifier = "sign-out-keep-server-details"
+        cell.accessibilityTraits = keepServerDetails
+            ? [.button, .selected]
+            : [.button]
+        return cell
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        didSelectRowAt indexPath: IndexPath
+    ) {
+        keepServerDetails.toggle()
+        tableView.reloadRows(at: [indexPath], with: .none)
+    }
+
+    private func confirm() {
+        let selection = keepServerDetails
+        dismiss(animated: true) { [onConfirm] in
+            onConfirm(selection)
+        }
     }
 }
 
