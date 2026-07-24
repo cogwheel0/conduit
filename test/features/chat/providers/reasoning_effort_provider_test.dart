@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -43,9 +44,11 @@ void main() {
 
     await setReasoningEffortForModel(container.read, models.last, 'high');
 
-    expect(reasoningEffortForModel(container.read, models.first), 'automatic');
-    expect(reasoningEffortForModel(container.read, models.last), 'high');
-    expect(container.read(selectedModelProvider), same(models.first));
+    check(
+      reasoningEffortForModel(container.read, models.first),
+    ).equals('automatic');
+    check(reasoningEffortForModel(container.read, models.last)).equals('high');
+    check(container.read(selectedModelProvider)).identicalTo(models.first);
   });
 
   test(
@@ -61,9 +64,9 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      expect(container.read(localReasoningEffortsProvider), <String, String>{
-        'hermes:valid': 'high',
-      });
+      check(
+        container.read(localReasoningEffortsProvider),
+      ).deepEquals({'hermes:valid': 'high'});
     },
   );
 }
