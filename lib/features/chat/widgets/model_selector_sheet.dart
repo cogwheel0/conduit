@@ -122,6 +122,11 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
     }
   }
 
@@ -145,14 +150,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more
-        .where((model) {
-          if (normalizedQuery.isEmpty) return true;
-          return model.name.toLowerCase().contains(normalizedQuery) ||
-              model.id.toLowerCase().contains(normalizedQuery) ||
-              model.modelTags.any(
-                (tag) => tag.toLowerCase().contains(normalizedQuery),
-              );
-        })
+        .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
         .toList(growable: false);
     final l10n = AppLocalizations.of(context)!;
 
@@ -263,6 +261,17 @@ String _effortLabel(AppLocalizations l10n, String effort) => switch (effort) {
   'max' => l10n.reasoningEffortMaximum,
   _ => effort,
 };
+
+@visibleForTesting
+bool modelSelectorQueryMatches(Model model, String query) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty) return true;
+  final directSource = directModelSourceLabel(model)?.toLowerCase();
+  return model.name.toLowerCase().contains(normalizedQuery) ||
+      model.id.toLowerCase().contains(normalizedQuery) ||
+      (directSource?.contains(normalizedQuery) ?? false) ||
+      model.modelTags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
+}
 
 class _SelectorHeader extends StatelessWidget {
   const _SelectorHeader({

@@ -131,4 +131,33 @@ void main() {
       (profileId: 'ollama-profile', modelId: 'model-a', setting: 'high'),
     ]);
   });
+
+  test('Ollama profile hydration failure propagates to the caller', () async {
+    final profile = DirectConnectionProfile(
+      id: 'ollama-profile',
+      name: 'Ollama',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'https://ollama.com',
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model-a'),
+    ]).single;
+    final pending = Completer<List<DirectConnectionProfile>>();
+    final profiles = _PendingProfiles(pending);
+    final container = ProviderContainer(
+      overrides: [
+        directModelRegistryProvider.overrideWithValue(registry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final write = setReasoningEffortForModel(container.read, model, 'high');
+    pending.completeError(StateError('profile storage unavailable'));
+
+    await check(write).throws<StateError>();
+    check(container.read(localReasoningEffortsProvider)).isEmpty();
+    check(profiles.writes).isEmpty();
+  });
 }

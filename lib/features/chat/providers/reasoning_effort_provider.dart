@@ -196,12 +196,7 @@ Future<void> setReasoningEffortForModel(
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
     if (binding.adapterKey == kOllamaAdapterKey) {
-      late final List<DirectConnectionProfile> profiles;
-      try {
-        profiles = await read(directConnectionProfilesProvider.future);
-      } catch (_) {
-        return;
-      }
+      final profiles = await read(directConnectionProfilesProvider.future);
       final profile = profiles
           .where(
             (candidate) =>
@@ -210,7 +205,9 @@ Future<void> setReasoningEffortForModel(
                 candidate.adapterKey == kOllamaAdapterKey,
           )
           .firstOrNull;
-      if (profile == null) return;
+      if (profile == null) {
+        throw StateError('Ollama connection is unavailable.');
+      }
       await read(directConnectionProfilesProvider.notifier).setOllamaThinking(
         binding.profileId,
         binding.remoteModelId,
