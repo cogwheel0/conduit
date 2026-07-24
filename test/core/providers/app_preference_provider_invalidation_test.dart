@@ -81,6 +81,7 @@ void main() {
 
     check(container.read(reviewerModeProvider)).isFalse();
     await Future<void>.delayed(Duration.zero);
+    verify(() => storage.getReviewerMode()).called(1);
 
     await container.read(reviewerModeProvider.notifier).setEnabled(true);
     staleLoad.complete(false);
