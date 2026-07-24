@@ -1032,8 +1032,9 @@ class MediaUploadController {
           onLocalOwnershipAcquired?.call(inflight);
           _captureCurrentAttachment(filePath, inflight);
           _throwIfOperationNotActive(filePath, inflight);
-          await _prepareDirectImage(
+          await _prepareDirectAttachment(
             filePath: filePath,
+            fileName: fileName,
             isImage: isImage,
             selectedModelSupportsImages: currentModel.isMultimodal == true,
             inflight: inflight,
@@ -1515,20 +1516,62 @@ class MediaUploadController {
     await completer.future;
   }
 
-  Future<void> _prepareDirectImage({
+  Future<void> _prepareDirectAttachment({
     required String filePath,
+    required String fileName,
     required bool isImage,
     required bool selectedModelSupportsImages,
     required _InflightUpload inflight,
   }) async {
+    if (!isImage) {
+      if (!isDirectLocalDocumentFileNameSupported(fileName)) {
+        throw const DirectChatInputException(
+          'Direct chats support local UTF-8 text and DOCX documents.',
+        );
+      }
+      final attachments = _ref.read(attachedFilesProvider);
+      final documentPaths = <String>{
+        for (final attachment in attachments)
+          if (attachment.isImage != true &&
+              attachment.status != FileUploadStatus.failed)
+            attachment.file.path,
+        filePath,
+      };
+      if (documentPaths.length > kDirectMaxLocalDocuments) {
+        throw const DirectChatInputException(
+          'Direct chats support up to 4 local documents per message.',
+        );
+      }
+      final file = File(filePath);
+      final stat = await file.stat();
+      _throwIfOperationNotActive(filePath, inflight);
+      if (stat.size > kDirectMaxLocalDocumentBytes) {
+        throw const DirectChatInputException(
+          'This document exceeds the Direct local-document size limit.',
+        );
+      }
+      final opaqueId = sha256
+          .convert(
+            utf8.encode(
+              '$filePath\u0000${stat.size}\u0000'
+              '${stat.modified.microsecondsSinceEpoch}',
+            ),
+          )
+          .toString();
+      _updatePreparedDirectState(
+        filePath: filePath,
+        fileName: fileName,
+        fileSize: stat.size,
+        fileId: '$kDirectLocalDocumentAttachmentPrefix$opaqueId',
+        isImage: false,
+        inflight: inflight,
+      );
+      return;
+    }
+
     if (!selectedModelSupportsImages) {
       throw const DirectChatInputException(
         'This direct model does not support image attachments.',
-      );
-    }
-    if (!isImage) {
-      throw const DirectChatInputException(
-        'Direct chats support image attachments only.',
       );
     }
 
@@ -1587,24 +1630,46 @@ class MediaUploadController {
 
     final existing = _ownedAttachment(filePath, inflight);
     if (existing != null) {
-      _updateAttachmentIfOwned(
-        filePath,
-        inflight,
-        FileUploadState(
-          file: existing.file,
-          fileName: existing.fileName,
-          fileSize: decodedBytes,
-          progress: 1,
-          status: FileUploadStatus.completed,
-          fileId: dataUrl,
-          isImage: true,
-          base64DataUrl: dataUrl,
-        ),
+      _updatePreparedDirectState(
+        filePath: filePath,
+        fileName: existing.fileName,
+        fileSize: decodedBytes,
+        fileId: dataUrl,
+        isImage: true,
+        base64DataUrl: dataUrl,
+        inflight: inflight,
       );
     }
     // Keep the local staging file composer-owned until removal/clear. Eager
     // deletion from this async continuation cannot be made atomic with a user
     // cancelling and re-staging different bytes at the exact same pathname.
+  }
+
+  void _updatePreparedDirectState({
+    required String filePath,
+    required String fileName,
+    required int fileSize,
+    required String fileId,
+    required bool isImage,
+    required _InflightUpload inflight,
+    String? base64DataUrl,
+  }) {
+    final existing = _ownedAttachment(filePath, inflight);
+    if (existing == null) return;
+    _updateAttachmentIfOwned(
+      filePath,
+      inflight,
+      FileUploadState(
+        file: existing.file,
+        fileName: fileName,
+        fileSize: fileSize,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: fileId,
+        isImage: isImage,
+        base64DataUrl: base64DataUrl,
+      ),
+    );
   }
 
   Future<void> _prepareHermesAttachment({

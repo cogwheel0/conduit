@@ -10,7 +10,12 @@ String normalizeOllamaKeepAlive(String value) {
   }
 
   final seconds = int.tryParse(normalized);
-  if (seconds != null) return seconds.toString();
+  if (seconds != null) {
+    if (BigInt.from(seconds).abs() > _maxGoDurationNanoseconds ~/ _billion) {
+      throw const FormatException('Ollama keep-alive value is out of range.');
+    }
+    return seconds.toString();
+  }
 
   final durationPattern = RegExp(
     r'^-?(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$',
@@ -18,7 +23,38 @@ String normalizeOllamaKeepAlive(String value) {
   if (!durationPattern.hasMatch(normalized)) {
     throw const FormatException('Ollama keep-alive value is invalid.');
   }
+  _validateGoDurationRange(normalized);
   return normalized;
+}
+
+final BigInt _maxGoDurationNanoseconds = BigInt.parse('9223372036854775807');
+final BigInt _billion = BigInt.from(1000000000);
+final Map<String, BigInt> _goDurationUnitNanoseconds = <String, BigInt>{
+  'ns': BigInt.one,
+  'us': BigInt.from(1000),
+  'µs': BigInt.from(1000),
+  'ms': BigInt.from(1000000),
+  's': _billion,
+  'm': BigInt.from(60) * _billion,
+  'h': BigInt.from(3600) * _billion,
+};
+final RegExp _goDurationSegment = RegExp(r'(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)');
+
+void _validateGoDurationRange(String value) {
+  var totalNanoseconds = BigInt.zero;
+  final unsigned = value.startsWith('-') ? value.substring(1) : value;
+  for (final match in _goDurationSegment.allMatches(unsigned)) {
+    final number = match.group(1)!;
+    final unitScale = _goDurationUnitNanoseconds[match.group(2)!]!;
+    final dot = number.indexOf('.');
+    final digits = dot < 0 ? number : number.replaceFirst('.', '');
+    final fractionalDigits = dot < 0 ? 0 : number.length - dot - 1;
+    final denominator = BigInt.from(10).pow(fractionalDigits);
+    totalNanoseconds += (BigInt.parse(digits) * unitScale) ~/ denominator;
+    if (totalNanoseconds > _maxGoDurationNanoseconds) {
+      throw const FormatException('Ollama keep-alive value is out of range.');
+    }
+  }
 }
 
 /// Converts a persisted value into the native JSON type expected by Ollama.

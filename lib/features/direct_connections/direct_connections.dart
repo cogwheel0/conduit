@@ -7,6 +7,7 @@ export 'services/direct_connection_profile_store.dart';
 export 'services/direct_adapter_helpers.dart';
 export 'services/direct_chat_bridge.dart';
 export 'services/direct_http_client.dart';
+export 'services/direct_local_document_service.dart';
 export 'services/direct_model_registry.dart';
 export 'services/direct_provider_adapter.dart';
 export 'services/direct_run_registry.dart';

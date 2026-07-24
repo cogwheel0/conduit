@@ -513,7 +513,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage> {
     final localizations = AppLocalizations.of(context)!;
     // Hermes-only mode hides every OpenWebUI surface; the Hermes tab is home.
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
-    final hasOpenWebUi = ref.watch(apiServiceProvider) != null;
+    final hasOpenWebUi = ref.watch(openWebUiAccountAvailableProvider);
     final hermesEnabled = ref.watch(hermesEnabledProvider);
     final notesEnabled =
         hasOpenWebUi && !hermesOnly && ref.watch(notesFeatureEnabledProvider);

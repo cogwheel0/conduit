@@ -72,18 +72,22 @@ bool directModelAcceptsImageInput(Model? model, DirectModelRegistry registry) {
 
 /// Restricts local file picking to what the selected transport can consume.
 ///
-/// OpenWebUI performs server-backed document ingestion, Hermes performs local
-/// bounded document extraction, and direct transports accept image payloads.
+/// OpenWebUI performs server-backed document ingestion, while Hermes and
+/// Direct perform bounded local extraction. Direct also accepts image payloads
+/// when the selected model advertises multimodal input.
 List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
   if (selectedModel == null) return null;
   if (isHermesModel(selectedModel)) {
     return kHermesLocalDocumentPickerExtensions;
   }
   if (hasReservedDirectIdentity(selectedModel)) {
-    return allSupportedImageFormats
-        .map((extension) => extension.substring(1))
-        .toList(growable: false)
-      ..sort();
+    final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
+    if (selectedModel.isMultimodal == true) {
+      extensions.addAll(
+        allSupportedImageFormats.map((extension) => extension.substring(1)),
+      );
+    }
+    return extensions.toList(growable: false)..sort();
   }
   return null;
 }

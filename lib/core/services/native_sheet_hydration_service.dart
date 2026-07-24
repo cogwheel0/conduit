@@ -110,23 +110,23 @@ class NativeSheetHydrationService {
           : List<Model>.of(pickerModels, growable: false);
       final canTogglePinnedModels =
           allowsPinning && _ref.read(canTogglePinnedModelsProvider);
-      final defaultModelId =
-          _ref
-              .read(personalizationSettingsProvider)
-              .asData
-              ?.value
-              .defaultModelId ??
-          _ref.read(appSettingsProvider).defaultModel;
+      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
+      final localDefaultModelId = _ref.read(appSettingsProvider).defaultModel;
+      final defaultModelId = hasOpenWebUiAccount
+          ? _ref
+                    .read(personalizationSettingsProvider)
+                    .asData
+                    ?.value
+                    .defaultModelId ??
+                localDefaultModelId
+          : localDefaultModelId;
       final layout = buildModelSelectorLayout(
         models: orderedModels,
         pinnedModelIds: pinnedModelIds,
         defaultModelId: defaultModelId,
       );
       final allowsCustomEffort = _ref.read(reasoningEffortAllowsCustomProvider);
-      final effortOptions = <String>[
-        ...kStandardReasoningEfforts,
-        if (!allowsCustomEffort) 'max',
-      ];
+      final effortOptions = <String>[...kReasoningEffortOptions];
 
       final modelOptions = [
         ...leadingOptions,
@@ -162,7 +162,10 @@ class NativeSheetHydrationService {
         title: title,
         selectedModelId: selectedModelId,
         pinnedModelIds: pinnedModelIds,
-        featuredModelIds: layout.featured.map((model) => model.id).toList(),
+        featuredModelIds: <String>[
+          ...leadingOptions.map((option) => option.id),
+          ...layout.featured.map((model) => model.id),
+        ],
         pinTitle: allowsPinning ? l10n?.pin : null,
         unpinTitle: allowsPinning ? l10n?.unpin : null,
         moreModelsTitle: l10n?.moreModels ?? 'More models',
@@ -171,6 +174,8 @@ class NativeSheetHydrationService {
         reasoningEffortValue: _ref.read(reasoningEffortProvider),
         reasoningEffortOptions: effortOptions,
         reasoningEffortLabels: <String, String>{
+          kAutomaticReasoningEffort:
+              l10n?.ollamaThinkingAutomatic ?? 'Automatic',
           'low': l10n?.reasoningEffortLow ?? 'Low',
           'medium': l10n?.reasoningEffortMedium ?? 'Medium',
           'high': l10n?.reasoningEffortHigh ?? 'High',

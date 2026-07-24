@@ -571,6 +571,7 @@ final class OllamaAdapter
           final conversation = <Map<String, dynamic>>[
             for (final message in messages) _ollamaMessage(message).toJson(),
           ];
+          final webToolSession = OllamaCloudToolSession();
           var totalToolCalls = 0;
 
           for (var round = 0; round < kOllamaCloudMaxAgentRounds; round++) {
@@ -730,7 +731,7 @@ final class OllamaAdapter
             }
             final results = await Future.wait([
               for (final call in roundToolCalls)
-                executeOllamaCloudTool(
+                webToolSession.execute(
                   dio: dio,
                   name: call.name,
                   arguments: call.arguments,

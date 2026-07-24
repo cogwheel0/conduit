@@ -3,6 +3,7 @@ import '../../../core/services/direct_replay_output.dart';
 import '../../../core/services/semantic_message_builder.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/direct_completion.dart';
+import 'direct_local_document_service.dart';
 
 const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
@@ -110,6 +111,7 @@ List<Map<String, dynamic>>? directProviderReplayOutput({
 Future<List<DirectChatMessage>> buildDirectChatMessages({
   required Iterable<ChatMessage> messages,
   DirectImageResolver? resolveImage,
+  List<int>? directDocumentVerificationKey,
   int maxImages = kDirectMaxImages,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
@@ -187,7 +189,37 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     final parts = <DirectContentPart>[];
     final seenImages = <String>{};
     final seenImageReferences = <String>{};
-    final text = outboundProviderReplayText(message);
+    var text = outboundProviderReplayText(message);
+    if (role == 'user' && directDocumentVerificationKey != null) {
+      final documents = <DirectPreparedDocument>[];
+      for (final file in message.files ?? const <Map<String, dynamic>>[]) {
+        final document = trustedDirectDocumentFromDescriptor(
+          file,
+          verificationKey: directDocumentVerificationKey,
+        );
+        if (document != null) documents.add(document);
+      }
+      if (documents.length > kDirectMaxLocalDocuments) {
+        throw const DirectChatInputException(
+          'Direct chats support up to 4 local documents per message.',
+        );
+      }
+      final documentCharacters = documents.fold<int>(
+        0,
+        (total, document) => total + document.extractedText.runes.length,
+      );
+      if (documentCharacters > kDirectMaxLocalDocumentCharacters) {
+        throw const DirectChatInputException(
+          'The local document text exceeds the Direct prompt limit.',
+        );
+      }
+      if (documents.isNotEmpty) {
+        final references = documents
+            .map((document) => document.renderForPrompt())
+            .join('\n\n');
+        text = text.trim().isEmpty ? references : '$text\n\n$references';
+      }
+    }
     if (text.trim().isNotEmpty) parts.add(DirectTextPart(text));
 
     // Provider image inputs belong to user prompt messages. Persisted

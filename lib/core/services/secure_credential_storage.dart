@@ -410,8 +410,8 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Returns the durable device secret used to derive opaque Open WebUI
-  /// direct-connection record identities, creating it when needed.
+  /// Returns the durable device secret used for domain-separated Direct
+  /// identity authentication, creating it when needed.
   Future<List<int>> getOrCreateOpenWebUiDirectIdentityKey() {
     final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
       (_) => _loadOrCreateOpenWebUiDirectIdentityKey(),

@@ -107,17 +107,20 @@ final directConnectionProfileStoreProvider =
       );
     });
 
-/// Durable device secret used only to derive opaque server-record identities.
+/// Durable device secret used to authenticate app-owned Direct identities.
 ///
 /// The HMAC key is persisted only in platform secure storage and is held in
-/// memory while deriving identities. Open WebUI persists its provider-facing
-/// model id for server-backed chats, so this device-local key does not affect
-/// cross-device history/model rebinding.
-final openWebUiDirectIdentityKeyProvider = FutureProvider<List<int>>(
+/// memory while deriving domain-separated identities. Open WebUI persists its
+/// provider-facing model id for server-backed chats, so this device-local key
+/// does not affect cross-device history/model rebinding.
+final directDeviceTrustKeyProvider = FutureProvider<List<int>>(
   (ref) => SecureCredentialStorage(
     instance: ref.watch(secureStorageProvider),
   ).getOrCreateOpenWebUiDirectIdentityKey(),
 );
+
+/// Compatibility name retained for the Open WebUI record-identity callers.
+final openWebUiDirectIdentityKeyProvider = directDeviceTrustKeyProvider;
 
 /// Ephemeral Open WebUI profile source for the exact authenticated account.
 ///
@@ -405,11 +408,13 @@ class DirectConnectionProfilesController
       final profile = current
           .where(
             (item) =>
-                item.id == profileId && item.enabled && item.isOllamaCloud,
+                item.id == profileId &&
+                item.enabled &&
+                item.adapterKey == kOllamaAdapterKey,
           )
           .firstOrNull;
       if (profile == null) {
-        throw StateError('Ollama Cloud connection is unavailable.');
+        throw StateError('Ollama connection is unavailable.');
       }
       final settings = Map<String, String>.of(profile.ollamaThinkingByModel);
       if (setting == null) {

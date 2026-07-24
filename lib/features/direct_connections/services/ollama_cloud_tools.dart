@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/debug_logger.dart';
 import 'direct_adapter_helpers.dart';
@@ -64,45 +66,66 @@ final class OllamaCloudToolResult {
   String get toolMessageContent => jsonEncode(value);
 }
 
-Future<OllamaCloudToolResult> executeOllamaCloudTool({
-  required Dio dio,
-  required String name,
-  required Map<String, dynamic> arguments,
-  required CancelToken cancelToken,
-}) async {
-  try {
-    return switch (name) {
-      'web_search' => OllamaCloudToolResult(
-        value: await _webSearch(dio, arguments, cancelToken: cancelToken),
-      ),
-      'web_fetch' => OllamaCloudToolResult(
-        value: await _webFetch(dio, arguments, cancelToken: cancelToken),
-      ),
-      _ => OllamaCloudToolResult(
-        value: {'error': 'Tool "$name" is not available.'},
+/// Per-completion trust boundary for Ollama Cloud's autonomous web tools.
+///
+/// A fetch may use only an exact public URL returned by a search in this
+/// session. This prevents model-generated or prompt-injected content from
+/// adding chat data to a new destination between agent rounds.
+final class OllamaCloudToolSession {
+  final Set<String> _searchResultUrls = <String>{};
+
+  Future<OllamaCloudToolResult> execute({
+    required Dio dio,
+    required String name,
+    required Map<String, dynamic> arguments,
+    required CancelToken cancelToken,
+  }) async {
+    try {
+      return switch (name) {
+        'web_search' => OllamaCloudToolResult(
+          value: await _webSearch(
+            dio,
+            arguments,
+            allowedFetchUrls: _searchResultUrls,
+            cancelToken: cancelToken,
+          ),
+        ),
+        'web_fetch' => OllamaCloudToolResult(
+          value: await _webFetch(
+            dio,
+            arguments,
+            allowedFetchUrls: _searchResultUrls,
+            cancelToken: cancelToken,
+          ),
+        ),
+        _ => OllamaCloudToolResult(
+          value: {'error': 'Tool "$name" is not available.'},
+          isError: true,
+        ),
+      };
+    } on FormatException catch (error) {
+      return OllamaCloudToolResult(
+        value: {'error': error.message},
         isError: true,
-      ),
-    };
-  } on FormatException catch (error) {
-    return OllamaCloudToolResult(
-      value: {'error': error.message},
-      isError: true,
-    );
-  } catch (_) {
-    DebugLogger.warning(
-      'tool-call-failed',
-      scope: 'direct-connections/ollama-cloud',
-    );
-    return OllamaCloudToolResult(
-      value: {'error': 'Ollama Cloud could not complete this tool call.'},
-      isError: true,
-    );
+      );
+    } catch (error) {
+      if (error is DioException && CancelToken.isCancel(error)) rethrow;
+      DebugLogger.warning(
+        'tool-call-failed',
+        scope: 'direct-connections/ollama-cloud',
+      );
+      return OllamaCloudToolResult(
+        value: {'error': 'Ollama Cloud could not complete this tool call.'},
+        isError: true,
+      );
+    }
   }
 }
 
 Future<Map<String, dynamic>> _webSearch(
   Dio dio,
   Map<String, dynamic> arguments, {
+  required Set<String> allowedFetchUrls,
   required CancelToken cancelToken,
 }) async {
   _rejectUnexpectedArguments(arguments, const {'query', 'max_results'});
@@ -134,10 +157,20 @@ Future<Map<String, dynamic>> _webSearch(
   var remaining = kOllamaCloudMaxToolResultCharacters;
   for (final raw in rawResults.take(maxResults)) {
     if (raw is! Map) continue;
-    final title = _boundedText(raw['title'], 2048);
-    final url = _boundedText(raw['url'], kOllamaCloudMaxUrlCharacters);
+    final title = _boundedText(raw['title'], remaining.clamp(0, 2048));
+    remaining -= title.length;
+    final rawUrl = _boundedText(raw['url'], kOllamaCloudMaxUrlCharacters);
+    late final String url;
+    try {
+      url = normalizeOllamaCloudPublicWebUrl(rawUrl);
+    } on FormatException {
+      continue;
+    }
+    if (url.length > remaining) break;
+    remaining -= url.length;
     final content = _boundedText(raw['content'], remaining.clamp(0, 32768));
-    remaining -= title.length + url.length + content.length;
+    remaining -= content.length;
+    allowedFetchUrls.add(url);
     results.add({'title': title, 'url': url, 'content': content});
     if (remaining <= 0) break;
   }
@@ -147,6 +180,7 @@ Future<Map<String, dynamic>> _webSearch(
 Future<Map<String, dynamic>> _webFetch(
   Dio dio,
   Map<String, dynamic> arguments, {
+  required Set<String> allowedFetchUrls,
   required CancelToken cancelToken,
 }) async {
   _rejectUnexpectedArguments(arguments, const {'url'});
@@ -155,37 +189,110 @@ Future<Map<String, dynamic>> _webFetch(
     'url',
     maxCharacters: kOllamaCloudMaxUrlCharacters,
   );
-  final uri = Uri.tryParse(value);
-  if (uri == null ||
-      !uri.isAbsolute ||
-      (uri.scheme != 'http' && uri.scheme != 'https') ||
-      uri.host.isEmpty ||
-      uri.userInfo.isNotEmpty) {
+  final url = normalizeOllamaCloudPublicWebUrl(value);
+  if (!allowedFetchUrls.contains(url)) {
     throw const FormatException(
-      'Web fetch requires an absolute HTTP or HTTPS URL.',
+      'Web fetch requires an exact URL returned by the current web search.',
     );
   }
   final response = await dio.post<ResponseBody>(
     'api/web_fetch',
-    data: {'url': uri.toString()},
+    data: {'url': url},
     cancelToken: cancelToken,
     options: Options(responseType: ResponseType.stream),
   );
   final body = await _responseJson(response, 'web fetch');
-  final title = _boundedText(body['title'], 4096);
-  final content = _boundedText(
-    body['content'],
-    kOllamaCloudMaxToolResultCharacters,
-  );
+  var remaining = kOllamaCloudMaxToolResultCharacters;
+  final title = _boundedText(body['title'], remaining.clamp(0, 4096));
+  remaining -= title.length;
+  final content = _boundedText(body['content'], remaining);
+  remaining -= content.length;
   final links = <String>[];
   final rawLinks = body['links'];
   if (rawLinks is Iterable) {
     for (final link in rawLinks.take(100)) {
-      final normalized = _boundedText(link, kOllamaCloudMaxUrlCharacters);
+      if (remaining <= 0) break;
+      final normalized = _boundedText(
+        link,
+        remaining.clamp(0, kOllamaCloudMaxUrlCharacters),
+      );
       if (normalized.isNotEmpty) links.add(normalized);
+      remaining -= normalized.length;
     }
   }
   return {'title': title, 'content': content, 'links': links};
+}
+
+@visibleForTesting
+String normalizeOllamaCloudPublicWebUrl(String value) {
+  final uri = Uri.tryParse(value);
+  if (uri == null) {
+    throw const FormatException('Web fetch URL is invalid.');
+  }
+  if (!uri.hasScheme) {
+    throw const FormatException('Web fetch URL must be absolute.');
+  }
+  if (uri.scheme != 'http' && uri.scheme != 'https') {
+    throw const FormatException('Web fetch URL must use HTTP or HTTPS.');
+  }
+  if (uri.host.isEmpty) {
+    throw const FormatException('Web fetch URL must include a host.');
+  }
+  if (uri.userInfo.isNotEmpty) {
+    throw const FormatException(
+      'Web fetch URL must not include user information.',
+    );
+  }
+  final host = uri.host.toLowerCase();
+  if (host == 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      _isPrivateOrSpecialIpLiteral(host)) {
+    throw const FormatException('Web fetch requires a public URL.');
+  }
+  return uri.removeFragment().toString();
+}
+
+bool _isPrivateOrSpecialIpLiteral(String host) {
+  final address = InternetAddress.tryParse(host);
+  if (address == null) return false;
+  final bytes = address.rawAddress;
+  if (address.type == InternetAddressType.IPv4) {
+    return _isPrivateOrSpecialIpv4(bytes);
+  }
+  final isUnspecified = bytes.every((byte) => byte == 0);
+  final isLoopback =
+      bytes.take(15).every((byte) => byte == 0) && bytes.last == 1;
+  final isUniqueLocal = (bytes[0] & 0xfe) == 0xfc;
+  final isLinkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
+  final isMulticast = bytes[0] == 0xff;
+  final isIpv4Mapped =
+      bytes.take(10).every((byte) => byte == 0) &&
+      bytes[10] == 0xff &&
+      bytes[11] == 0xff;
+  final isIpv4Compatible = bytes.take(12).every((byte) => byte == 0);
+  return isUnspecified ||
+      isLoopback ||
+      isUniqueLocal ||
+      isLinkLocal ||
+      isMulticast ||
+      ((isIpv4Mapped || isIpv4Compatible) &&
+          _isPrivateOrSpecialIpv4(bytes.sublist(12)));
+}
+
+bool _isPrivateOrSpecialIpv4(List<int> bytes) {
+  final first = bytes[0];
+  final second = bytes[1];
+  return first == 0 ||
+      first == 10 ||
+      first == 127 ||
+      (first == 100 && second >= 64 && second <= 127) ||
+      (first == 169 && second == 254) ||
+      (first == 172 && second >= 16 && second <= 31) ||
+      (first == 192 && second == 168) ||
+      (first == 198 && (second == 18 || second == 19)) ||
+      first >= 224;
 }
 
 Future<Map<String, dynamic>> _responseJson(

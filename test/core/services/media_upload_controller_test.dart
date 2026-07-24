@@ -2494,6 +2494,68 @@ void main() {
     expect(stored.base64DataUrl, dataUrl);
   });
 
+  test('direct local document gets an opaque token without encoding', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_document_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final document = File('${directory.path}/notes.txt');
+    await document.writeAsString('local direct context');
+    var encodeCalls = 0;
+    final container = _directContainer(
+      attachments: [_pendingDocument(document, reportedBytes: 1)],
+      encoder: (file) async {
+        encodeCalls++;
+        return null;
+      },
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(mediaUploadControllerProvider)
+        .upload(filePath: document.path, fileName: 'notes.txt', fileSize: 1);
+
+    final stored = container.read(attachedFilesProvider).single;
+    expect(stored.status, FileUploadStatus.completed);
+    expect(stored.fileId, matches(RegExp(r'^direct-local:[a-f0-9]{64}$')));
+    expect(stored.fileId, isNot(contains(document.path)));
+    expect(stored.fileSize, await document.length());
+    expect(stored.isImage, isFalse);
+    expect(stored.base64DataUrl, isNull);
+    expect(encodeCalls, 0);
+  });
+
+  test('direct local document rejects unsupported PDF before send', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_direct_document_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final document = File('${directory.path}/notes.pdf');
+    await document.writeAsString('%PDF-fake');
+    final container = _directContainer(
+      attachments: [_pendingDocument(document, reportedBytes: 1)],
+      encoder: (file) async => throw StateError('not an image'),
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: document.path, fileName: 'notes.pdf', fileSize: 1),
+      throwsA(
+        isA<DirectChatInputException>().having(
+          (error) => error.message,
+          'message',
+          contains('UTF-8 text'),
+        ),
+      ),
+    );
+    expect(
+      container.read(attachedFilesProvider).single.status,
+      FileUploadStatus.failed,
+    );
+  });
+
   test('invalid encoder output is never stored as a direct image', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',

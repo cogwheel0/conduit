@@ -4683,18 +4683,40 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         alert.addAction(UIAlertAction(title: nativeLocalized("native.cancel", "Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: nativeLocalized("native.save", "Save"), style: .default) {
             [weak self, weak alert] _ in
+            guard let self else { return }
             guard let value = alert?.textFields?.first?.text?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                   !value.isEmpty else { return }
-            self?.commitEffort(value.lowercased())
+            guard let normalized = self.normalizedEffort(value) else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentCustomEffort()
+                }
+                return
+            }
+            self.commitEffort(normalized)
         })
         present(alert, animated: true)
     }
 
     private func commitEffort(_ value: String) {
-        reasoningEffortValue = value
+        guard let normalized = normalizedEffort(value) else { return }
+        reasoningEffortValue = normalized
         tableView.reloadSections(IndexSet(integer: 1), with: .none)
-        onEffortChanged(value)
+        onEffortChanged(normalized)
+    }
+
+    private func normalizedEffort(_ value: String) -> String? {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalized.count <= 64,
+              normalized.range(
+                of: #"^[a-z0-9][a-z0-9_-]{0,63}$"#,
+                options: .regularExpression
+              ) != nil else {
+            return nil
+        }
+        return normalized
     }
 }
 

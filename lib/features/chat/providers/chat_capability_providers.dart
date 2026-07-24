@@ -137,10 +137,9 @@ class FileUploadCapableModelsNotifier extends Notifier<List<String>> {
       final directBinding = ref
           .read(directModelRegistryProvider)
           .resolve(selectedModel);
-      // Direct transports accept image payloads, not arbitrary documents.
-      return directBinding != null && selectedModel.isMultimodal == true
-          ? [selectedModel.id]
-          : [];
+      // Direct documents are extracted locally into bounded text and do not
+      // depend on the remote model's image-input capability.
+      return directBinding == null ? [] : [selectedModel.id];
     }
 
     // Match OpenWebUI's missing-is-allowed policy while honoring an explicit

@@ -2,8 +2,7 @@ enum OllamaThinkingSetting {
   disabled('disabled'),
   low('low'),
   medium('medium'),
-  high('high'),
-  max('max');
+  high('high');
 
   const OllamaThinkingSetting(this.storageValue);
 
@@ -22,11 +21,18 @@ enum OllamaThinkingSetting {
 }
 
 Map<String, String> normalizeOllamaThinkingByModel(Map<String, String> values) {
+  if (values.length > 1000) {
+    throw const FormatException('Too many Ollama thinking settings.');
+  }
   final normalized = <String, String>{};
   for (final entry in values.entries) {
     final modelId = entry.key.trim();
-    if (modelId.isEmpty) {
-      throw const FormatException('Ollama model id is missing.');
+    if (modelId.isEmpty ||
+        modelId.length > 512 ||
+        modelId.contains('\r') ||
+        modelId.contains('\n') ||
+        modelId.contains('\u0000')) {
+      throw const FormatException('Ollama model id is invalid.');
     }
     normalized[modelId] = OllamaThinkingSetting.fromStorage(
       entry.value,

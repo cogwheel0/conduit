@@ -2177,7 +2177,7 @@ class SelectedModel extends _$SelectedModel {
       if (next.authenticated) {
         _scheduleAuthenticatedDefaultRestore();
       } else {
-        _schedulePrimaryAccountlessRestore();
+        _restorePrimaryAccountlessSelection();
       }
     });
     ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
@@ -2208,7 +2208,7 @@ class SelectedModel extends _$SelectedModel {
       // manual-selection bit. Once selection is rebuilt automatically, that
       // bit must not later suppress an authenticated OpenWebUI default.
       unawaited(
-        Future<void>(() {
+        Future<void>.microtask(() {
           if (ref.mounted) {
             ref.read(isManualModelSelectionProvider.notifier).set(false);
           }
@@ -2275,39 +2275,49 @@ class SelectedModel extends _$SelectedModel {
 
   void _schedulePrimaryAccountlessRestore() {
     unawaited(
-      Future<void>(() {
+      Future<void>.microtask(() {
         if (!ref.mounted) return;
-        final current = state;
-        final decision = _primaryAccountlessDecision(current: current);
-        if (!decision.shouldReconcile) return;
-        final replacement = decision.model;
-        final currentBindingIsValid =
-            current != null &&
-            isLocallyMintedDirectModel(current) &&
-            ref.read(directModelRegistryProvider).resolve(current) != null;
-        if (current == null && replacement == null) return;
-        if (current != null &&
-            replacement != null &&
-            current.id == replacement.id &&
-            (!isLocallyMintedDirectModel(replacement) ||
-                currentBindingIsValid)) {
-          return;
-        }
-
-        if (current?.id != replacement?.id) {
-          ref.read(isManualModelSelectionProvider.notifier).set(false);
-        }
-        state = replacement;
-        DebugLogger.warning(
-          'primary-accountless-selection-restored',
-          scope: 'models/default',
-          data: {
-            'previousBackend': _modelBackendForDiagnostics(current),
-            'replacementBackend': _modelBackendForDiagnostics(replacement),
-            'source': 'reconciliation',
-          },
-        );
+        _restorePrimaryAccountlessSelection();
       }),
+    );
+  }
+
+  void _restorePrimaryAccountlessSelection() {
+    if (!ref.mounted) return;
+    final current = state;
+    if (current != null && ref.read(isManualModelSelectionProvider)) {
+      final manualSelectionIsUsable = isLocallyMintedDirectModel(current)
+          ? ref.read(directModelRegistryProvider).resolve(current) != null
+          : !isHermesModel(current) || ref.read(hermesConfigProvider).isUsable;
+      if (manualSelectionIsUsable) return;
+    }
+    final decision = _primaryAccountlessDecision(current: current);
+    if (!decision.shouldReconcile) return;
+    final replacement = decision.model;
+    final currentBindingIsValid =
+        current != null &&
+        isLocallyMintedDirectModel(current) &&
+        ref.read(directModelRegistryProvider).resolve(current) != null;
+    if (current == null && replacement == null) return;
+    if (current != null &&
+        replacement != null &&
+        current.id == replacement.id &&
+        (!isLocallyMintedDirectModel(replacement) || currentBindingIsValid)) {
+      return;
+    }
+
+    if (current?.id != replacement?.id) {
+      ref.read(isManualModelSelectionProvider.notifier).set(false);
+    }
+    state = replacement;
+    DebugLogger.warning(
+      'primary-accountless-selection-restored',
+      scope: 'models/default',
+      data: {
+        'previousBackend': _modelBackendForDiagnostics(current),
+        'replacementBackend': _modelBackendForDiagnostics(replacement),
+        'source': 'reconciliation',
+      },
     );
   }
 
@@ -2315,7 +2325,7 @@ class SelectedModel extends _$SelectedModel {
     if (_authenticatedDefaultRestoreScheduled) return;
     _authenticatedDefaultRestoreScheduled = true;
     unawaited(
-      Future<void>(() {
+      Future<void>.microtask(() {
         _authenticatedDefaultRestoreScheduled = false;
         if (!ref.mounted) return;
         final current = state;
@@ -5759,13 +5769,14 @@ final webSearchAvailableProvider = Provider<bool>((ref) {
   final directBinding = selectedModel == null
       ? null
       : ref.watch(directModelRegistryProvider).resolve(selectedModel);
-  if (directBinding?.source == DirectModelSource.device) {
+  if (selectedModel != null && hasReservedDirectIdentity(selectedModel)) {
     // Device-owned direct models must never fall through to OpenWebUI
     // permissions. Ollama Cloud is currently the only direct transport with
     // a native, permission-aware web-search execution path.
-    return directBinding?.adapterKey == kOllamaAdapterKey &&
-        selectedModel?.capabilities?['ollama_cloud'] == true &&
-        selectedModel?.capabilities?['web_search'] == true;
+    return directBinding?.source == DirectModelSource.device &&
+        directBinding?.adapterKey == kOllamaAdapterKey &&
+        selectedModel.capabilities?['ollama_cloud'] == true &&
+        selectedModel.capabilities?['web_search'] == true;
   }
 
   final backendConfig = ref

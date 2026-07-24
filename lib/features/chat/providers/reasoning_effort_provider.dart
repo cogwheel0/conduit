@@ -10,11 +10,15 @@ import '../../direct_connections/models/ollama_thinking.dart';
 import '../../direct_connections/providers/direct_connection_providers.dart';
 import '../../hermes/models/hermes_model.dart';
 
-const String kDefaultReasoningEffort = 'medium';
+const String kAutomaticReasoningEffort = 'automatic';
 const List<String> kStandardReasoningEfforts = <String>[
   'low',
   'medium',
   'high',
+];
+const List<String> kReasoningEffortOptions = <String>[
+  kAutomaticReasoningEffort,
+  ...kStandardReasoningEfforts,
 ];
 
 String normalizeReasoningEffort(String value) {
@@ -118,7 +122,7 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
 
 final reasoningEffortProvider = Provider<String>(
   (ref) =>
-      ref.watch(configuredReasoningEffortProvider) ?? kDefaultReasoningEffort,
+      ref.watch(configuredReasoningEffortProvider) ?? kAutomaticReasoningEffort,
 );
 
 final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
@@ -137,6 +141,9 @@ final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
 
 Future<void> setReasoningEffort(dynamic ref, String effort) async {
   final normalized = normalizeReasoningEffort(effort);
+  final configured = normalized == kAutomaticReasoningEffort
+      ? null
+      : normalized;
   final model = ref.read(selectedModelProvider);
   if (model == null) return;
   final binding = ref.read(directModelRegistryProvider).resolve(model);
@@ -153,7 +160,9 @@ Future<void> setReasoningEffort(dynamic ref, String effort) async {
           .setOllamaThinking(
             binding.profileId,
             binding.remoteModelId,
-            OllamaThinkingSetting.fromStorage(normalized),
+            configured == null
+                ? null
+                : OllamaThinkingSetting.fromStorage(configured),
           );
       return;
     }
@@ -161,19 +170,19 @@ Future<void> setReasoningEffort(dynamic ref, String effort) async {
         .read(localReasoningEffortsProvider.notifier)
         .set(
           'direct:${binding.profileId}:${binding.remoteModelId}',
-          normalized,
+          configured,
         );
     return;
   }
   if (isHermesModel(model)) {
     await ref
         .read(localReasoningEffortsProvider.notifier)
-        .set('hermes:${model.id}', normalized);
+        .set('hermes:${model.id}', configured);
     return;
   }
   if (ref.read(apiServiceProvider) != null) {
     await ref
         .read(personalizationSettingsProvider.notifier)
-        .setReasoningEffort(normalized);
+        .setReasoningEffort(configured);
   }
 }

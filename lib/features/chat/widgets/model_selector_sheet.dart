@@ -57,8 +57,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
     final l10n = AppLocalizations.of(context)!;
     final current = ref.read(reasoningEffortProvider);
     final allowsCustom = ref.read(reasoningEffortAllowsCustomProvider);
-    final options = <String>[...kStandardReasoningEfforts];
-    if (!allowsCustom && !options.contains('max')) options.add('max');
+    final options = <String>[...kReasoningEffortOptions];
     final customMarker = '__custom__';
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -91,7 +90,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
             if (allowsCustom)
               _EffortOption(
                 label: l10n.customReasoningEffort,
-                selected: !kStandardReasoningEfforts.contains(current),
+                selected: !kReasoningEffortOptions.contains(current),
                 onTap: () => Navigator.of(sheetContext).pop(customMarker),
               ),
           ],
@@ -105,7 +104,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
         context,
         title: l10n.customReasoningEffort,
         hintText: l10n.customReasoningEffortHint,
-        initialValue: kStandardReasoningEfforts.contains(current)
+        initialValue: kReasoningEffortOptions.contains(current)
             ? null
             : current,
         maxLength: 64,
@@ -116,19 +115,29 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       if (trimmed.isEmpty) return;
       effort = trimmed;
     }
-    await setReasoningEffort(ref, effort);
+    try {
+      await setReasoningEffort(ref, normalizeReasoningEffort(effort));
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final pinnedModelIds = ref.watch(effectivePinnedModelIdsProvider);
-    final defaultModelId =
-        ref
-            .watch(personalizationSettingsProvider)
-            .asData
-            ?.value
-            .defaultModelId ??
-        ref.watch(appSettingsProvider).defaultModel;
+    final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
+    final localDefaultModelId = ref.watch(appSettingsProvider).defaultModel;
+    final defaultModelId = hasOpenWebUiAccount
+        ? ref
+                  .watch(personalizationSettingsProvider)
+                  .asData
+                  ?.value
+                  .defaultModelId ??
+              localDefaultModelId
+        : localDefaultModelId;
     final layout = buildModelSelectorLayout(
       models: _selectableModels,
       pinnedModelIds: pinnedModelIds,
@@ -248,6 +257,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
 }
 
 String _effortLabel(AppLocalizations l10n, String effort) => switch (effort) {
+  kAutomaticReasoningEffort => l10n.ollamaThinkingAutomatic,
   'low' => l10n.reasoningEffortLow,
   'medium' => l10n.reasoningEffortMedium,
   'high' => l10n.reasoningEffortHigh,

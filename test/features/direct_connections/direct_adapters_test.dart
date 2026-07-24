@@ -10,6 +10,7 @@ import 'package:conduit/features/direct_connections/models/ollama_keep_alive.dar
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -1822,6 +1823,10 @@ void main() {
     expect(normalizeOllamaKeepAlive('1h30m'), '1h30m');
     expect(ollamaKeepAliveApiValue('3600'), 3600);
     expect(ollamaKeepAliveApiValue('-1'), -1);
+    expect(
+      () => normalizeOllamaKeepAlive('${List<String>.filled(60, '9').join()}h'),
+      throwsFormatException,
+    );
     expect(() => normalizeOllamaKeepAlive('tomorrow'), throwsFormatException);
   });
 
@@ -3275,6 +3280,83 @@ void main() {
     expect(events.whereType<DirectStreamError>(), isEmpty);
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
+
+  test(
+    'Ollama Cloud fetches only exact URLs returned by its current search',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'results': [
+            {
+              'title': 'Ollama Cloud',
+              'url': 'https://docs.ollama.com/cloud#models',
+              'content': 'Cloud models run remotely.',
+            },
+            {
+              'title': 'Private service',
+              'url': 'http://127.0.0.1/private',
+              'content': 'Must not become fetchable.',
+            },
+          ],
+        }),
+        _Reply.json({
+          'title': 'Ollama Cloud',
+          'content': 'Full documentation.',
+          'links': <String>[],
+        }),
+      ]);
+      final dio = _dio(http);
+      final session = OllamaCloudToolSession();
+      final cancelToken = CancelToken();
+
+      expect(
+        normalizeOllamaCloudPublicWebUrl(
+          'https://docs.ollama.com/cloud#models',
+        ),
+        'https://docs.ollama.com/cloud',
+      );
+      final search = await session.execute(
+        dio: dio,
+        name: 'web_search',
+        arguments: const {'query': 'Ollama Cloud documentation'},
+        cancelToken: cancelToken,
+      );
+      final tamperedFetch = await session.execute(
+        dio: dio,
+        name: 'web_fetch',
+        arguments: const {
+          'url': 'https://docs.ollama.com/cloud?chat_secret=leak',
+        },
+        cancelToken: cancelToken,
+      );
+      final allowedFetch = await session.execute(
+        dio: dio,
+        name: 'web_fetch',
+        arguments: const {'url': 'https://docs.ollama.com/cloud'},
+        cancelToken: cancelToken,
+      );
+
+      expect(search.isError, isFalse);
+      expect(
+        ((search.value as Map<String, dynamic>)['results'] as List),
+        hasLength(1),
+      );
+      expect(tamperedFetch.isError, isTrue);
+      expect(
+        tamperedFetch.toolMessageContent,
+        contains('exact URL returned by the current web search'),
+      );
+      expect(allowedFetch.isError, isFalse);
+      expect(http.requests.map((request) => request.path), [
+        'api/web_search',
+        'api/web_fetch',
+      ]);
+      expect(
+        (http.requests.last.data as Map<String, dynamic>)['url'],
+        'https://docs.ollama.com/cloud',
+      );
+    },
+  );
 
   test('self-hosted Ollama rejects the Cloud web-search capability', () async {
     final http = _QueuedAdapter(const []);

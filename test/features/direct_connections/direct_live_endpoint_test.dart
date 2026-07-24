@@ -255,7 +255,7 @@ void main() {
       final dio = const DirectHttpClientFactory().create(profile);
       addTearDown(() => dio.close(force: true));
 
-      final result = await executeOllamaCloudTool(
+      final result = await OllamaCloudToolSession().execute(
         dio: dio,
         name: 'web_search',
         arguments: const {

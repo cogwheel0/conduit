@@ -33,7 +33,7 @@ void main() {
     expect(container.read(fileUploadCapableModelsProvider), isEmpty);
   });
 
-  test('direct file picking exposes only transport-supported images', () {
+  test('direct file picking exposes local documents and supported images', () {
     final registry = DirectModelRegistry();
     final directModel = registry.replaceProfileModels(
       DirectConnectionProfile(
@@ -48,8 +48,29 @@ void main() {
     final extensions = localFilePickerExtensionsForModel(directModel)!;
     expect(extensions, contains('png'));
     expect(extensions, contains('heic'));
+    expect(extensions, contains('txt'));
+    expect(extensions, contains('docx'));
     expect(extensions, isNot(contains('pdf')));
-    expect(extensions, isNot(contains('txt')));
+  });
+
+  test('text-only direct file picking exposes documents but not images', () {
+    final registry = DirectModelRegistry();
+    final directModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'local',
+        name: 'Local Ollama',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      ),
+      [DirectRemoteModel(id: 'llama3', isMultimodal: false)],
+    ).single;
+
+    final extensions = localFilePickerExtensionsForModel(directModel)!;
+    expect(extensions, contains('txt'));
+    expect(extensions, contains('docx'));
+    expect(extensions, isNot(contains('png')));
+    expect(extensions, isNot(contains('heic')));
+    expect(extensions, isNot(contains('pdf')));
   });
 
   test('attachment panel matches the full IME footprint', () {
@@ -414,7 +435,7 @@ void main() {
     },
   );
 
-  testWidgets('text-only direct models hide unsupported attachment actions', (
+  testWidgets('text-only direct models expose files but hide image actions', (
     tester,
   ) async {
     final registry = DirectModelRegistry();
@@ -464,14 +485,27 @@ void main() {
         isHermesComposer: false,
         isDirectComposer: true,
         directSupportsImages: false,
-        directHasOverflowActions: false,
+        directHasOverflowActions: true,
       ),
-      isFalse,
+      isTrue,
     );
     final textField = tester.widget<TextField>(find.byType(TextField));
     expect(textField.contentInsertionConfiguration, isNull);
-    expect(find.byIcon(Icons.add), findsNothing);
-    expect(find.byType(ComposerAttachmentKeyboard), findsNothing);
+    expect(find.byIcon(Icons.add), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    final sheet = tester.widget<ComposerAttachmentKeyboard>(
+      find.byType(ComposerAttachmentKeyboard),
+    );
+    expect(sheet.onFileAttachment, isNotNull);
+    expect(sheet.onServerFileAttachment, isNull);
+    expect(sheet.onImageAttachment, isNull);
+    expect(sheet.onCameraCapture, isNull);
+    expect(find.text('File'), findsOneWidget);
+    expect(find.text('Photo'), findsNothing);
+    expect(find.text('Camera'), findsNothing);
   });
 
   testWidgets(
@@ -532,7 +566,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
-      expect(find.text('File'), findsNothing);
+      expect(find.text('File'), findsOneWidget);
       expect(find.text('Photo'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);

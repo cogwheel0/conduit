@@ -98,6 +98,19 @@ void main() {
     },
   );
 
+  test('Ollama thinking settings bound persisted map keys and count', () {
+    expect(
+      () => normalizeOllamaThinkingByModel({'bad\nmodel': 'medium'}),
+      throwsFormatException,
+    );
+    expect(
+      () => normalizeOllamaThinkingByModel({
+        for (var index = 0; index <= 1000; index++) 'model-$index': 'medium',
+      }),
+      throwsFormatException,
+    );
+  });
+
   test('Ollama Cloud recognition accepts only the official API root', () {
     check(isOllamaCloudApiBaseUrl('https://ollama.com')).isTrue();
     check(isOllamaCloudApiBaseUrl('https://ollama.com/')).isTrue();

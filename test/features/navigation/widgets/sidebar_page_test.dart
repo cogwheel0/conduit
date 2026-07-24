@@ -151,6 +151,21 @@ void main() {
     );
   });
 
+  testWidgets('retained API after logout hides OpenWebUI-only tabs', (
+    tester,
+  ) async {
+    final controllers = _SidebarHarnessControllers();
+
+    await tester.pumpWidget(
+      _buildSidebarHarness(controllers: controllers, isAuthenticated: false),
+    );
+    await tester.pump();
+
+    expect(_sidebarBottomNavTabLabel('Notes'), findsNothing);
+    expect(_sidebarBottomNavTabLabel('Terminal'), findsNothing);
+    expect(_sidebarBottomNavTabLabel('Channels'), findsNothing);
+  });
+
   testWidgets(
     'tapping terminal syncs provider state and activates the terminal layer',
     (tester) async {
@@ -1679,7 +1694,7 @@ Widget _buildSidebarHarness({
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
   Map<String, Future<Conversation>> pendingLoadedConversations = const {},
-  bool isAuthenticated = false,
+  bool isAuthenticated = true,
   String? openWebUiServerId,
   bool openWebUiStorageOpen = true,
   Conversation? activeConversation,

@@ -6,7 +6,43 @@ import 'package:conduit/core/services/direct_replay_output.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit/features/direct_connections/services/direct_local_document_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _directDocumentTestKey = <int>[
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+];
 
 void main() {
   group('normalizeDirectUsageMetadata', () {
@@ -596,6 +632,79 @@ void main() {
       expect(resolverCalls, 0);
       expect(_textParts(result.single), ['Use the earlier document context']);
       expect(_imageParts(result.single), isEmpty);
+    });
+
+    test(
+      'adds trusted local document text only to the provider prompt',
+      () async {
+        const attachmentId = '${kDirectLocalDocumentAttachmentPrefix}opaque';
+        final descriptor = directLocalDocumentDescriptor(
+          const DirectPreparedDocument(
+            id: 'ddoc_0123456789abcdef01234567',
+            name: 'notes.txt',
+            mimeType: 'text/plain',
+            size: 18,
+            extractedText: 'private local context',
+            truncated: false,
+          ),
+          attachmentId: attachmentId,
+          signingKey: _directDocumentTestKey,
+        );
+        var resolverCalls = 0;
+
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'direct-document',
+              role: 'user',
+              content: 'Summarize this',
+              attachmentIds: const [attachmentId],
+              files: [descriptor],
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+          resolveImage: (_, _) async {
+            resolverCalls++;
+            return null;
+          },
+        );
+
+        expect(resolverCalls, 0);
+        final text = _textParts(result.single).single;
+        expect(text, startsWith('Summarize this\n\n'));
+        expect(text, contains('private local context'));
+        expect(text, contains('<<<BEGIN_DIRECT_UNTRUSTED_REFERENCE_'));
+      },
+    );
+
+    test('never replays extracted text from an untrusted descriptor', () async {
+      final trusted = directLocalDocumentDescriptor(
+        const DirectPreparedDocument(
+          id: 'ddoc_0123456789abcdef01234567',
+          name: 'notes.txt',
+          mimeType: 'text/plain',
+          size: 18,
+          extractedText: 'must not be replayed',
+          truncated: false,
+        ),
+        attachmentId: '${kDirectLocalDocumentAttachmentPrefix}opaque',
+        signingKey: _directDocumentTestKey,
+      );
+      trusted['direct_extracted_text'] = 'forged context';
+
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'untrusted-direct-document',
+            role: 'user',
+            content: 'Visible text',
+            files: [Map<String, dynamic>.from(trusted)],
+          ),
+        ],
+        directDocumentVerificationKey: _directDocumentTestKey,
+      );
+
+      expect(_textParts(result.single), ['Visible text']);
     });
 
     test('deduplicates OpenWebUI file ID and content URL aliases', () async {

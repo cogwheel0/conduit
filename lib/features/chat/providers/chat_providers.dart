@@ -110,6 +110,11 @@ final hermesLocalDocumentServiceProvider = Provider<HermesLocalDocumentService>(
   (ref) => HermesLocalDocumentService(),
 );
 
+@visibleForTesting
+final directLocalDocumentServiceProvider = Provider<DirectLocalDocumentService>(
+  (ref) => DirectLocalDocumentService(),
+);
+
 final _hermesRunProjectionStoreProvider = Provider<_HermesRunProjectionStore>((
   ref,
 ) {
@@ -6410,6 +6415,74 @@ final class _PreparedHermesTurn {
   final List<String> localDocumentEnvelopes;
 }
 
+final class _PreparedDirectDocuments {
+  const _PreparedDirectDocuments({
+    required this.files,
+    required this.attachmentIds,
+  });
+
+  final List<Map<String, dynamic>> files;
+  final Set<String> attachmentIds;
+}
+
+Future<_PreparedDirectDocuments> _prepareDirectDocuments(
+  dynamic ref, {
+  required List<String>? attachmentIds,
+}) async {
+  final attachedStates =
+      ref.read(attachedFilesProvider) as List<FileUploadState>;
+  final stateById = <String, FileUploadState>{
+    for (final state in attachedStates)
+      if (state.fileId != null) state.fileId!: state,
+  };
+  final references = <String>[];
+  final sources = <DirectLocalDocumentSource>[];
+
+  for (final attachmentId in attachmentIds ?? const <String>[]) {
+    if (attachmentId.startsWith('data:image/')) continue;
+    final state = stateById[attachmentId];
+    if (state == null || state.isImage == true) {
+      if (attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
+        throw const DirectChatInputException(
+          'This local document is no longer available. Attach it again.',
+        );
+      }
+      continue;
+    }
+    if (!attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
+      throw const DirectChatInputException(
+        'This direct model does not support this attachment.',
+      );
+    }
+    references.add(attachmentId);
+    sources.add(
+      await DirectLocalDocumentSource.fromFile(
+        state.file,
+        displayName: state.fileName,
+      ),
+    );
+  }
+
+  final documents = await ref
+      .read(directLocalDocumentServiceProvider)
+      .prepareAll(sources);
+  if (documents.documents.isEmpty) {
+    return const _PreparedDirectDocuments(files: [], attachmentIds: {});
+  }
+  final signingKey = await ref.read(directDeviceTrustKeyProvider.future);
+  return _PreparedDirectDocuments(
+    files: List<Map<String, dynamic>>.unmodifiable(<Map<String, dynamic>>[
+      for (var index = 0; index < documents.documents.length; index++)
+        directLocalDocumentDescriptor(
+          documents.documents[index],
+          attachmentId: references[index],
+          signingKey: signingKey,
+        ),
+    ]),
+    attachmentIds: Set<String>.unmodifiable(references),
+  );
+}
+
 Future<_PreparedHermesTurn> _prepareHermesTurn(
   dynamic ref, {
   required Model selectedModel,
@@ -6975,6 +7048,7 @@ Future<void> _regenerateHermesMessage(
   required int configAdmission,
   required HermesApiService? serviceGeneration,
 }) async {
+  final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
   final mutationOwner = captureChatMutationOwner(ref, activeAtStart);
   final existingMessages = List<ChatMessage>.from(
@@ -7071,6 +7145,7 @@ Future<void> _regenerateHermesMessage(
     localDocumentPromptText: trustedReplayDocumentPrompt?.promptText,
     localDocumentEnvelopes:
         trustedReplayDocumentPrompt?.documentEnvelopes ?? const <String>[],
+    reasoningEffort: reasoningEffort,
     responseHistory: useResponses
         ? _hermesVisibleHistory(
             continuityMessages,
@@ -7084,6 +7159,10 @@ Future<void> _regenerateDirectMessage(
   dynamic ref, {
   required _ResolvedDirectRoute route,
 }) async {
+  final reasoningEffort = ref.read(configuredReasoningEffortProvider);
+  final enableWebSearch =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
   final active = ref.read(activeConversationProvider) as Conversation?;
   if (active == null) throw StateError('No active conversation');
   final directMutationOwner = captureChatMutationOwner(ref, active);
@@ -7286,9 +7365,8 @@ Future<void> _regenerateDirectMessage(
       ),
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
-      enableWebSearch:
-          ref.read(webSearchEnabledProvider) &&
-          ref.read(webSearchAvailableProvider),
+      enableWebSearch: enableWebSearch,
+      reasoningEffort: reasoningEffort,
     );
   } on _DirectOpenWebUiAuthSessionChanged {
     registry.discardFinalizedOutput(reservation);
@@ -10884,6 +10962,7 @@ Future<void> _dispatchHermesRunFromChat(
   List<Map<String, dynamic>>? responseHistory,
   String? localDocumentPromptText,
   List<String> localDocumentEnvelopes = const <String>[],
+  required String? reasoningEffort,
   ChatSendPlaceholderHandle? sendHandle,
   _HermesConversationOwner? capturedOwner,
   DatabaseLifetimeLease? databaseLease,
@@ -10931,6 +11010,7 @@ Future<void> _dispatchHermesRunFromChat(
       responseHistory: responseHistory,
       localDocumentPromptText: localDocumentPromptText,
       localDocumentEnvelopes: localDocumentEnvelopes,
+      reasoningEffort: reasoningEffort,
       sendHandle: sendHandle,
       originConversation: originConversation,
       owner: owner,
@@ -10955,6 +11035,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required List<Map<String, dynamic>>? responseHistory,
   required String? localDocumentPromptText,
   required List<String> localDocumentEnvelopes,
+  required String? reasoningEffort,
   required ChatSendPlaceholderHandle? sendHandle,
   required Conversation? originConversation,
   required _HermesConversationOwner owner,
@@ -11170,6 +11251,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       responseHistory: responseHistory,
       localDocumentPromptText: localDocumentPromptText,
       localDocumentEnvelopes: localDocumentEnvelopes,
+      reasoningEffort: reasoningEffort,
       capturedSessionId: capturedSessionId,
       capturedSessionConnectionIdentity: capturedSessionConnectionIdentity,
       capturedSessionRequiresConnectionIdentity: !originIsHermes,
@@ -11347,6 +11429,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required List<Map<String, dynamic>>? responseHistory,
   required String? localDocumentPromptText,
   required List<String> localDocumentEnvelopes,
+  required String? reasoningEffort,
   required String? capturedSessionId,
   required String? capturedSessionConnectionIdentity,
   required bool capturedSessionRequiresConnectionIdentity,
@@ -11708,7 +11791,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       sessionId: sessionId,
       previousResponseId: responsePreviousResponseId,
       conversationHistory: responseStartsNewChain ? responseHistory : null,
-      reasoningEffort: ref.read(configuredReasoningEffortProvider),
+      reasoningEffort: reasoningEffort,
       cancelToken: cancelToken,
       onSessionEstablished: (establishedSessionId) async {
         if (establishedSessionId == null || cancelled()) return;
@@ -11822,7 +11905,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     input: input,
     sessionId: sessionId,
     conversationHistory: conversationHistory,
-    reasoningEffort: ref.read(configuredReasoningEffortProvider),
+    reasoningEffort: reasoningEffort,
     cancelToken: cancelToken,
     appendContent: appendProjectedContent,
     replaceContent: replaceProjectedContent,
@@ -11876,6 +11959,7 @@ Future<void> dispatchHermesRunFromChatForTest(
     responseHistory: responseHistory,
     localDocumentPromptText: localDocumentPromptText,
     localDocumentEnvelopes: localDocumentEnvelopes,
+    reasoningEffort: ref.read(configuredReasoningEffortProvider),
     lateSessionCleanupDeadline: lateSessionCleanupDeadline,
   );
 }
@@ -13774,6 +13858,7 @@ Future<void> _dispatchDirectRunFromChat(
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
   required bool enableWebSearch,
+  required String? reasoningEffort,
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
@@ -13836,6 +13921,7 @@ Future<void> _dispatchDirectRunFromChat(
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
       enableWebSearch: enableWebSearch,
+      reasoningEffort: reasoningEffort,
     );
   } finally {
     stopIndex.untrack(indexedRunKey);
@@ -13869,6 +13955,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
   required bool enableWebSearch,
+  required String? reasoningEffort,
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -13890,14 +13977,25 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     return resolved;
   }
 
+  final hasDirectLocalDocuments = requestMessages.any(
+    (message) => (message.files ?? const <Map<String, dynamic>>[]).any(
+      (file) => file['source'] == 'direct_local',
+    ),
+  );
   final directMessages = await _awaitDirectPreflightOrCancellation(
     registry: registry,
     reservation: reservation,
     cancelToken: preflightCancelToken,
-    operation: () => buildDirectChatMessages(
-      messages: requestMessages,
-      resolveImage: resolveImage,
-    ),
+    operation: () async {
+      final verificationKey = hasDirectLocalDocuments
+          ? await ref.read(directDeviceTrustKeyProvider.future)
+          : null;
+      return buildDirectChatMessages(
+        messages: requestMessages,
+        resolveImage: resolveImage,
+        directDocumentVerificationKey: verificationKey,
+      );
+    },
   );
   _requireDirectOwnerAuthSession(ref, owner);
   if (directMessages.isEmpty) {
@@ -13943,11 +14041,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         enableWebSearch: enableWebSearch,
         parameters:
             route.profile.adapterKey == kOllamaAdapterKey ||
-                ref.read(configuredReasoningEffortProvider) == null
+                reasoningEffort == null
             ? const <String, dynamic>{}
-            : <String, dynamic>{
-                'reasoning_effort': ref.read(configuredReasoningEffortProvider),
-              },
+            : <String, dynamic>{'reasoning_effort': reasoningEffort},
       ),
     );
   } catch (error) {
@@ -14381,6 +14477,12 @@ Future<void> _sendMessageInternal(
       ? null
       : _readOpenWebUiAuthSessionEpoch(ref);
   final selectedModelCandidate = ref.read(selectedModelProvider) as Model?;
+  final reasoningEffortAtSendStart = ref.read(
+    configuredReasoningEffortProvider,
+  );
+  final webSearchAtSendStart =
+      ref.read(webSearchEnabledProvider) &&
+      ref.read(webSearchAvailableProvider);
   final usesHermes =
       selectedModelCandidate != null && isHermesModel(selectedModelCandidate);
   final HermesConfigController? hermesConfigController = usesHermes
@@ -14480,6 +14582,9 @@ Future<void> _sendMessageInternal(
           contextAttachments: contextAttachments,
         )
       : null;
+  final _PreparedDirectDocuments? preparedDirectDocuments = directRoute != null
+      ? await _prepareDirectDocuments(ref, attachmentIds: attachments)
+      : null;
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
   }
@@ -14504,7 +14609,10 @@ Future<void> _sendMessageInternal(
       if (attachment.startsWith('data:image/')) {
         // Legacy base64 format - keep for backwards compatibility
         legacyBase64Images.add({'type': 'image', 'url': attachment});
-      } else {
+      } else if (!(preparedDirectDocuments?.attachmentIds.contains(
+            attachment,
+          ) ??
+          false)) {
         // Server file ID (both images and documents)
         serverFileIds.add(attachment);
       }
@@ -14515,8 +14623,14 @@ Future<void> _sendMessageInternal(
   final List<Map<String, dynamic>>? initialUserFiles =
       preparedHermesTurn != null
       ? (preparedHermesTurn.files.isEmpty ? null : preparedHermesTurn.files)
-      : (legacyBase64Images.isNotEmpty || contextFiles.isNotEmpty)
-      ? [...legacyBase64Images, ...contextFiles]
+      : (legacyBase64Images.isNotEmpty ||
+            contextFiles.isNotEmpty ||
+            (preparedDirectDocuments?.files.isNotEmpty ?? false))
+      ? [
+          ...legacyBase64Images,
+          ...contextFiles,
+          ...?preparedDirectDocuments?.files,
+        ]
       : null;
 
   final existingMessages = ref.read(chatMessagesProvider);
@@ -14774,6 +14888,7 @@ Future<void> _sendMessageInternal(
         capturedOwner: hermesOwner,
         databaseLease: hermesDatabaseLease,
         preRegisteredCancelToken: pendingCancelToken,
+        reasoningEffort: reasoningEffortAtSendStart,
       );
     } catch (error) {
       final visible = hermesOwner.isActive(ref)
@@ -14820,7 +14935,7 @@ Future<void> _sendMessageInternal(
     try {
       if (contextAttachments.isNotEmpty) {
         throw const DirectChatInputException(
-          'Direct chats support image attachments only.',
+          'Direct chats cannot use OpenWebUI context attachments.',
         );
       }
 
@@ -14876,7 +14991,11 @@ Future<void> _sendMessageInternal(
       // check prevents documents from being silently omitted by the normalized
       // direct request builder.
       for (final attachment in attachments ?? const <String>[]) {
-        if (attachment.startsWith('data:image/')) continue;
+        if (attachment.startsWith('data:image/') ||
+            (preparedDirectDocuments?.attachmentIds.contains(attachment) ??
+                false)) {
+          continue;
+        }
         final resolved = await _awaitDirectPreflightOrCancellation(
           registry: registry,
           reservation: reservation,
@@ -14904,7 +15023,14 @@ Future<void> _sendMessageInternal(
         cancelToken: preflightCancelToken,
         operation: () => _resolveDurableFilesFor(
           ref,
-          attachments ?? const <String>[],
+          <String>[
+            for (final attachment in attachments ?? const <String>[])
+              if (!(preparedDirectDocuments?.attachmentIds.contains(
+                    attachment,
+                  ) ??
+                  false))
+                attachment,
+          ],
           sourceApi: directSourceApi,
           sourceAuthSnapshot: directSourceAuthSnapshot,
           cancelToken: preflightCancelToken,
@@ -14914,7 +15040,12 @@ Future<void> _sendMessageInternal(
         ),
       );
       if (durableFiles.isNotEmpty) {
-        userMessage = userMessage.copyWith(files: durableFiles);
+        userMessage = userMessage.copyWith(
+          files: <Map<String, dynamic>>[
+            ...?preparedDirectDocuments?.files,
+            ...durableFiles,
+          ],
+        );
         if (_isDirectConversationOwnerActive(ref, runOwner)) {
           final notifier =
               ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -14941,9 +15072,8 @@ Future<void> _sendMessageInternal(
         owner: runOwner,
         reservation: reservation,
         preflightCancelToken: preflightCancelToken,
-        enableWebSearch:
-            ref.read(webSearchEnabledProvider) &&
-            ref.read(webSearchAvailableProvider),
+        enableWebSearch: webSearchAtSendStart,
+        reasoningEffort: reasoningEffortAtSendStart,
         sendHandle: sendHandle,
       );
       if (_isDirectConversationOwnerActive(ref, runOwner) &&

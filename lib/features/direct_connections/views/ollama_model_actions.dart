@@ -348,11 +348,6 @@ class OllamaModelActionsButton extends ConsumerWidget {
         value: OllamaThinkingSetting.high.storageValue,
         label: l10n.ollamaThinkingHigh,
       ),
-      if (!isGptOss)
-        (
-          value: OllamaThinkingSetting.max.storageValue,
-          label: l10n.ollamaThinkingMaximum,
-        ),
     ];
     final selected = await showSettingsSheet<String>(
       context: context,
@@ -409,6 +404,5 @@ class OllamaModelActionsButton extends ConsumerWidget {
     OllamaThinkingSetting.low => l10n.ollamaThinkingLow,
     OllamaThinkingSetting.medium => l10n.ollamaThinkingMedium,
     OllamaThinkingSetting.high => l10n.ollamaThinkingHigh,
-    OllamaThinkingSetting.max => l10n.ollamaThinkingMaximum,
   };
 }
