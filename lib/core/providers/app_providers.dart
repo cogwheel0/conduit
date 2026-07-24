@@ -1884,7 +1884,10 @@ class Models extends _$Models {
         models: models,
         current: currentSelected,
         preferredBackend: ref.read(preferredBackendProvider),
-        preferredModelId: ref.read(appSettingsProvider).defaultModel,
+        preferredModelId:
+            currentSelected != null && ref.read(isManualModelSelectionProvider)
+            ? null
+            : ref.read(appSettingsProvider).defaultModel,
       );
       if (identical(currentSelected, replacement)) return models;
 
@@ -2164,6 +2167,7 @@ typedef _OwnedModels = ({
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
   bool _authenticatedDefaultRestoreScheduled = false;
+  bool _accountlessBackendReconciliationPending = false;
 
   @override
   Model? build() {
@@ -2181,6 +2185,8 @@ class SelectedModel extends _$SelectedModel {
       }
     });
     ref.listen<PreferredBackend>(preferredBackendProvider, (previous, next) {
+      _accountlessBackendReconciliationPending =
+          next == PreferredBackend.direct || next == PreferredBackend.hermes;
       _schedulePrimaryAccountlessRestore();
     });
     ref.listen<bool>(
@@ -2268,7 +2274,10 @@ class SelectedModel extends _$SelectedModel {
         models: trustedModels,
         current: current,
         preferredBackend: preferredBackend,
-        preferredModelId: ref.read(appSettingsProvider).defaultModel,
+        preferredModelId:
+            current != null && ref.read(isManualModelSelectionProvider)
+            ? null
+            : ref.read(appSettingsProvider).defaultModel,
       ),
     );
   }
@@ -2289,7 +2298,15 @@ class SelectedModel extends _$SelectedModel {
       final manualSelectionIsUsable = isLocallyMintedDirectModel(current)
           ? ref.read(directModelRegistryProvider).resolve(current) != null
           : !isHermesModel(current) || ref.read(hermesConfigProvider).isUsable;
-      if (manualSelectionIsUsable) return;
+      if (manualSelectionIsUsable &&
+          (!_accountlessBackendReconciliationPending ||
+              _matchesPreferredBackend(
+                current,
+                ref.read(preferredBackendProvider),
+              ))) {
+        _accountlessBackendReconciliationPending = false;
+        return;
+      }
     }
     final decision = _primaryAccountlessDecision(current: current);
     if (!decision.shouldReconcile) return;
@@ -2303,6 +2320,7 @@ class SelectedModel extends _$SelectedModel {
         replacement != null &&
         current.id == replacement.id &&
         (!isLocallyMintedDirectModel(replacement) || currentBindingIsValid)) {
+      _accountlessBackendReconciliationPending = false;
       return;
     }
 
@@ -2310,6 +2328,7 @@ class SelectedModel extends _$SelectedModel {
       ref.read(isManualModelSelectionProvider.notifier).set(false);
     }
     state = replacement;
+    _accountlessBackendReconciliationPending = false;
     DebugLogger.warning(
       'primary-accountless-selection-restored',
       scope: 'models/default',
@@ -4271,7 +4290,10 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     }
 
     final currentSelected = ref.read(selectedModelProvider);
-    final configuredDefaultId = ref.read(appSettingsProvider).defaultModel;
+    final configuredDefaultId =
+        currentSelected != null && ref.read(isManualModelSelectionProvider)
+        ? null
+        : ref.read(appSettingsProvider).defaultModel;
     final Model? standalone;
     if (preferredBackend == PreferredBackend.hermes) {
       standalone = hermesConfig.isUsable
@@ -4385,6 +4407,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     final manuallySelected = ref.read(selectedModelProvider);
     if (ref.read(isManualModelSelectionProvider) &&
         manuallySelected != null &&
+        _matchesPreferredBackend(manuallySelected, preferredBackend) &&
         (isHermesModel(manuallySelected) ||
             ref.read(directModelRegistryProvider).resolve(manuallySelected) !=
                 null)) {
@@ -4708,19 +4731,13 @@ Model? _accountlessSelection({
 }) {
   final available = models.toList(growable: false);
 
-  bool matchesPreferred(Model model) => switch (preferredBackend) {
-    PreferredBackend.direct => isLocallyMintedDirectModel(model),
-    PreferredBackend.hermes => isHermesModel(model),
-    PreferredBackend.owui || PreferredBackend.unset =>
-      isLocallyMintedDirectModel(model) || isHermesModel(model),
-  };
-
   final preferredMatch = preferredModelId == null || preferredModelId.isEmpty
       ? null
       : available
             .where(
               (model) =>
-                  model.id == preferredModelId && matchesPreferred(model),
+                  model.id == preferredModelId &&
+                  _matchesPreferredBackend(model, preferredBackend),
             )
             .firstOrNull;
   if (preferredMatch != null) return preferredMatch;
@@ -4728,7 +4745,8 @@ Model? _accountlessSelection({
   final currentMatch = current == null
       ? null
       : available.where((model) => model.id == current.id).firstOrNull;
-  if (currentMatch != null && matchesPreferred(currentMatch)) {
+  if (currentMatch != null &&
+      _matchesPreferredBackend(currentMatch, preferredBackend)) {
     return currentMatch;
   }
   return _modelForPreferredBackend(available, preferredBackend) ??
@@ -4738,6 +4756,14 @@ Model? _accountlessSelection({
         PreferredBackend.direct || PreferredBackend.hermes => null,
       };
 }
+
+bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>
+    switch (preferredBackend) {
+      PreferredBackend.direct => isLocallyMintedDirectModel(model),
+      PreferredBackend.hermes => isHermesModel(model),
+      PreferredBackend.owui || PreferredBackend.unset =>
+        isLocallyMintedDirectModel(model) || isHermesModel(model),
+    };
 
 bool _shouldUseAccountlessModelSelection({
   required bool isAuthenticated,

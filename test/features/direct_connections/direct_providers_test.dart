@@ -179,6 +179,56 @@ void main() {
     expect(settled.isLoaded('model-one'), isTrue);
   });
 
+  test(
+    'Ollama lifecycle applies the last completed running-model snapshot',
+    () async {
+      final adapter = _OverlappingLifecycleAdapter();
+      final profile = _profile(
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      FlutterSecureStorage.setMockInitialValues({
+        'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+          profile,
+        ]).encode(),
+      });
+      final container = _container(adapter);
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        ollamaModelLifecycleProvider(profile.id),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+
+      await container.read(ollamaModelLifecycleProvider(profile.id).future);
+      final controller = container.read(
+        ollamaModelLifecycleProvider(profile.id).notifier,
+      );
+      final first = controller.loadModel('model-one');
+      await adapter.firstMutationListStarted.future;
+
+      await controller.loadModel('model-two');
+      expect(
+        container
+            .read(ollamaModelLifecycleProvider(profile.id))
+            .requireValue
+            .loadedModelIds,
+        {'model-two'},
+      );
+
+      adapter.firstMutationListResult.complete({'model-one', 'model-two'});
+      await first;
+
+      expect(
+        container
+            .read(ollamaModelLifecycleProvider(profile.id))
+            .requireValue
+            .loadedModelIds,
+        {'model-one', 'model-two'},
+      );
+    },
+  );
+
   test('probe sanitizes messages returned by runtime adapters', () async {
     const apiKey = '  probe-api-secret  ';
     const headerValue = '  probe-header-secret  ';
@@ -1244,6 +1294,58 @@ final class _GatedLifecycleAdapter
     loadStarted.complete();
     await releaseLoad.future;
   }
+
+  @override
+  Future<void> unloadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId,
+  ) async {}
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
+}
+
+final class _OverlappingLifecycleAdapter
+    implements DirectProviderAdapter, DirectModelLifecycleAdapter {
+  final Completer<void> firstMutationListStarted = Completer<void>();
+  final Completer<Set<String>> firstMutationListResult =
+      Completer<Set<String>>();
+  int _runningListCalls = 0;
+
+  @override
+  String get key => kOllamaAdapterKey;
+
+  @override
+  Future<Set<String>> listRunningModelIds(DirectConnectionProfile profile) {
+    _runningListCalls++;
+    return switch (_runningListCalls) {
+      1 => Future.value(const <String>{}),
+      2 => () {
+        firstMutationListStarted.complete();
+        return firstMutationListResult.future;
+      }(),
+      _ => Future.value(const {'model-two'}),
+    };
+  }
+
+  @override
+  Future<void> loadModel(
+    DirectConnectionProfile profile,
+    String remoteModelId, {
+    String? keepAlive,
+  }) async {}
 
   @override
   Future<void> unloadModel(

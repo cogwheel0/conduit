@@ -125,7 +125,13 @@ class NativeSheetHydrationService {
         pinnedModelIds: pinnedModelIds,
         defaultModelId: defaultModelId,
       );
-      final allowsCustomEffort = _ref.read(reasoningEffortAllowsCustomProvider);
+      final effortModel = orderedModels
+          .where((model) => model.id == selectedModelId)
+          .firstOrNull;
+      final allowsCustomEffort = reasoningEffortAllowsCustomForModel(
+        _ref,
+        effortModel,
+      );
       final effortOptions = <String>[...kReasoningEffortOptions];
 
       final modelOptions = [
@@ -171,7 +177,7 @@ class NativeSheetHydrationService {
         moreModelsTitle: l10n?.moreModels ?? 'More models',
         searchModelsTitle: l10n?.searchModels ?? 'Search models',
         reasoningEffortTitle: l10n?.reasoningEffort ?? 'Effort',
-        reasoningEffortValue: _ref.read(reasoningEffortProvider),
+        reasoningEffortValue: reasoningEffortForModel(_ref, effortModel),
         reasoningEffortOptions: effortOptions,
         reasoningEffortLabels: <String, String>{
           kAutomaticReasoningEffort:
@@ -191,7 +197,9 @@ class NativeSheetHydrationService {
                   .read(personalizationSettingsProvider.notifier)
                   .togglePinnedModel(modelId)
             : null,
-        onReasoningEffortChanged: (value) => setReasoningEffort(_ref, value),
+        onReasoningEffortChanged: effortModel == null
+            ? null
+            : (value) => setReasoningEffortForModel(_ref, effortModel, value),
         models: nativePresentationOptions,
         rethrowErrors: rethrowErrors,
       );

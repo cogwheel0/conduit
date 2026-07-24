@@ -36,4 +36,19 @@ void main() {
       layout.more.map((model) => model.id).toList(),
     ).deepEquals(['model-4', 'model-5']);
   });
+
+  test('falls back when every pinned model id is stale', () {
+    final layout = buildModelSelectorLayout(
+      models: models,
+      pinnedModelIds: const ['removed-model', 'another-removed-model'],
+      defaultModelId: 'model-6',
+    );
+
+    check(
+      layout.featured.map((model) => model.id).toList(),
+    ).deepEquals(['model-0', 'model-1', 'model-2', 'model-3', 'model-6']);
+    check(
+      layout.more.map((model) => model.id).toList(),
+    ).deepEquals(['model-4', 'model-5']);
+  });
 }

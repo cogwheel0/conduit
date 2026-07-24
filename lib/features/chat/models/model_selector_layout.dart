@@ -25,7 +25,8 @@ ModelSelectorLayout buildModelSelectorLayout({
       final model = byId[id];
       if (model != null && featuredIds.add(id)) featured.add(model);
     }
-  } else {
+  }
+  if (featured.isEmpty) {
     for (final model in all.take(kModelSelectorFallbackCount)) {
       if (featuredIds.add(model.id)) featured.add(model);
     }

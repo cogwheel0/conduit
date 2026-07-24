@@ -748,7 +748,7 @@ class OllamaModelLifecycle extends _$OllamaModelLifecycle {
     if (modelId.isEmpty) {
       throw const FormatException('Ollama model id is missing.');
     }
-    final generation = ++_operationGeneration;
+    ++_operationGeneration;
     final previous = state.value ?? OllamaModelLifecycleState();
     state = AsyncData(
       previous.copyWith(busyModelIds: {...previous.busyModelIds, modelId}),
@@ -762,9 +762,10 @@ class OllamaModelLifecycle extends _$OllamaModelLifecycle {
         final latest = state.value ?? previous;
         state = AsyncData(
           latest.copyWith(
-            loadedModelIds: generation == _operationGeneration
-                ? loaded
-                : latest.loadedModelIds,
+            // Each mutation finishes with a new `/api/ps` read. Even if a
+            // later-started operation completed first, this response is the
+            // newest authoritative snapshot to arrive.
+            loadedModelIds: loaded,
             busyModelIds: latest.busyModelIds.difference({modelId}),
           ),
         );

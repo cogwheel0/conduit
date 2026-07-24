@@ -44,6 +44,22 @@ const _directDocumentTestKey = <int>[
   31,
 ];
 
+Map<String, dynamic> _directDocumentDescriptor(int index, String text) {
+  final suffix = index.toRadixString(16).padLeft(24, '0');
+  return directLocalDocumentDescriptor(
+    DirectPreparedDocument(
+      id: 'ddoc_$suffix',
+      name: 'document-$index.txt',
+      mimeType: 'text/plain',
+      size: text.length,
+      extractedText: text,
+      truncated: false,
+    ),
+    attachmentId: '$kDirectLocalDocumentAttachmentPrefix$index',
+    signingKey: _directDocumentTestKey,
+  );
+}
+
 void main() {
   group('normalizeDirectUsageMetadata', () {
     test('creates a detached deeply immutable JSON value', () {
@@ -705,6 +721,72 @@ void main() {
       );
 
       expect(_textParts(result.single), ['Visible text']);
+    });
+
+    test('enforces the local-document count across the request', () async {
+      final descriptors = [
+        for (var index = 0; index < kDirectMaxLocalDocuments + 1; index++)
+          _directDocumentDescriptor(index, 'document $index'),
+      ];
+
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'first-document-turn',
+              role: 'user',
+              content: 'First',
+              files: descriptors.take(3).toList(),
+            ),
+            _message(
+              id: 'second-document-turn',
+              role: 'user',
+              content: 'Second',
+              files: descriptors.skip(3).toList(),
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('per request'),
+          ),
+        ),
+      );
+    });
+
+    test('enforces the local-document text limit across the request', () async {
+      final halfLimit = (kDirectMaxLocalDocumentCharacters ~/ 2) + 1;
+      final text = List<String>.filled(halfLimit, 'x').join();
+
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'first-large-document-turn',
+              role: 'user',
+              content: 'First',
+              files: [_directDocumentDescriptor(1, text)],
+            ),
+            _message(
+              id: 'second-large-document-turn',
+              role: 'user',
+              content: 'Second',
+              files: [_directDocumentDescriptor(2, text)],
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+        ),
+        throwsA(
+          isA<DirectChatInputException>().having(
+            (error) => error.message,
+            'message',
+            contains('prompt limit'),
+          ),
+        ),
+      );
     });
 
     test('deduplicates OpenWebUI file ID and content URL aliases', () async {

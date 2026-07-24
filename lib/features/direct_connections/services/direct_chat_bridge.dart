@@ -122,6 +122,8 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
   final result = <DirectChatMessage>[];
   var imageCount = 0;
   var decodedImageBytes = 0;
+  var documentCount = 0;
+  var documentCharacters = 0;
 
   Future<void> addImage(
     List<DirectContentPart> parts,
@@ -203,12 +205,13 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         );
         if (document != null) documents.add(document);
       }
-      if (documents.length > kDirectMaxLocalDocuments) {
+      documentCount += documents.length;
+      if (documentCount > kDirectMaxLocalDocuments) {
         throw const DirectChatInputException(
-          'Direct chats support up to 4 local documents per message.',
+          'Direct chats support up to 4 local documents per request.',
         );
       }
-      final documentCharacters = documents.fold<int>(
+      documentCharacters += documents.fold<int>(
         0,
         (total, document) => total + document.extractedText.runes.length,
       );

@@ -3315,6 +3315,17 @@ void main() {
         ),
         'https://docs.ollama.com/cloud',
       );
+      for (final privateUrl in const [
+        'http://localhost./private',
+        'http://service.localhost./private',
+        'http://127.0.0.1./private',
+        'http://[::1]/private',
+      ]) {
+        expect(
+          () => normalizeOllamaCloudPublicWebUrl(privateUrl),
+          throwsFormatException,
+        );
+      }
       final search = await session.execute(
         dio: dio,
         name: 'web_search',

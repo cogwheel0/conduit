@@ -1178,6 +1178,9 @@ void main() {
             () => _FakePreferredBackendController(PreferredBackend.direct),
           ),
           apiServiceProvider.overrideWithValue(null),
+          appSettingsProvider.overrideWithValue(
+            AppSettings(defaultModel: directModels.first.id),
+          ),
           hermesConfigProvider.overrideWith(
             () => _FakeHermesConfigController(_disabledHermes),
           ),
@@ -1201,6 +1204,48 @@ void main() {
       ).identicalTo(directModels.last);
       check(container.read(isManualModelSelectionProvider)).isTrue();
     });
+
+    test(
+      'backend switch replaces a usable manual model from another backend',
+      () async {
+        final direct = _directModelFixture();
+        final backend = _MutablePreferredBackendController(
+          PreferredBackend.direct,
+        );
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            authStateManagerProvider.overrideWith(
+              () => _FakeAuthStateManager(AuthStatus.unauthenticated),
+            ),
+            preferredBackendProvider.overrideWith(() => backend),
+            apiServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+            directModelRegistryProvider.overrideWithValue(direct.registry),
+            directModelDiscoveryProvider.overrideWith(
+              () => _FixedDirectDiscovery([direct.model]),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(authStateManagerProvider.future);
+        await container.read(directModelDiscoveryProvider.future);
+        container.read(selectedModelProvider);
+        container.read(selectedModelProvider.notifier).set(direct.model);
+        container.read(isManualModelSelectionProvider.notifier).set(true);
+
+        backend.publish(PreferredBackend.hermes);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        final selected = container.read(selectedModelProvider);
+        check(selected).isNotNull();
+        check(isHermesModel(selected!)).isTrue();
+        check(container.read(isManualModelSelectionProvider)).isFalse();
+      },
+    );
 
     test(
       'Hermes to Direct switch observes pending discovery completion',

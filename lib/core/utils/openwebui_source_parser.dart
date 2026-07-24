@@ -51,6 +51,7 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
     final loopCount = counts.isEmpty
         ? 1
         : counts.reduce((value, element) => value > element ? value : element);
+    var mergedTopLevelSnippet = false;
 
     for (var index = 0; index < loopCount; index++) {
       final document = index < documents.length ? documents[index] : null;
@@ -122,11 +123,12 @@ List<ChatSourceReference> parseOpenWebUISourceList(dynamic raw) {
         }
       }
 
-      if (isFirstOccurrence) {
+      if (!mergedTopLevelSnippet) {
         final topLevelSnippet = _extractSnippet(entryMap['snippet']);
         if (topLevelSnippet != null && topLevelSnippet.isNotEmpty) {
           accumulator.documents.add(topLevelSnippet);
         }
+        mergedTopLevelSnippet = true;
       }
 
       final snippet = _extractSnippet(document);

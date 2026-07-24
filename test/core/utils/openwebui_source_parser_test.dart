@@ -85,6 +85,25 @@ void main() {
         check(result.first.id).equals('same-id');
       });
 
+      test('keeps top-level snippets from every deduplicated entry', () {
+        final result = parseOpenWebUISourceList([
+          {
+            'source': {'id': 'same-id', 'name': 'Shared'},
+            'snippet': 'snippet A',
+          },
+          {
+            'source': {'id': 'same-id', 'name': 'Shared'},
+            'snippet': 'snippet B',
+          },
+        ]);
+
+        check(result).length.equals(1);
+        check(result.first.snippet).equals('snippet A');
+        check(
+          result.first.metadata!['documents'] as List<dynamic>,
+        ).deepEquals(['snippet A', 'snippet B']);
+      });
+
       test('different IDs produce separate results', () {
         final result = parseOpenWebUISourceList([
           {

@@ -241,8 +241,12 @@ String normalizeOllamaCloudPublicWebUrl(String value) {
       'Web fetch URL must not include user information.',
     );
   }
-  final host = uri.host.toLowerCase();
+  // DNS treats a terminal dot as the same absolute hostname. Canonicalize it
+  // before applying the public-host boundary so `localhost.` and IP literals
+  // with a terminal dot cannot bypass the checks below.
+  final host = uri.host.toLowerCase().replaceFirst(RegExp(r'\.+$'), '');
   if (host == 'localhost' ||
+      host.isEmpty ||
       host.endsWith('.localhost') ||
       host.endsWith('.local') ||
       host.endsWith('.internal') ||

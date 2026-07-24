@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/models/model.dart';
 import '../../../core/persistence/persistence_keys.dart';
 import '../../../core/persistence/preferences_store.dart';
 import '../../../core/providers/app_providers.dart';
@@ -139,21 +140,61 @@ final reasoningEffortAllowsCustomProvider = Provider<bool>((ref) {
   return profile?.adapterKey != kOllamaAdapterKey;
 });
 
+String reasoningEffortForModel(dynamic ref, Model? model) {
+  if (model == null) return kAutomaticReasoningEffort;
+  final binding = ref.read(directModelRegistryProvider).resolve(model);
+  if (binding != null) {
+    final profile = _readDirectProfile(ref, binding.profileId);
+    if (profile?.adapterKey == kOllamaAdapterKey) {
+      return profile?.ollamaThinkingFor(binding.remoteModelId)?.storageValue ??
+          kAutomaticReasoningEffort;
+    }
+    return ref.read(
+          localReasoningEffortsProvider,
+        )['direct:${binding.profileId}:${binding.remoteModelId}'] ??
+        kAutomaticReasoningEffort;
+  }
+  if (isHermesModel(model)) {
+    return ref.read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
+        kAutomaticReasoningEffort;
+  }
+  if (ref.read(apiServiceProvider) != null) {
+    return ref
+            .read(personalizationSettingsProvider)
+            .asData
+            ?.value
+            .reasoningEffort ??
+        kAutomaticReasoningEffort;
+  }
+  return kAutomaticReasoningEffort;
+}
+
+bool reasoningEffortAllowsCustomForModel(dynamic ref, Model? model) {
+  if (model == null) return true;
+  final binding = ref.read(directModelRegistryProvider).resolve(model);
+  if (binding == null) return true;
+  final profile = _readDirectProfile(ref, binding.profileId);
+  return profile?.adapterKey != kOllamaAdapterKey;
+}
+
 Future<void> setReasoningEffort(dynamic ref, String effort) async {
+  final model = ref.read(selectedModelProvider);
+  if (model == null) return;
+  await setReasoningEffortForModel(ref, model, effort);
+}
+
+Future<void> setReasoningEffortForModel(
+  dynamic ref,
+  Model model,
+  String effort,
+) async {
   final normalized = normalizeReasoningEffort(effort);
   final configured = normalized == kAutomaticReasoningEffort
       ? null
       : normalized;
-  final model = ref.read(selectedModelProvider);
-  if (model == null) return;
   final binding = ref.read(directModelRegistryProvider).resolve(model);
   if (binding != null) {
-    final profiles =
-        ref.read(directConnectionProfilesProvider).value ??
-        const <DirectConnectionProfile>[];
-    final profile = profiles
-        .where((candidate) => candidate.id == binding.profileId)
-        .firstOrNull;
+    final profile = _readDirectProfile(ref, binding.profileId);
     if (profile?.adapterKey == kOllamaAdapterKey) {
       await ref
           .read(directConnectionProfilesProvider.notifier)
@@ -185,4 +226,16 @@ Future<void> setReasoningEffort(dynamic ref, String effort) async {
         .read(personalizationSettingsProvider.notifier)
         .setReasoningEffort(configured);
   }
+}
+
+DirectConnectionProfile? _readDirectProfile(dynamic ref, String profileId) {
+  final profiles =
+      (ref.read(directConnectionProfilesProvider)
+              as AsyncValue<List<DirectConnectionProfile>>)
+          .value ??
+      const <DirectConnectionProfile>[];
+  for (final profile in profiles) {
+    if (profile.id == profileId) return profile;
+  }
+  return null;
 }
