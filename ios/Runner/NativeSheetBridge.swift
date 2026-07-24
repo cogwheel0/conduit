@@ -1968,7 +1968,9 @@ final class NativeSheetBridge: NativeSheetHostApi {
         }
 
         if item.id == "sign-out" {
-            presentDestructiveConfirm(for: item)
+            dismissActive { [weak self] in
+                self?.flutterApi?.onLogoutRequested { _ in }
+            }
             return
         }
 

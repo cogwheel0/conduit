@@ -80,6 +80,9 @@
     "description": "Button/title for signing out of the app."
   },
   "endYourSession": "セッションを終了",
+  "signOutOptionsDescription": "このデバイスに残す情報を選択してください。Conduit 内のその他のデータは削除されます。サーバー上のデータには影響しません。",
+  "keepServerDetails": "サーバー情報を保持",
+  "keepServerDetailsDescription": "サーバーアドレスと接続設定",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },

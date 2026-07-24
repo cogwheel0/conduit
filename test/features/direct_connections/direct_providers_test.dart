@@ -1172,6 +1172,47 @@ void main() {
       expect(recovered.models.map((item) => item.name), ['recovered-model']);
     },
   );
+
+  test('app-data clear barrier rejects and can resume profile writes', () async {
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+    final controller = container.read(directConnectionProfilesProvider.notifier);
+    await container.read(directConnectionProfilesProvider.future);
+
+    await controller.blockMutationsForAppDataClear();
+    expect(() => controller.upsert(_profile()), throwsStateError);
+
+    controller.resumeMutationsAfterAppDataClearAbort();
+    await controller.upsert(_profile());
+    expect(
+      container.read(directConnectionProfilesProvider).requireValue,
+      hasLength(1),
+    );
+  });
+
+  test('incomplete logout fence suppresses Direct profiles on restart', () async {
+    await PreferencesStore.putChecked(
+      PreferenceKeys.incompleteLogoutFence,
+      true,
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1':
+          DirectConnectionProfilesDocument([_profile()]).encode(),
+    });
+    final container = _container(_QueuedAdapter());
+    addTearDown(container.dispose);
+
+    expect(
+      await container.read(directConnectionProfilesProvider.future),
+      isEmpty,
+    );
+    expect(
+      () => container
+          .read(directConnectionProfilesProvider.notifier)
+          .upsert(_profile()),
+      throwsStateError,
+    );
+  });
 }
 
 ProviderContainer _container(DirectProviderAdapter adapter) =>

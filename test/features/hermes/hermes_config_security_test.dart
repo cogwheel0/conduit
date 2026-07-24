@@ -685,6 +685,28 @@ void main() {
     check(storage.writeCount('hermes_session_key_v1')).equals(1);
   });
 
+  test('app-data clear barrier discards late secret hydration', () async {
+    final storage = _GatedSecureStorage({
+      'hermes_api_key_v1': 'key-for-one',
+      'hermes_session_key_v1': 'memory-for-one',
+    }, gatedReadKey: 'hermes_api_key_v1');
+    addTearDown(storage.releaseAll);
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    await storage.readStarted.future.timeout(const Duration(seconds: 1));
+
+    final blocked = controller.blockMutationsForAppDataClear();
+    storage.releaseRead();
+    await blocked.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(Duration.zero);
+
+    check(container.read(hermesConfigProvider).apiKey).isNull();
+    check(container.read(hermesConfigProvider).sessionKey).isNull();
+  });
+
   test('disable interrupts a session-key request without active runs', () async {
     final storage = _GatedSecureStorage({
       'hermes_api_key_v1': 'key-for-one',
@@ -1165,6 +1187,73 @@ void main() {
       check(logs).not((subject) => subject.contains(stackSecret));
     },
   );
+
+  test('app-data clear barrier rejects and can resume Hermes writes', () async {
+    const storage = FlutterSecureStorage();
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+
+    await controller.blockMutationsForAppDataClear();
+    await expectLater(
+      controller.saveConnection(baseUrl: 'https://two.example/v1'),
+      throwsStateError,
+    );
+
+    controller.resumeMutationsAfterAppDataClearAbort();
+    await controller.saveConnection(baseUrl: 'https://two.example/v1');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('https://two.example/v1');
+  });
+
+  test('queued Hermes mutation cannot lower app-data clear barrier', () async {
+    final storage = _GatedSecureStorage({
+      'hermes_api_key_v1': 'key-for-one',
+      'hermes_session_key_v1': 'memory-for-one',
+    }, gatedWriteKey: 'hermes_api_key_v1');
+    addTearDown(storage.releaseAll);
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+
+    final save = controller.saveConnection(
+      baseUrl: 'https://one.example/v1',
+      apiKeyChanged: true,
+      apiKey: 'replacement',
+    );
+    await storage.writeStarted.future;
+    final blocked = controller.blockMutationsForAppDataClear();
+
+    storage.releaseWrite();
+    await save;
+    await blocked;
+
+    check(controller.captureSessionActionAdmission()).isNull();
+    await expectLater(controller.ensureSessionKey(), throwsStateError);
+  });
+
+  test('incomplete logout fence suppresses Hermes on restart', () async {
+    await PreferencesStore.putChecked(
+      PreferenceKeys.incompleteLogoutFence,
+      true,
+    );
+    const storage = FlutterSecureStorage();
+    final container = ProviderContainer(
+      overrides: [secureStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    final config = container.read(hermesConfigProvider);
+    check(config.enabled).isFalse();
+    check(config.baseUrl).isEmpty();
+    check(config.apiKey).isNull();
+    await expectLater(
+      container
+          .read(hermesConfigProvider.notifier)
+          .saveConnection(baseUrl: 'https://two.example/v1'),
+      throwsStateError,
+    );
+  });
 }
 
 Future<ProviderContainer> _readyHermesContainer(

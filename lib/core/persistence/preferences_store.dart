@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,6 +38,9 @@ class PreferencesStore {
 
   static SharedPreferences? _prefs;
   static PreferenceWriteInterceptor? _debugWriteInterceptor;
+  static bool _appDataClearBlocked = false;
+  static int _activeWrites = 0;
+  static Completer<void>? _writesDrained;
 
   /// True once [ensureInitialized] has completed and synchronous reads are safe.
   static bool get isReady => _prefs != null;
@@ -72,6 +77,9 @@ class PreferencesStore {
   static void debugReset() {
     _prefs = null;
     _debugWriteInterceptor = null;
+    _appDataClearBlocked = false;
+    _activeWrites = 0;
+    _writesDrained = null;
   }
 
   // --- reads (synchronous) -------------------------------------------------
@@ -99,7 +107,10 @@ class PreferencesStore {
   /// the key. Lists are coerced to `List<String>` (the only list type
   /// shared_preferences supports).
   static Future<void> put(String key, Object? value) async {
-    await _writeValue(key, value);
+    final succeeded = await _writeValue(key, value);
+    if (!succeeded && _appDataClearBlocked) {
+      throw StateError('Preference changes are unavailable while signing out.');
+    }
   }
 
   /// Persists [value] and throws if the platform reports a failed disk write.
@@ -108,14 +119,22 @@ class PreferencesStore {
   /// as durable when SharedPreferences returns false (notably trust revocation
   /// and principal rotation). Ordinary UI preferences retain [put]'s legacy
   /// best-effort behavior.
-  static Future<void> putChecked(String key, Object? value) async {
+  static Future<void> putChecked(
+    String key,
+    Object? value, {
+    bool bypassAppDataClearBarrier = false,
+  }) async {
     if (_prefs == null) {
       throw StateError(
         'PreferencesStore.ensureInitialized() must be awaited before a checked '
         'preference write.',
       );
     }
-    if (!await _writeValue(key, value)) {
+    if (!await _writeValue(
+      key,
+      value,
+      bypassAppDataClearBarrier: bypassAppDataClearBarrier,
+    )) {
       throw StateError('Preference write failed for "$key".');
     }
   }
@@ -132,6 +151,7 @@ class PreferencesStore {
     String key,
     Object? value, {
     required bool Function() canWrite,
+    bool bypassAppDataClearBarrier = false,
   }) async {
     if (_prefs == null) {
       throw StateError(
@@ -148,6 +168,7 @@ class PreferencesStore {
         admitted = true;
         return true;
       },
+      bypassAppDataClearBarrier: bypassAppDataClearBarrier,
     );
     if (!succeeded) {
       throw StateError('Preference write failed for "$key".');
@@ -159,41 +180,66 @@ class PreferencesStore {
     String key,
     Object? value, {
     bool Function()? beforeWrite,
+    bool bypassAppDataClearBarrier = false,
   }) async {
     final prefs = _prefs;
     // Ordinary preference writes are best-effort before bootstrap: true means
     // the write was intentionally skipped, not that anything reached disk.
     if (prefs == null) return true;
-    final interceptor = _debugWriteInterceptor;
-    if (interceptor != null) {
-      final intercepted = await interceptor(prefs, key, value);
-      if (intercepted != null) {
-        if (beforeWrite != null && !beforeWrite()) return true;
-        return intercepted;
+    if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+    _activeWrites++;
+    try {
+      final interceptor = _debugWriteInterceptor;
+      if (interceptor != null) {
+        final intercepted = await interceptor(prefs, key, value);
+        if (intercepted != null) {
+          if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+          if (beforeWrite != null && !beforeWrite()) return true;
+          return intercepted;
+        }
+      }
+      if (_appDataClearBlocked && !bypassAppDataClearBarrier) return false;
+      if (beforeWrite != null && !beforeWrite()) return true;
+      if (value == null) {
+        return prefs.remove(key);
+      }
+      if (value is bool) {
+        return prefs.setBool(key, value);
+      } else if (value is int) {
+        return prefs.setInt(key, value);
+      } else if (value is double) {
+        return prefs.setDouble(key, value);
+      } else if (value is String) {
+        return prefs.setString(key, value);
+      } else if (value is List<String>) {
+        return prefs.setStringList(key, value);
+      } else if (value is List) {
+        return prefs.setStringList(
+          key,
+          value.map((e) => e.toString()).toList(growable: false),
+        );
+      } else {
+        return prefs.setString(key, value.toString());
+      }
+    } finally {
+      _activeWrites--;
+      if (_activeWrites == 0) {
+        _writesDrained?.complete();
+        _writesDrained = null;
       }
     }
-    if (beforeWrite != null && !beforeWrite()) return true;
-    if (value == null) {
-      return prefs.remove(key);
-    }
-    if (value is bool) {
-      return prefs.setBool(key, value);
-    } else if (value is int) {
-      return prefs.setInt(key, value);
-    } else if (value is double) {
-      return prefs.setDouble(key, value);
-    } else if (value is String) {
-      return prefs.setString(key, value);
-    } else if (value is List<String>) {
-      return prefs.setStringList(key, value);
-    } else if (value is List) {
-      return prefs.setStringList(
-        key,
-        value.map((e) => e.toString()).toList(growable: false),
-      );
-    } else {
-      return prefs.setString(key, value.toString());
-    }
+  }
+
+  /// Rejects new preference writes and waits for writes that already crossed
+  /// the API boundary to settle before a full app-data wipe.
+  static Future<void> blockWritesForAppDataClear() {
+    _appDataClearBlocked = true;
+    if (_activeWrites == 0) return Future<void>.value();
+    return (_writesDrained ??= Completer<void>()).future;
+  }
+
+  static void resumeWritesAfterAppDataClear() {
+    _appDataClearBlocked = false;
   }
 
   static Future<void> putAll(Map<String, Object?> entries) async {
@@ -203,7 +249,7 @@ class PreferencesStore {
   }
 
   static Future<void> remove(String key) async {
-    await _prefs?.remove(key);
+    await put(key, null);
   }
 
   /// Clears all stored values, optionally preserving [preserve] (e.g. the
@@ -216,9 +262,15 @@ class PreferencesStore {
       for (final key in preserve)
         if (prefs.containsKey(key)) key: prefs.get(key),
     };
-    await prefs.clear();
+    if (!await prefs.clear()) {
+      throw StateError('Preference clear failed.');
+    }
     for (final entry in saved.entries) {
-      await put(entry.key, entry.value);
+      await putChecked(
+        entry.key,
+        entry.value,
+        bypassAppDataClearBarrier: true,
+      );
     }
   }
 }

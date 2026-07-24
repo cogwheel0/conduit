@@ -30,7 +30,6 @@ import 'core/services/settings_service.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
-import 'features/auth/providers/unified_auth_providers.dart';
 import 'features/chat/services/request_completion_runner.dart';
 import 'features/chat/providers/text_to_speech_provider.dart';
 import 'features/chat/providers/chat_providers.dart' show restoreDefaultModel;
@@ -43,6 +42,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'core/services/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'shared/widgets/sign_out_options_dialog.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -291,7 +291,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   void _handleNativeSheetEvent(NativeSheetEvent event) {
     switch (event) {
       case NativeSheetLogoutRequested():
-        unawaited(ref.read(authActionsProvider).logout());
+        unawaited(_handleNativeSheetLogoutRequested());
       case NativeSheetDismissed():
         _nativeSheetDraftValues.clear();
         break;
@@ -306,6 +306,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case NativeEditProfileCommitted():
         unawaited(_handleNativeEditProfileCommitted(event));
     }
+  }
+
+  Future<void> _handleNativeSheetLogoutRequested() async {
+    final keepServerDetails = await showSignOutOptionsDialog(context);
+    if (!mounted || keepServerDetails == null) return;
+    await ref
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: keepServerDetails);
   }
 
   Future<void> _handleNativeEditProfileCommitted(

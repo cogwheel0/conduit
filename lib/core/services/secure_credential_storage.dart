@@ -29,6 +29,7 @@ class SecureCredentialStorage {
   static const String _openWebUiDirectIdentityKey =
       'openwebui_direct_identity_key_v1';
   static Future<void> _openWebUiDirectIdentityKeyQueue = Future<void>.value();
+  static bool _openWebUiDirectIdentityWritesBlocked = false;
 
   /// Get Android-specific secure storage options
   AndroidOptions _getAndroidOptions() {
@@ -413,16 +414,39 @@ class SecureCredentialStorage {
   /// Returns the durable device secret used for domain-separated Direct
   /// identity authentication, creating it when needed.
   Future<List<int>> getOrCreateOpenWebUiDirectIdentityKey() {
+    if (_openWebUiDirectIdentityWritesBlocked) {
+      return Future<List<int>>.error(
+        StateError('Direct identity changes are unavailable while signing out.'),
+      );
+    }
     final result = _openWebUiDirectIdentityKeyQueue.then<List<int>>(
-      (_) => _loadOrCreateOpenWebUiDirectIdentityKey(),
+      (_) => _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed(),
       onError: (Object _, StackTrace _) =>
-          _loadOrCreateOpenWebUiDirectIdentityKey(),
+          _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed(),
     );
     _openWebUiDirectIdentityKeyQueue = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
     );
     return result;
+  }
+
+  Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKeyIfAllowed() {
+    if (_openWebUiDirectIdentityWritesBlocked) {
+      return Future<List<int>>.error(
+        StateError('Direct identity changes are unavailable while signing out.'),
+      );
+    }
+    return _loadOrCreateOpenWebUiDirectIdentityKey();
+  }
+
+  static Future<void> blockDirectIdentityWritesForAppDataClear() async {
+    _openWebUiDirectIdentityWritesBlocked = true;
+    await _openWebUiDirectIdentityKeyQueue;
+  }
+
+  static void resumeDirectIdentityWritesAfterAppDataClear() {
+    _openWebUiDirectIdentityWritesBlocked = false;
   }
 
   Future<List<int>> _loadOrCreateOpenWebUiDirectIdentityKey() async {

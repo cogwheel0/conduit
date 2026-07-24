@@ -31,6 +31,7 @@ import '../models/user_settings.dart';
 import '../models/knowledge_base.dart';
 import '../services/settings_service.dart';
 import '../services/optimized_storage_service.dart';
+import '../services/secure_credential_storage.dart';
 import '../services/socket_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/conversation_parsing.dart';
@@ -68,6 +69,148 @@ typedef _ModelAuthReadiness = ({
   bool loading,
   AuthStatus status,
 });
+
+/// Rebuilds every long-lived provider that mirrors data removed by the broad
+/// sign-out wipe.
+void _resetProvidersAfterFullAppDataClear(Ref ref) {
+  ref.read(activeConversationProvider.notifier).set(null);
+
+  ref.invalidate(appSettingsProvider);
+  ref.invalidate(appThemeModeProvider);
+  ref.invalidate(appThemePaletteProvider);
+  ref.invalidate(appLocaleProvider);
+  ref.invalidate(reviewerModeProvider);
+  ref.invalidate(preferredBackendProvider);
+
+  ref.invalidate(directConnectionProfilesProvider);
+  ref.invalidate(directHistoryPolicyProvider);
+  ref.invalidate(directDeviceTrustKeyProvider);
+  ref.invalidate(directRunRegistryProvider);
+  ref.invalidate(directModelRegistryProvider);
+  ref.invalidate(directProviderAdapterRegistryProvider);
+  ref.invalidate(directHttpClientPoolProvider);
+
+  ref.invalidate(hermesConfigProvider);
+  ref.invalidate(hermesSecretsLoadingProvider);
+  ref.invalidate(hermesSecretsErrorProvider);
+  ref.invalidate(hermesActiveSessionProvider);
+  ref.invalidate(hermesApiServiceProvider);
+}
+
+final signOutCoordinatorProvider = Provider<SignOutCoordinator>(
+  SignOutCoordinator.new,
+);
+
+enum SignOutRequestResult { completed, conflictingRequestIgnored }
+
+/// Coordinates a user-requested full local-data sign-out across auth and
+/// backend providers. Connection mutation barriers are installed only after
+/// auth ownership is confirmed, then held until the wipe commits or aborts.
+final class SignOutCoordinator {
+  SignOutCoordinator(this._ref);
+
+  final Ref _ref;
+  Future<SignOutRequestResult>? _activeSignOut;
+  bool? _activeKeepServerDetails;
+
+  Future<SignOutRequestResult> signOut({required bool keepServerDetails}) {
+    final active = _activeSignOut;
+    if (active != null) {
+      if (_activeKeepServerDetails == keepServerDetails) return active;
+      return Future<SignOutRequestResult>.value(
+        SignOutRequestResult.conflictingRequestIgnored,
+      );
+    }
+    late final Future<SignOutRequestResult> operation;
+    operation = _signOut(keepServerDetails: keepServerDetails)
+        .then((_) => SignOutRequestResult.completed)
+        .whenComplete(() {
+          if (identical(_activeSignOut, operation)) {
+            _activeSignOut = null;
+            _activeKeepServerDetails = null;
+          }
+        });
+    _activeKeepServerDetails = keepServerDetails;
+    _activeSignOut = operation;
+    return operation;
+  }
+
+  Future<void> _signOut({required bool keepServerDetails}) async {
+    final directProfiles = _ref.read(
+      directConnectionProfilesProvider.notifier,
+    );
+    final hermesConfig = _ref.read(hermesConfigProvider.notifier);
+    final directRuns = _ref.read(directRunRegistryProvider);
+    FullAppDataClearOutcome? outcome;
+
+    void resumeGlobalAdmission() {
+      directRuns.resumeAdmissionAfterAppDataClearAbort();
+      PreferencesStore.resumeWritesAfterAppDataClear();
+      SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+    }
+
+    Future<void> prepareForClear() async {
+      directRuns.blockAdmissionForAppDataClear();
+      try {
+        await Future.wait<void>([
+          PreferencesStore.blockWritesForAppDataClear(),
+          SecureCredentialStorage.blockDirectIdentityWritesForAppDataClear(),
+          directProfiles.blockMutationsForAppDataClear(),
+          hermesConfig.blockMutationsForAppDataClear(),
+        ]);
+        _ref.invalidate(directProviderAdapterRegistryProvider);
+        _ref.invalidate(directModelDiscoveryProvider);
+        _ref.invalidate(directHttpClientPoolProvider);
+        final directCleanup = directRuns.cancelAll();
+        await Future.wait<void>([
+          for (final cleanup in directCleanup)
+            cleanup.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        ]);
+      } catch (_) {
+        resumeGlobalAdmission();
+        directProfiles.resumeMutationsAfterAppDataClearAbort();
+        hermesConfig.resumeMutationsAfterAppDataClearAbort();
+        rethrow;
+      }
+    }
+
+    try {
+      outcome = await _ref
+          .read(authStateManagerProvider.notifier)
+          .logoutAndClearAppData(
+            keepServerDetails: keepServerDetails,
+            beforeClear: prepareForClear,
+          );
+      switch (outcome) {
+        case FullAppDataClearOutcome.cleared:
+          PreferencesStore.resumeWritesAfterAppDataClear();
+          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+          _resetProvidersAfterFullAppDataClear(_ref);
+        case FullAppDataClearOutcome.incomplete:
+          await Future.wait<void>([
+            directProfiles.blockMutationsForAppDataClear(),
+            hermesConfig.blockMutationsForAppDataClear(),
+          ]);
+          directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
+          hermesConfig.revokeRuntimeAfterIncompleteAppDataClear();
+          PreferencesStore.resumeWritesAfterAppDataClear();
+          SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+        case FullAppDataClearOutcome.ownershipYielded:
+          resumeGlobalAdmission();
+          directProfiles.resumeMutationsAfterAppDataClearAbort();
+          hermesConfig.resumeMutationsAfterAppDataClearAbort();
+      }
+    } finally {
+      PreferencesStore.resumeWritesAfterAppDataClear();
+      SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      if (outcome == null) {
+        resumeGlobalAdmission();
+        directProfiles.resumeMutationsAfterAppDataClearAbort();
+        hermesConfig.resumeMutationsAfterAppDataClearAbort();
+      }
+    }
+  }
+}
 
 /// A single, value-deduplicated auth dependency for model resolution. Watching
 /// the three public derivations independently can restart an async provider
@@ -511,6 +654,7 @@ final class IncompleteLogoutFence extends _$IncompleteLogoutFence {
         // A fail-closed write is always safe. A clear must still own the most
         // recent request at SharedPreferences' synchronous mutation boundary.
         canWrite: () => suppressed || generation == _writeGeneration,
+        bypassAppDataClearBarrier: true,
       );
       return admitted;
     });

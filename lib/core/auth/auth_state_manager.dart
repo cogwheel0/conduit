@@ -39,6 +39,8 @@ final class _AuthPublicationRolledBack implements Exception {
   String toString() => 'Authentication publication was rolled back';
 }
 
+enum FullAppDataClearOutcome { cleared, incomplete, ownershipYielded }
+
 /// Testable construction seam for the short-lived client used to validate
 /// saved credentials against their owning server before a silent-login commit.
 @Riverpod(keepAlive: true)
@@ -2721,11 +2723,7 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  /// Logout user and clear auth data while preserving connection settings.
-  /// The URL, self-signed-certificate policy, user-configured custom headers,
-  /// and the mTLS client identity remain available so a proxy-gated sign-in
-  /// page stays reachable. Captured proxy Cookie headers and the legacy
-  /// apiKey bearer are revoked with the session.
+  /// Publishes a tokenless state after logout cleanup.
   void _publishTokenlessLogout({
     required bool durableAuthDataCleared,
     String? error,
@@ -2751,19 +2749,48 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<void> logout() async {
+    await _runLogout(clearAllAppData: false, keepServerDetails: true);
+  }
+
+  /// Signs out and wipes all local app data. When [keepServerDetails] is true,
+  /// sanitized Open WebUI connection settings are restored after the wipe.
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) {
+    return _runLogout(
+      clearAllAppData: true,
+      keepServerDetails: keepServerDetails,
+      beforeFullAppDataClear: beforeClear,
+    );
+  }
+
+  Future<FullAppDataClearOutcome> _runLogout({
+    required bool clearAllAppData,
+    required bool keepServerDetails,
+    Future<void> Function()? beforeFullAppDataClear,
+  }) async {
     // While this counter is non-zero, `_acceptFreshlyIssuedServerToken` must
     // not drop revocation markers: the remote sign-out may still revoke the
     // captured bearer, and same-token resurrection has to stay rejected until
     // this logout's cleanup and ownership arbitration have fully settled.
     _activeLogoutOperations++;
     try {
-      await _logoutInternal();
+      return await _logoutInternal(
+        clearAllAppData: clearAllAppData,
+        keepServerDetails: keepServerDetails,
+        beforeFullAppDataClear: beforeFullAppDataClear,
+      );
     } finally {
       _activeLogoutOperations--;
     }
   }
 
-  Future<void> _logoutInternal() async {
+  Future<FullAppDataClearOutcome> _logoutInternal({
+    required bool clearAllAppData,
+    required bool keepServerDetails,
+    Future<void> Function()? beforeFullAppDataClear,
+  }) async {
     // Capture the exact client/session synchronously. Persisting the restart
     // fence can yield long enough for another login to rotate the shared API
     // token; the eventual remote sign-out must never adopt that newer token.
@@ -2783,6 +2810,9 @@ class AuthStateManager extends _$AuthStateManager {
     var durableAuthDataCleared = false;
     var suppressionMarkerPersisted = false;
     var remoteLogoutAttempted = false;
+    var fullAppDataClearPrepared = false;
+    var fullAppDataClearAttempted = false;
+    var completeLocalCleanup = false;
     Object? terminalFailure;
 
     Future<bool> clearAuthDataForCurrentOwnership() async {
@@ -2823,6 +2853,21 @@ class AuthStateManager extends _$AuthStateManager {
         _updateApiServiceToken(null);
         _setIncompleteLogoutFenceInMemory(true);
 
+        if (clearAllAppData && !fullAppDataClearPrepared) {
+          await beforeFullAppDataClear!.call();
+          fullAppDataClearPrepared = true;
+          await _waitForNewerAuthAttemptToSettle(
+            attemptRevision,
+            remotelyRevokedToken: revokedToken,
+          );
+          if (_newerCommittedSessionOwnsAuthData(
+            attemptRevision,
+            remotelyRevokedToken: revokedToken,
+          )) {
+            return false;
+          }
+        }
+
         final revokedCommitRevisionBeforeClear =
             _newerCommittedSessionReusesRevokedToken(
               attemptRevision,
@@ -2830,12 +2875,24 @@ class AuthStateManager extends _$AuthStateManager {
             )
             ? _authAttemptRevision
             : null;
-        final cleared = await storage.clearAuthDataIf(
-          canClear: () => !_newerCommittedSessionOwnsAuthData(
-            attemptRevision,
-            remotelyRevokedToken: revokedToken,
-          ),
-        );
+        final bool cleared;
+        if (clearAllAppData) {
+          fullAppDataClearAttempted = true;
+          cleared = await storage.clearAllIf(
+            canClear: () => !_newerCommittedSessionOwnsAuthData(
+              attemptRevision,
+              remotelyRevokedToken: revokedToken,
+            ),
+            preserveServerDetails: keepServerDetails,
+          );
+        } else {
+          cleared = await storage.clearAuthDataIf(
+            canClear: () => !_newerCommittedSessionOwnsAuthData(
+              attemptRevision,
+              remotelyRevokedToken: revokedToken,
+            ),
+          );
+        }
         if (!cleared) return false;
 
         await _waitForNewerAuthAttemptToSettle(
@@ -2901,28 +2958,39 @@ class AuthStateManager extends _$AuthStateManager {
       durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
       if (!durableAuthDataCleared) {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
-        return;
+        return FullAppDataClearOutcome.ownershipYielded;
       }
 
-      // Keep active server ID so router redirects to sign-in page, not server
-      // connection page. Users can navigate to server settings if they need to
-      // change server configuration.
-
       DebugLogger.auth(
-        'Logout complete - auth data cleared, non-auth server settings preserved',
+        clearAllAppData
+            ? keepServerDetails
+                  ? 'Logout complete - all app data cleared, server details preserved'
+                  : 'Logout complete - all app data cleared'
+            : 'Logout complete - auth data cleared, server settings preserved',
       );
     } catch (e) {
       _logAuthenticationFailure('logout-failed', e);
-      // Even if logout fails, clear local state where possible
-      try {
-        durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
-        if (!durableAuthDataCleared) {
-          DebugLogger.auth('Logout retry yielded to a committed newer session');
-          return;
+      if (clearAllAppData &&
+          keepServerDetails &&
+          fullAppDataClearAttempted) {
+        // The broad wipe continues past individual storage failures. Repeating
+        // it after a preservation failure would snapshot the already-cleared
+        // server store and could falsely report that requested details survived.
+        terminalFailure = e;
+      } else {
+        // Even if logout fails, clear local state where possible.
+        try {
+          durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
+          if (!durableAuthDataCleared) {
+            DebugLogger.auth(
+              'Logout retry yielded to a committed newer session',
+            );
+            return FullAppDataClearOutcome.ownershipYielded;
+          }
+        } catch (clearError) {
+          _logAuthenticationFailure('logout-clear-failed', clearError);
+          terminalFailure = clearError;
         }
-      } catch (clearError) {
-        _logAuthenticationFailure('logout-clear-failed', clearError);
-        terminalFailure = clearError;
       }
     } finally {
       var webViewDataCleared = !isWebViewSupported;
@@ -2988,8 +3056,7 @@ class AuthStateManager extends _$AuthStateManager {
         ref.invalidate(activeServerProvider);
         ref.invalidate(apiServiceProvider);
       } else {
-        final completeLocalCleanup =
-            durableAuthDataCleared && webViewDataCleared;
+        completeLocalCleanup = durableAuthDataCleared && webViewDataCleared;
         final fullyFenced = completeLocalCleanup || suppressionMarkerPersisted;
         _publishTokenlessLogout(
           durableAuthDataCleared: completeLocalCleanup,
@@ -2999,6 +3066,9 @@ class AuthStateManager extends _$AuthStateManager {
         );
       }
     }
+    return completeLocalCleanup
+        ? FullAppDataClearOutcome.cleared
+        : FullAppDataClearOutcome.incomplete;
   }
 
   bool _newerCommittedSessionOwnsAuthData(

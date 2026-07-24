@@ -13,8 +13,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/themed_dialogs.dart';
-import '../providers/unified_auth_providers.dart';
+import '../../../shared/widgets/sign_out_options_dialog.dart';
 
 class ConnectionIssuePage extends ConsumerStatefulWidget {
   const ConnectionIssuePage({super.key});
@@ -260,17 +259,10 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
   }
 
   Future<void> _logout(AppLocalizations l10n) async {
-    // Show confirmation dialog before logging out
-    final confirm = await ThemedDialogs.confirm(
-      context,
-      title: l10n.signOut,
-      message: l10n.endYourSession,
-      confirmText: l10n.signOut,
-      isDestructive: true,
-    );
+    final keepServerDetails = await showSignOutOptionsDialog(context);
 
     if (!mounted) return;
-    if (!confirm) return;
+    if (keepServerDetails == null) return;
 
     setState(() {
       _isLoggingOut = true;
@@ -278,7 +270,9 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     });
 
     try {
-      await ref.read(authActionsProvider).logout();
+      await ref
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: keepServerDetails);
     } catch (_) {
       if (!mounted) return;
       setState(() {

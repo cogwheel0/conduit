@@ -12,7 +12,7 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/backend_mode_providers.dart';
 import '../../../core/services/navigation_service.dart';
@@ -585,16 +585,11 @@ class ProfilePage extends ConsumerWidget {
   }
 
   void _signOut(BuildContext context, WidgetRef ref) async {
-    final confirm = await ThemedDialogs.confirm(
-      context,
-      title: AppLocalizations.of(context)!.signOut,
-      message: AppLocalizations.of(context)!.endYourSession,
-      confirmText: AppLocalizations.of(context)!.signOut,
-      isDestructive: true,
-    );
+    final keepServerDetails = await showSignOutOptionsDialog(context);
 
-    if (confirm) {
-      await ref.read(authActionsProvider).logout();
-    }
+    if (!context.mounted || keepServerDetails == null) return;
+    await ref
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: keepServerDetails);
   }
 }

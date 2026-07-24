@@ -2416,106 +2416,12 @@ class OptimizedStorageService {
   Future<void> clearAll() async {
     try {
       await _authStateLock.synchronized(
-        () => _serverConfigsLock.synchronized(() async {
-          Object? firstError;
-          StackTrace? firstStackTrace;
-
-          Future<void> attempt(Future<void> Function() operation) async {
-            try {
-              await operation();
-            } catch (error, stackTrace) {
-              firstError ??= error;
-              firstStackTrace ??= stackTrace;
-            }
-          }
-
-          // Fence every pre-wipe ownership snapshot before the first await.
-          _authTokenReadSuppressed = true;
-          _savedCredentialsReadSuppressed = true;
-          _serverConfigsReadSuppressed = true;
-          _activeServerIdReadSuppressed = true;
-          _serverOwnershipRevision++;
-          _stagedServerConfigCandidate = null;
-
-          // Keep every fail-closed mutation independent. An individual
-          // Keychain failure must not prevent deletion of the other secret, a
-          // durable proxy-Cookie/API-key scrub, or the later broad wipe.
-          await attempt(_deleteAuthTokenUnlocked);
-          await attempt(_deleteSavedCredentialsUnlocked);
-          await attempt(_scrubServerConfigAuthArtifactsUnlocked);
-
-          // PreferencesStore.clear removes activeServerId. Keep the initiating
-          // owner stable until a deferred database open/retry has finished, or
-          // the structured wipe can silently disappear halfway through.
-          final initiatingServerId = _rawStoredActiveServerId(
-            bypassReadSuppression: true,
-          );
-
-          try {
-            await attempt(
-              () => _withDatabase<void>(
-                (database) => Future.wait([
-                  database.appCacheDao.deleteKeys(_allCacheKeys),
-                  database.attachmentQueueDao.clearAll(),
-                ]),
-                expectedServerId: initiatingServerId,
-              ),
-            );
-            // Preserve the migration gate so a wipe doesn't re-import stale
-            // Hive preferences on the next launch. This still runs after a
-            // structured-store failure, but only after that operation settles.
-            await attempt(
-              () => PreferencesStore.clear(
-                preserve: const {PreferenceKeys.hiveToPrefsMigrationV1},
-              ),
-            );
-            await attempt(_secureCredentialStorage.clearAll);
-            // Legacy Hive stores; structured active-server stores were handled
-            // above while holding their database lifetime lease.
-            await attempt(_cachesBox.clear);
-            await attempt(_attachmentQueueBox.clear);
-            await attempt(() async {
-              // Preserve migration metadata.
-              final migrationVersion =
-                  _metadataBox.get(HiveStoreKeys.migrationVersion) as int?;
-              await _metadataBox.clear();
-              if (migrationVersion != null) {
-                await _metadataBox.put(
-                  HiveStoreKeys.migrationVersion,
-                  migrationVersion,
-                );
-              }
-            });
-          } finally {
-            // A partially successful platform wipe must never make retained
-            // Keychain data readable again after cache invalidation. Install
-            // an explicit signed-out fence after dropping every stale entry;
-            // later authorized saves overwrite these negative values.
-            _cacheManager.clear();
-            _authTokenReadSuppressed = true;
-            _savedCredentialsReadSuppressed = true;
-            _serverConfigsReadSuppressed = true;
-            _activeServerIdReadSuppressed = true;
-            _cacheManager.write<String>(
-              _authTokenKey,
-              null,
-              ttl: _authTokenTtl,
-            );
-            _cacheManager.write<bool>(
-              'has_credentials',
-              false,
-              ttl: _credentialsFlagTtl,
-            );
-            // Server config custom headers can themselves be credentials.
-            // Do not rehydrate a retained unsanitized Cookie/API-key payload
-            // when both the targeted scrub and broad Keychain wipe fail.
-            _cacheServerConfigs(const <ServerConfig>[]);
-            _cacheActiveServerId(null);
-          }
-          if (firstError != null) {
-            Error.throwWithStackTrace(firstError!, firstStackTrace!);
-          }
-        }),
+        () => _serverConfigsLock.synchronized(
+          () => _clearAllUnlocked(
+            preserveServerDetails: false,
+            preserveLogoutFence: false,
+          ),
+        ),
       );
 
       DebugLogger.log('All storage cleared', scope: 'storage/optimized');
@@ -2525,6 +2431,174 @@ class OptimizedStorageService {
         scope: 'storage/optimized',
       );
       rethrow;
+    }
+  }
+
+  /// Clears all app data if [canClear] still owns the authenticated session.
+  ///
+  /// When [preserveServerDetails] is true, only sanitized Open WebUI
+  /// connection settings are restored after the broad wipe. Authentication
+  /// artifacts, app preferences, Direct profiles, and Hermes credentials are
+  /// always removed.
+  Future<bool> clearAllIf({
+    required bool Function() canClear,
+    required bool preserveServerDetails,
+  }) async {
+    try {
+      final cleared = await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          if (!canClear()) return false;
+          await _clearAllUnlocked(
+            preserveServerDetails: preserveServerDetails,
+            preserveLogoutFence: true,
+          );
+          return true;
+        }),
+      );
+      if (cleared) {
+        DebugLogger.log(
+          preserveServerDetails
+              ? 'All storage cleared; server details restored'
+              : 'All storage cleared',
+          scope: 'storage/optimized',
+        );
+      }
+      return cleared;
+    } catch (error) {
+      DebugLogger.log(
+        'Failed to clear all storage: $error',
+        scope: 'storage/optimized',
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> _clearAllUnlocked({
+    required bool preserveServerDetails,
+    required bool preserveLogoutFence,
+  }) async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    Future<void> attempt(Future<void> Function() operation) async {
+      try {
+        await operation();
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+
+    final initiatingServerId = _rawStoredActiveServerId(
+      bypassReadSuppression: true,
+    );
+    var retainedServerConfigs = const <ServerConfig>[];
+    String? retainedActiveServerId;
+    if (preserveServerDetails) {
+      await attempt(() async {
+        final configs =
+            await _getServerConfigsStrictUnlockedBypassingSuppression();
+        retainedServerConfigs = configs
+            .map(_revokeServerConfigAuthArtifacts)
+            .toList(growable: false);
+        retainedActiveServerId = _effectiveActiveServerId(
+          configs: retainedServerConfigs,
+          rawActiveServerId: initiatingServerId,
+        );
+      });
+    }
+
+    // Fence every pre-wipe ownership snapshot before the first mutation.
+    _authTokenReadSuppressed = true;
+    _savedCredentialsReadSuppressed = true;
+    _serverConfigsReadSuppressed = true;
+    _activeServerIdReadSuppressed = true;
+    _serverOwnershipRevision++;
+    _stagedServerConfigCandidate = null;
+
+    // Keep every fail-closed mutation independent. An individual Keychain
+    // failure must not prevent the later broad wipe.
+    await attempt(_deleteAuthTokenUnlocked);
+    await attempt(_deleteSavedCredentialsUnlocked);
+    await attempt(_scrubServerConfigAuthArtifactsUnlocked);
+
+    try {
+      await attempt(
+        () => _withDatabase<void>(
+          (database) => Future.wait([
+            database.appCacheDao.deleteKeys(_allCacheKeys),
+            database.attachmentQueueDao.clearAll(),
+          ]),
+          expectedServerId: initiatingServerId,
+        ),
+      );
+      await attempt(
+        () => PreferencesStore.clear(
+          preserve: {
+            PreferenceKeys.hiveToPrefsMigrationV1,
+            if (preserveLogoutFence) PreferenceKeys.incompleteLogoutFence,
+          },
+        ),
+      );
+      await attempt(_secureCredentialStorage.clearAll);
+      await attempt(_cachesBox.clear);
+      await attempt(_attachmentQueueBox.clear);
+      await attempt(() async {
+        final migrationVersion =
+            _metadataBox.get(HiveStoreKeys.migrationVersion) as int?;
+        await _metadataBox.clear();
+        if (migrationVersion != null) {
+          await _metadataBox.put(
+            HiveStoreKeys.migrationVersion,
+            migrationVersion,
+          );
+        }
+      });
+    } finally {
+      // A partially successful platform wipe must never expose stale secure
+      // data again during this process.
+      _cacheManager.clear();
+      _authTokenReadSuppressed = true;
+      _savedCredentialsReadSuppressed = true;
+      _serverConfigsReadSuppressed = true;
+      _activeServerIdReadSuppressed = true;
+      _cacheManager.write<String>(_authTokenKey, null, ttl: _authTokenTtl);
+      _cacheManager.write<bool>(
+        'has_credentials',
+        false,
+        ttl: _credentialsFlagTtl,
+      );
+      _cacheServerConfigs(const <ServerConfig>[]);
+      _cacheActiveServerId(null);
+    }
+
+    if (preserveServerDetails) {
+      var configsRestored = false;
+      var activeIdRestored = false;
+      await attempt(() async {
+        await _saveServerConfigsUnlocked(
+          retainedServerConfigs,
+          authorizeReads: false,
+        );
+        configsRestored = true;
+      });
+      await attempt(() async {
+        await _writeActiveServerIdWithoutConfigSync(retainedActiveServerId);
+        activeIdRestored = true;
+      });
+      if (configsRestored && activeIdRestored) {
+        _serverConfigsReadSuppressed = false;
+        _activeServerIdReadSuppressed = false;
+        _cacheServerConfigs(retainedServerConfigs);
+        _cacheActiveServerId(retainedActiveServerId);
+      } else {
+        _serverConfigsReadSuppressed = true;
+        _activeServerIdReadSuppressed = true;
+      }
+    }
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
   }
 

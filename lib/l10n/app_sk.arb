@@ -80,6 +80,9 @@
     "description": "Button/title for signing out of the app."
   },
   "endYourSession": "Ukončiť reláciu",
+  "signOutOptionsDescription": "Vyberte, čo má v tomto zariadení zostať. Všetky ostatné údaje v Conduite sa odstránia. Údaje na serveri zostanú bez zmeny.",
+  "keepServerDetails": "Ponechať údaje servera",
+  "keepServerDetailsDescription": "Adresa servera a nastavenia pripojenia",
   "@endYourSession": {
     "description": "Subtitle explaining the sign-out action."
   },
