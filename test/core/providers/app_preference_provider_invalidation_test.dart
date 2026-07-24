@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -30,9 +33,38 @@ void main() {
     container.invalidate(appLocaleProvider);
     container.invalidate(reviewerModeProvider);
 
-    expect(() => container.read(appThemeModeProvider), returnsNormally);
-    expect(() => container.read(appThemePaletteProvider), returnsNormally);
-    expect(() => container.read(appLocaleProvider), returnsNormally);
-    expect(() => container.read(reviewerModeProvider), returnsNormally);
+    check(() => container.read(appThemeModeProvider)).returnsNormally();
+    check(() => container.read(appThemePaletteProvider)).returnsNormally();
+    check(() => container.read(appLocaleProvider)).returnsNormally();
+    check(() => container.read(reviewerModeProvider)).returnsNormally();
+  });
+
+  test('stale reviewer-mode load cannot restore cleared preference', () async {
+    final storage = _MockOptimizedStorageService();
+    final staleLoad = Completer<bool>();
+    var loadCount = 0;
+    when(storage.getReviewerMode).thenAnswer((_) {
+      loadCount++;
+      return loadCount == 1 ? staleLoad.future : Future.value(false);
+    });
+
+    final container = ProviderContainer(
+      overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    check(container.read(reviewerModeProvider)).isFalse();
+    await Future<void>.delayed(Duration.zero);
+    check(loadCount).equals(1);
+
+    container.invalidate(reviewerModeProvider);
+    check(container.read(reviewerModeProvider)).isFalse();
+    await Future<void>.delayed(Duration.zero);
+    check(loadCount).equals(2);
+
+    staleLoad.complete(true);
+    await pumpEventQueue();
+
+    check(container.read(reviewerModeProvider)).isFalse();
   });
 }

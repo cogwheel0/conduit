@@ -5260,21 +5260,20 @@ final archivedConversationsProvider = Provider<List<Conversation>>((ref) {
 class ReviewerMode extends _$ReviewerMode {
   // Notifier instances survive invalidation, so build() can run more than once.
   late OptimizedStorageService _storage;
-  bool _initialized = false;
+  int _loadGeneration = 0;
 
   @override
   bool build() {
-    _storage = ref.watch(optimizedStorageServiceProvider);
-    if (!_initialized) {
-      _initialized = true;
-      Future.microtask(_load);
-    }
+    final storage = ref.watch(optimizedStorageServiceProvider);
+    _storage = storage;
+    final generation = ++_loadGeneration;
+    Future.microtask(() => _load(storage, generation));
     return false;
   }
 
-  Future<void> _load() async {
-    final enabled = await _storage.getReviewerMode();
-    if (!ref.mounted) {
+  Future<void> _load(OptimizedStorageService storage, int generation) async {
+    final enabled = await storage.getReviewerMode();
+    if (!ref.mounted || generation != _loadGeneration) {
       return;
     }
     state = enabled;
