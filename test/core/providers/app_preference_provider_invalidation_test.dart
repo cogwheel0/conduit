@@ -1,0 +1,38 @@
+import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+class _MockOptimizedStorageService extends Mock
+    implements OptimizedStorageService {}
+
+void main() {
+  test('app preference notifiers rebuild safely after full-data clear', () {
+    final storage = _MockOptimizedStorageService();
+    when(storage.getThemeMode).thenReturn(null);
+    when(storage.getThemePaletteId).thenReturn(null);
+    when(storage.getLocaleCode).thenReturn(null);
+    when(storage.getReviewerMode).thenAnswer((_) async => false);
+
+    final container = ProviderContainer(
+      overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
+    );
+    addTearDown(container.dispose);
+
+    container.read(appThemeModeProvider);
+    container.read(appThemePaletteProvider);
+    container.read(appLocaleProvider);
+    container.read(reviewerModeProvider);
+
+    container.invalidate(appThemeModeProvider);
+    container.invalidate(appThemePaletteProvider);
+    container.invalidate(appLocaleProvider);
+    container.invalidate(reviewerModeProvider);
+
+    expect(() => container.read(appThemeModeProvider), returnsNormally);
+    expect(() => container.read(appThemePaletteProvider), returnsNormally);
+    expect(() => container.read(appLocaleProvider), returnsNormally);
+    expect(() => container.read(reviewerModeProvider), returnsNormally);
+  });
+}

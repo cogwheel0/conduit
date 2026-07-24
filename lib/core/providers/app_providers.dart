@@ -234,7 +234,8 @@ bool _modelAuthIsPending(_ModelAuthReadiness auth) =>
 // Theme provider
 @Riverpod(keepAlive: true)
 class AppThemeMode extends _$AppThemeMode {
-  late final OptimizedStorageService _storage;
+  // Notifier instances survive invalidation, so build() can run more than once.
+  late OptimizedStorageService _storage;
 
   @override
   ThemeMode build() {
@@ -257,7 +258,8 @@ class AppThemeMode extends _$AppThemeMode {
 
 @Riverpod(keepAlive: true)
 class AppThemePalette extends _$AppThemePalette {
-  late final OptimizedStorageService _storage;
+  // Notifier instances survive invalidation, so build() can run more than once.
+  late OptimizedStorageService _storage;
 
   @override
   TweakcnThemeDefinition build() {
@@ -312,7 +314,8 @@ class AppCupertinoDarkTheme extends _$AppCupertinoDarkTheme {
 // Locale provider
 @Riverpod(keepAlive: true)
 class AppLocale extends _$AppLocale {
-  late final OptimizedStorageService _storage;
+  // Notifier instances survive invalidation, so build() can run more than once.
+  late OptimizedStorageService _storage;
 
   @override
   Locale? build() {
@@ -5255,7 +5258,8 @@ final archivedConversationsProvider = Provider<List<Conversation>>((ref) {
 // Reviewer mode provider (persisted)
 @Riverpod(keepAlive: true)
 class ReviewerMode extends _$ReviewerMode {
-  late final OptimizedStorageService _storage;
+  // Notifier instances survive invalidation, so build() can run more than once.
+  late OptimizedStorageService _storage;
   bool _initialized = false;
 
   @override
