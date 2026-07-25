@@ -2535,7 +2535,7 @@
   "sherpaTtsDescription": "Voz privada y sin conexión con un modelo de voz descargado.",
   "sherpaModelsTitle": "Modelos Sherpa ONNX",
   "sherpaModelsSubtitle": "Descarga y gestiona modelos de voz sin conexión",
-  "sherpaChooseSpeechModel": "Elige un modelo de voz",
+  "sherpaChooseSpeechModel": "Elige un modelo de reconocimiento de voz",
   "sherpaChooseVoiceModel": "Elige un modelo de voz sintetizada",
   "sherpaSearchModels": "Buscar modelos y familias",
   "sherpaNoModelsMatch": "Ningún modelo coincide con estos filtros.",
@@ -2547,6 +2547,6 @@
   "sherpaUse": "Usar",
   "sherpaChooseVoice": "Elige una voz",
   "sherpaVoiceNumber": "Voz {number}",
-  "sherpaInstalledSummary": "{count} instalados • {size}",
+  "sherpaInstalledSummary": "{count} modelos instalados • {size}",
   "sherpaCheckingModels": "Comprobando modelos instalados…"
 }

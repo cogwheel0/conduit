@@ -332,7 +332,7 @@ class SettingsService {
     );
     await _putOrRemove(
       PreferenceKeys.sherpaSttLanguageCode,
-      settings.sherpaSttLanguageCode,
+      normalizeSherpaLanguageCode(settings.sherpaSttLanguageCode),
     );
     await _putOrRemove(
       PreferenceKeys.sherpaTtsModelId,
@@ -340,7 +340,7 @@ class SettingsService {
     );
     await _putOrRemove(
       PreferenceKeys.sherpaTtsLanguageCode,
-      settings.sherpaTtsLanguageCode,
+      normalizeSherpaLanguageCode(settings.sherpaTtsLanguageCode),
     );
     await _putOrRemove(
       PreferenceKeys.sherpaTtsSpeakerId,
@@ -407,6 +407,18 @@ class SettingsService {
     final lower = trimmed!.replaceAll('_', '-').toLowerCase();
     final primary = lower.split('-').first;
     if (RegExp(r'^[a-z]{2}$').hasMatch(primary)) {
+      return primary;
+    }
+    return null;
+  }
+
+  static String? normalizeSherpaLanguageCode(String? raw) {
+    final trimmed = raw?.trim();
+    if (isSttLanguageAutoInput(trimmed)) return null;
+
+    final normalized = trimmed!.replaceAll('_', '-').toLowerCase();
+    final primary = normalized.split('-').first;
+    if (RegExp(r'^[a-z]{2,3}$').hasMatch(primary)) {
       return primary;
     }
     return null;
@@ -702,13 +714,13 @@ class SettingsService {
       sherpaSttModelId: PreferencesStore.get<String>(
         PreferenceKeys.sherpaSttModelId,
       ),
-      sherpaSttLanguageCode: normalizeSttLanguageCode(
+      sherpaSttLanguageCode: normalizeSherpaLanguageCode(
         PreferencesStore.get<String>(PreferenceKeys.sherpaSttLanguageCode),
       ),
       sherpaTtsModelId: PreferencesStore.get<String>(
         PreferenceKeys.sherpaTtsModelId,
       ),
-      sherpaTtsLanguageCode: normalizeSttLanguageCode(
+      sherpaTtsLanguageCode: normalizeSherpaLanguageCode(
         PreferencesStore.get<String>(PreferenceKeys.sherpaTtsLanguageCode),
       ),
       sherpaTtsSpeakerId: PreferencesStore.get<String>(
@@ -1361,7 +1373,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     required String modelId,
     String? languageCode,
   }) async {
-    final normalizedLanguageCode = SettingsService.normalizeSttLanguageCode(
+    final normalizedLanguageCode = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
     await PreferencesStore.put(PreferenceKeys.sherpaSttModelId, modelId);
@@ -1386,7 +1398,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     String? languageCode,
     String? speakerId,
   }) async {
-    final normalizedLanguageCode = SettingsService.normalizeSttLanguageCode(
+    final normalizedLanguageCode = SettingsService.normalizeSherpaLanguageCode(
       languageCode,
     );
     await PreferencesStore.put(PreferenceKeys.sherpaTtsModelId, modelId);
@@ -1408,7 +1420,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaSttLanguageCode(String? languageCode) async {
-    final normalized = SettingsService.normalizeSttLanguageCode(languageCode);
+    final normalized = SettingsService.normalizeSherpaLanguageCode(
+      languageCode,
+    );
     state = state.copyWith(sherpaSttLanguageCode: normalized);
     await SettingsService._putOrRemove(
       PreferenceKeys.sherpaSttLanguageCode,
@@ -1417,7 +1431,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setSherpaTtsLanguageCode(String? languageCode) async {
-    final normalized = SettingsService.normalizeSttLanguageCode(languageCode);
+    final normalized = SettingsService.normalizeSherpaLanguageCode(
+      languageCode,
+    );
     state = state.copyWith(sherpaTtsLanguageCode: normalized);
     await SettingsService._putOrRemove(
       PreferenceKeys.sherpaTtsLanguageCode,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -160,6 +161,39 @@ void main() {
     check(await storage.brokenModelIds()).contains(model.id);
   });
 
+  test('prepares the bundled VAD once for concurrent callers', () async {
+    final firstStorage = SherpaStorage(channel: storageChannel);
+    final secondStorage = SherpaStorage(channel: storageChannel);
+    final firstPreparation = firstStorage.prepareVadModel();
+    final secondPreparation = secondStorage.prepareVadModel();
+
+    check(identical(firstPreparation, secondPreparation)).isTrue();
+    final files = await Future.wait([firstPreparation, secondPreparation]);
+
+    check(files[0].path).equals(files[1].path);
+    check(await files[0].exists()).isTrue();
+    check(
+      (await sha256.bind(files[0].openRead()).first).toString(),
+    ).equals(SherpaStorage.vadSha256);
+  });
+
+  test('device capability probing tolerates platform failures', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(storageChannel, (call) async {
+          if (call.method == 'getDeviceInfo') {
+            throw PlatformException(code: 'CREATE_FAILED');
+          }
+          return temporaryDirectory.path;
+        });
+
+    final info = await SherpaStorage(channel: storageChannel).deviceInfo();
+
+    check(info.freeStorageBytes).isNull();
+    check(info.physicalMemoryBytes).isNull();
+    check(info.abis).isEmpty();
+    check(info.meteredNetwork).isNull();
+  });
+
   test('rejects an oversized chunk before it can fill storage', () async {
     var requests = 0;
     final payload = List<int>.generate(5, (index) => index);
@@ -249,6 +283,273 @@ void main() {
       }
     },
   );
+
+  test('resumes a partial download with a matching content range', () async {
+    final source = _writeArchive(
+      temporaryDirectory,
+      Archive()..add(ArchiveFile.string('model/file.txt', 'resume')),
+      name: 'resume-source.tar.bz2',
+    );
+    final payload = await source.readAsBytes();
+    final offset = payload.length ~/ 3;
+    late RequestOptions request;
+    final adapter = _TestHttpClientAdapter((options) async {
+      request = options;
+      return ResponseBody(
+        Stream.value(Uint8List.sublistView(payload, offset)),
+        HttpStatus.partialContent,
+        headers: {
+          'content-range': [
+            'bytes $offset-${payload.length - 1}/${payload.length}',
+          ],
+          Headers.contentLengthHeader: ['${payload.length - offset}'],
+          'etag': ['"resume-v1"'],
+        },
+      );
+    });
+    final model = _downloadTestModel(
+      Uri.parse('https://example.com/resume.tar.bz2'),
+      archiveBytes: payload.length,
+      sha256Value: sha256.convert(payload).toString(),
+    );
+    final storage = SherpaStorage(channel: storageChannel);
+    final partial = File(
+      '${(await storage.downloadsDirectory()).path}/'
+      '${model.id}.tar.bz2.part',
+    );
+    await partial.writeAsBytes(payload.sublist(0, offset));
+    await File(
+      '${partial.path}.http.json',
+    ).writeAsString(jsonEncode({'etag': '"resume-v1"', 'lastModified': null}));
+    final manager = SherpaModelManager(
+      storage: storage,
+      dio: Dio()..httpClientAdapter = adapter,
+      validator: (_, _) async {},
+      platformOverride: PlatformType.ios,
+    );
+    try {
+      final installed = manager.progress.firstWhere(
+        (progress) => progress[model.id]?.phase == SherpaInstallPhase.installed,
+      );
+      manager.enqueue(model);
+      await installed.timeout(const Duration(seconds: 5));
+
+      check(request.headers['Range']).equals('bytes=$offset-');
+      check(
+        await File(
+          '${(await storage.modelsDirectory()).path}/${model.id}/'
+          '.conduit-model.json',
+        ).exists(),
+      ).isTrue();
+    } finally {
+      manager.dispose();
+    }
+  });
+
+  test('validator mismatch restarts a partial download from zero', () async {
+    final source = _writeArchive(
+      temporaryDirectory,
+      Archive()..add(ArchiveFile.string('model/file.txt', 'validator')),
+      name: 'validator-source.tar.bz2',
+    );
+    final payload = await source.readAsBytes();
+    final offset = payload.length ~/ 3;
+    final starts = <String?>[];
+    final adapter = _TestHttpClientAdapter((options) async {
+      starts.add(options.headers['Range'] as String?);
+      if (starts.length == 1) {
+        return ResponseBody(
+          Stream.value(Uint8List.sublistView(payload, offset)),
+          HttpStatus.partialContent,
+          headers: {
+            'content-range': [
+              'bytes $offset-${payload.length - 1}/${payload.length}',
+            ],
+            Headers.contentLengthHeader: ['${payload.length - offset}'],
+            'etag': ['"new"'],
+            'last-modified': ['Tue, 21 Jul 2026 10:00:00 GMT'],
+          },
+        );
+      }
+      return ResponseBody(
+        Stream.value(payload),
+        HttpStatus.ok,
+        headers: {
+          Headers.contentLengthHeader: ['${payload.length}'],
+          'etag': ['"new"'],
+          'last-modified': ['Tue, 21 Jul 2026 10:00:00 GMT'],
+        },
+      );
+    });
+    final model = _downloadTestModel(
+      Uri.parse('https://example.com/validator.tar.bz2'),
+      archiveBytes: payload.length,
+      sha256Value: sha256.convert(payload).toString(),
+    );
+    final storage = SherpaStorage(channel: storageChannel);
+    final partial = File(
+      '${(await storage.downloadsDirectory()).path}/'
+      '${model.id}.tar.bz2.part',
+    );
+    await partial.writeAsBytes(payload.sublist(0, offset));
+    await File('${partial.path}.http.json').writeAsString(
+      jsonEncode({
+        'etag': '"old"',
+        'lastModified': 'Mon, 20 Jul 2026 10:00:00 GMT',
+      }),
+    );
+    final manager = SherpaModelManager(
+      storage: storage,
+      dio: Dio()..httpClientAdapter = adapter,
+      validator: (_, _) async {},
+      platformOverride: PlatformType.ios,
+    );
+    try {
+      final installed = manager.progress.firstWhere(
+        (progress) => progress[model.id]?.phase == SherpaInstallPhase.installed,
+      );
+      manager.enqueue(model);
+      await installed.timeout(const Duration(seconds: 5));
+
+      check(starts).deepEquals(['bytes=$offset-', null]);
+      check(
+        await File(
+          '${(await storage.modelsDirectory()).path}/${model.id}/'
+          '.conduit-model.json',
+        ).exists(),
+      ).isTrue();
+    } finally {
+      manager.dispose();
+    }
+  });
+
+  test('malformed resume range is discarded before restarting', () async {
+    final source = _writeArchive(
+      temporaryDirectory,
+      Archive()..add(ArchiveFile.string('model/file.txt', 'range')),
+      name: 'range-source.tar.bz2',
+    );
+    final payload = await source.readAsBytes();
+    final offset = payload.length ~/ 3;
+    final starts = <String?>[];
+    final adapter = _TestHttpClientAdapter((options) async {
+      starts.add(options.headers['Range'] as String?);
+      if (starts.length == 1) {
+        return ResponseBody(
+          Stream.value(Uint8List.sublistView(payload, offset)),
+          HttpStatus.partialContent,
+          headers: {
+            'content-range': ['bytes malformed'],
+            'etag': ['"range-v1"'],
+          },
+        );
+      }
+      return ResponseBody(
+        Stream.value(payload),
+        HttpStatus.ok,
+        headers: {
+          Headers.contentLengthHeader: ['${payload.length}'],
+          'etag': ['"range-v1"'],
+        },
+      );
+    });
+    final model = _downloadTestModel(
+      Uri.parse('https://example.com/range.tar.bz2'),
+      archiveBytes: payload.length,
+      sha256Value: sha256.convert(payload).toString(),
+    );
+    final storage = SherpaStorage(channel: storageChannel);
+    final partial = File(
+      '${(await storage.downloadsDirectory()).path}/'
+      '${model.id}.tar.bz2.part',
+    );
+    await partial.writeAsBytes(payload.sublist(0, offset));
+    await File(
+      '${partial.path}.http.json',
+    ).writeAsString(jsonEncode({'etag': '"range-v1"', 'lastModified': null}));
+    final manager = SherpaModelManager(
+      storage: storage,
+      dio: Dio()..httpClientAdapter = adapter,
+      validator: (_, _) async {},
+      platformOverride: PlatformType.ios,
+    );
+    try {
+      final installed = manager.progress.firstWhere(
+        (progress) => progress[model.id]?.phase == SherpaInstallPhase.installed,
+      );
+      manager.enqueue(model);
+      await installed.timeout(const Duration(seconds: 5));
+
+      check(starts).deepEquals(['bytes=$offset-', null]);
+      check(
+        await File(
+          '${(await storage.modelsDirectory()).path}/${model.id}/'
+          '.conduit-model.json',
+        ).exists(),
+      ).isTrue();
+    } finally {
+      manager.dispose();
+    }
+  });
+
+  test('does not enqueue a duplicate while validation is active', () async {
+    final source = _writeArchive(
+      temporaryDirectory,
+      Archive()..add(ArchiveFile.string('model/file.txt', 'queue')),
+      name: 'queue-source.tar.bz2',
+    );
+    final payload = await source.readAsBytes();
+    final adapter = _TestHttpClientAdapter(
+      (_) async => ResponseBody(
+        Stream.value(payload),
+        HttpStatus.ok,
+        headers: {
+          Headers.contentLengthHeader: ['${payload.length}'],
+        },
+      ),
+    );
+    final model = _downloadTestModel(
+      Uri.parse('https://example.com/queue.tar.bz2'),
+      archiveBytes: payload.length,
+      sha256Value: sha256.convert(payload).toString(),
+    );
+    final validationGate = Completer<void>();
+    final manager = SherpaModelManager(
+      storage: SherpaStorage(channel: storageChannel),
+      dio: Dio()..httpClientAdapter = adapter,
+      validator: (_, _) => validationGate.future,
+      platformOverride: PlatformType.ios,
+    );
+    var installedEvents = 0;
+    final subscription = manager.progress.listen((progress) {
+      if (progress[model.id]?.phase == SherpaInstallPhase.installed) {
+        installedEvents++;
+      }
+    });
+    try {
+      final validating = manager.progress.firstWhere(
+        (progress) =>
+            progress[model.id]?.phase == SherpaInstallPhase.validating,
+      );
+      manager.enqueue(model);
+      await validating.timeout(const Duration(seconds: 5));
+
+      manager.enqueue(model);
+      validationGate.complete();
+      await manager.progress
+          .firstWhere(
+            (progress) =>
+                progress[model.id]?.phase == SherpaInstallPhase.installed,
+          )
+          .timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      check(installedEvents).equals(1);
+    } finally {
+      await subscription.cancel();
+      manager.dispose();
+    }
+  });
 
   test('rejects an incompatible ABI before downloading', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

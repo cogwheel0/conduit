@@ -230,16 +230,19 @@ class TtsManager with WidgetsBindingObserver {
   static const int _mergeMinChars = 50;
   static const double _serverPlaybackRate = 1.0;
 
-  TtsManager._() {
-    WidgetsBinding.instance.addObserver(this);
-  }
+  TtsManager._();
   static final instance = TtsManager._();
 
   bool _ttsInitialized = false;
+  bool _observingLifecycle = false;
+  bool _disposing = false;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   Completer<void>? _initCompleter;
   final NativeTtsService _nativeTts = NativeTtsService();
-  final SherpaTtsWorker _sherpaTts = SherpaTtsWorker();
-  final SherpaStorage _sherpaStorage = SherpaStorage();
+  late final SherpaStorage _sherpaStorage = SherpaStorage();
+  late final SherpaTtsWorker _sherpaTts = SherpaTtsWorker(
+    storage: _sherpaStorage,
+  );
   String? _loadedSherpaModelId;
   String? _loadedSherpaLanguageCode;
   Future<void> _sherpaLoadSerial = Future<void>.value();
@@ -349,6 +352,7 @@ class TtsManager with WidgetsBindingObserver {
   ///
   /// This must be called before any TTS operations.
   Future<bool> initialize({TtsConfig? config}) async {
+    _ensureLifecycleObserver();
     if (config != null) {
       _config = config;
     }
@@ -554,6 +558,7 @@ class TtsManager with WidgetsBindingObserver {
     if (session.chunks.isEmpty) {
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
@@ -631,9 +636,11 @@ class TtsManager with WidgetsBindingObserver {
         await _nativeTts.stop();
       }
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCancelled());
     } catch (e) {
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(TtsError(e.toString()));
     }
   }
@@ -649,6 +656,7 @@ class TtsManager with WidgetsBindingObserver {
     // Reset playback state
     _resetPlaybackState();
     _activeSession = null;
+    _scheduleIdleLargeSherpaUnload();
     _sessionCounter = 0;
 
     // Reset server audio buffer
@@ -661,25 +669,27 @@ class TtsManager with WidgetsBindingObserver {
 
   /// Disposes the manager and releases resources.
   Future<void> dispose() async {
+    if (_disposing) return;
+    _disposing = true;
+    if (_observingLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+      _observingLifecycle = false;
+    }
     await stop();
     await _nativeTtsSub?.cancel();
     _nativeTtsSub = null;
     await _playerStateSub?.cancel();
     await _playerIndexSub?.cancel();
     await _player.dispose();
+    await _sherpaLoadSerial;
     await _sherpaTts.dispose();
     await _eventController.close();
-    WidgetsBinding.instance.removeObserver(this);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.paused || _activeSession != null) return;
-    final model = sherpaModelById(_loadedSherpaModelId);
-    if (model?.tier != SherpaModelTier.large) return;
-    _loadedSherpaModelId = null;
-    _loadedSherpaLanguageCode = null;
-    unawaited(_sherpaTts.unload());
+    _lifecycleState = state;
+    _scheduleIdleLargeSherpaUnload();
   }
 
   /// Splits text into chunks for TTS playback.
@@ -949,6 +959,7 @@ class TtsManager with WidgetsBindingObserver {
   // ===========================================================================
 
   Future<void> _ensureTtsInitialized() async {
+    _ensureLifecycleObserver();
     if (_ttsInitialized) return;
 
     if (_initCompleter != null) {
@@ -1052,6 +1063,7 @@ class TtsManager with WidgetsBindingObserver {
       }
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
@@ -1334,6 +1346,7 @@ class TtsManager with WidgetsBindingObserver {
       }
       _activeSession = null;
       _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
       _emitEvent(const TtsCompleted());
       return;
     }
@@ -1393,6 +1406,7 @@ class TtsManager with WidgetsBindingObserver {
         _emitEvent(TtsError(error.toString()));
         _activeSession = null;
         _resetPlaybackState();
+        _scheduleIdleLargeSherpaUnload();
       }
     } finally {
       _serverRecoveringMissingChunk = false;
@@ -1638,7 +1652,9 @@ class TtsManager with WidgetsBindingObserver {
         languageCode: session.sherpaLanguageCode,
       );
     } catch (error) {
-      await _sherpaStorage.markModelBroken(id, error);
+      if (error is SherpaModelLoadException) {
+        await _sherpaStorage.markModelBroken(id, error);
+      }
       rethrow;
     }
     _loadedSherpaModelId = id;
@@ -1649,6 +1665,35 @@ class TtsManager with WidgetsBindingObserver {
       await _sherpaTts.unload();
       throw StateError('TTS session was cancelled');
     }
+  }
+
+  void _ensureLifecycleObserver() {
+    if (_observingLifecycle) return;
+    WidgetsBinding.instance.addObserver(this);
+    _lifecycleState =
+        WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
+    _observingLifecycle = true;
+  }
+
+  void _scheduleIdleLargeSherpaUnload() {
+    if (_disposing ||
+        _lifecycleState != AppLifecycleState.paused ||
+        _activeSession != null) {
+      return;
+    }
+    final operation = _sherpaLoadSerial.then((_) async {
+      if (_lifecycleState != AppLifecycleState.paused ||
+          _activeSession != null) {
+        return;
+      }
+      final model = sherpaModelById(_loadedSherpaModelId);
+      if (model?.tier != SherpaModelTier.large) return;
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      await _sherpaTts.unload();
+    });
+    _sherpaLoadSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    unawaited(_sherpaLoadSerial);
   }
 
   Uint8List _floatSamplesToWav(Float32List samples, int sampleRate) {

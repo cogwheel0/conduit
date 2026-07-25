@@ -26,7 +26,20 @@ final class SherpaSttEvent {
   final String? language;
 }
 
+final class SherpaModelLoadException implements Exception {
+  const SherpaModelLoadException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'SherpaModelLoadException: $message';
+}
+
 final class SherpaSttWorker {
+  SherpaSttWorker({SherpaStorage? storage})
+    : _storage = storage ?? SherpaStorage();
+
+  final SherpaStorage _storage;
   final StreamController<SherpaSttEvent> _events = StreamController.broadcast();
   final StreamController<Float32List> _vadSegments = StreamController.broadcast(
     sync: true,
@@ -43,7 +56,7 @@ final class SherpaSttWorker {
     String? languageCode,
   }) async {
     final rpc = await _ensureRpc();
-    final files = await SherpaStorage().resolveRuntimeFiles(
+    final files = await _storage.resolveRuntimeFiles(
       installed.model,
       installed.directory,
     );
@@ -187,6 +200,10 @@ final class SherpaSttWorker {
 }
 
 final class SherpaTtsWorker {
+  SherpaTtsWorker({SherpaStorage? storage})
+    : _storage = storage ?? SherpaStorage();
+
+  final SherpaStorage _storage;
   _SherpaRpc? _rpc;
   Future<_SherpaRpc>? _spawningRpc;
   InstalledSherpaModel? _installed;
@@ -199,7 +216,7 @@ final class SherpaTtsWorker {
     String? languageCode,
   }) async {
     final rpc = await _ensureRpc();
-    final files = await SherpaStorage().resolveRuntimeFiles(
+    final files = await _storage.resolveRuntimeFiles(
       installed.model,
       installed.directory,
     );
@@ -412,33 +429,42 @@ final class _SherpaRpc {
   final StreamSubscription<Object?> _errorSubscription;
   final StreamSubscription<Object?> _exitSubscription;
   final void Function(Map<Object?, Object?> event)? _onEvent;
-  final Map<int, Completer<Map<Object?, Object?>>> _pending = {};
+  final Map<int, ({String type, Completer<Map<Object?, Object?>> completer})>
+  _pending = {};
   var _nextId = 1;
   var _alive = true;
   var _disposed = false;
+  Future<void>? _disposeFuture;
+  Future<void>? _teardownFuture;
 
   bool get isAlive => _alive && !_disposed;
 
   Future<Map<Object?, Object?>> call(
     String type, [
     Map<String, Object?> arguments = const {},
-  ]) {
-    if (!isAlive) {
+  ]) => _call(type, arguments);
+
+  Future<Map<Object?, Object?>> _call(
+    String type,
+    Map<String, Object?> arguments, {
+    bool allowDuringDisposal = false,
+    Duration timeout = _commandTimeout,
+  }) {
+    if (!_alive || (_disposed && !allowDuringDisposal)) {
       return Future.error(StateError('Sherpa worker is not running'));
     }
     final id = _nextId++;
     final completer = Completer<Map<Object?, Object?>>();
-    _pending[id] = completer;
+    _pending[id] = (type: type, completer: completer);
     _commands.send({'id': id, 'type': type, ...arguments});
     return completer.future.timeout(
-      _commandTimeout,
-      onTimeout: () {
+      timeout,
+      onTimeout: () async {
         final error = TimeoutException(
           'Sherpa worker did not complete "$type" within '
-          '${_commandTimeout.inSeconds} seconds',
+          '${timeout.inSeconds} seconds',
         );
-        _fail(error, StackTrace.current);
-        _isolate.kill();
+        await _teardown(error, StackTrace.current);
         throw error;
       },
     );
@@ -450,20 +476,25 @@ final class _SherpaRpc {
       return;
     }
     final id = message['id'] as int?;
-    final completer = id == null ? null : _pending.remove(id);
-    if (completer == null) return;
+    final pending = id == null ? null : _pending.remove(id);
+    if (pending == null) return;
     final error = message['error'];
     if (error != null) {
-      completer.completeError(StateError(error.toString()));
+      final exception = pending.type == 'load'
+          ? SherpaModelLoadException(error.toString())
+          : StateError(error.toString());
+      pending.completer.completeError(exception);
     } else {
-      completer.complete(message.cast<Object?, Object?>());
+      pending.completer.complete(message.cast<Object?, Object?>());
     }
   }
 
   void _fail(Object error, StackTrace stackTrace) {
     if (!_alive) return;
     _alive = false;
-    final pending = _pending.values.toList(growable: false);
+    final pending = _pending.values
+        .map((entry) => entry.completer)
+        .toList(growable: false);
     _pending.clear();
     for (final completer in pending) {
       if (!completer.isCompleted) {
@@ -472,20 +503,35 @@ final class _SherpaRpc {
     }
   }
 
-  Future<void> dispose() async {
-    if (_disposed) return;
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
     _disposed = true;
     if (_alive) {
       try {
-        _disposed = false;
-        await call('dispose').timeout(const Duration(seconds: 2));
+        await _call(
+          'dispose',
+          const {},
+          allowDuringDisposal: true,
+          timeout: const Duration(seconds: 2),
+        );
       } on Object {
         // The worker is best-effort during application teardown.
-      } finally {
-        _disposed = true;
       }
     }
-    _fail(StateError('Sherpa worker was disposed'), StackTrace.current);
+    await _teardown(
+      StateError('Sherpa worker was disposed'),
+      StackTrace.current,
+    );
+  }
+
+  Future<void> _teardown(Object error, StackTrace stackTrace) {
+    return _teardownFuture ??= _performTeardown(error, stackTrace);
+  }
+
+  Future<void> _performTeardown(Object error, StackTrace stackTrace) async {
+    _disposed = true;
+    _fail(error, stackTrace);
     _isolate.kill();
     await _eventSubscription.cancel();
     await _errorSubscription.cancel();

@@ -100,9 +100,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 onChanged: (preference) async {
                   if (preference == SttPreference.sherpa) {
                     if (!selectedSherpa) {
-                      await context.push(
-                        '${Routes.sherpaModels}?kind=stt&select=1',
-                      );
+                      await context.push(Routes.sherpaModelsFor(forTts: false));
                       return;
                     }
                   }
@@ -315,9 +313,7 @@ class AudioSettingsPage extends ConsumerWidget {
                 onChanged: (engine) async {
                   final notifier = ref.read(appSettingsProvider.notifier);
                   if (engine == TtsEngine.sherpa && !selectedSherpa) {
-                    await context.push(
-                      '${Routes.sherpaModels}?kind=tts&select=1',
-                    );
+                    await context.push(Routes.sherpaModelsFor(forTts: true));
                     return;
                   }
                   await notifier.setTtsEngineSelection(engine);
@@ -649,7 +645,7 @@ class AudioSettingsPage extends ConsumerWidget {
   ) async {
     final model = sherpaModelById(settings.sherpaTtsModelId);
     if (model == null || model.speakers.isEmpty) {
-      await context.push('${Routes.sherpaModels}?kind=tts&select=1');
+      await context.push(Routes.sherpaModelsFor(forTts: true));
       return;
     }
     final selected = await showModalBottomSheet<int>(

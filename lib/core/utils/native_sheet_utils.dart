@@ -191,12 +191,20 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     ],
   );
 
-  final voiceOptions = buildTtsVoiceOptions(
-    l10n,
-    appSettings.ttsEngine,
-    ttsVoices,
-  );
-  final selectedVoiceId = selectedTtsVoiceOptionId(appSettings, ttsVoices);
+  final sherpaTtsModel = sherpaModelById(appSettings.sherpaTtsModelId);
+  final voiceOptions = appSettings.ttsEngine == TtsEngine.sherpa
+      ? [
+          for (final speaker in sherpaTtsModel?.speakers ?? const [])
+            TtsVoiceOptionData(
+              id: speaker.id.toString(),
+              label: speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1),
+              voice: const {},
+            ),
+        ]
+      : buildTtsVoiceOptions(l10n, appSettings.ttsEngine, ttsVoices);
+  final selectedVoiceId = appSettings.ttsEngine == TtsEngine.sherpa
+      ? appSettings.sherpaTtsSpeakerId
+      : selectedTtsVoiceOptionId(appSettings, ttsVoices);
 
   final voicePickerNav = NativeSheetItemConfig(
     id: 'tts-voice-picker',
@@ -206,10 +214,11 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     kind: NativeSheetItemKind.searchablePicker,
     value: selectedVoiceId,
     options: [
-      NativeSheetOptionConfig(
-        id: ttsSystemDefaultVoiceId,
-        label: l10n.ttsSystemDefault,
-      ),
+      if (appSettings.ttsEngine != TtsEngine.sherpa)
+        NativeSheetOptionConfig(
+          id: ttsSystemDefaultVoiceId,
+          label: l10n.ttsSystemDefault,
+        ),
       for (final option in voiceOptions)
         NativeSheetOptionConfig(
           id: option.id,
@@ -263,7 +272,8 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 
   final ttsItems = <NativeSheetItemConfig>[
     ttsSegment,
-    if (appSettings.ttsEngine != TtsEngine.sherpa) voicePickerNav,
+    if (appSettings.ttsEngine != TtsEngine.sherpa || voiceOptions.isNotEmpty)
+      voicePickerNav,
     if (appSettings.ttsEngine == TtsEngine.device || isSherpaTts)
       speechRateSlider,
     previewNav,

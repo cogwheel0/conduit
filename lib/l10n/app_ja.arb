@@ -3869,7 +3869,7 @@
   "directConnectionError": "Direct connection error",
   "directAttachmentUnsupported": "This direct model does not support this attachment.",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
+  "hermesMemoryKeyDescription": "メモリキーはエージェントの長期記憶をあなた専用にします（X-Hermes-Session-Key）。空欄のままにすると、初回のチャット時に安定したキーが自動生成されます。",
   "sherpaEngine": "Sherpa",
   "sherpaSttDescription": "ダウンロードしたモデルを使う、プライベートなオフライン音声認識です。",
   "sherpaTtsDescription": "ダウンロードした音声モデルを使う、プライベートなオフライン音声合成です。",

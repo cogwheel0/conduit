@@ -171,6 +171,8 @@ class Routes {
   static const String personalization = '/profile/personalization';
   static const String audioSettings = '/profile/audio';
   static const String sherpaModels = '/profile/audio/sherpa-models';
+  static String sherpaModelsFor({required bool forTts}) =>
+      '$sherpaModels?kind=${forTts ? 'tts' : 'stt'}';
   static const String accountSettings = '/profile/account';
   static const String notificationSettings = '/profile/notifications';
   static const String appearanceSettings = '/profile/appearance';

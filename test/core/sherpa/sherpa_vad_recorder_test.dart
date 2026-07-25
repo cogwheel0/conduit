@@ -13,5 +13,6 @@ void main() {
     check(SherpaVadRecorder.bufferSizeSeconds).equals(120);
     check(SherpaVadRecorder.preRollSamples).equals(8192);
     check(SherpaVadRecorder.postRollSamples).equals(3072);
+    check(SherpaVadRecorder.maximumHistorySamples).equals(1451264);
   });
 }

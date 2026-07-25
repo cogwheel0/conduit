@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit/core/sherpa/sherpa_runtime.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,12 @@ import 'package:record/record.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('rejects a Sherpa recorder/worker dependency mismatch', () {
+    final worker = SherpaSttWorker();
+    addTearDown(worker.dispose);
+    check(() => VoiceInputService(sherpaStt: worker)).throws<ArgumentError>();
+  });
 
   // Regression guard for issue #557: on a fresh install iOS reports the mic
   // permission as "denied" (not-determined). checkPermissions() must actively

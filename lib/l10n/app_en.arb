@@ -1593,11 +1593,11 @@
   },
   "sttSilenceDuration": "Speech end silence duration",
   "@sttSilenceDuration": {
-    "description": "Label for the silence duration setting in server speech-to-text."
+    "description": "Label for the silence duration setting in Server and Sherpa speech-to-text."
   },
   "sttSilenceDurationDescription": "How long Server and Sherpa transcription wait after speech ends before finalizing the recording.",
   "@sttSilenceDurationDescription": {
-    "description": "Description for the silence duration slider in server speech-to-text settings."
+    "description": "Description for the silence duration slider in Server and Sherpa speech-to-text settings."
   },
   "sttTranscriptionLanguage": "Transcription language",
   "@sttTranscriptionLanguage": {

@@ -27,6 +27,7 @@ import 'core/services/performance_profiler.dart';
 import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
 import 'core/services/settings_service.dart';
+import 'core/sherpa/sherpa_catalog.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
@@ -600,7 +601,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           } else if (value == SttPreference.sherpa.name) {
             unawaited(
               NavigationService.router.push<void>(
-                '${Routes.sherpaModels}?kind=stt&select=1',
+                Routes.sherpaModelsFor(forTts: false),
               ),
             );
           }
@@ -640,7 +641,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           } else if (value == TtsEngine.sherpa.name) {
             unawaited(
               NavigationService.router.push<void>(
-                '${Routes.sherpaModels}?kind=tts&select=1',
+                Routes.sherpaModelsFor(forTts: true),
               ),
             );
           }
@@ -828,6 +829,19 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   }) async {
     final settings = ref.read(appSettingsProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
+
+    if (settings.ttsEngine == TtsEngine.sherpa) {
+      final model = sherpaModelById(settings.sherpaTtsModelId);
+      final speakerId = int.tryParse(voiceKey);
+      if (speakerId == null ||
+          model == null ||
+          !model.speakers.any((speaker) => speaker.id == speakerId)) {
+        return;
+      }
+      await notifier.setSherpaTtsSpeakerId(speakerId.toString());
+      await _refreshNativeVoiceDetail();
+      return;
+    }
 
     if (voiceKey == ttsSystemDefaultVoiceId) {
       if (settings.ttsEngine == TtsEngine.server) {

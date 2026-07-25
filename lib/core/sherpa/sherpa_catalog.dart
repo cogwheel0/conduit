@@ -497,7 +497,12 @@ SherpaModel _parakeet(
   installedBytes: installedBytes,
   sha: sha,
   files: files,
-  modelType: adapter == SherpaRuntimeAdapter.offlineNemoTransducer
+  // `nemo_transducer` is the only explicit online NeMo transducer override
+  // recognized by sherpa-onnx. Parakeet Unified is additionally auto-detected
+  // from its decoder metadata on CPU.
+  modelType:
+      adapter == SherpaRuntimeAdapter.offlineNemoTransducer ||
+          adapter == SherpaRuntimeAdapter.onlineTransducer
       ? 'nemo_transducer'
       : '',
   recommended: recommended,

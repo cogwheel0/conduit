@@ -17,17 +17,21 @@ final class SherpaVadRecorder {
   static const frameSamples = 512;
   static const threshold = 0.6;
   static const minSpeechDurationSeconds = 0.256;
-  static const maxSpeechDurationSeconds = 90.0;
+  static const int maxSpeechDurationSeconds = 90;
+  static const int maxSpeechDurationSamples =
+      maxSpeechDurationSeconds * sampleRate;
   static const bufferSizeSeconds = 120.0;
-  static const bufferSizeSamples = 120 * sampleRate;
   static const preRollSamples = 16 * frameSamples;
   static const postRollSamples = 6 * frameSamples;
+  static const maximumHistorySamples =
+      maxSpeechDurationSamples + preRollSamples + postRollSamples;
 
   final SherpaSttWorker _worker;
   final SherpaStorage _storage;
   AudioRecorder? _recorder;
-  final StreamController<List<double>> _speechEnd =
-      StreamController.broadcast(sync: true);
+  final StreamController<List<double>> _speechEnd = StreamController.broadcast(
+    sync: true,
+  );
   final StreamController<List<double>> _frames = StreamController.broadcast();
   final StreamController<String> _errors = StreamController.broadcast();
   final List<int> _pendingPcm = [];
@@ -60,12 +64,12 @@ final class SherpaVadRecorder {
         minSilenceDuration: minSilenceDuration,
         minSpeechDuration: minSpeechDurationSeconds,
         windowSize: frameSamples,
-        maxSpeechDuration: maxSpeechDurationSeconds,
+        maxSpeechDuration: maxSpeechDurationSeconds.toDouble(),
         sampleRate: sampleRate,
         bufferSizeInSeconds: bufferSizeSeconds,
         preRollSamples: preRollSamples,
         postRollSamples: postRollSamples,
-        maximumHistorySamples: bufferSizeSamples,
+        maximumHistorySamples: maximumHistorySamples,
         feedRecognizer: feedRecognizer,
       );
       _checkActive(generation);

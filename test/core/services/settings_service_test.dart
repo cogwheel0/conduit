@@ -494,6 +494,26 @@ void main() {
       }
     });
 
+    test('round-trips three-letter Sherpa language codes', () async {
+      const selected = AppSettings(
+        sttPreference: SttPreference.sherpa,
+        sherpaSttModelId: 'sense-voice',
+        sherpaSttLanguageCode: 'YUE-hk',
+        sherpaTtsLanguageCode: 'system',
+      );
+
+      await SettingsService.saveSettings(selected);
+      final loaded = await SettingsService.loadSettings();
+
+      check(loaded.sherpaSttLanguageCode).equals('yue');
+      check(
+        PreferencesStore.getString(PreferenceKeys.sherpaSttLanguageCode),
+      ).equals('yue');
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.sherpaTtsLanguageCode),
+      ).isFalse();
+    });
+
     test('unknown persisted engine values downgrade to Device', () async {
       await PreferencesStore.put(
         PreferenceKeys.voiceSttPreference,
@@ -585,6 +605,19 @@ void main() {
       check(SettingsService.normalizeSttLanguageCode('polish')).isNull();
       check(SettingsService.normalizeSttLanguageCode('p')).isNull();
       check(SettingsService.normalizeSttLanguageCode('eng')).isNull();
+    });
+  });
+
+  group('SettingsService.normalizeSherpaLanguageCode', () {
+    test('accepts two- and three-letter language codes', () {
+      check(SettingsService.normalizeSherpaLanguageCode('EN-us')).equals('en');
+      check(SettingsService.normalizeSherpaLanguageCode('yue')).equals('yue');
+    });
+
+    test('rejects invalid and auto-like language codes', () {
+      check(SettingsService.normalizeSherpaLanguageCode('auto')).isNull();
+      check(SettingsService.normalizeSherpaLanguageCode('polish')).isNull();
+      check(SettingsService.normalizeSherpaLanguageCode('p')).isNull();
     });
   });
 

@@ -108,6 +108,13 @@ final class SherpaModelManager {
   final Map<String, SherpaInstallProgress> _progress = {};
   bool _processing = false;
   bool _disposed = false;
+  static const Set<SherpaInstallPhase> _activePhases = {
+    SherpaInstallPhase.queued,
+    SherpaInstallPhase.downloading,
+    SherpaInstallPhase.verifying,
+    SherpaInstallPhase.extracting,
+    SherpaInstallPhase.validating,
+  };
 
   Stream<Map<String, SherpaInstallProgress>> get progress async* {
     yield Map.unmodifiable(_progress);
@@ -117,7 +124,7 @@ final class SherpaModelManager {
   void enqueue(SherpaModel model) {
     if (_disposed ||
         _queue.any((queued) => queued.id == model.id) ||
-        _progress[model.id]?.phase == SherpaInstallPhase.downloading) {
+        _activePhases.contains(_progress[model.id]?.phase)) {
       return;
     }
     _queue.add(model);
@@ -132,6 +139,7 @@ final class SherpaModelManager {
   }
 
   Future<void> retry(SherpaModel model) async {
+    if (_activePhases.contains(_progress[model.id]?.phase)) return;
     _progress.remove(model.id);
     enqueue(model);
   }

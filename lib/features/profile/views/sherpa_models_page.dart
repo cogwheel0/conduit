@@ -177,7 +177,13 @@ class _SherpaModelsPageState extends ConsumerState<SherpaModelsPage> {
     SherpaModel model,
     InstalledSherpaModel? installed,
     SherpaInstallProgress? progress,
+    bool broken,
   ) async {
+    if (broken) {
+      _pendingActivation = widget.selectionKind == null ? null : model.id;
+      await ref.read(sherpaModelManagerProvider).retry(model);
+      return;
+    }
     if (installed != null) {
       await _activate(model);
       return;
@@ -460,6 +466,7 @@ class _ModelSection extends StatelessWidget {
     SherpaModel,
     InstalledSherpaModel?,
     SherpaInstallProgress?,
+    bool,
   )
   onAction;
   final ValueChanged<SherpaModel> onDelete;
@@ -504,8 +511,12 @@ class _ModelSection extends StatelessWidget {
                 downloadAndUse:
                     selectionMode && !installed.containsKey(model.id),
                 pendingActivation: pendingActivation == model.id,
-                onAction: () =>
-                    onAction(model, installed[model.id], progress[model.id]),
+                onAction: () => onAction(
+                  model,
+                  installed[model.id],
+                  progress[model.id],
+                  broken.contains(model.id),
+                ),
                 onDelete: () => onDelete(model),
               ),
             ),

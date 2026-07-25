@@ -39,6 +39,16 @@ final class InstalledSherpaModel {
   final int installedBytes;
 }
 
+final class SherpaModelInventory {
+  const SherpaModelInventory({
+    required this.installed,
+    required this.brokenIds,
+  });
+
+  final List<InstalledSherpaModel> installed;
+  final Set<String> brokenIds;
+}
+
 final class SherpaStorage {
   SherpaStorage({MethodChannel? channel})
     : _channel =
@@ -50,6 +60,8 @@ final class SherpaStorage {
   static const vadVersion = 'silero-v5';
   static final StreamController<void> _changes =
       StreamController<void>.broadcast();
+  static Future<File>? _vadPreparation;
+  static final Map<String, Future<SherpaModelInventory>> _inventoryScans = {};
 
   static Stream<void> get changes => _changes.stream;
 
@@ -64,6 +76,8 @@ final class SherpaStorage {
     try {
       nativePath = await _channel.invokeMethod<String>('getNoBackupDirectory');
     } on MissingPluginException {
+      nativePath = null;
+    } on PlatformException {
       nativePath = null;
     }
     final root = nativePath == null
@@ -123,15 +137,39 @@ final class SherpaStorage {
         abis: [],
         meteredNetwork: null,
       );
+    } on PlatformException {
+      return const SherpaDeviceInfo(
+        freeStorageBytes: null,
+        physicalMemoryBytes: null,
+        abis: [],
+        meteredNetwork: null,
+      );
     }
   }
 
-  Future<File> prepareVadModel() async {
+  Future<File> prepareVadModel() {
+    final active = _vadPreparation;
+    if (active != null) return active;
+    late final Future<File> preparation;
+    preparation = _prepareVadModelAtRuntime().whenComplete(() {
+      if (identical(_vadPreparation, preparation)) {
+        _vadPreparation = null;
+      }
+    });
+    _vadPreparation = preparation;
+    return preparation;
+  }
+
+  Future<File> _prepareVadModelAtRuntime() async {
     final runtime = Directory(
       path.join((await rootDirectory()).path, 'runtime'),
     );
     await runtime.create(recursive: true);
     final model = File(path.join(runtime.path, 'silero_vad_v5.onnx'));
+    return _prepareVadModel(runtime, model);
+  }
+
+  Future<File> _prepareVadModel(Directory runtime, File model) async {
     final marker = File(path.join(runtime.path, 'silero_vad_v5.json'));
 
     if (await model.exists() && await marker.exists()) {
@@ -211,28 +249,49 @@ final class SherpaStorage {
       }),
       flush: true,
     );
+    _inventoryScans.remove(directory.parent.path);
     _changes.add(null);
   }
 
   Future<List<InstalledSherpaModel>> installedModels() async {
-    final installed = <InstalledSherpaModel>[];
-    for (final model in sherpaModelCatalog) {
-      final value = await installedModel(model.id);
-      if (value != null) installed.add(value);
-    }
-    return installed;
+    return (await modelInventory()).installed;
   }
 
   Future<Set<String>> brokenModelIds() async {
+    return (await modelInventory()).brokenIds;
+  }
+
+  Future<SherpaModelInventory> modelInventory() async {
     final models = await modelsDirectory();
+    final active = _inventoryScans[models.path];
+    if (active != null) return active;
+    late final Future<SherpaModelInventory> scan;
+    scan = _scanModelInventory(models).whenComplete(() {
+      if (identical(_inventoryScans[models.path], scan)) {
+        _inventoryScans.remove(models.path);
+      }
+    });
+    _inventoryScans[models.path] = scan;
+    return scan;
+  }
+
+  Future<SherpaModelInventory> _scanModelInventory(Directory models) async {
+    final installed = <InstalledSherpaModel>[];
     final broken = <String>{};
     for (final model in sherpaModelCatalog) {
       final directory = Directory(path.join(models.path, model.id));
-      if (await directory.exists() && await installedModel(model.id) == null) {
+      if (!await directory.exists()) continue;
+      final value = await installedModel(model.id);
+      if (value == null) {
         broken.add(model.id);
+      } else {
+        installed.add(value);
       }
     }
-    return broken;
+    return SherpaModelInventory(
+      installed: List.unmodifiable(installed),
+      brokenIds: Set.unmodifiable(broken),
+    );
   }
 
   Future<Map<String, String>> resolveRuntimeFiles(

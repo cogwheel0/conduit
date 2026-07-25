@@ -973,42 +973,11 @@ class VoiceInputService with WidgetsBindingObserver {
     required int generation,
     required bool iosAudioSessionManagedExternally,
   }) async {
-    _checkListeningGeneration(generation);
-    await _stopVadRecording();
-    _checkListeningGeneration(generation);
-    _vadPendingSamples = null;
-    await _setupVadStreams();
-    _checkListeningGeneration(generation);
-    final settings = _ref?.read(appSettingsProvider);
-    final silenceMs =
-        settings?.voiceSilenceDuration ??
-        SettingsService.defaultVoiceSilenceDurationMs;
-
-    try {
-      await _vadRecorder.start(
-        minSilenceDuration: silenceMs / 1000,
-        feedRecognizer: false,
-        recordConfig: RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: _vadSampleRate,
-          numChannels: 1,
-          bitRate: 16,
-          echoCancel: true,
-          autoGain: false,
-          noiseSuppress: true,
-          androidConfig: _androidServerVadRecordConfig(
-            voiceCallSession:
-                Platform.isAndroid && iosAudioSessionManagedExternally,
-          ),
-          iosConfig: iosAudioSessionManagedExternally
-              ? _iosManagedServerVadRecordConfig
-              : _iosStandaloneServerVadRecordConfig,
-        ),
-      );
-      _checkListeningGeneration(generation);
-    } catch (error) {
-      rethrow;
-    }
+    await _startVadRecording(
+      generation: generation,
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+      feedRecognizer: false,
+    );
   }
 
   Future<void> _startSherpaRecording({
@@ -1021,6 +990,19 @@ class VoiceInputService with WidgetsBindingObserver {
     if (!_sherpaSttAvailable) {
       throw StateError('The selected Sherpa STT model is unavailable');
     }
+    await _startVadRecording(
+      generation: generation,
+      iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+      feedRecognizer: true,
+    );
+  }
+
+  Future<void> _startVadRecording({
+    required int generation,
+    required bool iosAudioSessionManagedExternally,
+    required bool feedRecognizer,
+  }) async {
+    _checkListeningGeneration(generation);
     await _stopVadRecording();
     _checkListeningGeneration(generation);
     _vadPendingSamples = null;
@@ -1032,7 +1014,7 @@ class VoiceInputService with WidgetsBindingObserver {
         SettingsService.defaultVoiceSilenceDurationMs;
     await _vadRecorder.start(
       minSilenceDuration: silenceMs / 1000,
-      feedRecognizer: true,
+      feedRecognizer: feedRecognizer,
       recordConfig: RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: _vadSampleRate,
@@ -1162,7 +1144,9 @@ class VoiceInputService with WidgetsBindingObserver {
       try {
         await _sherpaStt.load(installed, languageCode: languageCode);
       } catch (error) {
-        await _sherpaStorage.markModelBroken(id, error);
+        if (error is SherpaModelLoadException) {
+          await _sherpaStorage.markModelBroken(id, error);
+        }
         DebugLogger.warning(
           'sherpa-stt-load-failed',
           scope: 'voice/stt',
@@ -1521,11 +1505,20 @@ final class _SherpaSpeechDependencies {
     required SherpaSttWorker? worker,
     required SherpaStorage? storage,
   }) {
-    final resolvedWorker = worker ?? SherpaSttWorker();
+    if ((vadRecorder == null) != (worker == null)) {
+      throw ArgumentError(
+        'vadRecorder and worker must be injected together so they share '
+        'the same Sherpa STT worker',
+      );
+    }
+    final resolvedStorage = storage ?? SherpaStorage();
+    final resolvedWorker = worker ?? SherpaSttWorker(storage: resolvedStorage);
     return _SherpaSpeechDependencies(
-      recorder: vadRecorder ?? SherpaVadRecorder(worker: resolvedWorker),
+      recorder:
+          vadRecorder ??
+          SherpaVadRecorder(worker: resolvedWorker, storage: resolvedStorage),
       worker: resolvedWorker,
-      storage: storage ?? SherpaStorage(),
+      storage: resolvedStorage,
     );
   }
 

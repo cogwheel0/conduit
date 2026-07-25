@@ -52,6 +52,7 @@ void main() {
       check(roles['encoder']).equals('encoder.int8.onnx');
       check(roles['decoder']).equals('decoder.int8.onnx');
       check(roles['joiner']).equals('joiner.int8.onnx');
+      check(model.runtime.modelType).equals('nemo_transducer');
     }
   });
 

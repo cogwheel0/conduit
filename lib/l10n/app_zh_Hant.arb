@@ -2529,7 +2529,7 @@
   "directConnectionError": "Direct connection error",
   "directAttachmentUnsupported": "This direct model does not support this attachment.",
   "backendChooserOpenWebUITitle": "Open WebUI",
-  "hermesMemoryKeyDescription": "The memory key scopes the agent's long-term memory to you (X-Hermes-Session-Key). A stable key is generated automatically the first time you chat if you leave this blank.",
+  "hermesMemoryKeyDescription": "記憶金鑰會將代理程式的長期記憶限定於您（X-Hermes-Session-Key）。若留空，第一次聊天時會自動產生固定金鑰。",
   "sherpaEngine": "Sherpa",
   "sherpaSttDescription": "使用已下載模型進行私密離線語音辨識。",
   "sherpaTtsDescription": "使用已下載語音模型進行私密離線語音合成。",
