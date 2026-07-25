@@ -399,6 +399,51 @@ final class _DeferredAttachmentApi extends ApiService {
   }) async => 'AQID';
 }
 
+final class _SequencedDeferredAttachmentApi extends ApiService {
+  _SequencedDeferredAttachmentApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final started = <Completer<void>>[Completer<void>(), Completer<void>()];
+  final gates = <Completer<void>>[Completer<void>(), Completer<void>()];
+  var getFileInfoCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getFileInfo(
+    String fileId, {
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
+    final index = getFileInfoCalls++;
+    if (index < gates.length) {
+      started[index].complete();
+      await Future.any<void>(<Future<void>>[
+        gates[index].future,
+        if (cancelToken != null) cancelToken.whenCancel.then<void>((_) {}),
+      ]);
+      final cancellation = cancelToken?.cancelError;
+      if (cancellation != null) throw cancellation;
+    }
+    return const {
+      'meta': {'content_type': 'image/png'},
+    };
+  }
+
+  @override
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async => 'AQID';
+}
+
 final class _ProvenanceApi extends ApiService {
   _ProvenanceApi({
     required this.label,
@@ -1511,6 +1556,97 @@ void main() {
       api.firstInfoGate.complete();
 
       await regeneration.timeout(const Duration(seconds: 1));
+
+      expect(adapter.startCalls, 0);
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == previousAssistant.id);
+      expect(visibleAssistant.content, previousAssistant.content);
+      expect(visibleAssistant.isStreaming, isFalse);
+      final reloaded = await container
+          .read(chatDatabaseRepositoryProvider)
+          .loadConversation(chat.id, preferred: ChatStorageKind.directLocal);
+      final durableAssistant = reloaded!.conversation.messages.singleWhere(
+        (message) => message.id == previousAssistant.id,
+      );
+      expect(durableAssistant.content, previousAssistant.content);
+      expect(durableAssistant.isStreaming, isFalse);
+    },
+  );
+
+  test(
+    'chained preflight cancellation restores the last completed assistant',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter();
+      final api = _SequencedDeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:chained-regeneration-cancellation',
+        modelId: modelA.id,
+        suffix: 'chained-regeneration-cancellation',
+        userFiles: const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'server-image', 'type': 'image'},
+        ],
+      );
+      final previousAssistant = chat.messages.last;
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final firstRegeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.started[0].future.timeout(const Duration(seconds: 1));
+
+      final secondRegeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.started[1].future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.gates[1].complete();
+
+      await Future.wait<void>([
+        firstRegeneration,
+        secondRegeneration,
+      ]).timeout(const Duration(seconds: 1));
 
       expect(adapter.startCalls, 0);
       final visibleAssistant = container
