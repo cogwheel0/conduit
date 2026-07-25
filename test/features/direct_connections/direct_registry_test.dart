@@ -223,7 +223,13 @@ void main() {
         capabilities: const {'image_generation': false},
       ),
     ]).single;
-    expect(textOnlyModel.capabilities?['image_generation'], isFalse);
+    expect(
+      textOnlyModel.capabilities?['image_generation'],
+      isTrue,
+      reason:
+          'OpenRouter image generation is a server tool available to any '
+          'Chat Completions model, independent of native output modalities.',
+    );
 
     final openWebUiModel = registry
         .replaceProfileModels(

@@ -773,7 +773,12 @@ void _applyOpenRouterRequestFeatures(
     });
   }
   if (request.enableImageGeneration) {
-    tools.add(<String, dynamic>{'type': 'openrouter:image_generation'});
+    final imageGenerationModel = request.imageGenerationModel?.trim();
+    tools.add(<String, dynamic>{
+      'type': 'openrouter:image_generation',
+      if (imageGenerationModel != null && imageGenerationModel.isNotEmpty)
+        'parameters': <String, dynamic>{'model': imageGenerationModel},
+    });
   }
   if (tools.isNotEmpty) {
     body['tools'] = tools;

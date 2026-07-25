@@ -89,7 +89,13 @@ void main() {
 
     expect(extensions, contains('pdf'));
     expect(directModel.capabilities?['web_search'], isTrue);
-    expect(directModel.capabilities?['image_generation'], isFalse);
+    expect(
+      directModel.capabilities?['image_generation'],
+      isTrue,
+      reason:
+          'The OpenRouter image-generation server tool works with text-only '
+          'Chat Completions models.',
+    );
   });
 
   test('attachment panel matches the full IME footprint', () {

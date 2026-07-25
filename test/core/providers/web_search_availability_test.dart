@@ -340,7 +340,7 @@ void main() {
           [
             DirectRemoteModel(
               id: 'anthropic/claude-sonnet-4',
-              capabilities: const {'image_generation': true},
+              capabilities: const {'image_generation': false},
             ),
           ],
         ).single;

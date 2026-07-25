@@ -266,10 +266,12 @@ final class DirectModelRegistry {
           'openrouter': profile.isOpenRouter,
           if (profile.isOpenRouter) ...<String, dynamic>{
             'web_search': profile.supportsOpenRouterWebSearch,
+            // This is OpenRouter's server tool, which can be called by any
+            // Chat Completions model. Native image output remains represented
+            // by the remote catalog's output modalities during discovery.
             'image_generation':
                 source == DirectModelSource.device &&
-                profile.openAiApiMode == DirectOpenAiApiMode.chatCompletions &&
-                remote.capabilities['image_generation'] == true,
+                profile.supportsOpenRouterImageGeneration,
             'file_upload':
                 source == DirectModelSource.device &&
                 profile.supportsOpenRouterPdfInputs,

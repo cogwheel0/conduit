@@ -14166,6 +14166,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         messages: directMessages,
         enableWebSearch: enableWebSearch,
         enableImageGeneration: enableImageGeneration,
+        imageGenerationModel:
+            route.profile.isOpenRouter && enableImageGeneration
+            ? ref.read(appSettingsProvider).openRouterImageGenerationModel
+            : null,
         parameters:
             route.profile.adapterKey == kOllamaAdapterKey ||
                 reasoningEffort == null

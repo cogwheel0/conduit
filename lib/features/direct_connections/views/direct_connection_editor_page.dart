@@ -1101,9 +1101,9 @@ class _DirectConnectionEditorPageState
                 value: kOpenAiCompatibleAdapterKey,
                 child: Text(l10n.openAICompatible),
               ),
-              const DropdownMenuItem(
+              DropdownMenuItem(
                 value: _openRouterProviderPreset,
-                child: Text('OpenRouter'),
+                child: Text(l10n.openRouterProviderName),
               ),
               DropdownMenuItem(
                 value: kOllamaAdapterKey,
@@ -1141,10 +1141,10 @@ class _DirectConnectionEditorPageState
                   }
                   if (_nameController.text == 'My provider' ||
                       _nameController.text == l10n.ollamaCloudDefaultName ||
-                      _nameController.text == 'OpenRouter') {
+                      _nameController.text == l10n.openRouterProviderName) {
                     _nameController.text = switch (value) {
                       kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
-                      _openRouterProviderPreset => 'OpenRouter',
+                      _openRouterProviderPreset => l10n.openRouterProviderName,
                       _ => 'My provider',
                     };
                   }
@@ -1161,7 +1161,7 @@ class _DirectConnectionEditorPageState
           hint: isOllama
               ? l10n.ollamaCloudDefaultName
               : isOpenRouter
-              ? 'OpenRouter'
+              ? l10n.openRouterProviderName
               : 'My provider',
           controller: _nameController,
           errorText: _nameError,

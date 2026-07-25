@@ -328,6 +328,28 @@ NativeSheetDetailConfig buildNativeDefaultModelDetail(
   );
 }
 
+NativeSheetDetailConfig buildNativeOpenRouterImageGenerationModelDetail(
+  AppLocalizations l10n, {
+  required String value,
+}) {
+  return NativeSheetDetailConfig(
+    id: 'default-image-generation-model',
+    title: l10n.defaultImageGenerationModel,
+    subtitle: l10n.defaultImageGenerationModelDescription,
+    items: [
+      NativeSheetItemConfig(
+        id: 'default-image-generation-model',
+        title: l10n.defaultImageGenerationModel,
+        subtitle: l10n.defaultImageGenerationModelDescription,
+        sfSymbol: 'photo.on.rectangle',
+        kind: NativeSheetItemKind.textField,
+        value: value,
+        placeholder: 'openai/gpt-5-image',
+      ),
+    ],
+  );
+}
+
 NativeSheetDetailConfig buildNativeSystemPromptDetail(
   AppLocalizations l10n, {
   required String value,

@@ -75,6 +75,7 @@ final class DirectCompletionRequest {
     Map<String, dynamic> parameters = const {},
     this.enableWebSearch = false,
     this.enableImageGeneration = false,
+    this.imageGenerationModel,
   }) : messages = List.unmodifiable(messages),
        parameters = Map.unmodifiable(parameters) {
     if (remoteModelId.trim().isEmpty) {
@@ -86,6 +87,7 @@ final class DirectCompletionRequest {
   final List<DirectChatMessage> messages;
   final bool enableWebSearch;
   final bool enableImageGeneration;
+  final String? imageGenerationModel;
 
   /// Provider-compatible optional sampling/output parameters.
   ///

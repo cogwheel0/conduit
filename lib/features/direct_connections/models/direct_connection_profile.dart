@@ -157,6 +157,8 @@ final class DirectConnectionProfile {
 
   bool get supportsOpenRouterWebSearch =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
+  bool get supportsOpenRouterImageGeneration =>
+      isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
   bool get supportsOpenRouterPdfInputs =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
 

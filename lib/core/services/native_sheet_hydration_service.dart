@@ -306,6 +306,9 @@ class NativeSheetHydrationService {
       case 'default-model':
         await _hydrateNativeDefaultModelDetail(ctx, l10n);
         return;
+      case 'default-image-generation-model':
+        await _hydrateNativeOpenRouterImageGenerationModelDetail(ctx, l10n);
+        return;
       case 'memory-manage':
         await _hydrateNativeMemoryManageDetail(ctx, l10n);
         return;
@@ -469,6 +472,11 @@ class NativeSheetHydrationService {
 
       final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
       final appSettings = _ref.read(appSettingsProvider);
+      final hasOpenRouterImageTool = models.any(
+        (model) =>
+            model.capabilities?['openrouter'] == true &&
+            model.capabilities?['image_generation'] == true,
+      );
       final defaultModelSubtitle =
           resolveNativeSheetModelName(models, appSettings.defaultModel) ??
           l10n.autoSelectDescription;
@@ -485,6 +493,15 @@ class NativeSheetHydrationService {
               subtitle: defaultModelSubtitle,
               sfSymbol: 'wand.and.stars',
             ),
+            if (hasOpenRouterImageTool)
+              NativeSheetItemConfig(
+                id: 'default-image-generation-model',
+                title: l10n.defaultImageGenerationModel,
+                subtitle:
+                    appSettings.openRouterImageGenerationModel ??
+                    l10n.openRouterDefaultImageGenerationModel,
+                sfSymbol: 'photo.on.rectangle',
+              ),
             NativeSheetItemConfig(
               id: 'system-prompt',
               title: l10n.yourSystemPrompt,
@@ -517,6 +534,13 @@ class NativeSheetHydrationService {
             title: l10n.defaultModel,
             subtitle: l10n.autoSelectDescription,
           ),
+          if (hasOpenRouterImageTool)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'default-image-generation-model',
+              title: l10n.defaultImageGenerationModel,
+              subtitle: l10n.defaultImageGenerationModelDescription,
+            ),
           buildNativeLoadingDetail(
             l10n: l10n,
             id: 'system-prompt',
@@ -1297,6 +1321,18 @@ class NativeSheetHydrationService {
       );
       await _patchNativeDetailError('default-model', l10n.failedToLoadModels);
     }
+  }
+
+  Future<void> _hydrateNativeOpenRouterImageGenerationModelDetail(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    final value =
+        _ref.read(appSettingsProvider).openRouterImageGenerationModel ?? '';
+    if (!context.mounted) return;
+    await _applyNativeDetail(
+      buildNativeOpenRouterImageGenerationModelDetail(l10n, value: value),
+    );
   }
 
   Future<void> _hydrateNativeAdvancedPromptDetail(

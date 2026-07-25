@@ -2601,6 +2601,9 @@
     "description": "Title for the personalization settings page."
   },
   "personalizationSubtitle": "Predvolený model, osobný prompt a pamäte",
+  "defaultImageGenerationModel": "Default image generation model",
+  "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
+  "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
@@ -4146,6 +4149,7 @@
   "directProvider": "Provider type",
   "openAICompatible": "OpenAI-compatible",
   "ollama": "Ollama",
+  "openRouterProviderName": "OpenRouter",
   "directApiBaseUrl": "Base URL",
   "directOpenRouterUrlInvalid": "Použite koreňovú adresu HTTPS /api/v1 služby OpenRouter (globálnu alebo EÚ).",
   "directOpenRouterBaseUrlDescription": "Používa váš kľúč API OpenRouter, overený katalóg modelov a nástroje spravované aplikáciou Conduit.",

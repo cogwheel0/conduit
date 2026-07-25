@@ -995,6 +995,7 @@ void main() {
               remoteModelId: 'anthropic/claude-sonnet-4',
               enableWebSearch: true,
               enableImageGeneration: true,
+              imageGenerationModel: 'openai/gpt-5-image-mini',
               messages: [
                 DirectChatMessage(
                   role: 'user',
@@ -1025,6 +1026,10 @@ void main() {
         tools.map((tool) => (tool as Map)['type']),
         containsAll(['openrouter:web_search', 'openrouter:image_generation']),
       );
+      final imageTool = tools.cast<Map>().firstWhere(
+        (tool) => tool['type'] == 'openrouter:image_generation',
+      );
+      expect(imageTool['parameters'], {'model': 'openai/gpt-5-image-mini'});
       final plugins = body['plugins'] as List;
       expect(
         plugins.map((plugin) => (plugin as Map)['id']),

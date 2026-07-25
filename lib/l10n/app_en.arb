@@ -2851,6 +2851,9 @@
     "description": "Title for the personalization settings page."
   },
   "personalizationSubtitle": "Default model, personal prompt, and memories",
+  "defaultImageGenerationModel": "Default image generation model",
+  "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
+  "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
@@ -4689,6 +4692,10 @@
   "ollama": "Ollama",
   "@ollama": {
     "description": "Label for an Ollama native API connection."
+  },
+  "openRouterProviderName": "OpenRouter",
+  "@openRouterProviderName": {
+    "description": "Provider name used by the OpenRouter connection preset."
   },
   "ollamaCloudDefaultName": "Ollama Cloud",
   "@ollamaCloudDefaultName": {
