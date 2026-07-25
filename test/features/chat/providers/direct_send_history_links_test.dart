@@ -263,18 +263,21 @@ final class _GatedAdapter implements DirectProviderAdapter {
     this.hostileCancellation = false,
     this.startError,
     this.startErrorStack,
+    this.adapterKey = 'test-adapter',
   });
 
   final void Function()? onStart;
   final bool hostileCancellation;
   final Object? startError;
   final StackTrace? startErrorStack;
+  final String adapterKey;
   final StreamController<_GatedRun> _started =
       StreamController<_GatedRun>.broadcast(sync: true);
   var _nextId = 0;
+  DirectCompletionRequest? lastRequest;
 
   @override
-  String get key => 'test-adapter';
+  String get key => adapterKey;
 
   @override
   Future<List<DirectRemoteModel>> listModels(
@@ -290,6 +293,7 @@ final class _GatedAdapter implements DirectProviderAdapter {
     DirectConnectionProfile profile,
     DirectCompletionRequest request,
   ) {
+    lastRequest = request;
     final error = startError;
     if (error != null) {
       final stackTrace = startErrorStack;
@@ -904,6 +908,7 @@ _createGatedDirectHarness(
   DirectNormalizedStreamLimits? streamLimits,
   bool hostileCancellation = false,
   String profileBaseUrl = 'http://localhost:11434',
+  String profileAdapterKey = 'test-adapter',
   String? profileApiKey,
   Map<String, String> profileHeaders = const {},
   String? profileMtlsCertificateChainPem,
@@ -920,7 +925,7 @@ _createGatedDirectHarness(
   final profile = DirectConnectionProfile(
     id: 'profile',
     name: 'Provider',
-    adapterKey: 'test-adapter',
+    adapterKey: profileAdapterKey,
     baseUrl: profileBaseUrl,
     apiKey: profileApiKey,
     customHeaders: profileHeaders,
@@ -940,6 +945,7 @@ _createGatedDirectHarness(
     hostileCancellation: hostileCancellation,
     startError: startError,
     startErrorStack: startErrorStack,
+    adapterKey: profileAdapterKey,
   );
   addTearDown(adapter.dispose);
   final chat = await _seedDirectConversation(
@@ -3478,6 +3484,61 @@ void main() {
       expect(durablePayload['isStreaming'], isFalse);
       expect(durablePayload['error'], isNull);
       expect((durablePayload['files'] as List).single['url'], image);
+    },
+  );
+
+  test(
+    'OpenRouter image generation is consumed before the conversational follow-up',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final harness = await _createGatedDirectHarness(
+        'openrouter-image-one-shot',
+        profileBaseUrl: kOpenRouterApiBaseUrl,
+        profileAdapterKey: kOpenAiCompatibleAdapterKey,
+      );
+      harness.container.read(imageGenerationEnabledProvider.notifier).set(true);
+      expect(harness.container.read(imageGenerationAvailableProvider), isTrue);
+
+      final imageStarted = harness.adapter.nextRun();
+      final imageSend = sendMessageWithContainer(
+        harness.container,
+        'Draw a lighthouse',
+        null,
+      );
+      final imageRun = await imageStarted.timeout(const Duration(seconds: 1));
+      addTearDown(imageRun.close);
+
+      expect(harness.adapter.lastRequest?.enableImageGeneration, isTrue);
+      expect(harness.container.read(imageGenerationEnabledProvider), isFalse);
+      imageRun
+        ..add(
+          const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'),
+        )
+        ..add(const DirectStreamDone());
+      await imageSend.timeout(const Duration(seconds: 1));
+
+      final followUpStarted = harness.adapter.nextRun();
+      final followUpSend = sendMessageWithContainer(
+        harness.container,
+        'Make the mood warmer',
+        null,
+      );
+      final followUpRun = await followUpStarted.timeout(
+        const Duration(seconds: 1),
+      );
+      addTearDown(followUpRun.close);
+
+      expect(harness.adapter.lastRequest?.enableImageGeneration, isFalse);
+      followUpRun
+        ..add(const DirectContentDelta('I can help refine it.'))
+        ..add(const DirectStreamDone());
+      await followUpSend.timeout(const Duration(seconds: 1));
+
+      final messages = harness.container.read(chatMessagesProvider);
+      expect(
+        messages.where((message) => message.role == 'assistant').last.content,
+        'I can help refine it.',
+      );
     },
   );
 

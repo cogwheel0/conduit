@@ -12,6 +12,8 @@ const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
 const String kDirectProviderMetadataKey = 'directProviderMetadata';
+const String kDirectGeneratedImageReplayText =
+    'The requested image was generated and displayed to the user.';
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
 const String _kDirectGeneratedImageLimitMessage =
@@ -88,6 +90,10 @@ String outboundProviderReplayText(ChatMessage message) {
     final trustedRawAssistantContent =
         message.metadata?[kDirectRawAssistantContentMetadataKey];
     if (trustedRawAssistantContent is String) {
+      if (trustedRawAssistantContent.trim().isEmpty &&
+          _hasDirectGeneratedImage(message)) {
+        return kDirectGeneratedImageReplayText;
+      }
       // Direct assistant text is presentation-escaped before it reaches the
       // Markdown renderer. Replay the provider-owned source captured at that
       // boundary instead of decoding arbitrary persisted HTML entities. The
@@ -95,9 +101,19 @@ String outboundProviderReplayText(ChatMessage message) {
       // from changing legacy/OpenWebUI/user content semantics.
       return trustedRawAssistantContent;
     }
+    if (_hasDirectGeneratedImage(message)) {
+      return kDirectGeneratedImageReplayText;
+    }
   }
   return ToolCallsParser.sanitizeForApi(message.content);
 }
+
+bool _hasDirectGeneratedImage(ChatMessage message) =>
+    (message.files ?? const <Map<String, dynamic>>[]).any(
+      (file) =>
+          file['source'] == 'direct_openrouter_image' &&
+          _isDirectImageFile(file),
+    );
 
 /// Creates the persisted Responses output mirror consumed by Open WebUI when
 /// it reconstructs provider history from its own database.

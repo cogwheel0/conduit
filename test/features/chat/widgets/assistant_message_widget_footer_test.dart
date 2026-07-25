@@ -212,6 +212,73 @@ void main() {
     expect(find.byIcon(Icons.language), findsOneWidget);
   });
 
+  testWidgets(
+    'source chip resolves Gemini grounding redirects before favicon lookup',
+    (tester) async {
+      final resolvedDomain = Completer<String>();
+      final requestedFaviconUrls = <String>[];
+
+      await tester.pumpWidget(
+        _buildHarness(
+          Center(
+            child: OpenWebUISourcesWidget(
+              sources: const <ChatSourceReference>[
+                ChatSourceReference(
+                  title: 'Grounded source',
+                  url:
+                      'https://vertexaisearch.cloud.google.com/'
+                      'grounding-api-redirect/opaque',
+                ),
+              ],
+              faviconDomainResolver: (_) => resolvedDomain.future,
+              faviconImageProvider: (url) {
+                requestedFaviconUrls.add(url);
+                return _PendingImageProvider();
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.language), findsOneWidget);
+      expect(requestedFaviconUrls, isEmpty);
+
+      resolvedDomain.complete('help.openai.com');
+      await tester.pump();
+
+      expect(
+        requestedFaviconUrls,
+        contains(
+          'https://www.google.com/s2/favicons'
+          '?sz=32&domain=help.openai.com',
+        ),
+      );
+    },
+  );
+
+  test('favicon domain resolver accepts only HTTPS grounding destinations', () {
+    const groundingUrl =
+        'https://vertexaisearch.cloud.google.com/'
+        'grounding-api-redirect/opaque';
+
+    expect(
+      resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: (_) async =>
+            Uri.parse('https://www.help.openai.com/en/articles/'),
+      ),
+      completion('help.openai.com'),
+    );
+    expect(
+      resolveSourceFaviconDomain(
+        groundingUrl,
+        redirectResolver: (_) async =>
+            Uri.parse('http://help.openai.com/en/articles/'),
+      ),
+      completion('vertexaisearch.cloud.google.com'),
+    );
+  });
+
   testWidgets('assistant footer caps inline actions and overflows extras', (
     tester,
   ) async {

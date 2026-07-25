@@ -5651,7 +5651,26 @@ func nativeSheetRedirectStaysWithinOrigin(
           let redirected = NativeSheetHTTPOrigin(redirectURL) else {
         return false
     }
-    return original == redirected
+    if original == redirected {
+        return true
+    }
+
+    // Google's public favicon endpoint always redirects the headerless image
+    // request to a numbered gstatic shard. Keep the general same-origin rule,
+    // but allow this exact HTTPS asset hop so source favicons can render.
+    guard original.scheme == "https",
+          original.host == "www.google.com",
+          original.port == 443,
+          originalURL.path == "/s2/favicons",
+          redirected.scheme == "https",
+          redirected.port == 443,
+          redirectURL.path == "/faviconV2" else {
+        return false
+    }
+    return redirected.host.range(
+        of: #"^t[0-9]+\.gstatic\.com$"#,
+        options: .regularExpression
+    ) != nil
 }
 
 /// Builds an image request without allowing caller-supplied credentials to

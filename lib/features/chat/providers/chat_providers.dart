@@ -15045,6 +15045,13 @@ Future<void> _sendMessageInternal(
     });
   }
   messagesNotifier.addMessages([userMessage, assistantPlaceholder]);
+  if (imageGenerationAtSendStart && directRoute?.profile.isOpenRouter == true) {
+    // OpenRouter image generation is a one-shot composer action. Leaving it
+    // enabled would route every conversational follow-up back through
+    // `/images`, repeatedly expanding the transcript and replaying streaming
+    // haptics instead of asking the parent chat model.
+    ref.read(imageGenerationEnabledProvider.notifier).set(false);
+  }
   final optimisticTurnMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,

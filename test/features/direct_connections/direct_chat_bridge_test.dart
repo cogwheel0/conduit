@@ -366,6 +366,48 @@ void main() {
       },
     );
 
+    test(
+      'replays image-only assistants as bounded text without image bytes',
+      () async {
+        const generatedImage = 'data:image/png;base64,AQID';
+        final result = await buildDirectChatMessages(
+          messages: [
+            _message(id: 'user-1', role: 'user', content: 'Draw a lighthouse'),
+            _message(
+              id: 'assistant-1',
+              role: 'assistant',
+              content: '',
+              files: const <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'type': 'image',
+                  'source': 'direct_openrouter_image',
+                  'url': generatedImage,
+                  'content_type': 'image/png',
+                },
+              ],
+              metadata: const <String, dynamic>{
+                'transport': kDirectTransport,
+                kDirectRawAssistantContentMetadataKey: '',
+              },
+            ),
+            _message(
+              id: 'user-2',
+              role: 'user',
+              content: 'Make the mood warmer',
+            ),
+          ],
+        );
+
+        expect(result.map((message) => message.role), [
+          'user',
+          'assistant',
+          'user',
+        ]);
+        expect(_textParts(result[1]), [kDirectGeneratedImageReplayText]);
+        expect(result.expand(_imageParts), isEmpty);
+      },
+    );
+
     test('builds a strict Responses mirror for persisted server history', () {
       const raw = '  literal <tag> & `code`  ';
       final output = directProviderReplayOutput(
