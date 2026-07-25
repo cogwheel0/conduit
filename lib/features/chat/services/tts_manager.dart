@@ -245,6 +245,7 @@ class TtsManager with WidgetsBindingObserver {
   );
   String? _loadedSherpaModelId;
   String? _loadedSherpaLanguageCode;
+  bool _sherpaModelAvailable = false;
   Future<void> _sherpaLoadSerial = Future<void>.value();
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
@@ -307,12 +308,13 @@ class TtsManager with WidgetsBindingObserver {
   /// Whether server TTS is available.
   bool get serverAvailable => _apiService != null;
 
-  /// Whether any TTS is available.
-  bool get isAvailable =>
-      _deviceEngineAvailable ||
-      serverAvailable ||
-      (_config.engine == TtsEngine.sherpa &&
-          _config.sherpaModelId?.isNotEmpty == true);
+  /// Whether TTS is available for the current selection.
+  bool get isAvailable {
+    if (_config.engine == TtsEngine.sherpa) {
+      return _sherpaModelAvailable;
+    }
+    return _deviceEngineAvailable || serverAvailable;
+  }
 
   /// Whether a session is currently active.
   bool get isPlaying => _activeSession != null;
@@ -329,6 +331,7 @@ class TtsManager with WidgetsBindingObserver {
   Future<void> updateConfig(TtsConfig config) async {
     final voiceChanged = config.voice != _config.voice;
     _config = config;
+    await _refreshSherpaModelAvailability();
     if (voiceChanged) {
       _voiceConfigured = false;
     }
@@ -356,6 +359,7 @@ class TtsManager with WidgetsBindingObserver {
     if (config != null) {
       _config = config;
     }
+    await _refreshSherpaModelAvailability();
 
     // Initialize native device TTS.
     await _ensureTtsInitialized();
@@ -1613,7 +1617,26 @@ class TtsManager with WidgetsBindingObserver {
         if (_config.sherpaModelId == null) {
           throw StateError('No Sherpa TTS model is selected');
         }
+        if (!_sherpaModelAvailable) {
+          throw StateError('The selected Sherpa TTS model needs repair');
+        }
         return TtsEngine.sherpa;
+    }
+  }
+
+  Future<void> _refreshSherpaModelAvailability() async {
+    final id = _config.sherpaModelId;
+    final model = sherpaModelById(id);
+    if (_config.engine != TtsEngine.sherpa ||
+        id == null ||
+        model?.kind != SherpaModelKind.tts) {
+      _sherpaModelAvailable = false;
+      return;
+    }
+    try {
+      _sherpaModelAvailable = await _sherpaStorage.installedModel(id) != null;
+    } on Object {
+      _sherpaModelAvailable = false;
     }
   }
 
@@ -1639,6 +1662,7 @@ class TtsManager with WidgetsBindingObserver {
     }
     final installed = await _sherpaStorage.installedModel(id);
     if (installed == null) {
+      _sherpaModelAvailable = false;
       throw StateError('The selected Sherpa TTS model needs repair');
     }
     if (_activeSession?.id != session.id) {
@@ -1653,10 +1677,12 @@ class TtsManager with WidgetsBindingObserver {
       );
     } catch (error) {
       if (error is SherpaModelLoadException) {
+        _sherpaModelAvailable = false;
         await _sherpaStorage.markModelBroken(id, error);
       }
       rethrow;
     }
+    _sherpaModelAvailable = true;
     _loadedSherpaModelId = id;
     _loadedSherpaLanguageCode = session.sherpaLanguageCode;
     if (_activeSession?.id != session.id) {

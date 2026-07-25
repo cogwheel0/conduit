@@ -842,7 +842,16 @@ class VoiceInputService with WidgetsBindingObserver {
 
   Future<void> _stopListening() async {
     _listenGeneration++;
+    final wasListening = _isListening;
+    final wasUsingServerStt = _usingServerStt;
+    final wasUsingSherpaStt = _usingSherpaStt;
+    final wasUsingVad = wasUsingServerStt || wasUsingSherpaStt;
     final pendingStartup = _vadRecordingStartup;
+    Future<void>? pendingVadStop;
+    if (wasUsingVad) {
+      _isListening = false;
+      pendingVadStop = _stopVadRecording().catchError((_) {});
+    }
     if (pendingStartup != null) {
       try {
         await pendingStartup;
@@ -850,7 +859,8 @@ class VoiceInputService with WidgetsBindingObserver {
         // Cancellation and startup failures are handled by the launcher.
       }
     }
-    if (!_isListening) {
+    await pendingVadStop;
+    if (!wasListening) {
       return;
     }
 
@@ -858,10 +868,7 @@ class VoiceInputService with WidgetsBindingObserver {
     _autoStopTimer = null;
     _cancelNativeDictationSettle();
 
-    if (_usingServerStt || _usingSherpaStt) {
-      final wasUsingSherpa = _usingSherpaStt;
-      _isListening = false;
-      await _stopVadRecording();
+    if (wasUsingVad) {
       final samples = _vadPendingSamples;
       _vadPendingSamples = null;
       final shouldProcessSamples = _shouldProcessServerSamples(
@@ -870,7 +877,7 @@ class VoiceInputService with WidgetsBindingObserver {
             _transcriptEventController?.hasListener ?? false,
       );
       if (samples != null && samples.isNotEmpty && shouldProcessSamples) {
-        if (wasUsingSherpa) {
+        if (wasUsingSherpaStt) {
           await _processSherpaSamples(samples);
         } else {
           await _processVadSamples(samples);
@@ -973,6 +980,11 @@ class VoiceInputService with WidgetsBindingObserver {
     required int generation,
     required bool iosAudioSessionManagedExternally,
   }) async {
+    // Configuring the shared worker for VAD-only server STT unloads any
+    // recognizer it owns. Clear the cache so a later Sherpa session reloads it.
+    _loadedSherpaSttModelId = null;
+    _loadedSherpaSttLanguageCode = null;
+    _sherpaSttAvailable = false;
     await _startVadRecording(
       generation: generation,
       iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,

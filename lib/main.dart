@@ -28,6 +28,8 @@ import 'core/services/carplay_service.dart';
 import 'core/services/readiness_gated_secure_storage.dart';
 import 'core/services/settings_service.dart';
 import 'core/sherpa/sherpa_catalog.dart';
+import 'core/sherpa/sherpa_model_manager.dart';
+import 'core/sherpa/sherpa_model.dart';
 import 'core/sync/request_completion_runner_provider.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
@@ -599,11 +601,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .setSttPreference(SttPreference.deviceOnly);
             await _refreshNativeVoiceDetail();
           } else if (value == SttPreference.sherpa.name) {
-            unawaited(
-              NavigationService.router.push<void>(
-                Routes.sherpaModelsFor(forTts: false),
-              ),
+            final activated = await _activateInstalledNativeSherpa(
+              forTts: false,
             );
+            if (!activated) {
+              unawaited(
+                NavigationService.router.push<void>(
+                  Routes.sherpaModelsFor(forTts: false),
+                ),
+              );
+            }
           }
         case 'stt-language-code':
           if (value is String) {
@@ -639,11 +646,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
           } else if (value == TtsEngine.sherpa.name) {
-            unawaited(
-              NavigationService.router.push<void>(
-                Routes.sherpaModelsFor(forTts: true),
-              ),
+            final activated = await _activateInstalledNativeSherpa(
+              forTts: true,
             );
+            if (!activated) {
+              unawaited(
+                NavigationService.router.push<void>(
+                  Routes.sherpaModelsFor(forTts: true),
+                ),
+              );
+            }
           }
         case 'theme-light':
           switch (value) {
@@ -780,6 +792,44 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     return ref
         .read(nativeSheetHydrationServiceProvider)
         .hydrateDetail(NativeSheetRoutes.voice);
+  }
+
+  Future<bool> _activateInstalledNativeSherpa({required bool forTts}) async {
+    final settings = ref.read(appSettingsProvider);
+    final modelId = forTts
+        ? settings.sherpaTtsModelId
+        : settings.sherpaSttModelId;
+    if (modelId == null) return false;
+
+    try {
+      final installed = await ref
+          .read(sherpaStorageProvider)
+          .installedModel(modelId);
+      final expectedKind = forTts ? SherpaModelKind.tts : SherpaModelKind.stt;
+      final latestSettings = ref.read(appSettingsProvider);
+      final latestModelId = forTts
+          ? latestSettings.sherpaTtsModelId
+          : latestSettings.sherpaSttModelId;
+      if (installed?.model.kind != expectedKind || latestModelId != modelId) {
+        return false;
+      }
+
+      final notifier = ref.read(appSettingsProvider.notifier);
+      if (forTts) {
+        await notifier.setTtsEngineSelection(TtsEngine.sherpa);
+      } else {
+        await notifier.setSttPreference(SttPreference.sherpa);
+      }
+      await _refreshNativeVoiceDetail();
+      return true;
+    } on Object catch (error, stackTrace) {
+      DebugLogger.warning(
+        'native-sherpa-activation-probe-failed',
+        scope: 'native/sheet',
+        data: {'modelId': modelId, 'error': error, 'stackTrace': stackTrace},
+      );
+      return false;
+    }
   }
 
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {
