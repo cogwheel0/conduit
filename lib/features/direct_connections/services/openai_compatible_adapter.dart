@@ -729,10 +729,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         throw const FormatException('Invalid OpenAI-compatible SSE event.');
       }
       _emitOpenRouterPayloadExtensions(payload, emitter);
-      final protocolError = _chatPayloadError(
-        payload,
-        allowGeneratedImageSuccess: emitter.allowOpenRouterExtensions,
-      );
+      final protocolError = _chatPayloadError(payload);
       if (raw.event == 'error' || protocolError != null) {
         emitter.protocolError(protocolError ?? payload);
         return;
@@ -898,7 +895,7 @@ List<({String dataUrl, String mediaType})> _openRouterImageApiResults(
   if (value is! Iterable) return const [];
   final images = <({String dataUrl, String mediaType})>[];
   for (final rawImage in value) {
-    if (images.length >= _kMaxOpenRouterGeneratedImages) break;
+    if (images.length >= _kMaxOpenRouterImageApiResults) break;
     if (rawImage is! Map) continue;
     final rawBase64 = rawImage['b64_json'];
     if (rawBase64 is! String || rawBase64.isEmpty) continue;
@@ -1343,15 +1340,7 @@ Map<String, dynamic> _normalizeChatChoice(Map<String, dynamic> choice) {
   );
   if (reasoning != null) message['reasoning_content'] = reasoning;
   final content = _completionText(message['content']);
-  final images = _openRouterImagesMarkdown(message['images']);
-  final normalizedContent = switch ((content, images)) {
-    (final String text, final String imageMarkdown) =>
-      '$text\n\n$imageMarkdown',
-    (final String text, null) => text,
-    (null, final String imageMarkdown) => imageMarkdown,
-    _ => null,
-  };
-  if (normalizedContent != null) message['content'] = normalizedContent;
+  if (content != null) message['content'] = content;
   if (choice['delta'] is Map) {
     normalized['delta'] = message;
   } else {
@@ -1360,69 +1349,22 @@ Map<String, dynamic> _normalizeChatChoice(Map<String, dynamic> choice) {
   return normalized;
 }
 
-Object? _chatPayloadError(
-  Map<String, dynamic> payload, {
-  bool allowGeneratedImageSuccess = false,
-}) {
+Object? _chatPayloadError(Map<String, dynamic> payload) {
   final topLevel = payload['error'];
   if (topLevel != null) return topLevel;
   final choices = payload['choices'];
   if (choices is! Iterable) return null;
   for (final choice in choices) {
-    if (choice is Map &&
-        choice['error'] != null &&
-        (!allowGeneratedImageSuccess ||
-            !_chatChoiceHasUsableGeneratedImages(choice))) {
-      return choice['error'];
-    }
+    if (choice is Map && choice['error'] != null) return choice['error'];
   }
   return null;
 }
 
-bool _chatChoiceHasUsableGeneratedImages(Map choice) {
-  final message = choice['delta'] is Map ? choice['delta'] : choice['message'];
-  return message is Map && _openRouterImagesMarkdown(message['images']) != null;
-}
-
-const int _kMaxOpenRouterGeneratedImages = 10;
-const int _kMaxOpenRouterGeneratedImageUrlCharacters = 8 * 1024 * 1024;
-
-String? _openRouterImagesMarkdown(Object? value) {
-  if (value is! Iterable) return null;
-  final markdown = StringBuffer();
-  var count = 0;
-  var urlCharacters = 0;
-  for (final image in value) {
-    if (count >= _kMaxOpenRouterGeneratedImages) break;
-    if (image is! Map) continue;
-    final rawImageUrl = image['image_url'] ?? image['imageUrl'];
-    final rawUrl = rawImageUrl is Map ? rawImageUrl['url'] : rawImageUrl;
-    if (rawUrl is! String) continue;
-    final url = rawUrl.trim();
-    if (url.isEmpty ||
-        url.contains(RegExp(r'[\r\n\u0000]')) ||
-        urlCharacters + url.length >
-            _kMaxOpenRouterGeneratedImageUrlCharacters) {
-      continue;
-    }
-    if (markdown.isNotEmpty) markdown.write('\n\n');
-    final destination = url
-        .replaceAll('\\', '%5C')
-        .replaceAll(' ', '%20')
-        .replaceAll(')', '%29');
-    markdown.write('![Generated image]($destination)');
-    urlCharacters += url.length;
-    count++;
-  }
-  return markdown.isEmpty ? null : markdown.toString();
-}
+const int _kMaxOpenRouterImageApiResults = 10;
 
 void _emitChatPayload(Map<String, dynamic> payload, _DirectEmitter emitter) {
   _emitOpenRouterPayloadExtensions(payload, emitter);
-  final protocolError = _chatPayloadError(
-    payload,
-    allowGeneratedImageSuccess: emitter.allowOpenRouterExtensions,
-  );
+  final protocolError = _chatPayloadError(payload);
   if (protocolError != null) {
     emitter.protocolError(protocolError);
     return;

@@ -1218,6 +1218,48 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
+  test('OpenRouter does not accept unsolicited chat images', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': null,
+              'images': [
+                {
+                  'image_url': {'url': 'data:image/png;base64,AQID'},
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
+            messages: [DirectChatMessage.text(role: 'user', text: 'Hello')],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'The provider returned an invalid response.',
+    );
+  });
+
   test(
     'OpenRouter skips malformed Image API entries before a valid image',
     () async {
