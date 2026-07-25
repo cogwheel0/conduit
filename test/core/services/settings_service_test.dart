@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
@@ -97,6 +98,15 @@ void main() {
 
       test('ttsEngine defaults to device', () {
         check(settings.ttsEngine).equals(TtsEngine.device);
+      });
+
+      test('Sherpa selections default to unset and speed to 1.0', () {
+        check(settings.sherpaSttModelId).isNull();
+        check(settings.sherpaSttLanguageCode).isNull();
+        check(settings.sherpaTtsModelId).isNull();
+        check(settings.sherpaTtsLanguageCode).isNull();
+        check(settings.sherpaTtsSpeakerId).isNull();
+        check(settings.sherpaTtsSpeed).equals(1.0);
       });
 
       test('ttsServerVoiceId defaults to null', () {
@@ -433,6 +443,122 @@ void main() {
     );
   });
 
+  group('Sherpa settings persistence', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('round-trips selections and removes cleared nullable keys', () async {
+      const selected = AppSettings(
+        sttPreference: SttPreference.sherpa,
+        ttsEngine: TtsEngine.sherpa,
+        sherpaSttModelId: 'parakeet',
+        sherpaSttLanguageCode: 'en',
+        sherpaTtsModelId: 'kokoro',
+        sherpaTtsLanguageCode: 'zh',
+        sherpaTtsSpeakerId: '42',
+        sherpaTtsSpeed: 1.25,
+      );
+
+      await SettingsService.saveSettings(selected);
+      final loaded = await SettingsService.loadSettings();
+      check(loaded.sttPreference).equals(SttPreference.sherpa);
+      check(loaded.ttsEngine).equals(TtsEngine.sherpa);
+      check(loaded.sherpaSttModelId).equals('parakeet');
+      check(loaded.sherpaSttLanguageCode).equals('en');
+      check(loaded.sherpaTtsModelId).equals('kokoro');
+      check(loaded.sherpaTtsLanguageCode).equals('zh');
+      check(loaded.sherpaTtsSpeakerId).equals('42');
+      check(loaded.sherpaTtsSpeed).equals(1.25);
+
+      await SettingsService.saveSettings(
+        selected.copyWith(
+          sherpaSttModelId: null,
+          sherpaSttLanguageCode: null,
+          sherpaTtsModelId: null,
+          sherpaTtsLanguageCode: null,
+          sherpaTtsSpeakerId: null,
+        ),
+      );
+      for (final key in [
+        PreferenceKeys.sherpaSttModelId,
+        PreferenceKeys.sherpaSttLanguageCode,
+        PreferenceKeys.sherpaTtsModelId,
+        PreferenceKeys.sherpaTtsLanguageCode,
+        PreferenceKeys.sherpaTtsSpeakerId,
+      ]) {
+        check(PreferencesStore.containsKey(key)).isFalse();
+      }
+    });
+
+    test('unknown persisted engine values downgrade to Device', () async {
+      await PreferencesStore.put(
+        PreferenceKeys.voiceSttPreference,
+        'future-engine',
+      );
+      await PreferencesStore.put(PreferenceKeys.ttsEngine, 'future-engine');
+
+      final loaded = await SettingsService.loadSettings();
+      check(loaded.sttPreference).equals(SttPreference.deviceOnly);
+      check(loaded.ttsEngine).equals(TtsEngine.device);
+    });
+
+    test(
+      'activation persists model configuration and engine selection',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(appSettingsProvider.notifier);
+
+        await notifier.activateSherpaStt(
+          modelId: 'parakeet',
+          languageCode: 'EN-us',
+        );
+        await notifier.activateSherpaTts(
+          modelId: 'kokoro',
+          languageCode: 'ZH-cn',
+          speakerId: '7',
+        );
+
+        final state = container.read(appSettingsProvider);
+        check(state.sttPreference).equals(SttPreference.sherpa);
+        check(state.sherpaSttModelId).equals('parakeet');
+        check(state.sherpaSttLanguageCode).equals('en');
+        check(state.ttsEngine).equals(TtsEngine.sherpa);
+        check(state.sherpaTtsModelId).equals('kokoro');
+        check(state.sherpaTtsLanguageCode).equals('zh');
+        check(state.sherpaTtsSpeakerId).equals('7');
+        check(
+          PreferencesStore.getString(PreferenceKeys.voiceSttPreference),
+        ).equals(SttPreference.sherpa.name);
+        check(
+          PreferencesStore.getString(PreferenceKeys.ttsEngine),
+        ).equals(TtsEngine.sherpa.name);
+      },
+    );
+
+    test(
+      'Sherpa speech speed is clamped before state and persistence',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(appSettingsProvider.notifier);
+
+        await notifier.setSherpaTtsSpeed(8);
+        check(container.read(appSettingsProvider).sherpaTtsSpeed).equals(2.0);
+        check(
+          PreferencesStore.get<double>(PreferenceKeys.sherpaTtsSpeed),
+        ).equals(2.0);
+
+        await notifier.setSherpaTtsSpeed(0.1);
+        check(container.read(appSettingsProvider).sherpaTtsSpeed).equals(0.5);
+      },
+    );
+  });
+
   group('SettingsService.normalizeSttLanguageCode', () {
     test('normalizes two-letter language codes', () {
       check(SettingsService.normalizeSttLanguageCode('PL')).equals('pl');
@@ -464,15 +590,17 @@ void main() {
 
   group('Enum values', () {
     test('SttPreference has expected values', () {
-      check(SttPreference.values).length.equals(2);
+      check(SttPreference.values).length.equals(3);
       check(SttPreference.values).contains(SttPreference.deviceOnly);
       check(SttPreference.values).contains(SttPreference.serverOnly);
+      check(SttPreference.values).contains(SttPreference.sherpa);
     });
 
     test('TtsEngine has expected values', () {
-      check(TtsEngine.values).length.equals(2);
+      check(TtsEngine.values).length.equals(3);
       check(TtsEngine.values).contains(TtsEngine.device);
       check(TtsEngine.values).contains(TtsEngine.server);
+      check(TtsEngine.values).contains(TtsEngine.sherpa);
     });
 
     test('AndroidAssistantTrigger has expected values', () {

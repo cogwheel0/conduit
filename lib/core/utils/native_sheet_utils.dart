@@ -4,6 +4,8 @@ import '../../l10n/app_localizations.dart';
 import '../models/model.dart';
 import '../models/server_memory.dart';
 import '../models/socket_health.dart';
+import '../sherpa/sherpa_catalog.dart';
+import '../sherpa/sherpa_model.dart';
 import '../services/native_sheet_bridge.dart';
 import '../services/settings_service.dart';
 import 'tts_voice_utils.dart';
@@ -100,13 +102,18 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
     title: l10n.sttSettings,
-    subtitle: l10n.sttEngineDeviceDescription,
+    subtitle: switch (appSettings.sttPreference) {
+      SttPreference.deviceOnly => l10n.sttEngineDeviceDescription,
+      SttPreference.serverOnly => l10n.sttEngineServerDescription,
+      SttPreference.sherpa => l10n.sherpaSttDescription,
+    },
     sfSymbol: 'mic',
     kind: NativeSheetItemKind.segment,
     value: appSettings.sttPreference.name,
     options: [
       NativeSheetOptionConfig(id: 'deviceOnly', label: l10n.sttEngineDevice),
       NativeSheetOptionConfig(id: 'serverOnly', label: l10n.sttEngineServer),
+      NativeSheetOptionConfig(id: 'sherpa', label: l10n.sherpaEngine),
     ],
   );
 
@@ -138,19 +145,49 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     value: appSettings.sttLanguageCode ?? '',
     placeholder: l10n.sttTranscriptionLanguagePlaceholder,
   );
+  final sherpaSttModel = sherpaModelById(appSettings.sherpaSttModelId);
+  final allowAutomaticSherpaLanguage =
+      sherpaSttModel?.family == SherpaModelFamily.nemotron ||
+      sherpaSttModel?.family == SherpaModelFamily.whisper ||
+      sherpaSttModel?.family == SherpaModelFamily.senseVoice;
+  final sherpaSttLanguageField = NativeSheetItemConfig(
+    id: 'sherpa-stt-language-code',
+    title: l10n.sttTranscriptionLanguage,
+    subtitle:
+        appSettings.sherpaSttLanguageCode?.toUpperCase() ??
+        l10n.sttTranscriptionLanguageAuto,
+    sfSymbol: 'globe',
+    kind: NativeSheetItemKind.dropdown,
+    value: appSettings.sherpaSttLanguageCode ?? '',
+    options: [
+      if (allowAutomaticSherpaLanguage)
+        NativeSheetOptionConfig(
+          id: '',
+          label: l10n.sttTranscriptionLanguageAuto,
+        ),
+      for (final language in sherpaSttModel?.languages ?? const [])
+        NativeSheetOptionConfig(
+          id: language.tag,
+          label: language.tag.toUpperCase(),
+        ),
+    ],
+  );
 
   final ttsSegment = NativeSheetItemConfig(
     id: 'tts-engine',
     title: l10n.ttsSettings,
-    subtitle: appSettings.ttsEngine == TtsEngine.server
-        ? l10n.ttsEngineServerDescription
-        : l10n.ttsEngineDeviceDescription,
+    subtitle: switch (appSettings.ttsEngine) {
+      TtsEngine.server => l10n.ttsEngineServerDescription,
+      TtsEngine.device => l10n.ttsEngineDeviceDescription,
+      TtsEngine.sherpa => l10n.sherpaTtsDescription,
+    },
     sfSymbol: 'speaker.wave.2',
     kind: NativeSheetItemKind.segment,
     value: appSettings.ttsEngine.name,
     options: [
       NativeSheetOptionConfig(id: 'device', label: l10n.ttsEngineDevice),
       NativeSheetOptionConfig(id: 'server', label: l10n.ttsEngineServer),
+      NativeSheetOptionConfig(id: 'sherpa', label: l10n.sherpaEngine),
     ],
   );
 
@@ -183,16 +220,19 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     ],
   );
 
+  final isSherpaTts = appSettings.ttsEngine == TtsEngine.sherpa;
   final speechRateSlider = NativeSheetItemConfig(
     id: 'tts-speech-rate',
     title: l10n.ttsSpeechRate,
-    subtitle: '${(appSettings.ttsSpeechRate * 100).round()}%',
+    subtitle: isSherpaTts
+        ? '${appSettings.sherpaTtsSpeed.toStringAsFixed(1)}×'
+        : '${(appSettings.ttsSpeechRate * 100).round()}%',
     sfSymbol: 'gauge.with.dots.needle.67percent',
     kind: NativeSheetItemKind.slider,
-    value: appSettings.ttsSpeechRate,
-    min: 0.25,
+    value: isSherpaTts ? appSettings.sherpaTtsSpeed : appSettings.ttsSpeechRate,
+    min: isSherpaTts ? 0.5 : 0.25,
     max: 2.0,
-    divisions: 35,
+    divisions: isSherpaTts ? 15 : 35,
   );
 
   final previewNav = NativeSheetItemConfig(
@@ -203,19 +243,31 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     value: l10n.ttsPreviewText,
   );
 
+  final sherpaModelsNav = NativeSheetItemConfig(
+    id: 'sherpa-models',
+    title: l10n.sherpaModelsTitle,
+    subtitle: l10n.sherpaModelsSubtitle,
+    sfSymbol: 'arrow.down.circle',
+  );
+
   final sttItems = <NativeSheetItemConfig>[
     sttSegment,
-    if (appSettings.sttPreference == SttPreference.serverOnly) ...[
-      sttLanguageField,
+    if (appSettings.sttPreference == SttPreference.serverOnly) sttLanguageField,
+    if (appSettings.sttPreference == SttPreference.sherpa &&
+        (sherpaSttModel?.languages.length ?? 0) > 1)
+      sherpaSttLanguageField,
+    if (appSettings.sttPreference == SttPreference.serverOnly ||
+        appSettings.sttPreference == SttPreference.sherpa)
       silenceSlider,
-    ],
   ];
 
   final ttsItems = <NativeSheetItemConfig>[
     ttsSegment,
-    voicePickerNav,
-    if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
+    if (appSettings.ttsEngine != TtsEngine.sherpa) voicePickerNav,
+    if (appSettings.ttsEngine == TtsEngine.device || isSherpaTts)
+      speechRateSlider,
     previewNav,
+    sherpaModelsNav,
   ];
 
   final voicePickerDetail = NativeSheetDetailConfig(
@@ -232,6 +284,21 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 }
 
 String _nativeVoiceSubtitle(AppLocalizations l10n, AppSettings settings) {
+  if (settings.ttsEngine == TtsEngine.sherpa) {
+    final speakerId = int.tryParse(settings.sherpaTtsSpeakerId ?? '');
+    final model = sherpaModelById(settings.sherpaTtsModelId);
+    SherpaSpeaker? speaker;
+    if (speakerId != null && model != null) {
+      for (final candidate in model.speakers) {
+        if (candidate.id == speakerId) {
+          speaker = candidate;
+          break;
+        }
+      }
+    }
+    if (speaker == null) return l10n.sherpaChooseVoice;
+    return speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1);
+  }
   if (settings.ttsEngine == TtsEngine.server) {
     final voice =
         settings.ttsServerVoiceName ??

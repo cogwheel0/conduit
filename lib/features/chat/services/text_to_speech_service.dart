@@ -109,6 +109,10 @@ class TextToSpeechService {
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,
+    String? sherpaModelId,
+    String? sherpaLanguageCode,
+    String? sherpaSpeakerId,
+    double sherpaSpeed = 1.0,
   }) async {
     if (_initialized) {
       // Update config if already initialized
@@ -120,6 +124,10 @@ class TextToSpeechService {
           pitch: pitch,
           volume: volume,
           engine: engine,
+          sherpaModelId: sherpaModelId,
+          sherpaLanguageCode: sherpaLanguageCode,
+          sherpaSpeakerId: sherpaSpeakerId,
+          sherpaSpeed: sherpaSpeed,
         ),
       );
       await reloadBackendConfig();
@@ -134,6 +142,10 @@ class TextToSpeechService {
         pitch: pitch,
         volume: volume,
         engine: engine,
+        sherpaModelId: sherpaModelId,
+        sherpaLanguageCode: sherpaLanguageCode,
+        sherpaSpeakerId: sherpaSpeakerId,
+        sherpaSpeed: sherpaSpeed,
       ),
     );
 
@@ -214,6 +226,10 @@ class TextToSpeechService {
     double? pitch,
     double? volume,
     TtsEngine? engine,
+    Object? sherpaModelId = const _NotProvided(),
+    Object? sherpaLanguageCode = const _NotProvided(),
+    Object? sherpaSpeakerId = const _NotProvided(),
+    double? sherpaSpeed,
   }) async {
     final current = TtsManager.instance.config;
 
@@ -226,9 +242,17 @@ class TextToSpeechService {
         speechRate: speechRate ?? current.speechRate,
         pitch: pitch ?? current.pitch,
         volume: volume ?? current.volume,
-        engine: engine != null
-            ? (engine == TtsEngine.server ? TtsEngine.server : TtsEngine.device)
-            : (current.preferServer ? TtsEngine.server : TtsEngine.device),
+        engine: engine ?? current.engine,
+        sherpaModelId: sherpaModelId is _NotProvided
+            ? current.sherpaModelId
+            : sherpaModelId as String?,
+        sherpaLanguageCode: sherpaLanguageCode is _NotProvided
+            ? current.sherpaLanguageCode
+            : sherpaLanguageCode as String?,
+        sherpaSpeakerId: sherpaSpeakerId is _NotProvided
+            ? current.sherpaSpeakerId
+            : sherpaSpeakerId as String?,
+        sherpaSpeed: sherpaSpeed ?? current.sherpaSpeed,
       ),
     );
   }
@@ -243,7 +267,11 @@ class TextToSpeechService {
         speechRate: config.speechRate,
         pitch: config.pitch,
         volume: config.volume,
-        engine: config.preferServer ? TtsEngine.server : TtsEngine.device,
+        engine: config.engine,
+        sherpaModelId: config.sherpaModelId,
+        sherpaLanguageCode: config.sherpaLanguageCode,
+        sherpaSpeakerId: config.sherpaSpeakerId,
+        sherpaSpeed: config.sherpaSpeed,
       );
     }
 
@@ -312,6 +340,10 @@ class TextToSpeechService {
     required double pitch,
     required double volume,
     required TtsEngine engine,
+    String? sherpaModelId,
+    String? sherpaLanguageCode,
+    String? sherpaSpeakerId,
+    double sherpaSpeed = 1.0,
   }) {
     final current = TtsManager.instance.config;
     return TtsConfig(
@@ -321,7 +353,11 @@ class TextToSpeechService {
       speechRate: speechRate,
       pitch: pitch,
       volume: volume,
-      preferServer: engine == TtsEngine.server,
+      engine: engine,
+      sherpaModelId: sherpaModelId,
+      sherpaLanguageCode: sherpaLanguageCode,
+      sherpaSpeakerId: sherpaSpeakerId,
+      sherpaSpeed: sherpaSpeed,
     );
   }
 

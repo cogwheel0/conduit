@@ -34,6 +34,7 @@ import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/profile/views/sherpa_models_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/profile/views/personalization_page.dart';
@@ -48,6 +49,7 @@ import '../../features/direct_connections/views/direct_connection_editor_page.da
 import '../../features/direct_connections/views/direct_connections_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/server_config.dart';
+import '../sherpa/sherpa_model.dart';
 
 /// App-local destinations that remain meaningful without an OpenWebUI account.
 /// Keep this list explicit so adding an OWUI-only profile route does not expose
@@ -60,6 +62,7 @@ bool _isAccountlessBackendLocation(String location) {
   return location == Routes.chat ||
       location == Routes.profile ||
       location == Routes.audioSettings ||
+      location == Routes.sherpaModels ||
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
@@ -573,6 +576,21 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.audioSettings,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AudioSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.sherpaModels,
+      name: RouteNames.sherpaModels,
+      pageBuilder: (context, state) {
+        final kind = switch (state.uri.queryParameters['kind']) {
+          'stt' => SherpaModelKind.stt,
+          'tts' => SherpaModelKind.tts,
+          _ => null,
+        };
+        return _buildPlatformPage(
+          state: state,
+          child: SherpaModelsPage(selectionKind: kind),
+        );
+      },
     ),
     GoRoute(
       path: Routes.accountSettings,

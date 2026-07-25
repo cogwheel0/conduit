@@ -151,6 +151,22 @@ void main() {
       expect(completed, isTrue);
     });
   });
+
+  test('Sherpa playback snapshots model, language, speaker, and speed', () {
+    const original = TtsConfig(
+      sherpaModelId: 'kokoro-bilingual',
+      sherpaLanguageCode: 'zh',
+      sherpaSpeakerId: '42',
+      sherpaSpeed: 1.25,
+    );
+    final session = sherpaPlaybackSessionForTesting(original);
+
+    expect(session.sherpaModelId, 'kokoro-bilingual');
+    expect(session.sherpaLanguageCode, 'zh');
+    expect(session.sherpaSpeakerId, 42);
+    expect(session.sherpaSpeed, 1.25);
+    expect(session.useRemoteInitialLookahead, isFalse);
+  });
 }
 
 class _RecordingApiService extends ApiService {

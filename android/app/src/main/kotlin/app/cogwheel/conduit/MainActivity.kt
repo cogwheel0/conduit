@@ -1,14 +1,15 @@
 package app.cogwheel.conduit
 
+import android.app.ActivityManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
 import android.os.Bundle
 import android.os.Parcelable
+import android.os.StatFs
 import android.provider.OpenableColumns
 import android.system.Os
 import android.system.OsConstants
@@ -18,6 +19,8 @@ import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileNotFoundException
@@ -534,6 +537,7 @@ class MainActivity : FlutterActivity() {
     
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_TEXT_CHANNEL = "conduit/share_receiver_text"
+    private val SHERPA_STORAGE_CHANNEL = "app.cogwheel.conduit/sherpa_storage"
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
     private val PENDING_MULTIPLE_SHARE_TEXT_KEY = "pending_multiple_share_text"
@@ -625,6 +629,44 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<String>("id")
                     clearShareImportStatus(id)
                     result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SHERPA_STORAGE_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getNoBackupDirectory" -> {
+                    val directory = File(noBackupFilesDir, "sherpa")
+                    if (!directory.exists() && !directory.mkdirs()) {
+                        result.error(
+                            "CREATE_FAILED",
+                            "Could not create Sherpa no-backup directory",
+                            null
+                        )
+                    } else {
+                        result.success(directory.absolutePath)
+                    }
+                }
+                "getDeviceInfo" -> {
+                    val memoryInfo = ActivityManager.MemoryInfo()
+                    val activityManager =
+                        getSystemService(ACTIVITY_SERVICE) as ActivityManager
+                    activityManager.getMemoryInfo(memoryInfo)
+                    val storage = StatFs(noBackupFilesDir.absolutePath)
+                    val connectivity =
+                        getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                    result.success(
+                        mapOf(
+                            "freeStorageBytes" to storage.availableBytes,
+                            "physicalMemoryBytes" to memoryInfo.totalMem,
+                            "abis" to Build.SUPPORTED_ABIS.toList(),
+                            "meteredNetwork" to connectivity.isActiveNetworkMetered
+                        )
+                    )
                 }
                 else -> result.notImplemented()
             }

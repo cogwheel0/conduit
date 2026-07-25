@@ -37,9 +37,16 @@ final class PreferenceKeys {
   static const String ttsSpeechRate = 'tts_speech_rate';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
-  static const String ttsEngine = 'tts_engine'; // 'device' | 'server'
+  static const String ttsEngine =
+      'tts_engine'; // 'device' | 'server' | 'sherpa'
   static const String ttsServerVoiceId = 'tts_server_voice_id';
   static const String ttsServerVoiceName = 'tts_server_voice_name';
+  static const String sherpaSttModelId = 'sherpa_stt_model_id_v1';
+  static const String sherpaSttLanguageCode = 'sherpa_stt_language_code_v1';
+  static const String sherpaTtsModelId = 'sherpa_tts_model_id_v1';
+  static const String sherpaTtsLanguageCode = 'sherpa_tts_language_code_v1';
+  static const String sherpaTtsSpeakerId = 'sherpa_tts_speaker_id_v1';
+  static const String sherpaTtsSpeed = 'sherpa_tts_speed_v1';
   static const String voiceSilenceDuration = 'voice_silence_duration';
   static const String androidAssistantTrigger = 'android_assistant_trigger';
   static const String temporaryChatByDefault = 'temporary_chat_by_default';

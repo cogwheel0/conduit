@@ -5,9 +5,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/settings_service.dart';
+import '../../../core/sherpa/sherpa_catalog.dart';
+import '../../../core/sherpa/sherpa_model.dart';
+import '../../../core/sherpa/sherpa_model_manager.dart';
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -42,6 +47,8 @@ class AudioSettingsPage extends ConsumerWidget {
         _buildSttSection(context, ref, settings),
         settingsSectionGap,
         _buildTtsSection(context, ref, settings),
+        settingsSectionGap,
+        _buildSherpaModelsEntry(context, ref),
       ],
     );
   }
@@ -58,6 +65,16 @@ class AudioSettingsPage extends ConsumerWidget {
     final localLoading = localSupport.isLoading;
     final serverAvailable = ref.watch(serverVoiceRecognitionAvailableProvider);
     final notifier = ref.read(appSettingsProvider.notifier);
+    final installedSherpa =
+        ref.watch(sherpaInstalledModelsProvider).value ?? const [];
+    SherpaModel? selectedSherpaModel;
+    for (final installed in installedSherpa) {
+      if (installed.model.id == settings.sherpaSttModelId) {
+        selectedSherpaModel = installed.model;
+        break;
+      }
+    }
+    final selectedSherpa = selectedSherpaModel != null;
 
     final warnings = <String>[
       if (settings.sttPreference == SttPreference.deviceOnly &&
@@ -80,7 +97,17 @@ class AudioSettingsPage extends ConsumerWidget {
             children: [
               AdaptiveSegmentedSelector<SttPreference>(
                 value: settings.sttPreference,
-                onChanged: notifier.setSttPreference,
+                onChanged: (preference) async {
+                  if (preference == SttPreference.sherpa) {
+                    if (!selectedSherpa) {
+                      await context.push(
+                        '${Routes.sherpaModels}?kind=stt&select=1',
+                      );
+                      return;
+                    }
+                  }
+                  await notifier.setSttPreference(preference);
+                },
                 options: [
                   (
                     value: SttPreference.deviceOnly,
@@ -96,6 +123,13 @@ class AudioSettingsPage extends ConsumerWidget {
                     materialIcon: Icons.cloud,
                     enabled: serverAvailable,
                   ),
+                  (
+                    value: SttPreference.sherpa,
+                    label: l10n.sherpaEngine,
+                    cupertinoIcon: CupertinoIcons.waveform,
+                    materialIcon: Icons.graphic_eq,
+                    enabled: true,
+                  ),
                 ],
               ),
               if (localLoading) ...[
@@ -104,9 +138,11 @@ class AudioSettingsPage extends ConsumerWidget {
               ],
               const SizedBox(height: Spacing.sm),
               Text(
-                settings.sttPreference == SttPreference.serverOnly
-                    ? l10n.sttEngineServerDescription
-                    : l10n.sttEngineDeviceDescription,
+                switch (settings.sttPreference) {
+                  SttPreference.serverOnly => l10n.sttEngineServerDescription,
+                  SttPreference.deviceOnly => l10n.sttEngineDeviceDescription,
+                  SttPreference.sherpa => l10n.sherpaSttDescription,
+                },
                 style: theme.bodyMedium?.copyWith(
                   color: theme.sidebarForeground.withValues(alpha: 0.85),
                 ),
@@ -155,6 +191,31 @@ class AudioSettingsPage extends ConsumerWidget {
             subtitle: sttLanguageSubtitle(l10n, settings),
             onTap: () => showSttLanguagePickerSheet(context, ref, settings),
           ),
+        ],
+        if (settings.sttPreference == SttPreference.sherpa &&
+            selectedSherpaModel != null &&
+            selectedSherpaModel.languages.length > 1) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: Icons.language,
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.sttTranscriptionLanguage,
+            subtitle:
+                settings.sherpaSttLanguageCode?.toUpperCase() ??
+                l10n.sttTranscriptionLanguageAuto,
+            onTap: () => _showSherpaLanguagePicker(
+              context,
+              ref,
+              selectedSherpaModel!,
+              selectedLanguage: settings.sherpaSttLanguageCode,
+              forTts: false,
+            ),
+          ),
+        ],
+        if (settings.sttPreference == SttPreference.serverOnly ||
+            settings.sttPreference == SttPreference.sherpa) ...[
           const SizedBox(height: Spacing.sm),
           ConduitCard(
             child: Column(
@@ -222,6 +283,16 @@ class AudioSettingsPage extends ConsumerWidget {
     final deviceAvailable =
         ttsService.deviceEngineAvailable || !ttsService.isInitialized;
     final serverAvailable = ttsService.serverEngineAvailable;
+    final installedSherpa =
+        ref.watch(sherpaInstalledModelsProvider).value ?? const [];
+    SherpaModel? selectedSherpaModel;
+    for (final installed in installedSherpa) {
+      if (installed.model.id == settings.sherpaTtsModelId) {
+        selectedSherpaModel = installed.model;
+        break;
+      }
+    }
+    final selectedSherpa = selectedSherpaModel != null;
 
     final warnings = <String>[
       if (settings.ttsEngine == TtsEngine.device && !deviceAvailable)
@@ -243,6 +314,12 @@ class AudioSettingsPage extends ConsumerWidget {
                 value: settings.ttsEngine,
                 onChanged: (engine) async {
                   final notifier = ref.read(appSettingsProvider.notifier);
+                  if (engine == TtsEngine.sherpa && !selectedSherpa) {
+                    await context.push(
+                      '${Routes.sherpaModels}?kind=tts&select=1',
+                    );
+                    return;
+                  }
                   await notifier.setTtsEngineSelection(engine);
                 },
                 options: [
@@ -260,13 +337,22 @@ class AudioSettingsPage extends ConsumerWidget {
                     materialIcon: Icons.cloud,
                     enabled: serverAvailable,
                   ),
+                  (
+                    value: TtsEngine.sherpa,
+                    label: l10n.sherpaEngine,
+                    cupertinoIcon: CupertinoIcons.waveform,
+                    materialIcon: Icons.graphic_eq,
+                    enabled: true,
+                  ),
                 ],
               ),
               const SizedBox(height: Spacing.sm),
               Text(
-                settings.ttsEngine == TtsEngine.server
-                    ? l10n.ttsEngineServerDescription
-                    : l10n.ttsEngineDeviceDescription,
+                switch (settings.ttsEngine) {
+                  TtsEngine.server => l10n.ttsEngineServerDescription,
+                  TtsEngine.device => l10n.ttsEngineDeviceDescription,
+                  TtsEngine.sherpa => l10n.sherpaTtsDescription,
+                },
                 style: theme.bodyMedium?.copyWith(
                   color: theme.sidebarForeground.withValues(alpha: 0.85),
                 ),
@@ -285,6 +371,28 @@ class AudioSettingsPage extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: Spacing.sm),
+        if (settings.ttsEngine == TtsEngine.sherpa &&
+            selectedSherpaModel != null &&
+            selectedSherpaModel.languages.length > 1) ...[
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: Icons.language,
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.language,
+            subtitle:
+                settings.sherpaTtsLanguageCode?.toUpperCase() ??
+                selectedSherpaModel.languages.first.tag.toUpperCase(),
+            onTap: () => _showSherpaLanguagePicker(
+              context,
+              ref,
+              selectedSherpaModel!,
+              selectedLanguage: settings.sherpaTtsLanguageCode,
+              forTts: true,
+            ),
+          ),
+          const SizedBox(height: Spacing.sm),
+        ],
         CustomizationTile(
           leading: SettingsIconBadge(
             icon: UiUtils.platformIcon(
@@ -297,7 +405,8 @@ class AudioSettingsPage extends ConsumerWidget {
           subtitle: _voiceSubtitle(l10n, settings),
           onTap: () => _showVoicePickerSheet(context, ref, settings),
         ),
-        if (settings.ttsEngine == TtsEngine.device) ...[
+        if (settings.ttsEngine == TtsEngine.device ||
+            settings.ttsEngine == TtsEngine.sherpa) ...[
           const SizedBox(height: Spacing.sm),
           ConduitCard(
             child: Column(
@@ -314,20 +423,33 @@ class AudioSettingsPage extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: AdaptiveSlider(
-                        value: settings.ttsSpeechRate,
-                        min: 0.25,
+                        value: settings.ttsEngine == TtsEngine.sherpa
+                            ? settings.sherpaTtsSpeed
+                            : settings.ttsSpeechRate,
+                        min: settings.ttsEngine == TtsEngine.sherpa
+                            ? 0.5
+                            : 0.25,
                         max: 2.0,
-                        divisions: 35,
+                        divisions: settings.ttsEngine == TtsEngine.sherpa
+                            ? 15
+                            : 35,
                         onChanged: (value) {
-                          ref
-                              .read(appSettingsProvider.notifier)
-                              .setTtsSpeechRate(value);
+                          final notifier = ref.read(
+                            appSettingsProvider.notifier,
+                          );
+                          if (settings.ttsEngine == TtsEngine.sherpa) {
+                            notifier.setSherpaTtsSpeed(value);
+                          } else {
+                            notifier.setTtsSpeechRate(value);
+                          }
                         },
                       ),
                     ),
                     const SizedBox(width: Spacing.sm),
                     Text(
-                      '${(settings.ttsSpeechRate * 100).round()}%',
+                      settings.ttsEngine == TtsEngine.sherpa
+                          ? '${settings.sherpaTtsSpeed.toStringAsFixed(1)}×'
+                          : '${(settings.ttsSpeechRate * 100).round()}%',
                       style: theme.bodyMedium?.copyWith(
                         color: theme.buttonPrimary,
                         fontWeight: FontWeight.w600,
@@ -357,6 +479,21 @@ class AudioSettingsPage extends ConsumerWidget {
   }
 
   String _voiceSubtitle(AppLocalizations l10n, AppSettings settings) {
+    if (settings.ttsEngine == TtsEngine.sherpa) {
+      final model = sherpaModelById(settings.sherpaTtsModelId);
+      final speaker = int.tryParse(settings.sherpaTtsSpeakerId ?? '');
+      final metadata =
+          speaker == null ||
+              model == null ||
+              speaker < 0 ||
+              speaker >= model.speakers.length
+          ? null
+          : model.speakers[speaker];
+      return metadata?.name ??
+          (speaker == null
+              ? l10n.sherpaChooseVoice
+              : l10n.sherpaVoiceNumber(speaker + 1));
+    }
     if (settings.ttsEngine == TtsEngine.server) {
       final voice =
           settings.ttsServerVoiceName ??
@@ -374,6 +511,10 @@ class AudioSettingsPage extends ConsumerWidget {
     WidgetRef ref,
     AppSettings settings,
   ) async {
+    if (settings.ttsEngine == TtsEngine.sherpa) {
+      await _showSherpaVoicePicker(context, ref, settings);
+      return;
+    }
     final l10n = AppLocalizations.of(context)!;
     final ttsService = ref.read(textToSpeechServiceProvider);
 
@@ -501,6 +642,112 @@ class AudioSettingsPage extends ConsumerWidget {
     );
   }
 
+  Future<void> _showSherpaVoicePicker(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) async {
+    final model = sherpaModelById(settings.sherpaTtsModelId);
+    if (model == null || model.speakers.isEmpty) {
+      await context.push('${Routes.sherpaModels}?kind=tts&select=1');
+      return;
+    }
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _SherpaSpeakerSheet(
+        model: model,
+        selectedId: settings.sherpaTtsSpeakerId,
+      ),
+    );
+    if (selected != null) {
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setSherpaTtsSpeakerId(selected.toString());
+    }
+  }
+
+  Future<void> _showSherpaLanguagePicker(
+    BuildContext context,
+    WidgetRef ref,
+    SherpaModel model, {
+    required String? selectedLanguage,
+    required bool forTts,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final allowAutomatic =
+        !forTts &&
+        (model.family == SherpaModelFamily.nemotron ||
+            model.family == SherpaModelFamily.whisper ||
+            model.family == SherpaModelFamily.senseVoice);
+    await showSettingsSheet<void>(
+      context: context,
+      builder: (sheetContext) => SettingsSelectorSheet(
+        title: l10n.selectLanguage,
+        itemCount: model.languages.length + (allowAutomatic ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (allowAutomatic && index == 0) {
+            return SettingsSelectorTile(
+              title: l10n.sttTranscriptionLanguageAuto,
+              selected: selectedLanguage == null,
+              onTap: () async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .setSherpaSttLanguageCode(null);
+                if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+              },
+            );
+          }
+          final language =
+              model.languages[index - (allowAutomatic ? 1 : 0)].tag;
+          return SettingsSelectorTile(
+            title: language.toUpperCase(),
+            selected: selectedLanguage == language,
+            onTap: () async {
+              final notifier = ref.read(appSettingsProvider.notifier);
+              if (forTts) {
+                await notifier.setSherpaTtsLanguageCode(language);
+              } else {
+                await notifier.setSherpaSttLanguageCode(language);
+              }
+              if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSherpaModelsEntry(BuildContext context, WidgetRef ref) {
+    final theme = context.conduitTheme;
+    final installed = ref.watch(sherpaInstalledModelsProvider);
+    final values = installed.value ?? const [];
+    final bytes = values.fold<int>(
+      0,
+      (total, model) => total + model.installedBytes,
+    );
+    final l10n = AppLocalizations.of(context)!;
+    final subtitle = installed.isLoading
+        ? l10n.sherpaCheckingModels
+        : l10n.sherpaInstalledSummary(values.length, formatModelBytes(bytes));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingsSectionHeader(title: l10n.sherpaEngine),
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: SettingsIconBadge(
+            icon: Icons.download_for_offline_outlined,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.sherpaModelsTitle,
+          subtitle: subtitle,
+          onTap: () => context.push(Routes.sherpaModels),
+        ),
+      ],
+    );
+  }
+
   Future<void> _previewTtsVoice(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
 
@@ -522,5 +769,79 @@ class AudioSettingsPage extends ConsumerWidget {
       }
       UiUtils.showMessage(context, l10n.errorMessage);
     }
+  }
+}
+
+class _SherpaSpeakerSheet extends StatefulWidget {
+  const _SherpaSpeakerSheet({required this.model, required this.selectedId});
+
+  final SherpaModel model;
+  final String? selectedId;
+
+  @override
+  State<_SherpaSpeakerSheet> createState() => _SherpaSpeakerSheetState();
+}
+
+class _SherpaSpeakerSheetState extends State<_SherpaSpeakerSheet> {
+  var _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final speakers = widget.model.speakers
+        .where((speaker) {
+          final name = speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1);
+          return name.toLowerCase().contains(_query.toLowerCase());
+        })
+        .toList(growable: false);
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.72,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                l10n.ttsSelectVoice,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                autofocus: widget.model.speakers.length > 20,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: l10n.sherpaChooseVoice,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                itemCount: speakers.length,
+                itemBuilder: (context, index) {
+                  final speaker = speakers[index];
+                  return ListTile(
+                    title: Text(
+                      speaker.name ?? l10n.sherpaVoiceNumber(speaker.id + 1),
+                    ),
+                    trailing: widget.selectedId == speaker.id.toString()
+                        ? const Icon(Icons.check)
+                        : null,
+                    onTap: () => Navigator.pop(context, speaker.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

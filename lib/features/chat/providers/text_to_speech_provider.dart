@@ -115,6 +115,10 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
           pitch: next.ttsPitch,
           volume: next.ttsVolume,
           engine: next.ttsEngine,
+          sherpaModelId: next.sherpaTtsModelId,
+          sherpaLanguageCode: next.sherpaTtsLanguageCode,
+          sherpaSpeakerId: next.sherpaTtsSpeakerId,
+          sherpaSpeed: next.sherpaTtsSpeed,
         );
       }
     }, fireImmediately: false);
@@ -142,6 +146,10 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
           pitch: settings.ttsPitch,
           volume: settings.ttsVolume,
           engine: settings.ttsEngine,
+          sherpaModelId: settings.sherpaTtsModelId,
+          sherpaLanguageCode: settings.sherpaTtsLanguageCode,
+          sherpaSpeakerId: settings.sherpaTtsSpeakerId,
+          sherpaSpeed: settings.sherpaTtsSpeed,
         )
         .then((available) {
           if (!ref.mounted) {

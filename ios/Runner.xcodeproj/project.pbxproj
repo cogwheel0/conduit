@@ -829,7 +829,6 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
-					"-Wl,-u,_OrtGetApiBase",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1073,7 +1072,6 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
-					"-Wl,-u,_OrtGetApiBase",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.cogwheel.conduit;
 				PRODUCT_NAME = "$(TARGET_NAME)";

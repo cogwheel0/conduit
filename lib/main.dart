@@ -434,6 +434,11 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'sherpa-models') {
+        unawaited(NavigationService.router.push<void>(Routes.sherpaModels));
+        return;
+      }
+
       if (event.id.startsWith('tts-voice-pick:')) {
         await _handleNativeTtsVoicePick(event);
         return;
@@ -543,7 +548,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             _ => double.tryParse('$value'),
           };
           if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+            final notifier = ref.read(appSettingsProvider.notifier);
+            if (ref.read(appSettingsProvider).ttsEngine == TtsEngine.sherpa) {
+              await notifier.setSherpaTtsSpeed(rate);
+            } else {
+              await notifier.setTtsSpeechRate(rate);
+            }
           }
         case 'tts-preview':
           final text = value is String ? value : null;
@@ -587,6 +597,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setSttPreference(SttPreference.deviceOnly);
             await _refreshNativeVoiceDetail();
+          } else if (value == SttPreference.sherpa.name) {
+            unawaited(
+              NavigationService.router.push<void>(
+                '${Routes.sherpaModels}?kind=stt&select=1',
+              ),
+            );
           }
         case 'stt-language-code':
           if (value is String) {
@@ -606,6 +622,13 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               await _refreshNativeVoiceDetail();
             }
           }
+        case 'sherpa-stt-language-code':
+          if (value is String) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setSherpaSttLanguageCode(value.isEmpty ? null : value);
+            await _refreshNativeVoiceDetail();
+          }
         case 'tts-engine':
           final notifier = ref.read(appSettingsProvider.notifier);
           if (value == TtsEngine.server.name) {
@@ -614,6 +637,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           } else if (value == TtsEngine.device.name) {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
+          } else if (value == TtsEngine.sherpa.name) {
+            unawaited(
+              NavigationService.router.push<void>(
+                '${Routes.sherpaModels}?kind=tts&select=1',
+              ),
+            );
           }
         case 'theme-light':
           switch (value) {

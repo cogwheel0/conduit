@@ -170,6 +170,7 @@ class Routes {
   static const String profile = '/profile';
   static const String personalization = '/profile/personalization';
   static const String audioSettings = '/profile/audio';
+  static const String sherpaModels = '/profile/audio/sherpa-models';
   static const String accountSettings = '/profile/account';
   static const String notificationSettings = '/profile/notifications';
   static const String appearanceSettings = '/profile/appearance';
@@ -206,6 +207,7 @@ class RouteNames {
   static const String profile = 'profile';
   static const String personalization = 'personalization';
   static const String audioSettings = 'audio-settings';
+  static const String sherpaModels = 'sherpa-models';
   static const String accountSettings = 'account-settings';
   static const String notificationSettings = 'notification-settings';
   static const String appearanceSettings = 'appearance-settings';

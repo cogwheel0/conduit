@@ -10,10 +10,10 @@ import 'animation_service.dart';
 part 'settings_service.g.dart';
 
 /// Speech-to-text preference selection.
-enum SttPreference { deviceOnly, serverOnly }
+enum SttPreference { deviceOnly, serverOnly, sherpa }
 
 /// TTS engine selection
-enum TtsEngine { device, server }
+enum TtsEngine { device, server, sherpa }
 
 /// Action to take when the Android digital assistant is triggered.
 enum AndroidAssistantTrigger { overlay, newChat, voiceCall }
@@ -271,6 +271,7 @@ class SettingsService {
       PreferenceKeys.ttsVolume: settings.ttsVolume,
       PreferenceKeys.ttsEngine: settings.ttsEngine.name,
       PreferenceKeys.voiceSttPreference: settings.sttPreference.name,
+      PreferenceKeys.sherpaTtsSpeed: settings.sherpaTtsSpeed,
       _voiceSilenceDurationKey: settings.voiceSilenceDuration,
       // Lands in shared_preferences as `flutter.android_assistant_trigger`,
       // which the native Android voice-interaction session reads directly.
@@ -325,6 +326,26 @@ class SettingsService {
           ? settings.ttsServerVoiceName
           : null,
     );
+    await _putOrRemove(
+      PreferenceKeys.sherpaSttModelId,
+      settings.sherpaSttModelId,
+    );
+    await _putOrRemove(
+      PreferenceKeys.sherpaSttLanguageCode,
+      settings.sherpaSttLanguageCode,
+    );
+    await _putOrRemove(
+      PreferenceKeys.sherpaTtsModelId,
+      settings.sherpaTtsModelId,
+    );
+    await _putOrRemove(
+      PreferenceKeys.sherpaTtsLanguageCode,
+      settings.sherpaTtsLanguageCode,
+    );
+    await _putOrRemove(
+      PreferenceKeys.sherpaTtsSpeakerId,
+      settings.sherpaTtsSpeakerId,
+    );
   }
 
   static Future<void> _putOrRemove(String key, Object? value) {
@@ -337,6 +358,8 @@ class SettingsService {
     switch ((raw ?? '').toLowerCase()) {
       case 'server':
         return TtsEngine.server;
+      case 'sherpa':
+        return TtsEngine.sherpa;
       case 'device':
         return TtsEngine.device;
       default:
@@ -354,6 +377,8 @@ class SettingsService {
       case 'server_only':
       case 'server':
         return SttPreference.serverOnly;
+      case 'sherpa':
+        return SttPreference.sherpa;
       default:
         return SttPreference.deviceOnly;
     }
@@ -674,6 +699,28 @@ class SettingsService {
       ttsServerVoiceName: PreferencesStore.get<String>(
         PreferenceKeys.ttsServerVoiceName,
       ),
+      sherpaSttModelId: PreferencesStore.get<String>(
+        PreferenceKeys.sherpaSttModelId,
+      ),
+      sherpaSttLanguageCode: normalizeSttLanguageCode(
+        PreferencesStore.get<String>(PreferenceKeys.sherpaSttLanguageCode),
+      ),
+      sherpaTtsModelId: PreferencesStore.get<String>(
+        PreferenceKeys.sherpaTtsModelId,
+      ),
+      sherpaTtsLanguageCode: normalizeSttLanguageCode(
+        PreferencesStore.get<String>(PreferenceKeys.sherpaTtsLanguageCode),
+      ),
+      sherpaTtsSpeakerId: PreferencesStore.get<String>(
+        PreferenceKeys.sherpaTtsSpeakerId,
+      ),
+      sherpaTtsSpeed:
+          (PreferencesStore.get<num>(
+                    PreferenceKeys.sherpaTtsSpeed,
+                  )?.toDouble() ??
+                  1.0)
+              .clamp(0.5, 2.0)
+              .toDouble(),
       sttPreference: _parseSttPreference(
         PreferencesStore.get<String>(PreferenceKeys.voiceSttPreference),
       ),
@@ -743,6 +790,12 @@ class AppSettings {
   final TtsEngine ttsEngine;
   final String? ttsServerVoiceId;
   final String? ttsServerVoiceName;
+  final String? sherpaSttModelId;
+  final String? sherpaSttLanguageCode;
+  final String? sherpaTtsModelId;
+  final String? sherpaTtsLanguageCode;
+  final String? sherpaTtsSpeakerId;
+  final double sherpaTtsSpeed;
   final AndroidAssistantTrigger androidAssistantTrigger;
   final int voiceSilenceDuration;
   final bool temporaryChatByDefault;
@@ -781,6 +834,12 @@ class AppSettings {
     this.ttsEngine = TtsEngine.device,
     this.ttsServerVoiceId,
     this.ttsServerVoiceName,
+    this.sherpaSttModelId,
+    this.sherpaSttLanguageCode,
+    this.sherpaTtsModelId,
+    this.sherpaTtsLanguageCode,
+    this.sherpaTtsSpeakerId,
+    this.sherpaTtsSpeed = 1.0,
     this.androidAssistantTrigger = AndroidAssistantTrigger.overlay,
     this.voiceSilenceDuration = SettingsService.defaultVoiceSilenceDurationMs,
     this.temporaryChatByDefault = false,
@@ -820,6 +879,12 @@ class AppSettings {
     TtsEngine? ttsEngine,
     Object? ttsServerVoiceId = const _DefaultValue(),
     Object? ttsServerVoiceName = const _DefaultValue(),
+    Object? sherpaSttModelId = const _DefaultValue(),
+    Object? sherpaSttLanguageCode = const _DefaultValue(),
+    Object? sherpaTtsModelId = const _DefaultValue(),
+    Object? sherpaTtsLanguageCode = const _DefaultValue(),
+    Object? sherpaTtsSpeakerId = const _DefaultValue(),
+    double? sherpaTtsSpeed,
     int? voiceSilenceDuration,
     AndroidAssistantTrigger? androidAssistantTrigger,
     bool? temporaryChatByDefault,
@@ -872,6 +937,22 @@ class AppSettings {
       ttsServerVoiceName: ttsServerVoiceName is _DefaultValue
           ? this.ttsServerVoiceName
           : ttsServerVoiceName as String?,
+      sherpaSttModelId: sherpaSttModelId is _DefaultValue
+          ? this.sherpaSttModelId
+          : sherpaSttModelId as String?,
+      sherpaSttLanguageCode: sherpaSttLanguageCode is _DefaultValue
+          ? this.sherpaSttLanguageCode
+          : sherpaSttLanguageCode as String?,
+      sherpaTtsModelId: sherpaTtsModelId is _DefaultValue
+          ? this.sherpaTtsModelId
+          : sherpaTtsModelId as String?,
+      sherpaTtsLanguageCode: sherpaTtsLanguageCode is _DefaultValue
+          ? this.sherpaTtsLanguageCode
+          : sherpaTtsLanguageCode as String?,
+      sherpaTtsSpeakerId: sherpaTtsSpeakerId is _DefaultValue
+          ? this.sherpaTtsSpeakerId
+          : sherpaTtsSpeakerId as String?,
+      sherpaTtsSpeed: sherpaTtsSpeed ?? this.sherpaTtsSpeed,
       androidAssistantTrigger:
           androidAssistantTrigger ?? this.androidAssistantTrigger,
       voiceSilenceDuration: voiceSilenceDuration ?? this.voiceSilenceDuration,
@@ -919,6 +1000,12 @@ class AppSettings {
         other.ttsEngine == ttsEngine &&
         other.ttsServerVoiceId == ttsServerVoiceId &&
         other.ttsServerVoiceName == ttsServerVoiceName &&
+        other.sherpaSttModelId == sherpaSttModelId &&
+        other.sherpaSttLanguageCode == sherpaSttLanguageCode &&
+        other.sherpaTtsModelId == sherpaTtsModelId &&
+        other.sherpaTtsLanguageCode == sherpaTtsLanguageCode &&
+        other.sherpaTtsSpeakerId == sherpaTtsSpeakerId &&
+        other.sherpaTtsSpeed == sherpaTtsSpeed &&
         other.androidAssistantTrigger == androidAssistantTrigger &&
         other.voiceSilenceDuration == voiceSilenceDuration &&
         other.temporaryChatByDefault == temporaryChatByDefault &&
@@ -960,6 +1047,12 @@ class AppSettings {
       ttsEngine,
       ttsServerVoiceId,
       ttsServerVoiceName,
+      sherpaSttModelId,
+      sherpaSttLanguageCode,
+      sherpaTtsModelId,
+      sherpaTtsLanguageCode,
+      sherpaTtsSpeakerId,
+      sherpaTtsSpeed,
       androidAssistantTrigger,
       voiceSilenceDuration,
       temporaryChatByDefault,
@@ -1261,6 +1354,89 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setTtsServerVoiceSelection(String? id, String? name) async {
     state = state.copyWith(ttsServerVoiceId: id, ttsServerVoiceName: name);
     await SettingsService.saveSettings(state);
+  }
+
+  /// Persists a validated Sherpa STT selection before making Sherpa active.
+  Future<void> activateSherpaStt({
+    required String modelId,
+    String? languageCode,
+  }) async {
+    final normalizedLanguageCode = SettingsService.normalizeSttLanguageCode(
+      languageCode,
+    );
+    await PreferencesStore.put(PreferenceKeys.sherpaSttModelId, modelId);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaSttLanguageCode,
+      normalizedLanguageCode,
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.voiceSttPreference,
+      SttPreference.sherpa.name,
+    );
+    state = state.copyWith(
+      sherpaSttModelId: modelId,
+      sherpaSttLanguageCode: normalizedLanguageCode,
+      sttPreference: SttPreference.sherpa,
+    );
+  }
+
+  /// Persists a validated Sherpa TTS selection before making Sherpa active.
+  Future<void> activateSherpaTts({
+    required String modelId,
+    String? languageCode,
+    String? speakerId,
+  }) async {
+    final normalizedLanguageCode = SettingsService.normalizeSttLanguageCode(
+      languageCode,
+    );
+    await PreferencesStore.put(PreferenceKeys.sherpaTtsModelId, modelId);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaTtsLanguageCode,
+      normalizedLanguageCode,
+    );
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaTtsSpeakerId,
+      speakerId,
+    );
+    await PreferencesStore.put(PreferenceKeys.ttsEngine, TtsEngine.sherpa.name);
+    state = state.copyWith(
+      sherpaTtsModelId: modelId,
+      sherpaTtsLanguageCode: normalizedLanguageCode,
+      sherpaTtsSpeakerId: speakerId,
+      ttsEngine: TtsEngine.sherpa,
+    );
+  }
+
+  Future<void> setSherpaSttLanguageCode(String? languageCode) async {
+    final normalized = SettingsService.normalizeSttLanguageCode(languageCode);
+    state = state.copyWith(sherpaSttLanguageCode: normalized);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaSttLanguageCode,
+      normalized,
+    );
+  }
+
+  Future<void> setSherpaTtsLanguageCode(String? languageCode) async {
+    final normalized = SettingsService.normalizeSttLanguageCode(languageCode);
+    state = state.copyWith(sherpaTtsLanguageCode: normalized);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaTtsLanguageCode,
+      normalized,
+    );
+  }
+
+  Future<void> setSherpaTtsSpeakerId(String? speakerId) async {
+    state = state.copyWith(sherpaTtsSpeakerId: speakerId);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.sherpaTtsSpeakerId,
+      speakerId,
+    );
+  }
+
+  Future<void> setSherpaTtsSpeed(double speed) async {
+    final value = speed.clamp(0.5, 2.0).toDouble();
+    state = state.copyWith(sherpaTtsSpeed: value);
+    await PreferencesStore.put(PreferenceKeys.sherpaTtsSpeed, value);
   }
 
   Future<void> setVoiceSilenceDuration(int milliseconds) async {

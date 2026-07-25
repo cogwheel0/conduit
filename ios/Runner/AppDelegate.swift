@@ -2429,6 +2429,66 @@ private func cookieIsPreferred(
     NativeIosTtsBridge.shared.configure(messenger: messenger)
     backgroundStreamingHandler?.setup(messenger: messenger)
 
+    let sherpaStorageChannel = FlutterMethodChannel(
+      name: "app.cogwheel.conduit/sherpa_storage",
+      binaryMessenger: messenger
+    )
+    sherpaStorageChannel.setMethodCallHandler { call, result in
+      do {
+        if call.method == "getDeviceInfo" {
+          let applicationSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+          )
+          let values = try applicationSupport.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+          )
+          result([
+            "freeStorageBytes": values.volumeAvailableCapacityForImportantUsage ?? 0,
+            "physicalMemoryBytes": Int64(
+              clamping: ProcessInfo.processInfo.physicalMemory
+            ),
+            "abis": ["arm64"],
+            // iOS does not expose a synchronous "metered" signal. Dart treats
+            // null as unavailable and only prompts when the platform knows.
+            "meteredNetwork": NSNull()
+          ])
+          return
+        }
+        guard call.method == "getNoBackupDirectory" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        let applicationSupport = try FileManager.default.url(
+          for: .applicationSupportDirectory,
+          in: .userDomainMask,
+          appropriateFor: nil,
+          create: true
+        )
+        let directory = applicationSupport.appendingPathComponent(
+          "Sherpa",
+          isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+          at: directory,
+          withIntermediateDirectories: true
+        )
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutableDirectory = directory
+        try mutableDirectory.setResourceValues(values)
+        result(directory.path)
+      } catch {
+        result(FlutterError(
+          code: "CREATE_FAILED",
+          message: "Could not create Sherpa no-backup directory",
+          details: error.localizedDescription
+        ))
+      }
+    }
+
     let shareImportChannel = FlutterMethodChannel(
       name: conduitShareChannelName,
       binaryMessenger: messenger

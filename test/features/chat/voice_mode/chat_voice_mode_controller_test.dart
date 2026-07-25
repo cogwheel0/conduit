@@ -1075,6 +1075,10 @@ class _FakeTextToSpeechService extends TextToSpeechService {
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,
+    String? sherpaModelId,
+    String? sherpaLanguageCode,
+    String? sherpaSpeakerId,
+    double sherpaSpeed = 1.0,
   }) async {
     return true;
   }

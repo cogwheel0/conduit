@@ -1186,6 +1186,8 @@ class AppCustomizationPage extends ConsumerWidget {
           warnings.add(l10n.ttsServerUnavailableWarning);
         }
         break;
+      case TtsEngine.sherpa:
+        break;
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1238,6 +1240,13 @@ class AppCustomizationPage extends ConsumerWidget {
                     cupertinoIcon: CupertinoIcons.cloud,
                     materialIcon: Icons.cloud,
                     enabled: serverSelectable,
+                  ),
+                  (
+                    value: TtsEngine.sherpa,
+                    label: l10n.sherpaEngine,
+                    cupertinoIcon: CupertinoIcons.waveform,
+                    materialIcon: Icons.graphic_eq,
+                    enabled: settings.sherpaTtsModelId != null,
                   ),
                 ],
               ),
@@ -1347,6 +1356,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return l10n.sttEngineDeviceDescription;
       case SttPreference.serverOnly:
         return l10n.sttEngineServerDescription;
+      case SttPreference.sherpa:
+        return l10n.sherpaSttDescription;
     }
   }
 
@@ -1359,6 +1370,8 @@ class AppCustomizationPage extends ConsumerWidget {
         return l10n.ttsEngineDeviceDescription;
       case TtsEngine.server:
         return l10n.ttsEngineServerDescription;
+      case TtsEngine.sherpa:
+        return l10n.sherpaTtsDescription;
     }
   }
 
@@ -1377,6 +1390,12 @@ class AppCustomizationPage extends ConsumerWidget {
         return deviceName;
       case TtsEngine.server:
         return serverName;
+      case TtsEngine.sherpa:
+        return settings.sherpaTtsSpeakerId == null
+            ? l10n.sherpaChooseVoice
+            : l10n.sherpaVoiceNumber(
+                (int.tryParse(settings.sherpaTtsSpeakerId!) ?? 0) + 1,
+              );
     }
   }
 

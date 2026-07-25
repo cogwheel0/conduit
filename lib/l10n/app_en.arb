@@ -1591,11 +1591,11 @@
   "@sttServerUnavailableWarning": {
     "description": "Warning shown when the user selects server speech recognition but no server is available."
   },
-  "sttSilenceDuration": "Server STT silence duration",
+  "sttSilenceDuration": "Speech end silence duration",
   "@sttSilenceDuration": {
     "description": "Label for the silence duration setting in server speech-to-text."
   },
-  "sttSilenceDurationDescription": "Used by server transcription and legacy fallback only. Native on-device STT sends recognizer final results instead.",
+  "sttSilenceDurationDescription": "How long Server and Sherpa transcription wait after speech ends before finalizing the recording.",
   "@sttSilenceDurationDescription": {
     "description": "Description for the silence duration slider in server speech-to-text settings."
   },
@@ -5153,5 +5153,94 @@
   "ollamaThinkingMaximum": "Maximum",
   "@ollamaThinkingMaximum": {
     "description": "Maximum Ollama thinking level."
+  },
+  "sherpaEngine": "Sherpa",
+  "@sherpaEngine": {
+    "description": "Name of the Sherpa ONNX speech engine."
+  },
+  "sherpaSttDescription": "Private offline speech recognition using a model you download.",
+  "@sherpaSttDescription": {
+    "description": "Description of Sherpa speech recognition."
+  },
+  "sherpaTtsDescription": "Private offline speech using a downloaded voice model.",
+  "@sherpaTtsDescription": {
+    "description": "Description of Sherpa text to speech."
+  },
+  "sherpaModelsTitle": "Sherpa ONNX models",
+  "@sherpaModelsTitle": {
+    "description": "Title for the Sherpa model manager."
+  },
+  "sherpaModelsSubtitle": "Download and manage offline speech models",
+  "@sherpaModelsSubtitle": {
+    "description": "Subtitle for the Sherpa model manager entry."
+  },
+  "sherpaChooseSpeechModel": "Choose a speech model",
+  "@sherpaChooseSpeechModel": {
+    "description": "Title shown while selecting a Sherpa STT model."
+  },
+  "sherpaChooseVoiceModel": "Choose a voice model",
+  "@sherpaChooseVoiceModel": {
+    "description": "Title shown while selecting a Sherpa TTS model."
+  },
+  "sherpaSearchModels": "Search models and families",
+  "@sherpaSearchModels": {
+    "description": "Search hint in the Sherpa model manager."
+  },
+  "sherpaNoModelsMatch": "No models match these filters.",
+  "@sherpaNoModelsMatch": {
+    "description": "Empty state for filtered Sherpa models."
+  },
+  "sherpaActive": "Active",
+  "@sherpaActive": {
+    "description": "Sherpa model manager active section and state label."
+  },
+  "sherpaInstalled": "Installed",
+  "@sherpaInstalled": {
+    "description": "Sherpa model manager installed section and state label."
+  },
+  "sherpaAvailable": "Available",
+  "@sherpaAvailable": {
+    "description": "Sherpa model manager available section."
+  },
+  "sherpaDownloadAndUse": "Download & use",
+  "@sherpaDownloadAndUse": {
+    "description": "Downloads, validates, and activates a Sherpa model."
+  },
+  "sherpaRepair": "Repair",
+  "@sherpaRepair": {
+    "description": "Repairs a failed or invalid Sherpa model."
+  },
+  "sherpaUse": "Use",
+  "@sherpaUse": {
+    "description": "Activates an installed Sherpa model."
+  },
+  "sherpaChooseVoice": "Choose a voice",
+  "@sherpaChooseVoice": {
+    "description": "Prompt to choose a Sherpa voice."
+  },
+  "sherpaVoiceNumber": "Voice {number}",
+  "@sherpaVoiceNumber": {
+    "description": "Fallback name for an unnamed Sherpa voice.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "sherpaInstalledSummary": "{count} installed • {size}",
+  "@sherpaInstalledSummary": {
+    "description": "Installed Sherpa model count and storage use.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "sherpaCheckingModels": "Checking installed models…",
+  "@sherpaCheckingModels": {
+    "description": "Loading label while installed Sherpa models are read."
   }
 }
