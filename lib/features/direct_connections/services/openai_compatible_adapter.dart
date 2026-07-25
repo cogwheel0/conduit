@@ -11,6 +11,7 @@ import '../../../core/utils/debug_logger.dart';
 import '../models/direct_completion.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import '../models/openrouter_reasoning.dart';
 import 'direct_adapter_helpers.dart';
 import 'direct_http_client.dart';
 import 'direct_provider_adapter.dart';
@@ -166,6 +167,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             outputModalities.any(
               (modality) => modality.toString().trim().toLowerCase() == 'image',
             );
+        final reasoning = profile.isOpenRouter
+            ? OpenRouterReasoningSupport.tryParseCatalog(map?['reasoning'])
+            : null;
         models.add(
           DirectRemoteModel(
             id: sdkModel.id,
@@ -184,6 +188,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 'context_length': map!['context_length'],
               if (map?['supported_parameters'] != null)
                 'supported_parameters': map!['supported_parameters'],
+              if (reasoning != null)
+                'reasoning': reasoning.toCapabilitiesJson(),
               if (sdkModel.ownedBy != null) 'owned_by': sdkModel.ownedBy,
             },
           ),
@@ -697,6 +703,7 @@ Map<String, dynamic> _chatRequestBody(
     'stream': true,
   };
   if (profile.isOpenRouter) {
+    _normalizeOpenRouterReasoning(body);
     _applyOpenRouterRequestFeatures(body, request, messages);
   } else if (request.enableWebSearch || request.enableImageGeneration) {
     throw const DirectProviderException(
@@ -899,6 +906,9 @@ Map<String, dynamic> _responsesRequestBody(
     ...core,
     'stream': true,
   };
+  if (profile.isOpenRouter) {
+    _normalizeOpenRouterReasoning(body);
+  }
   if (!profile.isOpenRouter &&
       (request.enableWebSearch || request.enableImageGeneration)) {
     throw const DirectProviderException(
@@ -906,6 +916,37 @@ Map<String, dynamic> _responsesRequestBody(
     );
   }
   return body;
+}
+
+void _normalizeOpenRouterReasoning(Map<String, dynamic> body) {
+  final rawEffort = body.remove('reasoning_effort');
+  final existing = body['reasoning'];
+  if (existing != null && existing is! Map) {
+    throw const DirectProviderException(
+      'OpenRouter reasoning configuration is invalid.',
+    );
+  }
+  if (rawEffort == null) return;
+  if (rawEffort is! String) {
+    throw const DirectProviderException(
+      'OpenRouter reasoning effort is invalid.',
+    );
+  }
+  final effort = rawEffort.trim().toLowerCase();
+  if (effort == 'automatic') {
+    body.remove('reasoning');
+    return;
+  }
+  if (!kOpenRouterReasoningEfforts.contains(effort)) {
+    throw const DirectProviderException(
+      'OpenRouter reasoning effort is invalid.',
+    );
+  }
+  body['reasoning'] = <String, dynamic>{
+    if (existing is Map)
+      for (final entry in existing.entries) entry.key.toString(): entry.value,
+    'effort': effort,
+  };
 }
 
 openai.MessageItem _responseMessage(DirectChatMessage message) {

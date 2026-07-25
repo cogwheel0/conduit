@@ -9,6 +9,7 @@ import 'package:conduit/features/chat/providers/reasoning_effort_provider.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/ollama_thinking.dart';
+import 'package:conduit/features/direct_connections/models/openrouter_reasoning.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -119,6 +120,11 @@ void main() {
 
     check(container.read(configuredReasoningEffortProvider)).isNull();
     check(container.read(reasoningEffortAllowsCustomProvider)).isFalse();
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(policy.restrictsValues).isTrue();
+    await check(
+      setReasoningEffortForModel(container.read, model, 'unsupported'),
+    ).throws<FormatException>();
     final write = setReasoningEffortForModel(container.read, model, 'high');
     await Future<void>.delayed(Duration.zero);
 
@@ -160,4 +166,111 @@ void main() {
     check(container.read(localReasoningEffortsProvider)).isEmpty();
     check(profiles.writes).isEmpty();
   });
+
+  test('OpenRouter policy follows supported efforts and mandatory mode', () {
+    final profile = DirectConnectionProfile(
+      id: 'openrouter-profile',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'reasoning': {
+            'supported_efforts': ['high', 'minimal', 'none'],
+            'default_effort': 'minimal',
+            'mandatory': true,
+          },
+        },
+      ),
+    ]).single;
+    final container = ProviderContainer(
+      overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+    );
+    addTearDown(container.dispose);
+
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(policy.visible).isTrue();
+    check(policy.allowsCustom).isFalse();
+    check(policy.restrictsValues).isTrue();
+    check(policy.options).deepEquals(['automatic', 'high', 'minimal']);
+    check(policy.accepts('none')).isFalse();
+    check(policy.effectiveConfiguredEffort('automatic')).isNull();
+  });
+
+  test('OpenRouter null supported efforts exposes all gateway levels', () {
+    final profile = DirectConnectionProfile(
+      id: 'openrouter-profile',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'reasoning': {'supported_efforts': null, 'mandatory': false},
+        },
+      ),
+    ]).single;
+    final container = ProviderContainer(
+      overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+    );
+    addTearDown(container.dispose);
+
+    final policy = reasoningEffortPolicyForModel(container.read, model);
+    check(
+      policy.options,
+    ).deepEquals(['automatic', ...kOpenRouterReasoningEfforts]);
+  });
+
+  test(
+    'OpenRouter hides absent reasoning and keeps stale preference stored',
+    () async {
+      final profile = DirectConnectionProfile(
+        id: 'openrouter-profile',
+        name: 'OpenRouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'without-reasoning'),
+        DirectRemoteModel(
+          id: 'limited',
+          capabilities: const {
+            'reasoning': {
+              'supported_efforts': ['high', 'minimal'],
+              'mandatory': false,
+            },
+          },
+        ),
+      ]);
+      final container = ProviderContainer(
+        overrides: [directModelRegistryProvider.overrideWithValue(registry)],
+      );
+      addTearDown(container.dispose);
+      const key = 'direct:openrouter-profile:limited';
+      await container
+          .read(localReasoningEffortsProvider.notifier)
+          .set(key, 'medium');
+
+      check(
+        reasoningEffortPolicyForModel(container.read, models.first).visible,
+      ).isFalse();
+      check(
+        reasoningEffortForModel(container.read, models.last),
+      ).equals('automatic');
+      check(
+        container.read(localReasoningEffortsProvider)[key],
+      ).equals('medium');
+      await check(
+        setReasoningEffortForModel(container.read, models.last, 'medium'),
+      ).throws<FormatException>();
+    },
+  );
 }

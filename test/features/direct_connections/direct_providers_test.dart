@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -152,7 +153,14 @@ void main() {
           id: 'cached-model',
           name: 'Cached model',
           isMultimodal: true,
-          capabilities: const {'context_length': 8192},
+          capabilities: const {
+            'context_length': 8192,
+            'reasoning': {
+              'supported_efforts': ['high', 'minimal'],
+              'default_effort': 'minimal',
+              'mandatory': false,
+            },
+          },
         ),
       ]);
     final initialContainer = _container(initialAdapter, cacheStore: cacheStore);
@@ -200,6 +208,11 @@ void main() {
     );
     expect(restoredCached.isMultimodal, isTrue);
     expect(restoredCached.capabilities?['context_length'], 8192);
+    check(restoredCached.capabilities?['reasoning']).isA<Map>().deepEquals({
+      'supported_efforts': ['high', 'minimal'],
+      'default_effort': 'minimal',
+      'mandatory': false,
+    });
     expect(restored.isRefreshing, isTrue);
 
     await restartAdapter.started.future.timeout(

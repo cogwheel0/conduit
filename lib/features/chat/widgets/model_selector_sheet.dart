@@ -56,8 +56,10 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   Future<void> _showEffortSelector() async {
     final l10n = AppLocalizations.of(context)!;
     final current = ref.read(reasoningEffortProvider);
-    final allowsCustom = ref.read(reasoningEffortAllowsCustomProvider);
-    final options = <String>[...kReasoningEffortOptions];
+    final policy = ref.read(reasoningEffortPolicyProvider);
+    if (!policy.visible) return;
+    final allowsCustom = policy.allowsCustom;
+    final options = policy.options;
     final customMarker = '__custom__';
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -90,7 +92,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
             if (allowsCustom)
               _EffortOption(
                 label: l10n.customReasoningEffort,
-                selected: !kReasoningEffortOptions.contains(current),
+                selected: !options.contains(current),
                 onTap: () => Navigator.of(sheetContext).pop(customMarker),
               ),
           ],
@@ -104,9 +106,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
         context,
         title: l10n.customReasoningEffort,
         hintText: l10n.customReasoningEffortHint,
-        initialValue: kReasoningEffortOptions.contains(current)
-            ? null
-            : current,
+        initialValue: options.contains(current) ? null : current,
         maxLength: 64,
         textCapitalization: TextCapitalization.none,
       );
@@ -153,6 +153,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
         .where((model) => modelSelectorQueryMatches(model, normalizedQuery))
         .toList(growable: false);
     final l10n = AppLocalizations.of(context)!;
+    final effortPolicy = ref.watch(reasoningEffortPolicyProvider);
 
     return DraggableScrollableSheet(
       expand: false,
@@ -221,17 +222,19 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                             onTogglePinnedModel: _togglePinnedModel,
                           ),
                           const SizedBox(height: Spacing.md),
-                          _ActionCard(
-                            icon: Platform.isIOS
-                                ? CupertinoIcons.timer
-                                : Icons.schedule_rounded,
-                            title: l10n.reasoningEffort,
-                            subtitle: _effortLabel(
-                              l10n,
-                              ref.watch(reasoningEffortProvider),
+                          if (effortPolicy.visible) ...[
+                            _ActionCard(
+                              icon: Platform.isIOS
+                                  ? CupertinoIcons.timer
+                                  : Icons.schedule_rounded,
+                              title: l10n.reasoningEffort,
+                              subtitle: _effortLabel(
+                                l10n,
+                                ref.watch(reasoningEffortProvider),
+                              ),
+                              onTap: _showEffortSelector,
                             ),
-                            onTap: _showEffortSelector,
-                          ),
+                          ],
                           if (layout.more.isNotEmpty) ...[
                             const SizedBox(height: Spacing.md),
                             _ActionCard(
@@ -258,7 +261,10 @@ String _effortLabel(AppLocalizations l10n, String effort) => switch (effort) {
   'low' => l10n.reasoningEffortLow,
   'medium' => l10n.reasoningEffortMedium,
   'high' => l10n.reasoningEffortHigh,
+  'minimal' => l10n.reasoningEffortMinimal,
+  'xhigh' => l10n.reasoningEffortExtraHigh,
   'max' => l10n.reasoningEffortMaximum,
+  'none' => l10n.reasoningEffortNone,
   _ => effort,
 };
 

@@ -226,9 +226,21 @@
   "@reasoningEffortHigh": {
     "description": "High model reasoning effort option."
   },
+  "reasoningEffortMinimal": "Minimal",
+  "@reasoningEffortMinimal": {
+    "description": "Minimal model reasoning effort option."
+  },
+  "reasoningEffortExtraHigh": "Extra high",
+  "@reasoningEffortExtraHigh": {
+    "description": "Extra-high model reasoning effort option."
+  },
   "reasoningEffortMaximum": "Maximum",
   "@reasoningEffortMaximum": {
     "description": "Maximum model reasoning effort option."
+  },
+  "reasoningEffortNone": "None",
+  "@reasoningEffortNone": {
+    "description": "Option that disables model reasoning."
   },
   "customReasoningEffort": "Custom effort",
   "@customReasoningEffort": {

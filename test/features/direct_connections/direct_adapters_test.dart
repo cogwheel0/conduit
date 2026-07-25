@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -727,6 +728,208 @@ void main() {
         http.requests.single.uri.toString(),
         'https://openrouter.ai/api/v1/models/user',
       );
+    },
+  );
+
+  test('OpenRouter discovery normalizes model reasoning metadata', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'data': [
+          {
+            'id': 'limited',
+            'reasoning': {
+              'supported_efforts': [
+                'high',
+                'minimal',
+                'none',
+                'future',
+                'high',
+              ],
+              'default_effort': 'minimal',
+              'default_enabled': true,
+              'supports_max_tokens': false,
+              'mandatory': true,
+            },
+          },
+          {
+            'id': 'all-efforts',
+            'reasoning': {'supported_efforts': null},
+          },
+          {'id': 'not-reasoning'},
+          {
+            'id': 'malformed',
+            'reasoning': {'supported_efforts': 'high'},
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final models = await adapter.listModels(
+      _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+    );
+    DirectRemoteModel model(String id) =>
+        models.firstWhere((candidate) => candidate.id == id);
+
+    check(model('limited').capabilities['reasoning']).isA<Map>().deepEquals({
+      'supported_efforts': ['high', 'minimal', 'none'],
+      'default_effort': 'minimal',
+      'default_enabled': true,
+      'supports_max_tokens': false,
+      'mandatory': true,
+    });
+    check(
+      model('all-efforts').capabilities['reasoning'],
+    ).isA<Map>().deepEquals({'supported_efforts': null, 'mandatory': false});
+    check(
+      model('not-reasoning').capabilities.containsKey('reasoning'),
+    ).isFalse();
+    check(model('malformed').capabilities.containsKey('reasoning')).isFalse();
+  });
+
+  for (final mode in DirectOpenAiApiMode.values) {
+    test(
+      'OpenRouter ${mode.storageValue} uses unified reasoning effort',
+      () async {
+        final http = _QueuedAdapter([
+          mode == DirectOpenAiApiMode.responses
+              ? _Reply.json({
+                  'id': 'resp_1',
+                  'object': 'response',
+                  'created_at': 1,
+                  'status': 'completed',
+                  'output': <Object>[],
+                })
+              : _Reply.json({
+                  'choices': [
+                    {
+                      'message': {'content': 'ok'},
+                    },
+                  ],
+                }),
+        ]);
+        final adapter = OpenAiCompatibleAdapter(
+          dioFactory: (_) => _dio(http),
+          closeClients: false,
+        );
+
+        final run = adapter.startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl, openAiApiMode: mode),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            parameters: const {'reasoning_effort': 'HIGH'},
+          ),
+        );
+        await run.events.toList();
+        await run.done;
+
+        final body = http.requests.single.data as Map;
+        check(body.containsKey('reasoning_effort')).isFalse();
+        check(body['reasoning']).isA<Map>().deepEquals({'effort': 'high'});
+      },
+    );
+  }
+
+  test(
+    'non-OpenRouter connections retain reasoning_effort shorthand',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          parameters: const {'reasoning_effort': 'custom-provider-value'},
+        ),
+      );
+      await run.events.toList();
+      await run.done;
+
+      final body = http.requests.single.data as Map;
+      check(body['reasoning_effort']).equals('custom-provider-value');
+      check(body.containsKey('reasoning')).isFalse();
+    },
+  );
+
+  test(
+    'OpenRouter automatic reasoning omits every reasoning override',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final run = adapter.startCompletion(
+        _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+        DirectCompletionRequest(
+          remoteModelId: 'model',
+          messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+          parameters: const {
+            'reasoning_effort': 'automatic',
+            'reasoning': {'effort': 'high'},
+          },
+        ),
+      );
+      await run.events.toList();
+      await run.done;
+
+      final body = http.requests.single.data as Map;
+      check(body.containsKey('reasoning_effort')).isFalse();
+      check(body.containsKey('reasoning')).isFalse();
+    },
+  );
+
+  test(
+    'OpenRouter rejects malformed nested reasoning before dispatch',
+    () async {
+      final http = _QueuedAdapter(const []);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+              parameters: const {'reasoning': 'invalid'},
+            ),
+          )
+          .events
+          .toList();
+
+      check(http.requests).isEmpty();
+      check(
+        events.whereType<DirectStreamError>().single.message,
+      ).equals('OpenRouter reasoning configuration is invalid.');
     },
   );
 

@@ -128,12 +128,12 @@ class NativeSheetHydrationService {
       final effortModel = orderedModels
           .where((model) => model.id == selectedModelId)
           .firstOrNull;
-      final allowsCustomEffort =
-          effortModel != null &&
-          reasoningEffortAllowsCustomForModel(_ref.read, effortModel);
-      final effortOptions = effortModel == null
-          ? const <String>[]
-          : <String>[...kReasoningEffortOptions];
+      final effortPolicy = reasoningEffortPolicyForModel(
+        _ref.read,
+        effortModel,
+      );
+      final allowsCustomEffort = effortPolicy.allowsCustom;
+      final effortOptions = effortPolicy.options;
 
       final modelOptions = [
         ...leadingOptions,
@@ -188,7 +188,10 @@ class NativeSheetHydrationService {
           'low': l10n?.reasoningEffortLow ?? 'Low',
           'medium': l10n?.reasoningEffortMedium ?? 'Medium',
           'high': l10n?.reasoningEffortHigh ?? 'High',
+          'minimal': l10n?.reasoningEffortMinimal ?? 'Minimal',
+          'xhigh': l10n?.reasoningEffortExtraHigh ?? 'Extra high',
           'max': l10n?.reasoningEffortMaximum ?? 'Maximum',
+          'none': l10n?.reasoningEffortNone ?? 'None',
         },
         allowsCustomReasoningEffort: allowsCustomEffort,
         customReasoningEffortTitle:
@@ -200,7 +203,7 @@ class NativeSheetHydrationService {
                   .read(personalizationSettingsProvider.notifier)
                   .togglePinnedModel(modelId)
             : null,
-        onReasoningEffortChanged: effortModel == null
+        onReasoningEffortChanged: effortModel == null || !effortPolicy.visible
             ? null
             : (value) =>
                   setReasoningEffortForModel(_ref.read, effortModel, value),
