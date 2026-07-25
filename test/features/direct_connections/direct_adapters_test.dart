@@ -1101,6 +1101,41 @@ void main() {
     );
   });
 
+  test('OpenRouter rejects PDF filenames with trailing controls', () async {
+    final http = _QueuedAdapter(const []);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+    final pdf = base64Encode(utf8.encode('%PDF-1.4'));
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'model',
+            messages: [
+              DirectChatMessage(
+                role: 'user',
+                parts: [
+                  DirectFilePart(
+                    filename: 'brief.pdf\n',
+                    dataUrl: 'data:application/pdf;base64,$pdf',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    check(http.requests).isEmpty();
+    check(
+      events.whereType<DirectStreamError>().single.message,
+    ).equals('The PDF attachment is invalid.');
+  });
+
   test('OpenRouter deduplicates cumulative streamed extensions', () async {
     const annotations = [
       {

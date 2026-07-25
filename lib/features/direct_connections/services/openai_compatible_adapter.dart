@@ -716,10 +716,10 @@ Map<String, dynamic> _chatRequestBody(
 void _validateOpenRouterPdfPart(DirectFilePart part) {
   const prefix = 'data:application/pdf;base64,';
   const maxPayloadCharacters = ((8 * 1024 * 1024 + 2) ~/ 3) * 4;
-  final filename = part.filename.trim();
+  final filename = part.filename;
   final dataUrl = part.dataUrl;
   if (part.mimeType != 'application/pdf' ||
-      filename.isEmpty ||
+      filename.trim().isEmpty ||
       filename.length > 240 ||
       !filename.toLowerCase().endsWith('.pdf') ||
       filename.contains(RegExp(r'[\r\n\u0000]')) ||
