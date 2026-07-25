@@ -1554,75 +1554,77 @@ void main() {
     },
   );
 
-  testWidgets('switching a server connection to bearer requires a key', (
-    tester,
-  ) async {
-    final snapshot =
-        OpenWebUiDirectConnectionsCodec(
-          serverId: 'server',
-          accountId: 'account',
-        ).decode({
-          'ui': {
-            'directConnections': {
-              'OPENAI_API_BASE_URLS': ['https://none.example/v1'],
-              'OPENAI_API_KEYS': [''],
-              'OPENAI_API_CONFIGS': {
-                '0': {'auth_type': 'none'},
+  testWidgets(
+    'OpenRouter server none auth opens and switching to bearer requires a key',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': [kOpenRouterApiBaseUrl],
+                'OPENAI_API_KEYS': [''],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'none'},
+                },
               },
             },
-          },
-        });
+          });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => _StaticOpenWebUiConnections(snapshot),
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: DirectConnectionEditorPage(
-            profileId: snapshot.records.single.profile.id,
-            isOpenWebUi: true,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => _StaticOpenWebUiConnections(snapshot),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('No authentication'),
-      500,
-      scrollable: find.byType(Scrollable).first,
-    );
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('No authentication'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
 
-    final authenticationSelector = tester
-        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
-          find.byKey(
-            const Key('direct-authentication-selector-openai-compatible'),
-          ),
-        );
-    authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
-    await tester.pump();
+      final authenticationSelector = tester
+          .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+            find.byKey(const Key('direct-authentication-selector-openrouter')),
+          );
+      authenticationSelector.onChanged?.call(DirectAuthenticationMode.bearer);
+      await tester.pump();
 
-    final save = tester.widget<ConduitButton>(
-      find.byWidgetPredicate(
-        (widget) => widget is ConduitButton && widget.text == 'Save',
-        skipOffstage: false,
-      ),
-    );
-    save.onPressed!();
-    await tester.pump();
+      final save = tester.widget<ConduitButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is ConduitButton && widget.text == 'Save',
+          skipOffstage: false,
+        ),
+      );
+      save.onPressed!();
+      await tester.pump();
 
-    final keyField = tester.widget<AccessibleFormField>(
-      find.byKey(
-        const ValueKey<String>('direct-api-key-field'),
-        skipOffstage: false,
-      ),
-    );
-    expect(keyField.errorText, 'Enter an API key or choose no authentication.');
-  });
+      final keyField = tester.widget<AccessibleFormField>(
+        find.byKey(
+          const ValueKey<String>('direct-api-key-field'),
+          skipOffstage: false,
+        ),
+      );
+      expect(
+        keyField.errorText,
+        'Enter an API key or choose no authentication.',
+      );
+    },
+  );
 
   testWidgets('editor restores the OpenAI-family completion API mode', (
     tester,

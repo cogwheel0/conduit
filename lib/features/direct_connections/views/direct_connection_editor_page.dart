@@ -1283,7 +1283,7 @@ class _DirectConnectionEditorPageState
                 value: DirectAuthenticationMode.apiKeyHeader,
                 child: Text(l10n.directApiKeyHeader),
               ),
-            if (!isOpenRouter)
+            if (widget.isOpenWebUi || !isOpenRouter)
               DropdownMenuItem(
                 value: DirectAuthenticationMode.none,
                 child: Text(l10n.noAuthentication),
