@@ -1127,6 +1127,69 @@ void main() {
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
 
+  test(
+    'OpenRouter preserves a generated image when parent continuation fails',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': null,
+                'images': [
+                  {
+                    'type': 'image_url',
+                    'image_url': {'url': image},
+                  },
+                ],
+              },
+              'finish_reason': 'stop',
+              'error': {
+                'code': 400,
+                'message': 'Server tool request failed',
+                'metadata': {'error_type': 'invalid_request'},
+              },
+            },
+          ],
+          'usage': {
+            'server_tool_use_details': {
+              'tool_calls_requested': 1,
+              'tool_calls_executed': 1,
+            },
+          },
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'google/gemini-3.5-flash-lite',
+              enableImageGeneration: true,
+              imageGenerationModel: 'google/gemini-3.1-flash-image',
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(
+        events.whereType<DirectContentDelta>().single.content,
+        '![Generated image]($image)',
+      );
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
   test('OpenRouter surfaces buffered choice-level errors', () async {
     final http = _QueuedAdapter([
       _Reply.json({

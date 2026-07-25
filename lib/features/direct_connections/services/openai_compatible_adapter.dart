@@ -491,7 +491,10 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         throw const FormatException('Invalid OpenAI-compatible SSE event.');
       }
       _emitOpenRouterPayloadExtensions(payload, emitter);
-      final protocolError = _chatPayloadError(payload);
+      final protocolError = _chatPayloadError(
+        payload,
+        allowGeneratedImageSuccess: emitter.allowOpenRouterExtensions,
+      );
       if (raw.event == 'error' || protocolError != null) {
         emitter.protocolError(protocolError ?? payload);
         return;
@@ -1032,15 +1035,28 @@ Map<String, dynamic> _normalizeChatChoice(Map<String, dynamic> choice) {
   return normalized;
 }
 
-Object? _chatPayloadError(Map<String, dynamic> payload) {
+Object? _chatPayloadError(
+  Map<String, dynamic> payload, {
+  bool allowGeneratedImageSuccess = false,
+}) {
   final topLevel = payload['error'];
   if (topLevel != null) return topLevel;
   final choices = payload['choices'];
   if (choices is! Iterable) return null;
   for (final choice in choices) {
-    if (choice is Map && choice['error'] != null) return choice['error'];
+    if (choice is Map &&
+        choice['error'] != null &&
+        (!allowGeneratedImageSuccess ||
+            !_chatChoiceHasUsableGeneratedImages(choice))) {
+      return choice['error'];
+    }
   }
   return null;
+}
+
+bool _chatChoiceHasUsableGeneratedImages(Map choice) {
+  final message = choice['delta'] is Map ? choice['delta'] : choice['message'];
+  return message is Map && _openRouterImagesMarkdown(message['images']) != null;
 }
 
 const int _kMaxOpenRouterGeneratedImages = 10;
@@ -1078,7 +1094,10 @@ String? _openRouterImagesMarkdown(Object? value) {
 
 void _emitChatPayload(Map<String, dynamic> payload, _DirectEmitter emitter) {
   _emitOpenRouterPayloadExtensions(payload, emitter);
-  final protocolError = _chatPayloadError(payload);
+  final protocolError = _chatPayloadError(
+    payload,
+    allowGeneratedImageSuccess: emitter.allowOpenRouterExtensions,
+  );
   if (protocolError != null) {
     emitter.protocolError(protocolError);
     return;
