@@ -14137,10 +14137,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   if (registry.isCancelled(reservation)) {
     throw const _DirectRunStoppedDuringPreflight();
   }
-  if (!identical(
-    ref.read(directModelRegistryProvider).resolve(route.model),
-    route.binding,
-  )) {
+  if (!_directRouteIsStillSelected(ref, route)) {
     throw const _DirectRunStoppedDuringPreflight();
   }
   final DirectProviderAdapter adapter = ref

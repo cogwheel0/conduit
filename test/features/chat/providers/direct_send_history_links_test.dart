@@ -1321,6 +1321,91 @@ void main() {
   );
 
   test(
+    'late direct attachment preflight aborts after selected model changes',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter();
+      final api = _DeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:late-model-switch',
+        modelId: modelA.id,
+        suffix: 'late-model-switch',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final send = sendMessageWithContainer(
+        container,
+        'Do not dispatch through model A',
+        const ['server-image'],
+      );
+      await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.firstInfoGate.complete();
+
+      await send.timeout(const Duration(seconds: 1));
+
+      expect(registry.resolve(modelA), isNotNull);
+      expect(registry.resolve(modelB), isNotNull);
+      expect(adapter.startCalls, 0);
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'assistant');
+      expect(visibleAssistant.isStreaming, isFalse);
+      expect(visibleAssistant.content, isEmpty);
+      final durableRows = await db.messagesDao.getForChat(chat.id);
+      expect(
+        durableRows.where(
+          (row) => row.content == 'Do not dispatch through model A',
+        ),
+        hasLength(1),
+      );
+      final durableAssistant = durableRows.lastWhere(
+        (row) => row.role == 'assistant',
+      );
+      final assistantPayload =
+          jsonDecode(durableAssistant.payload) as Map<String, dynamic>;
+      expect(assistantPayload['isStreaming'], isFalse);
+      expect(durableAssistant.content, isEmpty);
+    },
+  );
+
+  test(
     'Stop interrupts a never-settling direct attachment preflight and releases its lease',
     () async {
       final manager = DatabaseManager(
