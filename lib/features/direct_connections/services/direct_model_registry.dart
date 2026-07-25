@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../../core/models/model.dart';
 import '../models/direct_connection_profile.dart';
 import '../models/direct_remote_model.dart';
+import 'direct_connection_profile_store.dart';
 
 const String kDirectModelIdPrefix = 'direct:';
 
@@ -133,6 +134,7 @@ List<Model> reconcileDirectModelsForDisplay({
 final class DirectModelRegistry {
   final Map<String, DirectModelBinding> _registered = {};
   final Map<String, Set<String>> _idsByProfile = {};
+  final Map<String, DirectConnectionProfile> _authorityProfiles = {};
   int _revision = 0;
 
   /// Monotonically increases whenever the trusted binding table changes.
@@ -232,7 +234,17 @@ final class DirectModelRegistry {
         'Device profiles do not have an Open WebUI URL index.',
       );
     }
+    final previousProfile = _authorityProfiles[profile.id];
+    final reusableBindings =
+        previousProfile != null &&
+            sameDirectConnectionProfileValues(previousProfile, profile)
+        ? <String, DirectModelBinding>{
+            for (final id in _idsByProfile[profile.id] ?? const <String>{})
+              if (_registered[id] != null) id: _registered[id]!,
+          }
+        : const <String, DirectModelBinding>{};
     removeProfile(profile.id);
+    _authorityProfiles[profile.id] = profile;
     final ids = <String>{};
     final models = <Model>[];
     for (final remote in remoteModels) {
@@ -243,7 +255,7 @@ final class DirectModelRegistry {
       final displayName = prefix == null || prefix.isEmpty
           ? remote.name
           : '$prefix.${remote.name}';
-      final binding = DirectModelBinding(
+      final candidateBinding = DirectModelBinding(
         profileId: profile.id,
         adapterKey: profile.adapterKey,
         remoteModelId: remote.id,
@@ -253,8 +265,12 @@ final class DirectModelRegistry {
             ? displayModelId
             : null,
       );
-      final id = binding.stableId;
+      final id = candidateBinding.stableId;
       if (!ids.add(id)) continue;
+      final previousBinding = reusableBindings[id];
+      final binding = previousBinding == candidateBinding
+          ? previousBinding!
+          : candidateBinding;
       final model = Model(
         id: id,
         name: displayName,
@@ -308,8 +324,9 @@ final class DirectModelRegistry {
 
   void removeProfile(String profileId) {
     final ids = _idsByProfile.remove(profileId);
-    if (ids == null) return;
-    for (final id in ids) {
+    final hadAuthorityProfile = _authorityProfiles.remove(profileId) != null;
+    if (ids == null && !hadAuthorityProfile) return;
+    for (final id in ids ?? const <String>{}) {
       _registered.remove(id);
     }
     _revision += 1;
@@ -323,9 +340,14 @@ final class DirectModelRegistry {
   }
 
   void clear() {
-    if (_registered.isEmpty && _idsByProfile.isEmpty) return;
+    if (_registered.isEmpty &&
+        _idsByProfile.isEmpty &&
+        _authorityProfiles.isEmpty) {
+      return;
+    }
     _registered.clear();
     _idsByProfile.clear();
+    _authorityProfiles.clear();
     _revision += 1;
   }
 }

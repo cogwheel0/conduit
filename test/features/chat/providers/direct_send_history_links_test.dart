@@ -582,6 +582,42 @@ final class _GatedCompletionPersistRepository extends ChatDatabaseRepository {
   }
 }
 
+final class _DelayedGeneratedImagePersistRepository
+    extends ChatDatabaseRepository {
+  _DelayedGeneratedImagePersistRepository({required AppDatabase database})
+    : super(openWebUiDatabase: null, directLocalDatabase: database);
+
+  var delayed = false;
+
+  @override
+  Future<void> persistDirectMessages(
+    ChatDatabaseLocation location, {
+    required String chatId,
+    required List<MessageRowData> messages,
+    String? currentMessageId,
+    int? updatedAt,
+  }) async {
+    final isStreamingImage = messages.any((message) {
+      final files = message.payload['files'];
+      return message.role == 'assistant' &&
+          message.payload['isStreaming'] == true &&
+          files is List &&
+          files.isNotEmpty;
+    });
+    if (!delayed && isStreamingImage) {
+      delayed = true;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+    await super.persistDirectMessages(
+      location,
+      chatId: chatId,
+      messages: messages,
+      currentMessageId: currentMessageId,
+      updatedAt: updatedAt,
+    );
+  }
+}
+
 final class _RotateAuthAfterTurnStartCommitRepository
     extends ChatDatabaseRepository {
   _RotateAuthAfterTurnStartCommitRepository({
@@ -832,6 +868,7 @@ _createGatedDirectHarness(
   String? profileMtlsPrivateKeyPassword,
   Object? startError,
   StackTrace? startErrorStack,
+  ChatDatabaseRepository Function(AppDatabase database)? repositoryBuilder,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   addTearDown(db.close);
@@ -866,6 +903,7 @@ _createGatedDirectHarness(
     modelId: model.id,
     suffix: suffix,
   );
+  final repository = repositoryBuilder?.call(db);
   container = ProviderContainer(
     overrides: [
       activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -876,6 +914,8 @@ _createGatedDirectHarness(
       socketServiceProvider.overrideWithValue(null),
       appDatabaseProvider.overrideWithValue(null),
       directLocalDatabaseProvider.overrideWithValue(db),
+      if (repository != null)
+        chatDatabaseRepositoryProvider.overrideWithValue(repository),
       directModelRegistryProvider.overrideWithValue(modelRegistry),
       directConnectionProfilesProvider.overrideWith(() => _Profiles(profile)),
       if (streamLimits != null)
@@ -1733,6 +1773,68 @@ void main() {
       );
     },
   );
+
+  test('direct send survives an unchanged catalog refresh', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: 'test-adapter',
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Original model'),
+    ]).single;
+    final profiles = _GatedProfiles(profile);
+    final adapter = _Adapter();
+    final chat = await _seedDirectConversation(
+      db: db,
+      chatId: 'direct-local:catalog-refresh',
+      modelId: model.id,
+      suffix: 'catalog-refresh',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(_ActiveConversation.new),
+        reviewerModeProvider.overrideWithValue(false),
+        isAuthenticatedProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        appDatabaseProvider.overrideWithValue(null),
+        directLocalDatabaseProvider.overrideWithValue(db),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+    container.read(activeConversationProvider.notifier).set(chat);
+    container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+    final send = sendMessageWithContainer(
+      container,
+      'Continue through the same route',
+      null,
+    );
+    await profiles.started.future.timeout(const Duration(seconds: 1));
+    final refreshed = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Refreshed model'),
+    ]).single;
+    container.read(selectedModelProvider.notifier).set(refreshed);
+    profiles.gate.complete([profile]);
+
+    await send.timeout(const Duration(seconds: 1));
+    expect(adapter.startCalls, 1);
+    expect(
+      container.read(chatMessagesProvider).last.content,
+      contains('Follow-up answer'),
+    );
+  });
 
   test('direct send rejects a binding revoked while profiles load', () async {
     final db = AppDatabase(NativeDatabase.memory());
@@ -3274,6 +3376,39 @@ void main() {
     final completed = harness.container.read(chatMessagesProvider).last;
     expect(completed.error, isNull);
     expect(completed.content, 'Done.');
+    expect(completed.files?.single['url'], image);
+  });
+
+  test('image persistence time does not consume the stream budget', () async {
+    const image = 'data:image/png;base64,AQID';
+    final harness = await _createGatedDirectHarness(
+      'image-persistence-stream-budget',
+      streamLimits: const DirectNormalizedStreamLimits(
+        idleTimeout: Duration(seconds: 1),
+        maxDuration: Duration(milliseconds: 40),
+        maxEvents: 10,
+      ),
+      repositoryBuilder: (database) =>
+          _DelayedGeneratedImagePersistRepository(database: database),
+    );
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Create an image with acknowledgement',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run
+      ..add(const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'))
+      ..add(const DirectContentDelta('Here it is.'))
+      ..add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    expect(completed.error, isNull);
+    expect(completed.content, 'Here it is.');
     expect(completed.files?.single['url'], image);
   });
 

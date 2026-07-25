@@ -124,6 +124,48 @@ void main() {
     expect(registry.resolve(current)?.remoteModelId, 'model');
   });
 
+  test('catalog refresh preserves authority for an unchanged route', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final original = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Original name'),
+    ]).single;
+    final originalBinding = registry.resolve(original);
+
+    final refreshed = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model', name: 'Refreshed name'),
+    ]).single;
+
+    expect(registry.resolve(original), same(originalBinding));
+    expect(registry.resolve(refreshed), same(originalBinding));
+  });
+
+  test('profile changes revoke prior catalog authority', () {
+    final registry = DirectModelRegistry();
+    final profile = DirectConnectionProfile(
+      id: 'profile-one',
+      name: 'Example',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final stale = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+
+    final current = registry.replaceProfileModels(
+      profile.copyWith(baseUrl: 'http://localhost:11435'),
+      [DirectRemoteModel(id: 'model')],
+    ).single;
+
+    expect(registry.resolve(stale), isNull);
+    expect(registry.resolve(current), isNotNull);
+  });
+
   test('binding revision changes only when registry contents mutate', () {
     final registry = DirectModelRegistry();
     final profile = DirectConnectionProfile(

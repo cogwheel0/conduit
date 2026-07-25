@@ -13148,11 +13148,11 @@ Future<_ResolvedDirectRoute?> _resolveDirectRoute(
 
 bool _directRouteIsStillSelected(dynamic ref, _ResolvedDirectRoute route) {
   final selectedModel = ref.read(selectedModelProvider) as Model?;
-  return identical(selectedModel, route.model) &&
-      identical(
-        ref.read(directModelRegistryProvider).resolve(route.model),
-        route.binding,
-      );
+  if (selectedModel == null || selectedModel.id != route.model.id) return false;
+  return identical(
+    ref.read(directModelRegistryProvider).resolve(selectedModel),
+    route.binding,
+  );
 }
 
 String _openWebUiDirectWireModelId(_ResolvedDirectRoute route) {
@@ -14569,12 +14569,20 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             usage: accumulator.usage,
             isStreaming: true,
           );
-          await _persistCompletedDirectAssistant(
-            ref,
-            owner: owner,
-            assistant: assetSnapshot,
-            isCurrentGeneration: () => registry.isLatest(reservation),
-          );
+          // Local durability is independent of provider processing time. A
+          // slow database write must not consume the stream's duration budget
+          // and discard already-buffered acknowledgement events.
+          streamElapsed.stop();
+          try {
+            await _persistCompletedDirectAssistant(
+              ref,
+              owner: owner,
+              assistant: assetSnapshot,
+              isCurrentGeneration: () => registry.isLatest(reservation),
+            );
+          } finally {
+            streamElapsed.start();
+          }
         }
         // The normalized terminal event is the protocol boundary. Provider
         // stream closure and transport cleanup are best-effort implementation
