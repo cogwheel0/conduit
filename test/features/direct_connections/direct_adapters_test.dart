@@ -1219,6 +1219,97 @@ void main() {
   });
 
   test(
+    'OpenRouter skips malformed Image API entries before a valid image',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'A refined prompt'},
+            },
+          ],
+        }),
+        _Reply.json({
+          'data': [
+            null,
+            {'b64_json': 'AQID', 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Image generated.'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'openai/gpt-5-mini',
+              enableImageGeneration: true,
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectGeneratedImage>(), hasLength(1));
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test('OpenRouter rejects unpadded Image API base64', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'A refined prompt'},
+          },
+        ],
+      }),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQI', 'media_type': 'image/png'},
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'The provider returned an invalid response.',
+    );
+  });
+
+  test(
     'OpenRouter accounts generated images outside the text budget',
     () async {
       const base64 =

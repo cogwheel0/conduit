@@ -226,6 +226,45 @@ void main() {
     });
   });
 
+  group('normalizeDirectGeneratedImage', () {
+    test('preserves the aggregate image limit error', () {
+      expect(
+        () => normalizeDirectGeneratedImage(
+          const DirectGeneratedImage(
+            dataUrl: 'data:image/png;base64,AQID',
+            mediaType: 'image/png',
+          ),
+          maxDecodedBytes: 2,
+        ),
+        throwsA(
+          isA<DirectProviderException>().having(
+            (error) => error.message,
+            'message',
+            'The generated images exceed the Direct image limit.',
+          ),
+        ),
+      );
+    });
+
+    test('keeps malformed generated image details generic', () {
+      expect(
+        () => normalizeDirectGeneratedImage(
+          const DirectGeneratedImage(
+            dataUrl: 'data:image/png;base64,AQ I',
+            mediaType: 'image/png',
+          ),
+        ),
+        throwsA(
+          isA<DirectProviderException>().having(
+            (error) => error.message,
+            'message',
+            'The provider returned an invalid generated image.',
+          ),
+        ),
+      );
+    });
+  });
+
   group('buildDirectChatMessages', () {
     test('preserves supported history and resolves protected images', () async {
       final resolvedImage = _imageDataUrl([1, 2, 3]);

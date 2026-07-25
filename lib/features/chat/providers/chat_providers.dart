@@ -14646,6 +14646,13 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     _requireDirectOwnerAuthSession(ref, owner);
 
     final ownerIsActive = _isDirectConversationOwnerActive(ref, owner);
+    if (terminalFailure != null && accumulator.hasGeneratedImages) {
+      DebugLogger.warning(
+        'post-image-event-rejected',
+        scope: 'direct-connections/chat',
+        data: {'errorType': terminalFailure.runtimeType.toString()},
+      );
+    }
     final completedContent = accumulator.render(done: true);
     final visible = ownerIsActive
         ? (ref.read(chatMessagesProvider) as List<ChatMessage>)

@@ -898,9 +898,8 @@ List<({String dataUrl, String mediaType})> _openRouterImageApiResults(
   if (value is! Iterable) return const [];
   final images = <({String dataUrl, String mediaType})>[];
   for (final rawImage in value) {
-    if (images.length >= _kMaxOpenRouterGeneratedImages || rawImage is! Map) {
-      break;
-    }
+    if (images.length >= _kMaxOpenRouterGeneratedImages) break;
+    if (rawImage is! Map) continue;
     final rawBase64 = rawImage['b64_json'];
     if (rawBase64 is! String || rawBase64.isEmpty) continue;
     final mediaType = _normalizedOpenRouterImageMediaType(
@@ -931,7 +930,7 @@ String? _normalizedOpenRouterImageMediaType(Object? value) {
 }
 
 bool _isValidOpenRouterImageBase64(String value) {
-  if (value.length % 4 == 1) return false;
+  if (value.isEmpty || value.length % 4 != 0) return false;
   var paddingStarted = false;
   var padding = 0;
   for (var index = 0; index < value.length; index++) {

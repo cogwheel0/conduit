@@ -14,6 +14,8 @@ const String kDirectRawAssistantContentMetadataKey =
 const String kDirectProviderMetadataKey = 'directProviderMetadata';
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
+const String _kDirectGeneratedImageLimitMessage =
+    'The generated images exceed the Direct image limit.';
 const int _kDirectMaxWebSources = kOllamaCloudMaxSearchResults;
 const int _kDirectMaxWebSourceTitleCharacters = 2048;
 const int _kDirectMaxWebSourceSnippetCharacters = 2048;
@@ -490,13 +492,16 @@ int decodedImageByteLength(
     final decodedBytes = decodedImageByteLength(
       dataUrl,
       maxDecodedBytes: maxDecodedBytes,
-      tooLargeMessage: 'The generated images exceed the Direct image limit.',
+      tooLargeMessage: _kDirectGeneratedImageLimitMessage,
     );
     return (
       image: DirectGeneratedImage(dataUrl: dataUrl, mediaType: mediaType),
       decodedBytes: decodedBytes,
     );
-  } on DirectChatInputException {
+  } on DirectChatInputException catch (error) {
+    if (error.message == _kDirectGeneratedImageLimitMessage) {
+      throw const DirectProviderException(_kDirectGeneratedImageLimitMessage);
+    }
     throw const DirectProviderException(
       'The provider returned an invalid generated image.',
     );
