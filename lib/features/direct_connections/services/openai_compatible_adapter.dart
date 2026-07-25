@@ -149,6 +149,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         final inputModalities = architecture is Map
             ? architecture['input_modalities']
             : null;
+        final outputModalities = architecture is Map
+            ? architecture['output_modalities']
+            : null;
         final hasAdvertisedModalities =
             map?['is_multimodal'] != null || inputModalities != null;
         final advertisedMultimodal =
@@ -158,6 +161,11 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                   (modality) =>
                       modality.toString().trim().toLowerCase() == 'image',
                 ));
+        final advertisedImageGeneration =
+            outputModalities is Iterable &&
+            outputModalities.any(
+              (modality) => modality.toString().trim().toLowerCase() == 'image',
+            );
         models.add(
           DirectRemoteModel(
             id: sdkModel.id,
@@ -169,6 +177,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             capabilities: {
               if (hasAdvertisedModalities)
                 'advertised_multimodal': advertisedMultimodal,
+              if (profile.isOpenRouter)
+                'image_generation': advertisedImageGeneration,
               if (architecture is Map) 'architecture': architecture,
               if (map?['context_length'] != null)
                 'context_length': map!['context_length'],
@@ -199,12 +209,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
 
   @override
   Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async {
-    if (profile.manualModelIds.isNotEmpty) {
-      return _probeManualConnection(profile);
-    }
     try {
       if (profile.isOpenRouter) {
         await _validateOpenRouterKey(profile);
+      }
+      if (profile.manualModelIds.isNotEmpty) {
+        return await _probeManualConnection(profile);
       }
       final models = await listModels(profile);
       return DirectConnectionProbe(reachable: true, modelCount: models.length);

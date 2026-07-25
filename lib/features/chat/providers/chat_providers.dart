@@ -14545,6 +14545,32 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     if (!registry.isLatest(reservation)) return;
     _requireDirectOwnerAuthSession(ref, owner);
 
+    Map<String, dynamic>? signedFileAnnotations;
+    if (route.profile.isOpenRouter && accumulator.fileAnnotations.isNotEmpty) {
+      try {
+        signedFileAnnotations = signedOpenRouterFileAnnotations(
+          annotations: accumulator.fileAnnotations,
+          signingKey: await ref.read(directDeviceTrustKeyProvider.future),
+          profile: route.profile,
+          attachmentIds: openRouterPdfAttachmentIdsForAnnotations(
+            ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+            annotations: accumulator.fileAnnotations,
+          ),
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'file-annotation-signing-failed',
+          scope: 'direct-connections/openrouter',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    // Signing is best-effort and may suspend after the stream's auth listener
+    // has closed. Re-establish both generation and auth ownership before
+    // projecting or persisting provider output.
+    if (!registry.isLatest(reservation)) return;
+    _requireDirectOwnerAuthSession(ref, owner);
+
     final ownerIsActive = _isDirectConversationOwnerActive(ref, owner);
     final completedContent = accumulator.render(done: true);
     final visible = ownerIsActive
@@ -14553,19 +14579,21 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               .firstOrNull
         : null;
     final base = visible ?? assistantSeed;
-    final signedFileAnnotations =
-        !route.profile.isOpenRouter || accumulator.fileAnnotations.isEmpty
-        ? null
-        : signedOpenRouterFileAnnotations(
-            annotations: accumulator.fileAnnotations,
-            signingKey: await ref.read(directDeviceTrustKeyProvider.future),
-            profile: route.profile,
-            attachmentIds: openRouterPdfAttachmentIdsForAnnotations(
-              ephemeralFilePartsByAttachmentId:
-                  ephemeralFilePartsByAttachmentId,
-              annotations: accumulator.fileAnnotations,
-            ),
-          );
+    final completedMetadata =
+        <String, dynamic>{
+            ...?base.metadata,
+            kDirectRawAssistantContentMetadataKey: accumulator.text,
+          }
+          ..remove(kDirectProviderMetadataKey)
+          ..remove(kOpenRouterFileAnnotationsMetadataKey);
+    if (accumulator.providerMetadata != null) {
+      completedMetadata[kDirectProviderMetadataKey] =
+          accumulator.providerMetadata;
+    }
+    if (signedFileAnnotations != null) {
+      completedMetadata[kOpenRouterFileAnnotationsMetadataKey] =
+          signedFileAnnotations;
+    }
     final completed = base.copyWith(
       content: completedContent,
       output: <Map<String, dynamic>>[
@@ -14580,12 +14608,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         ),
       ],
       sources: accumulator.sources,
-      metadata: <String, dynamic>{
-        ...?base.metadata,
-        kDirectRawAssistantContentMetadataKey: accumulator.text,
-        kDirectProviderMetadataKey: ?accumulator.providerMetadata,
-        kOpenRouterFileAnnotationsMetadataKey: ?signedFileAnnotations,
-      },
+      metadata: completedMetadata,
       usage: accumulator.usage,
       error: accumulator.error != null
           ? ChatMessageError(content: accumulator.error!.message)
@@ -14919,7 +14942,25 @@ Future<void> _sendMessageInternal(
         ref.read(directModelRegistryProvider).resolve(directRoute.model),
         directRoute.binding,
       )) {
-    messagesNotifier.finishStreamingMessage(assistantMessageId);
+    // No durable owner or run reservation exists yet. Roll back the complete
+    // optimistic turn (including its parent edge) instead of leaving an empty,
+    // apparently completed assistant behind.
+    if (openWebUiParentId != null) {
+      messagesNotifier.updateMessageById(openWebUiParentId, (parent) {
+        final childrenIds = message_tree
+            .chatMessageChildrenIds(parent)
+            .where((id) => id != userMessageId)
+            .toList(growable: false);
+        return parent.copyWith(
+          metadata: <String, dynamic>{
+            ...?parent.metadata,
+            'childrenIds': childrenIds,
+          },
+        );
+      });
+    }
+    messagesNotifier.removeMessageById(assistantMessageId);
+    messagesNotifier.removeMessageById(userMessageId);
     throw StateError(
       'The selected direct connection changed while preparing the message.',
     );

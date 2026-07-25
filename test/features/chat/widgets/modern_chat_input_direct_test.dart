@@ -89,7 +89,7 @@ void main() {
 
     expect(extensions, contains('pdf'));
     expect(directModel.capabilities?['web_search'], isTrue);
-    expect(directModel.capabilities?['image_generation'], isTrue);
+    expect(directModel.capabilities?['image_generation'], isFalse);
   });
 
   test('attachment panel matches the full IME footprint', () {

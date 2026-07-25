@@ -337,7 +337,12 @@ void main() {
             adapterKey: kOpenAiCompatibleAdapterKey,
             baseUrl: kOpenRouterApiBaseUrl,
           ),
-          [DirectRemoteModel(id: 'anthropic/claude-sonnet-4')],
+          [
+            DirectRemoteModel(
+              id: 'anthropic/claude-sonnet-4',
+              capabilities: const {'image_generation': true},
+            ),
+          ],
         ).single;
         final container = _container(
           const AsyncData<Map<String, dynamic>>({

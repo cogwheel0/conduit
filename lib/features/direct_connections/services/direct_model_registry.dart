@@ -266,7 +266,10 @@ final class DirectModelRegistry {
           'openrouter': profile.isOpenRouter,
           if (profile.isOpenRouter) ...<String, dynamic>{
             'web_search': profile.supportsOpenRouterWebSearch,
-            'image_generation': profile.supportsOpenRouterImageGeneration,
+            'image_generation':
+                source == DirectModelSource.device &&
+                profile.openAiApiMode == DirectOpenAiApiMode.chatCompletions &&
+                remote.capabilities['image_generation'] == true,
             'file_upload':
                 source == DirectModelSource.device &&
                 profile.supportsOpenRouterPdfInputs,

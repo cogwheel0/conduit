@@ -206,7 +206,10 @@ void main() {
       openAiApiMode: DirectOpenAiApiMode.chatCompletions,
     );
     final chatModel = registry.replaceProfileModels(chatProfile, [
-      DirectRemoteModel(id: 'model'),
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {'image_generation': true},
+      ),
     ]).single;
 
     expect(chatModel.capabilities?['pdf_input'], isTrue);
@@ -214,16 +217,30 @@ void main() {
     expect(chatModel.capabilities?['web_search'], isTrue);
     expect(chatModel.capabilities?['image_generation'], isTrue);
 
+    final textOnlyModel = registry.replaceProfileModels(chatProfile, [
+      DirectRemoteModel(
+        id: 'text-only',
+        capabilities: const {'image_generation': false},
+      ),
+    ]).single;
+    expect(textOnlyModel.capabilities?['image_generation'], isFalse);
+
     final openWebUiModel = registry
         .replaceProfileModels(
           chatProfile,
-          [DirectRemoteModel(id: 'openwebui-model')],
+          [
+            DirectRemoteModel(
+              id: 'openwebui-model',
+              capabilities: const {'image_generation': true},
+            ),
+          ],
           source: DirectModelSource.openWebUi,
           openWebUiUrlIndex: 0,
         )
         .single;
     expect(openWebUiModel.capabilities?['pdf_input'], isFalse);
     expect(openWebUiModel.capabilities?['file_upload'], isFalse);
+    expect(openWebUiModel.capabilities?['image_generation'], isFalse);
 
     final nonOpenRouterModel = registry.replaceProfileModels(
       DirectConnectionProfile(

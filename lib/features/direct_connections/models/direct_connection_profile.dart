@@ -159,8 +159,6 @@ final class DirectConnectionProfile {
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
   bool get supportsOpenRouterPdfInputs =>
       isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
-  bool get supportsOpenRouterImageGeneration =>
-      isOpenRouter && openAiApiMode == DirectOpenAiApiMode.chatCompletions;
 
   /// Ollama Cloud executes models remotely and does not expose the local
   /// `/api/ps` RAM/VRAM lifecycle used by self-hosted Ollama servers.

@@ -4804,6 +4804,18 @@
   "@directApiBaseUrl": {
     "description": "Label for the direct provider base URL."
   },
+  "directOpenRouterUrlInvalid": "Use OpenRouter’s HTTPS /api/v1 root (global or EU).",
+  "@directOpenRouterUrlInvalid": {
+    "description": "Validation error shown when an OpenRouter direct connection does not use an approved API root."
+  },
+  "directOpenRouterBaseUrlDescription": "Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.",
+  "@directOpenRouterBaseUrlDescription": {
+    "description": "Help text shown below the OpenRouter direct connection base URL."
+  },
+  "directOpenRouterChatCompletionsDescription": "Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.",
+  "@directOpenRouterChatCompletionsDescription": {
+    "description": "Help text explaining why OpenRouter direct connections use Chat Completions."
+  },
   "directCompletionApi": "Completion API",
   "@directCompletionApi": {
     "description": "Section title for selecting an OpenAI-family completion protocol."

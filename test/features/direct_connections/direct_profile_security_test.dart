@@ -20,6 +20,21 @@ void main() {
     check(
       isOpenRouterApiBaseUrl('https://openrouter.example/api/v1'),
     ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai.evil.test/api/v1'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://user:pass@openrouter.ai/api/v1'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1?key=leak'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai/api/v1#fragment'),
+    ).isFalse();
+    check(
+      isOpenRouterApiBaseUrl('https://openrouter.ai:8443/api/v1'),
+    ).isFalse();
   });
 
   group('DirectConnectionProfile security', () {

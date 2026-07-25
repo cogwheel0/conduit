@@ -93,6 +93,10 @@ final class DirectModelCacheStore {
       throw const FormatException('Direct model cache key is invalid.');
     }
     final profiles = <Map<String, dynamic>>[];
+    var encodedDocumentLength = jsonEncode({
+      'version': _kDirectModelCacheVersion,
+      'profiles': const <Map<String, dynamic>>[],
+    }).length;
     for (final entry in entries.entries) {
       if (profiles.length >= _kMaxDirectModelCacheProfiles) break;
       try {
@@ -112,12 +116,14 @@ final class DirectModelCacheStore {
             authenticationKey: authenticationKey,
           ),
         };
-        final candidate = jsonEncode({
-          'version': _kDirectModelCacheVersion,
-          'profiles': <Map<String, dynamic>>[...profiles, encodedProfile],
-        });
-        if (candidate.length > _kMaxDirectModelCacheCharacters) continue;
+        final encodedProfileLength = jsonEncode(encodedProfile).length;
+        final candidateLength =
+            encodedDocumentLength +
+            encodedProfileLength +
+            (profiles.isEmpty ? 0 : 1);
+        if (candidateLength > _kMaxDirectModelCacheCharacters) continue;
         profiles.add(encodedProfile);
+        encodedDocumentLength = candidateLength;
       } on FormatException {
         // One provider-owned catalog must not prevent healthy profiles from
         // hydrating after restart.

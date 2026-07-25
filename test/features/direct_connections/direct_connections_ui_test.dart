@@ -1488,70 +1488,71 @@ void main() {
     },
   );
 
-  testWidgets('unsupported server auth blocks execution but permits deletion', (
-    tester,
-  ) async {
-    final snapshot =
-        OpenWebUiDirectConnectionsCodec(
-          serverId: 'server',
-          accountId: 'account',
-        ).decode({
-          'ui': {
-            'directConnections': {
-              'OPENAI_API_BASE_URLS': ['https://session.example/v1'],
-              'OPENAI_API_KEYS': ['must-not-be-forwarded'],
-              'OPENAI_API_CONFIGS': {
-                '0': {'auth_type': 'session'},
+  testWidgets(
+    'unsupported OpenRouter server auth blocks execution but permits deletion',
+    (tester) async {
+      final snapshot =
+          OpenWebUiDirectConnectionsCodec(
+            serverId: 'server',
+            accountId: 'account',
+          ).decode({
+            'ui': {
+              'directConnections': {
+                'OPENAI_API_BASE_URLS': [kOpenRouterApiBaseUrl],
+                'OPENAI_API_KEYS': ['must-not-be-forwarded'],
+                'OPENAI_API_CONFIGS': {
+                  '0': {'auth_type': 'session'},
+                },
               },
             },
-          },
-        });
+          });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          openWebUiDirectConnectionsProvider.overrideWith(
-            () => _StaticOpenWebUiConnections(snapshot),
-          ),
-        ],
-        child: MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: DirectConnectionEditorPage(
-            profileId: snapshot.records.single.profile.id,
-            isOpenWebUi: true,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            openWebUiDirectConnectionsProvider.overrideWith(
+              () => _StaticOpenWebUiConnections(snapshot),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: DirectConnectionEditorPage(
+              profileId: snapshot.records.single.profile.id,
+              isOpenWebUi: true,
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Delete connection'),
-      500,
-      scrollable: find.byType(Scrollable).first,
-    );
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Delete connection'),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
 
-    final buttons = tester.widgetList<ConduitButton>(
-      find.byType(ConduitButton, skipOffstage: false),
-    );
-    expect(
-      buttons.singleWhere((button) => button.text == 'Save').onPressed,
-      isNull,
-    );
-    expect(
-      buttons
-          .singleWhere((button) => button.text == 'Test connection')
-          .onPressed,
-      isNull,
-    );
-    expect(
-      buttons
-          .singleWhere((button) => button.text == 'Delete connection')
-          .onPressed,
-      isNotNull,
-    );
-    expect(find.textContaining('cannot safely use'), findsOneWidget);
-  });
+      final buttons = tester.widgetList<ConduitButton>(
+        find.byType(ConduitButton, skipOffstage: false),
+      );
+      expect(
+        buttons.singleWhere((button) => button.text == 'Save').onPressed,
+        isNull,
+      );
+      expect(
+        buttons
+            .singleWhere((button) => button.text == 'Test connection')
+            .onPressed,
+        isNull,
+      );
+      expect(
+        buttons
+            .singleWhere((button) => button.text == 'Delete connection')
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.textContaining('cannot safely use'), findsOneWidget);
+    },
+  );
 
   testWidgets('switching a server connection to bearer requires a key', (
     tester,

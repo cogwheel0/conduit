@@ -1568,17 +1568,17 @@ class MediaUploadController {
         );
       }
       if (isOpenRouterPdf) {
-        final pdfPaths = <String>{
+        final pdfBytesByPath = <String, int>{
           for (final attachment in attachments)
             if (attachment.isImage != true &&
                 attachment.status != FileUploadStatus.failed &&
                 isDirectOpenRouterPdfFileNameSupported(attachment.fileName))
-              attachment.file.path,
-          filePath,
+              attachment.file.path: attachment.fileSize,
+          filePath: stat.size,
         };
         var aggregatePdfBytes = 0;
-        for (final path in pdfPaths) {
-          aggregatePdfBytes += await File(path).length();
+        for (final bytes in pdfBytesByPath.values) {
+          aggregatePdfBytes += bytes;
           _throwIfOperationNotActive(filePath, inflight);
           if (aggregatePdfBytes > _kDirectMaxAggregatePdfBytes) {
             throw const DirectChatInputException(

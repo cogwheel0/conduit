@@ -226,10 +226,10 @@ class _DirectConnectionEditorPageState
         ? _openRouterProviderPreset
         : profile.adapterKey;
     _openAiApiMode = profile.openAiApiMode;
-    _authentication = profile.isOpenRouter
-        ? DirectAuthenticationMode.bearer
-        : openWebUiRecord == null
-        ? (profile.apiKey ?? '').isEmpty
+    _authentication = openWebUiRecord == null
+        ? profile.isOpenRouter
+              ? DirectAuthenticationMode.bearer
+              : (profile.apiKey ?? '').isEmpty
               ? DirectAuthenticationMode.none
               : switch (profile.apiKeyAuthMode) {
                   DirectApiKeyAuthMode.bearer =>
@@ -359,7 +359,7 @@ class _DirectConnectionEditorPageState
     } else if (_providerPreset == _openRouterProviderPreset &&
         !isOpenRouterApiBaseUrl(baseUrl)) {
       valid = false;
-      urlError = 'Use OpenRouter’s HTTPS /api/v1 root (global or EU).';
+      urlError = l10n.directOpenRouterUrlInvalid;
     } else if (!_originBoundSecretsReviewed) {
       valid = false;
       urlError = l10n.directConnectionCredentialsReentryRequired;
@@ -1195,7 +1195,7 @@ class _DirectConnectionEditorPageState
         isOllama
             ? l10n.ollamaCloudBaseUrlDescription
             : isOpenRouter
-            ? 'Uses your OpenRouter API key, authenticated model catalog, and Conduit-managed tools.'
+            ? l10n.directOpenRouterBaseUrlDescription
             : 'Include the API prefix expected by the provider, usually /v1.',
         style: theme.bodySmall?.copyWith(color: theme.textSecondary),
       ),
@@ -1204,7 +1204,7 @@ class _DirectConnectionEditorPageState
         SettingsSectionHeader(title: l10n.directCompletionApi),
         const SizedBox(height: Spacing.sm),
         Text(
-          'Chat Completions is used for native web search, image generation, PDF parsing, and reusable PDF annotations.',
+          l10n.directOpenRouterChatCompletionsDescription,
           style: theme.bodySmall?.copyWith(color: theme.textSecondary),
         ),
       ] else if (!isOllama) ...[

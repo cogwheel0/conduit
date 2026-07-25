@@ -686,6 +686,51 @@ void main() {
   );
 
   test(
+    'OpenRouter discovery derives image generation from output modalities',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'data': [
+            {
+              'id': 'image-model',
+              'architecture': {
+                'input_modalities': ['text'],
+                'output_modalities': ['text', 'IMAGE'],
+              },
+            },
+            {
+              'id': 'text-model',
+              'architecture': {
+                'input_modalities': ['text'],
+                'output_modalities': ['text'],
+              },
+            },
+            {'id': 'unknown-model'},
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final models = await adapter.listModels(
+        _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+      );
+      DirectRemoteModel model(String id) =>
+          models.firstWhere((candidate) => candidate.id == id);
+
+      expect(model('image-model').capabilities['image_generation'], isTrue);
+      expect(model('text-model').capabilities['image_generation'], isFalse);
+      expect(model('unknown-model').capabilities['image_generation'], isFalse);
+      expect(
+        http.requests.single.uri.toString(),
+        'https://openrouter.ai/api/v1/models/user',
+      );
+    },
+  );
+
+  test(
     'OpenRouter compiles web, PDF, and image features and emits extensions',
     () async {
       final http = _QueuedAdapter([
@@ -1692,6 +1737,32 @@ void main() {
     expect(result.reachable, isFalse);
     expect(result.message, contains('HTTP 401'));
     expect(http.requests, hasLength(1));
+  });
+
+  test('manual OpenRouter probe validates the key before liveness', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream(const [], contentType: 'application/json', statusCode: 401),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final result = await adapter.probe(
+      _openAiProfile(
+        baseUrl: kOpenRouterApiBaseUrl,
+        manualModelIds: const ['manual-a'],
+      ),
+    );
+
+    expect(result.reachable, isFalse);
+    expect(result.message, contains('HTTP 401'));
+    expect(http.requests, hasLength(1));
+    expect(http.requests.single.method, 'GET');
+    expect(
+      http.requests.single.uri.toString(),
+      'https://openrouter.ai/api/v1/key',
+    );
   });
 
   test('manual Ollama probe uses api/version liveness endpoint', () async {

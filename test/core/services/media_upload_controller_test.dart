@@ -2589,6 +2589,50 @@ void main() {
     },
   );
 
+  test(
+    'missing prepared OpenRouter PDF staging file is not restatted',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_openrouter_pdf_missing_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final current = File('${directory.path}/current.pdf');
+      await current.writeAsString('%PDF-1.4');
+      final deleted = File('${directory.path}/already-deleted.pdf');
+      expect(await deleted.exists(), isFalse);
+      final prepared = FileUploadState(
+        file: deleted,
+        fileName: 'already-deleted.pdf',
+        fileSize: 1024,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: '${kDirectOpenRouterPdfAttachmentPrefix}prepared',
+        isImage: false,
+      );
+      final container = _directContainer(
+        profile: DirectConnectionProfile(
+          id: 'openrouter-media',
+          name: 'OpenRouter',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: kOpenRouterApiBaseUrl,
+        ),
+        attachments: [prepared, _pendingDocument(current, reportedBytes: 1)],
+        encoder: (file) async => throw StateError('not an image'),
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: current.path, fileName: 'current.pdf', fileSize: 1);
+
+      final stored = container
+          .read(attachedFilesProvider)
+          .where((attachment) => attachment.file.path == current.path)
+          .single;
+      expect(stored.status, FileUploadStatus.completed);
+    },
+  );
+
   test('OpenRouter rejects PDFs above the aggregate staging limit', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_openrouter_pdf_aggregate_',
@@ -2597,13 +2641,14 @@ void main() {
     final first = File('${directory.path}/first.pdf');
     final second = File('${directory.path}/second.pdf');
     final third = File('${directory.path}/third.pdf');
+    final perPdfBytes = (kDirectMaxLocalDocumentBytes * 3) ~/ 4;
     for (final file in [first, second, third]) {
-      await _truncate(file, 6 * 1024 * 1024);
+      await _truncate(file, perPdfBytes);
     }
     FileUploadState completed(File file, String id) => FileUploadState(
       file: file,
       fileName: file.uri.pathSegments.last,
-      fileSize: 6 * 1024 * 1024,
+      fileSize: perPdfBytes,
       progress: 1,
       status: FileUploadStatus.completed,
       fileId: '$kDirectOpenRouterPdfAttachmentPrefix$id',

@@ -107,6 +107,43 @@ void main() {
     );
   });
 
+  test('file annotations reject a different device key', () {
+    final envelope = signedOpenRouterFileAnnotations(
+      annotations: <Map<String, dynamic>>[annotation],
+      signingKey: key,
+      profile: profile,
+    );
+
+    expect(
+      trustedOpenRouterFileAnnotations(
+        envelope,
+        verificationKey: const <int>[9, 9, 9, 9, 9, 9, 9, 9],
+        profile: profile,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('file annotations reject blanked attachment IDs', () {
+    final envelope = signedOpenRouterFileAnnotations(
+      annotations: <Map<String, dynamic>>[annotation],
+      signingKey: key,
+      profile: profile,
+      attachmentIds: const <String>['direct-openrouter-pdf:brief'],
+    );
+    final blanked = Map<String, dynamic>.from(envelope)
+      ..['attachmentIds'] = const <String>[];
+
+    expect(
+      trustedOpenRouterFileAnnotations(
+        blanked,
+        verificationKey: key,
+        profile: profile,
+      ),
+      isEmpty,
+    );
+  });
+
   test(
     'replayed annotations retain PDF context without persisted raw bytes',
     () async {
@@ -168,7 +205,7 @@ void main() {
           role: 'user',
           content: 'Read it',
           timestamp: DateTime.utc(2026),
-          attachmentIds: const <String>[attachmentId],
+          attachmentIds: const <String>[attachmentId, attachmentId],
           files: const <Map<String, dynamic>>[
             <String, dynamic>{
               'type': 'file',
@@ -191,6 +228,51 @@ void main() {
     expect(
       messages.single.parts.whereType<DirectFilePart>().single.filename,
       'brief.pdf',
+    );
+  });
+
+  test('archived annotations cannot authorize unavailable PDF bytes', () async {
+    const attachmentId =
+        '${kDirectOpenRouterPdfAttachmentPrefix}archived-attachment';
+    final envelope = signedOpenRouterFileAnnotations(
+      annotations: <Map<String, dynamic>>[annotation],
+      signingKey: key,
+      profile: profile,
+      attachmentIds: const <String>[attachmentId],
+    );
+
+    await expectLater(
+      buildDirectChatMessages(
+        directDocumentVerificationKey: key,
+        openRouterProfile: profile,
+        messages: <ChatMessage>[
+          ChatMessage(
+            id: 'user',
+            role: 'user',
+            content: 'Read it',
+            timestamp: DateTime.utc(2026),
+            attachmentIds: const <String>[attachmentId],
+            files: const <Map<String, dynamic>>[
+              <String, dynamic>{
+                'type': 'file',
+                'source': 'direct_openrouter_pdf',
+                'url': attachmentId,
+              },
+            ],
+          ),
+          ChatMessage(
+            id: 'archived-assistant',
+            role: 'assistant',
+            content: 'Superseded answer',
+            timestamp: DateTime.utc(2026),
+            metadata: <String, dynamic>{
+              'archivedVariant': true,
+              kOpenRouterFileAnnotationsMetadataKey: envelope,
+            },
+          ),
+        ],
+      ),
+      throwsA(isA<DirectChatInputException>()),
     );
   });
 

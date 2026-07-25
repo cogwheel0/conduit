@@ -137,8 +137,13 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     var annotationCount = 0;
     var annotationCharacters = 0;
     for (var index = 0; index < sourceMessages.length; index++) {
+      final message = sourceMessages[index];
+      if (message.metadata?['archivedVariant'] == true ||
+          message.role.trim().toLowerCase() != 'assistant') {
+        continue;
+      }
       final envelope = trustedOpenRouterFileAnnotationEnvelope(
-        sourceMessages[index].metadata?[kOpenRouterFileAnnotationsMetadataKey],
+        message.metadata?[kOpenRouterFileAnnotationsMetadataKey],
         verificationKey: directDocumentVerificationKey,
         profile: openRouterProfile!,
       );
@@ -323,7 +328,9 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
           if (reference.isNotEmpty) explicitNonImageReferences.add(reference);
         }
       }
+      final seenAttachmentIds = <String>{};
       for (final attachment in message.attachmentIds ?? const <String>[]) {
+        if (!seenAttachmentIds.add(attachment)) continue;
         final filePart = ephemeralFilePartsByAttachmentId[attachment];
         if (filePart != null) {
           parts.add(filePart);
