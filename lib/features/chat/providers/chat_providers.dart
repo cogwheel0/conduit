@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Value;
@@ -6419,15 +6421,20 @@ final class _PreparedDirectDocuments {
   const _PreparedDirectDocuments({
     required this.files,
     required this.attachmentIds,
+    required this.ephemeralFilePartsByAttachmentId,
   });
 
   final List<Map<String, dynamic>> files;
   final Set<String> attachmentIds;
+  final Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId;
 }
+
+const int _kDirectMaxAggregatePdfBytes = 2 * kDirectMaxLocalDocumentBytes;
 
 Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   dynamic ref, {
   required List<String>? attachmentIds,
+  required bool supportsOpenRouterPdfInputs,
 }) async {
   final attachedStates =
       ref.read(attachedFilesProvider) as List<FileUploadState>;
@@ -6437,13 +6444,15 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   };
   final references = <String>{};
   final sources = <DirectLocalDocumentSource>[];
+  final pdfStates = <String, FileUploadState>{};
 
   for (final attachmentId in attachmentIds ?? const <String>[]) {
     if (attachmentId.startsWith('data:image/')) continue;
     if (!references.add(attachmentId)) continue;
     final state = stateById[attachmentId];
     if (state == null || state.isImage == true) {
-      if (attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
+      if (attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix) ||
+          attachmentId.startsWith(kDirectOpenRouterPdfAttachmentPrefix)) {
         throw const DirectChatInputException(
           'This local document is no longer available. Attach it again.',
         );
@@ -6452,6 +6461,12 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       continue;
     }
     if (!attachmentId.startsWith(kDirectLocalDocumentAttachmentPrefix)) {
+      if (supportsOpenRouterPdfInputs &&
+          attachmentId.startsWith(kDirectOpenRouterPdfAttachmentPrefix) &&
+          isDirectOpenRouterPdfFileNameSupported(state.fileName)) {
+        pdfStates[attachmentId] = state;
+        continue;
+      }
       throw const DirectChatInputException(
         'This direct model does not support this attachment.',
       );
@@ -6469,12 +6484,12 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   final documents = await ref
       .read(directLocalDocumentServiceProvider)
       .prepareAll(sources);
-  if (documents.documents.isEmpty) {
-    return const _PreparedDirectDocuments(files: [], attachmentIds: {});
-  }
-  final signingKey = await ref.read(directDeviceTrustKeyProvider.future);
+  final signingKey = documents.documents.isEmpty
+      ? null
+      : await ref.read(directDeviceTrustKeyProvider.future);
   final files = <Map<String, dynamic>>[];
   final preparedAttachmentIds = <String>{};
+  final ephemeralFileParts = <String, DirectFilePart>{};
   for (final document in documents.documents) {
     final attachmentId = document.sourceId;
     if (attachmentId == null ||
@@ -6488,14 +6503,75 @@ Future<_PreparedDirectDocuments> _prepareDirectDocuments(
       directLocalDocumentDescriptor(
         document,
         attachmentId: attachmentId,
-        signingKey: signingKey,
+        signingKey: signingKey!,
       ),
     );
+  }
+  var aggregatePdfBytes = 0;
+  for (final entry in pdfStates.entries) {
+    final state = entry.value;
+    final projectedBytes = aggregatePdfBytes + await state.file.length();
+    if (projectedBytes > _kDirectMaxAggregatePdfBytes) {
+      throw const DirectChatInputException(
+        'The attached PDFs exceed the Direct attachment size limit.',
+      );
+    }
+    final bytes = await _readBoundedDirectPdf(state.file);
+    aggregatePdfBytes += bytes.length;
+    if (aggregatePdfBytes > _kDirectMaxAggregatePdfBytes) {
+      throw const DirectChatInputException(
+        'The attached PDFs exceed the Direct attachment size limit.',
+      );
+    }
+    final attachmentId = entry.key;
+    preparedAttachmentIds.add(attachmentId);
+    ephemeralFileParts[attachmentId] = DirectFilePart(
+      filename: state.fileName,
+      dataUrl: 'data:application/pdf;base64,${base64Encode(bytes)}',
+    );
+    files.add(<String, dynamic>{
+      'type': 'file',
+      'source': 'direct_openrouter_pdf',
+      'url': attachmentId,
+      'name': state.fileName,
+      'filename': state.fileName,
+      'size': bytes.length,
+      'content_type': 'application/pdf',
+    });
   }
   return _PreparedDirectDocuments(
     files: List<Map<String, dynamic>>.unmodifiable(files),
     attachmentIds: Set<String>.unmodifiable(preparedAttachmentIds),
+    ephemeralFilePartsByAttachmentId: Map<String, DirectFilePart>.unmodifiable(
+      ephemeralFileParts,
+    ),
   );
+}
+
+Future<Uint8List> _readBoundedDirectPdf(File file) async {
+  final builder = BytesBuilder(copy: false);
+  var length = 0;
+  await for (final chunk in file.openRead()) {
+    length += chunk.length;
+    if (length > kDirectMaxLocalDocumentBytes) {
+      throw const DirectChatInputException(
+        'This PDF exceeds the Direct attachment size limit.',
+      );
+    }
+    builder.add(chunk);
+  }
+  final bytes = builder.takeBytes();
+  if (bytes.length < 5 ||
+      bytes[0] != 0x25 ||
+      bytes[1] != 0x50 ||
+      bytes[2] != 0x44 ||
+      bytes[3] != 0x46 ||
+      bytes[4] != 0x2d) {
+    throw const DirectChatInputException(
+      'This attachment is not a valid PDF document.',
+    );
+  }
+  return bytes;
 }
 
 Future<_PreparedHermesTurn> _prepareHermesTurn(
@@ -7178,6 +7254,9 @@ Future<void> _regenerateDirectMessage(
   final enableWebSearch =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);
+  final enableImageGeneration =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
   final active = ref.read(activeConversationProvider) as Conversation?;
   if (active == null) throw StateError('No active conversation');
   final directMutationOwner = captureChatMutationOwner(ref, active);
@@ -7356,8 +7435,23 @@ Future<void> _regenerateDirectMessage(
       });
       if (!registry.isLatest(reservation)) return;
     }
+    final replayAnnotationEnvelope =
+        previousAssistant?.metadata?[kOpenRouterFileAnnotationsMetadataKey];
     final requestMessages = withDirectConversationSystemPrompt(
-      messages: existing.sublist(0, userIndex + 1),
+      messages: <ChatMessage>[
+        ...existing.sublist(0, userIndex + 1),
+        if (replayAnnotationEnvelope != null)
+          ChatMessage(
+            id: 'direct-openrouter-regeneration-annotations',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+            metadata: <String, dynamic>{
+              'transport': kDirectTransport,
+              kOpenRouterFileAnnotationsMetadataKey: replayAnnotationEnvelope,
+            },
+          ),
+      ],
       systemPrompt: active.systemPrompt,
     );
     await _dispatchDirectRunFromChat(
@@ -7381,6 +7475,7 @@ Future<void> _regenerateDirectMessage(
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
       enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
     );
   } on _DirectOpenWebUiAuthSessionChanged {
@@ -13873,7 +13968,9 @@ Future<void> _dispatchDirectRunFromChat(
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
   required bool enableWebSearch,
+  required bool enableImageGeneration,
   required String? reasoningEffort,
+  Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
 }) async {
   final DirectRunRegistry registry = ref.read(directRunRegistryProvider);
@@ -13936,7 +14033,9 @@ Future<void> _dispatchDirectRunFromChat(
       reservation: reservation,
       preflightCancelToken: preflightCancelToken,
       enableWebSearch: enableWebSearch,
+      enableImageGeneration: enableImageGeneration,
       reasoningEffort: reasoningEffort,
+      ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
     );
   } finally {
     stopIndex.untrack(indexedRunKey);
@@ -13970,7 +14069,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required DirectRunReservation reservation,
   required CancelToken preflightCancelToken,
   required bool enableWebSearch,
+  required bool enableImageGeneration,
   required String? reasoningEffort,
+  Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -13992,23 +14093,27 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     return resolved;
   }
 
-  final hasDirectLocalDocuments = requestMessages.any(
-    (message) => (message.files ?? const <Map<String, dynamic>>[]).any(
-      (file) => file['source'] == 'direct_local',
-    ),
+  final needsDirectVerificationKey = requestMessages.any(
+    (message) =>
+        (message.files ?? const <Map<String, dynamic>>[]).any(
+          (file) => file['source'] == 'direct_local',
+        ) ||
+        message.metadata?[kOpenRouterFileAnnotationsMetadataKey] != null,
   );
   final directMessages = await _awaitDirectPreflightOrCancellation(
     registry: registry,
     reservation: reservation,
     cancelToken: preflightCancelToken,
     operation: () async {
-      final verificationKey = hasDirectLocalDocuments
+      final verificationKey = needsDirectVerificationKey
           ? await ref.read(directDeviceTrustKeyProvider.future)
           : null;
       return buildDirectChatMessages(
         messages: requestMessages,
         resolveImage: resolveImage,
         directDocumentVerificationKey: verificationKey,
+        openRouterProfile: route.profile.isOpenRouter ? route.profile : null,
+        ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
       );
     },
   );
@@ -14021,6 +14126,12 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     messages: directMessages,
   );
   if (registry.isCancelled(reservation)) {
+    throw const _DirectRunStoppedDuringPreflight();
+  }
+  if (!identical(
+    ref.read(directModelRegistryProvider).resolve(route.model),
+    route.binding,
+  )) {
     throw const _DirectRunStoppedDuringPreflight();
   }
   final DirectProviderAdapter adapter = ref
@@ -14054,6 +14165,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         remoteModelId: route.binding.remoteModelId,
         messages: directMessages,
         enableWebSearch: enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
         parameters:
             route.profile.adapterKey == kOllamaAdapterKey ||
                 reasoningEffort == null
@@ -14273,6 +14385,30 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               ..addWork(normalizedUsage.nodes);
             normalizedEvent = DirectUsageUpdate(normalizedUsage.usage);
             break;
+          case DirectProviderMetadataUpdate():
+            final normalizedMetadata = normalizeDirectUsageMetadataWithCost(
+              event.metadata,
+            );
+            normalizedBudget
+              ..addCharacters(normalizedMetadata.stringCharacters)
+              ..addWork(normalizedMetadata.nodes);
+            normalizedEvent = DirectProviderMetadataUpdate(
+              normalizedMetadata.usage,
+            );
+            break;
+          case DirectFileAnnotationsUpdate():
+            final annotations = normalizeOpenRouterFileAnnotations(
+              event.annotations,
+            );
+            normalizedBudget.add(jsonEncode(annotations));
+            normalizedEvent = DirectFileAnnotationsUpdate(annotations);
+            break;
+          case DirectSourceFound():
+            normalizedBudget
+              ..add(event.url)
+              ..add(event.title ?? '')
+              ..add(event.snippet ?? '');
+            break;
           case DirectStreamDone():
             break;
         }
@@ -14304,6 +14440,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               assistantMessageId,
               (current) => current.copyWith(usage: accumulator.usage),
             );
+          } else if (projectedEvent is DirectProviderMetadataUpdate) {
+            notifier.updateMessageById(
+              assistantMessageId,
+              (current) => current.copyWith(
+                metadata: <String, dynamic>{
+                  ...?current.metadata,
+                  if (accumulator.providerMetadata != null)
+                    kDirectProviderMetadataKey: accumulator.providerMetadata,
+                },
+              ),
+            );
           } else if (projectedEvent is DirectStreamError) {
             notifier.updateMessageById(
               assistantMessageId,
@@ -14312,7 +14459,8 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               ),
             );
           } else if (projectedEvent is DirectToolCallStarted ||
-              projectedEvent is DirectToolCallCompleted) {
+              projectedEvent is DirectToolCallCompleted ||
+              projectedEvent is DirectSourceFound) {
             notifier.updateMessageById(
               assistantMessageId,
               (current) => current.copyWith(
@@ -14405,6 +14553,19 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               .firstOrNull
         : null;
     final base = visible ?? assistantSeed;
+    final signedFileAnnotations =
+        !route.profile.isOpenRouter || accumulator.fileAnnotations.isEmpty
+        ? null
+        : signedOpenRouterFileAnnotations(
+            annotations: accumulator.fileAnnotations,
+            signingKey: await ref.read(directDeviceTrustKeyProvider.future),
+            profile: route.profile,
+            attachmentIds: openRouterPdfAttachmentIdsForAnnotations(
+              ephemeralFilePartsByAttachmentId:
+                  ephemeralFilePartsByAttachmentId,
+              annotations: accumulator.fileAnnotations,
+            ),
+          );
     final completed = base.copyWith(
       content: completedContent,
       output: <Map<String, dynamic>>[
@@ -14422,6 +14583,8 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       metadata: <String, dynamic>{
         ...?base.metadata,
         kDirectRawAssistantContentMetadataKey: accumulator.text,
+        kDirectProviderMetadataKey: ?accumulator.providerMetadata,
+        kOpenRouterFileAnnotationsMetadataKey: ?signedFileAnnotations,
       },
       usage: accumulator.usage,
       error: accumulator.error != null
@@ -14502,6 +14665,9 @@ Future<void> _sendMessageInternal(
   final webSearchAtSendStart =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);
+  final imageGenerationAtSendStart =
+      ref.read(imageGenerationEnabledProvider) &&
+      ref.read(imageGenerationAvailableProvider);
   final usesHermes =
       selectedModelCandidate != null && isHermesModel(selectedModelCandidate);
   final HermesConfigController? hermesConfigController = usesHermes
@@ -14527,6 +14693,15 @@ Future<void> _sendMessageInternal(
       : null;
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
+  }
+  if (directRoute != null &&
+      !identical(
+        ref.read(directModelRegistryProvider).resolve(directRoute.model),
+        directRoute.binding,
+      )) {
+    throw StateError(
+      'The selected direct connection changed while preparing the message.',
+    );
   }
   if (usesHermes &&
       (!hermesConfigController!.sessionActionAdmissionIsCurrent(
@@ -14602,10 +14777,24 @@ Future<void> _sendMessageInternal(
         )
       : null;
   final _PreparedDirectDocuments? preparedDirectDocuments = directRoute != null
-      ? await _prepareDirectDocuments(ref, attachmentIds: attachments)
+      ? await _prepareDirectDocuments(
+          ref,
+          attachmentIds: attachments,
+          supportsOpenRouterPdfInputs:
+              directRoute.profile.supportsOpenRouterPdfInputs,
+        )
       : null;
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
+  }
+  if (directRoute != null &&
+      !identical(
+        ref.read(directModelRegistryProvider).resolve(directRoute.model),
+        directRoute.binding,
+      )) {
+    throw StateError(
+      'The selected direct connection changed while preparing the message.',
+    );
   }
   if (usesHermes &&
       (!hermesConfigController!.sessionActionAdmissionIsCurrent(
@@ -14725,6 +14914,16 @@ Future<void> _sendMessageInternal(
   final DirectRunRegistry? directRegistry = directRoute == null
       ? null
       : ref.read(directRunRegistryProvider);
+  if (directRoute != null &&
+      !identical(
+        ref.read(directModelRegistryProvider).resolve(directRoute.model),
+        directRoute.binding,
+      )) {
+    messagesNotifier.finishStreamingMessage(assistantMessageId);
+    throw StateError(
+      'The selected direct connection changed while preparing the message.',
+    );
+  }
   final directStopIndex = directRoute == null
       ? null
       : ref.read(_directRunStopIndexProvider);
@@ -15092,7 +15291,11 @@ Future<void> _sendMessageInternal(
         reservation: reservation,
         preflightCancelToken: preflightCancelToken,
         enableWebSearch: webSearchAtSendStart,
+        enableImageGeneration: imageGenerationAtSendStart,
         reasoningEffort: reasoningEffortAtSendStart,
+        ephemeralFilePartsByAttachmentId:
+            preparedDirectDocuments?.ephemeralFilePartsByAttachmentId ??
+            const <String, DirectFilePart>{},
         sendHandle: sendHandle,
       );
       if (_isDirectConversationOwnerActive(ref, runOwner) &&

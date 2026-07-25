@@ -23,6 +23,7 @@ import '../models/openwebui_direct_connection.dart';
 import '../services/direct_adapter_helpers.dart';
 import '../services/direct_connection_profile_store.dart';
 import '../services/direct_http_client.dart';
+import '../services/direct_model_cache_store.dart';
 import '../services/direct_model_registry.dart';
 import '../services/direct_provider_adapter.dart';
 import '../services/direct_run_registry.dart';
@@ -223,6 +224,19 @@ final directModelRegistryProvider = Provider<DirectModelRegistry>((ref) {
   final registry = DirectModelRegistry();
   ref.onDispose(registry.clear);
   return registry;
+});
+
+final directModelCacheStoreProvider = Provider<DirectModelCacheStore>((ref) {
+  final database = ref.watch(directLocalDatabaseProvider);
+  return DirectModelCacheStore(
+    read: () => database.appCacheDao.getValue(kDirectModelCacheKey),
+    write: (value) => database.appCacheDao.setValue(
+      kDirectModelCacheKey,
+      value,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    ),
+    delete: () => database.appCacheDao.deleteKey(kDirectModelCacheKey),
+  );
 });
 
 @Riverpod(keepAlive: true)
@@ -1610,6 +1624,7 @@ class DirectModelDiscoveryController
   DirectDiscoveryCancellation? _activeDiscovery;
   Future<void>? _refreshInFlight;
   bool _refreshRequested = false;
+  bool _hasCompletedLiveDiscovery = false;
 
   @override
   Future<DirectModelDiscoveryState> build() async {
@@ -1638,6 +1653,19 @@ class DirectModelDiscoveryController
         effectiveDirectConnectionProfilesFutureProvider.future,
       );
       cancellation.throwIfCancelled();
+      final restored =
+          !_hasCompletedLiveDiscovery &&
+          await _restorePersistentCache(profiles, cancellation: cancellation);
+      cancellation.throwIfCancelled();
+      if (restored) {
+        final cached = _cachedStartupState(profiles);
+        unawaited(
+          Future<void>(() async {
+            if (ref.mounted) await refresh();
+          }),
+        );
+        return cached;
+      }
       return await _discover(profiles, cancellation: cancellation);
     } on DirectDiscoveryCancelled {
       return ref.mounted ? state.value ?? fallback : fallback;
@@ -1829,10 +1857,152 @@ class DirectModelDiscoveryController
         previousModels != null && _sameModelIdentities(previousModels, models)
         ? previousModels
         : List<model.Model>.unmodifiable(models);
-    return DirectModelDiscoveryState._withStableModels(
+    final result = DirectModelDiscoveryState._withStableModels(
       models: stableModels,
       errorsByProfile: errors,
     );
+    _ensureCurrentDiscovery(cancellation);
+    _hasCompletedLiveDiscovery = true;
+    unawaited(
+      _persistCache(
+        profiles: profiles,
+        localProfileIds: localProfileIds,
+        cancellation: cancellation,
+      ),
+    );
+    _ensureCurrentDiscovery(cancellation);
+    return result;
+  }
+
+  Future<bool> _restorePersistentCache(
+    List<DirectConnectionProfile> profiles, {
+    required DirectDiscoveryCancellation cancellation,
+  }) async {
+    final localProfiles =
+        ref.read(directConnectionProfilesProvider).value ??
+        const <DirectConnectionProfile>[];
+    if (localProfiles.isEmpty) return false;
+    final localProfilesById = <String, DirectConnectionProfile>{
+      for (final profile in localProfiles) profile.id: profile,
+    };
+    try {
+      final authenticationKey = await ref.read(
+        directDeviceTrustKeyProvider.future,
+      );
+      cancellation.throwIfCancelled();
+      final restored = await ref
+          .read(directModelCacheStoreProvider)
+          .load(profiles: localProfiles, authenticationKey: authenticationKey);
+      cancellation.throwIfCancelled();
+      var restoredAny = false;
+      for (final profile in profiles) {
+        final localProfile = localProfilesById[profile.id];
+        if (localProfile == null ||
+            !sameDirectConnectionProfileValues(localProfile, profile)) {
+          continue;
+        }
+        final models = restored[profile.id];
+        if (models == null || models.isEmpty) continue;
+        _cache[profile.id] = models;
+        _profileSignatures[profile.id] = _profileSignature(profile);
+        restoredAny = true;
+      }
+      return restoredAny;
+    } on DirectDiscoveryCancelled {
+      return false;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'restore-failed',
+        scope: 'direct-connections/models-cache',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  DirectModelDiscoveryState _cachedStartupState(
+    List<DirectConnectionProfile> allProfiles,
+  ) {
+    final localProfileIds =
+        ref
+            .read(directConnectionProfilesProvider)
+            .value
+            ?.map((profile) => profile.id)
+            .toSet() ??
+        const <String>{};
+    final profiles = allProfiles
+        .where(
+          (profile) =>
+              profile.enabled &&
+              localProfileIds.contains(profile.id) &&
+              (profile.manualModelIds.isNotEmpty ||
+                  (_profileSignatures[profile.id] ==
+                          _profileSignature(profile) &&
+                      (_cache[profile.id]?.isNotEmpty ?? false))),
+        )
+        .toList(growable: false);
+    final activeIds = allProfiles
+        .where((profile) => profile.enabled)
+        .map((profile) => profile.id)
+        .toSet();
+    final registry = ref.read(directModelRegistryProvider)
+      ..retainProfiles(activeIds);
+    _pruneStaleDiscoveryState(activeIds, registry);
+    final models = <model.Model>[];
+    for (final profile in profiles) {
+      final remoteModels = profile.manualModelIds.isNotEmpty
+          ? directManualModels(profile)!
+          : _cache[profile.id]!;
+      final profileModels = registry.replaceProfileModels(
+        profile,
+        remoteModels,
+      );
+      _mintedModels[profile.id] = profileModels;
+      _mintedModelProfiles[profile.id] = profile;
+      models.addAll(profileModels);
+    }
+    return DirectModelDiscoveryState._withStableModels(
+      models: List<model.Model>.unmodifiable(models),
+      isRefreshing: true,
+    );
+  }
+
+  Future<void> _persistCache({
+    required List<DirectConnectionProfile> profiles,
+    required Set<String> localProfileIds,
+    required DirectDiscoveryCancellation cancellation,
+  }) async {
+    try {
+      final authenticationKey = await ref.read(
+        directDeviceTrustKeyProvider.future,
+      );
+      _ensureCurrentDiscovery(cancellation);
+      final entries = <DirectConnectionProfile, List<DirectRemoteModel>>{
+        for (final profile in profiles)
+          if (localProfileIds.contains(profile.id) &&
+              profile.manualModelIds.isEmpty &&
+              (_cache[profile.id]?.isNotEmpty ?? false))
+            profile: _cache[profile.id]!,
+      };
+      await ref
+          .read(directModelCacheStoreProvider)
+          .save(
+            models: entries,
+            authenticationKey: authenticationKey,
+            canWrite: () => _isCurrentDiscovery(cancellation),
+          );
+    } on DirectDiscoveryCancelled {
+      // A newer generation owns persistence. The write guard prevents the
+      // queued stale document from reaching disk.
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'persist-failed',
+        scope: 'direct-connections/models-cache',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   void _pruneStaleDiscoveryState(

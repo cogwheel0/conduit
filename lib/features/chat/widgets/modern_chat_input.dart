@@ -82,6 +82,9 @@ List<String>? localFilePickerExtensionsForModel(Model? selectedModel) {
   }
   if (hasReservedDirectIdentity(selectedModel)) {
     final extensions = <String>{...kDirectLocalDocumentPickerExtensions};
+    if (selectedModel.capabilities?['pdf_input'] == true) {
+      extensions.add('pdf');
+    }
     if (selectedModel.isMultimodal == true) {
       extensions.addAll(
         allSupportedImageFormats.map((extension) => extension.substring(1)),
@@ -158,7 +161,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     // provider has already resolved whether the active direct model can use it.
     webSearchAvailable: !hermesMode && webSearchAvailable,
     webSearchEnabled: webSearchEnabled,
-    imageGenerationAvailable: !restrictedMode && imageGenerationAvailable,
+    imageGenerationAvailable: !hermesMode && imageGenerationAvailable,
     imageGenerationEnabled: imageGenerationEnabled,
     availableTools: restrictedMode ? const <Tool>[] : availableTools,
     selectedToolIds: selectedToolIds,
@@ -180,7 +183,8 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
             item.id == ComposerOverflowActionIds.file ||
             item.id == ComposerOverflowActionIds.photo ||
             item.id == ComposerOverflowActionIds.camera ||
-            item.id == ComposerOverflowActionIds.webSearch;
+            item.id == ComposerOverflowActionIds.webSearch ||
+            item.id == ComposerOverflowActionIds.imageGeneration;
       })
       .map(
         (item) => IosKeyboardAttachmentActionConfig(
@@ -2512,7 +2516,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       isDirectComposer: isDirectComposer,
       directSupportsImages: directSupportsImages,
       directHasOverflowActions:
-          attachmentAvailability.file || webSearchAvailable,
+          attachmentAvailability.file ||
+          webSearchAvailable ||
+          imageGenAvailable,
       hermesHasLocalAttachmentActions:
           attachmentAvailability.file ||
           attachmentAvailability.photo ||

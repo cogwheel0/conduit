@@ -261,7 +261,20 @@ final class DirectModelRegistry {
         description: remote.description,
         isMultimodal: remote.isMultimodal,
         supportsStreaming: true,
-        capabilities: remote.capabilities,
+        capabilities: <String, dynamic>{
+          ...remote.capabilities,
+          'openrouter': profile.isOpenRouter,
+          if (profile.isOpenRouter) ...<String, dynamic>{
+            'web_search': profile.supportsOpenRouterWebSearch,
+            'image_generation': profile.supportsOpenRouterImageGeneration,
+            'file_upload':
+                source == DirectModelSource.device &&
+                profile.supportsOpenRouterPdfInputs,
+            'pdf_input':
+                source == DirectModelSource.device &&
+                profile.supportsOpenRouterPdfInputs,
+          },
+        },
         metadata: {
           'backend': 'direct',
           'direct': true,

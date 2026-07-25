@@ -40,6 +40,7 @@ typedef OwnedStagingConversionReplacer =
     });
 
 const int kUploadImagePrecacheMaxBytes = 4 * 1024 * 1024;
+const int _kDirectMaxAggregatePdfBytes = 2 * kDirectMaxLocalDocumentBytes;
 
 String _localDocumentOpaqueId(File file, FileStat stat) => sha256
     .convert(
@@ -1046,6 +1047,8 @@ class MediaUploadController {
             fileName: fileName,
             isImage: isImage,
             selectedModelSupportsImages: currentModel.isMultimodal == true,
+            selectedModelSupportsOpenRouterPdf:
+                currentModel.capabilities?['pdf_input'] == true,
             inflight: inflight,
           );
           _throwIfOperationNotActive(filePath, inflight);
@@ -1530,10 +1533,15 @@ class MediaUploadController {
     required String fileName,
     required bool isImage,
     required bool selectedModelSupportsImages,
+    required bool selectedModelSupportsOpenRouterPdf,
     required _InflightUpload inflight,
   }) async {
     if (!isImage) {
-      if (!isDirectLocalDocumentFileNameSupported(fileName)) {
+      final isOpenRouterPdf =
+          selectedModelSupportsOpenRouterPdf &&
+          isDirectOpenRouterPdfFileNameSupported(fileName);
+      if (!isOpenRouterPdf &&
+          !isDirectLocalDocumentFileNameSupported(fileName)) {
         throw const DirectChatInputException(
           'Direct chats support local UTF-8 text and DOCX documents.',
         );
@@ -1559,12 +1567,33 @@ class MediaUploadController {
           'This document exceeds the Direct local-document size limit.',
         );
       }
+      if (isOpenRouterPdf) {
+        final pdfPaths = <String>{
+          for (final attachment in attachments)
+            if (attachment.isImage != true &&
+                attachment.status != FileUploadStatus.failed &&
+                isDirectOpenRouterPdfFileNameSupported(attachment.fileName))
+              attachment.file.path,
+          filePath,
+        };
+        var aggregatePdfBytes = 0;
+        for (final path in pdfPaths) {
+          aggregatePdfBytes += await File(path).length();
+          _throwIfOperationNotActive(filePath, inflight);
+          if (aggregatePdfBytes > _kDirectMaxAggregatePdfBytes) {
+            throw const DirectChatInputException(
+              'The attached PDFs exceed the Direct attachment size limit.',
+            );
+          }
+        }
+      }
       final opaqueId = _localDocumentOpaqueId(file, stat);
       _updatePreparedDirectState(
         filePath: filePath,
         fileName: fileName,
         fileSize: stat.size,
-        fileId: '$kDirectLocalDocumentAttachmentPrefix$opaqueId',
+        fileId:
+            '${isOpenRouterPdf ? kDirectOpenRouterPdfAttachmentPrefix : kDirectLocalDocumentAttachmentPrefix}$opaqueId',
         isImage: false,
         inflight: inflight,
       );

@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/services/secure_credential_storage.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_cache_store.dart';
 import 'package:checks/checks.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,6 +100,187 @@ void main() {
       check(sameDirectConnectionProfileValues(profile, loaded)).isTrue();
     },
   );
+
+  test(
+    'model cache survives restart only for the exact profile binding',
+    () async {
+      String? persisted;
+      var deletes = 0;
+      final store = DirectModelCacheStore(
+        read: () async => persisted,
+        write: (value) async => persisted = value,
+        delete: () async {
+          deletes++;
+          persisted = null;
+        },
+      );
+      final key = List<int>.generate(32, (index) => index);
+      final profile = DirectConnectionProfile(
+        id: 'openrouter',
+        name: 'OpenRouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+        apiKey: 'secret-one',
+      );
+      final remote = DirectRemoteModel(
+        id: 'anthropic/claude',
+        name: 'Claude',
+        description: 'A cached model.',
+        isMultimodal: true,
+        capabilities: const {
+          'architecture': {
+            'input_modalities': ['text', 'image'],
+          },
+        },
+      );
+
+      await store.save(
+        models: {
+          profile: [remote],
+        },
+        authenticationKey: key,
+        canWrite: () => true,
+      );
+
+      final restored = await store.load(
+        profiles: [profile],
+        authenticationKey: key,
+      );
+      check(restored[profile.id]).isNotNull().deepEquals([remote]);
+      check(deletes).equals(0);
+
+      final changedCredential = await store.load(
+        profiles: [profile.copyWith(apiKey: 'secret-two')],
+        authenticationKey: key,
+      );
+      check(changedCredential).isEmpty();
+
+      final changedEndpoint = await store.load(
+        profiles: [
+          profile.copyWith(baseUrl: 'https://openrouter.example/api/v1'),
+        ],
+        authenticationKey: key,
+      );
+      check(changedEndpoint).isEmpty();
+
+      final rotatedKey = await store.load(
+        profiles: [profile],
+        authenticationKey: List<int>.generate(32, (index) => index + 1),
+      );
+      check(rotatedKey).isEmpty();
+
+      final document = jsonDecode(persisted!) as Map<String, dynamic>;
+      final profiles = document['profiles'] as List<dynamic>;
+      final cachedProfile = profiles.single as Map<String, dynamic>;
+      final models = cachedProfile['models'] as List<dynamic>;
+      final cachedModel = models.single as Map<String, dynamic>;
+      cachedModel['id'] = 'tampered/model';
+      persisted = jsonEncode(document);
+
+      final tampered = await store.load(
+        profiles: [profile],
+        authenticationKey: key,
+      );
+      check(tampered).isEmpty();
+      check(deletes).equals(1);
+    },
+  );
+
+  test('corrupt model cache is deleted and ignored', () async {
+    String? persisted = '{"version":1,"profiles":"invalid"}';
+    var deletes = 0;
+    final store = DirectModelCacheStore(
+      read: () async => persisted,
+      write: (value) async => persisted = value,
+      delete: () async {
+        deletes++;
+        persisted = null;
+      },
+    );
+
+    final restored = await store.load(
+      profiles: const <DirectConnectionProfile>[],
+      authenticationKey: List<int>.filled(32, 7),
+    );
+
+    check(restored).isEmpty();
+    check(deletes).equals(1);
+    check(persisted).isNull();
+  });
+
+  test(
+    'one excessive model catalog does not block healthy cache entries',
+    () async {
+      String? persisted;
+      final store = DirectModelCacheStore(
+        read: () async => persisted,
+        write: (value) async => persisted = value,
+        delete: () async => persisted = null,
+      );
+      final excessiveProfile = DirectConnectionProfile(
+        id: 'excessive',
+        name: 'Excessive',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://excessive.example/v1',
+      );
+      final healthyProfile = DirectConnectionProfile(
+        id: 'healthy',
+        name: 'Healthy',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://healthy.example/v1',
+      );
+      final key = List<int>.generate(32, (index) => index);
+
+      await store.save(
+        models: {
+          excessiveProfile: [
+            DirectRemoteModel(id: 'excessive', description: 'x' * (40 * 1024)),
+          ],
+          healthyProfile: [DirectRemoteModel(id: 'healthy-model')],
+        },
+        authenticationKey: key,
+        canWrite: () => true,
+      );
+
+      final restored = await store.load(
+        profiles: [excessiveProfile, healthyProfile],
+        authenticationKey: key,
+      );
+      check(restored.keys).deepEquals(['healthy']);
+      check(restored['healthy']!.single.id).equals('healthy-model');
+    },
+  );
+
+  test('model cache skips a stale queued write', () async {
+    String? persisted;
+    var writes = 0;
+    final store = DirectModelCacheStore(
+      read: () async => persisted,
+      write: (value) async {
+        writes++;
+        persisted = value;
+      },
+      delete: () async => persisted = null,
+    );
+
+    await store.save(
+      models: {
+        DirectConnectionProfile(
+          id: 'stale',
+          name: 'Stale',
+          adapterKey: kOllamaAdapterKey,
+          baseUrl: 'http://localhost:11434',
+        ): [
+          DirectRemoteModel(id: 'model'),
+        ],
+      },
+      authenticationKey: List<int>.generate(32, (index) => index),
+      canWrite: () => false,
+    );
+
+    check(writes).equals(0);
+    check(persisted).isNull();
+  });
 
   test('Ollama thinking settings bound persisted map keys and count', () {
     expect(

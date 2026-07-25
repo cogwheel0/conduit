@@ -19,10 +19,12 @@ class OpenWebUISourcesWidget extends StatelessWidget {
     super.key,
     required this.sources,
     this.messageId,
+    this.faviconImageProvider,
   });
 
   final List<ChatSourceReference> sources;
   final String? messageId;
+  final ImageProvider<Object> Function(String url)? faviconImageProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -112,6 +114,7 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                     child: _SourceFavicon(
                       url: SourceReferenceHelper.getSourceUrl(urlSources[i])!,
                       size: 16,
+                      imageProvider: faviconImageProvider,
                     ),
                   ),
               ],
@@ -276,7 +279,11 @@ class OpenWebUISourcesWidget extends StatelessWidget {
                 _SourceIndexBadge(index: index + 1),
                 const SizedBox(width: Spacing.sm),
                 if (url != null) ...[
-                  _SourceFavicon(url: url, size: 18),
+                  _SourceFavicon(
+                    url: url,
+                    size: 18,
+                    imageProvider: faviconImageProvider,
+                  ),
                   const SizedBox(width: Spacing.sm),
                 ] else ...[
                   Container(
@@ -453,7 +460,6 @@ class OpenWebUISourcesWidget extends StatelessWidget {
 
     return 'https://www.google.com/s2/favicons?sz=32&domain=$domain';
   }
-
 }
 
 class _SourceIndexBadge extends StatelessWidget {
@@ -485,10 +491,15 @@ class _SourceIndexBadge extends StatelessWidget {
 }
 
 class _SourceFavicon extends StatelessWidget {
-  const _SourceFavicon({required this.url, required this.size});
+  const _SourceFavicon({
+    required this.url,
+    required this.size,
+    this.imageProvider,
+  });
 
   final String url;
   final double size;
+  final ImageProvider<Object> Function(String url)? imageProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -505,10 +516,22 @@ class _SourceFavicon extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular((size / 2) - 1),
-        child: CachedNetworkImage(
-          imageUrl: 'https://www.google.com/s2/favicons?sz=32&domain=$domain',
+        child: Image(
+          image:
+              imageProvider?.call(
+                'https://www.google.com/s2/favicons?sz=32&domain=$domain',
+              ) ??
+              CachedNetworkImageProvider(
+                'https://www.google.com/s2/favicons?sz=32&domain=$domain',
+              ),
           width: size - 2,
           height: size - 2,
+          fit: BoxFit.contain,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            return wasSynchronouslyLoaded || frame != null
+                ? child
+                : _fallback(theme);
+          },
           errorBuilder: (context, error, stackTrace) => _fallback(theme),
         ),
       ),

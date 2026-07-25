@@ -326,6 +326,35 @@ void main() {
       check(container.read(webSearchAvailableProvider)).isFalse();
     });
 
+    test(
+      'first-party OpenRouter models expose trusted model actions',
+      () async {
+        final registry = DirectModelRegistry();
+        final model = registry.replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'openrouter',
+            name: 'OpenRouter',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: kOpenRouterApiBaseUrl,
+          ),
+          [DirectRemoteModel(id: 'anthropic/claude-sonnet-4')],
+        ).single;
+        final container = _container(
+          const AsyncData<Map<String, dynamic>>({
+            'features': {'web_search': false, 'image_generation': false},
+          }),
+          backendConfig: const BackendConfig(enableWebSearch: false),
+          selectedModel: model,
+          directModelRegistry: registry,
+        );
+        addTearDown(container.dispose);
+        await container.read(backendConfigProvider.future);
+
+        check(container.read(webSearchAvailableProvider)).isTrue();
+        check(container.read(imageGenerationAvailableProvider)).isTrue();
+      },
+    );
+
     test('admin bypasses explicit false permission', () async {
       final container = _container(
         const AsyncData<Map<String, dynamic>>({

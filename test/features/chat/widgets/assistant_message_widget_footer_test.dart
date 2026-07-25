@@ -17,6 +17,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,6 +42,21 @@ class _RecordingTextToSpeechController extends TextToSpeechController {
     required String text,
   }) async {
     onToggle();
+  }
+}
+
+final class _PendingImageProvider extends ImageProvider<_PendingImageProvider> {
+  @override
+  Future<_PendingImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture(this);
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    _PendingImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(Completer<ImageInfo>().future);
   }
 }
 
@@ -169,6 +185,31 @@ void main() {
     expect(find.text('A first source summary for the sheet.'), findsOneWidget);
     expect(find.text('API Docs'), findsOneWidget);
     expect(find.text('A second source summary for the sheet.'), findsOneWidget);
+  });
+
+  testWidgets('source chip shows an icon while its favicon is loading', (
+    tester,
+  ) async {
+    const sources = <ChatSourceReference>[
+      ChatSourceReference(
+        title: 'Loading source',
+        url: 'https://favicon-loading.invalid/article',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      _buildHarness(
+        Center(
+          child: OpenWebUISourcesWidget(
+            sources: sources,
+            faviconImageProvider: (_) => _PendingImageProvider(),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('1 Source'), findsOneWidget);
+    expect(find.byIcon(Icons.language), findsOneWidget);
   });
 
   testWidgets('assistant footer caps inline actions and overflows extras', (

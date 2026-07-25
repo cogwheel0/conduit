@@ -2556,6 +2556,89 @@ void main() {
     );
   });
 
+  test(
+    'OpenRouter direct attachment keeps PDF bytes local until send',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_openrouter_pdf_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final document = File('${directory.path}/brief.pdf');
+      await document.writeAsString('%PDF-1.4');
+      final container = _directContainer(
+        profile: DirectConnectionProfile(
+          id: 'openrouter-media',
+          name: 'OpenRouter',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: kOpenRouterApiBaseUrl,
+        ),
+        attachments: [_pendingDocument(document, reportedBytes: 1)],
+        encoder: (file) async => throw StateError('not an image'),
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: document.path, fileName: 'brief.pdf', fileSize: 1);
+
+      final stored = container.read(attachedFilesProvider).single;
+      expect(stored.status, FileUploadStatus.completed);
+      expect(stored.fileId, startsWith(kDirectOpenRouterPdfAttachmentPrefix));
+      expect(stored.fileId, isNot(contains(document.path)));
+      expect(stored.base64DataUrl, isNull);
+    },
+  );
+
+  test('OpenRouter rejects PDFs above the aggregate staging limit', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_openrouter_pdf_aggregate_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final first = File('${directory.path}/first.pdf');
+    final second = File('${directory.path}/second.pdf');
+    final third = File('${directory.path}/third.pdf');
+    for (final file in [first, second, third]) {
+      await _truncate(file, 6 * 1024 * 1024);
+    }
+    FileUploadState completed(File file, String id) => FileUploadState(
+      file: file,
+      fileName: file.uri.pathSegments.last,
+      fileSize: 6 * 1024 * 1024,
+      progress: 1,
+      status: FileUploadStatus.completed,
+      fileId: '$kDirectOpenRouterPdfAttachmentPrefix$id',
+      isImage: false,
+    );
+    final container = _directContainer(
+      profile: DirectConnectionProfile(
+        id: 'openrouter-media',
+        name: 'OpenRouter',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: kOpenRouterApiBaseUrl,
+      ),
+      attachments: [
+        completed(first, 'first'),
+        completed(second, 'second'),
+        _pendingDocument(third, reportedBytes: 1),
+      ],
+      encoder: (file) async => throw StateError('not an image'),
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: third.path, fileName: 'third.pdf', fileSize: 1),
+      throwsA(
+        isA<DirectChatInputException>().having(
+          (error) => error.message,
+          'message',
+          contains('attached PDFs exceed'),
+        ),
+      ),
+    );
+  });
+
   test('invalid encoder output is never stored as a direct image', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',
@@ -3233,17 +3316,19 @@ void main() {
 
 ProviderContainer _directContainer({
   required DirectImageDataUrlEncoder encoder,
+  DirectConnectionProfile? profile,
   List<FileUploadState> attachments = const [],
   List<Override> extraOverrides = const [],
 }) {
   final registry = DirectModelRegistry();
   final model = registry.replaceProfileModels(
-    DirectConnectionProfile(
-      id: 'media-profile',
-      name: 'Media provider',
-      adapterKey: kOllamaAdapterKey,
-      baseUrl: 'http://localhost:11434',
-    ),
+    profile ??
+        DirectConnectionProfile(
+          id: 'media-profile',
+          name: 'Media provider',
+          adapterKey: kOllamaAdapterKey,
+          baseUrl: 'http://localhost:11434',
+        ),
     [DirectRemoteModel(id: 'vision', isMultimodal: true)],
   ).single;
   return ProviderContainer(

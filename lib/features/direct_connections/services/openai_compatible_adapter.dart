@@ -14,6 +14,10 @@ import '../models/direct_remote_model.dart';
 import 'direct_adapter_helpers.dart';
 import 'direct_http_client.dart';
 import 'direct_provider_adapter.dart';
+import 'openrouter_file_annotations.dart';
+
+const int _kMaxOpenRouterSources = 10;
+const int _kMaxOpenRouterExtensionAnnotationsInspected = 256;
 
 /// OpenAI-family adapter backed by openai_dart's protocol models and SSE
 /// decoder. Dio remains the transport so each direct profile keeps Conduit's
@@ -109,7 +113,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final dio = client.dio;
     try {
       final response = await dio.get<ResponseBody>(
-        'models',
+        profile.isOpenRouter ? 'models/user' : 'models',
         options: Options(responseType: ResponseType.stream),
       );
       final responseBody = response.data;
@@ -199,10 +203,41 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       return _probeManualConnection(profile);
     }
     try {
+      if (profile.isOpenRouter) {
+        await _validateOpenRouterKey(profile);
+      }
       final models = await listModels(profile);
       return DirectConnectionProbe(reachable: true, modelCount: models.length);
     } on DirectProviderException catch (error) {
       return DirectConnectionProbe(reachable: false, message: error.message);
+    }
+  }
+
+  Future<void> _validateOpenRouterKey(DirectConnectionProfile profile) async {
+    if ((profile.apiKey ?? '').trim().isEmpty ||
+        profile.apiKeyAuthMode != DirectApiKeyAuthMode.bearer) {
+      throw const DirectProviderException(
+        'OpenRouter requires an API key sent as a bearer token.',
+      );
+    }
+    final client = _client(profile);
+    try {
+      final response = await client.dio.get<ResponseBody>(
+        'key',
+        options: Options(responseType: ResponseType.stream),
+      );
+      final body = response.data;
+      if (body == null) {
+        throw const FormatException('OpenRouter key response is empty.');
+      }
+      final decoded = await decodeDirectJsonValue(body);
+      if (decoded is! Map || decoded['data'] is! Map) {
+        throw const FormatException('OpenRouter key response is invalid.');
+      }
+    } catch (error) {
+      throw normalizeDirectProviderError(error);
+    } finally {
+      client.release();
     }
   }
 
@@ -279,6 +314,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           maxCharacters: maxStreamCharacters,
           maxEvents: maxStreamEvents,
           sensitiveValues: sensitiveValues,
+          allowOpenRouterExtensions: profile.isOpenRouter,
           onSuccessfulTerminal: () => successfulProtocolTerminal = true,
         );
         var transportCompletedCleanly = false;
@@ -290,12 +326,15 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             _completionEndpoint(profile),
             cancelToken: transportCancelToken,
             data: responsesMode
-                ? _responsesRequestBody(request)
-                : _chatRequestBody(request),
+                ? _responsesRequestBody(request, profile)
+                : _chatRequestBody(request, profile),
             options: Options(
               responseType: ResponseType.stream,
               receiveTimeout: streamIdleTimeout,
-              headers: const {'Accept': 'text/event-stream'},
+              headers: {
+                'Accept': 'text/event-stream',
+                if (profile.isOpenRouter) 'X-OpenRouter-Metadata': 'enabled',
+              },
             ),
           );
           final body = response.data;
@@ -424,6 +463,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       if (payload == null) {
         throw const FormatException('Invalid OpenAI-compatible SSE event.');
       }
+      _emitOpenRouterPayloadExtensions(payload, emitter);
       if (raw.event == 'error' || payload['error'] != null) {
         emitter.protocolError(payload['error'] ?? payload);
         return;
@@ -481,6 +521,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       if (payload == null) {
         throw const FormatException('Invalid Responses API SSE event.');
       }
+      _emitOpenRouterPayloadExtensions(payload, emitter);
       if (raw.event == 'error' ||
           payload['type'] == 'error' ||
           (payload['type'] == null && payload['error'] != null)) {
@@ -591,23 +632,151 @@ String _completionEndpoint(DirectConnectionProfile profile) =>
     ? 'responses'
     : 'chat/completions';
 
-Map<String, dynamic> _chatRequestBody(DirectCompletionRequest request) {
+Map<String, dynamic> _chatRequestBody(
+  DirectCompletionRequest request,
+  DirectConnectionProfile profile,
+) {
   final messages = requireSerializableDirectMessages(request.messages);
+  final pdfParts = messages
+      .expand((message) => message.parts)
+      .whereType<DirectFilePart>()
+      .toList(growable: false);
+  if (!profile.isOpenRouter &&
+      messages.any((message) => message.annotations.isNotEmpty)) {
+    throw const DirectProviderException(
+      'Replayed message annotations require an OpenRouter Chat Completions connection.',
+    );
+  }
+  if (pdfParts.isNotEmpty && !profile.supportsOpenRouterPdfInputs) {
+    throw const DirectProviderException(
+      'PDF inputs require an OpenRouter Chat Completions connection.',
+    );
+  }
+  for (final part in pdfParts) {
+    _validateOpenRouterPdfPart(part);
+  }
   Map<String, dynamic> core;
-  try {
-    core = openai.ChatCompletionCreateRequest(
-      model: request.remoteModelId,
-      messages: [for (final message in messages) _chatMessage(message)],
-    ).toJson();
-  } on FormatException {
+  final requiresRawMessageShape = messages.any(
+    (message) =>
+        message.annotations.isNotEmpty ||
+        message.parts.any((part) => part is DirectFilePart),
+  );
+  if (requiresRawMessageShape) {
     // Preserve extension roles and multimodal history accepted by compatible
     // servers even when openai_dart's sealed message types cannot express it.
     core = {
       'model': request.remoteModelId,
       'messages': [for (final message in messages) _rawChatMessage(message)],
     };
+  } else {
+    try {
+      core = openai.ChatCompletionCreateRequest(
+        model: request.remoteModelId,
+        messages: [for (final message in messages) _chatMessage(message)],
+      ).toJson();
+    } on FormatException {
+      core = {
+        'model': request.remoteModelId,
+        'messages': [for (final message in messages) _rawChatMessage(message)],
+      };
+    }
   }
-  return {...request.parameters, ...core, 'stream': true};
+  final body = <String, dynamic>{
+    ...request.parameters,
+    ...core,
+    'stream': true,
+  };
+  if (profile.isOpenRouter) {
+    _applyOpenRouterRequestFeatures(body, request, messages);
+  } else if (request.enableWebSearch || request.enableImageGeneration) {
+    throw const DirectProviderException(
+      'This provider does not support Conduit-managed server tools.',
+    );
+  }
+  return body;
+}
+
+void _validateOpenRouterPdfPart(DirectFilePart part) {
+  const prefix = 'data:application/pdf;base64,';
+  const maxPayloadCharacters = ((8 * 1024 * 1024 + 2) ~/ 3) * 4;
+  final filename = part.filename.trim();
+  final dataUrl = part.dataUrl;
+  if (part.mimeType != 'application/pdf' ||
+      filename.isEmpty ||
+      filename.length > 240 ||
+      !filename.toLowerCase().endsWith('.pdf') ||
+      filename.contains(RegExp(r'[\r\n\u0000]')) ||
+      !dataUrl.startsWith(prefix) ||
+      dataUrl.length <= prefix.length ||
+      dataUrl.length - prefix.length > maxPayloadCharacters ||
+      !dataUrl.startsWith('${prefix}JVBERi0') ||
+      (dataUrl.length - prefix.length) % 4 != 0) {
+    throw const DirectProviderException('The PDF attachment is invalid.');
+  }
+  var paddingStarted = false;
+  var paddingCharacters = 0;
+  for (var index = prefix.length; index < dataUrl.length; index++) {
+    final code = dataUrl.codeUnitAt(index);
+    if (code == 0x3d) {
+      paddingStarted = true;
+      paddingCharacters++;
+      if (paddingCharacters > 2) {
+        throw const DirectProviderException('The PDF attachment is invalid.');
+      }
+      continue;
+    }
+    final valid =
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a) ||
+        (code >= 0x30 && code <= 0x39) ||
+        code == 0x2b ||
+        code == 0x2f;
+    if (!valid || paddingStarted) {
+      throw const DirectProviderException('The PDF attachment is invalid.');
+    }
+  }
+}
+
+void _applyOpenRouterRequestFeatures(
+  Map<String, dynamic> body,
+  DirectCompletionRequest request,
+  List<DirectChatMessage> messages,
+) {
+  final tools = <Map<String, dynamic>>[];
+  if (request.enableWebSearch) {
+    tools.add(<String, dynamic>{
+      'type': 'openrouter:web_search',
+      'parameters': <String, dynamic>{
+        'engine': 'auto',
+        'max_results': 5,
+        'max_total_results': 10,
+        'max_uses': 3,
+        'search_context_size': 'low',
+      },
+    });
+  }
+  if (request.enableImageGeneration) {
+    tools.add(<String, dynamic>{'type': 'openrouter:image_generation'});
+  }
+  if (tools.isNotEmpty) {
+    body['tools'] = tools;
+    body['max_tool_calls'] = 4;
+  }
+
+  final hasPdf = messages.any(
+    (message) => message.parts.any((part) => part is DirectFilePart),
+  );
+  body['plugins'] = <Map<String, dynamic>>[
+    if (hasPdf)
+      <String, dynamic>{
+        'id': 'file-parser',
+        'pdf': <String, dynamic>{'engine': 'cloudflare-ai'},
+      },
+    // Prefer an honest context-window failure to silently deleting the middle
+    // of a conversation. Account-level "Prevent overrides" may still enforce
+    // the user's OpenRouter policy.
+    <String, dynamic>{'id': 'context-compression', 'enabled': false},
+  ];
 }
 
 openai.ChatMessage _chatMessage(DirectChatMessage message) {
@@ -636,6 +805,9 @@ openai.ChatMessage _chatMessage(DirectChatMessage message) {
       switch (part) {
         DirectTextPart() => openai.ContentPart.text(part.text),
         DirectImagePart() => openai.ContentPart.imageUrl(part.url),
+        DirectFilePart() => throw const FormatException(
+          'File parts require the OpenRouter request shape.',
+        ),
       },
   ]);
 }
@@ -644,15 +816,16 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
   final parts = _providerInputParts(message);
   final onlyText = parts.every((part) => part is DirectTextPart);
   if (onlyText) {
-    return {
+    return <String, dynamic>{
       'role': message.role,
       'content': parts
           .whereType<DirectTextPart>()
           .map((part) => part.text)
           .join(),
+      if (message.annotations.isNotEmpty) 'annotations': message.annotations,
     };
   }
-  return {
+  return <String, dynamic>{
     'role': message.role,
     'content': [
       for (final part in parts)
@@ -662,13 +835,37 @@ Map<String, dynamic> _rawChatMessage(DirectChatMessage message) {
             'type': 'image_url',
             'image_url': {'url': part.url},
           },
+          DirectFilePart() => {
+            'type': 'file',
+            'file': {'filename': part.filename, 'file_data': part.dataUrl},
+          },
         },
     ],
+    if (message.annotations.isNotEmpty) 'annotations': message.annotations,
   };
 }
 
-Map<String, dynamic> _responsesRequestBody(DirectCompletionRequest request) {
+Map<String, dynamic> _responsesRequestBody(
+  DirectCompletionRequest request,
+  DirectConnectionProfile profile,
+) {
   final messages = requireSerializableDirectMessages(request.messages);
+  if (messages.any((message) => message.annotations.isNotEmpty)) {
+    throw const DirectProviderException(
+      'Replayed message annotations require Chat Completions.',
+    );
+  }
+  if (messages.any(
+    (message) => message.parts.any((part) => part is DirectFilePart),
+  )) {
+    throw const DirectProviderException('PDF inputs require Chat Completions.');
+  }
+  if (profile.isOpenRouter &&
+      (request.enableWebSearch || request.enableImageGeneration)) {
+    throw const DirectProviderException(
+      'OpenRouter tools currently require Chat Completions.',
+    );
+  }
   final core = OpenAiResponsesCodec.createRequestBody(
     model: request.remoteModelId,
     input: openai.ResponseInput.items([
@@ -687,7 +884,18 @@ Map<String, dynamic> _responsesRequestBody(DirectCompletionRequest request) {
       }
     }
   }
-  return {...request.parameters, ...core, 'stream': true};
+  final body = <String, dynamic>{
+    ...request.parameters,
+    ...core,
+    'stream': true,
+  };
+  if (!profile.isOpenRouter &&
+      (request.enableWebSearch || request.enableImageGeneration)) {
+    throw const DirectProviderException(
+      'This provider does not support Conduit-managed server tools.',
+    );
+  }
+  return body;
 }
 
 openai.MessageItem _responseMessage(DirectChatMessage message) {
@@ -702,6 +910,9 @@ openai.MessageItem _responseMessage(DirectChatMessage message) {
                 ? openai.InputContent.assistantText(part.text)
                 : openai.InputContent.text(part.text),
           DirectImagePart() => openai.InputContent.imageUrl(part.url),
+          DirectFilePart() => throw const FormatException(
+            'Responses API file parts are unsupported.',
+          ),
         },
     ],
   );
@@ -746,6 +957,7 @@ Map<String, dynamic> _normalizeChatChoice(Map<String, dynamic> choice) {
 }
 
 void _emitChatPayload(Map<String, dynamic> payload, _DirectEmitter emitter) {
+  _emitOpenRouterPayloadExtensions(payload, emitter);
   if (payload['error'] != null) {
     emitter.protocolError(payload['error']);
     return;
@@ -779,6 +991,7 @@ void _emitResponsesPayload(
   Map<String, dynamic> payload,
   _DirectEmitter emitter,
 ) {
+  _emitOpenRouterPayloadExtensions(payload, emitter);
   if (payload['error'] != null && payload['id'] == null) {
     emitter.protocolError(payload['error']);
     return;
@@ -800,6 +1013,58 @@ void _emitResponsesPayload(
     );
   }
   if (response.usage != null) emitter.usage(response.usage!.toJson());
+}
+
+void _emitOpenRouterPayloadExtensions(
+  Map<String, dynamic> payload,
+  _DirectEmitter emitter,
+) {
+  if (!emitter.allowOpenRouterExtensions) return;
+  final annotations = openRouterFileAnnotationsFromPayload(payload);
+  if (annotations.isNotEmpty) emitter.fileAnnotations(annotations);
+
+  final rawMetadata = payload['openrouter_metadata'];
+  if (rawMetadata is Map) {
+    try {
+      emitter.providerMetadata(
+        normalizeDirectUsageMetadata(rawMetadata.cast<String, dynamic>()),
+      );
+    } catch (_) {
+      // Router metadata is optional diagnostics. A malformed or unexpectedly
+      // large extension must not discard an otherwise valid completion.
+    }
+  }
+
+  final choices = payload['choices'];
+  if (choices is! Iterable) return;
+  var inspectedAnnotations = 0;
+  for (final choice in choices) {
+    if (choice is! Map) continue;
+    final message = choice['message'] ?? choice['delta'];
+    if (message is! Map) continue;
+    final rawAnnotations = message['annotations'];
+    if (rawAnnotations is! Iterable) continue;
+    for (final rawAnnotation in rawAnnotations) {
+      inspectedAnnotations++;
+      emitter.extensionWork();
+      if (inspectedAnnotations > _kMaxOpenRouterExtensionAnnotationsInspected) {
+        return;
+      }
+      if (rawAnnotation is! Map ||
+          rawAnnotation['type']?.toString() != 'url_citation') {
+        continue;
+      }
+      final nested = rawAnnotation['url_citation'];
+      final citation = nested is Map ? nested : rawAnnotation;
+      final url = citation['url'];
+      if (url is! String || url.trim().isEmpty) continue;
+      emitter.source(
+        url: url,
+        title: citation['title']?.toString(),
+        snippet: (citation['content'] ?? citation['snippet'])?.toString(),
+      );
+    }
+  }
 }
 
 bool _chatPayloadHasToolCall(Map<String, dynamic> payload) {
@@ -996,6 +1261,7 @@ final class _DirectEmitter {
     required int maxCharacters,
     required int maxEvents,
     required Iterable<String> sensitiveValues,
+    required this.allowOpenRouterExtensions,
     required void Function() onSuccessfulTerminal,
   }) : budget = DirectStreamBudget(
          maxCharacters: maxCharacters,
@@ -1006,6 +1272,7 @@ final class _DirectEmitter {
 
   final StreamController<DirectStreamEvent> controller;
   final DirectStreamBudget budget;
+  final bool allowOpenRouterExtensions;
   final List<String> _sensitiveValues;
   final void Function() _onSuccessfulTerminal;
   bool terminalSent = false;
@@ -1016,6 +1283,9 @@ final class _DirectEmitter {
   final StringBuffer _responseReasoningSummary = StringBuffer();
   final Set<int> _responseReasoningTextOutputIndexes = <int>{};
   final Set<int> _responseReasoningSummaryOutputIndexes = <int>{};
+  final Map<String, ({String? title, String? snippet})> _emittedSources = {};
+  final Set<String> _emittedFileAnnotationHashes = <String>{};
+  bool _hasEmittedProviderMetadata = false;
 
   bool get hasCompletion => _hasNonWhitespaceCompletion;
   String get contentText => _contentText.toString();
@@ -1024,6 +1294,8 @@ final class _DirectEmitter {
       _responseReasoningSummary.toString();
 
   void protocolEvent() => budget.addEvent();
+
+  void extensionWork() => budget.addWork(1);
 
   void content(String value) {
     if (terminalSent || controller.isClosed) return;
@@ -1080,6 +1352,67 @@ final class _DirectEmitter {
     if (!terminalSent && !controller.isClosed) {
       controller.add(DirectUsageUpdate(value));
     }
+  }
+
+  void providerMetadata(Map<String, dynamic> value) {
+    if (terminalSent || controller.isClosed || _hasEmittedProviderMetadata) {
+      return;
+    }
+    final encoded = jsonEncode(value);
+    budget.add(encoded);
+    _hasEmittedProviderMetadata = true;
+    controller.add(DirectProviderMetadataUpdate(value));
+  }
+
+  void fileAnnotations(Iterable<Map<String, dynamic>> value) {
+    if (terminalSent || controller.isClosed) return;
+    final novel = <Map<String, dynamic>>[];
+    for (final annotation in value) {
+      if (_emittedFileAnnotationHashes.length >=
+          kOpenRouterMaxFileAnnotations) {
+        break;
+      }
+      final file = annotation['file'];
+      final hash = file is Map ? file['hash']?.toString() : null;
+      if (hash == null || !_emittedFileAnnotationHashes.add(hash)) continue;
+      novel.add(annotation);
+    }
+    if (novel.isEmpty) return;
+    budget.add(jsonEncode(novel));
+    controller.add(DirectFileAnnotationsUpdate(novel));
+  }
+
+  void source({required String url, String? title, String? snippet}) {
+    if (terminalSent || controller.isClosed) return;
+    final normalizedUrl = url.trim();
+    if (normalizedUrl.isEmpty) return;
+    final normalizedTitle = title?.trim();
+    final normalizedSnippet = snippet?.trim();
+    final previous = _emittedSources[normalizedUrl];
+    final enrichedTitle = previous?.title ?? normalizedTitle;
+    final enrichedSnippet = previous?.snippet ?? normalizedSnippet;
+    if (previous != null &&
+        previous.title == enrichedTitle &&
+        previous.snippet == enrichedSnippet) {
+      return;
+    }
+    if (previous == null && _emittedSources.length >= _kMaxOpenRouterSources) {
+      return;
+    }
+    budget.add(normalizedUrl);
+    if (enrichedTitle != null) budget.add(enrichedTitle);
+    if (enrichedSnippet != null) budget.add(enrichedSnippet);
+    _emittedSources[normalizedUrl] = (
+      title: enrichedTitle,
+      snippet: enrichedSnippet,
+    );
+    controller.add(
+      DirectSourceFound(
+        url: normalizedUrl,
+        title: enrichedTitle,
+        snippet: enrichedSnippet,
+      ),
+    );
   }
 
   void done() {

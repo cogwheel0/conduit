@@ -3,12 +3,15 @@ import '../../../core/services/direct_replay_output.dart';
 import '../../../core/services/semantic_message_builder.dart';
 import '../../../core/utils/tool_calls_parser.dart';
 import '../models/direct_completion.dart';
+import '../models/direct_connection_profile.dart';
 import 'direct_local_document_service.dart';
 import 'ollama_cloud_tools.dart';
+import 'openrouter_file_annotations.dart';
 
 const String kDirectTransport = kConduitDirectTransport;
 const String kDirectRawAssistantContentMetadataKey =
     kConduitDirectRawAssistantContentMetadataKey;
+const String kDirectProviderMetadataKey = 'directProviderMetadata';
 const int kDirectMaxImages = 4;
 const int kDirectMaxDecodedImageBytes = 20 * 1024 * 1024;
 const int _kDirectMaxWebSources = kOllamaCloudMaxSearchResults;
@@ -116,14 +119,68 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
   required Iterable<ChatMessage> messages,
   DirectImageResolver? resolveImage,
   List<int>? directDocumentVerificationKey,
+  DirectConnectionProfile? openRouterProfile,
+  Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   int maxImages = kDirectMaxImages,
   int maxDecodedImageBytes = kDirectMaxDecodedImageBytes,
 }) async {
+  final sourceMessages = messages.toList(growable: false);
   final result = <DirectChatMessage>[];
   var imageCount = 0;
   var decodedImageBytes = 0;
   var documentCount = 0;
   var documentCharacters = 0;
+  final trustedAnnotationEnvelopesByMessageIndex =
+      <int, TrustedOpenRouterFileAnnotationEnvelope>{};
+  if (directDocumentVerificationKey != null &&
+      openRouterProfile?.isOpenRouter == true) {
+    var annotationCount = 0;
+    var annotationCharacters = 0;
+    for (var index = 0; index < sourceMessages.length; index++) {
+      final envelope = trustedOpenRouterFileAnnotationEnvelope(
+        sourceMessages[index].metadata?[kOpenRouterFileAnnotationsMetadataKey],
+        verificationKey: directDocumentVerificationKey,
+        profile: openRouterProfile!,
+      );
+      if (envelope.annotations.isNotEmpty) {
+        annotationCount += envelope.annotations.length;
+        for (final annotation in envelope.annotations) {
+          final file = annotation['file'];
+          final content = file is Map ? file['content'] : null;
+          if (content is! Iterable) continue;
+          for (final part in content) {
+            if (part is Map && part['text'] is String) {
+              annotationCharacters += (part['text'] as String).length;
+            }
+          }
+        }
+        if (annotationCount > kOpenRouterMaxFileAnnotations ||
+            annotationCharacters > kOpenRouterMaxAnnotationTextCharacters) {
+          throw const DirectChatInputException(
+            'This conversation has too much reusable PDF context. Start a new chat or reattach the PDFs you still need.',
+          );
+        }
+        trustedAnnotationEnvelopesByMessageIndex[index] = envelope;
+      }
+    }
+  }
+  final replayableOpenRouterPdfIdsAfter = List<Set<String>>.generate(
+    sourceMessages.length,
+    (_) => const <String>{},
+  );
+  var laterAttachmentIds = <String>{};
+  for (var index = sourceMessages.length - 1; index >= 0; index--) {
+    replayableOpenRouterPdfIdsAfter[index] = Set<String>.unmodifiable(
+      laterAttachmentIds,
+    );
+    final envelope = trustedAnnotationEnvelopesByMessageIndex[index];
+    if (envelope != null && envelope.attachmentIds.isNotEmpty) {
+      laterAttachmentIds = <String>{
+        ...laterAttachmentIds,
+        ...envelope.attachmentIds,
+      };
+    }
+  }
 
   Future<void> addImage(
     List<DirectContentPart> parts,
@@ -187,12 +244,21 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     parts.add(DirectImagePart(value));
   }
 
-  for (final message in messages) {
+  for (
+    var messageIndex = 0;
+    messageIndex < sourceMessages.length;
+    messageIndex++
+  ) {
+    final message = sourceMessages[messageIndex];
     if (message.metadata?['archivedVariant'] == true) continue;
     final role = message.role.trim().toLowerCase();
     if (role != 'system' && role != 'user' && role != 'assistant') continue;
 
     final parts = <DirectContentPart>[];
+    final annotations = role == 'assistant'
+        ? trustedAnnotationEnvelopesByMessageIndex[messageIndex]?.annotations ??
+              const <Map<String, dynamic>>[]
+        : const <Map<String, dynamic>>[];
     final seenImages = <String>{};
     final seenImageReferences = <String>{};
     var text = outboundProviderReplayText(message);
@@ -235,6 +301,18 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     // Chat Completions, Responses, and Ollama request shapes.
     if (role == 'user') {
       final files = message.files ?? const <Map<String, dynamic>>[];
+      for (final file in files) {
+        if (file['source'] != 'direct_openrouter_pdf') continue;
+        final attachmentId = file['url']?.toString() ?? '';
+        if (!ephemeralFilePartsByAttachmentId.containsKey(attachmentId) &&
+            !replayableOpenRouterPdfIdsAfter[messageIndex].contains(
+              attachmentId,
+            )) {
+          throw const DirectChatInputException(
+            'This PDF is no longer available. Attach it again.',
+          );
+        }
+      }
       final explicitNonImageReferences = <String>{};
       for (final file in files) {
         if (!_isExplicitNonImageFile(file)) continue;
@@ -246,6 +324,11 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         }
       }
       for (final attachment in message.attachmentIds ?? const <String>[]) {
+        final filePart = ephemeralFilePartsByAttachmentId[attachment];
+        if (filePart != null) {
+          parts.add(filePart);
+          continue;
+        }
         if (explicitNonImageReferences.contains(
           _normalizeDirectFileReference(attachment),
         )) {
@@ -270,8 +353,10 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
       }
     }
 
-    if (parts.isNotEmpty) {
-      result.add(DirectChatMessage(role: role, parts: parts));
+    if (parts.isNotEmpty || annotations.isNotEmpty) {
+      result.add(
+        DirectChatMessage(role: role, parts: parts, annotations: annotations),
+      );
     }
   }
   return List.unmodifiable(result);
@@ -410,6 +495,9 @@ final class DirectStreamingAccumulator {
   final Map<String, int> _sourceIndexByUrl = {};
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
+  Map<String, dynamic>? _providerMetadata;
+  final List<Map<String, dynamic>> _fileAnnotations = [];
+  final Set<String> _fileAnnotationHashes = <String>{};
   DirectStreamError? _error;
   bool _hasUsableOutput = false;
   bool _hasStreamingProjection = false;
@@ -427,6 +515,9 @@ final class DirectStreamingAccumulator {
   String get text => _text.toString();
   String get reasoning => _reasoning.toString();
   Map<String, dynamic>? get usage => _usage;
+  Map<String, dynamic>? get providerMetadata => _providerMetadata;
+  List<Map<String, dynamic>> get fileAnnotations =>
+      List.unmodifiable(_fileAnnotations);
   DirectStreamError? get error => _error;
   bool get hasUsableOutput => _hasUsableOutput;
   List<ChatSourceReference> get sources => List.unmodifiable(_sources);
@@ -486,6 +577,20 @@ final class DirectStreamingAccumulator {
         return event.content.isNotEmpty;
       case DirectUsageUpdate():
         _usage = Map<String, dynamic>.from(event.usage);
+        return true;
+      case DirectProviderMetadataUpdate():
+        _providerMetadata = Map<String, dynamic>.from(event.metadata);
+        return true;
+      case DirectFileAnnotationsUpdate():
+        for (final annotation in event.annotations) {
+          final file = annotation['file'];
+          final hash = file is Map ? file['hash']?.toString() : null;
+          if (hash == null || !_fileAnnotationHashes.add(hash)) continue;
+          _fileAnnotations.add(Map<String, dynamic>.from(annotation));
+        }
+        return true;
+      case DirectSourceFound():
+        _applySource(event);
         return true;
       case DirectToolCallStarted():
         _toolExecutions.add(
@@ -587,7 +692,12 @@ final class DirectStreamingAccumulator {
         return null;
       case DirectToolCallStarted() || DirectToolCallCompleted():
         return _fullStreamingProjection(logicalLength);
-      case DirectUsageUpdate() || DirectStreamError() || DirectStreamDone():
+      case DirectUsageUpdate() ||
+          DirectProviderMetadataUpdate() ||
+          DirectFileAnnotationsUpdate() ||
+          DirectSourceFound() ||
+          DirectStreamError() ||
+          DirectStreamDone():
         return null;
     }
   }
@@ -651,6 +761,38 @@ final class DirectStreamingAccumulator {
       case 'web_fetch':
         _applyWebFetchSource(event.arguments, event.result);
     }
+  }
+
+  void _applySource(DirectSourceFound event) {
+    final url = _normalizeDirectWebSourceUrl(event.url);
+    if (url == null) return;
+    final title = _boundedDirectSourceText(
+      event.title,
+      _kDirectMaxWebSourceTitleCharacters,
+    );
+    final snippet = _boundedDirectSourceText(
+      event.snippet,
+      _kDirectMaxWebSourceSnippetCharacters,
+    );
+    final existingIndex = _sourceIndexByUrl[url];
+    if (existingIndex != null) {
+      final existing = _sources[existingIndex];
+      _sources[existingIndex] = existing.copyWith(
+        title: _preferExistingDirectSourceText(existing.title, title),
+        snippet: _preferExistingDirectSourceText(existing.snippet, snippet),
+      );
+      return;
+    }
+    if (_sources.length >= _kDirectMaxWebSources) return;
+    _sourceIndexByUrl[url] = _sources.length;
+    _sources.add(
+      ChatSourceReference(
+        title: title,
+        url: url,
+        snippet: snippet,
+        type: 'web',
+      ),
+    );
   }
 
   void _applyWebSearchSources(Object? value) {

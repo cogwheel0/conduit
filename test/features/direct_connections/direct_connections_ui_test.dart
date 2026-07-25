@@ -1664,6 +1664,74 @@ void main() {
     expect(find.text('Responses'), findsOneWidget);
   });
 
+  testWidgets('switching an existing profile to OpenRouter normalizes state', (
+    tester,
+  ) async {
+    final profile = DirectConnectionProfile(
+      id: 'existing-generic',
+      name: 'Existing provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+      openAiApiMode: DirectOpenAiApiMode.responses,
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+      ]).encode(),
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionEditorPage(profileId: 'existing-generic'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final providerSelector = tester.widget<AdaptiveSegmentedSelector<String>>(
+      find.byKey(const ValueKey<String>('direct-provider-preset-selector')),
+    );
+    providerSelector.onChanged('openrouter');
+    await tester.pump();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(
+        const ValueKey<String>('direct-openai-api-mode-selector'),
+        skipOffstage: false,
+      ),
+      findsNothing,
+    );
+    final authenticationSelector = tester
+        .widget<DropdownButtonFormField<DirectAuthenticationMode>>(
+          find.byKey(const Key('direct-authentication-selector-openrouter')),
+        );
+    expect(
+      authenticationSelector.initialValue,
+      DirectAuthenticationMode.bearer,
+    );
+    expect(
+      tester
+          .widget<AccessibleFormField>(
+            find.byKey(
+              const ValueKey<String>('direct-base-url-field'),
+              skipOffstage: false,
+            ),
+          )
+          .controller
+          ?.text,
+      kOpenRouterApiBaseUrl,
+    );
+  });
+
   testWidgets('editor rejects a save from a stale profile snapshot', (
     tester,
   ) async {

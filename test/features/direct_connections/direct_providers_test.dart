@@ -11,6 +11,7 @@ import 'package:conduit/features/direct_connections/models/direct_connection_pro
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
+import 'package:conduit/features/direct_connections/services/direct_model_cache_store.dart';
 import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
@@ -124,6 +125,115 @@ void main() {
     expect(adapter.listCalls, 2);
     expect(refreshed.models.single.name, 'first');
     expect(refreshed.errorsByProfile['profile-one'], 'offline');
+  });
+
+  test('persisted models publish before restart discovery completes', () async {
+    String? persisted;
+    final cacheStore = DirectModelCacheStore(
+      read: () async => persisted,
+      write: (value) async => persisted = value,
+      delete: () async => persisted = null,
+    );
+    final profile = _profile(apiKey: 'restart-secret');
+    final manualProfile = _profile(
+      id: 'manual-profile',
+      name: 'Manual',
+      manualModelIds: const ['manual-model'],
+    );
+    FlutterSecureStorage.setMockInitialValues({
+      'direct_connection_profiles_v1': DirectConnectionProfilesDocument([
+        profile,
+        manualProfile,
+      ]).encode(),
+    });
+    final initialAdapter = _QueuedAdapter()
+      ..responses.add([
+        DirectRemoteModel(
+          id: 'cached-model',
+          name: 'Cached model',
+          isMultimodal: true,
+          capabilities: const {'context_length': 8192},
+        ),
+      ]);
+    final initialContainer = _container(initialAdapter, cacheStore: cacheStore);
+    var initialDisposed = false;
+    addTearDown(() {
+      if (!initialDisposed) initialContainer.dispose();
+    });
+
+    final initial = await initialContainer.read(
+      directModelDiscoveryProvider.future,
+    );
+    expect(
+      initial.models.map((model) => model.name),
+      containsAll(<String>['Cached model', 'manual-model']),
+    );
+    await Future.doWhile(() async {
+      if (persisted != null) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      return true;
+    }).timeout(const Duration(seconds: 5));
+    expect(persisted, isNotNull);
+    initialContainer.dispose();
+    initialDisposed = true;
+
+    final restartAdapter = _BlockingDiscoveryAdapter();
+    final restartedContainer = _container(
+      restartAdapter,
+      cacheStore: cacheStore,
+    );
+    addTearDown(restartedContainer.dispose);
+
+    final restored = await restartedContainer
+        .read(directModelDiscoveryProvider.future)
+        .timeout(
+          const Duration(seconds: 5),
+          onTimeout: () =>
+              throw StateError('Persisted startup models did not publish.'),
+        );
+    expect(
+      restored.models.map((model) => model.name),
+      containsAll(<String>['Cached model', 'manual-model']),
+    );
+    final restoredCached = restored.models.firstWhere(
+      (model) => model.name == 'Cached model',
+    );
+    expect(restoredCached.isMultimodal, isTrue);
+    expect(restoredCached.capabilities?['context_length'], 8192);
+    expect(restored.isRefreshing, isTrue);
+
+    await restartAdapter.started.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => throw StateError('Restart discovery did not begin.'),
+    );
+    restartAdapter.release.complete([
+      DirectRemoteModel(id: 'fresh-model', name: 'Fresh model'),
+    ]);
+    await Future.doWhile(() async {
+      final state = restartedContainer.read(directModelDiscoveryProvider).value;
+      if (state != null &&
+          !state.isRefreshing &&
+          state.models.any((model) => model.name == 'Fresh model') &&
+          state.models.any((model) => model.name == 'manual-model')) {
+        return false;
+      }
+      await Future<void>.delayed(Duration.zero);
+      return true;
+    }).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          throw StateError('Fresh and manual models did not settle together.'),
+    );
+
+    expect(restartAdapter.listCalls, 1);
+    expect(
+      restartedContainer
+          .read(directModelDiscoveryProvider)
+          .requireValue
+          .models
+          .map((model) => model.name),
+      containsAll(<String>['Fresh model', 'manual-model']),
+    );
   });
 
   test('Ollama lifecycle refresh preserves a concurrent busy model', () async {
@@ -1334,15 +1444,19 @@ void main() {
   );
 }
 
-ProviderContainer _container(DirectProviderAdapter adapter) =>
-    ProviderContainer(
-      overrides: [
-        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
-        directProviderAdapterRegistryProvider.overrideWithValue(
-          DirectProviderAdapterRegistry([adapter]),
-        ),
-      ],
-    );
+ProviderContainer _container(
+  DirectProviderAdapter adapter, {
+  DirectModelCacheStore? cacheStore,
+}) => ProviderContainer(
+  overrides: [
+    secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+    if (cacheStore != null)
+      directModelCacheStoreProvider.overrideWithValue(cacheStore),
+    directProviderAdapterRegistryProvider.overrideWithValue(
+      DirectProviderAdapterRegistry([adapter]),
+    ),
+  ],
+);
 
 DirectConnectionProfile _profile({
   String id = 'profile-one',
@@ -1408,6 +1522,33 @@ final class _QueuedAdapter implements DirectProviderAdapter {
     if (responses.isNotEmpty) return responses.removeAt(0);
     if (errors.isNotEmpty) throw errors.removeAt(0);
     return const [];
+  }
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) => throw UnimplementedError();
+}
+
+final class _BlockingDiscoveryAdapter implements DirectProviderAdapter {
+  final Completer<void> started = Completer<void>();
+  final Completer<List<DirectRemoteModel>> release =
+      Completer<List<DirectRemoteModel>>();
+  int listCalls = 0;
+
+  @override
+  String get key => kOpenAiCompatibleAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(DirectConnectionProfile profile) {
+    listCalls++;
+    if (!started.isCompleted) started.complete();
+    return release.future;
   }
 
   @override

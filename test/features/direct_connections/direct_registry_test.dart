@@ -175,6 +175,73 @@ void main() {
     },
   );
 
+  test('OpenRouter transport capabilities override remote claims', () {
+    final registry = DirectModelRegistry();
+    final responsesProfile = DirectConnectionProfile(
+      id: 'openrouter-responses',
+      name: 'OpenRouter',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: kOpenRouterApiBaseUrl,
+      openAiApiMode: DirectOpenAiApiMode.responses,
+    );
+    final responsesModel = registry.replaceProfileModels(responsesProfile, [
+      DirectRemoteModel(
+        id: 'model',
+        capabilities: const {
+          'file_upload': true,
+          'pdf_input': true,
+          'web_search': true,
+          'image_generation': true,
+        },
+      ),
+    ]).single;
+
+    expect(responsesModel.capabilities?['openrouter'], isTrue);
+    expect(responsesModel.capabilities?['file_upload'], isFalse);
+    expect(responsesModel.capabilities?['pdf_input'], isFalse);
+    expect(responsesModel.capabilities?['web_search'], isFalse);
+    expect(responsesModel.capabilities?['image_generation'], isFalse);
+
+    final chatProfile = responsesProfile.copyWith(
+      openAiApiMode: DirectOpenAiApiMode.chatCompletions,
+    );
+    final chatModel = registry.replaceProfileModels(chatProfile, [
+      DirectRemoteModel(id: 'model'),
+    ]).single;
+
+    expect(chatModel.capabilities?['pdf_input'], isTrue);
+    expect(chatModel.capabilities?['file_upload'], isTrue);
+    expect(chatModel.capabilities?['web_search'], isTrue);
+    expect(chatModel.capabilities?['image_generation'], isTrue);
+
+    final openWebUiModel = registry
+        .replaceProfileModels(
+          chatProfile,
+          [DirectRemoteModel(id: 'openwebui-model')],
+          source: DirectModelSource.openWebUi,
+          openWebUiUrlIndex: 0,
+        )
+        .single;
+    expect(openWebUiModel.capabilities?['pdf_input'], isFalse);
+    expect(openWebUiModel.capabilities?['file_upload'], isFalse);
+
+    final nonOpenRouterModel = registry.replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'compatible',
+        name: 'Compatible',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://compatible.example/v1',
+      ),
+      [
+        DirectRemoteModel(
+          id: 'spoofed',
+          capabilities: const {'openrouter': true},
+        ),
+      ],
+    ).single;
+    expect(nonOpenRouterModel.capabilities?['openrouter'], isFalse);
+  });
+
   test('Open WebUI provenance and URL index are trusted binding state', () {
     final registry = DirectModelRegistry();
     final profile = DirectConnectionProfile(
