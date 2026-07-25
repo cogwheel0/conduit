@@ -35,6 +35,13 @@ final class SherpaModelLoadException implements Exception {
   String toString() => 'SherpaModelLoadException: $message';
 }
 
+final class _SherpaOperationCancelled implements Exception {
+  const _SherpaOperationCancelled();
+
+  @override
+  String toString() => 'Sherpa TTS operation was cancelled';
+}
+
 final class SherpaSttWorker {
   SherpaSttWorker({SherpaStorage? storage})
     : _storage = storage ?? SherpaStorage();
@@ -46,10 +53,12 @@ final class SherpaSttWorker {
   );
   _SherpaRpc? _rpc;
   Future<_SherpaRpc>? _spawningRpc;
+  bool _disposed = false;
+  Future<void>? _disposeFuture;
 
   Stream<SherpaSttEvent> get events => _events.stream;
   Stream<Float32List> get vadSegments => _vadSegments.stream;
-  bool get isAlive => _rpc?.isAlive ?? false;
+  bool get isAlive => !_disposed && (_rpc?.isAlive ?? false);
 
   Future<void> load(
     InstalledSherpaModel installed, {
@@ -148,14 +157,29 @@ final class SherpaSttWorker {
   }
 
   Future<_SherpaRpc> _ensureRpc() async {
+    if (_disposed) {
+      throw StateError('Sherpa STT worker was disposed');
+    }
     final current = _rpc;
     if (current != null && current.isAlive) return current;
     final spawning = _spawningRpc;
-    if (spawning != null) return spawning;
+    if (spawning != null) {
+      final rpc = await spawning;
+      if (_disposed) {
+        await rpc.dispose();
+        throw StateError('Sherpa STT worker was disposed');
+      }
+      return rpc;
+    }
     final future = _spawnRpc(current);
     _spawningRpc = future;
     try {
-      return await future;
+      final rpc = await future;
+      if (_disposed) {
+        await rpc.dispose();
+        throw StateError('Sherpa STT worker was disposed');
+      }
+      return rpc;
     } finally {
       if (identical(_spawningRpc, future)) _spawningRpc = null;
     }
@@ -166,6 +190,7 @@ final class SherpaSttWorker {
     final rpc = await _SherpaRpc.spawn(
       _sttIsolate,
       onEvent: (event) {
+        if (_disposed) return;
         if (event['event'] == 'transcript') {
           _events.add(
             SherpaSttEvent(
@@ -186,7 +211,10 @@ final class SherpaSttWorker {
     return rpc;
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
+    _disposed = true;
     try {
       await _spawningRpc;
     } on Object {
@@ -208,13 +236,17 @@ final class SherpaTtsWorker {
   Future<_SherpaRpc>? _spawningRpc;
   InstalledSherpaModel? _installed;
   String? _languageCode;
+  bool _disposed = false;
+  Future<void>? _disposeFuture;
+  int _rpcGeneration = 0;
 
-  bool get isAlive => _rpc?.isAlive ?? false;
+  bool get isAlive => !_disposed && (_rpc?.isAlive ?? false);
 
   Future<void> load(
     InstalledSherpaModel installed, {
     String? languageCode,
   }) async {
+    final generation = _rpcGeneration;
     final rpc = await _ensureRpc();
     final files = await _storage.resolveRuntimeFiles(
       installed.model,
@@ -226,6 +258,9 @@ final class SherpaTtsWorker {
       'threads': installed.model.runtime.threadCount,
       'language': languageCode ?? '',
     });
+    if (_disposed || generation != _rpcGeneration) {
+      throw const _SherpaOperationCancelled();
+    }
     _installed = installed;
     _languageCode = languageCode;
   }
@@ -262,28 +297,77 @@ final class SherpaTtsWorker {
     _languageCode = null;
   }
 
+  Future<void> cancelCurrentOperation() async {
+    if (_disposed) return;
+    _rpcGeneration++;
+    final rpc = _rpc;
+    _rpc = null;
+    _installed = null;
+    _languageCode = null;
+    if (rpc != null) {
+      await rpc.dispose();
+    }
+    final spawning = _spawningRpc;
+    if (spawning != null) {
+      try {
+        await spawning;
+      } on Object {
+        // The cancelled spawn disposes itself before completing with an error.
+      }
+    }
+  }
+
   Future<_SherpaRpc> _ensureRpc() async {
+    if (_disposed) {
+      throw StateError('Sherpa TTS worker was disposed');
+    }
+    final generation = _rpcGeneration;
     final current = _rpc;
     if (current != null && current.isAlive) return current;
     final spawning = _spawningRpc;
-    if (spawning != null) return spawning;
-    final future = _spawnRpc(current);
+    if (spawning != null) {
+      try {
+        final rpc = await spawning;
+        if (_disposed || generation != _rpcGeneration) {
+          await rpc.dispose();
+          throw const _SherpaOperationCancelled();
+        }
+        return rpc;
+      } on _SherpaOperationCancelled {
+        if (_disposed || generation != _rpcGeneration) rethrow;
+        // The shared spawn belonged to a cancelled earlier generation.
+        // This caller is current, so replace it with a fresh RPC below.
+      }
+    }
+    final future = _spawnRpc(current, generation);
     _spawningRpc = future;
     try {
-      return await future;
+      final rpc = await future;
+      if (_disposed || generation != _rpcGeneration) {
+        await rpc.dispose();
+        throw const _SherpaOperationCancelled();
+      }
+      return rpc;
     } finally {
       if (identical(_spawningRpc, future)) _spawningRpc = null;
     }
   }
 
-  Future<_SherpaRpc> _spawnRpc(_SherpaRpc? current) async {
+  Future<_SherpaRpc> _spawnRpc(_SherpaRpc? current, int generation) async {
     if (current != null) await current.dispose();
     final rpc = await _SherpaRpc.spawn(_ttsIsolate);
+    if (_disposed || generation != _rpcGeneration) {
+      await rpc.dispose();
+      throw const _SherpaOperationCancelled();
+    }
     _rpc = rpc;
     return rpc;
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
+    _disposed = true;
     try {
       await _spawningRpc;
     } on Object {

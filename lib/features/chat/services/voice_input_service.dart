@@ -109,6 +109,7 @@ class VoiceInputService with WidgetsBindingObserver {
   bool _sherpaSttAvailable = false;
   String? _loadedSherpaSttModelId;
   String? _loadedSherpaSttLanguageCode;
+  bool _sherpaSttUnloadPending = false;
   Future<void> _sherpaLifecycleSerial = Future<void>.value();
   bool _usingNativeLocalStt = false;
   bool _nativeAccumulateResultsForCurrentListen = true;
@@ -1129,23 +1130,21 @@ class VoiceInputService with WidgetsBindingObserver {
     final id = settings?.sherpaSttModelId;
     final languageCode = settings?.sherpaSttLanguageCode;
     if (id == null) {
-      _loadedSherpaSttModelId = null;
-      _loadedSherpaSttLanguageCode = null;
-      _sherpaSttAvailable = false;
+      await _invalidateSherpaRecognizerNow();
       return;
     }
     final model = sherpaModelById(id);
     if (model == null || model.kind != SherpaModelKind.stt) {
-      _loadedSherpaSttModelId = null;
-      _loadedSherpaSttLanguageCode = null;
-      _sherpaSttAvailable = false;
+      await _invalidateSherpaRecognizerNow();
       return;
     }
     final installed = await _sherpaStorage.installedModel(id);
     if (installed == null) {
-      _loadedSherpaSttModelId = null;
-      _loadedSherpaSttLanguageCode = null;
-      _sherpaSttAvailable = false;
+      await _invalidateSherpaRecognizerNow();
+      return;
+    }
+    if (_sherpaSttUnloadPending &&
+        !await _invalidateSherpaRecognizerNow(forceUnload: true)) {
       return;
     }
     if (_loadedSherpaSttModelId != id ||
@@ -1179,10 +1178,7 @@ class VoiceInputService with WidgetsBindingObserver {
     if (_preference != SttPreference.sherpa ||
         latestSettings?.sherpaSttModelId != id ||
         latestSettings?.sherpaSttLanguageCode != languageCode) {
-      _loadedSherpaSttModelId = null;
-      _loadedSherpaSttLanguageCode = null;
-      _sherpaSttAvailable = false;
-      await _sherpaStt.unload();
+      await _invalidateSherpaRecognizerNow();
       return;
     }
     _sherpaSttAvailable = true;
@@ -1191,15 +1187,33 @@ class VoiceInputService with WidgetsBindingObserver {
   Future<void> _unloadSherpaRecognizer() =>
       _serializeSherpaLifecycle(_unloadSherpaRecognizerNow);
 
-  Future<void> _unloadSherpaRecognizerNow() async {
+  Future<bool> _invalidateSherpaRecognizerNow({
+    bool forceUnload = false,
+  }) async {
+    final shouldUnload =
+        forceUnload ||
+        _sherpaSttUnloadPending ||
+        _loadedSherpaSttModelId != null;
     _loadedSherpaSttModelId = null;
     _loadedSherpaSttLanguageCode = null;
     _sherpaSttAvailable = false;
+    final subscription = _sherpaSttSub;
+    _sherpaSttSub = null;
+    await subscription?.cancel();
+    if (!shouldUnload) return true;
     try {
       await _sherpaStt.unload();
+      _sherpaSttUnloadPending = false;
+      return true;
     } on Object {
       // A failed worker will be rebuilt when Sherpa is selected again.
+      _sherpaSttUnloadPending = true;
+      return false;
     }
+  }
+
+  Future<void> _unloadSherpaRecognizerNow() async {
+    await _invalidateSherpaRecognizerNow(forceUnload: true);
   }
 
   Future<void> _serializeSherpaLifecycle(Future<void> Function() operation) {

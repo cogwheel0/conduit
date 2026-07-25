@@ -9,6 +9,7 @@ import 'package:conduit/core/sherpa/sherpa_catalog.dart';
 import 'package:conduit/core/sherpa/sherpa_model.dart';
 import 'package:conduit/core/services/worker_manager.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -276,6 +277,7 @@ class _RecordingApiService extends ApiService {
     required String text,
     String? voice,
     double? speed,
+    CancelToken? cancelToken,
   }) async {
     lastVoice = voice;
     return (bytes: Uint8List.fromList(const [1, 2, 3]), mimeType: 'audio/mpeg');

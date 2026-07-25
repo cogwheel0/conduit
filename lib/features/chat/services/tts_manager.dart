@@ -99,6 +99,7 @@ class TtsPlaybackSession {
   final String? sherpaLanguageCode;
   final int sherpaSpeakerId;
   final double sherpaSpeed;
+  final CancelToken cancelToken = CancelToken();
   bool get useServerTts => engine != TtsEngine.device;
   bool get useSherpaTts => engine == TtsEngine.sherpa;
   bool get useRemoteInitialLookahead => engine == TtsEngine.server;
@@ -271,6 +272,7 @@ class TtsManager with WidgetsBindingObserver {
 
   // Session management
   int _sessionCounter = 0;
+  Future<void> _stopSerial = Future<void>.value();
   TtsPlaybackSession? _activeSession;
 
   // Device TTS state
@@ -292,6 +294,7 @@ class TtsManager with WidgetsBindingObserver {
   final Set<int> _serverFetchingIndices = <int>{};
   final Map<int, List<File>> _serverTempFiles = <int, List<File>>{};
   String? _serverBackgroundLeaseId;
+  final Set<Future<void>> _backgroundWork = <Future<void>>{};
 
   // Event stream
   final _eventController = StreamController<TtsEvent>.broadcast();
@@ -445,6 +448,7 @@ class TtsManager with WidgetsBindingObserver {
       } else {
         await _startDevicePlayback(session);
       }
+      if (_activeSession?.id != session.id) return null;
       return session;
     } catch (e) {
       if (session == null
@@ -469,6 +473,7 @@ class TtsManager with WidgetsBindingObserver {
           );
           _activeSession = fallbackSession;
           await _startDevicePlayback(fallbackSession);
+          if (_activeSession?.id != fallbackSession.id) return null;
           return fallbackSession;
         } catch (e2) {
           if (_activeSession?.id != session.id) return null;
@@ -527,6 +532,7 @@ class TtsManager with WidgetsBindingObserver {
           await _configurePreferredVoice();
         }
       }
+      if (_activeSession?.id != session.id) return null;
       return session;
     } catch (error) {
       if (session == null
@@ -631,13 +637,32 @@ class TtsManager with WidgetsBindingObserver {
   }
 
   /// Stops the current playback.
-  Future<void> stop() async {
+  Future<void> stop() {
+    final operation = _stopSerial.then((_) => _stopNow());
+    _stopSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
+  }
+
+  Future<void> _stopNow() async {
     final session = _activeSession;
     if (session == null) return;
-
     _activeSession = null;
+    if (!session.cancelToken.isCancelled) {
+      session.cancelToken.cancel('TTS session stopped');
+    }
+    Object? cancellationError;
+    if (session.useSherpaTts) {
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      try {
+        await _sherpaTts.cancelCurrentOperation();
+      } catch (error) {
+        cancellationError = error;
+      }
+    }
 
     try {
+      await _serverPlaylistSerial;
       if (session.useServerTts) {
         await _player.stop();
       } else {
@@ -645,7 +670,11 @@ class TtsManager with WidgetsBindingObserver {
       }
       _resetPlaybackState();
       _scheduleIdleLargeSherpaUnload();
-      _emitEvent(const TtsCancelled());
+      _emitEvent(
+        cancellationError == null
+            ? const TtsCancelled()
+            : TtsError(cancellationError.toString()),
+      );
     } catch (e) {
       _resetPlaybackState();
       _scheduleIdleLargeSherpaUnload();
@@ -665,7 +694,6 @@ class TtsManager with WidgetsBindingObserver {
     _resetPlaybackState();
     _activeSession = null;
     _scheduleIdleLargeSherpaUnload();
-    _sessionCounter = 0;
 
     // Reset server audio buffer
     _serverAudioBuffer.clear();
@@ -688,8 +716,10 @@ class TtsManager with WidgetsBindingObserver {
     _nativeTtsSub = null;
     await _playerStateSub?.cancel();
     await _playerIndexSub?.cancel();
-    await _player.dispose();
+    await _drainBackgroundWork();
+    await _serverPlaylistSerial;
     await _sherpaLoadSerial;
+    await _player.dispose();
     await _sherpaTts.dispose();
     await _eventController.close();
   }
@@ -937,7 +967,7 @@ class TtsManager with WidgetsBindingObserver {
     _serverLastFetchScheduledIndex = index;
     _serverFetchingIndices.add(index);
     final voice = _serverPlaybackVoice ?? _config.serverVoice;
-    unawaited(() async {
+    _trackBackground(() async {
       try {
         final chunk = await _fetchServerAudioWithRetry(
           session,
@@ -952,11 +982,11 @@ class TtsManager with WidgetsBindingObserver {
           _emitEvent(TtsError(error.toString()));
         }
       } finally {
-        _serverFetchingIndices.remove(index);
-        if (_streamingFinalized &&
-            _serverFetchingIndices.isEmpty &&
-            _activeSession?.id == session.id) {
-          _onServerAudioComplete();
+        if (_activeSession?.id == session.id) {
+          _serverFetchingIndices.remove(index);
+          if (_streamingFinalized && _serverFetchingIndices.isEmpty) {
+            _onServerAudioComplete();
+          }
         }
       }
     }());
@@ -1080,9 +1110,11 @@ class TtsManager with WidgetsBindingObserver {
     _currentChunkIndex = nextIndex;
     _emitEvent(TtsChunkStarted(nextIndex));
 
-    _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
-      _failDevicePlayback(session, error);
-    });
+    _trackBackground(
+      _speakDeviceChunk(session.chunks[nextIndex]).catchError((Object error) {
+        _failDevicePlayback(session, error);
+      }),
+    );
   }
 
   Future<void> _speakDeviceChunk(String chunk) async {
@@ -1208,7 +1240,7 @@ class TtsManager with WidgetsBindingObserver {
     }
 
     // Prefetch remaining chunks in background
-    unawaited(_prefetchServerChunks(session, voice, prefetchStartIndex));
+    _trackBackground(_prefetchServerChunks(session, voice, prefetchStartIndex));
   }
 
   Future<void> _prefetchServerChunks(
@@ -1282,6 +1314,7 @@ class TtsManager with WidgetsBindingObserver {
       text: text,
       voice: voice,
       speed: speed,
+      cancelToken: session.cancelToken,
     );
     return _AudioChunk(bytes: result.bytes, mimeType: result.mimeType);
   }
@@ -1361,7 +1394,7 @@ class TtsManager with WidgetsBindingObserver {
 
     if (_serverLastEnqueuedIndex > currentIndex) {
       _serverWaitingForNext = false;
-      unawaited(_resumeServerQueueFromCompleted(session, currentIndex));
+      _trackBackground(_resumeServerQueueFromCompleted(session, currentIndex));
       return;
     }
 
@@ -1372,11 +1405,11 @@ class TtsManager with WidgetsBindingObserver {
 
     if (_hasBufferedServerChunk(nextIndex)) {
       _serverWaitingForNext = false;
-      unawaited(_enqueueBufferedServerChunks(session));
+      _trackBackground(_enqueueBufferedServerChunks(session));
     } else {
       _serverWaitingForNext = true;
       final voice = _serverPlaybackVoice ?? _config.serverVoice;
-      unawaited(_recoverMissingServerChunk(session, voice, nextIndex));
+      _trackBackground(_recoverMissingServerChunk(session, voice, nextIndex));
     }
   }
 
@@ -1417,7 +1450,9 @@ class TtsManager with WidgetsBindingObserver {
         _scheduleIdleLargeSherpaUnload();
       }
     } finally {
-      _serverRecoveringMissingChunk = false;
+      if (_activeSession?.id == session.id) {
+        _serverRecoveringMissingChunk = false;
+      }
     }
   }
 
@@ -1496,9 +1531,17 @@ class TtsManager with WidgetsBindingObserver {
     if (nextIndex < 0 || nextIndex > _serverLastEnqueuedIndex) {
       return;
     }
-    await _player.seek(Duration.zero, index: nextIndex);
-    if (_activeSession?.id != session.id) return;
-    await _player.play();
+    try {
+      await _player.seek(Duration.zero, index: nextIndex);
+      if (_activeSession?.id != session.id) return;
+      await _player.play();
+    } catch (error) {
+      if (_activeSession?.id != session.id) return;
+      _activeSession = null;
+      _resetPlaybackState();
+      _scheduleIdleLargeSherpaUnload();
+      _emitEvent(TtsError(error.toString()));
+    }
   }
 
   Future<AudioSource> _audioSourceForServerChunk(
@@ -1631,17 +1674,43 @@ class TtsManager with WidgetsBindingObserver {
   Future<void> _refreshSherpaModelAvailability() async {
     final id = _config.sherpaModelId;
     final model = sherpaModelById(id);
-    if (_config.engine != TtsEngine.sherpa ||
-        id == null ||
-        model?.kind != SherpaModelKind.tts) {
+    if (_config.engine == TtsEngine.sherpa &&
+        id != null &&
+        model?.kind == SherpaModelKind.tts) {
+      try {
+        _sherpaModelAvailable = await _sherpaStorage.installedModel(id) != null;
+      } on Object {
+        _sherpaModelAvailable = false;
+      }
+    } else {
       _sherpaModelAvailable = false;
-      return;
     }
-    try {
-      _sherpaModelAvailable = await _sherpaStorage.installedModel(id) != null;
-    } on Object {
-      _sherpaModelAvailable = false;
+
+    if (_sherpaModelAvailable) {
+      await _unloadUnselectedSherpaModel(keepModelId: id);
+    } else {
+      await _unloadUnselectedSherpaModel();
     }
+  }
+
+  Future<void> _unloadUnselectedSherpaModel({String? keepModelId}) async {
+    final loadedId = _loadedSherpaModelId;
+    if (loadedId == null || loadedId == keepModelId) return;
+
+    if (_activeSession?.useSherpaTts == true) {
+      await stop();
+    }
+    await _drainBackgroundWork();
+
+    final operation = _sherpaLoadSerial.then((_) async {
+      final currentId = _loadedSherpaModelId;
+      if (currentId == null || currentId == keepModelId) return;
+      _loadedSherpaModelId = null;
+      _loadedSherpaLanguageCode = null;
+      await _sherpaTts.unload();
+    });
+    _sherpaLoadSerial = operation.then<void>((_) {}, onError: (_, _) {});
+    await operation;
   }
 
   Future<void> _ensureSherpaLoaded(TtsPlaybackSession session) async {
@@ -1683,6 +1752,7 @@ class TtsManager with WidgetsBindingObserver {
       if (error is SherpaModelLoadException) {
         _sherpaModelAvailable = false;
         await _sherpaStorage.markModelBroken(id, error);
+        await _sherpaTts.unload();
       }
       rethrow;
     }
@@ -1752,6 +1822,23 @@ class TtsManager with WidgetsBindingObserver {
     return output;
   }
 
+  void _trackBackground(Future<void> work) {
+    late final Future<void> tracked;
+    tracked = work
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          _backgroundWork.remove(tracked);
+        });
+    _backgroundWork.add(tracked);
+    unawaited(tracked);
+  }
+
+  Future<void> _drainBackgroundWork() async {
+    while (_backgroundWork.isNotEmpty) {
+      await Future.wait(_backgroundWork.toList(growable: false));
+    }
+  }
+
   void _resetPlaybackState() {
     _currentChunkIndex = -1;
     _serverCurrentIndex = -1;
@@ -1760,7 +1847,6 @@ class TtsManager with WidgetsBindingObserver {
     _serverWaitingForNext = false;
     _serverRecoveringMissingChunk = false;
     _serverPlaybackVoice = null;
-    _serverPlaylistSerial = Future<void>.value();
     _isStreamingSession = false;
     _streamingFinalized = false;
     _streamingFedChunkCount = 0;
