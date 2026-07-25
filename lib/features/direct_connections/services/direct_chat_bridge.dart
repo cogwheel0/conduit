@@ -471,6 +471,59 @@ int decodedImageByteLength(
   return decodedBytes;
 }
 
+({DirectGeneratedImage image, int decodedBytes}) normalizeDirectGeneratedImage(
+  DirectGeneratedImage image, {
+  int maxDecodedBytes = kDirectMaxDecodedImageBytes,
+}) {
+  final dataUrl = image.dataUrl.trim();
+  final mediaType = image.mediaType.trim().toLowerCase();
+  if (mediaType.isEmpty ||
+      mediaType.length > 128 ||
+      !mediaType.startsWith('image/') ||
+      mediaType.contains(RegExp(r'[\r\n\u0000]')) ||
+      !dataUrl.toLowerCase().startsWith('data:$mediaType;base64,')) {
+    throw const DirectProviderException(
+      'The provider returned an invalid generated image.',
+    );
+  }
+  try {
+    final decodedBytes = decodedImageByteLength(
+      dataUrl,
+      maxDecodedBytes: maxDecodedBytes,
+      tooLargeMessage: 'The generated images exceed the Direct image limit.',
+    );
+    return (
+      image: DirectGeneratedImage(dataUrl: dataUrl, mediaType: mediaType),
+      decodedBytes: decodedBytes,
+    );
+  } on DirectChatInputException {
+    throw const DirectProviderException(
+      'The provider returned an invalid generated image.',
+    );
+  }
+}
+
+List<Map<String, dynamic>>? mergeDirectGeneratedImageFiles(
+  List<Map<String, dynamic>>? existing,
+  Iterable<Map<String, dynamic>> generated,
+) {
+  final result = <Map<String, dynamic>>[
+    for (final file in existing ?? const <Map<String, dynamic>>[])
+      Map<String, dynamic>.from(file),
+  ];
+  final urls = <String>{
+    for (final file in result)
+      if (file['url'] is String) file['url'] as String,
+  };
+  for (final file in generated) {
+    final url = file['url'];
+    if (url is! String || url.isEmpty || !urls.add(url)) continue;
+    result.add(Map<String, dynamic>.from(file));
+  }
+  if (result.isEmpty) return null;
+  return List<Map<String, dynamic>>.unmodifiable(result);
+}
+
 /// A bounded-cost update for projecting a direct stream into the active chat.
 sealed class DirectStreamingProjection {
   const DirectStreamingProjection();
@@ -490,6 +543,8 @@ final class DirectStreamingReplace extends DirectStreamingProjection {
   final String content;
 }
 
+const int _kDirectMaxGeneratedImages = 10;
+
 /// Accumulates normalized provider events into the ChatMessage representation
 /// used by Conduit's renderer.
 final class DirectStreamingAccumulator {
@@ -500,6 +555,8 @@ final class DirectStreamingAccumulator {
   final List<_DirectToolExecution> _toolExecutions = [];
   final List<ChatSourceReference> _sources = [];
   final Map<String, int> _sourceIndexByUrl = {};
+  final List<Map<String, dynamic>> _generatedImageFiles = [];
+  final Set<String> _generatedImageUrls = <String>{};
   final Stopwatch _reasoningWatch;
   Map<String, dynamic>? _usage;
   Map<String, dynamic>? _providerMetadata;
@@ -527,6 +584,10 @@ final class DirectStreamingAccumulator {
       List.unmodifiable(_fileAnnotations);
   DirectStreamError? get error => _error;
   bool get hasUsableOutput => _hasUsableOutput;
+  bool get hasGeneratedImages => _generatedImageFiles.isNotEmpty;
+  List<Map<String, dynamic>> get generatedImageFiles => List.unmodifiable(
+    _generatedImageFiles.map(Map<String, dynamic>.unmodifiable),
+  );
   List<ChatSourceReference> get sources => List.unmodifiable(_sources);
   List<Map<String, dynamic>> get toolOutput {
     final output = <Map<String, dynamic>>[];
@@ -598,6 +659,19 @@ final class DirectStreamingAccumulator {
         return true;
       case DirectSourceFound():
         _applySource(event);
+        return true;
+      case DirectGeneratedImage():
+        if (_generatedImageFiles.length >= _kDirectMaxGeneratedImages ||
+            !_generatedImageUrls.add(event.dataUrl)) {
+          return false;
+        }
+        _generatedImageFiles.add(<String, dynamic>{
+          'type': 'image',
+          'source': 'direct_openrouter_image',
+          'url': event.dataUrl,
+          'content_type': event.mediaType,
+        });
+        _hasUsableOutput = true;
         return true;
       case DirectToolCallStarted():
         _toolExecutions.add(
@@ -703,6 +777,7 @@ final class DirectStreamingAccumulator {
           DirectProviderMetadataUpdate() ||
           DirectFileAnnotationsUpdate() ||
           DirectSourceFound() ||
+          DirectGeneratedImage() ||
           DirectStreamError() ||
           DirectStreamDone():
         return null;

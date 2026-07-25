@@ -934,16 +934,14 @@ void main() {
   );
 
   test(
-    'OpenRouter compiles web, PDF, and image features and emits extensions',
+    'OpenRouter compiles web and PDF features and emits extensions',
     () async {
       final http = _QueuedAdapter([
         _Reply.json({
           'choices': [
             {
               'message': {
-                'content':
-                    'Grounded answer.\n\n'
-                    '![Generated image](https://images.openrouter.ai/result.png)',
+                'content': 'Grounded answer.',
                 'annotations': [
                   {
                     'type': 'url_citation',
@@ -970,10 +968,7 @@ void main() {
           'usage': {
             'total_tokens': 7,
             'cost': 0.0123,
-            'server_tool_use': {
-              'web_search_requests': 1,
-              'image_generation_requests': 1,
-            },
+            'server_tool_use': {'web_search_requests': 1},
           },
           'openrouter_metadata': {
             'strategy': 'fallback',
@@ -996,8 +991,6 @@ void main() {
             DirectCompletionRequest(
               remoteModelId: 'anthropic/claude-sonnet-4',
               enableWebSearch: true,
-              enableImageGeneration: true,
-              imageGenerationModel: 'openai/gpt-5-image-mini',
               messages: [
                 DirectChatMessage(
                   role: 'user',
@@ -1022,18 +1015,13 @@ void main() {
       );
       expect(request.headers['X-OpenRouter-Metadata'], 'enabled');
       final body = request.data as Map;
-      expect(body['stream'], isFalse);
-      expect(request.headers['Accept'], 'application/json');
+      expect(body['stream'], isTrue);
+      expect(request.headers['Accept'], 'text/event-stream');
       expect(body['max_tool_calls'], 4);
       final tools = body['tools'] as List;
-      expect(
-        tools.map((tool) => (tool as Map)['type']),
-        containsAll(['openrouter:web_search', 'openrouter:image_generation']),
-      );
-      final imageTool = tools.cast<Map>().firstWhere(
-        (tool) => tool['type'] == 'openrouter:image_generation',
-      );
-      expect(imageTool['parameters'], {'model': 'openai/gpt-5-image-mini'});
+      expect(tools.map((tool) => (tool as Map)['type']), [
+        'openrouter:web_search',
+      ]);
       final plugins = body['plugins'] as List;
       expect(
         plugins.map((plugin) => (plugin as Map)['id']),
@@ -1055,7 +1043,7 @@ void main() {
       );
       expect(
         events.whereType<DirectContentDelta>().single.content,
-        contains('![Generated image](https://images.openrouter.ai/result.png)'),
+        'Grounded answer.',
       );
       expect(
         events
@@ -1079,7 +1067,7 @@ void main() {
     },
   );
 
-  test('OpenRouter preserves buffered generated images as markdown', () async {
+  test('OpenRouter uses the dedicated Image API and emits an asset', () async {
     const image = 'data:image/png;base64,AQID';
     final http = _QueuedAdapter([
       _Reply.json({
@@ -1087,17 +1075,25 @@ void main() {
           {
             'message': {
               'role': 'assistant',
-              'content': null,
-              'images': [
-                {
-                  'type': 'image_url',
-                  'image_url': {'url': image},
-                },
-              ],
+              'content': 'A luminous fox beneath an aurora',
             },
-            'finish_reason': 'stop',
           },
         ],
+        'usage': {'total_tokens': 5, 'cost': 0.001},
+      }),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQID', 'media_type': 'image/png'},
+        ],
+        'usage': {'total_tokens': 4000, 'cost': 0.04},
+      }),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Here is the image.'},
+          },
+        ],
+        'usage': {'total_tokens': 4, 'cost': 0.002},
       }),
     ]);
     final adapter = OpenAiCompatibleAdapter(
@@ -1110,6 +1106,91 @@ void main() {
           _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
           DirectCompletionRequest(
             remoteModelId: 'anthropic/claude-sonnet-4',
+            enableWebSearch: true,
+            enableImageGeneration: true,
+            imageGenerationModel: 'google/gemini-3.1-flash-image',
+            messages: [
+              DirectChatMessage.text(
+                role: 'user',
+                text: 'Create a fox beneath an aurora',
+              ),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(http.requests, hasLength(3));
+    expect(http.requests.map((request) => request.uri.path), <String>[
+      '/api/v1/chat/completions',
+      '/api/v1/images',
+      '/api/v1/chat/completions',
+    ]);
+    final refinementRequest = http.requests.first.data as Map;
+    expect(
+      ((refinementRequest['tools'] as List).single as Map)['type'],
+      'openrouter:web_search',
+    );
+    final imageRequest = http.requests[1].data as Map;
+    expect(imageRequest['model'], 'google/gemini-3.1-flash-image');
+    expect(imageRequest['prompt'], 'A luminous fox beneath an aurora');
+    expect(imageRequest['n'], 1);
+    final generated = events.whereType<DirectGeneratedImage>().single;
+    expect(generated.dataUrl, image);
+    expect(generated.mediaType, 'image/png');
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      'Here is the image.',
+    );
+    expect(
+      events.whereType<DirectUsageUpdate>().last.usage['cost'],
+      closeTo(0.043, 0.000001),
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenRouter Image API supports a Responses-mode parent', () async {
+    Map<String, dynamic> response(String id, String text) => <String, dynamic>{
+      'id': id,
+      'object': 'response',
+      'created_at': 1,
+      'status': 'completed',
+      'output': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'message',
+          'id': 'message-$id',
+          'role': 'assistant',
+          'status': 'completed',
+          'content': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'output_text', 'text': text},
+          ],
+        },
+      ],
+    };
+
+    final http = _QueuedAdapter([
+      _Reply.json(response('refinement', 'A refined image prompt')),
+      _Reply.json({
+        'data': [
+          {'b64_json': 'AQID', 'media_type': 'image/png'},
+        ],
+      }),
+      _Reply.json(response('acknowledgement', 'Image generated.')),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(
+            baseUrl: kOpenRouterApiBaseUrl,
+            openAiApiMode: DirectOpenAiApiMode.responses,
+          ),
+          DirectCompletionRequest(
+            remoteModelId: 'openai/gpt-5-mini',
             enableImageGeneration: true,
             messages: [
               DirectChatMessage.text(role: 'user', text: 'Create an image'),
@@ -1119,13 +1200,79 @@ void main() {
         .events
         .toList();
 
-    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(http.requests.map((request) => request.uri.path), <String>[
+      '/api/v1/responses',
+      '/api/v1/images',
+      '/api/v1/responses',
+    ]);
+    final refinement = http.requests.first.data as Map;
+    expect(refinement['input'], 'Create an image');
+    expect(refinement['instructions'], isA<String>());
+    expect((http.requests[1].data as Map)['model'], 'openai/gpt-5-image');
+    expect(events.whereType<DirectGeneratedImage>(), hasLength(1));
     expect(
       events.whereType<DirectContentDelta>().single.content,
-      '![Generated image]($image)',
+      'Image generated.',
     );
+    expect(events.whereType<DirectStreamError>(), isEmpty);
     expect(events.whereType<DirectStreamDone>(), hasLength(1));
   });
+
+  test(
+    'OpenRouter accounts generated images outside the text budget',
+    () async {
+      const base64 =
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'P'},
+            },
+          ],
+        }),
+        _Reply.json({
+          'data': [
+            {'b64_json': base64, 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Done.'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        maxStreamCharacters: 16,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+            DirectCompletionRequest(
+              remoteModelId: 'openai/gpt-5-mini',
+              enableImageGeneration: true,
+              messages: [
+                DirectChatMessage.text(role: 'user', text: 'Create an image'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(
+        events.whereType<DirectGeneratedImage>().single.dataUrl,
+        'data:image/png;base64,$base64',
+      );
+      expect(events.whereType<DirectContentDelta>().single.content, 'Done.');
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
 
   test(
     'OpenRouter preserves a generated image when parent continuation fails',
@@ -1133,32 +1280,24 @@ void main() {
       const image = 'data:image/png;base64,AQID';
       final http = _QueuedAdapter([
         _Reply.json({
+          'error': {'message': 'Refinement unavailable'},
+        }, statusCode: 503),
+        _Reply.json({
+          'data': [
+            {'b64_json': 'AQID', 'media_type': 'image/png'},
+          ],
+        }),
+        _Reply.json({
           'choices': [
             {
-              'message': {
-                'role': 'assistant',
-                'content': null,
-                'images': [
-                  {
-                    'type': 'image_url',
-                    'image_url': {'url': image},
-                  },
-                ],
-              },
-              'finish_reason': 'stop',
+              'message': {'role': 'assistant', 'content': null},
               'error': {
                 'code': 400,
-                'message': 'Server tool request failed',
+                'message': 'Parent continuation failed',
                 'metadata': {'error_type': 'invalid_request'},
               },
             },
           ],
-          'usage': {
-            'server_tool_use_details': {
-              'tool_calls_requested': 1,
-              'tool_calls_executed': 1,
-            },
-          },
         }),
       ]);
       final adapter = OpenAiCompatibleAdapter(
@@ -1182,28 +1321,28 @@ void main() {
           .toList();
 
       expect(events.whereType<DirectStreamError>(), isEmpty);
-      expect(
-        events.whereType<DirectContentDelta>().single.content,
-        '![Generated image]($image)',
-      );
+      expect((http.requests[1].data as Map)['prompt'], 'Create an image');
+      expect(events.whereType<DirectGeneratedImage>().single.dataUrl, image);
+      expect(events.whereType<DirectContentDelta>(), isEmpty);
       expect(events.whereType<DirectStreamDone>(), hasLength(1));
     },
   );
 
-  test('OpenRouter surfaces buffered choice-level errors', () async {
+  test('OpenRouter surfaces dedicated image generation errors', () async {
     final http = _QueuedAdapter([
       _Reply.json({
         'choices': [
           {
-            'message': {'role': 'assistant', 'content': null},
-            'finish_reason': 'error',
-            'error': {
-              'code': 502,
-              'message': 'Server tool request failed',
-              'metadata': {'error_type': 'provider_unavailable'},
-            },
+            'message': {'role': 'assistant', 'content': 'Create an image'},
           },
         ],
+      }),
+      _Reply.json({
+        'error': {
+          'code': 502,
+          'message': 'Image generation failed',
+          'metadata': {'error_type': 'provider_unavailable'},
+        },
       }),
     ]);
     final adapter = OpenAiCompatibleAdapter(
@@ -1227,8 +1366,9 @@ void main() {
 
     expect(
       events.whereType<DirectStreamError>().single.message,
-      'Server tool request failed',
+      'Image generation failed',
     );
+    expect(events.whereType<DirectGeneratedImage>(), isEmpty);
     expect(events.whereType<DirectContentDelta>(), isEmpty);
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
@@ -1603,7 +1743,7 @@ void main() {
               messages: [DirectChatMessage.text(role: 'user', text: 'search')],
             ),
             expectedMessage:
-                'OpenRouter tools currently require Chat Completions.',
+                'OpenRouter web search currently requires Chat Completions.',
           ),
           (
             request: DirectCompletionRequest(

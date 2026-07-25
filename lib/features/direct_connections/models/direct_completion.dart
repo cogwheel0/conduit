@@ -93,8 +93,8 @@ final class DirectCompletionRequest {
   ///
   /// Caller-supplied tool definitions are intentionally rejected by the
   /// built-in adapters. Trusted first-party provider profiles may expose
-  /// Conduit's compiled-in server tools through [enableWebSearch] and
-  /// [enableImageGeneration].
+  /// Conduit's compiled-in web tool through [enableWebSearch] and its
+  /// first-party image pipeline through [enableImageGeneration].
   /// Transport-owned keys (`model`, `messages`, `stream`) are overwritten by
   /// adapters and cannot redirect a request to another registered model.
   final Map<String, dynamic> parameters;
@@ -147,6 +147,18 @@ final class DirectSourceFound extends DirectStreamEvent {
   final String url;
   final String? title;
   final String? snippet;
+}
+
+/// A generated image asset whose lifecycle is independent of assistant text.
+///
+/// First-party adapters emit only bounded base64 data URLs. The chat
+/// dispatcher validates the payload again before projecting or persisting it,
+/// so runtime adapters cannot bypass Direct image limits.
+final class DirectGeneratedImage extends DirectStreamEvent {
+  const DirectGeneratedImage({required this.dataUrl, required this.mediaType});
+
+  final String dataUrl;
+  final String mediaType;
 }
 
 final class DirectToolCallStarted extends DirectStreamEvent {

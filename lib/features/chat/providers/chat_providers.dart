@@ -14215,6 +14215,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     throw const _DirectRunStoppedDuringPreflight();
   }
   final accumulator = DirectStreamingAccumulator();
+  var generatedImageBytes = 0;
   Object? terminalFailure;
   StackTrace? terminalFailureStack;
   var uiProjectionIsCurrent = false;
@@ -14425,8 +14426,24 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               ..add(event.title ?? '')
               ..add(event.snippet ?? '');
             break;
+          case DirectGeneratedImage():
+            final normalizedImage = normalizeDirectGeneratedImage(
+              event,
+              maxDecodedBytes:
+                  kDirectMaxDecodedImageBytes - generatedImageBytes,
+            );
+            generatedImageBytes += normalizedImage.decodedBytes;
+            normalizedEvent = normalizedImage.image;
+            normalizedBudget.add(normalizedImage.image.mediaType);
+            break;
           case DirectStreamDone():
             break;
+        }
+        if (normalizedEvent is DirectStreamError &&
+            accumulator.hasGeneratedImages) {
+          // A generated asset is authoritative. A later parent narration
+          // failure settles the turn without attaching an error to the image.
+          normalizedEvent = const DirectStreamDone();
         }
         accumulator.apply(normalizedEvent);
         final projectedEvent =
@@ -14484,6 +14501,17 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
                 sources: accumulator.sources,
               ),
             );
+          } else if (projectedEvent is DirectGeneratedImage) {
+            notifier.updateMessageById(
+              assistantMessageId,
+              (current) => current.copyWith(
+                files: mergeDirectGeneratedImageFiles(
+                  current.files,
+                  accumulator.generatedImageFiles,
+                ),
+                usage: accumulator.usage,
+              ),
+            );
           }
 
           final visibleMessages =
@@ -14525,6 +14553,28 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
           // before incremental appends can resume safely.
           uiProjectionIsCurrent = false;
           uiProjectionToken = null;
+        }
+        if (projectedEvent is DirectGeneratedImage) {
+          final assetBase = _isDirectConversationOwnerActive(ref, owner)
+              ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                    .where((message) => message.id == assistantMessageId)
+                    .firstOrNull
+              : null;
+          final assetSnapshot = (assetBase ?? assistantSeed).copyWith(
+            content: accumulator.render(done: false),
+            files: mergeDirectGeneratedImageFiles(
+              (assetBase ?? assistantSeed).files,
+              accumulator.generatedImageFiles,
+            ),
+            usage: accumulator.usage,
+            isStreaming: true,
+          );
+          await _persistCompletedDirectAssistant(
+            ref,
+            owner: owner,
+            assistant: assetSnapshot,
+            isCurrentGeneration: () => registry.isLatest(reservation),
+          );
         }
         // The normalized terminal event is the protocol boundary. Provider
         // stream closure and transport cleanup are best-effort implementation
@@ -14612,6 +14662,10 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     }
     final completed = base.copyWith(
       content: completedContent,
+      files: mergeDirectGeneratedImageFiles(
+        base.files,
+        accumulator.generatedImageFiles,
+      ),
       output: <Map<String, dynamic>>[
         ...accumulator.toolOutput,
         ...?directProviderReplayOutput(
@@ -14628,7 +14682,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       usage: accumulator.usage,
       error: accumulator.error != null
           ? ChatMessageError(content: accumulator.error!.message)
-          : terminalFailure != null
+          : terminalFailure != null && !accumulator.hasGeneratedImages
           ? ChatMessageError(
               content: chatErrorContentForException(terminalFailure),
             )
@@ -14662,7 +14716,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       rethrow;
     }
     registry.markDurablyPersisted(reservation);
-    if (terminalFailure != null) {
+    if (terminalFailure != null && !accumulator.hasGeneratedImages) {
       Error.throwWithStackTrace(terminalFailure, terminalFailureStack!);
     }
   } finally {

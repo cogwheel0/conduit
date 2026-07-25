@@ -200,7 +200,7 @@ void main() {
     expect(responsesModel.capabilities?['file_upload'], isFalse);
     expect(responsesModel.capabilities?['pdf_input'], isFalse);
     expect(responsesModel.capabilities?['web_search'], isFalse);
-    expect(responsesModel.capabilities?['image_generation'], isFalse);
+    expect(responsesModel.capabilities?['image_generation'], isTrue);
 
     final chatProfile = responsesProfile.copyWith(
       openAiApiMode: DirectOpenAiApiMode.chatCompletions,
@@ -227,8 +227,8 @@ void main() {
       textOnlyModel.capabilities?['image_generation'],
       isTrue,
       reason:
-          'OpenRouter image generation is a server tool available to any '
-          'Chat Completions model, independent of native output modalities.',
+          'OpenRouter image generation uses the dedicated Image API and is '
+          'independent of parent-model output modalities.',
     );
 
     final openWebUiModel = registry

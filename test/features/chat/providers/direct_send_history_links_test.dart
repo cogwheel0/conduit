@@ -3175,6 +3175,108 @@ void main() {
     },
   );
 
+  test(
+    'generated image persists before acknowledgement and survives its failure',
+    () async {
+      const image = 'data:image/png;base64,AQID';
+      final harness = await _createGatedDirectHarness(
+        'image-before-acknowledgement',
+      );
+      final started = harness.adapter.nextRun();
+      final send = sendMessageWithContainer(
+        harness.container,
+        'Create a durable image',
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+      final assistantId = harness.container.read(chatMessagesProvider).last.id;
+
+      run
+        ..add(
+          DirectUsageUpdate(<String, dynamic>{
+            'total_tokens': 4000,
+            'cost': 0.04,
+          }),
+        )
+        ..add(
+          const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'),
+        );
+
+      await _waitUntil(() async {
+        final row = await harness.db.messagesDao.getMessage(
+          harness.chat.id,
+          assistantId,
+        );
+        if (row == null) return false;
+        final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+        final files = payload['files'];
+        return payload['isStreaming'] == true &&
+            files is List &&
+            files.any((file) => file is Map && file['url'] == image);
+      });
+
+      final streaming = harness.container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == assistantId);
+      expect(streaming.isStreaming, isTrue);
+      expect(streaming.files?.single['url'], image);
+
+      run.addError(StateError('Parent acknowledgement transport failed'));
+      await send.timeout(const Duration(seconds: 1));
+
+      final completed = harness.container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == assistantId);
+      expect(completed.isStreaming, isFalse);
+      expect(completed.error, isNull);
+      expect(completed.files?.single['url'], image);
+      expect(completed.usage?['cost'], 0.04);
+      final durable = (await harness.db.messagesDao.getForChat(
+        harness.chat.id,
+      )).singleWhere((row) => row.id == assistantId);
+      final durablePayload =
+          jsonDecode(durable.payload) as Map<String, dynamic>;
+      expect(durablePayload['isStreaming'], isFalse);
+      expect(durablePayload['error'], isNull);
+      expect((durablePayload['files'] as List).single['url'], image);
+    },
+  );
+
+  test('generated image bytes do not consume the text budget', () async {
+    const image =
+        'data:image/png;base64,'
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    final harness = await _createGatedDirectHarness(
+      'image-binary-budget',
+      streamLimits: const DirectNormalizedStreamLimits(
+        idleTimeout: Duration(seconds: 1),
+        maxDuration: Duration(seconds: 2),
+        maxCharacters: 16,
+        maxEvents: 10,
+      ),
+    );
+    final started = harness.adapter.nextRun();
+    final send = sendMessageWithContainer(
+      harness.container,
+      'Create a bounded image',
+      null,
+    );
+    final run = await started.timeout(const Duration(seconds: 1));
+    addTearDown(run.close);
+
+    run
+      ..add(const DirectGeneratedImage(dataUrl: image, mediaType: 'image/png'))
+      ..add(const DirectContentDelta('Done.'))
+      ..add(const DirectStreamDone());
+    await send.timeout(const Duration(seconds: 1));
+
+    final completed = harness.container.read(chatMessagesProvider).last;
+    expect(completed.error, isNull);
+    expect(completed.content, 'Done.');
+    expect(completed.files?.single['url'], image);
+  });
+
   test('provider EOF without a terminal event is a protocol failure', () async {
     final harness = await _createGatedDirectHarness('eof-without-terminal');
     final started = harness.adapter.nextRun();

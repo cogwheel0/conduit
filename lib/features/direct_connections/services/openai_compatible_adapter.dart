@@ -19,6 +19,12 @@ import 'openrouter_file_annotations.dart';
 
 const int _kMaxOpenRouterSources = 10;
 const int _kMaxOpenRouterExtensionAnnotationsInspected = 256;
+const int _kMaxOpenRouterParentResponseBytes = 512 * 1024;
+const int _kMaxOpenRouterImageApiResponseBytes = 32 * 1024 * 1024;
+const int _kMaxOpenRouterImageApiBase64Characters =
+    ((20 * 1024 * 1024 + 2) ~/ 3) * 4;
+const int _kMaxOpenRouterImagePromptCharacters = 32 * 1024;
+const String _kDefaultOpenRouterImageModel = 'openai/gpt-5-image';
 
 /// OpenAI-family adapter backed by openai_dart's protocol models and SSE
 /// decoder. Dio remains the transport so each direct profile keeps Conduit's
@@ -338,74 +344,78 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
               profile.openAiApiMode == DirectOpenAiApiMode.responses;
-          // Keep OpenRouter image-tool orchestration buffered until its parent
-          // model has consumed the generated image URL. Once an SSE response
-          // starts, OpenRouter cannot retry a failed parent continuation even
-          // when the child image generation itself completed successfully.
-          final bufferOpenRouterImageTool =
+          final useOpenRouterImageApi =
               profile.supportsOpenRouterImageGeneration &&
               request.enableImageGeneration;
-          final requestBody = responsesMode
-              ? _responsesRequestBody(request, profile)
-              : _chatRequestBody(request, profile);
-          if (bufferOpenRouterImageTool) requestBody['stream'] = false;
-          final response = await dio.post<ResponseBody>(
-            _completionEndpoint(profile),
-            cancelToken: transportCancelToken,
-            data: requestBody,
-            options: Options(
-              responseType: ResponseType.stream,
-              receiveTimeout: streamIdleTimeout,
-              headers: {
-                'Accept': bufferOpenRouterImageTool
-                    ? 'application/json'
-                    : 'text/event-stream',
-                if (profile.isOpenRouter) 'X-OpenRouter-Metadata': 'enabled',
-              },
-            ),
-          );
-          final body = response.data;
-          if (body == null) {
-            throw const FormatException('Provider returned an empty body.');
-          }
-
-          final contentType = response.headers.value('content-type') ?? '';
-          if (contentType.toLowerCase().contains('json')) {
-            final payload = await decodeDirectJsonBody(
-              body,
-              idleTimeout: streamIdleTimeout,
-              maxDuration: streamMaxDuration,
-              maxTransferBytes: maxStreamBytes,
+          if (useOpenRouterImageApi) {
+            await _runOpenRouterImagePipeline(
+              dio: dio,
+              request: request,
+              cancelToken: transportCancelToken,
+              emitter: emitter,
+              useResponsesApi: responsesMode,
             );
-            emitter.protocolEvent();
-            if (responsesMode) {
-              _emitResponsesPayload(payload, emitter);
-            } else {
-              _emitChatPayload(payload, emitter);
-            }
-            if (!emitter.terminalSent && !emitter.hasCompletion) {
-              throw const FormatException(
-                'OpenAI-compatible response has no usable completion content.',
-              );
-            }
-            if (!emitter.terminalSent) emitter.done();
-            transportCompletedCleanly = emitter.completedSuccessfully;
-          } else if (responsesMode) {
-            await _consumeResponsesStream(body, emitter);
-            if (!emitter.terminalSent && !cancelToken.isCancelled) {
-              throw const DirectProviderException(
-                'The provider stream ended before its response.completed marker.',
-              );
-            }
             transportCompletedCleanly = emitter.completedSuccessfully;
           } else {
-            await _consumeChatStream(body, emitter);
-            if (!emitter.terminalSent && !cancelToken.isCancelled) {
-              throw const DirectProviderException(
-                'The provider stream ended before its completion marker.',
-              );
+            final requestBody = responsesMode
+                ? _responsesRequestBody(request, profile)
+                : _chatRequestBody(request, profile);
+            final response = await dio.post<ResponseBody>(
+              _completionEndpoint(profile),
+              cancelToken: transportCancelToken,
+              data: requestBody,
+              options: Options(
+                responseType: ResponseType.stream,
+                receiveTimeout: streamIdleTimeout,
+                headers: {
+                  'Accept': 'text/event-stream',
+                  if (profile.isOpenRouter) 'X-OpenRouter-Metadata': 'enabled',
+                },
+              ),
+            );
+            final body = response.data;
+            if (body == null) {
+              throw const FormatException('Provider returned an empty body.');
             }
-            transportCompletedCleanly = emitter.completedSuccessfully;
+
+            final contentType = response.headers.value('content-type') ?? '';
+            if (contentType.toLowerCase().contains('json')) {
+              final payload = await decodeDirectJsonBody(
+                body,
+                idleTimeout: streamIdleTimeout,
+                maxDuration: streamMaxDuration,
+                maxTransferBytes: maxStreamBytes,
+              );
+              emitter.protocolEvent();
+              if (responsesMode) {
+                _emitResponsesPayload(payload, emitter);
+              } else {
+                _emitChatPayload(payload, emitter);
+              }
+              if (!emitter.terminalSent && !emitter.hasCompletion) {
+                throw const FormatException(
+                  'OpenAI-compatible response has no usable completion content.',
+                );
+              }
+              if (!emitter.terminalSent) emitter.done();
+              transportCompletedCleanly = emitter.completedSuccessfully;
+            } else if (responsesMode) {
+              await _consumeResponsesStream(body, emitter);
+              if (!emitter.terminalSent && !cancelToken.isCancelled) {
+                throw const DirectProviderException(
+                  'The provider stream ended before its response.completed marker.',
+                );
+              }
+              transportCompletedCleanly = emitter.completedSuccessfully;
+            } else {
+              await _consumeChatStream(body, emitter);
+              if (!emitter.terminalSent && !cancelToken.isCancelled) {
+                throw const DirectProviderException(
+                  'The provider stream ended before its completion marker.',
+                );
+              }
+              transportCompletedCleanly = emitter.completedSuccessfully;
+            }
           }
         } catch (error) {
           final expectedDrainFailure =
@@ -453,6 +463,234 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       cancelToken: cancelToken,
       done: settled.future,
     );
+  }
+
+  Future<void> _runOpenRouterImagePipeline({
+    required Dio dio,
+    required DirectCompletionRequest request,
+    required CancelToken cancelToken,
+    required _DirectEmitter emitter,
+    required bool useResponsesApi,
+  }) async {
+    final rawPrompt = _latestOpenRouterImagePrompt(request.messages);
+    if (rawPrompt == null) {
+      throw const DirectProviderException(
+        'Image generation requires a text prompt.',
+      );
+    }
+
+    var imagePrompt = rawPrompt;
+    Map<String, dynamic>? combinedUsage;
+    try {
+      final refinement = await _requestOpenRouterParentText(
+        dio: dio,
+        cancelToken: cancelToken,
+        model: request.remoteModelId,
+        systemPrompt:
+            'Rewrite the user request as a concise, standalone image-generation '
+            'prompt. Preserve every requested subject, composition, style, '
+            'piece of text, and constraint. Return only the prompt.',
+        userPrompt: rawPrompt,
+        maxTokens: 512,
+        useResponsesApi: useResponsesApi,
+        enableWebSearch: request.enableWebSearch,
+      );
+      final refined = refinement.text?.trim();
+      if (refined != null && refined.isNotEmpty) {
+        imagePrompt = refined.length <= _kMaxOpenRouterImagePromptCharacters
+            ? refined
+            : refined.substring(0, _kMaxOpenRouterImagePromptCharacters);
+      }
+      combinedUsage = _mergeOpenRouterPipelineUsage(
+        combinedUsage,
+        refinement.usage,
+      );
+    } catch (error) {
+      if (cancelToken.isCancelled) rethrow;
+      DebugLogger.warning(
+        'prompt-refinement-failed',
+        scope: 'direct-connections/openrouter/image',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+
+    final imageModel = request.imageGenerationModel?.trim();
+    final response = await dio.post<ResponseBody>(
+      'images',
+      cancelToken: cancelToken,
+      data: <String, dynamic>{
+        'model': imageModel == null || imageModel.isEmpty
+            ? _kDefaultOpenRouterImageModel
+            : imageModel,
+        'prompt': imagePrompt,
+        'n': 1,
+      },
+      options: Options(
+        responseType: ResponseType.stream,
+        receiveTimeout: streamIdleTimeout,
+        headers: const <String, String>{'Accept': 'application/json'},
+      ),
+    );
+    final responseBody = response.data;
+    if (responseBody == null) {
+      throw const FormatException('OpenRouter returned an empty image body.');
+    }
+    final maxImageResponseBytes =
+        maxStreamBytes < _kMaxOpenRouterImageApiResponseBytes
+        ? maxStreamBytes
+        : _kMaxOpenRouterImageApiResponseBytes;
+    final payload = await decodeDirectJsonBody(
+      responseBody,
+      maxBytes: maxImageResponseBytes,
+      idleTimeout: streamIdleTimeout,
+      maxDuration: streamMaxDuration,
+      maxTransferBytes: maxImageResponseBytes,
+    );
+    emitter.protocolEvent();
+    if (payload['error'] != null) {
+      throw DirectProviderException(directErrorMessage(payload['error']));
+    }
+    final images = _openRouterImageApiResults(payload['data']);
+    if (images.isEmpty) {
+      throw const FormatException(
+        'OpenRouter returned no usable generated image.',
+      );
+    }
+    combinedUsage = _mergeOpenRouterPipelineUsage(
+      combinedUsage,
+      payload['usage'],
+    );
+    if (combinedUsage != null) emitter.usage(combinedUsage);
+    for (final image in images) {
+      emitter.generatedImage(
+        dataUrl: image.dataUrl,
+        mediaType: image.mediaType,
+      );
+    }
+
+    try {
+      final acknowledgement = await _requestOpenRouterParentText(
+        dio: dio,
+        cancelToken: cancelToken,
+        model: request.remoteModelId,
+        systemPrompt:
+            'The requested image has already been generated and is displayed '
+            'to the user. Respond with a brief acknowledgement. Do not say you '
+            'cannot create or see the image, and do not repeat the full prompt.',
+        userPrompt: rawPrompt,
+        maxTokens: 128,
+        useResponsesApi: useResponsesApi,
+      );
+      combinedUsage = _mergeOpenRouterPipelineUsage(
+        combinedUsage,
+        acknowledgement.usage,
+      );
+      if (combinedUsage != null) emitter.usage(combinedUsage);
+      final text = acknowledgement.text?.trim();
+      if (text != null && text.isNotEmpty) emitter.content(text);
+    } catch (error) {
+      if (cancelToken.isCancelled) return;
+      // The image is already a first-class output. Parent narration is an
+      // optional follow-up and must never turn that asset into a failed turn.
+      DebugLogger.warning(
+        'acknowledgement-failed',
+        scope: 'direct-connections/openrouter/image',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    if (!cancelToken.isCancelled) emitter.done();
+  }
+
+  Future<({String? text, Map<String, dynamic>? usage})>
+  _requestOpenRouterParentText({
+    required Dio dio,
+    required CancelToken cancelToken,
+    required String model,
+    required String systemPrompt,
+    required String userPrompt,
+    required int maxTokens,
+    required bool useResponsesApi,
+    bool enableWebSearch = false,
+  }) async {
+    final response = await dio.post<ResponseBody>(
+      useResponsesApi ? 'responses' : 'chat/completions',
+      cancelToken: cancelToken,
+      data: useResponsesApi
+          ? <String, dynamic>{
+              'model': model,
+              'instructions': systemPrompt,
+              'input': userPrompt,
+              'max_output_tokens': maxTokens,
+              'stream': false,
+            }
+          : <String, dynamic>{
+              'model': model,
+              'messages': <Map<String, dynamic>>[
+                <String, dynamic>{'role': 'system', 'content': systemPrompt},
+                <String, dynamic>{'role': 'user', 'content': userPrompt},
+              ],
+              'max_tokens': maxTokens,
+              'stream': false,
+              if (enableWebSearch)
+                'tools': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'type': 'openrouter:web_search',
+                    'parameters': <String, dynamic>{
+                      'engine': 'auto',
+                      'max_results': 5,
+                      'max_total_results': 10,
+                      'max_uses': 3,
+                      'search_context_size': 'low',
+                    },
+                  },
+                ],
+              if (enableWebSearch) 'max_tool_calls': 3,
+            },
+      options: Options(
+        responseType: ResponseType.stream,
+        receiveTimeout: streamIdleTimeout,
+        headers: const <String, String>{'Accept': 'application/json'},
+      ),
+    );
+    final body = response.data;
+    if (body == null) {
+      throw const FormatException('OpenRouter parent response is empty.');
+    }
+    final payload = await decodeDirectJsonBody(
+      body,
+      maxBytes: _kMaxOpenRouterParentResponseBytes,
+      idleTimeout: streamIdleTimeout,
+      maxDuration: streamMaxDuration,
+      maxTransferBytes: maxStreamBytes,
+    );
+    if (useResponsesApi) {
+      if (payload['error'] != null && payload['id'] == null) {
+        throw DirectProviderException(directErrorMessage(payload['error']));
+      }
+      final decoded = OpenAiResponsesCodec.decodeResponse(payload);
+      final statusError = _responseStatusError(decoded);
+      if (statusError != null) throw DirectProviderException(statusError);
+      return (
+        text: _nonEmpty(OpenAiResponsesCodec.content(decoded).text),
+        usage: decoded.usage?.toJson(),
+      );
+    } else {
+      final protocolError = _chatPayloadError(payload);
+      if (protocolError != null) {
+        throw DirectProviderException(directErrorMessage(protocolError));
+      }
+      final choices = payload['choices'];
+      final firstChoice = choices is List && choices.isNotEmpty
+          ? choices.first
+          : null;
+      final message = firstChoice is Map ? firstChoice['message'] : null;
+      final text = message is Map ? _completionText(message['content']) : null;
+      final usage = payload['usage'];
+      return (
+        text: text,
+        usage: usage is Map ? usage.cast<String, dynamic>() : null,
+      );
+    }
   }
 
   Future<void> _consumeChatStream(
@@ -637,6 +875,103 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   }
 }
 
+String? _latestOpenRouterImagePrompt(List<DirectChatMessage> messages) {
+  for (final message in messages.reversed) {
+    if (message.role.trim().toLowerCase() != 'user') continue;
+    final text = message.parts
+        .whereType<DirectTextPart>()
+        .map((part) => part.text.trim())
+        .where((part) => part.isNotEmpty)
+        .join('\n')
+        .trim();
+    if (text.isEmpty) continue;
+    return text.length <= _kMaxOpenRouterImagePromptCharacters
+        ? text
+        : text.substring(0, _kMaxOpenRouterImagePromptCharacters);
+  }
+  return null;
+}
+
+List<({String dataUrl, String mediaType})> _openRouterImageApiResults(
+  Object? value,
+) {
+  if (value is! Iterable) return const [];
+  final images = <({String dataUrl, String mediaType})>[];
+  for (final rawImage in value) {
+    if (images.length >= _kMaxOpenRouterGeneratedImages || rawImage is! Map) {
+      break;
+    }
+    final rawBase64 = rawImage['b64_json'];
+    if (rawBase64 is! String || rawBase64.isEmpty) continue;
+    final mediaType = _normalizedOpenRouterImageMediaType(
+      rawImage['media_type'],
+    );
+    if (mediaType == null ||
+        rawBase64.length > _kMaxOpenRouterImageApiBase64Characters ||
+        !_isValidOpenRouterImageBase64(rawBase64)) {
+      continue;
+    }
+    images.add((
+      dataUrl: 'data:$mediaType;base64,$rawBase64',
+      mediaType: mediaType,
+    ));
+  }
+  return List.unmodifiable(images);
+}
+
+String? _normalizedOpenRouterImageMediaType(Object? value) {
+  final mediaType = value?.toString().trim().toLowerCase();
+  if (mediaType == null || mediaType.isEmpty) return 'image/png';
+  if (!mediaType.startsWith('image/') ||
+      mediaType.length > 128 ||
+      mediaType.contains(RegExp(r'[\r\n\u0000]'))) {
+    return null;
+  }
+  return mediaType;
+}
+
+bool _isValidOpenRouterImageBase64(String value) {
+  if (value.length % 4 == 1) return false;
+  var paddingStarted = false;
+  var padding = 0;
+  for (var index = 0; index < value.length; index++) {
+    final code = value.codeUnitAt(index);
+    final isAlphabet =
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a) ||
+        (code >= 0x30 && code <= 0x39) ||
+        code == 0x2b ||
+        code == 0x2f;
+    if (isAlphabet && !paddingStarted) continue;
+    if (code == 0x3d && index >= value.length - 2) {
+      paddingStarted = true;
+      padding++;
+      if (padding <= 2) continue;
+    }
+    return false;
+  }
+  return !paddingStarted || value.length % 4 == 0;
+}
+
+Map<String, dynamic>? _mergeOpenRouterPipelineUsage(
+  Map<String, dynamic>? current,
+  Object? incoming,
+) {
+  if (incoming is! Map) return current;
+  final next = incoming.cast<String, dynamic>();
+  if (current == null) return Map<String, dynamic>.from(next);
+  final merged = Map<String, dynamic>.from(current);
+  for (final entry in next.entries) {
+    final previous = merged[entry.key];
+    if (previous is num && entry.value is num) {
+      merged[entry.key] = previous + (entry.value as num);
+    } else if (!merged.containsKey(entry.key)) {
+      merged[entry.key] = entry.value;
+    }
+  }
+  return merged;
+}
+
 Stream<openai.SseEvent> _parseBoundedSse(
   Stream<List<int>> bytes, {
   required int maxLineCharacters,
@@ -787,14 +1122,6 @@ void _applyOpenRouterRequestFeatures(
       },
     });
   }
-  if (request.enableImageGeneration) {
-    final imageGenerationModel = request.imageGenerationModel?.trim();
-    tools.add(<String, dynamic>{
-      'type': 'openrouter:image_generation',
-      if (imageGenerationModel != null && imageGenerationModel.isNotEmpty)
-        'parameters': <String, dynamic>{'model': imageGenerationModel},
-    });
-  }
   if (tools.isNotEmpty) {
     body['tools'] = tools;
     body['max_tool_calls'] = 4;
@@ -897,10 +1224,9 @@ Map<String, dynamic> _responsesRequestBody(
   )) {
     throw const DirectProviderException('PDF inputs require Chat Completions.');
   }
-  if (profile.isOpenRouter &&
-      (request.enableWebSearch || request.enableImageGeneration)) {
+  if (profile.isOpenRouter && request.enableWebSearch) {
     throw const DirectProviderException(
-      'OpenRouter tools currently require Chat Completions.',
+      'OpenRouter web search currently requires Chat Completions.',
     );
   }
   final core = OpenAiResponsesCodec.createRequestBody(
@@ -1552,6 +1878,18 @@ final class _DirectEmitter {
         title: enrichedTitle,
         snippet: enrichedSnippet,
       ),
+    );
+  }
+
+  void generatedImage({required String dataUrl, required String mediaType}) {
+    if (terminalSent || controller.isClosed) return;
+    // The dispatcher validates and accounts for decoded image bytes against a
+    // separate binary limit. Only the small metadata belongs in the text
+    // event budget here.
+    budget.add(mediaType);
+    _hasNonWhitespaceCompletion = true;
+    controller.add(
+      DirectGeneratedImage(dataUrl: dataUrl, mediaType: mediaType),
     );
   }
 

@@ -246,7 +246,7 @@ class SettingsService {
     return PreferencesStore.remove(_defaultModelKey);
   }
 
-  /// Set the model used by OpenRouter's image-generation server tool.
+  /// Set the model used by OpenRouter's dedicated Image API.
   static Future<void> setOpenRouterImageGenerationModel(String? modelId) {
     final normalized = modelId?.trim();
     if (normalized != null && normalized.isNotEmpty) {

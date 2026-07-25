@@ -92,9 +92,7 @@ void main() {
     expect(
       directModel.capabilities?['image_generation'],
       isTrue,
-      reason:
-          'The OpenRouter image-generation server tool works with text-only '
-          'Chat Completions models.',
+      reason: 'The OpenRouter Image API works with text-only parent models.',
     );
   });
 
