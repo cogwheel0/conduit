@@ -2601,9 +2601,9 @@
     "description": "Title for the personalization settings page."
   },
   "personalizationSubtitle": "Predvolený model, osobný prompt a pamäte",
-  "defaultImageGenerationModel": "Default image generation model",
-  "defaultImageGenerationModelDescription": "Enter an OpenRouter image model ID. Leave blank to use OpenRouter's default.",
-  "openRouterDefaultImageGenerationModel": "OpenRouter default (openai/gpt-5-image)",
+  "defaultImageGenerationModel": "Predvolený model generovania obrázkov",
+  "defaultImageGenerationModelDescription": "Zadajte ID obrázkového modelu OpenRouter. Ak chcete použiť predvolený model OpenRouter, nechajte pole prázdne.",
+  "openRouterDefaultImageGenerationModel": "Predvolený model OpenRouter (openai/gpt-5-image)",
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
