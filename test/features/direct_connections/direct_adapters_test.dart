@@ -941,7 +941,9 @@ void main() {
           'choices': [
             {
               'message': {
-                'content': 'Grounded answer with an image.',
+                'content':
+                    'Grounded answer.\n\n'
+                    '![Generated image](https://images.openrouter.ai/result.png)',
                 'annotations': [
                   {
                     'type': 'url_citation',
@@ -1020,6 +1022,8 @@ void main() {
       );
       expect(request.headers['X-OpenRouter-Metadata'], 'enabled');
       final body = request.data as Map;
+      expect(body['stream'], isFalse);
+      expect(request.headers['Accept'], 'application/json');
       expect(body['max_tool_calls'], 4);
       final tools = body['tools'] as List;
       expect(
@@ -1048,6 +1052,12 @@ void main() {
       expect(
         events.whereType<DirectSourceFound>().single.url,
         'https://example.com/source',
+      );
+      expect(
+        events.whereType<DirectContentDelta>().single.content,
+        contains(
+          '![Generated image](https://images.openrouter.ai/result.png)',
+        ),
       );
       expect(
         events
@@ -1205,6 +1215,8 @@ void main() {
     );
     expect(events.whereType<DirectSourceFound>(), hasLength(1));
     expect(events.whereType<DirectFileAnnotationsUpdate>(), hasLength(1));
+    expect((http.requests.single.data as Map)['stream'], isTrue);
+    expect(http.requests.single.headers['Accept'], 'text/event-stream');
   });
 
   test(

@@ -338,17 +338,28 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           rejectUnsupportedDirectToolParameters(request.parameters);
           final responsesMode =
               profile.openAiApiMode == DirectOpenAiApiMode.responses;
+          // Keep OpenRouter image-tool orchestration buffered until its parent
+          // model has consumed the generated image URL. Once an SSE response
+          // starts, OpenRouter cannot retry a failed parent continuation even
+          // when the child image generation itself completed successfully.
+          final bufferOpenRouterImageTool =
+              profile.supportsOpenRouterImageGeneration &&
+              request.enableImageGeneration;
+          final requestBody = responsesMode
+              ? _responsesRequestBody(request, profile)
+              : _chatRequestBody(request, profile);
+          if (bufferOpenRouterImageTool) requestBody['stream'] = false;
           final response = await dio.post<ResponseBody>(
             _completionEndpoint(profile),
             cancelToken: transportCancelToken,
-            data: responsesMode
-                ? _responsesRequestBody(request, profile)
-                : _chatRequestBody(request, profile),
+            data: requestBody,
             options: Options(
               responseType: ResponseType.stream,
               receiveTimeout: streamIdleTimeout,
               headers: {
-                'Accept': 'text/event-stream',
+                'Accept': bufferOpenRouterImageTool
+                    ? 'application/json'
+                    : 'text/event-stream',
                 if (profile.isOpenRouter) 'X-OpenRouter-Metadata': 'enabled',
               },
             ),
