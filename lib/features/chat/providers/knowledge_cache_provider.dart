@@ -7,7 +7,7 @@ import '../../../core/services/cache_manager.dart';
 import '../../../core/providers/app_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 
-/// Cache keys for knowledge base data.
+/// Cache keys for knowledge base data inside one account/server scope.
 const String _basesKey = 'knowledge_bases';
 String _filesKey(String baseId) => 'knowledge_files:$baseId';
 
@@ -23,14 +23,19 @@ class KnowledgeCacheManager {
   factory KnowledgeCacheManager() => _instance;
   KnowledgeCacheManager._internal();
 
-  final CacheManager _cache = CacheManager(
-    defaultTtl: _knowledgeCacheTtl,
-    maxEntries: 64,
-  );
+  final Map<_KnowledgeCacheScope, CacheManager> _scopedCaches = {};
+
+  CacheManager _cacheFor(_KnowledgeCacheScope scope) =>
+      _scopedCaches.putIfAbsent(
+        scope,
+        () => CacheManager(defaultTtl: _knowledgeCacheTtl, maxEntries: 64),
+      );
 
   /// Returns cached knowledge bases, or null if not cached.
-  List<KnowledgeBase>? getCachedBases() {
-    final (hit: hit, value: bases) = _cache.lookup<List<KnowledgeBase>>(
+  List<KnowledgeBase>? _getCachedBases(_KnowledgeCacheScope scope) {
+    final cache = _scopedCaches[scope];
+    if (cache == null) return null;
+    final (hit: hit, value: bases) = cache.lookup<List<KnowledgeBase>>(
       _basesKey,
     );
     if (hit) {
@@ -40,8 +45,8 @@ class KnowledgeCacheManager {
   }
 
   /// Caches knowledge bases.
-  void cacheBases(List<KnowledgeBase> bases) {
-    _cache.write<List<KnowledgeBase>>(_basesKey, bases);
+  void _cacheBases(_KnowledgeCacheScope scope, List<KnowledgeBase> bases) {
+    _cacheFor(scope).write<List<KnowledgeBase>>(_basesKey, bases);
     DebugLogger.log(
       'cache-write',
       scope: 'knowledge/bases',
@@ -50,8 +55,13 @@ class KnowledgeCacheManager {
   }
 
   /// Returns cached files for a knowledge base, or null if not cached.
-  List<KnowledgeBaseFile>? getCachedFiles(String baseId) {
-    final (hit: hit, value: files) = _cache.lookup<List<KnowledgeBaseFile>>(
+  List<KnowledgeBaseFile>? _getCachedFiles(
+    _KnowledgeCacheScope scope,
+    String baseId,
+  ) {
+    final cache = _scopedCaches[scope];
+    if (cache == null) return null;
+    final (hit: hit, value: files) = cache.lookup<List<KnowledgeBaseFile>>(
       _filesKey(baseId),
     );
     if (hit) {
@@ -65,8 +75,12 @@ class KnowledgeCacheManager {
   }
 
   /// Caches files for a knowledge base.
-  void cacheFiles(String baseId, List<KnowledgeBaseFile> files) {
-    _cache.write<List<KnowledgeBaseFile>>(_filesKey(baseId), files);
+  void _cacheFiles(
+    _KnowledgeCacheScope scope,
+    String baseId,
+    List<KnowledgeBaseFile> files,
+  ) {
+    _cacheFor(scope).write<List<KnowledgeBaseFile>>(_filesKey(baseId), files);
     DebugLogger.log(
       'cache-write',
       scope: 'knowledge/files',
@@ -74,14 +88,48 @@ class KnowledgeCacheManager {
     );
   }
 
-  /// Clears all knowledge cache entries.
-  void clear() {
-    _cache.invalidateMatching((key) => key.startsWith('knowledge'));
+  /// Clears knowledge entries for one account/server owner.
+  void _clearScope(_KnowledgeCacheScope scope) {
+    _scopedCaches.remove(scope)?.clear();
     DebugLogger.log('cache-clear', scope: 'knowledge');
   }
 
+  /// Clears all account/server scopes, used at an authentication boundary.
+  void clear() {
+    for (final cache in _scopedCaches.values) {
+      cache.clear();
+    }
+    _scopedCaches.clear();
+    DebugLogger.log('cache-clear-all', scope: 'knowledge');
+  }
+
   /// Returns cache statistics for debugging.
-  Map<String, dynamic> stats() => _cache.stats();
+  Map<String, dynamic> stats() => {
+    'scopes': _scopedCaches.length,
+    'entries': _scopedCaches.values.fold<int>(
+      0,
+      (total, cache) => total + (cache.stats()['size'] as int? ?? 0),
+    ),
+  };
+}
+
+final class _KnowledgeCacheScope {
+  const _KnowledgeCacheScope({
+    required this.serverId,
+    required this.authSessionEpoch,
+  });
+
+  final String serverId;
+  final Object authSessionEpoch;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _KnowledgeCacheScope &&
+      other.serverId == serverId &&
+      identical(other.authSessionEpoch, authSessionEpoch);
+
+  @override
+  int get hashCode => Object.hash(serverId, identityHashCode(authSessionEpoch));
 }
 
 /// State for the knowledge cache provider.
@@ -112,68 +160,216 @@ class KnowledgeCacheState {
 /// Notifier that wraps [KnowledgeCacheManager] with Riverpod reactivity.
 class KnowledgeCacheNotifier extends Notifier<KnowledgeCacheState> {
   final _cacheManager = KnowledgeCacheManager();
+  ApiService? _ownerApi;
+  _KnowledgeCacheScope? _scope;
+  int _ownerGeneration = 0;
+  int _basesRequestGeneration = 0;
+  final Map<String, int> _fileRequestGenerations = {};
+  Future<void>? _basesInFlight;
+  Object? _basesInFlightToken;
+  final Map<String, Future<void>> _filesInFlight = {};
+  final Map<String, Object> _filesInFlightTokens = {};
 
   @override
   KnowledgeCacheState build() {
+    final api = ref.watch(apiServiceProvider);
+    final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
+    _ownerApi = api;
+    _scope = api == null
+        ? null
+        : _KnowledgeCacheScope(
+            serverId: api.serverConfig.id,
+            authSessionEpoch: authSessionEpoch,
+          );
+    _ownerGeneration += 1;
+    _basesRequestGeneration += 1;
+    _fileRequestGenerations.clear();
+    _basesInFlight = null;
+    _basesInFlightToken = null;
+    _filesInFlight.clear();
+    _filesInFlightTokens.clear();
+
     // Initialize from cache if available
-    final cachedBases = _cacheManager.getCachedBases();
+    final scope = _scope;
+    final cachedBases = scope == null
+        ? null
+        : _cacheManager._getCachedBases(scope);
     if (cachedBases != null && cachedBases.isNotEmpty) {
       return KnowledgeCacheState(bases: cachedBases);
     }
     return const KnowledgeCacheState();
   }
 
-  ApiService? get _api => ref.read(apiServiceProvider);
+  bool _owns({
+    required ApiService api,
+    required _KnowledgeCacheScope scope,
+    required int ownerGeneration,
+  }) =>
+      ref.mounted &&
+      ownerGeneration == _ownerGeneration &&
+      identical(_ownerApi, api) &&
+      _scope == scope &&
+      identical(ref.read(apiServiceProvider), api) &&
+      identical(
+        ref.read(openWebUiAuthSessionEpochProvider),
+        scope.authSessionEpoch,
+      );
 
-  Future<void> ensureBases() async {
+  Future<void> ensureBases() {
     // Check if already loaded in state
-    if (state.bases.isNotEmpty) return;
+    if (state.bases.isNotEmpty) return Future<void>.value();
+
+    final existingRequest = _basesInFlight;
+    if (existingRequest != null) return existingRequest;
 
     // Check cache
-    final cached = _cacheManager.getCachedBases();
+    final api = _ownerApi;
+    final scope = _scope;
+    if (api == null || scope == null) return Future<void>.value();
+
+    final cached = _cacheManager._getCachedBases(scope);
     if (cached != null && cached.isNotEmpty) {
       state = state.copyWith(bases: cached);
-      return;
+      return Future<void>.value();
     }
 
-    if (_api == null) return;
+    final ownerGeneration = _ownerGeneration;
+    final requestGeneration = ++_basesRequestGeneration;
+    final requestToken = Object();
+    _basesInFlightToken = requestToken;
     state = state.copyWith(isLoading: true);
+    final request = _loadBases(
+      api: api,
+      scope: scope,
+      ownerGeneration: ownerGeneration,
+      requestGeneration: requestGeneration,
+      requestToken: requestToken,
+    );
+    _basesInFlight = request;
+    return request;
+  }
+
+  Future<void> _loadBases({
+    required ApiService api,
+    required _KnowledgeCacheScope scope,
+    required int ownerGeneration,
+    required int requestGeneration,
+    required Object requestToken,
+  }) async {
     try {
-      final bases = await _api!.getKnowledgeBases();
-      _cacheManager.cacheBases(bases);
+      final bases = await api.getKnowledgeBases();
+      if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
+          requestGeneration != _basesRequestGeneration) {
+        return;
+      }
+      _cacheManager._cacheBases(scope, bases);
       state = state.copyWith(bases: bases, isLoading: false);
     } catch (_) {
-      state = state.copyWith(isLoading: false);
+      if (_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) &&
+          requestGeneration == _basesRequestGeneration) {
+        state = state.copyWith(isLoading: false);
+      }
+    } finally {
+      if (identical(_basesInFlightToken, requestToken)) {
+        _basesInFlight = null;
+        _basesInFlightToken = null;
+      }
     }
   }
 
-  Future<void> fetchFilesForBase(String baseId) async {
-    if (state.files.containsKey(baseId)) return;
+  Future<void> fetchFilesForBase(String baseId) {
+    if (state.files.containsKey(baseId)) return Future<void>.value();
 
-    final cached = _cacheManager.getCachedFiles(baseId);
+    final existingRequest = _filesInFlight[baseId];
+    if (existingRequest != null) return existingRequest;
+
+    final api = _ownerApi;
+    final scope = _scope;
+    if (api == null || scope == null) return Future<void>.value();
+
+    final cached = _cacheManager._getCachedFiles(scope, baseId);
     if (cached != null) {
       final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
       next[baseId] = cached;
       state = state.copyWith(files: next);
-      return;
+      return Future<void>.value();
     }
 
-    if (_api == null) return;
-
-    final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
-    try {
-      final files = await _api!.getAllKnowledgeBaseFiles(baseId);
-      _cacheManager.cacheFiles(baseId, files);
-      next[baseId] = files;
-    } catch (_) {
-      next[baseId] = const <KnowledgeBaseFile>[];
-    }
-    state = state.copyWith(files: next);
+    final ownerGeneration = _ownerGeneration;
+    final requestGeneration = (_fileRequestGenerations[baseId] ?? 0) + 1;
+    _fileRequestGenerations[baseId] = requestGeneration;
+    final requestToken = Object();
+    _filesInFlightTokens[baseId] = requestToken;
+    final request = _loadFilesForBase(
+      baseId: baseId,
+      api: api,
+      scope: scope,
+      ownerGeneration: ownerGeneration,
+      requestGeneration: requestGeneration,
+      requestToken: requestToken,
+    );
+    _filesInFlight[baseId] = request;
+    return request;
   }
 
-  /// Clears both in-memory state and persistent cache.
+  Future<void> _loadFilesForBase({
+    required String baseId,
+    required ApiService api,
+    required _KnowledgeCacheScope scope,
+    required int ownerGeneration,
+    required int requestGeneration,
+    required Object requestToken,
+  }) async {
+    try {
+      final files = await api.getAllKnowledgeBaseFiles(baseId);
+      if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
+          _fileRequestGenerations[baseId] != requestGeneration) {
+        return;
+      }
+      _cacheManager._cacheFiles(scope, baseId, files);
+      final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
+      next[baseId] = files;
+      state = state.copyWith(files: next);
+    } catch (_) {
+      if (!_owns(api: api, scope: scope, ownerGeneration: ownerGeneration) ||
+          _fileRequestGenerations[baseId] != requestGeneration) {
+        return;
+      }
+      final next = Map<String, List<KnowledgeBaseFile>>.from(state.files);
+      next[baseId] = const <KnowledgeBaseFile>[];
+      state = state.copyWith(files: next);
+    } finally {
+      if (identical(_filesInFlightTokens[baseId], requestToken)) {
+        _filesInFlight.remove(baseId);
+        _filesInFlightTokens.remove(baseId);
+      }
+    }
+  }
+
+  /// Clears both in-memory state and cache for the current owner.
   void clearCache() {
+    final scope = _scope;
+    if (scope != null) {
+      _cacheManager._clearScope(scope);
+    }
+    _basesRequestGeneration += 1;
+    _fileRequestGenerations.clear();
+    _basesInFlight = null;
+    _basesInFlightToken = null;
+    _filesInFlight.clear();
+    _filesInFlightTokens.clear();
+    state = const KnowledgeCacheState();
+  }
+
+  /// Clears every account/server scope at a sign-out boundary.
+  void clearAllCaches() {
     _cacheManager.clear();
+    _basesRequestGeneration += 1;
+    _fileRequestGenerations.clear();
+    _basesInFlight = null;
+    _basesInFlightToken = null;
+    _filesInFlight.clear();
+    _filesInFlightTokens.clear();
     state = const KnowledgeCacheState();
   }
 }

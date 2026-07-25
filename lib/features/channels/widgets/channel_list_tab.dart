@@ -106,18 +106,33 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
 
   Future<void> _leaveChannel(Channel channel) async {
     final l10n = AppLocalizations.of(context)!;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.channelLeave,
       message: l10n.channelLeaveConfirm,
     );
-    if (!confirmed || !mounted) return;
-
+    if (!confirmed ||
+        !mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
+      return;
+    }
     try {
-      final api = ref.read(apiServiceProvider);
-      if (api == null) return;
       await api.updateMemberActiveStatus(channel.id, isActive: false);
-      if (!mounted) return;
+      if (!mounted ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          !identical(
+            ref.read(openWebUiAuthSessionEpochProvider),
+            authSessionEpoch,
+          )) {
+        return;
+      }
       ref.read(channelsListProvider.notifier).removeChannel(channel.id);
       if (_activeChannelId == channel.id) {
         ref.read(activeChannelProvider.notifier).clear();
@@ -130,19 +145,34 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         error: error,
         stackTrace: stackTrace,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          !identical(
+            ref.read(openWebUiAuthSessionEpochProvider),
+            authSessionEpoch,
+          )) {
+        return;
+      }
       _showChannelActionError(l10n.errorMessage);
     }
   }
 
   Future<void> _editChannel(Channel channel) async {
     final l10n = AppLocalizations.of(context)!;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     final result = await showEditChannelFormDialog(context, channel: channel);
-    if (result == null || !mounted) return;
-
+    if (result == null ||
+        !mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
+      return;
+    }
     try {
-      final api = ref.read(apiServiceProvider);
-      if (api == null) return;
       final json = await api.updateChannel(
         channel.id,
         name: result.name,
@@ -150,7 +180,14 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         isPrivate: result.isPrivate,
       );
       final updated = Channel.fromJson(json);
-      if (!mounted) return;
+      if (!mounted ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          !identical(
+            ref.read(openWebUiAuthSessionEpochProvider),
+            authSessionEpoch,
+          )) {
+        return;
+      }
       ref.read(channelsListProvider.notifier).updateChannel(updated);
       final activeChannel = ref.read(activeChannelProvider);
       if (activeChannel?.id == updated.id) {
@@ -163,7 +200,14 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         error: error,
         stackTrace: stackTrace,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          !identical(
+            ref.read(openWebUiAuthSessionEpochProvider),
+            authSessionEpoch,
+          )) {
+        return;
+      }
       _showChannelActionError(l10n.errorMessage);
     }
   }

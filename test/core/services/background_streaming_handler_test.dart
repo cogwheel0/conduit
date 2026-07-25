@@ -1,8 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/background_streaming_handler.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('builds typed platform lease payloads', () {
     final startedAt = DateTime.fromMillisecondsSinceEpoch(123456);
 
@@ -43,4 +46,26 @@ void main() {
 
     expect(leases, isEmpty);
   });
+
+  test(
+    'forwards native service failures with their exact stream owners',
+    () async {
+      List<String>? failedStreamIds;
+      await BackgroundStreamingHandler.instance.initialize(
+        serviceFailedCallback: (_, _, streamIds) {
+          failedStreamIds = streamIds;
+        },
+      );
+
+      BackgroundStreamingHandler.instance.serviceFailed(
+        PlatformServiceFailureEvent(
+          error: 'service stopped',
+          errorType: 'native',
+          streamIds: const <String>['chat-stream-assistant-1'],
+        ),
+      );
+
+      expect(failedStreamIds, const <String>['chat-stream-assistant-1']);
+    },
+  );
 }

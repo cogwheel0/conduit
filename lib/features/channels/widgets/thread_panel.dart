@@ -60,23 +60,30 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
 
     final api = ref.read(apiServiceProvider);
     if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final channelId = widget.channelId;
+    final parentMessageId = widget.parentMessage.id;
 
     setState(() => _isSending = true);
     try {
       final json = await api.postChannelMessage(
-        widget.channelId,
+        channelId,
         content: content,
-        parentId: widget.parentMessage.id,
+        parentId: parentMessageId,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          widget.channelId != channelId ||
+          widget.parentMessage.id != parentMessageId ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          !identical(
+            ref.read(openWebUiAuthSessionEpochProvider),
+            authSessionEpoch,
+          )) {
+        return;
+      }
       final message = ChannelMessage.fromJson(json);
       ref
-          .read(
-            threadMessagesProvider(
-              widget.channelId,
-              widget.parentMessage.id,
-            ).notifier,
-          )
+          .read(threadMessagesProvider(channelId, parentMessageId).notifier)
           .prependMessage(message);
     } catch (e, st) {
       developer.log(

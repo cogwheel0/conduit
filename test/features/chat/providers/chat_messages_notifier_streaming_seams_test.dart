@@ -112,6 +112,48 @@ class _StoppingHermesApi extends HermesApiService {
   }
 }
 
+class _RecoveredHermesApi extends HermesApiService {
+  _RecoveredHermesApi()
+    : super(
+        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        dio: Dio(),
+      );
+
+  int getRunCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    getRunCalls += 1;
+    return <String, dynamic>{
+      'status': 'completed',
+      'output': 'Authoritative recovered answer',
+    };
+  }
+}
+
+class _GatedRecoveredHermesApi extends HermesApiService {
+  _GatedRecoveredHermesApi(this.response)
+    : super(
+        config: const HermesConfig(enabled: true, baseUrl: 'http://hermes'),
+        dio: Dio(),
+      );
+
+  final Completer<Map<String, dynamic>> response;
+  int getRunCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) {
+    getRunCalls += 1;
+    return response.future;
+  }
+}
+
 final class _CountingStopApi extends ApiService {
   _CountingStopApi()
     : super(
@@ -5415,6 +5457,230 @@ void main() {
       check(registry.runFor(key)).isNull();
     });
 
+    test(
+      'cold-restored direct checkpoint is settled without a live registry',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'orphaned-direct-checkpoint',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final conversation = withChatStorageProvenance(
+          _conversation('orphaned-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.directLocal,
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await pumpEventQueue();
+
+        final restored = container.read(chatMessagesProvider).single;
+        check(restored.id).equals(assistant.id);
+        check(restored.content).equals('Retained direct partial');
+        check(restored.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'switching into an orphaned direct chat settles its checkpoint',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final otherConversation = withChatStorageProvenance(
+          _conversation('other-direct-chat', const <ChatMessage>[]),
+          ChatStorageKind.directLocal,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(otherConversation);
+        check(container.read(chatMessagesProvider)).isEmpty();
+
+        final assistant = _assistantMessage(
+          id: 'switched-orphaned-direct',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final orphanedConversation = withChatStorageProvenance(
+          _conversation('switched-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.directLocal,
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(orphanedConversation);
+        await pumpEventQueue();
+
+        final restored = container.read(chatMessagesProvider).single;
+        check(restored.id).equals(assistant.id);
+        check(restored.isStreaming).isFalse();
+      },
+    );
+
+    test(
+      'stopping an orphaned direct checkpoint never stops OpenWebUI work',
+      () async {
+        final api = _CountingStopApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(api),
+            socketServiceProvider.overrideWithValue(null),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'orphaned-direct-stop',
+          content: 'Retained direct partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kDirectTransport},
+        );
+        final conversation = withChatStorageProvenance(
+          _conversation('mixed-direct-chat', <ChatMessage>[assistant]),
+          ChatStorageKind.openWebUi,
+        );
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await Future<void>.delayed(Duration.zero);
+
+        container.read(stopGenerationProvider)();
+        await pumpEventQueue();
+
+        check(
+          container.read(chatMessagesProvider).single.isStreaming,
+        ).isFalse();
+        check(api.broadStops).equals(0);
+      },
+    );
+
+    test(
+      'cold-restored Hermes checkpoint reconciles from its durable run id',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-checkpoint',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-cold', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        for (var attempt = 0; attempt < 50; attempt++) {
+          final message = container.read(chatMessagesProvider).singleOrNull;
+          if (message != null && !message.isStreaming) break;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(service.getRunCalls).equals(1);
+        check(recovered.content).equals('Authoritative recovered answer');
+        check(recovered.isStreaming).isFalse();
+        check(recovered.error).isNull();
+      },
+    );
+
+    test(
+      'cold Hermes recovery restarts when its service owner changes',
+      () async {
+        final oldResponse = Completer<Map<String, dynamic>>();
+        final oldService = _GatedRecoveredHermesApi(oldResponse);
+        final replacementResponse = Completer<Map<String, dynamic>>()
+          ..complete(<String, dynamic>{
+            'status': 'completed',
+            'output': 'Replacement service answer',
+          });
+        final replacementService = _GatedRecoveredHermesApi(
+          replacementResponse,
+        );
+        final serviceGeneration =
+            NotifierProvider<_HermesServiceGeneration, HermesApiService?>(
+              () => _HermesServiceGeneration(oldService),
+            );
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWith(
+              (ref) => ref.watch(serviceGeneration),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final chatSubscription = container.listen(
+          chatMessagesProvider,
+          (_, _) {},
+        );
+        addTearDown(chatSubscription.close);
+        final assistant = _assistantMessage(
+          id: 'swapped-hermes-checkpoint',
+          content: 'Old partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        final conversation = markNativeHermesConversation(
+          withChatStorageProvenance(
+            _conversation('local:hermes_session-cold', <ChatMessage>[
+              assistant,
+            ]),
+            ChatStorageKind.directLocal,
+          ),
+        );
+
+        container.read(activeConversationProvider.notifier).set(conversation);
+        await _waitForCondition(() => oldService.getRunCalls == 1);
+        container.read(serviceGeneration.notifier).set(replacementService);
+        await _waitForCondition(() => replacementService.getRunCalls == 1);
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(recovered.content).equals('Replacement service answer');
+        oldResponse.complete(<String, dynamic>{
+          'status': 'completed',
+          'output': 'Stale old service answer',
+        });
+        await pumpEventQueue();
+        check(
+          container.read(chatMessagesProvider).single.content,
+        ).equals('Replacement service answer');
+      },
+    );
+
     test('Stop observes rejected direct and Hermes cleanup futures', () async {
       final container = _buildContainer();
       addTearDown(container.dispose);
@@ -7475,4 +7741,17 @@ void main() {
       ).isFalse();
     });
   });
+}
+
+Future<void> _waitForCondition(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for asynchronous state');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }

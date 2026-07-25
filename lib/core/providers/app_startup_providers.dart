@@ -34,7 +34,11 @@ import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 import '../../features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/chat_providers.dart';
+import '../../features/chat/providers/context_attachments_provider.dart';
+import '../../features/chat/providers/knowledge_cache_provider.dart';
 import '../../features/chat/providers/remap_route_sync_provider.dart';
+import '../../features/channels/providers/channel_providers.dart';
+import '../../features/channels/providers/channel_socket_handler.dart';
 import '../../features/direct_connections/direct_connections.dart';
 import '../../features/hermes/models/hermes_model.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
@@ -47,12 +51,21 @@ part 'app_startup_providers.g.dart';
 /// depend on auth state, and invalidating them from inside the auth notifier
 /// trips Riverpod's circular dependency guard.
 final userScopedProviderCleanupProvider = Provider<void>((ref) {
-  ref.watch(openWebUiAccountStorageIsolationProvider);
+  // This provider owns auth-boundary listeners and must not inherit the
+  // storage-isolation notifier's rebuild lifecycle: that notifier changes at
+  // the exact boundary where this cleanup needs to remain mounted.
+  ref.read(openWebUiAccountStorageIsolationProvider);
   var tokenlessCleanupScheduled = false;
 
   void scheduleCleanup() {
     if (tokenlessCleanupScheduled) return;
     tokenlessCleanupScheduled = true;
+    // These stores contain no filesystem ownership and must cross the auth
+    // boundary synchronously. The broader cleanup below may need to await
+    // attachment retirement and must not leave the departing account's
+    // composer context or knowledge results visible in that interval.
+    ref.read(contextAttachmentsProvider.notifier).clear();
+    ref.read(knowledgeCacheProvider.notifier).clearAllCaches();
     // Capture the departing composer's exact state objects and upload
     // generations synchronously. Authentication can complete again before the
     // delayed cleanup fence settles; that new session must remain untouched.
@@ -691,7 +704,6 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
   const attempts = 40;
   var shouldResetCurrentUserProviders = false;
   for (var attempt = 0; attempt < attempts; attempt++) {
-    await Future<void>.delayed(const Duration(milliseconds: 50));
     if (!ref.mounted) {
       return;
     }
@@ -704,6 +716,7 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
       shouldResetCurrentUserProviders = true;
       break;
     }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
   }
 
   if (!ref.mounted) {
@@ -768,7 +781,15 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
     ref.invalidate(selectedToolIdsProvider);
     ref.invalidate(selectedTerminalIdProvider);
     ref.invalidate(selectedFilterIdsProvider);
+    ref.invalidate(contextAttachmentsProvider);
+    ref.read(knowledgeCacheProvider.notifier).clearAllCaches();
     ref.invalidate(knowledgeBasesProvider);
+    ref.invalidate(channelsListProvider);
+    ref.invalidate(activeChannelProvider);
+    ref.invalidate(channelMessagesProvider);
+    ref.invalidate(threadMessagesProvider);
+    ref.invalidate(channelTypingUsersProvider);
+    ref.invalidate(channelSocketHandlerProvider);
     ref.invalidate(availableVoicesProvider);
     ref.invalidate(imageModelsProvider);
     ref.invalidate(defaultModelProvider);
@@ -1221,8 +1242,19 @@ Future<void> _initializeBackgroundStreaming(Ref ref) async {
           error: error,
           data: {'type': errorType, 'streams': streamIds.length},
         );
-        // Clear any streaming state in chat providers for failed streams
-        // The UI will show the partially completed message
+        unawaited(
+          ref
+              .read(chatMessagesProvider.notifier)
+              .reconcileBackgroundServiceFailure(streamIds)
+              .catchError((Object recoveryError, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'background-service-reconciliation-failed',
+                  scope: 'startup',
+                  error: recoveryError,
+                  stackTrace: stackTrace,
+                );
+              }),
+        );
       },
       timeLimitApproachingCallback: (remainingMinutes) {
         if (!ref.mounted) return;
@@ -1866,6 +1898,8 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
       Future.microtask(() {
         try {
           refreshConversationsCache(_ref);
+          _ref.invalidate(channelMessagesProvider);
+          _ref.invalidate(threadMessagesProvider);
           _resetConversationWarmup(_ref);
           unawaited(_refreshActiveConversationOnResume(_ref));
         } catch (_) {}

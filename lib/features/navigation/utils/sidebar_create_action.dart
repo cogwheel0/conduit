@@ -175,17 +175,21 @@ Future<void> _createNote(BuildContext context, WidgetRef ref) async {
 
 Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.lightImpact();
+  final api = ref.read(apiServiceProvider);
+  if (api == null) return;
+  final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
   final result = await showCreateChannelFormDialog(context);
-  if (result == null || !context.mounted) {
+  if (result == null ||
+      !context.mounted ||
+      !identical(ref.read(apiServiceProvider), api) ||
+      !identical(
+        ref.read(openWebUiAuthSessionEpochProvider),
+        authSessionEpoch,
+      )) {
     return;
   }
 
   try {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      return;
-    }
-
     final json = await api.createChannel(
       name: result.name,
       type: 'group',
@@ -193,13 +197,23 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
       isPrivate: result.isPrivate,
     );
 
-    if (!context.mounted) {
+    if (!context.mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
       return;
     }
 
     ref.read(channelsListProvider.notifier).addChannel(Channel.fromJson(json));
   } catch (_) {
-    if (!context.mounted) {
+    if (!context.mounted ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          authSessionEpoch,
+        )) {
       return;
     }
 

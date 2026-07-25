@@ -10,6 +10,7 @@ import '../../../core/providers/app_providers.dart';
 import '../../../core/providers/app_startup_providers.dart';
 import '../../../core/utils/debug_logger.dart';
 import '../../chat/providers/chat_providers.dart' as chat;
+import '../../chat/providers/context_attachments_provider.dart';
 
 part 'conversation_selection_provider.g.dart';
 
@@ -510,6 +511,7 @@ class ConversationSelection extends _$ConversationSelection {
     final outgoing = ref.read(activeConversationProvider);
     if (!isSameStoredConversation(outgoing, summary)) {
       chat.clearSelectedFiltersForConversationBoundary(ref);
+      ref.read(contextAttachmentsProvider.notifier).clear();
       if (outgoing != null) {
         markConversationRead(ref, conversationScopedId(outgoing));
       }
