@@ -735,6 +735,7 @@ Future<Conversation> _seedDirectConversation({
   required String chatId,
   required String modelId,
   required String suffix,
+  List<Map<String, dynamic>>? userFiles,
 }) async {
   final now = DateTime.utc(2026, 7, 11);
   final user = ChatMessage(
@@ -742,6 +743,7 @@ Future<Conversation> _seedDirectConversation({
     role: 'user',
     content: 'Question $suffix',
     timestamp: now,
+    files: userFiles,
     metadata: {
       'parentId': null,
       'childrenIds': <String>['assistant-$suffix'],
@@ -773,6 +775,7 @@ Future<Conversation> _seedDirectConversation({
             'childrenIds': [assistant.id],
             'role': 'user',
             'content': user.content,
+            'files': ?userFiles,
             'timestamp': 1,
           },
           assistant.id: {
@@ -1402,6 +1405,87 @@ void main() {
           jsonDecode(durableAssistant.payload) as Map<String, dynamic>;
       expect(assistantPayload['isStreaming'], isFalse);
       expect(durableAssistant.content, isEmpty);
+    },
+  );
+
+  test(
+    'regeneration restores the previous assistant after a late model switch',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final models = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model-a', isMultimodal: true),
+        DirectRemoteModel(id: 'model-b', isMultimodal: true),
+      ]);
+      final modelA = models[0];
+      final modelB = models[1];
+      final adapter = _Adapter();
+      final api = _DeferredAttachmentApi();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:late-regeneration-model-switch',
+        modelId: modelA.id,
+        suffix: 'late-regeneration-model-switch',
+        userFiles: const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'server-image', 'type': 'image'},
+        ],
+      );
+      final previousAssistant = chat.messages.last;
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(api),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final regeneration = regenerateMessage(
+        container,
+        chat.messages.first.content,
+        null,
+      );
+      await api.firstInfoStarted.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      api.firstInfoGate.complete();
+
+      await regeneration.timeout(const Duration(seconds: 1));
+
+      expect(adapter.startCalls, 0);
+      final visibleAssistant = container
+          .read(chatMessagesProvider)
+          .singleWhere((message) => message.id == previousAssistant.id);
+      expect(visibleAssistant.content, previousAssistant.content);
+      expect(visibleAssistant.isStreaming, isFalse);
+      final reloaded = await container
+          .read(chatDatabaseRepositoryProvider)
+          .loadConversation(chat.id, preferred: ChatStorageKind.directLocal);
+      final durableAssistant = reloaded!.conversation.messages.singleWhere(
+        (message) => message.id == previousAssistant.id,
+      );
+      expect(durableAssistant.content, previousAssistant.content);
+      expect(durableAssistant.isStreaming, isFalse);
     },
   );
 

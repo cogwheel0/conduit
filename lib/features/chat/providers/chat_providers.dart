@@ -7531,7 +7531,13 @@ Future<void> _regenerateDirectMessage(
                   .firstOrNull
             : null) ??
         assistant;
-    final stoppedSnapshot = stopped.copyWith(isStreaming: false);
+    // Regeneration replaces the previous answer with a same-id placeholder
+    // before attachment/message preflight. If that preflight is cancelled,
+    // restore the completed answer rather than making the empty replacement
+    // the default visible and durable version.
+    final stoppedSnapshot =
+        previousAssistant?.copyWith(isStreaming: false) ??
+        stopped.copyWith(isStreaming: false);
     if (ownerIsActive) {
       notifier.updateMessageById(assistant.id, (_) => stoppedSnapshot);
     }
