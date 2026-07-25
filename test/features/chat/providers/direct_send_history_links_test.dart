@@ -1476,6 +1476,95 @@ void main() {
     );
   });
 
+  test(
+    'direct send aborts when selection switches to another live profile',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final profileA = DirectConnectionProfile(
+        id: 'profile-a',
+        name: 'Provider A',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final profileB = DirectConnectionProfile(
+        id: 'profile-b',
+        name: 'Provider B',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11435',
+      );
+      final registry = DirectModelRegistry();
+      final modelA = registry.replaceProfileModels(profileA, [
+        DirectRemoteModel(id: 'model-a'),
+      ]).single;
+      final modelB = registry.replaceProfileModels(profileB, [
+        DirectRemoteModel(id: 'model-b'),
+      ]).single;
+      final profiles = _GatedProfiles(profileA);
+      final adapter = _Adapter();
+      final chat = await _seedDirectConversation(
+        db: db,
+        chatId: 'direct-local:selection-switch',
+        modelId: modelA.id,
+        suffix: 'selection-switch',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          directLocalDatabaseProvider.overrideWithValue(db),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directConnectionProfilesProvider.overrideWith(() => profiles),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(selectedModelProvider.notifier).set(modelA);
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+      final visibleBeforeSend = container.read(chatMessagesProvider);
+      final rowsBeforeSend = await db.messagesDao.getForChat(chat.id);
+
+      final send = sendMessageWithContainer(
+        container,
+        'Do not send through profile A',
+        null,
+      );
+      await profiles.started.future.timeout(const Duration(seconds: 1));
+      container.read(selectedModelProvider.notifier).set(modelB);
+      profiles.gate.complete([profileA, profileB]);
+
+      await expectLater(
+        send,
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'The selected direct connection changed while preparing the message.',
+          ),
+        ),
+      );
+      expect(
+        identical(container.read(chatMessagesProvider), visibleBeforeSend),
+        isTrue,
+      );
+      expect(registry.resolve(modelA), isNotNull);
+      expect(registry.resolve(modelB), isNotNull);
+      expect(adapter.startCalls, 0);
+      final rowsAfterSend = await db.messagesDao.getForChat(chat.id);
+      expect(
+        rowsAfterSend.map((row) => row.id),
+        rowsBeforeSend.map((row) => row.id),
+      );
+    },
+  );
+
   test('direct send rejects a binding revoked while profiles load', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);

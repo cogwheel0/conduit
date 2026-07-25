@@ -13140,6 +13140,15 @@ Future<_ResolvedDirectRoute?> _resolveDirectRoute(
   return (model: selectedModel, binding: binding, profile: profile);
 }
 
+bool _directRouteIsStillSelected(dynamic ref, _ResolvedDirectRoute route) {
+  final selectedModel = ref.read(selectedModelProvider) as Model?;
+  return identical(selectedModel, route.model) &&
+      identical(
+        ref.read(directModelRegistryProvider).resolve(route.model),
+        route.binding,
+      );
+}
+
 String _openWebUiDirectWireModelId(_ResolvedDirectRoute route) {
   final wireModelId = route.binding.openWebUiModelId;
   if (wireModelId == null || wireModelId.isEmpty) {
@@ -14721,11 +14730,8 @@ Future<void> _sendMessageInternal(
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
   }
-  if (directRoute != null &&
-      !identical(
-        ref.read(directModelRegistryProvider).resolve(directRoute.model),
-        directRoute.binding,
-      )) {
+  if (resolvedDirectRoute != null &&
+      !_directRouteIsStillSelected(ref, resolvedDirectRoute)) {
     throw StateError(
       'The selected direct connection changed while preparing the message.',
     );
@@ -14814,11 +14820,8 @@ Future<void> _sendMessageInternal(
   if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
     throw StateError('The conversation changed while preparing the message.');
   }
-  if (directRoute != null &&
-      !identical(
-        ref.read(directModelRegistryProvider).resolve(directRoute.model),
-        directRoute.binding,
-      )) {
+  if (resolvedDirectRoute != null &&
+      !_directRouteIsStillSelected(ref, resolvedDirectRoute)) {
     throw StateError(
       'The selected direct connection changed while preparing the message.',
     );
@@ -14941,11 +14944,7 @@ Future<void> _sendMessageInternal(
   final DirectRunRegistry? directRegistry = directRoute == null
       ? null
       : ref.read(directRunRegistryProvider);
-  if (directRoute != null &&
-      !identical(
-        ref.read(directModelRegistryProvider).resolve(directRoute.model),
-        directRoute.binding,
-      )) {
+  if (directRoute != null && !_directRouteIsStillSelected(ref, directRoute)) {
     // No durable owner or run reservation exists yet. Roll back the complete
     // optimistic turn (including its parent edge) instead of leaving an empty,
     // apparently completed assistant behind.

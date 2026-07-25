@@ -1055,9 +1055,7 @@ void main() {
       );
       expect(
         events.whereType<DirectContentDelta>().single.content,
-        contains(
-          '![Generated image](https://images.openrouter.ai/result.png)',
-        ),
+        contains('![Generated image](https://images.openrouter.ai/result.png)'),
       );
       expect(
         events
@@ -1080,6 +1078,97 @@ void main() {
       );
     },
   );
+
+  test('OpenRouter preserves buffered generated images as markdown', () async {
+    const image = 'data:image/png;base64,AQID';
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': null,
+              'images': [
+                {
+                  'type': 'image_url',
+                  'image_url': {'url': image},
+                },
+              ],
+            },
+            'finish_reason': 'stop',
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'anthropic/claude-sonnet-4',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(
+      events.whereType<DirectContentDelta>().single.content,
+      '![Generated image]($image)',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+  });
+
+  test('OpenRouter surfaces buffered choice-level errors', () async {
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': null},
+            'finish_reason': 'error',
+            'error': {
+              'code': 502,
+              'message': 'Server tool request failed',
+              'metadata': {'error_type': 'provider_unavailable'},
+            },
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(baseUrl: kOpenRouterApiBaseUrl),
+          DirectCompletionRequest(
+            remoteModelId: 'anthropic/claude-sonnet-4',
+            enableImageGeneration: true,
+            messages: [
+              DirectChatMessage.text(role: 'user', text: 'Create an image'),
+            ],
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Server tool request failed',
+    );
+    expect(events.whereType<DirectContentDelta>(), isEmpty);
+    expect(events.whereType<DirectStreamDone>(), isEmpty);
+  });
 
   test('OpenRouter rejects malformed PDF base64 before dispatch', () async {
     final http = _QueuedAdapter(const []);
