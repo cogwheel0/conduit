@@ -1143,6 +1143,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> setOpenRouterImageGenerationModel(String? modelId) async {
+    final pendingLoad = _pendingLoad;
+    if (pendingLoad != null) {
+      await pendingLoad;
+      if (!ref.mounted) return;
+    }
     final normalized = modelId?.trim();
     final value = normalized == null || normalized.isEmpty ? null : normalized;
     state = state.copyWith(openRouterImageGenerationModel: value);

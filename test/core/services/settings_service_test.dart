@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -466,6 +467,39 @@ void main() {
           PreferenceKeys.openRouterImageGenerationModel,
         ),
       ).isFalse();
+    });
+  });
+
+  group('AppSettingsNotifier OpenRouter image model startup writes', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.openRouterImageGenerationModel: 'openai/gpt-5-image',
+      });
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('waits for hydration before applying a new model id', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      check(
+        container.read(appSettingsProvider).openRouterImageGenerationModel,
+      ).isNull();
+
+      await container
+          .read(appSettingsProvider.notifier)
+          .setOpenRouterImageGenerationModel('openai/gpt-5-image-mini');
+
+      check(
+        container.read(appSettingsProvider).openRouterImageGenerationModel,
+      ).equals('openai/gpt-5-image-mini');
+      check(
+        PreferencesStore.getString(
+          PreferenceKeys.openRouterImageGenerationModel,
+        ),
+      ).equals('openai/gpt-5-image-mini');
     });
   });
 
