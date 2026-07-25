@@ -72,6 +72,28 @@ String normalizeReasoningEffort(String value) {
   return normalized;
 }
 
+String? modelConfiguredReasoningEffort(Model? model) {
+  final metadata = model?.metadata;
+  if (metadata == null) return null;
+
+  final info = metadata['info'];
+  final candidates = <Object?>[
+    if (info is Map) info['params'],
+    metadata['params'],
+  ];
+  for (final candidate in candidates) {
+    if (candidate is! Map) continue;
+    final rawEffort = candidate['reasoning_effort'];
+    if (rawEffort is! String) continue;
+    try {
+      return normalizeReasoningEffort(rawEffort);
+    } on FormatException {
+      // Ignore malformed server metadata and continue to the user preference.
+    }
+  }
+  return null;
+}
+
 @Riverpod(keepAlive: true)
 class LocalReasoningEfforts extends _$LocalReasoningEfforts {
   @override
@@ -151,6 +173,9 @@ final configuredReasoningEffortProvider = Provider<String?>((ref) {
         );
   }
 
+  final modelEffort = modelConfiguredReasoningEffort(model);
+  if (modelEffort != null) return modelEffort;
+
   if (ref.watch(apiServiceProvider) != null) {
     return ref
         .watch(personalizationSettingsProvider)
@@ -199,6 +224,8 @@ String reasoningEffortForModel(ReasoningEffortReader read, Model? model) {
     return read(localReasoningEffortsProvider)['hermes:${model.id}'] ??
         kAutomaticReasoningEffort;
   }
+  final modelEffort = modelConfiguredReasoningEffort(model);
+  if (modelEffort != null) return modelEffort;
   if (read(apiServiceProvider) != null) {
     return read(
           personalizationSettingsProvider,

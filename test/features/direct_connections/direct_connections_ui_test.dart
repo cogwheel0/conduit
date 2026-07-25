@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/providers/app_providers.dart';
 import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit/core/services/navigation_service.dart';
 import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
@@ -1670,6 +1671,10 @@ void main() {
   testWidgets('switching an existing profile to OpenRouter normalizes state', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final profile = DirectConnectionProfile(
       id: 'existing-generic',
       name: 'Existing provider',
@@ -1697,10 +1702,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final providerSelector = tester.widget<AdaptiveSegmentedSelector<String>>(
-      find.byKey(const ValueKey<String>('direct-provider-preset-selector')),
+    final providerSelector = tester.widget<DropdownButtonFormField<String>>(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('direct-provider-preset-selector'),
+        ),
+        matching: find.byType(DropdownButtonFormField<String>),
+      ),
     );
-    providerSelector.onChanged('openrouter');
+    providerSelector.onChanged?.call('openrouter');
     await tester.pump();
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
     await tester.pumpAndSettle();
@@ -1734,6 +1744,55 @@ void main() {
       kOpenRouterApiBaseUrl,
     );
   });
+
+  testWidgets(
+    'opening an editor preserves the native sheet transition origin',
+    (tester) async {
+      Object? editorExtra;
+      final router = GoRouter(
+        initialLocation: Routes.directConnections,
+        routes: [
+          GoRoute(
+            path: Routes.directConnections,
+            name: RouteNames.directConnections,
+            builder: (_, _) => const DirectConnectionsPage(),
+          ),
+          GoRoute(
+            path: Routes.directConnectionEditor,
+            name: RouteNames.directConnectionEditor,
+            builder: (_, state) {
+              editorExtra = state.extra;
+              return const Scaffold(body: Text('Connection editor'));
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directConnectionProfilesProvider.overrideWith(
+              () => _StaticDirectProfiles(const []),
+            ),
+            directHistoryPolicyProvider.overrideWith(_StaticHistoryPolicy.new),
+          ],
+          child: MaterialApp.router(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Add connection'));
+      await tester.pumpAndSettle();
+
+      expect(editorExtra, isA<NativeSheetNavigationOrigin>());
+      expect(find.text('Connection editor'), findsOneWidget);
+    },
+  );
 
   testWidgets('editor rejects a save from a stale profile snapshot', (
     tester,

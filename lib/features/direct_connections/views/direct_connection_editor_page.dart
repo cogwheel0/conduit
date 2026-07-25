@@ -1088,73 +1088,70 @@ class _DirectConnectionEditorPageState
           ),
         )
       else
-        AdaptiveSegmentedSelector<String>(
+        Material(
           key: const ValueKey<String>('direct-provider-preset-selector'),
-          value: _providerPreset,
-          showIcons: false,
-          onChanged: (value) {
-            setState(() {
-              _providerPreset = value;
-              _adapterKey = value == kOllamaAdapterKey
-                  ? kOllamaAdapterKey
-                  : kOpenAiCompatibleAdapterKey;
-              if (value == _openRouterProviderPreset) {
-                _authentication = DirectAuthenticationMode.bearer;
-                _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
-                if (!isOpenRouterApiBaseUrl(
-                  normalizeDirectBaseUrl(_baseUrlController.text),
-                )) {
-                  _baseUrlController.text = kOpenRouterApiBaseUrl;
-                  _invalidateOriginSecretConfirmation();
-                }
-              }
-              _testSucceeded = null;
-              _testMessage = null;
-              if (widget.isNew) {
-                _baseUrlController.text = switch (value) {
-                  kOllamaAdapterKey => 'https://ollama.com',
-                  _openRouterProviderPreset => kOpenRouterApiBaseUrl,
-                  _ => 'https://api.openai.com/v1',
-                };
-                if (value != _openRouterProviderPreset) {
+          type: MaterialType.transparency,
+          child: DropdownButtonFormField<String>(
+            initialValue: _providerPreset,
+            isExpanded: true,
+            decoration: context.conduitInputStyles.standard(),
+            dropdownColor: theme.surfaceBackground,
+            items: [
+              DropdownMenuItem(
+                value: kOpenAiCompatibleAdapterKey,
+                child: Text(l10n.openAICompatible),
+              ),
+              const DropdownMenuItem(
+                value: _openRouterProviderPreset,
+                child: Text('OpenRouter'),
+              ),
+              DropdownMenuItem(
+                value: kOllamaAdapterKey,
+                child: Text(l10n.ollama),
+              ),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _providerPreset = value;
+                _adapterKey = value == kOllamaAdapterKey
+                    ? kOllamaAdapterKey
+                    : kOpenAiCompatibleAdapterKey;
+                if (value == _openRouterProviderPreset) {
                   _authentication = DirectAuthenticationMode.bearer;
                   _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+                  if (!isOpenRouterApiBaseUrl(
+                    normalizeDirectBaseUrl(_baseUrlController.text),
+                  )) {
+                    _baseUrlController.text = kOpenRouterApiBaseUrl;
+                    _invalidateOriginSecretConfirmation();
+                  }
                 }
-                if (_nameController.text == 'My provider' ||
-                    _nameController.text == l10n.ollamaCloudDefaultName ||
-                    _nameController.text == 'OpenRouter') {
-                  _nameController.text = switch (value) {
-                    kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
-                    _openRouterProviderPreset => 'OpenRouter',
-                    _ => 'My provider',
+                _testSucceeded = null;
+                _testMessage = null;
+                if (widget.isNew) {
+                  _baseUrlController.text = switch (value) {
+                    kOllamaAdapterKey => 'https://ollama.com',
+                    _openRouterProviderPreset => kOpenRouterApiBaseUrl,
+                    _ => 'https://api.openai.com/v1',
                   };
+                  if (value != _openRouterProviderPreset) {
+                    _authentication = DirectAuthenticationMode.bearer;
+                    _openAiApiMode = DirectOpenAiApiMode.chatCompletions;
+                  }
+                  if (_nameController.text == 'My provider' ||
+                      _nameController.text == l10n.ollamaCloudDefaultName ||
+                      _nameController.text == 'OpenRouter') {
+                    _nameController.text = switch (value) {
+                      kOllamaAdapterKey => l10n.ollamaCloudDefaultName,
+                      _openRouterProviderPreset => 'OpenRouter',
+                      _ => 'My provider',
+                    };
+                  }
                 }
-              }
-            });
-          },
-          options: [
-            (
-              value: kOpenAiCompatibleAdapterKey,
-              label: l10n.openAICompatible,
-              cupertinoIcon: CupertinoIcons.cloud,
-              materialIcon: Icons.cloud_outlined,
-              enabled: true,
-            ),
-            (
-              value: _openRouterProviderPreset,
-              label: 'OpenRouter',
-              cupertinoIcon: CupertinoIcons.sparkles,
-              materialIcon: Icons.route_outlined,
-              enabled: true,
-            ),
-            (
-              value: kOllamaAdapterKey,
-              label: l10n.ollama,
-              cupertinoIcon: CupertinoIcons.desktopcomputer,
-              materialIcon: Icons.computer_outlined,
-              enabled: true,
-            ),
-          ],
+              });
+            },
+          ),
         ),
       if (!widget.isOpenWebUi) ...[
         const SizedBox(height: Spacing.lg),

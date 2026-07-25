@@ -179,6 +179,7 @@ class _DirectConnectionsPageState extends ConsumerState<DirectConnectionsPage>
         if (widget.isOnboarding) 'onboarding': 'true',
         if (isOpenWebUi) 'source': openWebUiDirectConnectionSourceQueryValue,
       },
+      extra: const NativeSheetNavigationOrigin(),
     );
   }
 }

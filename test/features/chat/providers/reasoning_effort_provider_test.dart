@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/models/model.dart';
 import 'package:conduit/core/persistence/persistence_keys.dart';
 import 'package:conduit/core/persistence/preferences_store.dart';
 import 'package:conduit/core/providers/app_providers.dart';
@@ -75,6 +76,36 @@ void main() {
     ).equals('automatic');
     check(reasoningEffortForModel(container.read, models.last)).equals('high');
     check(container.read(selectedModelProvider)).identicalTo(models.first);
+  });
+
+  test('server model reasoning effort takes precedence over user effort', () {
+    const model = Model(
+      id: 'server-model',
+      name: 'Server model',
+      metadata: {
+        'info': {
+          'params': {'reasoning_effort': ' none '},
+        },
+      },
+    );
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(selectedModelProvider.notifier).set(model);
+
+    check(container.read(reasoningEffortProvider)).equals('none');
+    check(reasoningEffortForModel(container.read, model)).equals('none');
+  });
+
+  test('server model preserves custom reasoning effort values', () {
+    const model = Model(
+      id: 'custom-server-model',
+      name: 'Custom server model',
+      metadata: {
+        'params': {'reasoning_effort': 'Vendor_Ultra'},
+      },
+    );
+
+    check(modelConfiguredReasoningEffort(model)).equals('vendor_ultra');
   });
 
   test(
