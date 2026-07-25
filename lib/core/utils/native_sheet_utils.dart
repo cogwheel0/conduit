@@ -328,6 +328,26 @@ NativeSheetDetailConfig buildNativeDefaultModelDetail(
   );
 }
 
+NativeSheetItemConfig? buildNativeOpenRouterImageGenerationModelItem(
+  AppLocalizations l10n, {
+  required List<Model> models,
+  required String? selectedModelId,
+}) {
+  final isAvailable = models.any(
+    (model) =>
+        model.capabilities?['openrouter'] == true &&
+        model.capabilities?['image_generation'] == true,
+  );
+  if (!isAvailable) return null;
+
+  return NativeSheetItemConfig(
+    id: 'default-image-generation-model',
+    title: l10n.defaultImageGenerationModel,
+    subtitle: selectedModelId ?? l10n.openRouterDefaultImageGenerationModel,
+    sfSymbol: 'photo.on.rectangle',
+  );
+}
+
 NativeSheetDetailConfig buildNativeOpenRouterImageGenerationModelDetail(
   AppLocalizations l10n, {
   required String value,
