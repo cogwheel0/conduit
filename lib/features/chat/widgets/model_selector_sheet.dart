@@ -147,6 +147,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       models: _selectableModels,
       pinnedModelIds: pinnedModelIds,
       defaultModelId: defaultModelId,
+      selectedModelId: ref.watch(selectedModelProvider)?.id,
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more

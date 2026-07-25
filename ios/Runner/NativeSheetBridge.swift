@@ -4803,9 +4803,11 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     }
 
     private func refreshModelPartitions() {
-        let ids = pinnedModelIds.isEmpty
-            ? configuration.featuredModelIds
-            : pinnedModelIds
+        let ids = nativeModelSelectorFeaturedIds(
+            pinnedModelIds: pinnedModelIds,
+            configuredFeaturedModelIds: configuration.featuredModelIds,
+            selectedModelId: configuration.selectedModelId
+        )
         let byId = Dictionary(
             models.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -4906,6 +4908,22 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         }
         return normalized
     }
+}
+
+func nativeModelSelectorFeaturedIds(
+    pinnedModelIds: [String],
+    configuredFeaturedModelIds: [String],
+    selectedModelId: String?
+) -> [String] {
+    var ids = pinnedModelIds.isEmpty
+        ? configuredFeaturedModelIds
+        : pinnedModelIds
+    if let selectedModelId,
+       !selectedModelId.isEmpty,
+       !ids.contains(selectedModelId) {
+        ids.append(selectedModelId)
+    }
+    return ids
 }
 
 private final class NativeMoreModelsTableViewController: UITableViewController, UISearchResultsUpdating {

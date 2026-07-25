@@ -7,6 +7,25 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testNativeModelSelectorKeepsCurrentSelectionWithPinnedModels() {
+    XCTAssertEqual(
+      nativeModelSelectorFeaturedIds(
+        pinnedModelIds: ["pinned-model"],
+        configuredFeaturedModelIds: ["fallback-model"],
+        selectedModelId: "selected-model"
+      ),
+      ["pinned-model", "selected-model"]
+    )
+    XCTAssertEqual(
+      nativeModelSelectorFeaturedIds(
+        pinnedModelIds: ["selected-model"],
+        configuredFeaturedModelIds: ["fallback-model"],
+        selectedModelId: "selected-model"
+      ),
+      ["selected-model"]
+    )
+  }
+
   func testHermesFlutterAssetCanBeLoadedAsAnImage() {
     let image = loadFlutterAssetImage("assets/icons/hermes_agent.png")
     XCTAssertNotNil(image)
