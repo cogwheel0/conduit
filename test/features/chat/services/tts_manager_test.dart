@@ -158,6 +158,26 @@ void main() {
     });
   });
 
+  test('selected server availability requires an API service', () async {
+    final api = _RecordingApiService();
+    try {
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(engine: TtsEngine.server),
+      );
+      TtsManager.instance.setApiService(null);
+      expect(TtsManager.instance.isAvailable, isFalse);
+
+      TtsManager.instance.setApiService(api);
+      expect(TtsManager.instance.isAvailable, isTrue);
+    } finally {
+      TtsManager.instance.setApiService(null);
+      api.disposeWorker();
+      await TtsManager.instance.updateConfig(
+        const TtsConfig(engine: TtsEngine.device),
+      );
+    }
+  });
+
   test(
     'Sherpa availability requires an installed, intact selected model',
     () async {

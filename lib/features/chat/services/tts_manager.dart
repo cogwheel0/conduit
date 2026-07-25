@@ -310,10 +310,14 @@ class TtsManager with WidgetsBindingObserver {
 
   /// Whether TTS is available for the current selection.
   bool get isAvailable {
-    if (_config.engine == TtsEngine.sherpa) {
-      return _sherpaModelAvailable;
+    switch (_config.engine) {
+      case TtsEngine.device:
+        return _deviceEngineAvailable;
+      case TtsEngine.server:
+        return serverAvailable;
+      case TtsEngine.sherpa:
+        return _sherpaModelAvailable;
     }
-    return _deviceEngineAvailable || serverAvailable;
   }
 
   /// Whether a session is currently active.
